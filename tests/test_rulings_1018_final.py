@@ -71,7 +71,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -238,7 +238,8 @@ SEED_JS = """async (o) => {
     app.project = await (await fetch('/api/project')).json();
     app.dedupeProjectLayers('rulings_1018');
     const l = app.project.layers.find(x => (x.type || 'screen') === 'screen');
-    Object.assign(l, { powerVoltage: 208, powerAmperage: 20, panelWatts: 200 });
+    // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+    Object.assign(l, { powerVoltage: 208, powerAmperage: 25, panelWatts: 200 });
     app.currentLayer = l;
     app.selectedLayerIds = new Set([l.id]);
     app.renderLayers();
@@ -290,18 +291,22 @@ def test_length_is_the_heading_everywhere_and_never_cut(page):
     assert {'power', 'pull'} <= kinds, kinds
     pull_list = [p for p in pages if any(t['t'] == 'PULL LIST' for t in p['texts'])]
     assert pull_list and any(t['t'] == 'LENGTH' for t in pull_list[0]['texts'])
+    # The pull list holds every piece of gear, so it says GEAR, not CABLE.
+    assert any(t['t'] == 'GEAR' for t in pull_list[0]['texts']), pull_list[0]['texts']
     for p in pages:
         for t in p['texts']:
             if t['t'] != 'LENGTH':
                 continue
-            cable = next(c for c in p['texts'] if c['t'] == 'CABLE' and abs(c['y'] - t['y']) < 0.5)
+            # A pull list heads its first column GEAR (2026-11-02); a block
+            # of only cables keeps CABLE.
+            cable = next(c for c in p['texts'] if c['t'] in ('CABLE', 'GEAR') and abs(c['y'] - t['y']) < 0.5)
             assert t['size'] == cable['size'] and t['align'] == 'center', (p['title'], t, cable)
     assert errors == []
 
 
 def test_the_spreadsheet_and_the_editor_say_length():
     import pull_sheet
-    assert pull_sheet.HEADERS[:2] == ['Cable Type', 'Length']
+    assert pull_sheet.HEADERS[:2] == ['Gear', 'Length']
     src = open(os.path.join(ROOT, 'static', 'js', 'app-pull-sheet-editor.js'), encoding='utf-8').read()
     assert '<th>Length</th>' in src and '>Len<' not in src
     import openpyxl
@@ -317,7 +322,7 @@ L2130_JS = """(o) => {
     const S = { id: 98, name: 'L21', type: 'screen', visible: true, columns: 2, rows: 5,
                 cabinet_width: 128, cabinet_height: 128, offset_x: 0, offset_y: 0,
                 panel_weight: 20, weight_unit: 'kg', panelWatts: 600, powerVoltage: 208,
-                powerAmperage: 15, processorType: 'brompton', bitDepth: 8, frameRate: 60,
+                powerAmperage: 18.75, processorType: 'brompton', bitDepth: 8, frameRate: 60,
                 flowPattern: 'tl-h', portMappingMode: 'organized', powerFlowPattern: 'tl-v',
                 powerOrganized: true, powerMaximize: false, group_id: null,
                 powerBreakoutType: 'l2130-powercon', powerSocaDistro: { 1: 'dq' } };
@@ -361,8 +366,10 @@ def test_an_l2130_feed_is_held_to_24_a_unless_the_main_is_100_percent_rated(page
     assert out['worst'] == pytest.approx(i * math.sqrt(3), abs=1e-6)       # 24.98 A
     assert 24 < out['worst'] < 30
     assert out['rule']['limitA'] == pytest.approx(24) and out['rule']['pct'] == 0.8, out['rule']
-    want = f"Q 1 — feed leg at {out['worst']:.2f} A / 24 A (80% of 30 A) — OVER"
-    assert want == 'Q 1 — feed leg at 24.98 A / 24 A (80% of 30 A) — OVER'
+    # The box is named the way its multi derives it, "Q1" (distroBoxName,
+    # QA 1.6.0-beta.4), never the distro's name and the number with a space.
+    want = f"Q1: L21-30 leg at {out['worst']:.1f} A / 24 A (80% of 30 A), OVER"
+    assert want == 'Q1: L21-30 leg at 25.0 A / 24 A (80% of 30 A), OVER'
     assert want in out['warnings'], out['warnings']
     assert out['clash'] is True
     # Main 100% rated: the feed keeps its 30 A, and 24.98 A is inside it
@@ -422,7 +429,7 @@ HALF_JS = """([catalog, cases]) => {
         const l = Object.assign({ id: 1, name: 'S', type: 'screen', visible: true, canvas_id: 'c1',
             columns: 2, rows: 2, cabinet_width: 128, cabinet_height: 256,
             panel_width_mm: 500, panel_height_mm: 1000, offset_x: 0, offset_y: 0,
-            panel_weight: 13, weight_unit: 'kg', panelWatts: 200, powerVoltage: 208, powerAmperage: 20,
+            panel_weight: 13, weight_unit: 'kg', panelWatts: 200, powerVoltage: 208, powerAmperage: 25,
             processorType: 'brompton', bitDepth: 8, frameRate: 60, flowPattern: 'tl-h',
             portMappingMode: 'organized', powerFlowPattern: 'tl-h', color1: { r: 64, g: 70, b: 128 },
             color2: { r: 149, g: 156, b: 184 }, show_numbers: false, rotation: 0,

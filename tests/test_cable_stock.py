@@ -60,9 +60,20 @@ def test_a_stock_is_cleaned_and_a_junk_one_refused():
     import routes_cable_stock as rcs
     s = rcs.normalize_stock({'perKind': True, 'ft': {'multi': [100, 25, 50, 25.0]},
                              'm': {'all': [7.62]}})
+    # a stock saved before the L21-30, Harting, direct-output and feeder
+    # lists (2026-10-21) reads the L21-30 and Harting lists from its multi
+    # list and the direct-output list from its circuit list
     assert s == {'perKind': True,
-                 'ft': {'all': [], 'multi': [25, 50, 100], 'data': [], 'circuit': []},
-                 'm': {'all': [7.62], 'multi': [], 'data': [], 'circuit': []}}
+                 'ft': {'all': [], 'multi': [25, 50, 100], 'data': [], 'circuit': [],
+                        'l2130': [25, 50, 100], 'harting': [25, 50, 100], 'direct': [], 'feeder': [],
+                        'fiber': []},
+                 'm': {'all': [7.62], 'multi': [], 'data': [], 'circuit': [],
+                       'l2130': [], 'harting': [], 'direct': [], 'feeder': [],
+                       'fiber': []}}
+    # a list present, even empty, is that kind's own
+    s = rcs.normalize_stock({'perKind': True, 'ft': {'multi': [50], 'circuit': [10], 'l2130': [],
+                                                     'direct': [5], 'feeder': [100]}})
+    assert (s['ft']['l2130'], s['ft']['harting'], s['ft']['direct'], s['ft']['feeder']) == ([], [50], [5], [100])
     for junk in (None, [], 'x', {'perKind': 'yes'}, {'ft': {'all': [0]}},
                  {'ft': {'all': ['25']}}, {'ft': {'all': [True]}}, {'ft': [25]},
                  {'m': {'data': [-5]}}, {'ft': {'all': list(range(1, 60))}}):
@@ -105,6 +116,70 @@ def test_a_damaged_presets_file_is_moved_aside_not_overwritten(client, presets_f
         os.remove(os.path.join(folder, n))
 
 
+def test_a_preset_saved_with_a_fiber_list_per_mode_opens_with_one(client, presets_file):
+    """Owner, 2026-11-05: one Fiber list. A presets file saved with the list
+    per mode lists every length of both on it, in feet and in meters; the
+    next save writes that preset back on the one list, and an entry this
+    app cannot read is left as it came."""
+    os.makedirs(os.path.dirname(presets_file), exist_ok=True)
+    junk = {'name': 'Junk', 'stock': {'ft': {'fiberSingle': ['x']}}}
+    with open(presets_file, 'w', encoding='utf-8') as f:
+        json.dump({'presets': [
+            {'name': 'Shop', 'stock': {'perKind': True,
+                                       'ft': {'all': [100], 'fiberSingle': [500, 250], 'fiberMulti': [300, 250]},
+                                       'm': {'fiberMulti': [90]}}},
+            junk,
+        ]}, f)
+    listed = client.get('/api/cable-stock-presets').get_json()['presets']
+    assert [p['name'] for p in listed] == ['Shop'], listed
+    stock = listed[0]['stock']
+    assert (stock['ft']['fiber'], stock['m']['fiber']) == ([250, 300, 500], [90]), stock
+    assert not {'fiberSingle', 'fiberMulti'} & (set(stock['ft']) | set(stock['m'])), stock
+    assert client.put('/api/cable-stock-presets', json={'name': 'Other', 'stock': FEET}).status_code == 200
+    with open(presets_file, encoding='utf-8') as f:
+        stored = {p['name']: p['stock'] for p in json.load(f)['presets']}
+    assert stored['Shop']['ft'] == {'all': [100], 'fiber': [250, 300, 500]}, stored
+    assert stored['Shop']['m'] == {'fiber': [90]}, stored
+    assert stored['Junk'] == junk['stock'], stored
+
+
+def test_two_full_fiber_lists_fold_into_a_preset_that_still_saves(client, presets_file):
+    """Two lists at the limit of one are more lengths than one list may
+    hold: nothing typed is lost, so the fiber list holds both, and the
+    preset can be saved again from the fields it fills."""
+    import routes_cable_stock as rcs
+    single = list(range(1, rcs.MAX_LENGTHS + 1))
+    multi = list(range(1001, 1001 + rcs.MAX_LENGTHS))
+    stock = rcs.normalize_stock({'ft': {'fiberSingle': single, 'fiberMulti': multi}})
+    assert stock['ft']['fiber'] == single + multi, stock
+    r = client.put('/api/cable-stock-presets', json={'name': 'Full', 'stock': stock})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.get_json()['presets'][0]['stock']['ft']['fiber'] == single + multi
+    # a copper list is held to the limit as ever, and the fiber list to its own
+    assert rcs.normalize_stock({'ft': {'all': single + [999]}}) is None
+    assert rcs.normalize_stock({'ft': {'fiber': single + multi + [5000]}}) is None
+
+
+def test_a_default_preset_with_a_fiber_list_per_mode_stamps_one_list(client, presets_file):
+    import app as app_module
+    import routes_cable_stock as rcs
+    os.makedirs(os.path.dirname(presets_file), exist_ok=True)
+    with open(presets_file, 'w', encoding='utf-8') as f:
+        json.dump({'presets': [{'name': 'Shop', 'stock': {
+            'ft': {'fiberSingle': [500], 'fiberMulti': [300]}}}]}, f)
+    before = app_module.server_preferences.get('cableStockDefault')
+    app_module.server_preferences['cableStockDefault'] = 'Shop'
+    try:
+        stamped = rcs.default_stock(app_module.server_preferences)
+    finally:
+        if before is None:
+            app_module.server_preferences.pop('cableStockDefault', None)
+        else:
+            app_module.server_preferences['cableStockDefault'] = before
+    assert stamped['ft']['fiber'] == [300, 500], stamped
+    assert 'fiberSingle' not in stamped['ft'] and 'fiberMulti' not in stamped['ft'], stamped
+
+
 def test_a_new_show_starts_with_the_default_preset(client, presets_file):
     """POST /api/project/new stamps the stock of the preset the Preferences
     name as the default. No default, or a default whose preset is gone: the
@@ -133,6 +208,54 @@ def test_the_show_s_stock_rides_save_and_restore(client):
     assert 'cableStock' not in app_module.current_project
 
 
+OLD_FIBER = {'perKind': True,
+             'ft': {'all': [100], 'multi': [25], 'fiberSingle': [500, 250], 'fiberMulti': [300, 250]},
+             'm': {'fiberSingle': [150], 'fiberMulti': [150]}}
+
+
+@pytest.mark.parametrize('how', ['file load or undo', 'save'])
+def test_a_show_saved_with_a_fiber_list_per_mode_is_stored_with_one(client, how):
+    """Owner, 2026-11-05: a show saved with the two lists opens with one -
+    the same lengths kept once, different ones all kept - and the old keys
+    are gone from what the server holds, so no save writes them back. The
+    other lists are not touched."""
+    import copy
+    import app as app_module
+    stock = copy.deepcopy(OLD_FIBER)
+    if how == 'save':
+        client.post('/api/project', json={'cableStock': stock})
+    else:
+        proj = client.get('/api/project').get_json()
+        proj['cableStock'] = stock
+        reply = client.put('/api/project', json=proj).get_json()
+        assert reply['cableStock']['ft']['fiber'] == [250, 300, 500], reply['cableStock']
+    want = {'perKind': True,
+            'ft': {'all': [100], 'multi': [25], 'fiber': [250, 300, 500]},
+            'm': {'fiber': [150]}}
+    assert app_module.current_project['cableStock'] == want
+    assert client.get('/api/project').get_json()['cableStock'] == want
+    # the fold is idempotent, and a stock on the one list is left as it is
+    client.post('/api/project', json={'cableStock': want})
+    assert app_module.current_project['cableStock'] == want
+    client.post('/api/project', json={'cableStock': None})
+
+
+def test_the_fold_keeps_what_the_client_reads_and_nothing_else():
+    """A show's stock is the client's to clean, so a list the client reads
+    around a stray value keeps its lengths, a list held to no limit keeps
+    them all, and what is not a stock is left alone."""
+    import routes_cable_stock as rcs
+    stock = {'ft': {'fiberSingle': [500, 'x', None, -1, 0, '250'], 'fiberMulti': 'junk'}, 'm': None}
+    assert rcs.fold_fiber_lists(stock) is True
+    assert stock == {'ft': {'fiber': [250, 500]}, 'm': None}, stock
+    assert rcs.fold_fiber_lists(stock) is False
+    for not_a_stock in (None, [], 'x', 5):
+        assert rcs.fold_fiber_lists(not_a_stock) is False
+    long = {'ft': {'fiberSingle': list(range(1, 200)), 'fiber': [1000]}}
+    rcs.fold_fiber_lists(long)
+    assert long['ft'] == {'fiber': list(range(1, 200)) + [1000]}, long
+
+
 # ── the browser ───────────────────────────────────────────────────────────
 
 import openpyxl  # noqa: E402
@@ -152,7 +275,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -303,30 +426,35 @@ TAG_TEXTS_JS = """(exportMode) => {
 
 def test_power_lengths_are_written_as_pieces_everywhere(page):
     """With 25 / 50 / 100 on hand: multi 1's typed 125 home run and circuit
-    1's 60 cable are written 100'+25' and 50'+25' True1 - the chip, the map
+    1's 60 cable are written 100'+25' and 50'+25' TRUE1 - the chip, the map
     tag, the exported map's bracket, the pull sheet (which counts the
-    pieces: a 100' and a 25' Multi, a 50' and two 25' Tru-1 with circuit
+    pieces: a 100' and a 25' Multi, a 50' and two 25' TRUE1 with circuit
     2's own 25), the workbook, the binder - while the multi's own field
     still holds 125."""
     pg, errors = page
     ids = _power_seed(pg, FEET)
     cable = pg.evaluate("([id]) => window.app.powerCircuitCable(window.app.project.layers.find(l => l.id === id), 1)",
                         [ids['id']])
-    assert cable['text'] == "50'+25' True1" and cable['ft'] == 60, cable
+    assert cable['text'] == "50'+25' TRUE1" and cable['ft'] == 60, cable
 
     pull = pg.evaluate(PULL_ROWS_JS)
     multis = sorted((r[1], r[2]) for r in pull['totals'] if r[0] == 'Multi')
     assert multis == [("100'", 1), ("25'", 1)], pull['totals']
-    tru = sorted((r[1], r[2]) for r in pull['totals'] if r[0] == 'Tru-1')
+    tru = sorted((r[1], r[2]) for r in pull['totals'] if r[0] == 'TRUE1')
     assert tru == [("25'", 2), ("50'", 1)], pull['totals']
     assert not [r for r in pull['rows'] if '+' in str(r[1])], 'the sheet lists pieces, never sums'
+    # a power multi joins without a barrel (2026-10-21), and a TRUE1
+    # cable without a coupler - a female mates with a male
+    assert not [r for r in pull['totals'] if 'Barrel' in r[0]], pull['totals']
+    assert not [r for r in pull['totals'] if 'Coupler' in r[0]], pull['totals']
     # the pieces keep the row's label
-    assert ['Multi', "100'", 1, 'SR 1'] in pull['rows'] and ['Multi', "25'", 1, 'SR 1'] in pull['rows'], pull['rows']
+    assert ['Multi', "100'", 1, 'SR1'] in pull['rows'] and ['Multi', "25'", 1, 'SR1'] in pull['rows'], pull['rows']
     # the distro's hardware rows count the same pieces
     assert sorted((r[1], r[2]) for r in pull['hardware'] if r[0] == 'Multi') == [("100'", 1), ("25'", 1)]
 
     tags = pg.evaluate(TAG_TEXTS_JS, False)
-    assert "50'+25' True1" in tags and "25' True1" in tags, tags
+    # a tag too wide for its disc wraps under its length (test_cable_tag_wrap)
+    assert "50'+25' TRUE1" in ' '.join(tags) and "25' TRUE1" in tags, tags
     exported = pg.evaluate(TAG_TEXTS_JS, True)
     assert any("SR1 · 100'+25'" in t for t in exported), [t for t in exported if 'SR1' in t]
 
@@ -347,8 +475,8 @@ def test_power_lengths_are_written_as_pieces_everywhere(page):
     ws = wb['Pull Sheet']
     col = pull_sheet.BLOCK_COLS[0]
     block = [tuple(ws.cell(r, col + i).value for i in range(4)) for r in range(7, 40)]
-    assert ('Multi', "100'", 1, 'SR 1') in block and ('Multi', "25'", 1, 'SR 1') in block, block
-    assert ('Tru-1', "50'", 1) in [b[:3] for b in block], block
+    assert ('Multi', "100'", 1, 'SR1') in block and ('Multi', "25'", 1, 'SR1') in block, block
+    assert ('TRUE1', "50'", 1) in [b[:3] for b in block], block
     assert not [b for b in block if b[1] and '+' in str(b[1])], block
 
     # the binder's power sheet: the circuits table and the multi's band
@@ -361,9 +489,9 @@ def test_power_lengths_are_written_as_pieces_everywhere(page):
         plan.forEach((p, i) => { out.push(...app.renderBinderPage(opts, i).texts); });
         return out;
     }""")
-    assert "50'+25' True1" in texts, [t for t in texts if 'True1' in t]
+    assert "50'+25' TRUE1" in texts, [t for t in texts if 'TRUE1' in t]
     assert any("100'+25'" in t and 'SR1' in t for t in texts), [t for t in texts if 'SR1' in t]
-    assert not [t for t in texts if "125'" in t or "60' True1" in t], [t for t in texts if "125'" in t]
+    assert not [t for t in texts if "125'" in t or "60' TRUE1" in t], [t for t in texts if "125'" in t]
 
     # the tray: the multi's field keeps what was typed, its tooltip says how
     # it is pulled; the circuit's sheet field the same
@@ -383,6 +511,31 @@ def test_power_lengths_are_written_as_pieces_everywhere(page):
     assert errors == [], errors
 
 
+def test_a_powercon_join_takes_a_coupler(page):
+    """A powerCON cable the stock splits is joined by one "powerCON
+    Coupler" EA per join, under the cable's label (owner, 2026-10-21):
+    circuit 1's 60 is 50'+25' - one join, one coupler; circuit 2's 25 is
+    one piece - none; the multi's 100'+25' joins with nothing."""
+    pg, errors = page
+    ids = _power_seed(pg, FEET)
+    pg.evaluate("""() => {
+        const app = window.app;
+        const wall = app.project.layers[0];
+        app.setCircuitCable(wall, 1, {ft: 60, connector: 'powercon'}, false);
+        app.setCircuitCable(wall, 2, {ft: 25, connector: 'powercon'}, false);
+        app.updateLayers([wall]);
+        app._circuitTailCache = null;
+    }""")
+    pull = pg.evaluate(PULL_ROWS_JS)
+    label = pg.evaluate("([id]) => window.app.getPowerCircuitLabel(window.app.project.layers.find(l => l.id === id), 1)",
+                        [ids['id']])
+    assert sorted((r[1], r[2]) for r in pull['totals'] if r[0] == 'powerCON') == [("25'", 2), ("50'", 1)], pull['totals']
+    assert [r for r in pull['totals'] if 'Coupler' in r[0]] == [['powerCON Coupler', 'EA', 1]], pull['totals']
+    assert ['powerCON Coupler', 'EA', 1, label] in pull['rows'], pull['rows']
+    assert not [r for r in pull['totals'] if 'Barrel' in r[0]], pull['totals']
+    assert errors == [], errors
+
+
 def test_an_old_show_without_a_stock_reads_as_before(page):
     """No cableStock (a file saved before the setting) or an emptied one:
     every length as typed, one row each, exactly as before."""
@@ -391,10 +544,10 @@ def test_an_old_show_without_a_stock_reads_as_before(page):
         ids = _power_seed(pg, stock)
         pull = pg.evaluate(PULL_ROWS_JS)
         assert sorted((r[1], r[2]) for r in pull['totals'] if r[0] == 'Multi') == [("125'", 1)], pull
-        assert sorted((r[1], r[2]) for r in pull['totals'] if r[0] == 'Tru-1') == [("25'", 1), ("60'", 1)]
+        assert sorted((r[1], r[2]) for r in pull['totals'] if r[0] == 'TRUE1') == [("25'", 1), ("60'", 1)]
         cable = pg.evaluate("([id]) => window.app.powerCircuitCable(window.app.project.layers.find(l => l.id === id), 1).text",
                             [ids['id']])
-        assert cable == "60' True1"
+        assert cable == "60' TRUE1"
     assert errors == [], errors
 
 
@@ -484,9 +637,14 @@ def test_data_lengths_are_written_as_pieces_everywhere(page):
     assert not [r for r in out['totals'] if '+' in str(r[1])], out['totals']
     snake_rows = [v for k, v in lengths.items() if k.endswith('Snake')]
     assert snake_rows and sorted(snake_rows[0]) == [("100'", 1), ("50'", 1)], lengths
-    flat = sorted(lengths.get('Ether-con', []))
     # the loose 125 (100 + 25) and the extension 60 (50 + 25)
-    assert flat == [("100'", 1), ("25'", 2), ("50'", 1)], lengths
+    assert sorted(lengths.get('Cat6', [])) == [("100'", 1), ("25'", 1)], lengths
+    assert sorted(lengths.get('Cat6 Extension', [])) == [("25'", 1), ("50'", 1)], lengths
+    # every stock join takes a barrel (2026-10-21): the loose run's one
+    # join, the extension's one, the 2 channel snake's one join per
+    # channel (2), plus the extension's own coupler to the fan-out
+    barrels = [q for t, length, q in out['totals'] if t == 'Cat6 Barrel' and length == 'EA']
+    assert barrels == [5], out['totals']
     pg.locator('[data-mode="power"]').click()
     pg.wait_for_timeout(300)
     assert errors == [], errors

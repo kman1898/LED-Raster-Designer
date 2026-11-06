@@ -148,7 +148,7 @@ def box(page):
 def catch_locked(page):
     page.evaluate("""() => { window.__nf.errors = [];
         window.app._showLockedError = (ls) => { if (ls && ls.length)
-            window.__nf.errors.push(ls.map(l => l.name)); }; }""")
+            window.__nf.errors.push(window.app._lockedErrorNames(ls)); }; }""")
 
 
 # ── 1. one splitter setting per wall ──────────────────────────────────────
@@ -218,13 +218,16 @@ def test_a_locked_member_blocks_the_wall_setting(page):
     assert ['C'] in page.evaluate("() => window.__nf.errors")
     assert box(page)['checked'] is False
 
+    # Round 6: C locked and A, B not is a half-locked group (an old
+    # file's), locked as a whole until the user picks Lock or Unlock, so
+    # even with C already holding the new value nothing changes.
     a, b, c = old_wall(page, c_props={'locked': True})
     catch_locked(page)
     select(page, b)
     page.locator('#power-splitters-enabled').click()
     landed(page)
-    assert raw(page, [a, b, c]) == [[True, 3]] * 3, raw(page, [a, b, c])
-    assert page.evaluate("() => window.__nf.errors") == []
+    assert raw(page, [a, b, c]) == [[False, 3], [True, 3], [True, 3]], raw(page, [a, b, c])
+    assert ['C'] in page.evaluate("() => window.__nf.errors")
 
 
 def test_a_custom_fill_on_a_member_follows_the_box_it_shows(page):
@@ -380,11 +383,11 @@ def test_nfer_it_is_refused_with_the_reason(page):
     take(page, 'hw-nfer-it')
     assert len(history(page)) == h0 and manual(page, wall)['merge'] == []
 
-    wall = wide(page, props={'powerAmperage': 10})
+    wall = wide(page, props={'powerAmperage': 12.5})
     over = nfer_item(page, pt(page, wall, 2, 4))
     assert over and over['disabled'], over
     assert over['label'] == '3fer it (3 column runs)', over
-    assert '10.8 A on a 10 A circuit' in over['title'], over
+    assert '10.8 A on a 12.5 A circuit held to 10 A (80%)' in over['title'], over
     take(page, 'hw-nfer-it')
     assert [c['runs'] for c in circuits(page, wall)] == [[15]] * 3 + [[5]]
 
@@ -468,11 +471,11 @@ def test_a_one_circuit_alt_sweep_offers_3fer_it(page):
 
 
 def _auto_wide(page):
-    """Auto, sharing off, 12 A: whole columns packed three to a circuit -
+    """Auto, sharing off, 12 A (80% of 15 A): whole columns packed three to a circuit -
     circuits 1-3 are wide runs of three columns, circuit 4 the last one."""
     close_menu(page)
     (wall,) = make(page, [{'name': 'Wall', 'columns': 10, 'props': dict(
-        SHARING_OFF, powerAmperage=12)}])
+        SHARING_OFF, powerAmperage=15)}])
     assert [c['runs'] for c in circuits(page, wall)] == [[15]] * 3 + [[5]]
     return wall
 

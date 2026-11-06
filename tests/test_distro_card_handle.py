@@ -118,7 +118,7 @@ HEAD = '[data-lrd-distro="d1"] > .hw-dock-head-row'
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -210,7 +210,7 @@ def test_types_sum_per_type_and_flow_beside_the_caption(page):
         out = chips(pg, 'd1')
         assert [(c['name'], c['sub']) for c in out] == [
             ('Socapex 208V', '× 2'), ('L21-30 208V', '× 1'), ('Edison', '× 6'),
-            ('True1 208V', '× 6 · paired')], out
+            ('TRUE1 208V', '× 6 · paired')], out
         assert out[0]['group'] == ['face:r1', 'face:r3'], out
         assert out[2]['group'] == ['face:r4', 'face:r5'], out
         tops = pg.evaluate("""() => [...document.querySelectorAll(

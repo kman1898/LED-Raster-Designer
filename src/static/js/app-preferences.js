@@ -4,11 +4,20 @@
 // system-font enumeration. Moved verbatim out of app-export-io.js and
 // attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, FLOW_AUTO_PATTERNS } from './helpers.js';
+
+// The single power jumper name shipped before the per-connector names: a
+// record still holding it never customised it, so nothing carries over.
+const LEGACY_POWER_JUMP_NAME = 'Tru-1 Power Jump';
 
 // The six circuit colours that ship, A to F: the Power tab's "Circuit
 // colors" default, and what any position of a stored set falls back to.
 const SHIPPED_CIRCUIT_COLORS = ['#BC382F', '#CC6B30', '#D2E94D', '#2CF82B', '#2145DC', '#7414F5'];
+
+// The panel preferences retired in 1.6.0 (Panel size px / mm, Panel
+// weight). A record saved before then still carries them; getPreferences
+// drops them, so nothing can read a stale panel from Preferences.
+const RETIRED_PANEL_PREFERENCE_KEYS = ['panelWidth', 'panelHeight', 'panelWidthMM', 'panelHeightMM', 'panelWeight'];
 
 class _Preferences {
     getPreferencesDefaults() {
@@ -17,11 +26,10 @@ class _Preferences {
             rasterHeight: 1080,
             columns: 8,
             rows: 5,
-            panelWidth: 128,
-            panelHeight: 128,
-            panelWidthMM: 500,
-            panelHeightMM: 500,
-            panelWeight: 20,
+            // The panel is no preference (1.6.0, owner 2026-11-02): a new
+            // project asks for it from the panel library and Add Screen
+            // copies the last screen's (RETIRED_PANEL_PREFERENCE_KEYS).
+            // The weight unit stays: a display choice, not a panel spec.
             weightUnit: 'kg',
             cabinetFontSize: 30,
             labelFontSize: 30,
@@ -112,6 +120,7 @@ class _Preferences {
             binderPull: true,
             binderHardware: true,
             binderWiring: true,
+            binderFiber: true,
             binderDesigner: '',
             binderPmName: '',
             binderPmPhone: '',
@@ -138,7 +147,11 @@ class _Preferences {
             // long jumper rounds up to are lists, ascending.
             pullRev: '1.0',
             cableUnit: 'ft',
-            powerJumpName: 'Tru-1 Power Jump',
+            // One power jumper name per panel input (owner, 2026-10-21);
+            // the old single powerJumpName, where customised, reads as the
+            // TRUE1 one (getPreferences).
+            powerJumpNameTrue1: 'TRUE1 Power Jump',
+            powerJumpNamePowercon: 'powerCON Power Jump',
             powerJumpLength: 6,
             powerJumpLengthH: 6,
             powerJumpLengthM: 2,
@@ -233,6 +246,14 @@ class _Preferences {
                 if (saved && saved[h] === undefined && saved[v] !== undefined) out[h] = saved[v];
             }
         }
+        // A record from before the per-connector jumper names kept one
+        // powerJumpName: customised, it carries over to TRUE1 only.
+        if (saved && saved.powerJumpNameTrue1 === undefined) {
+            const legacy = String(saved.powerJumpName == null ? '' : saved.powerJumpName).trim();
+            if (legacy && legacy !== LEGACY_POWER_JUMP_NAME) out.powerJumpNameTrue1 = legacy;
+        }
+        delete out.powerJumpName;
+        RETIRED_PANEL_PREFERENCE_KEYS.forEach(k => { delete out[k]; });
         // A record from before the system picker (1.5) kept a voltage and
         // a phase; it reads as the system they map to.
         if (saved && saved.distroSystem === undefined
@@ -262,14 +283,33 @@ class _Preferences {
             'br-h': '<svg width="32" height="32" viewBox="0 0 32 32"><circle cx="28" cy="28" r="3" fill="#00cc00"/><path d="M 28 28 L 4 28 L 4 16 L 28 16 L 28 4 L 10 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><polygon points="4,4 10,0 10,8" fill="#cc0000"/></svg>',
             'br-v': '<svg width="32" height="32" viewBox="0 0 32 32"><circle cx="28" cy="28" r="3" fill="#00cc00"/><path d="M 28 28 L 28 4 L 16 4 L 16 28 L 4 28 L 4 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><polygon points="4,4 0,10 8,10" fill="#cc0000"/></svg>'
         };
+        // The Z twins (tl-h-z ...): the snake's icon with its turns drawn as
+        // diagonal returns to the start side, as on the Data Flow picker.
+        const zPaths = {
+            'tl-h-z': 'M 4 4 L 28 4 L 4 16 L 28 16 L 4 28 L 22 28',
+            'tr-h-z': 'M 28 4 L 4 4 L 28 16 L 4 16 L 28 28 L 10 28',
+            'bl-h-z': 'M 4 28 L 28 28 L 4 16 L 28 16 L 4 4 L 22 4',
+            'br-h-z': 'M 28 28 L 4 28 L 28 16 L 4 16 L 28 4 L 10 4',
+            'tl-v-z': 'M 4 4 L 4 28 L 16 4 L 16 28 L 28 4 L 28 22',
+            'tr-v-z': 'M 28 4 L 28 28 L 16 4 L 16 28 L 4 4 L 4 22',
+            'bl-v-z': 'M 4 28 L 4 4 L 16 28 L 16 4 L 28 28 L 28 10',
+            'br-v-z': 'M 28 28 L 28 4 L 16 28 L 16 4 L 4 28 L 4 10'
+        };
+        if (zPaths[pattern]) {
+            const snake = svgs[pattern.slice(0, -2)];
+            return snake.replace(/ d="[^"]*"/, ` d="${zPaths[pattern]}"`);
+        }
         return svgs[pattern] || svgs['tl-h'];
     }
 
-    renderPreferencePatternButtons(containerId, buttonClass) {
+    // `patterns`: the tiles to offer, in order. The Data pattern offers the
+    // sixteen of the Data Flow picker (snakes, then their Z twins), and so
+    // does Power, the Power Settings picker's sixteen (2026-11-01).
+    renderPreferencePatternButtons(containerId, buttonClass, patterns = null) {
         const container = document.getElementById(containerId);
         if (!container) return;
         if (container.children.length > 0) return;
-        const patterns = ['tl-h', 'tl-v', 'tr-h', 'tr-v', 'bl-h', 'bl-v', 'br-h', 'br-v'];
+        patterns = patterns || ['tl-h', 'tl-v', 'tr-h', 'tr-v', 'bl-h', 'bl-v', 'br-h', 'br-v'];
         patterns.forEach(pattern => {
             const btn = document.createElement('button');
             btn.type = 'button';
@@ -433,8 +473,10 @@ class _Preferences {
     }
 
     setupPreferences() {
-        this.renderPreferencePatternButtons('pref-data-flow-pattern-grid', 'pref-data-flow-pattern-btn');
-        this.renderPreferencePatternButtons('pref-power-flow-pattern-grid', 'pref-power-flow-pattern-btn');
+        this.renderPreferencePatternButtons('pref-data-flow-pattern-grid', 'pref-data-flow-pattern-btn',
+            FLOW_AUTO_PATTERNS);
+        this.renderPreferencePatternButtons('pref-power-flow-pattern-grid', 'pref-power-flow-pattern-btn',
+            FLOW_AUTO_PATTERNS);
         this._fillPreferenceCatalogs();
         const saveBtn = document.getElementById('preferences-save');
         const cancelBtn = document.getElementById('preferences-cancel');
@@ -548,8 +590,12 @@ class _Preferences {
         // back to its shipped value - in the dialog only: Save writes them,
         // Cancel discards the reset like any other edit.
         if (resetBtn) {
-            resetBtn.addEventListener('click', () => {
-                if (!window.confirm('Put every preference back to its default?')) return;
+            // The question is the app's own dialog (app-dialogs.js), not
+            // the browser's confirm().
+            resetBtn.addEventListener('click', async () => {
+                const yes = await this.appConfirm('Put every preference back to its default?',
+                    { id: 'preferences-reset-modal', title: 'Reset Defaults', okLabel: 'Reset' });
+                if (!yes) return;
                 const defaults = this.getPreferencesDefaults();
                 this._prefsPendingLogo = '';
                 this.fillPreferencesUI(defaults);
@@ -656,11 +702,6 @@ class _Preferences {
         setVal('pref-raster-height', prefs.rasterHeight);
         setVal('pref-columns', prefs.columns);
         setVal('pref-rows', prefs.rows);
-        setVal('pref-panel-width', prefs.panelWidth);
-        setVal('pref-panel-height', prefs.panelHeight);
-        setVal('pref-panel-width-mm', prefs.panelWidthMM);
-        setVal('pref-panel-height-mm', prefs.panelHeightMM);
-        setVal('pref-panel-weight', prefs.panelWeight);
         setVal('pref-weight-unit', prefs.weightUnit || 'kg');
         setVal('pref-cabinet-font-size', prefs.cabinetFontSize);
         setVal('pref-label-font-size', prefs.labelFontSize);
@@ -756,6 +797,7 @@ class _Preferences {
         setChecked('pref-binder-pull', prefs.binderPull !== false);
         setChecked('pref-binder-hardware', prefs.binderHardware !== false);
         setChecked('pref-binder-wiring', prefs.binderWiring !== false);
+        setChecked('pref-binder-fiber', prefs.binderFiber !== false);
         setChecked('pref-binder-title-block', prefs.binderTitleBlock !== false);
         setVal('pref-binder-designer', prefs.binderDesigner);
         setVal('pref-binder-pm-name', prefs.binderPmName);
@@ -767,7 +809,8 @@ class _Preferences {
         setVal('pref-pull-engineer', prefs.engineerName);
         setVal('pref-pull-rev', prefs.pullRev);
         setVal('pref-cable-unit', prefs.cableUnit === 'm' ? 'm' : 'ft');
-        setVal('pref-pull-power-jump-name', prefs.powerJumpName);
+        setVal('pref-pull-power-jump-name-true1', prefs.powerJumpNameTrue1);
+        setVal('pref-pull-power-jump-name-powercon', prefs.powerJumpNamePowercon);
         setVal('pref-pull-power-jump-length', prefs.powerJumpLength);
         setVal('pref-pull-power-jump-length-h', prefs.powerJumpLengthH);
         setVal('pref-pull-power-jump-length-m', prefs.powerJumpLengthM);
@@ -859,11 +902,6 @@ class _Preferences {
             rasterHeight: readNum('pref-raster-height', defaults.rasterHeight),
             columns: readNum('pref-columns', defaults.columns),
             rows: readNum('pref-rows', defaults.rows),
-            panelWidth: readNum('pref-panel-width', defaults.panelWidth),
-            panelHeight: readNum('pref-panel-height', defaults.panelHeight),
-            panelWidthMM: readNum('pref-panel-width-mm', defaults.panelWidthMM),
-            panelHeightMM: readNum('pref-panel-height-mm', defaults.panelHeightMM),
-            panelWeight: readNum('pref-panel-weight', defaults.panelWeight),
             weightUnit: readStr('pref-weight-unit', defaults.weightUnit),
             cabinetFontSize: readNum('pref-cabinet-font-size', defaults.cabinetFontSize),
             labelFontSize: readNum('pref-label-font-size', defaults.labelFontSize),
@@ -927,6 +965,7 @@ class _Preferences {
             binderPull: readBool('pref-binder-pull', defaults.binderPull),
             binderHardware: readBool('pref-binder-hardware', defaults.binderHardware),
             binderWiring: readBool('pref-binder-wiring', defaults.binderWiring),
+            binderFiber: readBool('pref-binder-fiber', defaults.binderFiber),
             binderTitleBlock: readBool('pref-binder-title-block', defaults.binderTitleBlock),
             binderDesigner: readText('pref-binder-designer', stored.binderDesigner != null ? stored.binderDesigner : defaults.binderDesigner),
             binderPmName: readText('pref-binder-pm-name', stored.binderPmName != null ? stored.binderPmName : defaults.binderPmName),
@@ -939,7 +978,8 @@ class _Preferences {
             // Pull sheet & cables
             engineerName: readText('pref-pull-engineer', stored.engineerName != null ? stored.engineerName : defaults.engineerName),
             pullRev: readStr('pref-pull-rev', defaults.pullRev),
-            powerJumpName: readStr('pref-pull-power-jump-name', defaults.powerJumpName),
+            powerJumpNameTrue1: readStr('pref-pull-power-jump-name-true1', defaults.powerJumpNameTrue1),
+            powerJumpNamePowercon: readStr('pref-pull-power-jump-name-powercon', defaults.powerJumpNamePowercon),
             dataJumpName: readStr('pref-pull-data-jump-name', defaults.dataJumpName),
             // The unit a new show starts in (each show keeps its own).
             cableUnit: (dialogOpen ? readStr('pref-cable-unit', stored.cableUnit) : stored.cableUnit) === 'm' ? 'm' : 'ft',

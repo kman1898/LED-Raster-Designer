@@ -36,7 +36,7 @@ PROBE = """(zooms) => {
 @pytest.fixture()
 def page(e2e_server, pw_browser):
     ctx = pw_browser.new_context(viewport={'width': 1600, 'height': 900})
-    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = ctx.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     # the app's own first load lands before the test touches the project

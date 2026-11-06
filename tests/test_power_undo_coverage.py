@@ -61,7 +61,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -93,6 +93,10 @@ def page(e2e_server, pw_browser):
 # pin below leans on.
 RESET_JS = """async () => {
     const app = window.app, r = window.canvasRenderer;
+    // The test before ends on Undo and Redo: their restore PUTs land first.
+    // Landing after the reset, one put that test's three screens back
+    // beside the three made here (2026-11-01: ids 1-6, not 3).
+    await app._layerSavesSettled();
     let project = await (await fetch('/api/project')).json();
     project.layers = [];
     project.groups = [];

@@ -40,7 +40,7 @@ side, top to bottom:
                 land on ("CVT4K-S SR A · Card 1 · OPT 1-2", or the card
                 itself), a backup its own block; a multi's BREAKOUT, the
                 fan out ("there are no boxes... it is a breakout also
-                known as a fan out"): "SR1 · Multi 208 breakout · 125'".
+                known as a fan out"): "SR1 · Multi 208 TRUE1 breakout · 125'".
   the RUNS    - OUT OF THE WALL AND ROUND IT. A run leaves its disc at
                 its own row, crosses to the WALL'S NEAREST EDGE and no
                 further, and travels in the clear space round the wall:
@@ -84,7 +84,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from test_binder import (  # noqa: E402
-    SEED_JS, _SHOW_JSON, W, H, SCALE, DA, SCRATCH_FIXTURE,
+    SEED_JS, _SHOW_JSON, W, H, SCALE, MAP_SCALE, DA, SCRATCH_FIXTURE,
     BOX_WORD, MAP_ZOOM_CAP, TITLE_BLOCK, _generic_breakout, _title_block,
 )
 
@@ -293,8 +293,8 @@ def _check_runs(half, out=None):
 # label registry is the only thing that knows where they are - the same
 # startLabelProbe() / endLabelProbe() pair tests/test_map_label_collisions.py
 # reads - and it records them in the BITMAP'S OWN PIXELS. The bitmap is laid
-# at the half's `map.area` at SCALE offscreen pixels to the page unit, so a
-# box converts with  page = area + pixel / SCALE.
+# at the half's `map.area` at MAP_SCALE offscreen pixels to the page unit, so
+# a box converts with  page = area + pixel / MAP_SCALE.
 
 def _wall(half):
     m = half['map']
@@ -310,10 +310,10 @@ def _labels(half):
     never reaches the paper cannot be covered, so it is not lettering here.
     """
     a = half['map']['area']
-    w, h = a['w'] * SCALE, a['h'] * SCALE
+    w, h = a['w'] * MAP_SCALE, a['h'] * MAP_SCALE
     return [{'kind': b['kind'], 'text': b['text'],
-             'x': a['x'] + b['x'] / SCALE, 'y': a['y'] + b['y'] / SCALE,
-             'w': b['w'] / SCALE, 'h': b['h'] / SCALE}
+             'x': a['x'] + b['x'] / MAP_SCALE, 'y': a['y'] + b['y'] / MAP_SCALE,
+             'w': b['w'] / MAP_SCALE, 'h': b['h'] / MAP_SCALE}
             for b in half['labels']
             if b['kind'] != 'wallEdge' and b['x'] + b['w'] > 0 and b['y'] + b['h'] > 0
             and b['x'] < w and b['y'] < h]
@@ -598,7 +598,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -680,8 +680,11 @@ PROBE_JS = """([opts, title]) => {
     const marks = [];
     const render = r.render;
     r.startLabelProbe();
+    // one mark per half: the render each map is read off. A split map's
+    // two stage passes (app-binder.js _bSplitMapPair) run with the probe
+    // put aside, so they leave no mark and add no boxes.
     r.render = function (...a) {
-        marks.push(r.labelProbe ? r.labelProbe.length : 0);
+        if (r.labelProbe) marks.push(r.labelProbe.length);
         return render.apply(this, a);
     };
     let res = null, boxes = [];
@@ -812,7 +815,7 @@ def test_each_side_is_a_sheet_behind_its_own_map_and_runs_its_port_and_its_circu
     (no tag of ours over it), one CARD block "H9 SR · H_16xRJ45+2xfiber"
     with 16 sockets - socket 1 green, the rest grey rings - and one run from
     the disc onto socket 1, cased in white. POWER WIRING: two orange discs,
-    one BREAKOUT block "SR1 · Multi 208 breakout · 125'" with six sockets, 1
+    one BREAKOUT block "SR1 · Multi 208 TRUE1 breakout · 125'" with six sockets, 1
     and 2 orange, and two runs. The wall is sized by the room the sheet
     gives it, which is the whole page's; the printer sheets have no
     colour."""
@@ -864,7 +867,7 @@ def test_each_side_is_a_sheet_behind_its_own_map_and_runs_its_port_and_its_circu
     assert abs(m['y'] - (card['y'] + card['h']) - sig['gap']['top']) < 0.01, (card, m, sig['gap'])
     # the power side
     assert [(d['text'], d['kind']) for d in pwr['discs']] == [('SR1-1', 'power'), ('SR1-2', 'power')]
-    assert [b['title'] for b in pwr['blocks']] == ["SR1 · Multi 208 breakout · 125'"]
+    assert [b['title'] for b in pwr['blocks']] == ["SR1 · Multi 208 TRUE1 breakout · 125'"]
     bk = pwr['blocks'][0]
     assert [(s['n'], s['state'], s['note']) for s in bk['sockets']] == \
         [(1, 'power', None), (2, 'power', None), (3, 'free', None), (4, 'free', None),
@@ -906,7 +909,7 @@ def test_a_return_lands_on_its_own_block_and_a_unit_replaces_the_card(page):
     CVT4K-S named BK. The signal half then has TWO discs - the primary
     "SR-1" on the run's FIRST PANEL, the return "BK-1" on its LAST - and
     TWO blocks, "CVT4K-S SR · SR · OPT 1-2" with socket 1 green and
-    "CVT4K-S BK · slot 2 · OPT 1-2" with socket 1 red; two runs, the
+    "CVT4K-S BK · Card 2 · OPT 1-2" with socket 1 red; two runs, the
     return's red and dashed - finely dashed into a hollow socket on the
     printer sheet."""
     pg, ids = page
@@ -938,14 +941,14 @@ def test_a_return_lands_on_its_own_block_and_a_unit_replaces_the_card(page):
         # each on the very panel its run begins / ends on, and the run of a
         # 4 x 3 wall ends on the bottom row: the return's disc is lower
         assert last['y'] > first['y'], (first, last)
-        assert [b['title'] for b in sig['blocks']] == ['CVT4K-S SR · SR · OPT 1-2', 'CVT4K-S BK · slot 2 · OPT 1-2'], sig['blocks']
+        assert [b['title'] for b in sig['blocks']] == ['CVT4K-S SR · SR · OPT 1-2', 'CVT4K-S BK · Card 2 · OPT 1-2'], sig['blocks']
         a, b = sig['blocks']
         assert len(a['sockets']) == 16 and len(b['sockets']) == 16
         assert [s['state'] for s in a['sockets']] == ['primary'] + ['free'] * 15
         assert [s['state'] for s in b['sockets']] == ['return'] + ['free'] * 15
         assert [(w['from'], w['device'], w['socket'], w['kind'], _c(w['colour'])) for w in sig['runs']] == [
             ('SR-1', 'CVT4K-S SR · SR · OPT 1-2', 1, 'primary', GREEN),
-            ('BK-1', 'CVT4K-S BK · slot 2 · OPT 1-2', 1, 'return', RED)]
+            ('BK-1', 'CVT4K-S BK · Card 2 · OPT 1-2', 1, 'return', RED)]
         s = sig['scale']
         assert [len(w['dash']) for w in sig['runs']] == [0, 2]
         assert [round(v / s, 2) for v in sig['runs'][1]['dash']] == RETURN_DASH
@@ -1008,7 +1011,7 @@ def test_a_shared_multi_shows_the_other_screens_circuits_against_its_socket(page
     try:
         out = _sheet(pg, json.loads(_SHOW_JSON), 'WALL-A - Power Wiring')
         a_side = _half(out, 'power')
-        assert len(a_side['blocks']) == 1 and a_side['blocks'][0]['title'].startswith('SR1 · Multi 208 breakout'), a_side['blocks']
+        assert len(a_side['blocks']) == 1 and a_side['blocks'][0]['title'].startswith('SR1 · Multi 208 TRUE1 breakout'), a_side['blocks']
         socks = a_side['blocks'][0]['sockets']
         mine = [s['n'] for s in socks if s['state'] == 'power']
         theirs = [(s['n'], s['note']) for s in socks if s['state'] == 'other']
@@ -1216,8 +1219,8 @@ def test_smoke_live_show_b_sr_main(page):
     assert sorted(d['text'] for d in pwr['discs']) == sorted(f'SR{k}-{n}' for k, ns in
                                                              ((1, range(1, 7)), (2, range(2, 7)), (3, range(1, 7)), (4, (1, 2, 4, 5, 6)))
                                                              for n in ns)
-    assert [b['title'] for b in pwr['blocks']] == ["SR3 · Multi 208 breakout · 125'", "SR4 · Multi 208 breakout · 100'",
-                                                   "SR2 · Multi 208 breakout · 100'", "SR1 · Multi 208 breakout · 125'"], pwr['blocks']
+    assert [b['title'] for b in pwr['blocks']] == ["SR3 · Multi 208 TRUE1 breakout · 125'", "SR4 · Multi 208 TRUE1 breakout · 100'",
+                                                   "SR2 · Multi 208 TRUE1 breakout · 100'", "SR1 · Multi 208 TRUE1 breakout · 125'"], pwr['blocks']
     # SR3's and SR1's circuits stand on the wall's upper half, SR4's and
     # SR2's on its lower: the outer pair stands over the wall, the inner
     # pair under it - one row each side, each keeping its place across
@@ -1643,7 +1646,8 @@ TOP_RUN_SEED_JS = """async () => {
     delete proj.port_assignments; delete proj.pullSheet; delete proj.binder;
     await j('PUT', '/api/project', proj);
     await j('POST', '/api/layer/add', {name: 'OVERHEAD', columns: 12, rows: 4,
-        cabinet_width: 200, cabinet_height: 200, powerVoltage: 208, powerAmperage: 10,
+        // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+        cabinet_width: 200, cabinet_height: 200, powerVoltage: 208, powerAmperage: 12.5,
         panelWatts: 500, powerFlowPattern: 'tl-v', powerOrganized: true, flowPattern: 'tl-h',
         processorType: 'novastar-armor'});
     app.project = await j('GET', '/api/project');
@@ -1761,7 +1765,7 @@ BOTTOM_DATA_SEED_JS = """async () => {
     delete proj.port_assignments; delete proj.pullSheet; delete proj.binder;
     await j('PUT', '/api/project', proj);
     await j('POST', '/api/layer/add', {name: 'UNDER', columns: 8, rows: 2,
-        cabinet_width: 400, cabinet_height: 400, powerVoltage: 208, powerAmperage: 10,
+        cabinet_width: 400, cabinet_height: 400, powerVoltage: 208, powerAmperage: 12.5,
         panelWatts: 200, powerFlowPattern: 'tl-h', powerOrganized: true, flowPattern: 'bl-v',
         processorType: 'novastar-armor'});
     // the add takes the layer's size; its data flow is set on the layer
@@ -1815,5 +1819,87 @@ def test_a_bottom_edge_data_sheet_keeps_its_unit_under_the_wall(page):
         assert all(p[1] >= m['y'] - 0.01 for p in r['points']), ('no run over the wall', r)
     assert _strays_round_the_wall(h) == [], _strays_round_the_wall(h)
     _check_runs(h, out)
+    _check_blocks(h)
+    assert ids['errors'] == []
+
+
+# ---- a straight run never goes through its own disc's tag ----------------
+#
+# Once the data map's tags read the length alone (owner, 2026-11-02:
+# "just list 25'"), a "50'" tag stood under a bottom-row disc whose socket
+# was right below it. The way out _bwExit weighed stepped round the tag, a
+# hair to one side of the disc's middle, but the run then dropped straight
+# at the SOCKET'S x and was drawn through the tag. With "50' etherCON" the
+# tag was wider than the column, no way down was clear, and the run went
+# round by the side, so the fault never showed. The wall below has its card
+# over it, so its run goes up past the tag rather than down: the same fault.
+
+STRAIGHT_TAG_SEED_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
+    delete proj.port_assignments; delete proj.pullSheet; delete proj.binder;
+    await j('PUT', '/api/project', proj);
+    await j('POST', '/api/layer/add', {name: 'DROP', columns: 9, rows: 3,
+        cabinet_width: 104, cabinet_height: 208});
+    const added = (await j('GET', '/api/project')).layers[0];
+    await j('PUT', `/api/layer/${added.id}`, {flowPattern: 'tl-h', processorType: 'novastar-armor',
+        showDataCableTags: true, dataFlowLabelSize: 30});
+    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9'});
+    const pid = st.processors[0].id;
+    st = await j('PUT', `/api/processors/${pid}/slots/0`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+    const cardId = st.processors[0].slots[0].card.id;
+    const pc = {};
+    for (let n = 1; n <= 16; n++) pc[String(n)] = {ft: 50, connector: 'ethercon'};
+    const put = await j('PUT', `/api/processors/${pid}/cards/${cardId}`, {portCables: pc});
+    app.project = await j('GET', '/api/project');
+    app.dedupeProjectLayers('wiring_straight_tag_seed');
+    const l = app.project.layers[0];
+    app.selectLayer(l);
+    await app.refreshProcessors();
+    await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST', {layerId: String(l.id), cardId});
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    app.renderLayers();
+    window.canvasRenderer.render();
+    return { error: put.error || null };
+}"""
+
+
+@pytest.mark.parametrize('palette', ['colour', 'printer'])
+def test_a_run_in_line_with_its_socket_is_not_drawn_through_its_disc_tag(page, palette):
+    """DROP, 9 x 3 cabinets of 104 x 208, data flowing from the top left
+    across the rows, every port on a 50' etherCON with its tag shown: one
+    port, its card socket in line with its disc, and its "50'" tag on the
+    line between the two. The run leaves the disc beside the tag and goes
+    by the lane outside the wall to its socket; no run on the sheet is
+    drawn over a tag, a disc or anything else the map wrote."""
+    pg, ids = page
+    seeded = pg.evaluate(STRAIGHT_TAG_SEED_JS)
+    assert seeded['error'] is None, seeded
+    pg.wait_for_timeout(300)
+    opts = {**json.loads(_SHOW_JSON), 'palette': palette}
+    (h,) = _probe(pg, opts, 'DROP - Data Wiring')
+    s = h['scale']
+    lab = _labels(h)
+    tags = [k for k in lab if k['kind'] == 'tag']
+    assert tags and {k['text'] for k in tags} == {"50'"}, [k['text'] for k in tags]
+    assert len(h['runs']) == 1, h['runs']
+    (r,) = h['runs']
+    d = next(x for x in h['discs'] if x['text'] == r['from'])
+    sk = _socket(next(b for b in h['blocks'] if b['title'] == r['device']), r['socket'])
+    # the case itself: the socket in line with the disc, and a tag on the
+    # line a straight run would take from the disc's edge to the socket
+    assert abs(sk['x'] - d['x']) < STRAIGHT * s, ('the socket stands in line with the disc', sk, d)
+    edge = d['y'] - d['r'] if sk['y'] < d['y'] else d['y'] + d['r']
+    drop = _seg_box((sk['x'], edge), (sk['x'], sk['y']), CASE_PAD * s)
+    assert [k for k in tags if _box_over(drop, k, 0.5)], (
+        'a tag on the straight line from the disc to its socket', d, sk, drop, tags, r['points'])
+    assert _covers_lettering(h) == [], _covers_lettering(h)
+    assert _through_the_wall(h) == [], _through_the_wall(h)
+    _check_runs(h)
     _check_blocks(h)
     assert ids['errors'] == []

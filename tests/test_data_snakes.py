@@ -35,7 +35,7 @@ difference: the stores live on the HARDWARE record, not the screen -
     programming and a clear forgets it.)
   - layer.showDataCableTags (default FALSE), "Show Cable Tags" under Show
     Port Load %; on, a blue tag beside the port's label on screen and in
-    exportMode alike: the snake's name, or "50' CAT".
+    exportMode alike: the snake's name, or a loose cable's length, "50'".
 
 Run locally (each session takes its own free port, so it runs beside
 any other):
@@ -140,7 +140,7 @@ def test_the_store_round_trips_on_a_card_and_a_box(client):
     rcard = _resolved(client, pid)['slots'][0]['card']
     assert 'snakes' not in rcard
     assert rcard['portCables']['16'] == {'ft': 75, 'connector': 'cat'}
-    # the card's sockets follow its documented kind: RJ45 → CAT
+    # the card's sockets follow its documented kind: RJ45 → Cat6
     assert rcard['portConnector'] == 'cat'
     # The box: its own sockets (the CVT10 on OPT 1 of this card delivers
     # 1-8 again - copy delivery), its own snake, and the card's untouched.
@@ -156,7 +156,7 @@ def test_the_store_round_trips_on_a_card_and_a_box(client):
     assert box['portCables'] == {'7': {'ft': 25}}
     rbox = _resolved(client, pid)['slots'][0]['card']['cvts'][0]
     assert rbox['portConnector'] == 'cat', 'a box with no documented ' \
-        'connector follows its card'
+        'connector reads Cat6'
     # the card's snakes never saw the box's PUT
     assert [s['ports'] for s in _snakes(client, 'card', cid)] \
         == [[9, 10, 11], [13, 14]]
@@ -271,26 +271,38 @@ def test_removing_a_card_or_a_box_drops_its_snakes(client):
 
 def test_the_connector_list_is_served_and_follows_the_catalog(client):
     """getDataCableConnectors mirrors DATA_CABLE_CONNECTORS through the
-    state payload - CAT alone: "panels dont take fiber. what would take
-    fiber is processor to breakout box" (2026-09-07). A card's followed
-    connector is the catalog's documented copper (rj45 → cat) and NOTHING
-    where it is silent or fiber - the no-hardware-assumptions rule, so an
-    undocumented box, and a panel lead off a fiber card, print a bare
-    length rather than a guessed plug. A 'fiber' pick stored by an older
-    file reads as "follows the port" rather than a plug the sheet cannot
-    offer."""
+    state payload - copper only, Cat6 and etherCON: "panels dont take
+    fiber. what would take fiber is processor to breakout box"
+    (2026-09-07). A port follows the connector its device documents
+    (rj45 → Cat6, ethercon → etherCON) and reads Cat6 where nothing is
+    documented (2026-10-21: "Cat6" when it's plain RJ45 OR unknown). A
+    box answers for itself alone: it never borrows its card's or its
+    processor's plug. A 'fiber' pick stored by an older file reads as
+    "follows the port" rather than a plug the sheet cannot offer."""
     st = client.get('/api/processors').get_json()
-    assert st['dataCableConnectors'] == [{'id': 'cat', 'name': 'CAT'}]
+    assert st['dataCableConnectors'] == [{'id': 'cat', 'name': 'Cat6'},
+                                         {'id': 'ethercon', 'name': 'etherCON'}]
     assert catalog.data_port_connector(None, {'connector': 'rj45'}, None) \
         == 'cat'
+    assert catalog.data_port_connector(None, {'connector': 'ethercon'},
+                                       None) == 'ethercon'
+    assert catalog.data_port_connector(None, None,
+                                       {'connector': 'ethercon'}) == 'ethercon'
     assert catalog.data_port_connector(None, {'connector': 'fiber'}, None) \
-        is None
-    assert catalog.data_port_connector({}, {}, {}) is None
+        == 'cat'
+    assert catalog.data_port_connector({}, {}, {}) == 'cat'
+    # a box: its own word, never its card's or its processor's
+    assert catalog.data_port_connector(
+        {'connector': 'ethercon'}, {'connector': 'rj45'}, None,
+        box=True) == 'ethercon'
+    assert catalog.data_port_connector(
+        {}, {'connector': 'ethercon'}, {'connector': 'ethercon'},
+        box=True) == 'cat'
     pid, cid, bid = _h9_with_card_and_box(client, 'novastar-card-h-4xfiber')
     rcard = _resolved(client, pid)['slots'][0]['card']
-    assert rcard['portConnector'] is None
-    assert rcard['cvts'][0]['portConnector'] is None, (
-        'the CVT10 documents no connector and its card is fiber: nothing')
+    assert rcard['portConnector'] == 'cat'
+    assert rcard['cvts'][0]['portConnector'] == 'cat', (
+        'the CVT10 documents no connector: Cat6')
     snakes = catalog.resolved_show_snakes({
         'snakes': [{'id': 'snk1', 'name': 'OLD', 'connector': 'fiber',
                     'members': [{'kind': 'card', 'id': 'card2',
@@ -507,7 +519,7 @@ FRAME_TEXTS_JS = """() => {
         const texts = [];
         ctx.fillText = function (t, x, y, w) { texts.push(String(t)); return oT.call(ctx, t, x, y, w); };
         try { r.render(); } finally { ctx.fillText = oT; }
-        return texts.filter(t => /^(SNAKE |FOH|\\d+(\\.\\d+)?' )/.test(t));
+        return texts.filter(t => /^(SNAKE |FOH|\\d+(\\.\\d+)?'( |$))/.test(t));
     };
     const prevMode = r.viewMode, prevExport = r.exportMode;
     let interactive, exported;
@@ -608,7 +620,7 @@ def _viewport_settled(page, w, h):
 def _open_page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(OPEN_FETCHES_JS)
     pg = context.new_page()
     return context, pg
@@ -910,7 +922,7 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
     assert st['action'] == 'Set Port Cable' and st['index'] == index + 4, st
     reading = pg.evaluate("""(ids) => [9, 10].map(n =>
         window.app.dataPortCable(ids.cardId, n).text)""", ids)
-    assert reading == ["50' CAT", "75' CAT"], reading
+    assert reading == ["50' Cat6", "75' Cat6"], reading
     pg.locator(f'[data-lrd-field="data-cable-sheet-{cid}"]').click()
     _settle(pg)
     tray = pg.evaluate(TRAY_JS, ['card', cid])
@@ -1089,7 +1101,7 @@ def test_a_port_cleared_from_its_screen_keeps_its_snake(page):
 
 def test_the_canvas_tag_follows_the_switch_and_the_export(page):
     """Off (the default): the data pass paints no home-run text on screen
-    or in exportMode. Tick Show Cable Tags: one 'Toggle Data Cable Tags'
+    or in exportMode. Tick Show Cable Tags: one 'Toggle Data Tags'
     step, the flag lands on the server, and both passes paint FOH beside
     ports 1-6 (their sockets ride the snake). Undo un-ticks and un-paints."""
     pg, ids = page
@@ -1100,7 +1112,7 @@ def test_the_canvas_tag_follows_the_switch_and_the_export(page):
     box.click()
     _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
-    assert st['flag'] is True and st['action'] == 'Toggle Data Cable Tags', st
+    assert st['flag'] is True and st['action'] == 'Toggle Data Tags', st
     assert st['index'] == index + 1, st
     frame = pg.evaluate(FRAME_TEXTS_JS)
     assert frame['interactive'] == ['FOH'] * 6, frame
@@ -1108,15 +1120,16 @@ def test_the_canvas_tag_follows_the_switch_and_the_export(page):
         f'the export pass must match the screen: {frame}')
     served = _served(pg, ids, lambda s: s['flag'] is True)
     assert served and served['flag'] is True, served
-    # A loose port with its own cable prints "50' CAT": move WALL's port 6
-    # onto card socket 9 (the card's loose 50' CAT) and read the tag.
+    # A loose port with its own cable prints its length alone, "50'" (the
+    # map's tag never names the connector, owner 2026-11-02): move WALL's
+    # port 6 onto card socket 9 (the card's loose 50' Cat6) and read the tag.
     pg.evaluate("""(ids) => window.app._assignmentRequest(
         '/api/port-assignments/place', 'POST',
         {layerId: String(ids.id), index: 5, cardId: ids.cardId, port: 9},
         null, 'Place Port')""", ids)
     _settle(pg)
     frame = pg.evaluate(FRAME_TEXTS_JS)
-    assert sorted(frame['interactive']) == sorted(['FOH'] * 5 + ["50' CAT"]), frame
+    assert sorted(frame['interactive']) == sorted(['FOH'] * 5 + ["50'"]), frame
     assert sorted(frame['exported']) == sorted(frame['interactive']), frame
     pg.evaluate('() => window.app.undo()')
     _settle(pg)
@@ -1198,7 +1211,7 @@ def test_an_extension_reads_on_the_corner_the_tag_and_survives_loosen(page):
         const c = window.app.dataPortCable(ids.cardId, 3);
         return [c.kind, c.text];
     }""", ids)
-    assert loose == ['cable', "25' CAT"], loose
+    assert loose == ['cable', "25' Cat6"], loose
     assert pg.evaluate(TRAY_JS, ['cvt', bid])['corners']['3'] == "25'"
     for _ in range(2):
         pg.evaluate('() => window.app.undo()')
@@ -1640,7 +1653,7 @@ BOX_SHEET_JS = """(id) => {
                     reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
     """On the frozen file, box SR B's snake row and its four member rows
-    read "SR - MAIN" - exactly what box SR A's read - with the "p1 return"
+    read "SR - MAIN" - exactly what box SR A's read - with the "P1 return"
     detail on the row's title; the table is never wider than the sheet,
     and the HOME RUN cell (the last one - four columns) sits on it, on
     both boxes. Runs in its own
@@ -1700,14 +1713,15 @@ def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
             assert a['rows'][0]['kind'] == 'snake' and a['rows'][0]['who'] == 'SR - MAIN', a['rows'][0]
             assert [r['who'] for r in a['rows'][1:5]] == ['SR - MAIN'] * 4, a['rows']
             assert [r['kind'] for r in a['rows'][1:5]] == ['member'] * 4, a['rows']
-            # the backup reads the same - the "p1 return" detail rides the titles
+            # the backup reads the same - the "P1 return" detail rides the titles
+            # (a port is P1, as the tray and the map say it, since 2026-11-03)
             assert b['rows'][0]['kind'] == 'snake' and b['rows'][0]['who'] == 'SR - MAIN', b['rows'][0]
             assert [r['who'] for r in b['rows'][1:5]] == ['SR - MAIN'] * 4, b['rows']
-            assert 'p1 return' in b['rows'][0]['rowTitle'] and 'p4 return' in b['rows'][0]['rowTitle'], b['rows'][0]
+            assert 'P1 return' in b['rows'][0]['rowTitle'] and 'P4 return' in b['rows'][0]['rowTitle'], b['rows'][0]
             assert b['rows'][0]['whoTitle'] == b['rows'][0]['rowTitle'], b['rows'][0]
             for n, r in enumerate(b['rows'][1:5], start=1):
-                assert r['rowTitle'] == f'SR - MAIN p{n} return', (n, r)
-                assert r['whoTitle'] == f'SR - MAIN p{n} return', (n, r)
+                assert r['rowTitle'] == f'SR - MAIN P{n} return', (n, r)
+                assert r['whoTitle'] == f'SR - MAIN P{n} return', (n, r)
             # a primary row says nothing more than its cell, so no row title
             assert all(r['rowTitle'] == '' for r in a['rows'][:5]), a['rows']
             # the geometry: never a table wider than its sheet, every HOME

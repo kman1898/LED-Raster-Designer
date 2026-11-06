@@ -16,9 +16,22 @@ its own; a file that is not JSON is moved aside
 (cable_stock_presets.json.corrupt-<time>) before the next save, never
 overwritten.
 
-A stock is { perKind, ft: {all, multi, data, circuit}, m: {...} }: one
-shared list, or a list per kind of cable, in feet and in meters. Each list
-is lengths, ascending, once each.
+A stock is { perKind, ft: {all, multi, data, circuit, l2130, harting,
+direct, feeder, fiber}, m: {...} }: one shared list, or a list per kind of cable,
+in feet and in meters. Each list is lengths, ascending, once each. The
+L21-30, Harting, direct-output and feeder lists came on 2026-10-21; a preset
+saved before then has none, and reads the L21-30 and Harting lists from its
+multi list and the direct-output list from its circuit list (FALLBACK), the
+lists those cables were pulled from then.
+
+FIBER (owner, 2026-11-05: "we dont need two differnt fiber lenght types. MM
+and SM can be one box in preferences"): one more list, fiber - a TAC, MTP or
+opticalCON of either mode is pulled from it. It is its own list whatever
+perKind says, and a stock saved before it has none: its fiber is written as
+typed. A stock saved with the list per mode 1.6.0's betas kept (fiberSingle,
+fiberMulti) reads as one list holding every length of both, and those keys
+are folded away wherever a stock is stored (fold_fiber_lists): nothing typed
+is lost and neither key is written back.
 """
 import json
 import os
@@ -40,12 +53,19 @@ CABLE_STOCK_PRESETS_FILE = os.path.join(os.path.dirname(PRESETS_DIR_PATH),
 MAX_PRESETS = 100
 MAX_NAME = 60
 MAX_LENGTHS = 40          # lengths in one list
+MAX_FIBER_LENGTHS = 2 * MAX_LENGTHS   # two full lists per mode, folded into one
 MAX_LENGTH = 100000       # past any cable a show pulls
 MAX_BODY = 16 * 1024
 
-# Mirrors app-cable-units.js CABLE_UNITS / CABLE_STOCK_ALL / CABLE_STOCK_KINDS.
+# Mirrors app-cable-units.js CABLE_UNITS / CABLE_STOCK_ALL / CABLE_STOCK_KINDS
+# / CABLE_STOCK_FIBER / CABLE_STOCK_FALLBACK.
 UNITS = ('ft', 'm')
-LISTS = ('all', 'multi', 'data', 'circuit')
+LISTS = ('all', 'multi', 'data', 'circuit', 'l2130', 'harting', 'direct', 'feeder')
+FIBER = 'fiber'
+FALLBACK = {'l2130': 'multi', 'harting': 'multi', 'direct': 'circuit'}
+# The list per mode a stock may have been saved with (app-cable-units.js
+# CABLE_STOCK_FIBER_RETIRED): read into FIBER.
+RETIRED_FIBER = ('fiberSingle', 'fiberMulti')
 
 _lock = threading.Lock()
 
@@ -63,10 +83,10 @@ def _clean_name(name):
     return name
 
 
-def _clean_list(values):
+def _clean_list(values, limit=MAX_LENGTHS):
     """Positive lengths, ascending, once each; None when `values` is not a
     list of lengths (a non-number, a zero, too many)."""
-    if not isinstance(values, list) or len(values) > MAX_LENGTHS:
+    if not isinstance(values, list) or len(values) > limit:
         return None
     out = set()
     for v in values:
@@ -96,11 +116,56 @@ def normalize_stock(stock):
             return None
         out[unit] = {}
         for key in LISTS:
-            cleaned = _clean_list(lists.get(key) or [])
+            raw = lists.get(key)
+            if key not in lists and key in FALLBACK:
+                raw = lists.get(FALLBACK[key])
+            cleaned = _clean_list(raw or [])
             if cleaned is None:
                 return None
             out[unit][key] = cleaned
+        merged = set()
+        for key in (FIBER,) + RETIRED_FIBER:
+            cleaned = _clean_list(lists.get(key) or [], MAX_FIBER_LENGTHS)
+            if cleaned is None:
+                return None
+            merged.update(cleaned)
+        out[unit][FIBER] = sorted(merged)
     return out
+
+
+def _readable_lengths(values):
+    """What the client reads of a stored list (normalizeJumperStock): every
+    positive number in it, whatever else sits beside them."""
+    out = set()
+    for v in values if isinstance(values, list) else []:
+        try:
+            n = round(float(v), 6)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if 0 < n < float('inf'):
+            out.add(int(n) if n.is_integer() else n)
+    return out
+
+
+def fold_fiber_lists(stock):
+    """A stored stock saved with the list per mode, put on the one fiber list
+    in place: every length of both kept, the old keys gone, so neither is
+    ever written back. Nothing else in it is touched: a show's stock is the
+    client's to clean (normalizeCableStock) and is held to no limit here.
+    Idempotent. Returns True when it changed the stock."""
+    if not isinstance(stock, dict):
+        return False
+    folded = False
+    for unit in UNITS:
+        lists = stock.get(unit)
+        if not isinstance(lists, dict) or not any(k in lists for k in RETIRED_FIBER):
+            continue
+        merged = set()
+        for key in (FIBER,) + RETIRED_FIBER:
+            merged |= _readable_lengths(lists.pop(key, None))
+        lists[FIBER] = sorted(merged)
+        folded = True
+    return folded
 
 
 def _listable(item):
@@ -155,6 +220,12 @@ def _read_for_write():
 
 
 def _write(items):
+    # A preset saved with the list per mode goes back on the one list, so a
+    # save of another preset never writes the old keys out again. An entry
+    # this app cannot read is left as it came.
+    for item in items:
+        if _listable(item):
+            fold_fiber_lists(item['stock'])
     folder = os.path.dirname(CABLE_STOCK_PRESETS_FILE)
     os.makedirs(folder, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=folder, prefix='.cable_stock_presets-', suffix='.tmp')

@@ -840,6 +840,105 @@ def test_per_tab_names_survive_save_and_load(client):
     assert _put(client, _clean(on_disk))['groupNameDisplayByView'] == by
 
 
+# PER GROUP since 2026-11-04 ("depending on which group is selected, I need
+# to be able to individually change screens, group or both per group"): each
+# group keeps group.nameDisplayByView. An old show (only the show-wide
+# fields) opens with every group on each tab's value, idempotently, the
+# old fields left in place for an older build.
+def _two_groups(client):
+    ids = [_add_screen(client, f'P{i}', offset_x=i * 600)['id'] for i in range(4)]
+    g1 = app_module._create_group(app_module.current_project, ids[:2], name='Wall')
+    g2 = app_module._create_group(app_module.current_project, ids[2:], name='Side')
+    assert g1 is not None and g2 is not None
+    return _get_project(client), g1['id'], g2['id']
+
+
+def test_an_old_show_with_one_value_gives_it_to_every_group(client):
+    project, g1, g2 = _two_groups(client)
+    project['groupNameDisplay'] = 'both'
+    project.pop('groupNameDisplayByView', None)
+    for g in project['groups']:
+        g.pop('nameDisplayByView', None)
+    loaded = _put(client, project)
+    for gid in (g1, g2):
+        assert _group_of(loaded, gid)['nameDisplayByView'] == {v: 'both' for v in NAME_VIEWS}
+    assert loaded['groupNameDisplay'] == 'both'
+    assert loaded['groupNameDisplayByView'] == {v: 'both' for v in NAME_VIEWS}
+    again = _clean(_put(client, _clean(json.loads(json.dumps(loaded)))))
+    assert again['groups'] == _clean(loaded)['groups']
+
+
+def test_an_old_show_with_per_tab_values_gives_each_group_each_tab(client):
+    project, g1, g2 = _two_groups(client)
+    project.pop('groupNameDisplay', None)
+    project['groupNameDisplayByView'] = {'pixel-map': 'screens', 'power': 'both'}
+    loaded = _put(client, project)
+    want = {'pixel-map': 'screens', 'cabinet-id': 'group', 'data-flow': 'group',
+            'power': 'both', 'show-look': 'group'}
+    for gid in (g1, g2):
+        assert _group_of(loaded, gid)['nameDisplayByView'] == want
+    # the show-wide fields stay exactly as they were, for an older build
+    assert loaded['groupNameDisplayByView'] == {'pixel-map': 'screens', 'power': 'both'}
+    assert 'groupNameDisplay' not in loaded
+    again = _put(client, _clean(json.loads(json.dumps(loaded))))
+    assert _clean(again)['groups'] == _clean(loaded)['groups']
+
+
+def test_a_groups_own_value_wins_and_a_missing_tab_is_filled(client):
+    project, g1, g2 = _two_groups(client)
+    project['groupNameDisplay'] = 'both'
+    _group_of(project, g1)['nameDisplayByView'] = {'pixel-map': 'screens', 'power': 'nonsense'}
+    loaded = _put(client, project)
+    own = _group_of(loaded, g1)['nameDisplayByView']
+    assert own['pixel-map'] == 'screens'
+    assert own['power'] == 'both' and own['data-flow'] == 'both'
+    assert _group_of(loaded, g2)['nameDisplayByView'] == {v: 'both' for v in NAME_VIEWS}
+
+
+def test_a_show_without_a_show_wide_value_pins_nothing_on_its_groups(client):
+    project, g1, g2 = _two_groups(client)
+    project.pop('groupNameDisplay', None)
+    project.pop('groupNameDisplayByView', None)
+    loaded = _put(client, project)
+    assert all('nameDisplayByView' not in g for g in loaded['groups'])
+    assert 'groupNameDisplay' not in loaded and 'groupNameDisplayByView' not in loaded
+
+
+def test_per_group_names_survive_save_and_load(client):
+    project, g1, g2 = _two_groups(client)
+    a = {'pixel-map': 'group', 'cabinet-id': 'both', 'data-flow': 'group',
+         'power': 'screens', 'show-look': 'group'}
+    b = {'pixel-map': 'screens', 'cabinet-id': 'group', 'data-flow': 'screens',
+         'power': 'group', 'show-look': 'both'}
+    _group_of(project, g1)['nameDisplayByView'] = a
+    _group_of(project, g2)['nameDisplayByView'] = b
+    assert client.post('/api/project', json=project).status_code == 200
+    on_disk = json.loads(json.dumps(_get_project(client)))
+    assert _group_of(on_disk, g1)['nameDisplayByView'] == a
+    client.post('/api/project/new')
+    loaded = _put(client, _clean(on_disk))
+    assert _group_of(loaded, g1)['nameDisplayByView'] == a
+    assert _group_of(loaded, g2)['nameDisplayByView'] == b
+
+
+def test_a_duplicated_canvas_copies_each_groups_names(client):
+    project, g1, g2 = _two_groups(client)
+    a = {'pixel-map': 'screens', 'cabinet-id': 'group', 'data-flow': 'both',
+         'power': 'screens', 'show-look': 'group'}
+    _group_of(project, g1)['nameDisplayByView'] = a
+    _put(client, project)
+    src = _get_project(client)['active_canvas_id']
+    out = client.post(f'/api/canvas/{src}/duplicate').get_json()
+    assert len(out['groups']) == 4
+    copies = out['groups'][2:]
+    assert copies[0]['nameDisplayByView'] == a
+    assert 'nameDisplayByView' not in copies[1]
+    # a copy, not the same dict: the server's own groups
+    live = app_module.current_project['groups']
+    live[2]['nameDisplayByView']['power'] = 'group'
+    assert _group_of(app_module.current_project, g1)['nameDisplayByView']['power'] == 'screens'
+
+
 def test_group_headline_offsets_ride_the_group_through_a_round_trip(client):
     """The 'both' display's headline drag writes per-view offsets onto the
     GROUP object; the integrity pass rewrites id and layer_ids and must not

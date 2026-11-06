@@ -488,10 +488,11 @@ class _Colors {
         this.loadGradientEditor();
     }
 
-    saveCurrentGradientPreset() {
+    async saveCurrentGradientPreset() {
         const l = this._gradientLayer();
         if (!l) return;
-        const name = (window.prompt('Save gradient preset as:') || '').trim();
+        const name = ((await this.appPrompt('Save gradient preset as:', '',
+            { id: 'gradient-preset-name-modal', title: 'Save gradient preset', okLabel: 'Save' })) || '').trim();
         if (!name) return;
         const preset = {
             name,

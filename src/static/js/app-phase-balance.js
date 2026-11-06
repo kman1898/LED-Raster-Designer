@@ -96,7 +96,8 @@ class _PhaseBalance {
                     out.push({
                         layer, soca: s.soca, name: s.name, distroId: d.id,
                         legs: total, members, boxSize,
-                        locked: members.some(m => !!m.layer.locked),
+                        locked: members.some(m => !!this._layerLocked(m.layer)),
+                        hidden: members.every(m => m.layer.visible === false),
                         layerName: members.map(m => m.layer.name).join(' + '),
                         positions: members.flatMap(m => m.tails)
                             .sort((a, b) => a - b),
@@ -116,7 +117,8 @@ class _PhaseBalance {
                     layer, soca: s.soca, name: s.name, distroId: d.id,
                     legs: s.legs.length,
                     boxSize: ownSize,
-                    locked: !!layer.locked,
+                    locked: !!this._layerLocked(layer),
+                    hidden: layer.visible === false,
                     positions,
                     fromFlat: positions.slice(),
                     circuits: s.legs.map((leg, li) => ({ layer, s, li, leg })),
@@ -234,6 +236,9 @@ class _PhaseBalance {
     // getDistroLoads books with (distroCircuitLegs, _bookCircuitOnLegs), so
     // the search scores exactly what the dock will print.
     _balanceCircuitPhasor(d, c, tail) {
+        // A hidden screen loads no leg (getDistroLoads leaves it out), so
+        // the balancer weighs it as the LEGS line reads it: nothing.
+        if (c && c.layer && c.layer.visible === false) return [0, 0, 0, 0, 0, 0];
         const store = {
             legWatts: { X: 0, Y: 0, Z: 0 },
             legPhasor: { X: { re: 0, im: 0 }, Y: { re: 0, im: 0 }, Z: { re: 0, im: 0 } },
@@ -318,9 +323,13 @@ class _PhaseBalance {
         const d = this.getDistros().find(x => x.id === distroId) || null;
         const names = d ? this.distroLegNames(d) : [];
         const all = this._balanceTargets(distroId);
-        const free = all.filter(t => !t.locked);
+        // A multi on a hidden screen loads no leg and keeps its sockets
+        // (round 6), so it is held where it sits like a locked one - never
+        // searched, never counted among the multis searched (round 7).
+        const free = all.filter(t => !t.locked && !t.hidden);
         const res = {
             distroId, targets: free, locked: all.filter(t => t.locked),
+            hidden: all.filter(t => !t.locked && t.hidden),
             options: [], choice: free.map(() => 0),
             before: this._balanceRealFigures(distroId), model: null,
             searched: 0, total: 0, exhaustive: true, blockedByBusiest: false,
@@ -604,11 +613,25 @@ class _PhaseBalance {
             blockedByBusiest: solved.some(r => r.blockedByBusiest && !kept.has(r.distroId)),
             targets: targets.map(t => `${t.name} (${t.layerName || t.layer.name}, ${t.legs} circuits)`),
             // Partly-filled multis held where they are because a screen
-            // they sit on is locked - the dialog names them.
+            // they sit on is locked - the dialog names them. `layers` are
+            // the LOCKED screens (round 7): an unlocked member of a
+            // half-locked group is held by its group's locked members, and
+            // those are named, as the locked error names them
+            // (_lockedErrorNames).
             locked: solved.flatMap(r => r.locked).map(t => ({
                 name: t.name, layerName: t.layerName || t.layer.name,
+                layers: this._lockedErrorNames((t.members ? t.members.map(m => m.layer) : [t.layer])
+                    .filter(l => this._layerLocked(l))),
+            })),
+            // Partly-filled multis on hidden screens: held where they are
+            // (a hidden screen keeps its slots and loads no leg), so they
+            // are not among the multis searched (round 7).
+            // `layers` are the hidden screens, once each: a shared box only
+            // hidden screens fill says "WALL A and WALL B are hidden".
+            hidden: solved.flatMap(r => r.hidden || []).map(t => ({
+                name: t.name, layerName: t.layerName || t.layer.name,
                 layers: [...new Set((t.members ? t.members.map(m => m.layer) : [t.layer])
-                    .filter(l => l.locked).map(l => l.name))],
+                    .map(l => l.name))],
             })),
             moves,
         };
@@ -623,10 +646,14 @@ class _PhaseBalance {
         // move from somewhere else.
         const byId = (id) => (this.project.layers || []).find(l => l.id === id);
         const lockedMet = new Map();
+        // And a move on a box a locked screen shares is put back whole with
+        // the rest when it would deal the locked screen's tails again
+        // (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         for (const m of moves || []) {
             const ids = (m.members && m.members.length)
                 ? m.members.map(mem => mem.layerId) : [m.layerId];
-            const locked = ids.map(byId).filter(l => l && l.locked);
+            const locked = ids.map(byId).filter(l => l && this._layerLocked(l));
             if (locked.length) {
                 locked.forEach(l => lockedMet.set(l.id, l));
                 continue;
@@ -635,6 +662,7 @@ class _PhaseBalance {
         }
         this._showLockedError([...lockedMet.values()]);
         this._circuitTailCache = null;
+        if (shared()) return 0;
         if (touched.size) this.updateLayers([...touched], true, 'Balance Phase Legs');
         return touched.size;
     }
@@ -658,29 +686,33 @@ class _PhaseBalance {
         const distro = distroId
             ? this.getDistros().find(d => d.id === distroId) : null;
         const plural = (n, one, many) => (n === 1 ? one : many);
+        const listOf = (xs) => (xs.length < 2 ? xs.join('')
+            : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
         const lockedLines = (r.locked || []).map(l =>
-            `${esc(l.name)} (${esc(l.layerName)}) stays where it is — ${esc(l.layers.join(', '))} ${plural(l.layers.length, 'is', 'are')} locked.`);
+            `${esc(l.name)} (${esc(l.layerName)}) stays where it is. ${esc(listOf(l.layers))} ${plural(l.layers.length, 'is', 'are')} locked.`)
+            .concat((r.hidden || []).map(h =>
+                `${esc(h.name)} (${esc(h.layerName)}) stays where it is. ${esc(listOf(h.layers || [h.layerName]))} ${plural((h.layers || [h.layerName]).length, 'is', 'are')} hidden.`));
         const lockedHtml = lockedLines.length
             ? lockedLines.map(l => `<div style="color:#a6b0bb; margin:6px 0 0; padding-left:10px;">· ${l}</div>`).join('')
             : '';
         let noTargets = `<p style="margin:0; color:#a6b0bb;">Every multi on a three-phase distro is full, so the legs are already
                as even as the pattern allows. Imbalance comes from partly-filled
-               multis — there are none here.</p>`;
+               multis, and there are none here.</p>`;
         if (distroId) {
             const b = this._balanceBlockers(distroId);
             const lines = [];
             if (b.full.length) lines.push(
-                `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full — with every circuit taken the legs are already as even as they get, there is nothing to choose.`);
+                `${b.full.map(f => esc(f.name)).join(', ')} ${b.full.length === 1 ? 'is' : 'are'} full. With every circuit taken the legs are already as even as they get, so there is nothing to choose.`);
             b.crowded.forEach(c => lines.push(
-                `${esc(c.name)} (${esc(c.layers)}) has ${c.legs} circuits on ${c.conn ? `${/^(?:[aeiou]|L\d)/i.test(c.conn) ? 'an' : 'a'} ${esc(c.conn)}, which carries ` : 'a connector that carries '}${c.size === 1 ? 'one circuit' : `${c.size} circuits`} — move it to a multi output.`));
+                `${esc(c.name)} (${esc(c.layers)}) has ${c.legs} circuits on ${c.conn ? `${this._aAn(c.conn)} ${esc(c.conn)}, which carries ` : 'a connector that carries '}${c.size === 1 ? 'one circuit' : `${c.size} circuits`}. Move it to a multi output.`));
             b.clashed.forEach(c => lines.push(
                 `${esc(c.name)} (${esc(c.layers)}) is shared ${c.overflow
-                    ? `with more circuits than the ${Number.isFinite(c.size) ? c.size : 'tails'} it holds`
-                    : 'with a circuit claimed twice'} — resolve the clash first.`));
+                    ? (Number.isFinite(c.size) ? `with more circuits than the ${c.size} it holds` : 'with more circuits than it holds')
+                    : 'with a circuit claimed twice'}. Resolve the clash first.`));
             b.phantom.forEach(p => lines.push(
                 `${esc(p.layers)} assigns ${p.count === 1 ? 'a multi' : p.count + ' multis'} to this distro but ${esc(p.reason)}`));
             lines.push(...lockedLines);
-            noTargets = `<p style="margin:0 0 6px; color:#a6b0bb;">Nothing on this distro can move${lines.length ? ':' : ' — no partly-filled multi lands on it.'}</p>`
+            noTargets = `<p style="margin:0 0 6px; color:#a6b0bb;">Nothing on this distro can move${lines.length ? ':' : '. No partly-filled multi lands on it.'}</p>`
                 + lines.map(l => `<div style="color:#a6b0bb; margin:0 0 4px; padding-left:10px;">· ${l}</div>`).join('');
         } else if (lockedLines.length) {
             noTargets += lockedHtml;
@@ -689,7 +721,7 @@ class _PhaseBalance {
         const multis = `${n} partly-filled multi${n === 1 ? '' : 's'}`;
         const checked = r.exhaustive
             ? `Checked all ${r.searched} arrangement${plural(r.searched, '', 's')} of ${multis}`
-            : `Checked ${r.searched} of ${r.total} arrangements of ${multis} — too many to try them all, so this is the best found, not necessarily the best there is`;
+            : `Checked ${r.searched} of ${r.total} arrangements of ${multis}. That is too many to try them all, so this is the best found, not necessarily the best there is`;
         const amps = (a) => `${a.toFixed(1)} A`;
         const body = !r.targets.length
             ? noTargets
@@ -707,7 +739,7 @@ class _PhaseBalance {
                </div>
                <div class="balance-busiest" style="color:#8fa0b2; font-size:11px; margin-bottom:14px;">Busiest leg ${amps(r.beforeBusiest)} → ${amps(r.afterBusiest)}</div>
                <div style="font-size:11px; color:#8a949f; margin-bottom:6px;">Re-plug these circuits along the same
-               fan — no rewiring, no re-patching:</div>
+               fan, with no rewiring and no re-patching:</div>
                ${r.moves.map(m => `
                  <div style="margin-bottom:10px;">
                    <div style="color:#e8eef5; margin-bottom:3px;">${esc(m.name)}
@@ -722,7 +754,7 @@ class _PhaseBalance {
                  </div>`).join('')}
                ${lockedHtml}
                <div style="margin-top:12px; font-size:11px; color:#7d8894;">Balancing picks WHICH sockets of the fan a partly-filled
-               multi uses — skipping one lands the remainder on different
+               multi uses. Skipping one lands the remainder on different
                legs. Circuits keep wall order across the chosen sockets,
                so the labels still read in order across the wall.
                ${checked}.</div>`;
@@ -734,7 +766,7 @@ class _PhaseBalance {
         el.innerHTML = `
 <div class="modal-content" style="background:#252525; border-radius:8px; padding:0; width:540px; max-width:94vw; margin:80px auto; border:1px solid #3a3a3a; overflow:hidden;">
   <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 20px; border-bottom:1px solid #3a3a3a;">
-    <h2 style="margin:0; font-size:15px; letter-spacing:0.5px;">BALANCE PHASE LEGS${distro ? ` — ${esc(distro.name).toUpperCase()}` : ''}</h2>
+    <h2 style="margin:0; font-size:15px; letter-spacing:0.5px;">BALANCE PHASE LEGS${distro ? `: ${esc(this.distroLabel(distro)).toUpperCase()}` : ''}</h2>
     <button class="btn btn-secondary balance-close" style="padding:4px 12px;">✕</button>
   </div>
   <div style="padding:16px 20px; font-size:12px; line-height:1.55;">${body}</div>
@@ -807,15 +839,15 @@ class _PhaseBalance {
   </div>
   <div style="padding:16px 20px; overflow-y:auto; font-size:12px; color:#c3ccd6; line-height:1.6;">
 
-    <p style="margin:0 0 14px;"><strong style="color:#e8eef5;">A distro fed from camlock is three-phase. Every circuit
-    coming off the breakout is single-phase</strong> — whether it sits on one
+    <p style="margin:0 0 14px;"><strong style="color:#e8eef5;">A distro powered from camlock is three-phase. Every circuit
+    coming off the breakout is single-phase</strong>, whether it sits on one
     hot and a neutral, or across two hots with no neutral. Three-phase never
     reaches a panel. The legs only decide <em>which</em> hots each circuit
     sits across, and therefore how the load spreads over the service.</p>
 
     <div style="background:#2b2f35; border-left:3px solid #4a6fa5; padding:10px 12px; border-radius:0 4px 4px 0; margin:0 0 14px;">
       <div style="color:#e8eef5; margin-bottom:5px;">Two things vary, and they are independent</div>
-      <div style="color:#a6b0bb; margin-bottom:8px;">Every scheme is named for both, coupling first, order second — so
+      <div style="color:#a6b0bb; margin-bottom:8px;">Every scheme is named for both, coupling first, order second, so
       <em>${byId('paired-ll').name}</em> and <em>${byId('rotating-ll').name}</em>
       are the same coupling dealt differently, not two answers to one question.</div>
       <table style="width:100%; border-collapse:collapse;">
@@ -824,7 +856,7 @@ class _PhaseBalance {
           <td style="padding:3px 0; color:#a6b0bb;"><strong style="color:#c3ccd6;">Line-to-neutral</strong> is one hot and
           a neutral (X). <strong style="color:#c3ccd6;">Line-to-line</strong> is two hots and no neutral (XY). This is the
           electrical relationship, and it follows the circuit voltage: line-to-neutral
-          runs at the service divided by √3 — 120 V off a 208 V service, 230 V off a
+          runs at the service divided by √3: 120 V off a 208 V service, 230 V off a
           400 V one.</td>
         </tr>
         <tr>
@@ -840,8 +872,8 @@ class _PhaseBalance {
 
     <div style="background:#3a2626; border-left:3px solid #b34a3a; padding:10px 12px; border-radius:0 4px 4px 0; margin:0 0 14px; color:#e0c0ba;">
       <strong style="color:#f5cdc4;">No standard assigns a circuit to a leg.</strong>
-      ANSI E1.80, USITT RP-1 and NEC 520.68 all cover the <em>pinout</em> —
-      which pin carries which circuit's conductors — and none of them assigns
+      ANSI E1.80, USITT RP-1 and NEC 520.68 all cover the <em>pinout</em>
+      (which pin carries which circuit's conductors), and none of them assigns
       a circuit to a leg. No major distro manufacturer publishes a universal
       mapping. Motion Laboratories' own maintenance manual says to "verify
       the pinout of each output, including that the correct phase is on the
@@ -851,14 +883,14 @@ class _PhaseBalance {
 
     <p style="margin:0 0 14px; color:#a6b0bb;">What every source does agree on is the
     <em>balance goal</em>: two circuits per leg line-to-neutral, two circuits
-    per leg-pair line-to-line. Only the order varies — and the order is exactly
+    per leg-pair line-to-line. Only the order varies, and the order is exactly
     what decides where a partly-filled multi dumps its remainder. Each pattern
     below is documented on a real distro or rack, none is a default.</p>
 
     <table class="phasing-scheme-table" style="width:100%; border-collapse:collapse; margin-bottom:10px;">
       <tr style="border-bottom:1px solid #3a3a3a;">
         <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Scheme</th>
-        <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Circuits 1–6</th>
+        <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Circuits 1-6</th>
         <th style="text-align:left; padding:6px 8px; font-size:10px; color:#8a949f; text-transform:uppercase;">Where it is documented</th>
       </tr>
       ${schemes.map(sc => `
@@ -873,7 +905,7 @@ class _PhaseBalance {
     only in the order the pairs come round: <em>${byId('paired-ll-alt').pattern}</em>
     follows the cyclic order X → Y → Z → X, the way AB → BC → CA does, and
     <em>${byId('paired-ll').pattern}</em> does not. That is the ordering fact,
-    not a ranking — neither is a default, and the only way to know which one a
+    not a ranking. Neither is a default, and the only way to know which one a
     given soca uses is to read it.</p>
 
     <div style="background:#2b2f35; border-left:3px solid #4a6fa5; padding:10px 12px; border-radius:0 4px 4px 0;">
@@ -881,7 +913,7 @@ class _PhaseBalance {
       <div style="color:#a6b0bb;">Imbalance almost always comes from <strong>partly-filled
       multis</strong>, not from the screens. A full 6-circuit multi balances
       itself under any scheme. A multi that stops at 4 or 5 circuits dumps its
-      remainder onto whichever legs come first in the pattern — with paired
+      remainder onto whichever legs come first in the pattern. With paired
       legs that is always X. Fill the multi, move a circuit to another multi,
       or use the rotating pattern if the distro is wired that way.</div>
     </div>
@@ -889,7 +921,7 @@ class _PhaseBalance {
     <div style="margin-top:14px; color:#7d8894; font-size:11px;">
       Per-leg current is a phasor sum, not a straight addition: a line-to-line
       circuit is one load drawing the <em>same</em> current in both its legs, sitting
-      ±30° off each leg's line-to-neutral reference. Imbalance is NEMA-style —
+      ±30° off each leg's line-to-neutral reference. Imbalance is NEMA-style:
       the largest deviation from the average of the three legs.
     </div>
   </div>
@@ -954,7 +986,7 @@ class _PhaseBalance {
               where: 'Two independent rental houses publish this exact map.' },
             { id: 'paired-ll-alt', lineToLine: true, order: 'paired',
               pattern: 'XY YZ ZX',
-              where: 'Same grouping, other pair order — published as the Strand LightRack module pinout.' },
+              where: 'Same grouping, other pair order, published as the Strand LightRack module pinout.' },
             { id: 'rotating-ll', lineToLine: true, order: 'rotating',
               pattern: 'XY XZ YZ',
               where: 'Reported as a competing family. Spreads a partly-filled multi best.' }
@@ -1170,12 +1202,17 @@ class _PhaseBalance {
     // back on 1-4" once evaporated and let the joiner keep tail 1.
     setSocaCircuitPositions(layer, socaNum, positions, legsUsed) {
         if (!layer) return false;
+        // A locked screen keeps its tails, and so does a locked screen on
+        // a box this one shares: a move that would deal them again is put
+        // back whole, the screen named (_lockedPowerTrial).
+        if (this._lockedRefused(layer)) return false;
         const size = this.socaBoxSize(layer);
         const L = Math.max(0, Math.min(size, Number(legsUsed) || 0));
         const ok = Array.isArray(positions) && positions.length === L
             && positions.every(p => Number.isInteger(p) && p >= 1 && p <= size)
             && new Set(positions).size === L;
         if (!ok) return false;
+        const shared = this._lockedPowerTrial();
         const store = layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {});
         const sorted = positions.slice().sort((a, b) => a - b);
         const natural = sorted.every((p, i) => p === i + 1);
@@ -1185,6 +1222,7 @@ class _PhaseBalance {
             store[socaNum] = sorted;
         }
         this._circuitTailCache = null;
+        if (shared()) return false;
         this.updateLayers([layer], true, 'Move Circuits');
         return true;
     }
@@ -1202,6 +1240,9 @@ class _PhaseBalance {
 
     setSocaPhaseOffset(layer, socaNum, offset, legsUsed) {
         if (!layer) return;
+        // The same locks as a tail move (setSocaCircuitPositions).
+        if (this._lockedRefused(layer)) return;
+        const shared = this._lockedPowerTrial();
         // Always leave an object behind, never delete the property itself:
         // an absent key is simply missing from the update payload and the
         // server keeps whatever it had, so "clear this" would silently not
@@ -1212,6 +1253,7 @@ class _PhaseBalance {
                                this.socaBoxSize(layer)));
         if (v) map[socaNum] = v; else delete map[socaNum];
         this._circuitTailCache = null;
+        if (shared()) return;
         this.updateLayers([layer], true, 'Set Breaker Offset');
     }
 
@@ -1229,6 +1271,9 @@ class _PhaseBalance {
     // have changed is named.
     clearPhaseBalance(distroId) {
         const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen');
+        // Whatever still moves a locked screen after all that holding puts
+        // the whole reset back, the screen named (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         const lockedBoxes = this._lockedSharedBoxes(screens, distroId);
         // Every screen's stores as they were, for a multi the reset has to
         // leave where it is (_resetAroundPairedRows).
@@ -1264,8 +1309,9 @@ class _PhaseBalance {
         this._circuitTailCache = null;
         this._showPairedResetError(this._resetAroundPairedRows(screens, distroId, preReset));
         this._circuitTailCache = null;
+        if (shared()) return 0;
         // Locked screens are not written: nothing on them changed.
-        const writable = screens.filter(l => !l.locked);
+        const writable = screens.filter(l => !this._layerLocked(l));
         if (writable.length) this.updateLayers(writable, true, 'Reset Phase Offsets');
         return screens.length;
     }
@@ -1301,7 +1347,7 @@ class _PhaseBalance {
                     if (!share) {
                         units.push({ members: [{ layer, soca: s.soca, legs: s.legs.length }],
                                      number: s.number, s, shared: false,
-                                     locked: !!layer.locked });
+                                     locked: !!this._layerLocked(layer) });
                         continue;
                     }
                     if (seen.has(share.key)) continue;
@@ -1311,7 +1357,7 @@ class _PhaseBalance {
                     }));
                     if (members.some(m => !m.layer)) continue;
                     units.push({ members, number: s.number, s, shared: true,
-                                 locked: members.some(m => !!m.layer.locked) });
+                                 locked: members.some(m => !!this._layerLocked(m.layer)) });
                 }
             }
             const tailsOf = (u) => {
@@ -1371,7 +1417,7 @@ class _PhaseBalance {
         const list = names.length === 1 ? names[0]
             : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
         this._toast(`${list} ${names.length === 1 ? 'stays' : 'stay'} where `
-            + `${names.length === 1 ? 'it was' : 'they were'} - the reset would have patched a circuit `
+            + `${names.length === 1 ? 'it was' : 'they were'}: the reset would have patched a circuit `
             + 'through two paired connectors.', true, 5000);
     }
 
@@ -1394,7 +1440,7 @@ class _PhaseBalance {
                     if (!ml) return null;
                     const saved = (ml.powerSocaPhasePos || {})[m.soca];
                     return { layer: ml, soca: m.soca, legs: m.legs,
-                             tails: m.tails.slice(), locked: !!ml.locked,
+                             tails: m.tails.slice(), locked: !!this._layerLocked(ml),
                              store: Array.isArray(saved) ? saved.slice() : null };
                 });
                 if (members.some(m => !m)) continue;

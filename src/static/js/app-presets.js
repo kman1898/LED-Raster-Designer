@@ -3,6 +3,15 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog, setupColorPickerWithHex } from './helpers.js';
 
+// Library models renamed in a release, old "<manufacturer>|<model>" to new:
+// a favorite saved under the old name finds the model under its new one
+// (_libraryPanelFor). 1.6.0: ROE's "Graphite 2.6 (4 in 1)" is named the
+// way ROE names it, "Graphite GP2.6 (4 in 1)".
+const PANEL_CATALOG_RENAMES = {
+    'ROE|Graphite 2.6 (4 in 1) Full Tile': 'ROE|Graphite GP2.6 (4 in 1) Full Tile',
+    'ROE|Graphite 2.6 (4 in 1) Half Tile': 'ROE|Graphite GP2.6 (4 in 1) Half Tile',
+};
+
 class _Presets {
     // ── Preset CRUD (server) ──
     fetchPresetList() {
@@ -74,16 +83,26 @@ class _Presets {
         try { localStorage.setItem('addLayer.order', JSON.stringify(arr || [])); } catch {}
     }
     _favoriteKey(mfr, name) { return `${mfr}|${name}`; }
-    _isCatalogFavorited(mfr, name) {
+    // A favorite's key under the library's name today: a favorite saved
+    // under a model's old name (PANEL_CATALOG_RENAMES) is the same
+    // favorite as the renamed library row, so the row shows hearted and
+    // hearting it never adds a second copy.
+    _currentFavoriteKey(mfr, name) {
         const key = this._favoriteKey(mfr, name);
-        return this.getAddLayerFavorites().some(p => this._favoriteKey(p._mfr, p.name) === key);
+        return PANEL_CATALOG_RENAMES[key] || key;
+    }
+    _isCatalogFavorited(mfr, name) {
+        const key = this._currentFavoriteKey(mfr, name);
+        return this.getAddLayerFavorites().some(p => this._currentFavoriteKey(p._mfr, p.name) === key);
     }
     _toggleCatalogFavorite(panel) {
-        const key = this._favoriteKey(panel._mfr, panel.name);
+        const key = this._currentFavoriteKey(panel._mfr, panel.name);
         const favs = this.getAddLayerFavorites();
-        const idx = favs.findIndex(p => this._favoriteKey(p._mfr, p.name) === key);
-        if (idx >= 0) {
-            favs.splice(idx, 1);
+        const kept = favs.filter(p => this._currentFavoriteKey(p._mfr, p.name) !== key);
+        if (kept.length < favs.length) {
+            // every copy goes: one saved under the old name and one under
+            // the new are the same favorite
+            favs.splice(0, favs.length, ...kept);
         } else {
             // Snapshot only the fields we need so we don't bloat localStorage.
             favs.push({
@@ -91,6 +110,7 @@ class _Presets {
                 width_mm: panel.width_mm, height_mm: panel.height_mm,
                 pixels_w: panel.pixels_w, pixels_h: panel.pixels_h,
                 weight_kg: panel.weight_kg, watts_max: panel.watts_max,
+                watts_ave: panel.watts_ave,
                 source: panel.source
             });
         }
@@ -105,18 +125,42 @@ class _Presets {
     // cabinet of screens that already exist: opts.layerIds name them,
     // opts.title heads the modal, the confirm button reads "Change", and
     // the pick lands through changeCabinetForLayers rather than addLayer.
+    // 'startup' (1.6.0, owner 2026-11-02: "on start-up, we open up the
+    // panel library and choose a panel") asks for the panel of a new
+    // project's first screen: maybeOpenStartupPicker opens it on a launch
+    // and on File > New, the pick replaces the startup screen with a
+    // Screen1 of that panel, and Cancel leaves the project empty.
+    //
+    // The "nothing selected" row exists in add mode only, and only while
+    // the project has a screen: it copies the last screen's panel
+    // (_lastScreenPanelData). In the other modes, and with no screen to
+    // copy, the confirm button waits for a pick.
     openPresetPicker(opts = {}) {
         const modal = document.getElementById('preset-picker-modal');
         const list = document.getElementById('preset-picker-list');
         if (!modal || !list) return;
-        const replace = opts.mode === 'replace';
-        this._pickerMode = replace ? 'replace' : 'add';
+        const mode = opts.mode === 'replace' || opts.mode === 'startup' ? opts.mode : 'add';
+        const replace = mode === 'replace';
+        this._pickerMode = mode;
+        // The start page's New opens it (app-start-page.js), and its
+        // Cancel goes back there (cancelPresetPicker).
+        this._pickerFromStartPage = mode === 'startup' && opts.fromStartPage === true;
         this._pickerTargetIds = replace ? [...(opts.layerIds || [])] : [];
-        this._setPickerChrome(replace ? (opts.title || 'Change cabinet') : null);
+        this._setPickerChrome(mode, replace ? (opts.title || 'Change cabinet') : null);
         list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
+        // Every open starts on the whole library: the last open's search
+        // and manufacturer filter would otherwise greet File > New's pick
+        // with a list cut down to a panel nobody asked for this time.
+        const searchEl = document.getElementById('panel-catalog-search');
+        const mfrSel = document.getElementById('panel-catalog-mfr');
+        if (searchEl) searchEl.value = '';
+        if (mfrSel) mfrSel.value = '';
         modal.style.display = 'block';
-        // Selection model: { type: 'preset'|'panel', key }, default preset is always '__default__'
-        this._pickerSelection = { type: 'preset', key: '__default__' };
+        // Selection model: { type: 'preset'|'panel', key }; the "nothing
+        // selected" row is the preset key '__default__', and with no such
+        // row nothing is selected ({ type: 'none' }).
+        this._pickerSelection = this._pickerHasDefaultRow()
+            ? { type: 'preset', key: '__default__' } : { type: 'none' };
         this._updatePickerSummary();
         this._renderPresetPickerLeftColumn();
         // Load catalog in parallel
@@ -129,21 +173,16 @@ class _Presets {
         list.innerHTML = '<div style="padding: 12px; color: #888; font-size: 12px;">Loading…</div>';
         this.fetchPresetEntries().then(entries => {
             list.innerHTML = '';
-            const prefs = this.getPreferences() || {};
-            const prefEntry = {
-                columns: prefs.columns, rows: prefs.rows,
-                cabinet_width: prefs.panelWidth, cabinet_height: prefs.panelHeight,
-                panel_width_mm: prefs.panelWidthMM, panel_height_mm: prefs.panelHeightMM,
-                panelWatts: prefs.powerWatts
-            };
-            // Build unified row list. Default is always pinned first.
-            const defaultRow = {
+            // The "nothing selected" row, pinned first: the last screen's
+            // panel, in add mode while there is a screen to copy.
+            const last = this._pickerHasDefaultRow() ? this._lastScreenLayer() : null;
+            const defaultRow = last ? {
                 id: '__default__',
                 kind: 'default',
-                label: 'Default (from Preferences)',
-                sublabel: this.formatPresetSublabel(prefEntry),
+                label: `Same as ${last.name || 'the last screen'}`,
+                sublabel: this.escapeHtml(this._lastScreenPanelText(last)),
                 pickerKey: '__default__'
-            };
+            } : null;
             const presetRows = entries.map(entry => ({
                 id: `preset:${entry.name}`,
                 kind: 'preset',
@@ -151,18 +190,28 @@ class _Presets {
                 sublabel: this.formatPresetSublabel(entry),
                 pickerKey: entry.name
             }));
-            const favRows = this.getAddLayerFavorites().map(p => ({
-                id: `panel:${this._favoriteKey(p._mfr, p.name)}`,
-                kind: 'favorite',
-                panel: p,
-                label: `${(p._mfr || '').replace(/_/g,' ')} ${p.name || ''}`.trim(),
-                sublabel: this.formatPresetSublabel({
-                    cabinet_width: p.pixels_w, cabinet_height: p.pixels_h,
-                    panel_width_mm: p.width_mm, panel_height_mm: p.height_mm,
-                    panelWatts: p.watts_max
-                }),
-                pickerKey: this._favoriteKey(p._mfr, p.name)
-            }));
+            // A favorite row shows what a pick of it makes: the library's
+            // model as it is now (_shownFavoritePanel), its new name and
+            // figures where the library renamed or corrected it. The row
+            // keeps the snapshot's key, so its order and its heart still
+            // find it.
+            const favs = this.getAddLayerFavorites();
+            this._pickerFavsFromSnapshot = favs.length > 0 && !this._panelCatalog;
+            const favRows = favs.map(p => {
+                const shown = this._shownFavoritePanel(p);
+                return {
+                    id: `panel:${this._favoriteKey(p._mfr, p.name)}`,
+                    kind: 'favorite',
+                    panel: p,
+                    label: this._catalogModelLabel(shown._mfr, shown),
+                    sublabel: this.formatPresetSublabel({
+                        cabinet_width: shown.pixels_w, cabinet_height: shown.pixels_h,
+                        panel_width_mm: shown.width_mm, panel_height_mm: shown.height_mm,
+                        panelWatts: shown.watts_max
+                    }),
+                    pickerKey: this._favoriteKey(p._mfr, p.name)
+                };
+            });
             // Sort by saved order; unknowns appended.
             const order = this.getAddLayerOrder();
             const orderIdx = id => {
@@ -170,9 +219,15 @@ class _Presets {
                 return i === -1 ? Number.MAX_SAFE_INTEGER : i;
             };
             const mixed = [...presetRows, ...favRows].sort((a, b) => orderIdx(a.id) - orderIdx(b.id));
-            const rows = [defaultRow, ...mixed];
+            const rows = defaultRow ? [defaultRow, ...mixed] : mixed;
+            if (rows.length === 0) {
+                const empty = document.createElement('div');
+                empty.style.cssText = 'padding: 12px; color: #888; font-size: 12px;';
+                empty.textContent = 'No saved presets. Pick a panel from the catalog.';
+                list.appendChild(empty);
+            }
 
-            rows.forEach((row, idx) => {
+            rows.forEach((row) => {
                 const item = document.createElement('div');
                 item.className = 'preset-picker-row';
                 item.dataset.key = row.pickerKey;
@@ -184,7 +239,7 @@ class _Presets {
                     item.draggable = true;
                     this._wirePresetRowDrag(item);
                 }
-                if (idx === 0) item.style.background = '#2d4a7a';
+                if (row.kind === 'default') item.style.background = '#2d4a7a';
                 const leftCol = document.createElement('div');
                 leftCol.style.cssText = 'flex: 1; min-width: 0; overflow: hidden;';
                 leftCol.innerHTML = `<div style="color:#fff; font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(row.label)}</div><div style="color:#888; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${row.sublabel}</div>`;
@@ -210,12 +265,13 @@ class _Presets {
                     delBtn.textContent = '🗑';
                     delBtn.title = `Delete preset "${row.pickerKey}"`;
                     delBtn.style.cssText = 'background: transparent; color: #c55; font-size: 14px; padding: 2px 8px; border: 1px solid #444;';
-                    delBtn.addEventListener('click', (e) => {
+                    delBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
-                        if (!confirm(`Delete preset "${row.pickerKey}"?`)) return;
+                        if (!(await this.appConfirm(`Delete preset "${row.pickerKey}"?`,
+                            { id: 'preset-delete-modal', title: 'Delete preset', okLabel: 'Delete', danger: true }))) return;
                         this.deletePresetOnServer(row.pickerKey).then(() => {
                             this._renderPresetPickerLeftColumn();
-                        }).catch(err => alert('Failed to delete preset: ' + (err && err.error || 'unknown')));
+                        }).catch(err => this._toast('The preset was not deleted: ' + (err && err.error || 'unknown error'), true, 6000));
                     });
                     item.appendChild(delBtn);
                 }
@@ -408,8 +464,9 @@ class _Presets {
     }
 
     // A screen's half tile's weight in kg from the library, or null (the
-    // caller's 0.65 of the full cabinet). The screen does not store which
-    // model it was made from, so its model is FOUND: every library model
+    // caller's 0.65 of the full cabinet). A screen with a saved library
+    // model reads that model's half, scaled to a weight typed over the
+    // library's (see below). One saved before has no model, so it is FOUND: every library model
     // whose size (mm and pixels) and weight are this screen's own cabinet's
     // - the figures a library pick writes onto it - and every one of them
     // must have a perfect half (_catalogHalfOf) of one weight; a cabinet
@@ -425,6 +482,20 @@ class _Presets {
         }
         const w = Number(layer.panel_weight) || 20;
         const kg = (layer.weight_unit || 'kg') === 'lb' ? w / 2.20462 : w;
+        // The screen's SAVED panel first (owner, 2026-10-22): its own
+        // half, whatever other models share its figures. A weight typed
+        // over the library's carries to the half (owner, 2026-10-23:
+        // "Follow the typed weight"): the library's half/full ratio times
+        // the screen's full weight. At the library's own weight (a pick,
+        // lb to the hundredth) the half is the library's figure.
+        const saved = this._catalogSavedPanel(layer);
+        if (saved !== undefined) {
+            if (!saved) return null;
+            const half = this._catalogHalfOf(saved.mfr, saved.F, axis);
+            const full = Number(saved.F.weight_kg);
+            if (!(half > 0) || !(full > 0)) return null;
+            return Math.abs(full - kg) <= 0.006 ? half : half / full * kg;
+        }
         const key = [layer.panel_width_mm, layer.panel_height_mm, layer.cabinet_width, layer.cabinet_height,
                      kg.toFixed(4), axis].join('|');
         if (!this._halfWeightCache) this._halfWeightCache = new Map();
@@ -450,6 +521,99 @@ class _Presets {
         return answer;
     }
 
+    // A library model as the picker names it: "ROE Visual Black Pearl
+    // BP2V2" (the manufacturer, then the model).
+    _catalogModelLabel(mfr, p) {
+        return `${String(mfr || '').replace(/_/g, ' ')} ${(p && p.name) || ''}`.trim();
+    }
+
+    // ── The panel SAVED on the screen (owner, 2026-10-22: "It has to be
+    // saved to the screen considering we derive the half tiles the same
+    // way") ──
+    //
+    // A pick from the panel library writes the model onto the screen:
+    //   panelModelId      "<manufacturer>|<model>", the library's own key
+    //                     (the favorites' key) - null for a panel named by
+    //                     hand
+    //   panelModelName    its name as the show knows it, "ROE Black Pearl
+    //                     BP2V2", or what somebody typed in Screen Info
+    //   panelModelHalves  { height, width }: the library's matching half
+    //                     along each axis by name, null where it has none
+    // A hand change of the cabinet's pixels or millimetres forgets all
+    // three (the figures no longer describe that panel); a weight or
+    // watts edit keeps them.
+    catalogModelId(mfr, p) {
+        return `${String(mfr || '')}|${(p && p.name) || ''}`;
+    }
+
+    // The label a saved library id stands for ("ROE|Black Pearl BP2V2" is
+    // "ROE Black Pearl BP2V2"), without the library.
+    catalogModelIdLabel(id) {
+        const text = String(id || '');
+        const cut = text.indexOf('|');
+        return cut < 0 ? '' : this._catalogModelLabel(text.slice(0, cut), { name: text.slice(cut + 1) });
+    }
+
+    // Does the screen carry a saved panel (a library model or a typed name)?
+    hasSavedPanelModel(layer) {
+        return !!(layer && (String(layer.panelModelId || '').trim() || String(layer.panelModelName || '').trim()));
+    }
+
+    // The screen's saved library model in the loaded library: { mfr, F };
+    // null where the screen's panel is one the library does not speak for
+    // (a name typed by hand); undefined where the screen saved none, or a
+    // model this library no longer lists - the caller then finds it by its
+    // figures, as before.
+    _catalogSavedPanel(layer) {
+        if (!this.hasSavedPanelModel(layer)) return undefined;
+        const id = String(layer.panelModelId || '');
+        if (!id) return null;
+        const cut = id.indexOf('|');
+        const mfr = cut < 0 ? '' : id.slice(0, cut);
+        const name = cut < 0 ? '' : id.slice(cut + 1);
+        const F = ((this._panelCatalog && this._panelCatalog[mfr]) || []).find(p => p && p.name === name);
+        return F ? { mfr, F } : undefined;
+    }
+
+    // What a library pick saves on the screen (see above).
+    catalogPanelModelFields(panel) {
+        const mfr = (panel && (panel._mfr || panel.manufacturer)) || '';
+        const F = mfr && this._panelCatalog
+            ? ((this._panelCatalog[mfr] || []).find(p => p && p.name === panel.name) || panel) : panel;
+        return {
+            panelModelId: this.catalogModelId(mfr, panel),
+            panelModelName: this._catalogModelLabel(mfr, panel),
+            panelModelHalves: {
+                height: this._panelCatalog ? this._catalogHalfName(mfr, F, 'height') : null,
+                width: this._panelCatalog ? this._catalogHalfName(mfr, F, 'width') : null,
+            },
+        };
+    }
+
+    // The library's perfect half of full model F, halved along `axis`, by
+    // name - the match _catalogHalfOf makes, a weight not needed - or null
+    // where there is none, or more than one name.
+    _catalogHalfName(mfr, F, axis) {
+        const series = this._catalogSizeToken(F, 'full');
+        if (series === null) return null;
+        const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+        const dims = (p) => ['width_mm', 'height_mm', 'pixels_w', 'pixels_h', 'pitch_mm'].map(k => num(p[k]));
+        const [fw, fh, fpw, fph, fp] = dims(F);
+        if (![fw, fh, fpw, fph, fp].every(v => v > 0)) return null;
+        const names = new Set();
+        for (const H of (this._panelCatalog && this._panelCatalog[mfr]) || []) {
+            if (H === F) continue;
+            const [hw, hh, hpw, hph, hp] = dims(H);
+            if (![hw, hh, hpw, hph, hp].every(v => v > 0) || hp !== fp) continue;
+            const halved = axis === 'width'
+                ? (hh === fh && hph === fph && hw * 2 === fw && hpw * 2 === fpw)
+                : (hw === fw && hpw === fpw && hh * 2 === fh && hph * 2 === fph);
+            if (!halved || this._catalogSizeToken(H, 'half') !== series) continue;
+            names.add(this._catalogModelLabel(mfr, H));
+        }
+        return names.size === 1 ? [...names][0] : null;
+    }
+
     // A screen's half tile's share of the full cabinet's WATTS from the
     // library, or null (the caller's 50%). The model is found the way
     // catalogHalfWeightKg finds it - every library model whose size (mm and
@@ -464,6 +628,9 @@ class _Presets {
             if (typeof this._ensurePanelCatalogData === 'function') this._ensurePanelCatalogData();
             return null;
         }
+        // The screen's SAVED panel first, as the half's weight reads it.
+        const saved = this._catalogSavedPanel(layer);
+        if (saved !== undefined) return saved ? this._catalogHalfWattsOf(saved.mfr, saved.F, axis) : null;
         const w = Number(layer.panel_weight) || 20;
         const kg = (layer.weight_unit || 'kg') === 'lb' ? w / 2.20462 : w;
         const key = [layer.panel_width_mm, layer.panel_height_mm, layer.cabinet_width, layer.cabinet_height,
@@ -481,31 +648,38 @@ class _Presets {
                         || !same(F.pixels_w, layer.cabinet_width) || !same(F.pixels_h, layer.cabinet_height)) continue;
                 if (!(num(F.weight_kg) > 0) || Math.abs(num(F.weight_kg) - kg) > 0.006) continue;
                 found++;
-                const series = this._catalogSizeToken(F, 'full');
-                const [fw, fh, fpw, fph, fp] = dims(F);
-                if (series === null || !(num(F.watts_max) > 0) || ![fw, fh, fpw, fph, fp].every(v => v > 0)) {
-                    short = true;
-                    continue;
-                }
-                const mine = new Set();
-                for (const H of this._panelCatalog[mfr] || []) {
-                    if (H === F) continue;
-                    const [hw, hh, hpw, hph, hp] = dims(H);
-                    if (![hw, hh, hpw, hph, hp].every(v => v > 0) || hp !== fp) continue;
-                    const halved = axis === 'width'
-                        ? (hh === fh && hph === fph && hw * 2 === fw && hpw * 2 === fpw)
-                        : (hw === fw && hpw === fpw && hh * 2 === fh && hph * 2 === fph);
-                    if (!halved || !(num(H.watts_max) > 0)) continue;
-                    if (this._catalogSizeToken(H, 'half') !== series) continue;
-                    mine.add(num(H.watts_max) / num(F.watts_max));
-                }
-                if (mine.size !== 1) { short = true; continue; }
-                ratios.add([...mine][0]);
+                const ratio = this._catalogHalfWattsOf(mfr, F, axis);
+                if (ratio === null) { short = true; continue; }
+                ratios.add(ratio);
             }
         }
         const answer = (found && !short && ratios.size === 1) ? [...ratios][0] : null;
         this._halfWattsCache.set(key, answer);
         return answer;
+    }
+
+    // Full model F's perfect half's share of its watts along `axis` (same
+    // series, exactly half, the same pitch, watts on both), or null where
+    // there is none or the halves disagree.
+    _catalogHalfWattsOf(mfr, F, axis) {
+        const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+        const dims = (p) => ['width_mm', 'height_mm', 'pixels_w', 'pixels_h', 'pitch_mm'].map(k => num(p[k]));
+        const series = this._catalogSizeToken(F, 'full');
+        const [fw, fh, fpw, fph, fp] = dims(F);
+        if (series === null || !(num(F.watts_max) > 0) || ![fw, fh, fpw, fph, fp].every(v => v > 0)) return null;
+        const mine = new Set();
+        for (const H of (this._panelCatalog && this._panelCatalog[mfr]) || []) {
+            if (H === F) continue;
+            const [hw, hh, hpw, hph, hp] = dims(H);
+            if (![hw, hh, hpw, hph, hp].every(v => v > 0) || hp !== fp) continue;
+            const halved = axis === 'width'
+                ? (hh === fh && hph === fph && hw * 2 === fw && hpw * 2 === fpw)
+                : (hw === fw && hpw === fpw && hh * 2 === fh && hph * 2 === fph);
+            if (!halved || !(num(H.watts_max) > 0)) continue;
+            if (this._catalogSizeToken(H, 'half') !== series) continue;
+            mine.add(num(H.watts_max) / num(F.watts_max));
+        }
+        return mine.size === 1 ? [...mine][0] : null;
     }
 
     _loadPanelCatalog() {
@@ -548,6 +722,11 @@ class _Presets {
             }
             this._renderPanelCatalogList();
             this._renderCatalogSourceTag();
+            // Favorites drawn before the library landed showed their
+            // snapshots: draw them again through the library, and the
+            // summary of a picked one with them.
+            if (this._pickerFavsFromSnapshot) this._renderPresetPickerLeftColumn();
+            this._updatePickerSummary();
         };
         if (this._panelCatalog) { finish(); return; }
         // Prefer the cached refreshed catalog if present, else the bundled file.
@@ -739,12 +918,24 @@ class _Presets {
             t.style.opacity = '0';
             setTimeout(() => t.remove(), 220);
         }, lifetime);
+        // The toast itself, for a caller that replaces its own rather than
+        // stacking copies (app-port-assignment _canvasRefusalSay).
+        return t;
     }
 
     // A panel is "verified" if its `source` flags it as cross-checked against
     // the manufacturer's published spec sheet/PDF rather than only the aggregated catalog's
     // (sometimes-outdated) internal database. Treats any source starting with
     // "official:" or containing "spec PDF" / "absen ... PDF" as verified.
+    // A panel's watts as the picker shows them: the max, which every power
+    // figure in the app is planned on, and the catalog's average beside it
+    // for reference where the sheet gives one (owner, 2026-10-30) -
+    // "340W max · 120W avg", or "340W" with no average.
+    _panelWattsText(p) {
+        if (!p || p.watts_max == null) return '';
+        return p.watts_ave != null ? `${p.watts_max}W max · ${p.watts_ave}W avg` : `${p.watts_max}W`;
+    }
+
     _isPanelVerified(p) {
         const s = (p && p.source || '').toLowerCase();
         if (!s) return false;
@@ -796,7 +987,7 @@ class _Presets {
             if (p.width_mm != null && p.height_mm != null) specs.push(`${p.width_mm}×${p.height_mm}mm`);
             if (p.pixels_w != null && p.pixels_h != null) specs.push(`${p.pixels_w}×${p.pixels_h}px`);
             if (p.weight_kg != null) specs.push(`${p.weight_kg}kg`);
-            if (p.watts_max != null) specs.push(`${p.watts_max}W`);
+            if (p.watts_max != null) specs.push(this._panelWattsText(p));
             // Verified ⭐: panel specs were cross-checked against the manufacturer's
             // own published spec sheet/PDF (not just the aggregated catalog).
             const verified = this._isPanelVerified(p);
@@ -859,38 +1050,123 @@ class _Presets {
         if (!summary) return;
         const sel = this._pickerSelection || {};
         if (sel.type === 'panel' && sel.panel) {
-            const p = sel.panel;
+            // The panel a pick makes (a favorite's snapshot read through
+            // the library), named and measured as the screen will be.
+            const p = this._shownFavoritePanel(sel.panel);
             const parts = [];
             if (p.width_mm != null) parts.push(`${p.width_mm}×${p.height_mm}mm`);
             if (p.pixels_w != null) parts.push(`${p.pixels_w}×${p.pixels_h}px`);
             if (p.weight_kg != null) parts.push(`${p.weight_kg}kg`);
-            if (p.watts_max != null) parts.push(`${p.watts_max}W`);
-            summary.textContent = `Panel: ${sel.label}, ${parts.join(' · ')}`;
+            if (p.watts_max != null) parts.push(this._panelWattsText(p));
+            summary.textContent = `Panel: ${this._catalogModelLabel(p._mfr, p)}, ${parts.join(' · ')}`;
         } else if (sel.type === 'preset' && sel.key && sel.key !== '__default__') {
             summary.textContent = `Preset: ${sel.label || sel.key}`;
+        } else if (sel.type === 'preset' && sel.key === '__default__' && this._lastScreenLayer()) {
+            // Nothing picked: the last screen's panel, by name where it
+            // has one ("Screen3's panel (ROE Black Pearl BP2V2)").
+            const last = this._lastScreenLayer();
+            summary.textContent = `Nothing selected, will use ${last.name || 'the last screen'}'s panel (${this._lastScreenPanelText(last)}).`;
         } else {
-            summary.textContent = 'Default, uses your Preferences values.';
+            summary.textContent = 'Nothing selected. Pick a panel or a preset.';
         }
+        // The confirm button waits for something it can make.
+        const confirmBtn = document.getElementById('preset-picker-add');
+        if (confirmBtn) confirmBtn.disabled = !this._pickerSelectionUsable();
+    }
+
+    // Can the confirm button act on the selection? A panel or a saved
+    // preset always; the "nothing selected" row only while it is offered
+    // (add mode, with a screen to copy).
+    _pickerSelectionUsable() {
+        const sel = this._pickerSelection || {};
+        if (sel.type === 'panel') return !!sel.panel;
+        if (sel.type !== 'preset' || !sel.key) return false;
+        return sel.key !== '__default__' || this._pickerHasDefaultRow();
+    }
+
+    // Is the "nothing selected" row offered? Add mode only, and only with
+    // a screen whose panel it would copy.
+    _pickerHasDefaultRow() {
+        return (this._pickerMode || 'add') === 'add' && !!this._lastScreenLayer();
     }
 
     // The modal's heading, its one-line brief and the confirm button, by
-    // mode. `replaceTitle` null is add mode; the add-mode brief is the
-    // markup index.html ships, kept on the element the first time through
-    // so a replace never loses it.
-    _setPickerChrome(replaceTitle) {
+    // mode ('add', 'replace', 'startup'). `replaceTitle` heads replace
+    // mode; the add-mode brief is the markup index.html ships, kept on the
+    // element the first time through so another mode never loses it.
+    _setPickerChrome(mode, replaceTitle) {
         const title = document.getElementById('preset-picker-title');
         const brief = document.getElementById('preset-picker-subtitle');
         const confirmBtn = document.getElementById('preset-picker-add');
         if (brief && brief._addModeHtml === undefined) brief._addModeHtml = brief.innerHTML;
-        if (replaceTitle !== null) {
-            if (title) title.textContent = replaceTitle;
-            if (brief) brief.textContent = 'Only the cabinet changes: pixels, millimetres, weight, watts. Columns, rows, position, ports and circuits stay.';
+        if (mode === 'replace') {
+            if (title) title.textContent = replaceTitle || 'Change cabinet';
+            if (brief) brief.textContent = 'Only the cabinet changes: pixels, millimeters, weight, watts. Columns, rows, position, ports and circuits stay.';
             if (confirmBtn) confirmBtn.textContent = 'Change';
+        } else if (mode === 'startup') {
+            if (title) title.textContent = 'Choose a panel';
+            // From the start page, Cancel goes back to it (cancelPresetPicker).
+            const cancelSays = this._pickerFromStartPage
+                ? 'Cancel goes back to the start page.' : 'Cancel starts with no screens.';
+            if (brief) brief.textContent = 'Pick the panel for this project\'s first screen, from your presets or the panel catalog. ' + cancelSays;
+            if (confirmBtn) confirmBtn.textContent = 'Use Panel';
         } else {
             if (title) title.textContent = 'Add Screen';
             if (brief) brief.innerHTML = brief._addModeHtml;
             if (confirmBtn) confirmBtn.textContent = 'Add Screen';
         }
+    }
+
+    // ── The last screen's panel (1.6.0) ──
+    //
+    // Add Screen with nothing picked makes a screen of the last screen's
+    // panel: its cabinet pixels, millimeters, weight (with its unit),
+    // watts and the saved panel model, the way a pick of that panel
+    // would. Columns and rows come from Preferences, as for any pick.
+    // "Last" is the last screen in the layer list on the active canvas
+    // (where the new screen lands), else the last screen in the project.
+    _lastScreenLayer() {
+        const layers = ((this.project && this.project.layers) || [])
+            .filter(l => l && (l.type || 'screen') === 'screen');
+        if (layers.length === 0) return null;
+        const active = this.project.active_canvas_id;
+        const here = active ? layers.filter(l => l.canvas_id === active) : [];
+        return (here.length ? here : layers)[(here.length ? here : layers).length - 1];
+    }
+
+    // The last screen's panel as addLayer's preset-shaped data; null with
+    // no screen in the project.
+    _lastScreenPanelData() {
+        const src = this._lastScreenLayer();
+        if (!src) return null;
+        const prefs = this.getPreferences() || {};
+        const data = {
+            columns: prefs.columns,
+            rows: prefs.rows,
+            _presetName: `${src.name || 'last screen'}'s panel`,
+        };
+        ['cabinet_width', 'cabinet_height', 'panel_width_mm', 'panel_height_mm', 'panelWatts'].forEach(k => {
+            if (src[k] != null && src[k] !== '') data[k] = src[k];
+        });
+        if (src.panel_weight != null && src.panel_weight !== '') {
+            data.panel_weight = src.panel_weight;
+            data.weight_unit = src.weight_unit || 'kg';
+        }
+        data.panelModelId = src.panelModelId || null;
+        data.panelModelName = src.panelModelName || null;
+        data.panelModelHalves = src.panelModelHalves && typeof src.panelModelHalves === 'object'
+            ? { height: src.panelModelHalves.height || null, width: src.panelModelHalves.width || null } : null;
+        return data;
+    }
+
+    // The last screen's panel in a few words: its saved name, else its
+    // pixels (never a name guessed from its figures).
+    _lastScreenPanelText(layer) {
+        const l = layer || this._lastScreenLayer();
+        if (!l) return '';
+        const named = String(l.panelModelName || '').trim();
+        if (named) return named;
+        return `${l.cabinet_width}×${l.cabinet_height}px`;
     }
 
     // Change cabinet…: the picker in replace mode over these layers. Only
@@ -901,7 +1177,7 @@ class _Presets {
         if (screens.length === 0) return;
         // Only locked screens: nothing could change, so the picker does not
         // open and the error says why.
-        if (screens.every(l => l.locked)) {
+        if (screens.every(l => this._layerLocked(l))) {
             this._showLockedError(screens);
             return;
         }
@@ -911,28 +1187,258 @@ class _Presets {
         this.openPresetPicker({ mode: 'replace', layerIds: screens.map(l => l.id), title });
     }
 
+    // ── The startup panel pick (1.6.0) ──
+    //
+    // Owner, 2026-11-02: "on start-up, we open up the panel library and
+    // choose a panel from the dropdown. The name of the tile that we use
+    // in each screen should be the name of the tile that is chosen by
+    // default." Every launch is a fresh project (the app never reopens a
+    // show at boot), and File > New makes one too; both come here once the
+    // project has loaded. Opening a saved show never does: a loaded show
+    // is not pristine.
+    //
+    // The order at launch: the first-run guide, then the What's New
+    // window (it already waits for the guide, whatsnew.js whenTourClear),
+    // then this picker. The guide works on a scratch show and hands the
+    // pristine project back, and it closes any picker it finds open
+    // (closeTransients), so the picker waits until neither is up or on its
+    // way (_launchUiBusy) and opens on the project as the person left it.
+    // It never opens over another dialog.
+    //
+    // Automated browsers (navigator.webdriver) never see it, the same rule
+    // the guide and the What's New window keep, so a test boots to the
+    // familiar Screen1; a test of this picker sets
+    // window.__lrdStartupPicker = true before the page loads.
+    //
+    // Since 1.6.0 (owner, 2026-11-03) a launch opens the start page
+    // instead (app-start-page.js: New project, Open file…, Recent), at the
+    // same moment and over the same startup screen; its New opens this
+    // picker, and the picker's Cancel goes back to it. File > New still
+    // opens the picker directly. A test of the start page sets
+    // window.__lrdStartPage = true; with only __lrdStartupPicker set, a
+    // launch opens the picker as before.
+    //
+    // The start page shows on EVERY launch (QA round 3, 2026-11-03), not
+    // only over the pristine startup project: a relaunch after quitting in
+    // the middle of a guide puts the person's own project back (the
+    // guide's stash, quickstart.js recoverStash), and that project is not
+    // the pristine one when the guide was started over a show. It showed
+    // no start page. Over such a project the page's X keeps it, and New
+    // is File > New (startPageNew), which asks about unsaved changes. The
+    // picker alone still opens only over the pristine startup project.
+    //
+    // A reload is not a launch (owner, 2026-11-04): a reload of the page
+    // in the same browser tab comes back on the tab the person was on and
+    // calls this only when the start page (or the picker) was still
+    // waiting for a choice as the page went, with the reason it had then
+    // (app-start-page.js resumeOrLaunch). A launch opens a new browser
+    // tab and still comes here every time.
+    maybeOpenStartupPicker(reason) {
+        const startPage = reason === 'launch' && typeof this._startPageAllowed === 'function'
+            && this._startPageAllowed();
+        // File > New made while the start page stood: the picker takes over.
+        if (reason !== 'launch' && typeof this.closeStartPage === 'function') this.closeStartPage();
+        if (!startPage && typeof navigator !== 'undefined' && navigator.webdriver
+                && window.__lrdStartupPicker !== true) return false;
+        if (!startPage && !this._isPristineStartupProject()) return false;
+        const token = this._startupPickerToken = (this._startupPickerToken || 0) + 1;
+        // Still to show, for a reload made while it waits (app-start-page
+        // _launchChoicePending).
+        this._startupWaiting = reason === 'launch' ? 'launch' : 'new';
+        let idle = 0;
+        const tick = () => {
+            if (token !== this._startupPickerToken) return;
+            // Busy: a guide, the What's New window or another dialog is
+            // up or on its way; ask again shortly. Two quiet looks in a
+            // row, so the hand-off from What's New to its Show me guide
+            // is not taken for a gap.
+            if (this._launchUiBusy()) idle = 0;
+            else idle += 1;
+            if (idle < 2) { setTimeout(tick, 300); return; }
+            this._startupWaiting = null;
+            const pristine = this._isPristineStartupProject();
+            if (startPage) {
+                // Over the startup screen, or over whatever the launch
+                // brought back (no startup screen to replace then).
+                this._startupTargetId = pristine ? this.project.layers[0].id : null;
+                this.openStartPage(reason);
+                return;
+            }
+            // The project moved on meanwhile (a show opened, a screen
+            // added): no picker.
+            if (!pristine) return;
+            this._startupTargetId = this.project.layers[0].id;
+            sendClientLog('startup_picker_open', { reason: reason || null, layerId: this._startupTargetId });
+            this.openPresetPicker({ mode: 'startup' });
+        };
+        tick();
+        return true;
+    }
+
+    // The fresh project a launch or File > New makes: untouched on both
+    // sides, one startup screen (see shouldApplyStartupPreferences).
+    _isPristineStartupProject() {
+        const p = this.project;
+        if (!p || p.is_pristine !== true || p.name !== 'Untitled Project') return false;
+        if (!Array.isArray(p.layers) || p.layers.length !== 1) return false;
+        if ((p.layers[0].type || 'screen') !== 'screen') return false;
+        return !(typeof this.startupScreenWasEdited === 'function' && this.startupScreenWasEdited());
+    }
+
+    // Is something else holding the window at launch? The guide (running,
+    // or about to auto-show), the What's New window (about to decide or
+    // open), or any dialog standing open.
+    _launchUiBusy() {
+        const q = window.QuickStart;
+        if (q) {
+            try {
+                const st = typeof q.state === 'function' ? q.state() : null;
+                if (st && (st.visible || st.running)) return true;
+            } catch (_) { /* no guide state: not busy on its account */ }
+            if (typeof q.autoPending === 'function' && q.autoPending()) return true;
+        }
+        const wn = window.WhatsNew;
+        if (wn && typeof wn.autoPending === 'function' && wn.autoPending()) return true;
+        const catcher = document.getElementById('qs-catch');
+        if (catcher && catcher.style.display && catcher.style.display !== 'none') return true;
+        return [...document.querySelectorAll('.modal')].some(m =>
+            m.id !== 'preset-picker-modal' && m.style.display && m.style.display !== 'none');
+    }
+
+    // Is the startup screen the picker was opened over still the whole,
+    // untouched project?
+    _startupScreenStands(id) {
+        return id != null && this._isPristineStartupProject() && this.project.layers[0].id === id;
+    }
+
+    // Take the startup screen out, on the server and here. Resolves true
+    // when it went. The project it leaves stays pristine on the server
+    // (`keep_pristine`, routes_layers delete_layer): it is still the one
+    // the launch made, and a launch over it opens like any launch, with a
+    // startup screen the start page's X takes out again. A reload of the
+    // tab takes that startup screen out by itself and shows no start page
+    // (app-start-page.js resumeOrLaunch).
+    _dropStartupScreen(id) {
+        const settled = typeof this._layerSavesSettled === 'function'
+            ? this._layerSavesSettled() : Promise.resolve();
+        return settled.then(() => fetch(`/api/layer/${id}?keep_pristine=1`, { method: 'DELETE' })).then(res => {
+            if (!res.ok) throw new Error(`DELETE /api/layer/${id} answered ${res.status}`);
+            return res.json();
+        }).then((answer) => {
+            this.project.layers = (this.project.layers || []).filter(l => l.id !== id);
+            // This copy follows the server's flag.
+            this.project.is_pristine = !!(answer && answer.is_pristine === true);
+            if (this.currentLayer && this.currentLayer.id === id) this.currentLayer = null;
+            if (this.selectedLayerIds) this.selectedLayerIds = new Set([...this.selectedLayerIds].filter(x => x !== id));
+            return true;
+        });
+    }
+
+    // A pick: the startup screen is replaced by a Screen1 of the picked
+    // panel or preset (addLayer: a library panel's figures and model, or
+    // the preset's whole screen), and the history starts from there, so
+    // Undo never brings the placeholder back.
+    _startWithPanel(data) {
+        const id = this._startupTargetId;
+        this._startupTargetId = null;
+        if (!this._startupScreenStands(id)) {
+            sendClientLog('startup_picker_stale', { action: 'pick', layerId: id == null ? null : id });
+            return Promise.resolve(false);
+        }
+        return this._dropStartupScreen(id).then(() => this.addLayer(data)).then(() => {
+            this.resetHistory('Initial State');
+            const made = this.currentLayer;
+            sendClientLog('startup_panel_picked', {
+                preset: (data && data._presetName) || null,
+                layerId: made ? made.id : null,
+                panelModelName: made ? (made.panelModelName || null) : null,
+            });
+            return true;
+        }).catch(error => {
+            sendClientLog('startup_panel_pick_failed', { error: String(error && error.message || error) });
+            if (typeof this._toast === 'function') {
+                this._toast('The first screen was not made. Use Add Screen to make it.', true);
+            }
+            return false;
+        });
+    }
+
+    // Cancel: the startup screen goes and the project is left empty;
+    // Add Screen makes the first screen when the person is ready.
+    _startEmpty() {
+        const id = this._startupTargetId;
+        this._startupTargetId = null;
+        if (!this._startupScreenStands(id)) {
+            sendClientLog('startup_picker_stale', { action: 'cancel', layerId: id == null ? null : id });
+            return Promise.resolve(false);
+        }
+        return this._dropStartupScreen(id).then(() => {
+            this.currentLayer = null;
+            this.selectedLayerIds = new Set();
+            this.updateUI();
+            if (typeof this.loadLayerToInputs === 'function') this.loadLayerToInputs();
+            if (window.canvasRenderer) window.canvasRenderer.render();
+            this.resetHistory('Initial State');
+            sendClientLog('startup_picker_cancelled', { layerId: id });
+            return true;
+        }).catch(error => {
+            sendClientLog('startup_picker_cancel_failed', { error: String(error && error.message || error) });
+            return false;
+        });
+    }
+
     closePresetPicker() {
         const modal = document.getElementById('preset-picker-modal');
         if (modal) modal.style.display = 'none';
     }
 
+    // Cancel and a click on the backdrop. The startup picker's Cancel
+    // leaves the project empty (the owner's ruling, 2026-11-02): the
+    // startup screen goes, and Add Screen makes the first one later.
+    //
+    // Opened from the start page's New (1.6.0), Cancel goes back to the
+    // start page instead, the startup screen still standing under it.
+    cancelPresetPicker() {
+        const startup = this._pickerMode === 'startup';
+        const back = startup && this._pickerFromStartPage === true;
+        this._pickerFromStartPage = false;
+        this.closePresetPicker();
+        if (back && this._startupScreenStands(this._startupTargetId)) {
+            sendClientLog('startup_picker_back_to_start_page', { layerId: this._startupTargetId });
+            this.openStartPage('picker_cancel');
+            return;
+        }
+        if (startup) this._startEmpty();
+    }
+
     confirmPresetPicker() {
-        const sel = this._pickerSelection || { type: 'preset', key: '__default__' };
+        // Nothing the button can make (it is disabled then): stay open.
+        if (!this._pickerSelectionUsable()) return;
+        const sel = this._pickerSelection;
         const replace = this._pickerMode === 'replace';
+        const startup = this._pickerMode === 'startup';
         const targetIds = this._pickerTargetIds || [];
         this.closePresetPicker();
-        // Where the pick lands: a new screen, or the cabinet of the targets.
+        // Where the pick lands: a new screen, the cabinet of the targets,
+        // or the first screen of a new project.
         const deliver = (data) => {
             if (replace) this.changeCabinetForLayers(targetIds, data);
+            else if (startup) this._startWithPanel(data);
             else this.addLayer(data);
         };
         if (sel.type === 'panel' && sel.panel) {
-            deliver(this._panelToPresetData(sel.panel));
+            // The pick reads the library as it is NOW: a favorite is a
+            // snapshot taken when it was hearted, and the library may have
+            // corrected the model's figures or renamed it since.
+            const pick = () => deliver(this._pickedPanelPresetData(sel.panel));
+            if (this._panelCatalog || typeof this._ensurePanelCatalogData !== 'function') pick();
+            else this._ensurePanelCatalogData().then(pick, pick);
             return;
         }
         if (sel.type === 'preset') {
-            if (!sel.key || sel.key === '__default__') {
-                deliver(replace ? this._preferencesCabinetData() : undefined);
+            if (sel.key === '__default__') {
+                // Offered in add mode only: the last screen's panel.
+                deliver(this._lastScreenPanelData());
                 return;
             }
             this.fetchPreset(sel.key).then(resp => {
@@ -940,34 +1446,18 @@ class _Presets {
                 if (data) data._presetName = sel.key;
                 deliver(data);
             }).catch(err => {
-                alert('Failed to load preset: ' + (err && err.error || 'unknown'));
-                // A new screen still gets made, from the defaults; an
-                // existing screen is left exactly as it was.
-                if (!replace) this.addLayer();
+                this._toast('The preset did not load: ' + (err && err.error || 'unknown error'), true, 6000);
+                // Add Screen still makes a screen, of the last screen's
+                // panel; an existing screen is left exactly as it was, and
+                // the startup picker asks again.
+                if (startup) this.openPresetPicker({ mode: 'startup', fromStartPage: this._pickerFromStartPage === true });
+                else if (!replace) this.addLayer();
             });
         }
     }
 
-    // The "Default (from Preferences)" row, as cabinet figures: the same
-    // Preferences values addLayer reads for a new screen.
-    _preferencesCabinetData() {
-        const prefs = this.getPreferences() || {};
-        const data = {
-            cabinet_width: prefs.panelWidth,
-            cabinet_height: prefs.panelHeight,
-            panel_width_mm: prefs.panelWidthMM,
-            panel_height_mm: prefs.panelHeightMM,
-            panel_weight: prefs.panelWeight,
-            weight_unit: prefs.weightUnit,
-            _presetName: 'Default'
-        };
-        if (prefs.powerWatts != null) data.panelWatts = prefs.powerWatts;
-        return data;
-    }
-
     // The cabinet figures in preset-shaped data - a catalog panel through
-    // _panelToPresetData, a saved preset file, or the Preferences default -
-    // and nothing else. A saved preset carries the whole layer (columns,
+    // _panelToPresetData or a saved preset file - and nothing else. A saved preset carries the whole layer (columns,
     // rows, colours, ports, circuits); this is the allow-list that keeps
     // all of that off a Change cabinet.
     _cabinetFieldsFrom(data) {
@@ -979,6 +1469,13 @@ class _Presets {
             if (Number.isFinite(n)) out[k] = n;
         });
         if (data.weight_unit) out.weight_unit = data.weight_unit;
+        // The panel the pick names (a library model, or a preset saved from
+        // a screen that had one) - and none for a pick that names none, so
+        // the screen never keeps the old cabinet's name.
+        out.panelModelId = data.panelModelId || null;
+        out.panelModelName = data.panelModelName || null;
+        out.panelModelHalves = data.panelModelHalves && typeof data.panelModelHalves === 'object'
+            ? { height: data.panelModelHalves.height || null, width: data.panelModelHalves.width || null } : null;
         return out;
     }
 
@@ -1002,15 +1499,18 @@ class _Presets {
             .filter(l => l && (l.type || 'screen') === 'screen');
         if (targets.length === 0) return;
         const fields = this._cabinetFieldsFrom(data);
-        if (Object.keys(fields).length === 0) return;
+        const MODEL = ['panelModelId', 'panelModelName', 'panelModelHalves'];
+        if (!Object.keys(fields).some(k => !MODEL.includes(k))) return;
         // A locked screen keeps its cabinet (the owner's ruling,
         // 2026-10-16): the unlocked ones change, and a locked one is named
         // only when the pick would really change it - one that already has
         // this cabinet changes nothing and says nothing.
-        const changes = (l) => Object.keys(fields)
-            .some(k => String(l[k] ?? '') !== String(fields[k]));
-        this._showLockedError(targets.filter(l => l.locked && changes(l)));
-        targets = targets.filter(l => !l.locked);
+        const differs = (a, b) => ((a && typeof a === 'object') || (b && typeof b === 'object')
+            ? JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)
+            : String(a ?? '') !== String(b ?? ''));
+        const changes = (l) => Object.keys(fields).some(k => differs(l[k], fields[k]));
+        this._showLockedError(targets.filter(l => this._layerLocked(l) && changes(l)));
+        targets = targets.filter(l => !this._layerLocked(l));
         if (targets.length === 0) return;
         targets.forEach(layer => {
             Object.keys(fields).forEach(k => { layer[k] = fields[k]; });
@@ -1032,25 +1532,74 @@ class _Presets {
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
+    // A picked panel (a library row or a favorite's snapshot) as the
+    // loaded library lists it today: { ...model, _mfr }, looked up by
+    // manufacturer and name, then through PANEL_CATALOG_RENAMES for a model
+    // the library has renamed. Null where the library has no such model
+    // (or is not loaded).
+    _libraryPanelFor(panel) {
+        if (!panel || !this._panelCatalog) return null;
+        const find = (mfr, name) => {
+            const F = (this._panelCatalog[mfr] || []).find(p => p && p.name === name);
+            return F ? { ...F, _mfr: mfr } : null;
+        };
+        const mfr = String(panel._mfr || panel.manufacturer || '');
+        const name = String(panel.name || '');
+        const own = find(mfr, name);
+        if (own) return own;
+        const renamed = PANEL_CATALOG_RENAMES[this._favoriteKey(mfr, name)];
+        if (!renamed) return null;
+        const cut = renamed.indexOf('|');
+        return find(renamed.slice(0, cut), renamed.slice(cut + 1));
+    }
+
+    // A panel as the picker shows it: the library's model today where it
+    // has one (_libraryPanelFor, renames included), else the panel as
+    // given, so a favorite's row and the summary show what a pick makes.
+    _shownFavoritePanel(panel) {
+        const lib = this._libraryPanelFor(panel);
+        if (lib) return lib;
+        return { ...(panel || {}), _mfr: String((panel && (panel._mfr || panel.manufacturer)) || '') };
+    }
+
+    // What a panel pick hands addLayer / changeCabinetForLayers: the
+    // library's current figures and model where it still lists the panel;
+    // otherwise the snapshot's figures under its name, with NO model id
+    // and no halves, so the screen never names a library model the
+    // library does not have.
+    _pickedPanelPresetData(panel) {
+        const lib = this._libraryPanelFor(panel);
+        if (lib) return this._panelToPresetData(lib);
+        const data = this._panelToPresetData(panel);
+        data.panelModelId = null;
+        data.panelModelHalves = null;
+        return data;
+    }
+
     // Convert a catalog panel into preset-shaped data that addLayer() consumes.
     // Grid (columns/rows) comes from Preferences; panel-specific fields override.
     _panelToPresetData(panel) {
         const prefs = this.getPreferences() || {};
         const weightUnit = prefs.weightUnit || 'kg';
         const weightKg = panel.weight_kg;
+        // A figure the library lacks is left out (undefined), and the
+        // server's default stands (addLayer); a weight it lacks takes no
+        // unit either.
         const weight = (weightKg != null)
             ? (weightUnit === 'lb' ? +(weightKg * 2.20462).toFixed(2) : weightKg)
-            : prefs.panelWeight;
+            : undefined;
         const data = {
             columns: prefs.columns,
             rows: prefs.rows,
-            cabinet_width: panel.pixels_w != null ? panel.pixels_w : prefs.panelWidth,
-            cabinet_height: panel.pixels_h != null ? panel.pixels_h : prefs.panelHeight,
+            cabinet_width: panel.pixels_w != null ? panel.pixels_w : undefined,
+            cabinet_height: panel.pixels_h != null ? panel.pixels_h : undefined,
             panel_width_mm: panel.width_mm,
             panel_height_mm: panel.height_mm,
             panel_weight: weight,
-            weight_unit: weightUnit,
-            _presetName: `${(panel._mfr || panel.manufacturer || '').replace(/_/g, ' ')} ${panel.name}`.trim()
+            weight_unit: weight === undefined ? undefined : weightUnit,
+            _presetName: `${(panel._mfr || panel.manufacturer || '').replace(/_/g, ' ')} ${panel.name}`.trim(),
+            // the model itself, saved on the screen (catalogPanelModelFields)
+            ...this.catalogPanelModelFields(panel)
         };
         if (panel.watts_max != null) data.panelWatts = panel.watts_max;
         return data;
@@ -1062,23 +1611,29 @@ class _Presets {
     // panel that's missing from the catalog. Zero-server: GitHub hosts the
     // upload (drag-drop into the issue comment), we read it on our normal
     // triage workflow, no API keys / S3 / email gateway needed.
-    openPanelSpecCorrection() {
+    async openPanelSpecCorrection() {
         const sel = this._pickerSelection || {};
         const hasSelection = sel.type === 'panel' && sel.panel;
 
-        // Branch: correction (existing panel) vs. new panel (missing one).
-        // confirm() returns true=OK ("Fix existing"), false=Cancel ("Add new").
+        // Branch: correction (existing panel) vs. new panel (missing one),
+        // asked in the app's own dialog with a button for each (and Cancel).
         // If the user already selected a panel in the catalog, default to fix.
         let mode;
         if (hasSelection) {
             mode = 'fix';
         } else {
-            const choice = window.confirm(
-                'Submit which kind of correction?\n\n' +
-                '  OK   = "Fix specs on an existing panel"\n' +
-                '  Cancel = "Add a panel that\'s missing from the catalog"'
-            );
-            mode = choice ? 'fix' : 'add';
+            mode = await this.appAsk({
+                id: 'panel-correction-kind-modal',
+                title: 'Submit a correction',
+                message: 'Which kind of correction?',
+                buttons: [
+                    { label: 'Fix specs on a panel', value: 'fix', primary: true },
+                    { label: 'Add a missing panel', value: 'add' },
+                    { label: 'Cancel', value: null },
+                ],
+                cancel: null,
+            });
+            if (!mode) return;
         }
 
         let panelRef = '';
@@ -1091,20 +1646,21 @@ class _Presets {
             if (p.pixels_w != null) lines.push(`- Pixels: ${p.pixels_w} × ${p.pixels_h}`);
             if (p.weight_kg != null) lines.push(`- Weight: ${p.weight_kg} kg`);
             if (p.watts_max != null) lines.push(`- Max power: ${p.watts_max} W`);
+            if (p.watts_ave != null) lines.push(`- Average power: ${p.watts_ave} W`);
             if (p.source) lines.push(`- Source: ${p.source}`);
             currentValues = lines.join('\n');
         } else {
             const ask = (mode === 'fix')
                 ? 'Which panel has bad specs? (e.g. "Absen JP8 Pro")\n\nTip: select the panel in the catalog first to pre-fill this.'
                 : 'What panel is missing? Manufacturer + model name (e.g. "Absen NEW-X 1.5")';
-            panelRef = window.prompt(ask, '') || '';
+            panelRef = (await this.appPrompt(ask, '', { id: 'panel-correction-name-modal', title: 'Submit a correction' })) || '';
             if (!panelRef) return;
         }
 
         const notesPrompt = (mode === 'fix')
             ? `What's wrong with "${panelRef}"?\n\nDescribe the discrepancy. After you click OK we'll open a GitHub issue, drag any spec sheet PDF or a photo of the panel back into the comment box there to attach it.`
             : `Tell us about "${panelRef}", paste any specs you have (cabinet mm, pixels, weight, max watts).\n\nAfter you click OK we'll open a GitHub issue, drag the official spec sheet PDF or a photo of the panel back into the comment box to attach it.`;
-        const notes = window.prompt(notesPrompt, '');
+        const notes = await this.appPrompt(notesPrompt, '', { id: 'panel-correction-notes-modal', title: 'Submit a correction' });
         if (notes === null) return;  // cancelled
 
         const versionEl = document.querySelector('h1 span');
@@ -1147,10 +1703,11 @@ class _Presets {
         // Make sure the user knows the GitHub tab is the actual submission,
         // we've had submissions get lost because the user filled out the
         // app-side prompts and assumed that was enough.
-        const ok = confirm(
-            'This will open GitHub in a new tab with your submission pre-filled.\n\n' +
-            'IMPORTANT: You must be signed in to GitHub and click the green "Submit new issue" button there for it to actually reach us.\n\n' +
-            'Continue?'
+        const ok = await this.appConfirm(
+            'This opens GitHub in a new tab with your submission filled in.\n\n' +
+            'You must be signed in to GitHub and click the green "Submit new issue" button there for it to reach us.\n\n' +
+            'Continue?',
+            { id: 'panel-correction-open-modal', title: 'Submit a correction', okLabel: 'Continue' }
         );
         if (!ok) return;
         window.open(url, '_blank', 'noopener');
@@ -1159,7 +1716,7 @@ class _Presets {
     // ── Save-as-Preset Modal ──
     openPresetSaveModal() {
         if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'screen') {
-            alert('Select a screen layer first to save as a preset.');
+            this._toast('Select a screen first to save as a preset.', true);
             return;
         }
         const modal = document.getElementById('preset-save-modal');
@@ -1169,9 +1726,11 @@ class _Presets {
         if (!modal || !nameInput) return;
         nameInput.value = this.currentLayer.name || '';
         warning.textContent = '';
-        if (sublabel) sublabel.textContent = `Saving settings from "${this.currentLayer.name || 'current layer'}".`;
+        if (sublabel) sublabel.textContent = `Saving settings from "${this.currentLayer.name || 'current screen'}".`;
         modal.style.display = 'block';
-        setTimeout(() => nameInput.focus(), 50);
+        // The screen's name is offered selected, so typing replaces it
+        // (it appended to it, QA 1.6.0).
+        setTimeout(() => { nameInput.focus(); nameInput.select(); }, 50);
         this._presetSaveExistingNames = null;
         this._renderPresetSaveExistingList([]);
         this.updatePresetSaveConfirmButton();
@@ -1249,7 +1808,7 @@ class _Presets {
         }
     }
 
-    confirmPresetSave() {
+    async confirmPresetSave() {
         const nameInput = document.getElementById('preset-save-name');
         const warning = document.getElementById('preset-save-warning');
         if (!nameInput) return;
@@ -1260,11 +1819,12 @@ class _Presets {
         }
         const existing = this._presetSaveExistingNames || [];
         if (existing.includes(name)) {
-            if (!confirm(`A preset named "${name}" already exists. Overwrite it?`)) return;
+            if (!(await this.appConfirm(`A preset named "${name}" already exists. Overwrite it?`,
+                { id: 'preset-overwrite-modal', title: 'Save preset', okLabel: 'Overwrite' }))) return;
         }
         const data = this.serializeLayerAsPreset(this.currentLayer);
         if (!data) {
-            warning.textContent = 'No layer selected.';
+            warning.textContent = 'No screen selected.';
             return;
         }
         this.savePresetToServer(name, data).then(() => {
@@ -1277,7 +1837,7 @@ class _Presets {
     setupPresetModals() {
         const pickerCancel = document.getElementById('preset-picker-cancel');
         const pickerAdd = document.getElementById('preset-picker-add');
-        if (pickerCancel) pickerCancel.addEventListener('click', () => this.closePresetPicker());
+        if (pickerCancel) pickerCancel.addEventListener('click', () => this.cancelPresetPicker());
         if (pickerAdd) pickerAdd.addEventListener('click', () => this.confirmPresetPicker());
         // The right-click menu's way into this modal (app-context-menu.js).
         this._wireChangeCabinetMenuItem();
@@ -1314,7 +1874,11 @@ class _Presets {
             const m = document.getElementById(id);
             if (m) {
                 m.addEventListener('click', (e) => {
-                    if (e.target === m) m.style.display = 'none';
+                    if (e.target !== m) return;
+                    // The startup picker stays up on a stray click: only
+                    // its Cancel leaves the project empty.
+                    if (id === 'preset-picker-modal' && this._pickerMode === 'startup') return;
+                    m.style.display = 'none';
                 });
             }
         });
@@ -1984,9 +2548,11 @@ class _Presets {
                 { pos: 1, color: '#2145dc' },
             ];
         }
-        // Only fall back to prefs if the server-created layer didn't already
-        // carry these from the add request (e.g. from a preset or catalog panel).
-        if (layer.panel_weight == null) layer.panel_weight = prefs.panelWeight;
+        // Only fall back if the server-created layer didn't already carry
+        // these from the add request (e.g. from a preset or catalog panel).
+        // The weight is the server's own default (create_layer); it is no
+        // longer a preference (1.6.0).
+        if (layer.panel_weight == null) layer.panel_weight = 20;
         if (layer.weight_unit == null) layer.weight_unit = prefs.weightUnit || 'kg';
     }
 }

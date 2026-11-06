@@ -7,8 +7,11 @@
  *   - a new MAJOR.MINOR with curated highlights (whatsnew_content.js), or
  *   - ANY update, patch releases included, that added Advanced Guide steps
  *     (each step's `since`, quickstart.js). The window shows that
- *     version's curated entry when it has one ("1.5.3"), else the new
- *     steps' titles; Show me is offered either way.
+ *     version's curated entry when it has one ("1.6.1"), else the new
+ *     steps' titles, then every other curated patch entry of the same
+ *     MAJOR.MINOR newer than the version last run, newest first (1.6.0 ->
+ *     1.6.2 reads 1.6.2's entry, then 1.6.1's); Show me is offered either
+ *     way.
  * When steps were added, Show me runs exactly the Advanced Guide steps
  * whose `since` is newer than the version last run (in guide order, so a
  * user who skipped versions sees all of them), each from its own entry
@@ -19,7 +22,9 @@
  * to is still an update and opens the window for 1.5.3 (owner, 2026-10-21:
  * "first time start on any new version should always show it"). Up to
  * 1.5.3 a beta stamped the bare "1.5.3"; a stamp written before the
- * lrd_whatsnew_full mark reads as a beta's for the same reason.
+ * lrd_whatsnew_full mark reads as a beta's for the same reason. A beta
+ * that goes straight to a later version never ran its own full release,
+ * so 1.6.1-beta.2 -> 1.6.2 also shows 1.6.1's entry and steps.
  *
  * A brand-new install has no stamp: it is stamped silently and the
  * first-run Quick Start guide keeps its job: the window and the guide
@@ -36,6 +41,9 @@
     // Set by every stamp this build writes; a bare stamp without it came
     // from a build that stamped betas bare.
     var MARK_KEY = 'lrd_whatsnew_full';
+    // The first full release that writes the mark (1.5.3). A bare stamp
+    // without it at this version or later can only be a beta's.
+    var MARKED_SINCE = [1, 5, 3];
 
     // "1.5.2" / "v1.0.3.1" -> [1, 5, 2] / [1, 0, 3, 1]; null when unparseable.
     function parts(version) {
@@ -115,21 +123,38 @@
         return s ? s.title : String(k);
     }
 
+    // The curated patch entries ("1.6.1", "1.6.2") of `cur`'s MAJOR.MINOR
+    // newer than `seen` (every one when `seen` is null) and not newer than
+    // `cur`, newest first.
+    function patchEntries(seen, cur) {
+        var hi = parts(cur), lo = seen == null ? null : parts(seen);
+        var mm = majorMinor(cur);
+        if (!hi || !mm) return [];
+        return Object.keys(content()).filter(function (k) {
+            var p = parts(k);
+            return !!p && p.length >= 3 && majorMinor(k) === mm && cmp(p, hi) <= 0
+                && (!lo || cmp(p, lo) > 0);
+        }).sort(function (a, b) { return cmp(parts(b), parts(a)); });
+    }
+
     /*
      * The window an update from `seen` to `cur` owes, or null: the curated
-     * entry and the steps added in between. An update that crossed into a
-     * new MAJOR.MINOR leads with that feature version's entry, and the
-     * running patch's own entry (if it has one) follows it as `also`, so a
-     * person skipping 1.5.0 still reads what 1.5 brought. Within one
-     * MAJOR.MINOR the version's own entry is the window.
-     *   { key, also, after, upTo, steps }  key null = list the steps' titles
+     * entries and the steps added in between. An update that crossed into a
+     * new MAJOR.MINOR leads with that feature version's entry, so a person
+     * skipping 1.5.0 still reads what 1.5 brought. Within one MAJOR.MINOR
+     * the running version's own entry leads. Every curated patch entry
+     * since `seen` follows in `also`, newest first, so 1.6.0 -> 1.6.2 reads
+     * 1.6.2's entry and then 1.6.1's.
+     *   { key, also: [keys], after, upTo, steps }  key null = list the steps' titles
      */
     function windowFor(seen, cur, between) {
         var steps = (between || stepsBetween)(seen, cur) || [];
         var mm = majorMinor(cur);
         var own = content()[cur] ? cur : null;
         var key = (majorMinor(seen) !== mm && content()[mm]) ? mm : own;
-        var also = own && own !== key ? own : null;
+        var also = patchEntries(seen, cur).filter(function (k) { return k !== key; });
+        // No entry of its own and no steps to list: the newest older entry leads.
+        if (!key && !steps.length && also.length) key = also.shift();
         if (!key && !steps.length) return null;
         return { key: key, also: also, after: seen, upTo: cur, steps: steps };
     }
@@ -153,6 +178,10 @@
         // owns the first launch and the window must not pile on top of it.
         if (!seen) return { show: false, stamp: mine, window: null };
         var order = cmp(parts(cur), parts(seen));
+        var pre = preOf(stamped);
+        // A beta's stamp (or a bare stamp no full release could have
+        // written) never saw its own version's full release.
+        var beta = !!pre && (pre !== 'legacy' || cmp(parts(seen), MARKED_SINCE) >= 0);
         var win = null;
         if (order === 0 && preOf(stamped) && !preOf(currentVersion)) {
             // The full release after its own betas: everything this
@@ -162,6 +191,11 @@
         } else if (order <= 0) {
             // The same version, or an older one: nothing new to say.
             return { show: false, stamp: stampOf(stamped) === mine ? null : mine, window: null };
+        } else if (beta) {
+            // A beta straight to a later version: its own version's entry
+            // and steps are news too (1.6.1-beta.2 -> 1.6.2 shows 1.6.1's).
+            win = windowFor(below(seen), cur, between);
+            if (win) win.after = null;
         } else {
             win = windowFor(seen, cur, between);
         }
@@ -216,11 +250,11 @@
         return t.value;
     }
 
-    // The window's lead line: the feature version for a curated
-    // MAJOR.MINOR entry; for steps alone, the version they came in, or
-    // "since" the version last run when they span several.
+    // The window's lead line: the version of the curated entry that leads;
+    // for steps alone, the version they came in, or "since" the version
+    // last run when they span several.
     function heading(win) {
-        if (win.key && win.key === majorMinor(win.key)) return 'What’s new in v' + win.key;
+        if (win.key) return 'What’s new in v' + win.key;
         var one = win.steps.every(function (k) { return clean(stepSince(k)) === win.upTo; });
         return one || !win.after ? 'What’s new in v' + win.upTo : 'What’s new since v' + win.after;
     }
@@ -255,16 +289,17 @@
             'margin:0 0 16px;color:#fff;font-size:19px;', entry.title));
         panel.appendChild(itemList(entry.items));
 
-        // The running patch's own entry, after the feature version's.
-        var more = win.also ? content()[win.also] : null;
-        if (more) {
+        // The other patch entries since the version last run, newest first.
+        (win.also || []).forEach(function (k) {
+            var more = content()[k];
+            if (!more) return;
             panel.appendChild(el('div',
                 'color:#888;font-size:11px;letter-spacing:.06em;text-transform:uppercase;margin:22px 0 4px;',
-                'And in v' + win.also));
+                'And in v' + k));
             panel.appendChild(el('h2',
                 'margin:0 0 16px;color:#fff;font-size:17px;', more.title));
             panel.appendChild(itemList(more.items));
-        }
+        });
 
         var btns = el('div',
             'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;');
@@ -336,25 +371,31 @@
 
     // ── auto-show ────────────────────────────────────────────────────────
 
-    // The Quick Start guide auto-shows on launch unless the user disabled
-    // it. If its overlay is up, or is still on its way (guide enabled but
-    // not built yet; it can take a few seconds while the app initializes),
+    // The Quick Start guide auto-shows on the first run only. If its overlay
+    // is up, or is still on its way (the guide still deciding, which can
+    // take a few seconds while the app initializes),
     // hold the window until the guide is gone so the two never stack. Give
     // up quietly after ~2 min without stamping, so the window simply tries
     // again next launch.
     function whenTourClear(cb, tries) {
         tries = tries || 0;
-        if (tries > 240) return;
+        if (tries > 240) { autoPending = false; return; }
         var overlay = document.getElementById('qs-catch');
         var tourUp = !!overlay && overlay.style.display !== 'none';
-        var tourEnabled = true;
-        try {
-            tourEnabled = localStorage.getItem('lrd_quickstart_disabled') !== '1';
-        } catch (e) {}
-        // Guide enabled but its overlay never built: it may still be waiting
-        // for the app to finish loading. Give it ~12s to appear before
-        // concluding it is not coming (it gives up on its own after ~6s).
-        var tourPending = tourEnabled && !overlay && tries < 24;
+        // Is the guide on its way? It says so itself (quickstart.js
+        // autoPending: true until it has shown or decided not to); with no
+        // guide script, only a first run could bring one.
+        var q = window.QuickStart;
+        var tourComing = false;
+        if (q && typeof q.autoPending === 'function') {
+            tourComing = !!q.autoPending();
+        } else {
+            try { tourComing = localStorage.getItem('lrd_quickstart_first_run_done') !== '1'; } catch (e) {}
+        }
+        // On its way but its overlay not built yet: give it ~12s to appear
+        // before concluding it is not coming (it gives up on its own after
+        // ~6s).
+        var tourPending = tourComing && !overlay && tries < 24;
         if (!tourUp && !tourPending && tries >= 4) { cb(); return; }
         setTimeout(function () { whenTourClear(cb, tries + 1); }, 500);
     }
@@ -363,16 +404,23 @@
         if (openWindow(win)) pendingStampOnDismiss = win.stamp || win.upTo;
     }
 
+    // The launch's own decision, from load until the window has opened or
+    // decided not to. The startup panel picker (app-presets.js
+    // maybeOpenStartupPicker) waits it out, so the two never stack.
+    var autoPending = true;
+
     function autoRun(force) {
         // Never auto-show inside an automated browser (same rule as the
         // guide): the backdrop would block E2E tests. Tests that exercise
         // the window itself call autoRun(true).
-        if (!force && navigator.webdriver) return;
+        if (!force && navigator.webdriver) { autoPending = false; return; }
         fetchVersion(function (version) {
             var d = decide(version, getStamp());
             if (d.stamp) setStamp(d.stamp);
-            if (!d.show) return;
-            var go = function () { show(d.window); };
+            if (!d.show) { autoPending = false; return; }
+            var go = function () {
+                try { show(d.window); } finally { autoPending = false; }
+            };
             force ? go() : whenTourClear(go, 0);
         });
     }
@@ -380,10 +428,13 @@
     // Help -> What's New, opened by hand. An update this browser has not
     // closed the window for yet shows exactly the window it is owed: the
     // steps since the version last run. Otherwise it shows the running
-    // feature version's window: its curated entry (the newest entry when
-    // a build has none), and Show me runs every step that feature version
-    // has added so far (1.5.0 up to the running 1.5.x), so the steps always
-    // match what the window is about.
+    // version's curated entry and then every earlier patch entry of its
+    // MAJOR.MINOR, newest first (1.6.2, then 1.6.1), and Show me runs the
+    // steps those versions added. A build with no entry of its own shows
+    // its feature version's entry (the newest entry when there is none),
+    // and Show me runs every step that feature version has added so far
+    // (1.5.0 up to the running 1.5.x), so the steps always match what the
+    // window is about.
     function open() {
         fetchVersion(function (version) {
             var d = decide(version, getStamp());
@@ -395,13 +446,17 @@
                 key = Object.keys(content()).filter(function (k) { return parts(k); })
                     .sort(function (a, b) { return cmp(parts(b), parts(a)); })[0] || null;
             }
+            var also = key === cur ? patchEntries(null, cur).filter(function (k) { return k !== cur; }) : [];
+            var shown = [key].concat(also);
             var steps = !mm ? [] : stepsBetween(null, cur).filter(function (k) {
-                // A version's own entry is about that version's steps; a
-                // feature version's, about every step it brought.
-                return key === cur ? clean(stepSince(k)) === cur : majorMinor(stepSince(k)) === mm;
+                // A version's own entry is about that version's steps (and
+                // each entry shown after it, its own); a feature version's,
+                // about every step it brought.
+                return key === cur ? shown.indexOf(clean(stepSince(k))) >= 0
+                    : majorMinor(stepSince(k)) === mm;
             });
             if (!key && !steps.length) return;
-            openWindow({ key: key, also: null, after: null, upTo: cur, steps: steps });
+            openWindow({ key: key, also: also, after: null, upTo: cur, steps: steps });
         });
     }
 
@@ -409,6 +464,7 @@
         open: open,
         dismiss: dismiss,
         autoRun: autoRun,
+        autoPending: function () { return autoPending; },
         decide: decide,
         windowFor: windowFor,
         _majorMinor: majorMinor,

@@ -48,7 +48,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -439,7 +439,7 @@ def test_two_clicks_a_held_clock_apart_both_apply(page, kind, view):
 
 # ── 5. locked screens stay unchanged and say why ──────────────────────────
 
-LOCKED = 'Lower is locked - unlock it to change it.'
+LOCKED = 'Lower is locked. Unlock it to change it.'
 
 
 @pytest.mark.parametrize('kind,view', KINDS)
@@ -452,7 +452,10 @@ def test_group_tile_leaves_a_locked_member_and_names_it(page, kind, view):
         await ca.settle(200);
         return { runs: ca.runs(ca.layer(ids[0]), arg.kind), errors: ca.errors() };
     """, {'kind': kind, 'view': view})
-    assert out['runs']['cabinets'] == 80, out
+    # Round 6: one member locked and one not is a half-locked group (an old
+    # file's), locked as a whole until the user picks Lock or Unlock, so
+    # the tile changes neither member.
+    assert out['runs']['cabinets'] == 0, out
     assert out['runs']['onPeer'] == 0, out
     assert out['errors'] == [LOCKED], out
 
@@ -470,7 +473,7 @@ def test_tile_on_a_locked_owner_changes_nothing(page, kind, view):
                  steps, after: window.app.historyIndex, sel: ca.sel(arg.kind).size };
     """, {'kind': kind, 'view': view})
     assert out['runs']['cabinets'] == 0, out
-    assert out['errors'] == ['Upper is locked - unlock it to change it.'], out
+    assert out['errors'] == ['Upper is locked. Unlock it to change it.'], out
     assert out['after'] == out['steps'], out
     assert out['sel'] == 0, out
 
@@ -488,7 +491,9 @@ def test_custom_toggle_leaves_a_locked_member_and_names_it(page, kind, view):
         const f = arg.kind === 'power' ? 'powerFlowPattern' : 'flowPattern';
         return { u: ca.layer(ids[0])[f], l: ca.layer(ids[1])[f], errors: ca.errors() };
     """, {'kind': kind, 'view': view})
-    assert out['u'] == 'custom', out
+    # Round 6: a half-locked group is locked as a whole, so neither member
+    # goes custom.
+    assert out['u'] == 'tl-v', out
     assert out['l'] == 'tl-v', out
     assert out['errors'] == [LOCKED], out
 
@@ -587,7 +592,7 @@ def test_stepping_the_active_run_on_a_locked_screen_is_refused(page, kind, view,
     _tab(page, view)
     out = _run(page, STEP_JS, {'kind': kind, 'view': view, 'way': way, 'locked': True})
     assert all(v == 1 for v in out['seen']), out
-    assert out['errors'] == ['Upper is locked - unlock it to change it.'], out
+    assert out['errors'] == ['Upper is locked. Unlock it to change it.'], out
     assert out['after'] == out['steps'], out
 
 

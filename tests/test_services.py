@@ -13,8 +13,9 @@ rulings, 2026-10-20).
     entry.
   * The checks, on the card and in the binder: each leg's load (its
     distros' leg loads added) against the service, at 80% of the rating on a
-    US system unless the service is 100% rated; the distros' ratings added
-    up past the service; and the imbalance across all its distros together.
+    US system unless the service is 100% rated, and the imbalance across all
+    its distros together. The ratings of the distros connected to it, added
+    up, are a plain fact beside the service's own (2026-11-03).
   * The binder: a distro on a service names it in its SERVICE block ("Fed
     from"); a Service sheet lists each service's distros with their ratings,
     the leg totals, the limit, the imbalance and any OVER or ratings
@@ -56,7 +57,7 @@ def _guard(server_project_guard):
 def _open(pw_browser, url, viewport=None):
     context = pw_browser.new_context(viewport=viewport or {'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -94,7 +95,8 @@ SEED_JS = """async () => {
 SETUP_JS = """(o) => {
     const app = window.app;
     for (const l of app.project.layers) {
-        Object.assign(l, { powerVoltage: 120, powerAmperage: 20, panelWatts: o.watts || 198,
+        // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+        Object.assign(l, { powerVoltage: 120, powerAmperage: 25, panelWatts: o.watts || 198,
                            powerSocaDistro: {}, powerSocaNumber: {}, powerSocaPhasePos: {},
                            powerSocaLengths: {}, powerSocaSplits: [], powerSocaNames: {},
                            powerBreakoutType: null, locked: false });
@@ -190,6 +192,9 @@ def setup(pg, **o):
     pg.evaluate("() => { const h = document.getElementById('app-toast-host'); if (h) h.innerHTML = '';"
                 " window.app._hwPopoverClose && window.app._hwPopoverClose(); }")
     n = pg.evaluate(SETUP_JS, o)
+    # and this setup's own echo has landed before the test edits locally (a
+    # fixed wait was too short on a busy CI runner)
+    pg.evaluate("async () => { await window.app._layerSavesSettled(); }")
     pg.wait_for_timeout(300)
     return n
 
@@ -294,9 +299,9 @@ def test_drag_a_distro_s_header_bar_onto_the_service_card(page):
     assert 'hw-dock-svc-drop' in lit and 'hw-dock-svc-drop-no' not in lit, lit
     out = read(pg)
     assert out['serviceIds'] == {'d1': 's1', 'd2': None}, out['serviceIds']
-    assert out['services']['s1']['chips'] == ['SL 400 A'], out['services']['s1']
+    assert out['services']['s1']['chips'] == ['SL 400 A · nothing connected'], out['services']['s1']
     assert pg.evaluate(HIST_JS)[-1] == 'Put Distro on Service'
-    assert pg.evaluate(STATUS_JS) == 'SL is on HOUSE 400 A · 120/208V 3φ.'
+    assert pg.evaluate(STATUS_JS) == 'SL is on HOUSE · 400 A · 120/208V 3φ.'
     assert 'hw-dock-svc-drop' not in pg.evaluate(
         "() => document.querySelector('[data-lrd-service=\"s1\"]').className"), 'the light stayed on'
     # The same drag again is no change: said, and no entry.
@@ -322,7 +327,7 @@ def test_pick_the_service_in_the_distro_gear_and_none_takes_it_off(page):
     open_gear(pg, 'distro-d2')
     opts = pg.evaluate("""() => [...document.querySelectorAll(
         '#hw-gear-popover [data-lrd-field="distro-service-d2"] option')].map(o => [o.value, o.textContent])""")
-    assert opts == [['', 'None'], ['s1', 'HOUSE 400 A · 120/208V 3φ']], opts
+    assert opts == [['', 'None'], ['s1', 'HOUSE · 400 A · 120/208V 3φ']], opts
     pick(pg, 'distro-service-d2', 's1')
     assert read(pg)['serviceIds']['d2'] == 's1'
     assert pg.evaluate(HIST_JS)[-1] == 'Put Distro on Service'
@@ -383,7 +388,7 @@ def test_a_distro_of_another_system_is_refused_with_the_reason(page):
     assert pg.evaluate(STATUS_JS) == ('SL is on HOUSE (120/208V 3φ). '
                                       'Take it off the service before changing its system.')
     pg.evaluate("() => window.app.updateService('s1', { system: '230/400' })")
-    assert pg.evaluate(STATUS_JS) == 'HOUSE feeds SL. Take them off before changing its system.'
+    assert pg.evaluate(STATUS_JS) == 'HOUSE powers SL. Take them off before changing its system.'
     out = read(pg)
     assert out['stored'][0]['system'] == '120/208'
     assert pg.evaluate("() => window.app.getDistros()[0].system") == '120/208'
@@ -434,24 +439,33 @@ def test_leg_totals_against_the_80_percent_rule_and_100_percent_rated(page):
     assert not errors, errors
 
 
-def test_the_ratings_added_up_past_the_service_warn(page):
+def test_the_ratings_added_up_are_a_fact_not_a_warning(page):
+    """The owner, 2026-11-03: "We should be skipping distros, but anything
+    that is connected should be accounted for. But also a 400 and 200 amp
+    distro connected to a 400 amp service that are only using 300 amps
+    isn't a big deal since it's still under the 400 amp at 80% amount."
+    SL 400, SR 200 and FOH 200 on a 600 A service, a circuit on each: the
+    card reads "ratings 800 A on 600 A" as a plain fact - not amber - and
+    the strip says nothing about it (it used to warn "HOUSE service (600
+    A): its distros are rated 800 A together ..."). FOH with nothing on it
+    is skipped: 600 A on 600 A, as the binder's Service sheet reads."""
     pg, errors = page
     d = [dict(US('d1', 'SL', 400), serviceId='s1'), dict(US('d2', 'SR', 200), serviceId='s1'),
          dict(US('d3', 'FOH', 200), serviceId='s1')]
-    setup(pg, distros=d, services=[SVC(rating=600)], assign=[['WALL A', 0, 0, 'd1']])
+    setup(pg, distros=d, services=[SVC(rating=600)],
+          assign=[['WALL A', 0, 0, 'd1'], ['WALL A', 1, 1, 'd2'], ['WALL A', 2, 2, 'd3']])
     out = read(pg)
     s = out['services']['s1']
-    assert s['ratingSum'] == 800 and s['ratingsOver'], s
+    assert s['ratingSum'] == 800, s
     assert s['chips'] == ['SL 400 A', 'SR 200 A', 'FOH 200 A'], s
-    assert s['sum'] == 'ratings 800 A on 600 A' and s['sumOver'], s
-    assert {'text': 'HOUSE service: its distros are rated 800 A together '
-                    '(SL 400 A, SR 200 A, FOH 200 A) on a 600 A service', 'mild': True} in out['strip'], out['strip']
-    assert not s['over'], 'the ratings warning is not a load OVER'
-    # 400 + 200 on 600 is within it
-    pg.evaluate("() => window.app.setDistroService('d3', null)")
+    assert s['sum'] == 'ratings 800 A on 600 A' and not s['sumOver'], s
+    assert not any('rated' in w['text'] for w in out['strip']), out['strip']
+    assert not s['over'], 'the load is under the limit'
+    # FOH with nothing connected: skipped, as the binder skips it
+    setup(pg, distros=d, services=[SVC(rating=600)],
+          assign=[['WALL A', 0, 0, 'd1'], ['WALL A', 1, 1, 'd2']])
     s = read(pg)['services']['s1']
-    assert s['sum'] == 'ratings 600 A on 600 A' and not s['sumOver'] and not s['ratingsOver'], s
-    assert not any('rated' in w['text'] for w in read(pg)['strip'] if 'HOUSE' in w['text'])
+    assert s['ratingSum'] == 600 and s['sum'] == 'ratings 600 A on 600 A', s
     assert not errors, errors
 
 
@@ -524,7 +538,7 @@ def test_every_service_change_is_one_undo_step(page):
     # Undo of the removal brings the service back WITH its distro on it.
     undo(pg)
     out = read(pg)
-    assert out['serviceIds']['d1'] == 's1' and out['services']['s1']['chips'] == ['SL 400 A'], out
+    assert out['serviceIds']['d1'] == 's1' and out['services']['s1']['chips'] == ['SL 400 A · nothing connected'], out
     assert not errors, errors
 
 
@@ -584,7 +598,7 @@ def test_a_service_saves_and_loads_back(page, e2e_server, pw_browser, tmp_path):
         assert again['stored'] == before['stored'], again['stored']
         assert again['services']['s1']['chips'] == ['SL 400 A', 'SR 200 A'], again['services']['s1']
         assert again['services']['s1']['use'] == '330.0/400 A', again['services']['s1']
-        assert again['services']['s2']['chips'] == ['GEN 100 A'], again['services']['s2']
+        assert again['services']['s2']['chips'] == ['GEN 100 A · nothing connected'], again['services']['s2']
         assert not errors2, errors2
     finally:
         context.close()
@@ -634,7 +648,8 @@ BINDER_JS = """() => {
     const caught = [];
     const orig = app._bKvLines;
     app._bKvLines = function (book, title, pairs) {
-        if (title === 'Service') caught.push(pairs.map(p => p.slice()));
+        // the distro's block is DISTRO (2026-10-22), the service's SERVICE
+        if (title === 'Service' || title === 'Distro') caught.push(pairs.map(p => p.slice()));
         return orig.apply(this, arguments);
     };
     const opts = Object.assign(app.readBinderOptions(),
@@ -665,16 +680,19 @@ def test_the_binder_names_the_service_and_prints_a_service_sheet(page):
     blocks = out['caught']
     distro = [dict(p) for p in blocks if any(k == 'Circuits' for k, _ in p)]
     service = [dict(p) for p in blocks if any(k == 'Distros' for k, _ in p)]
-    # Fed from on the distros on it - and the rating line as it always read
-    fed = [d.get('Fed from') for d in distro]
-    assert fed == ['HOUSE 400 A · 120/208V 3φ', 'HOUSE 400 A · 120/208V 3φ', None], distro
-    assert [d['Rating'] for d in distro] == ['400 A 208 V 3φ', '200 A 208 V 3φ', '200 A 208 V 3φ']
-    assert list(distro[0])[:2] == ['Rating', 'Fed from'], list(distro[0])
+    # Fed from on the distros on it ("HOUSE · 400 A · ...", read the way
+    # FACTS reads it) - and every rating line by its service size first,
+    # an old-style distro's too (2026-10-21)
+    fed = [d.get('Powered from') for d in distro]
+    assert fed == ['HOUSE · 400 A · 120/208V 3φ', 'HOUSE · 400 A · 120/208V 3φ', None], distro
+    assert [d['Rating'] for d in distro] == ['400 A service · 120/208V 3φ', '200 A service · 120/208V 3φ',
+                                             '200 A service · 120/208V 3φ']
+    assert list(distro[0])[:2] == ['Rating', 'Powered from'], list(distro[0])
     # the Service block
     assert len(service) == 1, service
     s = service[0]
     assert s['Rating'] == '400 A · 120/208V 3φ', s
-    assert s['Distros'] == 'ratings 600 A on 400 A · past the service', s
+    assert s['Distros'] == 'ratings 600 A on 400 A', s
     assert s['Load'].startswith('X 330.0 · Y 330.0 · Z 330.0 A · 3φ '), s['Load']
     assert s['Load'].endswith('· limit 320 A (80% of 400 A) · OVER on X, Y, Z'), s['Load']
     assert s['Imbalance'] == '0.0%', s

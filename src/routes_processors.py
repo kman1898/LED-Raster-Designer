@@ -13,6 +13,7 @@ copy and saving, for one reason: every response carries the RESOLVED tree back,
 so the port counts and labels a user reads are the ones the server derived, not
 a second implementation in the browser that agrees today.
 """
+import copy
 import math
 
 from flask import Blueprint, g, request, jsonify
@@ -21,6 +22,7 @@ import app
 import processor_catalog as catalog
 import port_assignment as assignment
 from app import log_event, socketio
+from routes_port_assignment import clear_mirror
 
 processors_bp = Blueprint('processors', __name__)
 
@@ -205,7 +207,7 @@ def _fixed_pairing_refusal(card):
     device = catalog.get_device(card.get('deviceId')) or {}
     if ((device.get('redundancy') or {}).get('pairing')) == 'adjacent':
         return (f'{device.get("name", "This device")} pairs adjacent outputs '
-                f'automatically - its pairing is a fact of the device, not a '
+                f'automatically: its pairing is a fact of the device, not a '
                 f'mode.')
     return None
 
@@ -277,7 +279,7 @@ def _check_backup_card(card, card_id, backup_id):
                 f'mirror cannot be checked.')
     if main_cap['count'] != back_cap['count']:
         return (f'{back_title} has {back_cap["count"]} ports and {title} '
-                f'has {main_cap["count"]} - a 1:1 backup mirrors port for '
+                f'has {main_cap["count"]}. A 1:1 backup mirrors port for '
                 f'port, so the counts must match.')
     resolved_target = _resolved_card(backup_id)
     taken = (resolved_target or {}).get('backupFor')
@@ -286,12 +288,12 @@ def _check_backup_card(card, card_id, backup_id):
     resolved_self = _resolved_card(card_id)
     mine = (resolved_self or {}).get('backupFor')
     if mine:
-        return (f'{title} backs up {mine.get("title")} - a backup unit '
+        return (f'{title} backs up {mine.get("title")}, and a backup unit '
                 f'cannot take a backup of its own.')
     t_shape = (resolved_target or {}).get('redundancyShape') or {}
     if t_shape.get('mode') == '1to1' and \
             (resolved_target or {}).get('backupCardId'):
-        return (f'{back_title} has a backup of its own - it is a main, and '
+        return (f'{back_title} has a backup of its own: it is a main, and '
                 f'a main cannot also be one.')
     return None
 
@@ -338,14 +340,14 @@ def _set_redundancy_pairs(proc, pairs):
     marks = catalog.trunk_pair_marks(device)
     if not marks:
         return (f'{device.get("name", "This device")} has no trunk pairs to '
-                f'pick - its redundancy is on or off.')
+                f'pick: its redundancy is on or off.')
     if pairs is None:
         proc.pop('redundancyPairs', None)
         return None
     if not isinstance(pairs, list) or not pairs \
             or any(p not in marks for p in pairs):
-        return (f'redundancyPairs must name the pairs by their first trunk '
-                f'- {" or ".join(marks)}.')
+        return (f'redundancyPairs must name the pairs by their first trunk: '
+                f'{" or ".join(marks)}.')
     if set(pairs) == set(marks):
         proc.pop('redundancyPairs', None)
     else:
@@ -379,7 +381,36 @@ def _set_cards_redundancy_mode(proc, mode):
             return f'Slot {slot.get("index", 0) + 1}: {why}'
     for _slot, card in cards:
         _set_redundancy_mode(card, mode)
+    # Per card and Per port speak for every card, so a remembered Mixed
+    # pick goes with them: the bar reads the level they just wrote.
+    proc.pop('redundancyMixed', None)
     return None
+
+
+def _check_redundancy_mixed(proc, value):
+    """Why `value` cannot be stored as `proc`'s Mixed pick, or None.
+
+    Checked BEFORE anything in the body is written, so a refused pick
+    leaves the rest of the request unapplied too. False (or null) clears
+    the pick and is always allowed."""
+    if value is None or value is False:
+        return None
+    if value is not True:
+        return 'redundancyMixed must be true or false.'
+    return catalog.mixed_redundancy_refusal(proc)
+
+
+def _set_redundancy_mixed(proc, value):
+    """Store the bar's Mixed segment as picked (owner, 2026-10-29: "i want
+    to leave the bar. so i think adding mixed makes the most sense"): each
+    card of the chassis picks its own kind, and the bar stays on Mixed
+    while the cards happen to agree, until another segment is clicked.
+    Stored only as True - a cleared pick leaves no key behind. Changes no
+    card: the kinds are each card's own redundancyMode / backupCardId."""
+    if value is True:
+        proc['redundancyMixed'] = True
+    else:
+        proc.pop('redundancyMixed', None)
 
 
 def _set_port_backup(card, card_id, number, spec):
@@ -454,6 +485,8 @@ def _state(status=200, extra=None):
     app.current_project['is_pristine'] = False
     socketio.emit('project_updated', app.current_project)
     body = {
+        # first, before the tree is read (app.processor_state_stamp)
+        'stateStamp': app.processor_state_stamp(),
         'processors': _processors(),
         'resolved': catalog.resolve_all(_processors()),
         'next_processor_seq': app.current_project.get('next_processor_seq'),
@@ -466,6 +499,10 @@ def _state(status=200, extra=None):
         # shared by several boxes, on several processors.
         'fiberCables': catalog.resolved_fiber_cables(app.current_project),
     }
+    if g.get('mirrors_cleared'):
+        # The mirror screens this edit unplugged: the client drops their
+        # dataMirrorOf before its history snapshot, so one undo holds both.
+        body['mirrorsCleared'] = list(g.mirrors_cleared)
     if extra:
         body.update(extra)
     return jsonify(body), status
@@ -509,6 +546,8 @@ def processor_catalog():
 @processors_bp.route('/api/processors', methods=['GET'])
 def get_processors():
     return jsonify({
+        # first, before the tree is read (app.processor_state_stamp)
+        'stateStamp': app.processor_state_stamp(),
         'processors': _processors(),
         'resolved': catalog.resolve_all(_processors()),
         # The connectors a data cable can be typed as (catalog
@@ -556,7 +595,7 @@ def set_processor_order():
     have = [p.get('id') for p in _processors()]
     if sorted(ids) != sorted(have):
         return jsonify({
-            'error': 'ids must name every processor exactly once - '
+            'error': 'ids must name every processor exactly once: '
                      f'{len(have)} on file, {len(ids)} given.'}), 400
     by_id = {p.get('id'): p for p in _processors()}
     _processors_mut()[:] = [by_id[i] for i in ids]
@@ -578,8 +617,12 @@ def update_processor(processor_id):
     # ONE request and ONE undo step.
     if 'backupProcessorId' in data:
         return jsonify({'error': (
-            'A backup processor is an option on its main now - switch it '
+            'A backup processor is an option on its main now. Switch it '
             'on behind the main’s ⚙ (backupUnit).')}), 400
+    if 'redundancyMixed' in data:
+        why = _check_redundancy_mixed(proc, data.get('redundancyMixed'))
+        if why:
+            return jsonify({'error': why}), 400
     if 'redundancyPairs' in data:
         why = _set_redundancy_pairs(proc, data.get('redundancyPairs'))
         if why:
@@ -592,8 +635,14 @@ def update_processor(processor_id):
         why = _set_backup_unit(proc, data.get('backupUnit'))
         if why:
             return jsonify({'error': why}), 400
+    if 'redundancyMixed' in data:
+        _set_redundancy_mixed(proc, data.get('redundancyMixed'))
     changed = _apply(proc, data, ('name', 'mode', 'redundancy'))
-    for key in ('backupUnit', 'redundancyPairs', 'cardsRedundancyMode'):
+    if not proc.get('redundancy'):
+        # Off is another segment: the Mixed pick goes with it.
+        proc.pop('redundancyMixed', None)
+    for key in ('backupUnit', 'redundancyPairs', 'cardsRedundancyMode',
+                'redundancyMixed'):
         if key in data:
             changed[key] = data.get(key)
     log_event('processor_update', {'id': processor_id, 'changed': list(changed)})
@@ -606,10 +655,18 @@ def delete_processor(processor_id):
     if not proc:
         return jsonify({'error': 'Processor not found'}), 404
     removed = [card.get('id') for _slot, card in _cards_of(proc)]
+    mirrors = _mirrors_before()
     _processors_mut().remove(proc)
     _prune_backup_refs(removed)
-    log_event('processor_delete', {'id': processor_id})
-    return _state()
+    # Every port pinned to the machine's cards comes off with it: those
+    # screen ports read unplaced again, the way a removed box's do, instead
+    # of each one waiting on a "Release pin" (owner, beta.3: 48 of them).
+    dropped = _drop_card_pins(removed)
+    gone = _let_mirrors_go(mirrors)
+    log_event('processor_delete', {'id': processor_id,
+                                   'droppedPins': _pin_log(dropped)})
+    return _state(extra=_pins_released(
+        f'Removed {_proc_title(proc)}', dropped, gone))
 
 
 @processors_bp.route('/api/processors/<processor_id>/slots/<int:index>', methods=['PUT'])
@@ -631,8 +688,8 @@ def set_slot_card(processor_id, index):
         each = kinds[0].get('name') if len(kinds) == 1 else 'card'
         return jsonify({'error': (
             f'{device.get("name", "This processor")} has {len(names)} '
-            f'outputs, {_and_list(names)}, and each takes one {each} - '
-            f'there is no place for another.')}), 400
+            f'outputs, {_and_list(names)}, and each takes one {each}. '
+            f'There is no place for another.')}), 400
     if slot is None:
         return jsonify({'error': 'Slot not found'}), 404
     if slot.get('card') and slot['card'].get('fixed'):
@@ -640,11 +697,20 @@ def set_slot_card(processor_id, index):
     data = request.json or {}
     device_id = data.get('deviceId')
     outgoing = (slot.get('card') or {}).get('id')
+    # What the outgoing card is called, read while it is still in its slot.
+    outgoing_title = catalog.card_display_name(slot['card'], proc) \
+        if outgoing else ''
+    mirrors = _mirrors_before()
     if not device_id:
         slot['card'] = None
         _prune_backup_refs([outgoing] if outgoing else [])
-        log_event('processor_slot_clear', {'id': processor_id, 'slot': index})
-        return _state()
+        # The card's pins go with it, as a removed processor's do.
+        dropped = _drop_card_pins([outgoing] if outgoing else [])
+        gone = _let_mirrors_go(mirrors)
+        log_event('processor_slot_clear', {'id': processor_id, 'slot': index,
+                                           'droppedPins': _pin_log(dropped)})
+        return _state(extra=_pins_released(
+            f'Removed {outgoing_title}', dropped, gone))
     # A QD-S goes on an SQ200's OUT port and nowhere else, and an SQ200's
     # outputs take nothing but a QD-S: where either side is a unit whose
     # outputs are named (the catalog's slot names, a card's unitWord), the
@@ -665,9 +731,55 @@ def set_slot_card(processor_id, index):
     # The outgoing card's redundancy links go with it - the new card in the
     # slot is different metal with a different id and (maybe) another count.
     _prune_backup_refs([outgoing] if outgoing else [])
+    # ...and so do its pins: they named the outgoing card's id, which the
+    # new card does not answer to.
+    dropped = _drop_card_pins([outgoing] if outgoing else [])
+    gone = _let_mirrors_go(mirrors)
     log_event('processor_slot_card', {'id': processor_id, 'slot': index,
-                                      'device': device_id})
-    return _state()
+                                      'device': device_id,
+                                      'droppedPins': _pin_log(dropped)})
+    return _state(extra=_pins_released(
+        f'Replaced {outgoing_title}', dropped, gone))
+
+
+def _check_ethernet_ports(card, device, value, proc=None):
+    """Why `value` is not a list of ports this card may plug in at its own
+    RJ45 (plugChoice), or None. Only the MX40 Pro and the
+    H_16xRJ45+2xfiber take one, and only for their own ports."""
+    limit = catalog.plug_choice_ports(device)
+    # The card as every message calls it: its typed name, else Card N on
+    # a card-based processor, else the unit (card_display_name).
+    name = (catalog.card_display_name(card, proc) if proc
+            else device.get('name', 'This card'))
+    if not limit:
+        return (f'{name} has no ports that plug in at both its own RJ45 '
+                f'and a breakout box.')
+    if not isinstance(value, list):
+        return 'ethernetPorts must be a list of port numbers.'
+    for raw in value:
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            return 'ethernetPorts must be a list of port numbers.'
+        if not 1 <= raw <= limit:
+            return (f'Only ports 1-{limit} of {name} plug in at its own '
+                    f'RJ45 or a box; there is no choice for port {raw}.')
+    return None
+
+
+def _store_ethernet_ports(card, value):
+    """Store the card's ethernet ports (sorted, unique; absent when none)
+    and let go of the port cables typed on the socket each port left: the
+    run from a box socket and the run from the card's RJ45 are different
+    cables. Snakes re-home onto the record that now delivers the socket
+    (_state's _migrate_snakes)."""
+    ports = sorted({int(n) for n in value or []})
+    if ports:
+        card['ethernetPorts'] = ports
+    else:
+        card.pop('ethernetPorts', None)
+    card_id = card.get('id')
+    catalog.prune_cable_store(card, _port_numbers(card_id))
+    for cvt in card.get('cvts') or []:
+        catalog.prune_cable_store(cvt, _port_numbers(card_id, cvt.get('id')))
 
 
 @processors_bp.route('/api/processors/<processor_id>/cards/<card_id>', methods=['PUT'])
@@ -678,7 +790,29 @@ def update_card(processor_id, card_id):
     card = _find_card(proc, card_id)
     if not card:
         return jsonify({'error': 'Card not found'}), 404
-    data = request.json or {}
+    data = dict(request.json or {})
+    device = catalog.get_device(card.get('deviceId')) or {}
+    before = None
+    if 'mode' in data:
+        # A mode stored under its old id (an H_4xfiber's copy-backup, an
+        # old undo snapshot) is the mode it names now - Backup.
+        data['mode'] = catalog.canonical_mode(device, data.get('mode'))
+        before = copy.deepcopy(_processors())
+    # PER PORT, CARD ETHERNET OR BOX (plugChoice), the whole list at once -
+    # the card's "all ports on this OPT" shortcut sends it.
+    if 'ethernetPorts' in data:
+        why = _check_ethernet_ports(card, device, data.get('ethernetPorts'),
+                                    proc)
+        if why:
+            return jsonify({'error': why}), 400
+    # A row under the bar's Mixed segment writes ONLY its card, and says
+    # so with `redundancyMixed: true` in the same body: the processor
+    # stays at Mixed even where this write leaves its cards agreeing. One
+    # request, one undo step. Checked first, so a refusal writes nothing.
+    if 'redundancyMixed' in data:
+        why = _check_redundancy_mixed(proc, data.get('redundancyMixed'))
+        if why:
+            return jsonify({'error': why}), 400
     # The redundancy fields are validated, not allow-listed: a mode the
     # catalog does not know, a partner that cannot mirror this card, or a
     # vendor-fixed pairing are all refused with the reason, never stored.
@@ -701,6 +835,21 @@ def update_card(processor_id, card_id):
     for key in ('redundancyMode', 'backupCardId', 'snakes', 'portCables'):
         if key in data:
             changed[key] = card.get(key)
+    if 'redundancyMixed' in data and proc.get('redundancy'):
+        _set_redundancy_mixed(proc, data.get('redundancyMixed'))
+        changed['redundancyMixed'] = proc.get('redundancyMixed', False)
+    if 'ethernetPorts' in data:
+        _store_ethernet_ports(card, data.get('ethernetPorts'))
+        changed['ethernetPorts'] = card.get('ethernetPorts') or []
+    if before is not None:
+        # A mode can put one screen across cards that cannot load it
+        # together (an enhanced H_4xfiber in Copy beside one in Backup):
+        # refused, and the card is put back as it was.
+        state = app.current_project.get(assignment.STATE_KEY) or {}
+        why = assignment.mix_refusal(before, state, _processors(), state)
+        if why:
+            app.current_project['processors'] = before
+            return jsonify({'error': why}), 409
     if 'mode' in data:
         # A mode can halve the card (H_4xfiber independent → copy/backup):
         # snakes and cables on sockets that no longer exist go with them,
@@ -749,8 +898,27 @@ def update_card_port(processor_id, card_id, number):
         return jsonify({'error': 'Port numbers start at 1'}), 400
     data = request.json or {}
     if 'name' not in data and 'returnName' not in data \
-            and 'backup' not in data:
-        return jsonify({'error': 'name, returnName or backup is required'}), 400
+            and 'backup' not in data and 'plug' not in data:
+        return jsonify({'error': 'name, returnName, backup or plug is '
+                                 'required'}), 400
+    # `plug`: where this one port plugs in, 'card' (the card's own RJ45) or
+    # 'box' (the breakout box on the OPT carrying it) - plugChoice devices
+    # only (the MX40 Pro, the H_16xRJ45+2xfiber). Refused with the reason
+    # where there is no choice to make.
+    if 'plug' in data:
+        device = catalog.get_device(card.get('deviceId')) or {}
+        plug = data.get('plug')
+        if plug not in ('card', 'box'):
+            return jsonify({'error': "plug must be 'card' or 'box'"}), 400
+        rport = next((p for p in (_resolved_card(card_id) or {})
+                      .get('ports') or [] if p.get('number') == number), None)
+        why = _check_ethernet_ports(card, device, [number], proc)
+        if not why and not (rport and rport.get('plug')):
+            why = (f'Port {number} of {catalog.card_display_name(card, proc)} has '
+                   f'no breakout box carrying it, so it plugs in at the '
+                   f'card only.')
+        if why:
+            return jsonify({'error': why}), 400
     # `backup` names the port this one's manual-mode return comes back on -
     # {'cardId', 'port'}, same card or another - and null clears it. Sparse
     # on purpose: manual mode maps only the ports somebody named.
@@ -768,6 +936,14 @@ def update_card_port(processor_id, card_id, number):
         changed['returnNamed'] = bool(stored)
     if 'backup' in data:
         changed['backup'] = (card.get('backupPorts') or {}).get(str(number))
+    if 'plug' in data:
+        now = set(catalog.ethernet_ports(card))
+        if data['plug'] == 'card':
+            now.add(number)
+        else:
+            now.discard(number)
+        _store_ethernet_ports(card, sorted(now))
+        changed['plug'] = data['plug']
     log_event('processor_port_name', changed)
     return _state()
 
@@ -799,6 +975,23 @@ def add_cvt(processor_id, card_id):
     ok, why = catalog.can_add_cvt(card, device_id, inputs)
     if not ok:
         return jsonify({'error': why}), 400
+    # A BOX PUT STRAIGHT ON A COPY OPT (`trunk`, 0-based), its primary OPT
+    # left empty: the unit's own Ethernet ports are the primaries and the
+    # box backs them up or mirrors them (owner, 2026-11-02: "you could use
+    # 16 ports on processor and then opt 3/4 for 16 ports of backup/copy").
+    # Only onto the copy OPTs the resolved card offers (copyTrunksOpen),
+    # every OPT the box takes among them; the box holds that OPT
+    # (held_trunk) the way a box on a box-fed card holds its own.
+    trunk = data.get('trunk')
+    if trunk is not None:
+        rcard = _resolved_card(card_id) or {}
+        open_ = set(rcard.get('copyTrunksOpen') or [])
+        takes = (inputs if inputs is not None
+                 else catalog.trunks_in(box_device or {})) or 1
+        if isinstance(trunk, bool) or not isinstance(trunk, int) \
+                or not all(t in open_ for t in range(trunk, trunk + takes)):
+            return jsonify({'error': 'That box cannot go on that copy '
+                                     'output.'}), 400
     cvt = catalog.new_cvt(device_id, _next_seq(), data.get('name', ''))
     if not cvt:
         return jsonify({'error': f'Unknown device: {device_id}'}), 400
@@ -806,6 +999,8 @@ def add_cvt(processor_id, card_id):
     if inputs is not None \
             and inputs < catalog.trunks_in(box_device):
         cvt['inputs'] = inputs
+    if trunk is not None:
+        cvt['trunk'] = trunk
     card.setdefault('cvts', []).append(cvt)
     # NOVASTAR'S DEFAULT IS A PAIR: a primary box and a backup box, unit to
     # unit, whenever the card's mode has trunks backing other trunks - and a
@@ -814,20 +1009,58 @@ def add_cvt(processor_id, card_id):
     # backup trunk (resolve_card) so the pair really is one set of ports
     # twice. default_backup_pair names the one vendor this is documented for;
     # Brompton pairs the fixed way it pairs, and Megapixel gets no default.
+    # A BOX ON A COPY OPT OF A PER-BOX MODE (the MX40 Pro's 20-port: OPT 3/4
+    # are "the copy channel" of OPT 1/2) is a Mirror or a Backup - owner,
+    # 2026-10-30, "Either, you pick" - and the add says which (`copyRole`;
+    # the client asks before it sends). Absent is Backup, what such a box
+    # always was.
+    role = data.get('copyRole')
+    if role is not None and role not in ('mirror', 'backup'):
+        card['cvts'].remove(cvt)
+        return jsonify({'error': "copyRole must be 'mirror' or 'backup'"}), 400
     backup_id = None
-    if data.get('pair') is not False and catalog.default_backup_pair(card):
+    # A box that lands on a BACKUP trunk is a backup already: with every
+    # primary trunk taken, the next box resolves onto the first free backup
+    # OPT and backs up what is there (a CVT4K-S on OPT 5-6 of an enhanced
+    # card behind two CVT10s). Its default pair would be a backup of a
+    # backup - a box no strip of the tray drew, which the user could neither
+    # see nor remove (beta.4 QA) - so a box that landed there gets none.
+    landed = next((b for b in (_resolved_card(card_id) or {}).get('cvts')
+                   or [] if b.get('id') == cvt['id']), {})
+    on_backup = bool(landed.get('backupOf') or landed.get('duplicateOf')
+                     or landed.get('copyRole') == 'backup')
+    if trunk is None and not on_backup and data.get('pair') is not False \
+            and catalog.default_backup_pair(card):
         ok_backup, _why = catalog.can_add_cvt(card, device_id, inputs)
         if ok_backup:
             backup = catalog.new_cvt(device_id, _next_seq(), '')
-            backup['backupOf'] = cvt['id']
+            if role == 'mirror':
+                # The pair's second box rides the same copy OPT, as a
+                # mirror of the first rather than its backup.
+                backup['copyOf'] = cvt['id']
+                backup['copyRole'] = 'mirror'
+            else:
+                backup['backupOf'] = cvt['id']
             # The backup is the same box on the same inputs.
             if 'inputs' in cvt:
                 backup['inputs'] = cvt['inputs']
             card['cvts'].append(backup)
             backup_id = backup['id']
+    elif role == 'mirror':
+        cvt['copyRole'] = 'mirror'
+    # A role only means something on a copy OPT: one that landed on a
+    # primary keeps no copyRole.
+    if role == 'mirror':
+        rbox = {b['id']: b for b in (_resolved_card(card_id) or {})
+                .get('cvts') or []}
+        for raw in card['cvts']:
+            if raw.get('copyRole') and not (rbox.get(raw['id']) or {}) \
+                    .get('copyRoleChoice'):
+                raw.pop('copyRole', None)
     log_event('processor_cvt_add', {'card': card_id, 'device': device_id,
                                     'inputs': cvt.get('inputs'),
-                                    'backup': backup_id})
+                                    'backup': backup_id,
+                                    'copyRole': role})
     return _state(201)
 
 
@@ -904,12 +1137,28 @@ def update_cvt(processor_id, cvt_id):
             if more > free:
                 name = card_device.get('name', 'This card')
                 word = catalog.box_input_word(box_device)
-                have = (f'all {trunks} trunks on {name} are used'
+                every = 'both' if trunks == 2 else f'all {trunks}'
+                have = (f'{every} trunks on {name} are used'
                         if free <= 0 else f'{name} has {free} free')
                 return jsonify({'error': (
                     f'{box_device.get("name", "This box")} on {inputs} '
                     f'{word} takes {inputs} trunks, and {have}. Free a '
                     f'trunk first.')}), 400
+    # MIRROR OR BACKUP, per box on a copy OPT of a per-box mode (the MX40
+    # Pro's 20-port OPT 3/4, owner 2026-10-30: "Either, you pick"). Checked
+    # against the box as it resolves now; refused where there is no choice.
+    role = None
+    if 'copyRole' in data:
+        role = data.get('copyRole')
+        if role not in ('mirror', 'backup'):
+            return jsonify({'error': "copyRole must be 'mirror' or "
+                                     "'backup'"}), 400
+        rbox = next((b for b in (_resolved_card(card.get('id')) or {})
+                     .get('cvts') or [] if b.get('id') == cvt_id), {})
+        if not rbox.get('copyRoleChoice'):
+            return jsonify({'error': (
+                f'{rbox.get("displayTitle") or "This box"} is not on a copy '
+                f'OPT that picks Mirror or Backup per box.')}), 400
     # The box's snakes and port home runs, against the sockets IT delivers
     # (2026-09-06). Same door as the card's, same refusals.
     why = _take_cable_store(cvt, data, card.get('id'), cvt_id)
@@ -966,6 +1215,25 @@ def update_cvt(processor_id, cvt_id):
     for key in ('fiberType', 'fiberFt', 'location', 'beachId'):
         if key in data:
             changed[key] = cvt.get(key)
+    if role is not None:
+        # The pair link follows the role: a Mirror rides its primary's copy
+        # OPT as its copy (copyOf), a Backup as its backup (backupOf). The
+        # sockets it delivered move with it, so its port cables go.
+        mate = cvt.pop('backupOf', None) or cvt.pop('copyOf', None)
+        # A box straddling a main OPT and its copy (spansCopy) keeps its
+        # main sockets, and their cables, whichever its copy input carries.
+        straddle = bool(rbox.get('spansCopy'))
+        if role == 'mirror':
+            cvt['copyRole'] = 'mirror'
+            if mate:
+                cvt['copyOf'] = mate
+        else:
+            cvt.pop('copyRole', None)
+            if mate:
+                cvt['backupOf'] = mate
+        if not straddle:
+            cvt.pop('portCables', None)
+        changed['copyRole'] = role
     for key in ('snakes', 'portCables'):
         if key in data:
             changed[key] = cvt.get(key)
@@ -999,6 +1267,7 @@ def delete_cvt(processor_id, cvt_id):
                 {})
     box_title = rbox.get('displayTitle') or rbox.get('name') \
         or rbox.get('deviceName') or cvt.get('deviceId') or cvt_id
+    mirrors = _mirrors_before()
     # The survivors keep their trunks (hold_box_trunks): on a box-fed
     # device the box IS the trunk's sockets, so C must not slide down onto
     # B's trunk when B goes - B's sockets are gone, C's stay 21-30, and a
@@ -1012,6 +1281,8 @@ def delete_cvt(processor_id, cvt_id):
     for other in card['cvts']:
         if other.get('backupOf') == cvt_id:
             other.pop('backupOf', None)
+        if other.get('copyOf') == cvt_id:
+            other.pop('copyOf', None)
     # The box's links - its backup unit's included - went with its record;
     # the cables it was the last user of - TAC, MTP or opticalCON - go in
     # _state (settle_fiber).
@@ -1028,24 +1299,91 @@ def delete_cvt(processor_id, cvt_id):
     if rcard.get('boxFed'):
         dropped = assignment.prune_pins_off_sockets(
             app.current_project, card.get('id'), _port_numbers(card.get('id')))
+    gone = _let_mirrors_go(mirrors)
     log_event('processor_cvt_delete', {
-        'id': cvt_id, 'box': box_title,
-        'droppedPins': [{'layerId': p['layerId'], 'index': p['index'],
-                         'port': p['port']} for p in dropped]})
-    extra = None
-    if dropped:
-        extra = {
-            'note': _box_removed_note(box_title, dropped),
-            # The pruned state rides the reply so the client's project copy
-            # (and the undo snapshot it takes off it) carries the pins as
-            # the server now holds them, not the ones it had a moment ago.
-            'portAssignments': app.current_project.get(assignment.STATE_KEY),
-        }
-    return _state(extra=extra)
+        'id': cvt_id, 'box': box_title, 'droppedPins': _pin_log(dropped)})
+    return _state(extra=_pins_released(f'Removed box {box_title}', dropped,
+                                       gone))
 
 
-def _box_removed_note(box_title, dropped):
-    """'Removed box XD B - 3 ports of LEFT are unplaced again':
+def _drop_card_pins(card_ids):
+    """Drop every pin on the cards `card_ids` names - cards that are gone
+    (a processor removed, a slot emptied or re-carded). In place; returns
+    the pins dropped. A pin left on a dead card kept its screen port
+    reading "pinned to a card that is no longer in this project" until
+    somebody pressed Release pin on it, one port at a time."""
+    dropped = []
+    for card_id in card_ids:
+        if card_id:
+            dropped += assignment.prune_pins_off_sockets(
+                app.current_project, card_id, ())
+    return dropped
+
+
+def _mirrors_before():
+    """What the mirror screens stand on, read before a removal takes the
+    hardware away: the pins, the cards in a copy mode, and the sources whose
+    copies have somewhere to plug in (_let_mirrors_go)."""
+    pins = assignment.pins_of(app.current_project)
+    return {'pins': pins,
+            'copyCards': assignment.copy_card_ids(_processors()),
+            'landed': assignment.mirror_sources_landed(_processors(), pins)}
+
+
+def _let_mirrors_go(before):
+    """The mirror screens a removal unplugged go with it, in the same
+    request and so the same undo step: the source's feed taken away (owner,
+    2026-11-01: "If the card is unplugged from the FIRST (source) screen,
+    the copy screen unplugs too") and the copy's own last socket taken away
+    ("Unplugging only the copy screen just removes the copy"). A locked
+    mirror stays. Returns [(mirror name, source name)] for the note."""
+    project = app.current_project
+    pins = assignment.pins_of(project)
+    source_gone = assignment.mirrors_unplugged(
+        project, None, before['pins'], pins, copy_cards=before['copyCards'])
+    copy_gone = [l for l in assignment.mirrors_off_their_sockets(
+        project, _processors(), pins, before['landed'])
+        if not any(l is s for s in source_gone)]
+    names = {str(l.get('id')): (l.get('name') or f'Screen {l.get("id")}')
+             for l in project.get('layers') or [] if isinstance(l, dict)}
+    gone = []
+    for layers, why in ((source_gone, 'source_unplugged'),
+                        (copy_gone, 'copy_unplugged')):
+        for layer in layers:
+            gone.append((names.get(str(layer.get('id'))),
+                         names.get(str(layer.get('dataMirrorOf')))))
+            clear_mirror(layer, why)
+    return gone
+
+
+def _pin_log(dropped):
+    return [{'layerId': p['layerId'], 'index': p['index'],
+             'cardId': p['cardId'], 'port': p['port']} for p in dropped]
+
+
+def _pins_released(what, dropped, mirrors=()):
+    """The reply's `extra` for an edit that dropped pins or let mirrors go
+    (_let_mirrors_go), None for one that did neither. The note says what
+    went, which screen ports it let go of and which mirrors stopped; the
+    pruned state rides the reply so the client's project copy (and the undo
+    snapshot it takes off it) carries the pins as the server now holds
+    them, not the ones it had a moment ago. Undo (the whole-project PUT of
+    the prior snapshot) puts hardware, pins and mirrors back together."""
+    if not dropped and not mirrors:
+        return None
+    stopped = _and_list([f'{name} no longer mirrors {source}'
+                         for name, source in mirrors])
+    if not dropped:
+        return {'note': f'{what}: {stopped}'}
+    note = _pins_released_note(what, dropped)
+    return {
+        'note': f'{note}, and {stopped}' if stopped else note,
+        'portAssignments': app.current_project.get(assignment.STATE_KEY),
+    }
+
+
+def _pins_released_note(what, dropped):
+    """'Removed box XD B: 3 ports of LEFT are unplaced again':
     one clause per screen, in the order their pins came off, each screen
     called by the name on its layer."""
     names = {str(l.get('id')): (l.get('name') or f'Screen {l.get("id")}')
@@ -1058,7 +1396,7 @@ def _box_removed_note(box_title, dropped):
              f'{names.get(layer_id, f"Screen {layer_id}")}'
              for layer_id, n in counts.items()]
     verb = 'is' if len(dropped) == 1 else 'are'
-    return f'Removed box {box_title} - {_and_list(parts)} {verb} unplaced again'
+    return f'{what}: {_and_list(parts)} {verb} unplaced again'
 
 
 def _and_list(names):
@@ -1096,7 +1434,7 @@ def _check_snake_cable(data):
     conn = data.get('connector')
     ids = catalog.data_cable_connector_ids()
     if 'connector' in data and conn not in (None, '') and conn not in ids:
-        return (f'unknown connector {conn!r} - one of '
+        return (f'unknown connector {conn!r}: one of '
                 f'{", ".join(sorted(ids))}, or null to follow the port.')
     if 'name' in data and data.get('name') is not None \
             and not isinstance(data.get('name'), str):
@@ -1253,17 +1591,71 @@ def _fiber_link_strands(boxes, cables, box_id, key, cable_id, strands):
         cable = cables[cable_id]
         strands = catalog.fiber_next_free(cable, taken, need)
         if strands is None:
-            return None, (f'{cable.get("name") or "That cable"} has no '
-                          f'{need} free strand{"" if need == 1 else "s"} '
-                          f'left.')
+            # Said plainly (beta.4 QA: "TAC A has no 2 free strands left."
+            # read oddly): a cable with nothing left is full; one with a
+            # strand left but not the two this link needs says both.
+            name = cable.get('name') or 'That cable'
+            free = sum(1 for s in range(
+                1, catalog.fiber_cable_strand_count(cable) + 1)
+                if (cable_id, s) not in taken)
+            if not free:
+                return None, f'{name} is full: every strand is in use.'
+            return None, (f'{name} has {free} free strand'
+                          f'{"" if free == 1 else "s"} and this link needs '
+                          f'{need}.')
     why = catalog.check_fiber_link(boxes, cables, box_id, key, cable_id,
                                    strands)
     return (None, why) if why else (list(strands), None)
 
 
 def _set_fiber_link(raw, key, cable_id, strands):
-    raw.setdefault('fiberLinks', {})[key] = {'cable': cable_id,
-                                            'strands': list(strands)}
+    """Put the link on its cable and strands. Its extension stays while the
+    link stays on a TAC or an MTP - the patch at the box is the link's, so
+    moving strands or picking another trunk keeps it - and goes on an
+    opticalCON (settle_fiber holds the same)."""
+    links = raw.setdefault('fiberLinks', {})
+    old = catalog.resolved_fiber_links(raw).get(key) or {}
+    link = {'cable': cable_id, 'strands': list(strands)}
+    cable = _find_fiber_cable(cable_id) or {}
+    if old.get('extension') and cable.get('kind') in catalog.FIBER_STRANDED_KINDS:
+        link['extension'] = old['extension']
+    links[key] = link
+
+
+def _set_fiber_extension(entry, key, data):
+    """A link's extension at the box end: {extension: {kind?, trunkEnd?,
+    boxEnd?, ft?}} adds one (a fan-out off an MTP, a duplex patch off a
+    TAC, as first picked) or changes the keys sent; {extension: null}
+    removes it. Only on a link already on a TAC or an MTP."""
+    res, raw = entry['res'], entry['raw']
+    title = catalog.fiber_box_title(entry)
+    device = catalog.get_device(res.get('deviceId'))
+    port = catalog.fiber_link_title(key, device)
+    link = catalog.resolved_fiber_links(raw).get(key)
+    body = data.get('extension')
+    if body is None:
+        if link and link.get('extension'):
+            raw['fiberLinks'][key].pop('extension', None)
+        log_event('fiber_extension_remove', {'box': res.get('id'), 'key': key})
+        return _state()
+    if not link or not link.get('cable'):
+        return jsonify({'error': (
+            f'{title} {port} has no TAC or MTP to extend. Pick its cable '
+            f'first.')}), 400
+    cable = _find_fiber_cable(link['cable']) or {}
+    if cable.get('kind') not in catalog.FIBER_STRANDED_KINDS:
+        return jsonify({'error': (
+            f'{title} {port} is on an opticalCON. An extension is added to '
+            f'a TAC or an MTP.')}), 400
+    why = catalog.check_fiber_extension(body, unit=app.cable_unit())
+    if why:
+        return jsonify({'error': why}), 400
+    ext = catalog.merge_fiber_extension(link.get('extension'), body, cable)
+    stored = raw['fiberLinks'][key]
+    stored['extension'] = ext
+    log_event('fiber_extension_set', {'box': res.get('id'), 'key': key,
+                                      'extension': ext})
+    return _state()
 
 
 @processors_bp.route('/api/fiber-cables', methods=['POST'])
@@ -1361,6 +1753,8 @@ def set_fiber_link(processor_id, cvt_id, key):
     entry = boxes.get(cvt_id)
     if 'copper' in data:
         return _set_copper_link(entry, key, data)
+    if 'extension' in data and 'cable' not in data:
+        return _set_fiber_extension(entry, key, data)
     if 'cable' in data and not data.get('cable'):
         links = cvt.get('fiberLinks') or {}
         if key in links:
@@ -1375,7 +1769,7 @@ def set_fiber_link(processor_id, cvt_id, key):
         primary = catalog.resolved_fiber_links(cvt).get('p' + key[1:])
         if not primary or not primary.get('cable'):
             return jsonify({'error': (
-                f'Pick a cable for {catalog.fiber_link_title(key, device)} - '
+                f'Pick a cable for {catalog.fiber_link_title(key, device)}: '
                 f'{catalog.fiber_link_title("p" + key[1:], device)} has no '
                 f'fiber to follow.')}), 400
         cable_id = primary['cable']
@@ -1408,8 +1802,8 @@ def _set_copper_link(entry, key, data):
         }), 400
     if not res.get('copperLinks'):
         return jsonify({'error': (
-            f'{res.get("deviceName") or title} takes fiber only on its links '
-            f'- copper is offered on an XD.')}), 400
+            f'{res.get("deviceName") or title} takes fiber only on its links. '
+            f'Copper is offered on an XD.')}), 400
     kind = data.get('copper')
     if catalog.copper_link_max_ft(kind) is None:
         kinds = ', '.join(k for k, _ft in catalog.COPPER_LINK_KINDS)
@@ -1458,7 +1852,7 @@ def update_box_fiber(processor_id, cvt_id):
     if 'boundTo' in data or 'unbound' in data:
         return jsonify({'error': (
             'Boxes are not bound any more: a loop’s far box is a box of its '
-            'own, and a backup processor - an option behind the main’s ⚙ - '
+            'own, and a backup processor (an option behind the main’s ⚙) '
             'feeds each box on its backup input.')}), 400
     if 'bidi' in data and not isinstance(data['bidi'], bool):
         return jsonify({'error': 'bidi must be true or false.'}), 400
@@ -1467,10 +1861,10 @@ def update_box_fiber(processor_id, cvt_id):
             vendor = res.get('vendor') or 'this vendor'
             if vendor in catalog.BIDI_VENDORS:
                 return jsonify({'error': (
-                    f'{res.get("deviceName") or title} runs duplex only - a '
-                    f'pair per link, like an XD - so it has no BiDi.')}), 400
+                    f'{res.get("deviceName") or title} runs duplex only, a '
+                    f'pair per link like an XD, so it has no BiDi.')}), 400
             return jsonify({'error': (
-                f'{res.get("deviceName") or title} is a {vendor} box - BiDi '
+                f'{res.get("deviceName") or title} is a {vendor} box. BiDi '
                 f'is offered on NovaStar and Megapixel boxes only.')}), 400
     if 'bidi' in data and bool(cvt.get('bidi')) != data['bidi']:
         if data['bidi']:

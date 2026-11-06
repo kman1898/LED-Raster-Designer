@@ -44,7 +44,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -72,7 +72,8 @@ window.__sm = {
             type: 'screen', visible: true, locked: false,
             columns: 3, rows: 5, cabinet_width: 128, cabinet_height: 128,
             offset_x: 0, offset_y: 0, panel_weight: 20, weight_unit: 'kg',
-            panelWatts: 100, powerVoltage: 110, powerAmperage: 5,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            panelWatts: 100, powerVoltage: 110, powerAmperage: 6.25,
             processorType: 'brompton', bitDepth: 8, frameRate: 60, lowLatency: false,
             flowPattern: 'tl-h', portMappingMode: 'organized',
             powerFlowPattern: 'tl-v', powerOrganized: true, powerMaximize: false,

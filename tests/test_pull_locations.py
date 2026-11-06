@@ -35,6 +35,7 @@ any other):
 
 import base64
 import io
+import json
 import os
 import sys
 
@@ -49,6 +50,7 @@ import pull_sheet  # noqa: E402
 openpyxl = pytest.importorskip('openpyxl', reason='openpyxl not installed')
 
 from test_pull_list import SEED_JS, LIST_JS, _rows  # noqa: E402
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -135,7 +137,7 @@ POS_JS = """() => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -198,20 +200,22 @@ def test_a_distro_at_its_own_beach_pulls_the_power_rows_there(page):
     assert dimmer['memberIds'] == [] and dimmer['layerIds'] == [ids['a'], ids['b']]
     assert _rows(dimmer['rows']) == [
         ('Distro', 'EA', 1, 'SR', ''),
-        ('Multi', "100'", 1, 'SR 2', ''),
-        ('Multi', "125'", 1, 'SR 1', ''),
-        ('Tru-1', "6'", 1, 'SR2-1', ''),
-        ('Tru-1', "10'", 2, 'SR1-1, SR1-2', ''),
-        ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', ''),
-        ('Tru-1 Power Jump', "1'", 9, 'WALL-A', ''),
-        ('Tru-1 Power Jump', "2'", 1, 'WALL-A', ''),
-        ('Tru-1 Power Jump', "6'", 10, 'WALL-B', ''),
+        ('Multi', "100'", 1, 'SR2', ''),
+        ('Multi', "125'", 1, 'SR1', ''),
+        ('Power in', '', 1, 'SR', 'no length'),
+        ('TRUE1', "6'", 1, 'SR2-1', ''),
+        ('TRUE1', "10'", 2, 'SR1-1, SR1-2', ''),
+        ('TRUE1 Breakout', 'EA', 2, 'SR1, SR2', ''),
+        ('TRUE1 Power Jump', "1'", 9, 'WALL-A', ''),
+        ('TRUE1 Power Jump', "2'", 1, 'WALL-A', ''),
+        ('TRUE1 Power Jump', "6'", 10, 'WALL-B', ''),
     ]
+    # the walls name no panel, so no panel row (owner, 2026-11-05)
     assert _rows(pos['SR Beach']['rows']) == [
+        ('Cat6 Snake', "100'", 1, 'SR-1, SR-2', 'SNAKE A · 2 channel'),
         ('Data Jump', "1'", 9, 'WALL-A', ''),
         ('Data Jump', "2'", 2, 'WALL-A', ''),
         ('Data Jump', "6'", 11, 'WALL-B', ''),
-        ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel'),
         ('H9', 'EA', 1, '', ''),
     ]
     assert pos['SR Beach']['layerIds'] == [ids['a'], ids['b']]
@@ -305,7 +309,7 @@ def test_the_workbook_and_the_binder_take_a_device_location(page):
     col = pull_sheet.BLOCK_COLS[2]
     rows = [tuple(ws.cell(r, col + i).value for i in range(4)) for r in range(7, 20)]
     assert ('Distro', 'EA', 1, 'SR') in rows, rows
-    assert ('Multi', "125'", 1, 'SR 1') in rows, rows
+    assert ('Multi', "125'", 1, 'SR1') in rows, rows
     # the positions side by side on one pull sheet, in position order, the
     # device location last
     pulls = [t for t in out['plan'] if t.startswith('Pull - ')]
@@ -327,7 +331,7 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     - a beach the project keeps (project.beaches, made the way the picker
     makes one) that each box PICKS by id. The sockets' home runs are the
     box's now (its snake of sockets 1-2 with a 10' extension on socket 1,
-    its 50' cable on 3), so the snake, the extension and its `Ether-con
+    its 50' cable on 3), so the snake, the extension and its `Cat6
     Barrel` (one per extension, 2026-09-07), CENTER's cable, every data
     jumper, box A's fiber and ONE "CVT10 EA" row of qty 2 labelled "A, B"
     land on SL Beach, whose layerIds are the three screens; the power rows
@@ -395,8 +399,8 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     # delivers (WALL-A -> SR Beach); box B delivers nothing and is not listed
     no = _by_name(out['noLocation']['positions'])
     assert [p['name'] for p in out['noLocation']['positions']] == ['SR Beach', 'CENTER']
-    assert [r for r in _rows(no['SR Beach']['rows']) if r[0] == 'CVT10'] == [('CVT10', 'EA', 1, 'A', '')]
-    assert not [r for r in _rows(no['CENTER']['rows']) if r[0] == 'CVT10']
+    assert [r for r in _rows(no['SR Beach']['rows']) if r[0] == 'CVT10-S'] == [('CVT10-S', 'EA', 1, 'A', '')]
+    assert not [r for r in _rows(no['CENTER']['rows']) if r[0] == 'CVT10-S']
     assert out['knownBefore'] == [], 'a project with no beaches knows no location'
     # the beaches: two, in the order they were made, one spelling each
     sl_id, sr_id = out['sl'], out['sr']
@@ -414,37 +418,46 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
     # the beach's own
     assert pos['SR Beach']['memberIds'] == [ids['a'], ids['b']] and pos['SR Beach']['location'] == 'SR Beach'
     assert _rows(sl['rows']) == [
-        ('12 Tac Fiber', "250'", 1, 'CVT10 A', ''),
-        ('CVT10', 'EA', 2, 'A, B', ''),
+        ('12 Tac Fiber', "250'", 1, 'CVT10-S A', ''),
+        ('Cat6', "50'", 1, out['centerLabel'], ''),
+        ('Cat6 Barrel', 'EA', 1, out['aLabel'], ''),
+        ('Cat6 Extension', "10'", 1, out['aLabel'], f"ext · {out['snakeName']}"),
+        ('Cat6 Snake', "100'", 1, 'SR-1, SR-2', f"{out['snakeName']} · 2 channel"),
+        ('CVT10-S', 'EA', 2, 'A, B', ''),
         ('Data Jump', "1'", 9, 'WALL-A', ''),
         ('Data Jump', "1.5'", 4, 'CENTER', ''),
         ('Data Jump', "2'", 2, 'WALL-A', ''),
         ('Data Jump', "6'", 11, 'WALL-B', ''),
-        ('Ether-con', "10'", 1, out['aLabel'], f"ext · {out['snakeName']}"),
-        ('Ether-con', "50'", 1, out['centerLabel'], ''),
-        ('Ether-con Barrel', 'EA', 1, out['aLabel'], ''),
-        ('Ether-con Snake', "100'", 1, out['snakeName'], '2 channel'),
         ('H9', 'EA', 1, '', ''),
     ]
     assert all(r['side'] == 'data' for r in sl['rows'])
+    # the walls name no panel, so no panel row (owner, 2026-11-05)
     assert _rows(pos['SR Beach']['rows']) == [
         ('Distro', 'EA', 1, 'SR', ''),
-        ('Multi', "100'", 1, 'SR 2', ''),
-        ('Multi', "125'", 1, 'SR 1', ''),
-        ('Tru-1', "6'", 1, 'SR2-1', ''),
-        ('Tru-1', "10'", 2, 'SR1-1, SR1-2', ''),
-        ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', ''),
-        ('Tru-1 Power Jump', "1'", 9, 'WALL-A', ''),
-        ('Tru-1 Power Jump', "2'", 1, 'WALL-A', ''),
-        ('Tru-1 Power Jump', "6'", 10, 'WALL-B', ''),
+        ('Multi', "100'", 1, 'SR2', ''),
+        ('Multi', "125'", 1, 'SR1', ''),
+        ('Power in', '', 1, 'SR', 'no length'),
+        ('TRUE1', "6'", 1, 'SR2-1', ''),
+        ('TRUE1', "10'", 2, 'SR1-1, SR1-2', ''),
+        ('TRUE1 Breakout', 'EA', 2, 'SR1, SR2', ''),
+        ('TRUE1 Power Jump', "1'", 9, 'WALL-A', ''),
+        ('TRUE1 Power Jump', "2'", 1, 'WALL-A', ''),
+        ('TRUE1 Power Jump', "6'", 10, 'WALL-B', ''),
     ]
+    # CENTER's Edison breakout reaches its TRUE1 panels through a cable per
+    # circuit, and its splitter is on the panels' side (2026-10-21)
+    tails = pg.evaluate(f"""() => {{
+        const app = window.app, c = app.project.layers.find(l => l.id === {json.dumps(ids['c'])});
+        return app.screenCircuits(c).map(x => app.getPowerCircuitLabel(c, x.num)).join(', ');
+    }}""")
     assert _rows(pos['CENTER']['rows']) == [
-        ('Edison 2fer', 'EA', 1, ids['centerLabel'], ''),
-        ('Tru-1 Power Jump', "3'", 12, 'CENTER', ''),
+        ('Edison → TRUE1 cable', 'EA', 2, tails, ''),
+        ('TRUE1 2fer', 'EA', 1, ids['centerLabel'], ''),
+        ('TRUE1 Power Jump', "3'", 12, 'CENTER', ''),
     ]
     # the processor's hardware list carries both boxes' gear rows
     hw = {(h['kind'],): _rows(h['rows']) for h in out['located']['hardware'] if h['kind'] == 'processor'}
-    assert ('CVT10', 'EA', 2, 'A, B', '') in hw[('processor',)]
+    assert ('CVT10-S', 'EA', 2, 'A, B', '') in hw[('processor',)]
     # every location the project knows: the beach names, in beach order
     assert out['known'] == ['SL Beach', 'SR Beach']
     assert ids['errors'] == []
@@ -532,7 +545,7 @@ def test_the_box_gear_has_a_beach_picker_with_the_projects_beaches(page):
     out = _beach_picker(pg, key)
     assert out['found'] and out['inPop'] and out['tag'] == 'SELECT', out
     assert out['value'] == sl_id, out
-    assert out['options'] == [['', '— no beach —'], [sl_id, 'SL Beach'], [sr_id, 'SR Beach'],
+    assert out['options'] == [['', 'No beach'], [sl_id, 'SL Beach'], [sr_id, 'SR Beach'],
                               ['__new_beach__', '+ New beach…']], out['options']
     assert 'Beach' in out['labels'] and out['typed'] == [], out
     # pick SR Beach: one 'Set Box Beach' entry, the box's beachId follows
@@ -551,8 +564,8 @@ def test_the_box_gear_has_a_beach_picker_with_the_projects_beaches(page):
     assert _open_gear(pg, f'box-{box_b}'), 'the box gear did not open again'
     pg.wait_for_timeout(300)
     assert _beach_picker(pg, key)['value'] == sr_id
-    pg.once('dialog', lambda d: d.accept('Dimmer Beach'))
     pg.locator(f'[data-lrd-field="{key}"]').select_option('__new_beach__')
+    answer_app_dialog(pg, text='Dimmer Beach')
     pg.wait_for_timeout(1200)
     st = pg.evaluate("""() => {
         const app = window.app;
@@ -590,7 +603,7 @@ def test_the_box_gear_has_a_beach_picker_with_the_projects_beaches(page):
     pg.wait_for_timeout(300)
     d = _beach_picker(pg, f"distro-beach-{ids['distroId']}")
     assert d['found'] and d['inPop'] and d['tag'] == 'SELECT' and d['value'] == '', d
-    assert d['options'] == [['', '— no beach —'], [sl_id, 'SL Beach'], [sr_id, 'SR Beach'],
+    assert d['options'] == [['', 'No beach'], [sl_id, 'SL Beach'], [sr_id, 'SR Beach'],
                             ['__new_beach__', '+ New beach…']], d['options']
     assert 'Beach' in d['labels'] and d['typed'] == [], d
     pg.keyboard.press('Escape')
@@ -642,7 +655,8 @@ def test_a_distro_is_named_by_its_type_never_its_holes(page):
             headers: {'Content-Type': 'application/json'},
             body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
         await j('POST', '/api/layer/add', {name: 'TALL', columns: 54, rows: 1, cabinet_width: 100, cabinet_height: 100,
-                                           powerVoltage: 208, powerAmperage: 10, panelWatts: 2000,
+                                           // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+                                           powerVoltage: 208, powerAmperage: 12.5, panelWatts: 2000,
                                            powerFlowPattern: 'tl-v', powerOrganized: true, flowPattern: 'tl-h',
                                            processorType: 'novastar-armor', offset_x: 3000});
         app.project = await j('GET', '/api/project');

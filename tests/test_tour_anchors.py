@@ -32,6 +32,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
+from conftest import open_app  # noqa: E402
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _restore_server_project(server_project_guard):
@@ -43,7 +45,7 @@ def _restore_server_project(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -173,6 +175,13 @@ QUICKSTART_JS = os.path.join(os.path.dirname(__file__), '..', 'src', 'static',
 #                      Wiring are sheets of their own (2026-09-12)
 #   N-way            - a snake is an "N channel snake" (2026-09-12)
 #   Halves           - the port shape reads OPT Split / Split (2026-09-11)
+#   Tru-1, True1     - the connector is TRUE1, capitals, as Neutrik
+#                      spells it (owner ruling, 2026-10-21)
+#   Ether-con        - the data connector is etherCON (2026-10-21)
+#   Data Cable       - a data run is Cat6 or etherCON by its connector
+#                      (2026-10-21)
+#   tail             - also the Edison adapter: "Edison → TRUE1 cable"
+#                      (2026-10-21); the tails? rule below catches it
 #
 # The tray's circuit chips carry the app's own `tail-<distro>-<n>-<t>` key
 # (app-dock.js _dockBuildCircuitChip), and a demonstrating step drags one
@@ -185,6 +194,13 @@ RETIRED_WORDING = [
     (r'-way\b', 'a snake is an N channel snake, never N-way'),
     (r'\bhalves\b', 'the port shape is OPT Split / Split, never Halves'),
     (r'\bgangs?\b|un-gang', 'shared circuits, never gangs (Matt, 2026-09-15)'),
+    # Case matters for these three: TRUE1 is right, True1 is not, and a
+    # lower-case "data cable" in a sentence is plain English. The ids
+    # ('soca-true1', 'true1') are lower case and a camelCase key
+    # (powerJumpNameTrue1) has no word boundary, so neither matches.
+    (r'(?-i:\bTrue1\b)|\bTru-1\b', 'the connector is TRUE1, never True1 or Tru-1'),
+    (r'\bEther-con\b', 'the data connector is etherCON, never Ether-con'),
+    (r'(?-i:\bData Cable\b)', 'a data run is Cat6 or etherCON, never Data Cable'),
 ]
 
 
@@ -213,10 +229,255 @@ def test_retired_wording_guard_catches_each_word():
     step body, is caught - so a silently broken pattern cannot pass."""
     for sample in ('one Signal + Power sheet', 'a 4-way snake',
                    'Halves the ports', 'circuits, not tails',
-                   'Gang runs through a 2fer', 'Undo un-gangs it'):
+                   'Gang runs through a 2fer', 'Undo un-gangs it',
+                   'Multi to True1', 'a Tru-1 Power Jump', 'an Ether-con run',
+                   'one Data Cable per port', 'one Edison tail per circuit'):
         assert _retired_wording_hits(sample), sample
     assert not _retired_wording_hits(
         'SNAKE A · 4 channel; OPT Split; Power Wiring and Data Wiring')
+    assert not _retired_wording_hits(
+        "Multi to TRUE1, 'soca-true1', powerJumpNameTrue1, powerCON, etherCON, Cat6, the data cable")
+
+
+# US spelling and no dashes as punctuation, in everything a user reads as
+# prose: the guide copy, What's New, the release being shipped (the top
+# entry of VERSION.txt, which becomes the GitHub release post) and the
+# README (owner rulings, 2026-10-18 and 2026-10-22). Commas, colons and
+# full stops do the job a " - " or an em dash was doing.
+#
+# Only text a user sees is checked: in a .js file that is its string
+# literals, never its comments. "metre" and "metres" are also unit words
+# the length parser accepts (app-cable-units.js), so a string that is
+# nothing but that unit word is exempt; in a sentence they fail.
+VERSION_TXT = os.path.join(os.path.dirname(__file__), '..', 'src', 'VERSION.txt')
+README_MD = os.path.join(os.path.dirname(__file__), '..', 'README.md')
+WHATS_NEW_JS = os.path.join(os.path.dirname(__file__), '..', 'src', 'static',
+                            'js', 'whatsnew_content.js')
+INDEX_HTML = os.path.join(os.path.dirname(__file__), '..', 'src', 'templates', 'index.html')
+
+PLAIN_US_WORDING = [
+    (r'\blabell(?:ed|ing)\b', 'US spelling: labeled, labeling'),
+    (r'\bneighbour', 'US spelling: neighbor'),
+    (r'\bcolour', 'US spelling: color'),
+    (r'\bcentr(?:e|es|ed|ing)\b', 'US spelling: center'),
+    (r'\b(?:milli|centi|kilo)?metres?\b', 'US spelling: meter, meters'),
+    (r'\bbehaviour', 'US spelling: behavior'),
+    (r'\bfavourite', 'US spelling: favorite'),
+    (r'\bcancell(?:ed|ing)\b', 'US spelling: canceled, canceling'),
+    (r'\btravell(?:ed|ing|er)\b', 'US spelling: traveled, traveling'),
+    (r'\bmodell(?:ed|ing)\b', 'US spelling: modeled, modeling'),
+    (r'\bfibres?\b', 'US spelling: fiber'),
+    (r'\bcatalogue', 'US spelling: catalog'),
+    (r'\bgrey\b', 'US spelling: gray'),
+    (r'\blicence\b', 'US spelling: license'),
+    (r'\b(?:organ|optim|minim|maxim|custom|recogn|real|summar|priorit|'
+     r'initial|normal|visual|synchron|author|final|categor|apolog|emphas|'
+     r'util|standard)is(?:e|es|ed|ing|ation|ations)\b', 'US spelling: -ize, not -ise'),
+    # "analyses" is also the plural of analysis, so only the verb forms
+    (r'\b(?:anal|paral|catal)ys(?:e|ed|ing)\b', 'US spelling: -yze, not -yse'),
+    # An en dash in a numeric range ("8–16") is allowed (owner ruling,
+    # 2026-10-22); anywhere else it is a dash, like an em dash.
+    (r'—|(?<!\d)–|–(?!\d)', 'no em dashes, and en dashes only in a range like 8–16; '
+                             'use a comma, colon or full stop'),
+    (r'(?<=\S) - (?=\S)', 'no " - " as a dash; use a comma, colon or full stop'),
+    # the same dash where the text wraps: "on -" ending a line of
+    # VERSION.txt or the README, its sentence going on below
+    (r'(?<=\S) -[ \t]*(?=\n)', 'no " - " as a dash at a line end; use a comma, colon or full stop'),
+]
+
+# Words a string may be on its own without being prose (see above).
+_UNIT_WORDS = {'metre', 'metres'}
+
+
+def _plain_wording_hits(text, first_line=1):
+    hits = []
+    # CSS arithmetic in a style string is not punctuation
+    text = re.sub(r'calc\([^)]*\)', lambda m: ' ' * len(m.group(0)), text)
+    for pattern, rule in PLAIN_US_WORDING:
+        for m in re.finditer(pattern, text, re.I):
+            line = first_line + text.count('\n', 0, m.start())
+            hits.append('line %d: %r (%s)' % (line, m.group(0), rule))
+    return hits
+
+
+def _js_string_literals(src):
+    """[(line, text)] for every string literal in a JS source, comments
+    skipped. A template literal gives one piece per run of text between
+    its ${...} parts; a regex literal is skipped."""
+    out, i, n = [], 0, len(src)
+    templates = []          # brace depth at each open ${ of a template
+    depth = 0
+    prev = ''               # last significant character, '' at the start
+    while i < n:
+        c = src[i]
+        if src.startswith('//', i):
+            j = src.find('\n', i)
+            i = n if j < 0 else j
+            continue
+        if src.startswith('/*', i):
+            j = src.find('*/', i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        if c == '/' and (prev == '' or prev in '(,=:[!&|?{};+-*%<>~^'):
+            j, in_class = i + 1, False
+            while j < n and src[j] != '\n':
+                ch = src[j]
+                if ch == '\\':
+                    j += 2
+                    continue
+                if ch == '[':
+                    in_class = True
+                elif ch == ']':
+                    in_class = False
+                elif ch == '/' and not in_class:
+                    break
+                j += 1
+            i, prev = j + 1, 'r'
+            continue
+        if c in '\'"':
+            j, buf = i + 1, []
+            while j < n and src[j] != c and src[j] != '\n':
+                if src[j] == '\\':
+                    buf.append(src[j + 1:j + 2])
+                    j += 2
+                    continue
+                buf.append(src[j])
+                j += 1
+            out.append((src.count('\n', 0, i) + 1, ''.join(buf)))
+            i, prev = j + 1, 's'
+            continue
+        if c == '`' or (c == '}' and templates and templates[-1] == depth):
+            if c == '}':
+                templates.pop()
+            j, buf = i + 1, []
+            while j < n:
+                if src[j] == '\\':
+                    buf.append(src[j + 1:j + 2])
+                    j += 2
+                    continue
+                if src[j] == '`':
+                    j += 1
+                    break
+                if src.startswith('${', j):
+                    templates.append(depth)
+                    j += 2
+                    break
+                buf.append(src[j])
+                j += 1
+            out.append((src.count('\n', 0, i) + 1, ''.join(buf)))
+            i, prev = j, 's'
+            continue
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+        if not c.isspace():
+            prev = 'a' if (c.isalnum() or c in '_$') else c
+        i += 1
+    return out
+
+
+def _js_copy_hits(path):
+    with open(path, encoding='utf-8') as f:
+        src = f.read()
+    hits = []
+    for line, text in _js_string_literals(src):
+        if text.strip().lower() in _UNIT_WORDS:
+            continue
+        hits.extend(_plain_wording_hits(text, line))
+    return hits
+
+
+def _top_version_entry():
+    """The top entry of VERSION.txt below its header and underline, and the
+    file line it starts on."""
+    with open(VERSION_TXT, encoding='utf-8') as f:
+        lines = f.read().split('\n')
+    starts = [i for i, l in enumerate(lines) if re.match(r'^v\d[\w.]* - ', l)]
+    assert starts, 'VERSION.txt has no version entry'
+    end = starts[1] if len(starts) > 1 else len(lines)
+    return '\n'.join(lines[starts[0] + 2:end]), starts[0] + 3
+
+
+def test_guide_copy_is_us_spelling_without_dashes():
+    hits = _js_copy_hits(QUICKSTART_JS)
+    assert not hits, 'quickstart.js copy says:\n' + '\n'.join(hits)
+
+
+def test_whats_new_is_us_spelling_without_dashes():
+    hits = _js_copy_hits(WHATS_NEW_JS)
+    assert not hits, 'whatsnew_content.js says:\n' + '\n'.join(hits)
+
+
+def test_top_release_notes_are_us_spelling_without_dashes():
+    body, first = _top_version_entry()
+    hits = _plain_wording_hits(body, first)
+    assert not hits, 'the top entry of VERSION.txt says:\n' + '\n'.join(hits)
+
+
+def test_readme_is_us_spelling_without_dashes():
+    with open(README_MD, encoding='utf-8') as f:
+        hits = _plain_wording_hits(f.read())
+    assert not hits, 'README.md says:\n' + '\n'.join(hits)
+
+
+def test_release_copy_never_says_retired_words():
+    """What's New, the release being shipped (the top entry of
+    VERSION.txt) and the README say what the app says today, the same as
+    the guide: never "tail", "True1", "Ether-con" and the rest."""
+    body, first = _top_version_entry()
+    with open(WHATS_NEW_JS, encoding='utf-8') as f:
+        whats_new = f.read()
+    with open(README_MD, encoding='utf-8') as f:
+        readme = f.read()
+    problems = []
+    for name, text in (("What's New", whats_new), ('the top entry of VERSION.txt', body),
+                       ('README.md', readme)):
+        hits = _retired_wording_hits(text)
+        if hits:
+            problems.append(name + ' says:\n' + '\n'.join(hits))
+    assert not problems, '\n'.join(problems)
+
+
+def test_shortcuts_dialog_has_no_dashes():
+    """The Shortcuts dialog is read as prose too: colons and commas, no
+    " - " and no em dash (owner ruling, 2026-10-22)."""
+    with open(INDEX_HTML, encoding='utf-8') as f:
+        html = f.read()
+    start = html.index('<div id="shortcuts-modal"')
+    end = html.index('id="shortcuts-close"', start)
+    text = re.sub(r'<[^>]+>', ' ', html[start:end])
+    hits = [h for h in _plain_wording_hits(text) if 'dash' in h]
+    assert not hits, 'the Shortcuts dialog says:\n' + '\n'.join(hits)
+
+
+def test_plain_wording_guard_catches_each_word():
+    """The guard itself: each spelling and dash is caught in a sentence,
+    and the things that only look like them are not."""
+    for sample in ('Snakes are labelled by their ports', 'joining its neighbours',
+                   'a default colour', 'centred on the wall', 'lengths in metres',
+                   'the behaviour', 'cancelling the chooser', 'organise the binder',
+                   'a fibre link', 'the catalogue', 'a grey bar',
+                   'the socket it sits on - 6, 7, 8, 9 - the same',
+                   'a breaker — over the limit', 'the limit – over it',
+                   'the socket it sits on -\n6, 7, 8 or 9', 'analyse the load',
+                   'it paralysed the run', 'the -yse words: catalysing'):
+        assert _plain_wording_hits(sample), sample
+    # an en dash in a numeric range is allowed (owner ruling, 2026-10-22)
+    assert not _plain_wording_hits('8–16 panels a circuit, pages 1–2, 110–120V')
+    assert not _plain_wording_hits(
+        "labeled, neighbors, color, centered, meters, millimeter, canceling, "
+        "organize, fiber, catalog, SR-1 … SR-6, L21-30, Edison → TRUE1, "
+        "analyze, analyses, analysis, max-width:calc(100vw - 32px)")
+    # markdown bullets and indented sub points are not dashes
+    assert not _plain_wording_hits('- FIX: one\n  - a sub point\n   - **The first time**')
+    # a .js file is checked by its strings: a comment or a unit word passes
+    src = ("// centred, labelled - a comment\n"
+           "const u = new Set(['m', 'metre', 'metres']);\n"
+           "const t = `${n} labelled ${m}`; /* travelling */ const r = /a - b/;\n")
+    texts = [t for _, t in _js_string_literals(src)]
+    assert ' labelled ' in texts and 'metre' in texts, texts
+    assert not any('centred' in t or 'travelling' in t or 'a - b' in t for t in texts), texts
 
 
 def test_tour_registry_exposes_all_tours(page):
@@ -284,8 +545,8 @@ def _wait_step(page, index, timeout=90):
     return st
 
 
-# The drive runs the shipped gestures three times faster (every wait in
-# quickstart.js scales with setSpeed); the pace itself is a person's.
+# The drive runs the shipped gestures three times faster (every pace in
+# quickstart.js scales with setSpeed; the waits on the app do not).
 DRIVE_SPEED = 3
 
 
@@ -293,6 +554,20 @@ def _start(page, tour, speed=DRIVE_SPEED):
     page.evaluate("(s) => window.QuickStart.setSpeed(s)", speed)
     page.evaluate("(n) => { window.QuickStart.startTour(n); }", tour)
     return _wait_step(page, 0)
+
+
+def _skip(page):
+    """Skip, and wait until the guide says the person's world is back.
+    Skip puts it back over the network (preferences, then the project)
+    and only then the panels and the tray, so the restore takes as long
+    as those round trips: 0.2 to 0.9 s under a CPU burner (2026-11-04),
+    against the fixed 1.5 s this used to sleep. end() keeps the guide
+    running until the restore is done, so a restore that went wrong still
+    fails the reads after this."""
+    page.locator('#qs-skip').click()
+    page.wait_for_function(
+        "() => !window.QuickStart.state().visible && !window.QuickStart.state().running",
+        timeout=30000)
 
 
 def _end(page):
@@ -449,8 +724,7 @@ def test_exit_puts_the_users_project_back(page):
     _drive_to(page, 'advanced', i)
     mid = page.evaluate(WORLD_JS)
     assert 'DEMO WALL' in mid['layers'], mid['layers']
-    page.locator('#qs-skip').click()
-    page.wait_for_timeout(1500)
+    _skip(page)
 
     after = page.evaluate(WORLD_JS)
     assert after['project'] == before['project'], 'the project did not come back deep-equal'
@@ -466,10 +740,10 @@ def test_exit_puts_the_users_project_back(page):
 
 
 def test_escape_mid_act_does_not_corrupt(page):
-    """Escape while an act runs is not the tour's to take (the app's own
-    Escape cancels drags, sweeps and popovers): the tour either ignores it
-    and finishes the step, or exits cleanly - and either way the user's
-    project is back once the tour ends."""
+    """Escape while an act runs never reaches the app (the input shield
+    swallows it, so the app's own Escape cannot cancel the act's drag or
+    popover): the guide finishes the step and then exits cleanly, and the
+    user's project is back once the tour ends."""
     page.evaluate(SEED_JS)
     page.wait_for_timeout(600)
     before = page.evaluate(WORLD_JS)
@@ -485,11 +759,15 @@ def test_escape_mid_act_does_not_corrupt(page):
         time.sleep(0.05)
     assert st['state'] == 'running', st
     page.keyboard.press('Escape')
-    st = _wait_step(page, 1)
-    if st['visible']:
-        # ignored: the step finished as if nothing happened
-        assert st['state'] == 'done' and not st['fail'], st
-        _end(page)
+    # The step settles, then the guide ends (Escape queued the exit).
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        st = page.evaluate(STATE_JS)
+        if not st['qs']['visible'] and not st['qs']['running']:
+            break
+        assert st['qs']['index'] in (1, -1), st
+        time.sleep(0.1)
+    assert not st['qs']['visible'], st
     page.wait_for_timeout(1200)
     after = page.evaluate(WORLD_JS)
     assert after['project'] == before['project']
@@ -520,8 +798,7 @@ def test_tour_leaves_preferences_alone(page):
         i = _step_index(page, 'advanced', 'Border and title block')
         st = _drive_to(page, 'advanced', i)
         assert st['state'] == 'done' and not st['fail'], st
-        page.locator('#qs-skip').click()
-        page.wait_for_timeout(1500)
+        _skip(page)
         prefs = page.evaluate(PREFS_JS, None)
         assert prefs.get('binderTitleBlock') is False, prefs.get('binderTitleBlock')
         assert page.evaluate("window.app.getPreferences().binderTitleBlock") is False
@@ -621,7 +898,7 @@ def test_whats_new_launches_from_help_menu(e2e_server, pw_browser, browser_name,
     def body(browser):
         context = browser.new_context(viewport={'width': 1700, 'height': 950})
         context.add_init_script(
-            "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+            "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
         pg = context.new_page()
         try:
             pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -668,7 +945,7 @@ CALLOUT_JS = """() => {
 # remembered folded under the very id the demo mints (folds persist per
 # section id in localStorage, so the demo's SL 1 would come up folded).
 TRAY_INIT_JS = """try {
-    localStorage.setItem('lrd_quickstart_disabled', '1');
+    localStorage.setItem('lrd_quickstart_first_run_done', '1');
     localStorage.setItem('ledRasterSidebarCollapsed_dock', '1');
     localStorage.setItem('lrd_dock_h', '100');
     localStorage.setItem('ledRasterPanelCollapsed_hwdock-multi-d1-1', '1');
@@ -768,8 +1045,7 @@ def test_a_folded_tray_and_a_small_window_do_not_break_the_tour(e2e_server, pw_b
         jumpy = [f"step {s + 1} ({titles[s]!r}) moved {len(q) - 1} times: {q}"
                  for s, q in sorted(moves.items()) if len(q) > 2]
         assert not jumpy, '\n'.join(jumpy)
-        pg.locator('#qs-skip').click()
-        pg.wait_for_timeout(1500)
+        _skip(pg)
         assert not pg.evaluate("window.QuickStart.state().visible")
         after = pg.evaluate(TRAY_STATE_JS)
         assert after['collapsed'], after
@@ -785,7 +1061,7 @@ def test_a_folded_tray_and_a_small_window_do_not_break_the_tour(e2e_server, pw_b
 # display:none under its fold - and the callout sat in the middle of the
 # window, because its spot in the right sidebar was not there.
 PANELS_INIT_JS = """try {
-    localStorage.setItem('lrd_quickstart_disabled', '1');
+    localStorage.setItem('lrd_quickstart_first_run_done', '1');
     localStorage.setItem('ledRasterSidebarCollapsed_left', '1');
     localStorage.setItem('ledRasterSidebarCollapsed_right', '1');
     localStorage.setItem('ledRasterPanelCollapsed_pixel-map--screen-info', '1');
@@ -821,8 +1097,7 @@ def test_folded_sidebars_and_a_folded_section_do_not_break_the_tour(e2e_server, 
     context.add_init_script(PANELS_INIT_JS)
     pg = context.new_page()
     try:
-        pg.goto(e2e_server, wait_until='domcontentloaded')
-        pg.wait_for_timeout(2000)
+        open_app(pg, e2e_server)
         before = pg.evaluate(PANELS_STATE_JS)
         assert before['left'] and before['right'] and before['screenInfoFolded'], before
         assert before['cabinetWidth'][2:] == [0, 0], before
@@ -848,8 +1123,7 @@ def test_folded_sidebars_and_a_folded_section_do_not_break_the_tour(e2e_server, 
                 assert mid['cabinetWidth'][2] > 100 and mid['cabinetWidth'][0] > 0, mid
                 assert box['inSidebar'] and not box['centred'], box
         assert not problems, '\n'.join(problems)
-        pg.locator('#qs-skip').click()
-        pg.wait_for_timeout(1500)
+        _skip(pg)
         assert not pg.evaluate("window.QuickStart.state().visible")
         after = pg.evaluate(PANELS_STATE_JS)
         assert after['left'] and after['right'] and after['screenInfoFolded'], after

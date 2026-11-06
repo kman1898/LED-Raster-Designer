@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-SIZES_DIFFER = 'Cabinet sizes differ - runs stay per screen. Use Custom to run across.'
+SIZES_DIFFER = 'Cabinet sizes differ, so runs stay per screen. Use Custom to run across.'
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -48,7 +48,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -93,7 +93,8 @@ window.__gc = {
             flowPattern: o.custom ? 'custom' : 'tl-v', lastFlowPattern: 'tl-v',
             powerFlowPattern: o.custom ? 'custom' : 'tl-v', lastPowerFlowPattern: 'tl-v',
             powerCustomPath: !!o.custom, powerOrganized: true, powerMaximize: false,
-            powerVoltage: 208, powerAmperage: 20, panelWatts: 200,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            powerVoltage: 208, powerAmperage: 25, panelWatts: 200,
             customPortPaths: {}, customPortIndex: 1, customPortOverrides: [],
             powerCustomPaths: {}, powerCustomIndex: 1, powerCustomOverrides: [],
             group_id: 'g2',
@@ -297,7 +298,7 @@ def test_tile_with_the_group_selected_fills_the_whole_group(page, kind, view):
         assert after['action'] == 'Custom Pattern Apply', out
     else:
         # Both members draw 200 W: one wattage keeps the cabinet count.
-        assert any('up to 20 panels each at 208V/20A' in t for t in out['toasts']), out
+        assert any('up to 20 panels each at 208V/25A at 80%' in t for t in out['toasts']), out
         assert after['action'] == 'Power Custom Pattern Apply', out
 
 

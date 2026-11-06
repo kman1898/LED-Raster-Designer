@@ -3,6 +3,7 @@
 // modules each attach their methods to LEDRasterApp.prototype on import.
 import { LEDRasterApp } from './app-core.js';
 import './app-wiring.js';
+import './app-dialogs.js';
 import './app-client-props.js';
 import './app-presets.js';
 import './app-colors.js';
@@ -15,6 +16,7 @@ import './app-port-routing.js';
 import './app-preferences.js';
 import './app-menubar.js';
 import './app-logs-recent.js';
+import './app-start-page.js';
 import './app-power.js';
 import './app-context-menu.js';
 import './app-distros.js';
@@ -25,6 +27,7 @@ import './app-naming.js';
 import './app-pixel-select.js';
 import './app-cross-layer-paths.js';
 import './app-run-overrides.js';
+import './app-merge-runs.js';
 import './app-custom-runs.js';
 import './app-layers-panel.js';
 import './app-pull-list.js';
@@ -35,12 +38,14 @@ import './app-beaches.js';
 import './app-pull-sheet-editor.js';
 import './app-binder.js';
 import './app-binder-wiring.js';
+import './app-binder-fiber.js';
 import './app-canvas-ui.js';
 import './app-project-io.js';
 import './app-screen-groups.js';
 import './app-processors.js';
 import './app-fiber.js';
 import './app-port-assignment.js';
+import './app-mirror-screens.js';
 import './app-dock.js';
 import './app-dock-cable-sheets.js';
 import './app-dock-sweep.js';
@@ -48,9 +53,11 @@ import './app-dock-drag.js';
 import './app-dock-menus.js';
 import './app-history.js';
 import './app-clipboard.js';
-import { registerGlobalClientLogging, sendClientLog } from './helpers.js';
+import { registerGlobalClientLogging, sendClientLog, installFieldGuard } from './helpers.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+    // First, so it has seen every value the app writes from here on.
+    installFieldGuard(document);
     registerGlobalClientLogging();
     sendClientLog('client_ready', { ua: navigator.userAgent });
     window.app = new LEDRasterApp();

@@ -3,7 +3,7 @@
 A distro is a SYSTEM (120/208V 3φ, 120/240V split-phase, 120V 1φ,
 230/400V 3φ, 230V 1φ) with an input, a rating per leg and OUTPUT ROWS on
 its face: multi rows (Socapex 19-pin, Harting 16E - six circuits; L21-30 -
-three 208V circuits) that break out at the screen, and direct rows (True1,
+three 208V circuits) that break out at the screen, and direct rows (TRUE1,
 powerCON 20A, powerCON XX, Edison 5-20, L5-20, L6-20, stage pin 20A, CEE
 16A/32A blue, Schuko) - one circuit per connector with its own cable.
 
@@ -48,7 +48,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -92,7 +92,8 @@ SETUP_JS = """(o) => {
     const app = window.app;
     for (const l of app.project.layers) {
         const key = l.name === 'WALL A' ? 'a' : 'b';
-        Object.assign(l, { powerVoltage: 208, powerAmperage: 20, panelWatts: 200,
+        // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+        Object.assign(l, { powerVoltage: 208, powerAmperage: 25, panelWatts: 200,
                            powerSocaDistro: {}, powerSocaNumber: {}, powerSocaPhasePos: {},
                            powerSocaLengths: {}, powerSocaSplits: [], powerSocaNames: {},
                            powerBreakoutType: null, locked: false },
@@ -256,7 +257,7 @@ def test_the_screens_3_phase_readout_uses_the_services_line_voltage(seeded):
     """Bug fix 3: "Total Amps (3φ)" divided by the screen voltage as if it
     were line-to-line. A 120V screen rides 120/208: W / (208 x 1.73)."""
     pg, _, _ = seeded
-    setup(pg, walls={'a': {'powerVoltage': 120, 'powerAmperage': 20}})
+    setup(pg, walls={'a': {'powerVoltage': 120, 'powerAmperage': 25}})
     out = ev(pg, """
         const saved = app.currentLayer;
         app.currentLayer = A;
@@ -282,7 +283,7 @@ def test_a_screen_voltage_the_system_lacks_is_refused_with_the_reason(seeded):
         return { why: app.distroVoltageRefusal(d, B), plan,
                  assigned: Object.keys(B.powerSocaDistro || {}).length,
                  status: document.getElementById('status-message').textContent };""")
-    want = 'WALL B runs at 230V — SL gives 120V or 208V. Set the screen to 208V.'
+    want = 'WALL B runs at 230V, and SL gives 120V or 208V. Set the screen to 208V.'
     assert out['why'] == want
     assert out['plan']['ok'] is False and out['plan']['message'] == want
     assert out['assigned'] == 0, out
@@ -336,7 +337,7 @@ def test_stage_pin_is_refused_at_208v(seeded):
         return { coupling: rows[0].coupling, plan };""")
     assert out['coupling'] == 'ln', 'a stage pin row cannot be stored line-to-line'
     assert out['plan']['ok'] is False
-    assert out['plan']['message'] == 'WALL A runs at 208V — stage pin is never 208V (ANSI E1.24)'
+    assert out['plan']['message'] == 'WALL A runs at 208V, and stage pin is never 208V (ANSI E1.24)'
 
 
 def test_powercon_xx_at_208v_warns(seeded):
@@ -344,7 +345,7 @@ def test_powercon_xx_at_208v_warns(seeded):
     setup(pg, distros=[{'id': 'd1', 'name': 'SL', 'ratingA': 200, 'system': '120/208',
                         'outputRows': [{'connector': 'powerconxx', 'count': 3, 'coupling': 'll'}]}])
     warn = ev(pg, "return app.distroChecks(app.getDistros()[0]).map(w => w.text);")
-    assert "powerCON XX is only US-listed to 127V — SL's 3 powerCON XX outputs run at 208V." in warn
+    assert "powerCON XX is only US-listed to 127V, and SL's 3 powerCON XX outputs run at 208V." in warn
     setup(pg, distros=[{'id': 'd1', 'name': 'SL', 'ratingA': 200, 'system': '120/208',
                         'outputRows': [{'connector': 'powerconxx', 'count': 3, 'coupling': 'ln'}]}])
     warn = ev(pg, "return app.distroChecks(app.getDistros()[0]).map(w => w.text);")
@@ -371,16 +372,28 @@ def test_us_circuits_are_checked_at_80_percent_unless_breakers_are_100_rated(see
     pg, _, _ = seeded
     dist = {'id': 'd1', 'name': 'SL', 'ratingA': 30, 'system': '120/208',
             'outputRows': [{'connector': 'true1', 'count': 3, 'coupling': 'll', 'breakerA': 20}]}
-    # 6 x 600 W = 3600 W at 208 = 17.3 A: over 16 A (80% of 20), under 20.
-    out = _direct_load(pg, dist, 208, 600)
-    assert out['legs'] == 1 and out['amps'] == pytest.approx(3600 / 208)
+    # A US screen packs to 80% of its breaker (2026-10-22), the same 80% the
+    # distro checks, so a full circuit never trips it: a row of 6 x 500 W =
+    # 3000 W at 208 = 14.4 A, under 16 A (80% of 20).
+    out = _direct_load(pg, dist, 208, 500)
+    assert out['legs'] == 1 and out['amps'] == pytest.approx(3000 / 208)
     assert out['label'] == 'SL1', 'a direct output names its circuit with no tail'
+    assert not [w for w in out['warn'] if 'breaker' in w], out
+    # A screen set to 25 A packs to 20 A: 6 x 600 W = 17.3 A on the 20 A
+    # outlet, over its 16 A.
+    out = _direct_load(pg, dist, 208, 600, amps=25)
+    assert out['amps'] == pytest.approx(3600 / 208)
     assert [w for w in out['warn'] if 'over the 80% continuous limit (16 A)' in w], out
+    # plain punctuation in the warning, never an em dash (2026-10-22)
+    assert not [w for w in out['warn'] if '—' in w or ' - ' in w], out
+    # 100% rated breakers: the screen packs to its 20 A breaker, and 17.3 A
+    # passes.
     out = _direct_load(pg, dict(dist, breakers100=True), 208, 600)
+    assert out['amps'] == pytest.approx(3600 / 208)
     assert not [w for w in out['warn'] if 'breaker' in w], out
     # 6 x 700 W = 4200 W at 208 = 20.2 A: over even a 100%-rated 20 A.
     out = _direct_load(pg, dict(dist, breakers100=True), 208, 700, amps=25)
-    assert [w for w in out['warn'] if 'on a 20 A breaker — OVER' in w], out
+    assert [w for w in out['warn'] if 'on a 20 A breaker: OVER' in w], out
 
 
 def test_eu_circuits_are_checked_at_the_breaker_and_true1_at_16a(seeded):
@@ -390,16 +403,16 @@ def test_eu_circuits_are_checked_at_the_breaker_and_true1_at_16a(seeded):
     # 6 x 580 W = 3480 W at 230 = 15.1 A: under the 16 A breaker, no 80%.
     out = _direct_load(pg, dist, 230, 580)
     assert not [w for w in out['warn'] if 'breaker' in w or 'rated' in w], out
-    # 6 x 650 W = 3900 W = 17.0 A: over the breaker and over a True1's 16 A.
+    # 6 x 650 W = 3900 W = 17.0 A: over the breaker and over a TRUE1's 16 A.
     out = _direct_load(pg, dist, 230, 650)
-    assert [w for w in out['warn'] if 'on a 16 A breaker — OVER' in w], out
-    assert [w for w in out['warn'] if 'a True1 is rated 16 A here' in w], out
+    assert [w for w in out['warn'] if 'on a 16 A breaker: OVER' in w], out
+    assert [w for w in out['warn'] if 'a TRUE1 is rated 16 A here' in w], out
 
 
 # ── legs (ruling 4) ─────────────────────────────────────────────────────
 
 def test_direct_outputs_rotate_x_y_z(seeded):
-    """'6 True1 at 110, each on its own leg': direct outputs take the legs
+    """'6 TRUE1 at 110, each on its own leg': direct outputs take the legs
     X Y Z X Y Z in face order; paired order is X X Y Y Z Z."""
     pg, _, _ = seeded
     dist = {'id': 'd1', 'name': 'SL', 'ratingA': 200, 'system': '120/208',
@@ -514,9 +527,9 @@ def test_a_direct_row_drop_takes_one_circuit_pinned(seeded):
     pg, _, _ = seeded
     dist = {'id': 'd1', 'name': 'SL', 'ratingA': 30, 'system': '120/208',
             'outputRows': [{'connector': 'true1', 'count': 3, 'coupling': 'll'}]}
-    setup(pg, distros=[dist], walls={'b': {'powerAmperage': 6}})
+    setup(pg, distros=[dist], walls={'b': {'powerAmperage': 7.5}})
     out = ev(pg, """
-        const payload = { type: 'plug', distroId: 'd1', output: 'face:r1', title: 'SL · True1 208V' };
+        const payload = { type: 'plug', distroId: 'd1', output: 'face:r1', title: 'SL · TRUE1 208V' };
         const plan = app._plugDropPlan(payload, B);
         app._dockDropPlug(payload, { kind: 'screen', layerId: B.id });
         app._dockDropPlug(payload, { kind: 'screen', layerId: B.id });
@@ -524,7 +537,7 @@ def test_a_direct_row_drop_takes_one_circuit_pinned(seeded):
         return { plan: plan.text, ok: plan.ok,
                  plan2: app.getSocaPlan(B).map(s => [s.legs.map(g => g.circuit), s.distroId, s.number, s.name]),
                  labels: app.screenCircuits(B).map(c => app.getPowerCircuitLabel(B, c.num)) };""")
-    assert out['ok'] and out['plan'].startswith('SL 1 → circuit 1'), out
+    assert out['ok'] and out['plan'].startswith('SL1 → circuit 1'), out
     assert out['plan2'][0] == [[1], 'd1', 1, 'SL1'], out
     assert out['plan2'][1] == [[2], 'd1', 2, 'SL2'], out
     assert out['labels'][:2] == ['SL1', 'SL2'], out
@@ -539,7 +552,7 @@ def test_a_locked_screen_refuses_a_face_drop(seeded):
         app._dockDropPlug({ type: 'plug', distroId: 'd1', output: 'face:r1', title: 'x' },
                           { kind: 'screen', layerId: B.id });
         return { assigned: Object.keys(B.powerSocaDistro).length,
-                 toast: document.body.innerText.includes('WALL B is locked - unlock it to change it.') };""")
+                 toast: document.body.innerText.includes('WALL B is locked. Unlock it to change it.') };""")
     assert out['assigned'] == 0
     assert out['toast'], 'the locked screen was not named'
     setup(pg)
@@ -667,10 +680,12 @@ def test_a_direct_output_cable_is_on_the_pull_sheet_in_the_shows_unit(seeded):
             const tag = app.directOutputCable(B, app.screenCircuits(B)[0].num);
             return { rows: rows.map(r => [r.type, r.length, r.qty, r.label, r.notes]),
                      hw: hw.map(r => [r.type, r.length, r.label, r.notes]), tag: tag && tag.text };""")
-        assert ['Schuko', want, 1, 'SL 2', ''] in out['rows'], out
+        # a Schuko outlet feeding TRUE1 panels: the cable names both ends,
+        # its length its own column (2026-10-21)
+        assert ['Schuko → TRUE1', want, 1, 'SL2', ''] in out['rows'], out
         assert not [r for r in out['rows'] if 'Breakout' in r[0] or r[0] == 'Multi'], out
         assert ['Distro', 'EA', 'SL', '1 direct output'] in out['hw'], out
-        assert out['tag'] == f'{want} Schuko', out
+        assert out['tag'] == f'{want} Schuko → TRUE1', out
 
 
 def test_the_binder_prints_the_face_once_with_paired_rows_together(seeded):
@@ -686,7 +701,8 @@ def test_the_binder_prints_the_face_once_with_paired_rows_together(seeded):
     assert out['lines'] == [
         '2 × Socapex 230V / 2 × Harting 16E 230V (paired) · 12 circuits · 16 A',
         '9 × Schuko · 9 direct circuits · 16 A'], out
-    assert out['legacy'] == '400 A 208 V 3φ'
+    # an old-style distro reads like every other (2026-10-21)
+    assert out['legacy'] == '400 A service · 120/208V 3φ'
 
 
 def test_every_binder_sheet_draws_a_face_distro_and_its_direct_output(seeded):
@@ -718,4 +734,4 @@ def test_every_binder_sheet_draws_a_face_distro_and_its_direct_output(seeded):
     t = out['texts']
     assert '63 A service · 230/400V 3φ · CEE 63 A red' in t, [x for x in t if 'service' in x]
     assert '4 × Schuko · 4 direct circuits · 16 A' in t, [x for x in t if 'Schuko' in x]
-    assert ['SL4 · Schuko · 8 m', 1] in out['devices'], out['devices']
+    assert ['SL4 · Schuko → TRUE1 · 8 m', 1] in out['devices'], out['devices']

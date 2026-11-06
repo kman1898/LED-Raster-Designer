@@ -82,9 +82,9 @@ export const DISTRO_CONNECTORS = [
     { id: 'l2130', name: 'L21-30 (3 × 208V)', short: 'L21-30', kind: 'multi', circuits: 3,
       regions: ['us'], systems: ['120/208'], couple: 'll', feedLegA: 30, glyph: 'l2130',
       cable: 'L21-30' },
-    { id: 'true1', name: 'True1', short: 'True1', kind: 'direct', circuits: 1,
+    { id: 'true1', name: 'TRUE1', short: 'TRUE1', kind: 'direct', circuits: 1,
       regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 16 }, glyph: 'true1',
-      cable: 'True1' },
+      cable: 'TRUE1' },
     { id: 'powercon20', name: 'powerCON 20A', short: 'powerCON 20A', kind: 'direct', circuits: 1,
       regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 16 }, glyph: 'powercon',
       cable: 'powerCON' },
@@ -160,7 +160,7 @@ export const DISTRO_PRESETS = [
     { id: 'us-200-6l2130-3dup', name: '200A 3φ: 6 × L21-30 + 3 duplex',
       system: '120/208', input: 'cam200', ratingA: 200,
       rows: [row('r1', 'l2130', 6, 'll', 20), row('r2', 'edison', 6, 'ln', 20)] },
-    { id: 'us-l2130-3true1', name: 'L21-30 spider: 3 × True1 208V',
+    { id: 'us-l2130-3true1', name: 'L21-30 spider: 3 × TRUE1 208V',
       system: '120/208', input: 'l2130', ratingA: 30,
       rows: [row('r1', 'true1', 3, 'll', 20)] },
     { id: 'us-l2130-3dup', name: 'L21-30 spider: 3 duplex as 6 × 120V',
@@ -169,10 +169,10 @@ export const DISTRO_PRESETS = [
     { id: 'us-200-6soca120-6dup', name: '200A 3φ: 6 × Socapex 120V + 6 duplex',
       system: '120/208', input: 'cam200', ratingA: 200,
       rows: [row('r1', 'soca', 6, 'ln', 20), row('r2', 'edison', 12, 'ln', 20)] },
-    { id: 'eu-63-3soca-true1', name: '63A 3φ: 3 × Socapex, one per phase + 1 True1',
+    { id: 'eu-63-3soca-true1', name: '63A 3φ: 3 × Socapex, one per phase + 1 TRUE1',
       system: '230/400', input: 'cee63', ratingA: 63, phasing: 'whole-ln',
       rows: [row('r1', 'soca', 3, 'ln', 16), row('r2', 'true1', 1, 'ln', 16)] },
-    { id: 'eu-63-18true1', name: '63A 3φ: 18 × True1',
+    { id: 'eu-63-18true1', name: '63A 3φ: 18 × TRUE1',
       system: '230/400', input: 'cee63', ratingA: 63,
       rows: [row('r1', 'true1', 18, 'ln', 16)] },
     { id: 'eu-63-2soca-9schuko', name: '63A 3φ: 2 × Socapex or 2 × Harting 16E + 9 Schuko',
@@ -432,7 +432,7 @@ class _DistroSystems {
         if (this.systemVoltsFor(sys, layer.powerVoltage) !== null) return null;
         const v = this.voltageNumber(layer.powerVoltage);
         const figures = this._systemFigures(sys);
-        return `${layer.name} runs at ${v}V — ${d.name || d.id} gives `
+        return `${layer.name} runs at ${v}V, and ${this.distroLabel(d)} gives `
             + `${figures.map(f => `${f}V`).join(' or ')}. `
             + `Set the screen to ${this._nearestFigure(figures, v)}V.`;
     }
@@ -548,6 +548,64 @@ class _DistroSystems {
         const sys = this.distroSystem(d);
         if (!sys || !Array.isArray(d.outputRows) || !d.outputRows.length) return [];
         return this._normalizeOutputRows(d.outputRows, sys);
+    }
+
+    // ── No multi off the face (the owner, 2026-11-03) ─────────────────────
+    //
+    // "You can't have multis without them added to the distro." A distro
+    // with no rows (a show saved before 1.5, or one plugged by demand)
+    // with multis in use had a face of nothing: + Add output then made a
+    // face of ONE Socapex, and every multi past it read "not on VX's
+    // face". The rows that cover every multi in use, numbered as the
+    // multis are (1 up to the highest in use, a gap a spare of its
+    // neighbour's kind), each run of one kind a row: what the editor
+    // shows and builds on, and what an older show opens with.
+    // Null when the distro has rows, no system, or no multi in use.
+    _inUseFaceRows(d) {
+        const sys = d ? this.distroSystem(d) : null;
+        if (!sys || this.distroRows(d).length) return null;
+        const used = [...this._distroMultiNumbers(d.id).entries()]
+            .filter(([n, members]) => Number.isFinite(n) && n >= 1 && (members || []).length)
+            .map(([n]) => n);
+        if (!used.length) return null;
+        const top = Math.max(...used);
+        // The multi box types the old demand-driven boxes are, as rows.
+        const asRow = (typeId) => (typeId === 'l2130' ? { connector: 'l2130', coupling: 'll' }
+            : typeId === 'soca120' ? { connector: 'soca', coupling: 'ln' }
+                : { connector: 'soca', coupling: 'll' });
+        const rows = [];
+        for (let n = 1; n <= top; n++) {
+            const resolved = this.distroBoxType(d, n);
+            const want = asRow(resolved && resolved.type ? resolved.type.id : null);
+            const last = rows[rows.length - 1];
+            if (last && last.connector === want.connector && last.coupling === want.coupling) {
+                last.count += 1;
+            } else {
+                rows.push({ id: `r${rows.length + 1}`, connector: want.connector, count: 1,
+                            coupling: want.coupling, breakerA: DEFAULT_BREAKER[sys.region],
+                            connectorA: null, pairedWith: null });
+            }
+        }
+        const clean = this._normalizeOutputRows(rows, sys);
+        return clean.length ? clean : null;
+    }
+
+    // The open's repair: every distro with multis in use and no rows gets
+    // the rows that cover them (_inUseFaceRows). Model only; returns the
+    // distros changed, for the caller to send.
+    fillFacesInUseOnOpen() {
+        const changed = [];
+        (this.getDistros() || []).forEach(d => {
+            const rows = this._inUseFaceRows(d);
+            if (!rows) return;
+            d.outputRows = rows;
+            changed.push(d);
+        });
+        if (changed.length) {
+            this._circuitTailCache = null;
+            sendClientLog('distro_faces_filled_on_open', { distros: changed.map(d => d.id) });
+        }
+        return changed;
     }
 
     // The coupling a row's circuits run at, as volts.
@@ -695,7 +753,7 @@ class _DistroSystems {
         const offered = this.connectorCouplings(conn, sys);
         const volts = this._rowVolts(sys, box.row);
         // The volts go in the name where the connector could be either -
-        // "Socapex 208V", "True1 120V" - never where it cannot.
+        // "Socapex 208V", "TRUE1 120V" - never where it cannot.
         const withVolts = offered.length > 1 || conn.kind === 'multi';
         const name = withVolts ? `${conn.short} ${volts}V` : conn.short;
         let breakouts = [];
@@ -749,23 +807,40 @@ class _DistroSystems {
         if (v > 0 && !this.voltsMatch(v, box.volts)) {
             const sys = this.distroSystem(d);
             if (box.conn.id === 'stagepin' && sys.vll && this.voltsMatch(v, sys.vll)) {
-                return { ok: false, why: `${layer.name} runs at ${v}V — stage pin is never `
+                return { ok: false, why: `${layer.name} runs at ${v}V, and stage pin is never `
                     + `${sys.vll}V (ANSI E1.24)` };
             }
-            return { ok: false, why: `${layer.name} runs at ${v}V — `
-                + `${d.name || d.id} ${box.number} (${type.name}) gives ${box.volts}V. `
+            return { ok: false, why: `${layer.name} runs at ${v}V, and `
+                + `${this.distroBoxName(d, box.number)} (${type.name}) gives ${box.volts}V. `
                 + `Set the screen to ${box.volts}V.` };
         }
+        // An L6-20 breakout takes an L6-20 cable off the distro's L6-20
+        // output and nothing else (the owner's ruling, 2026-11-03: "L620
+        // breakout should only be connected to an L620 cable, which would
+        // come off of the distro at L620").
+        const l620 = this._l620Refusal(layer, box.conn && box.conn.id);
+        if (l620) return { ok: false, why: l620 };
         if (box.kind === 'multi') {
             const bt = this.getPowerBreakout(layer);
             if (!type.breakouts.includes(bt.id)) {
                 return { ok: false, why: `${layer.name} is set to `
-                    + `${this._breakoutShortName(bt)} — a ${type.name} breaks out to `
+                    + `${this._breakoutShortName(bt)}, and ${this._aAn(type.name)} ${type.name} breaks out to `
                     + `${box.conn.id === 'l2130' ? 'an L21-30 box' : 'a six-circuit multi'}; `
                     + 'change its breakout first' };
             }
         }
         return { ok: true };
+    }
+
+    // Why a screen on the L6-20 breakout cannot take an output of
+    // connector `connId` - every output but an L6-20 one - or null. Said
+    // the same on every surface that plugs a screen in.
+    _l620Refusal(layer, connId) {
+        if (!layer || connId === 'l620') return null;
+        const bt = this.getPowerBreakout(layer);
+        if (!bt || bt.id !== 'soca-l620') return null;
+        return `${layer.name} is set to ${this._breakoutShortName(bt)}: its circuits take `
+            + "an L6-20 cable off a distro's L6-20 output. Drag an L6-20 output onto a circuit";
     }
 
     // The number an AUTO multi (no pin) takes on a face distro: the first
@@ -793,10 +868,12 @@ class _DistroSystems {
     }
 
     // The cable a circuit on a DIRECT output runs on, distro to screen:
-    // the output's home-run length in the show's unit and its connector -
-    // { ft, name, text } ("25' True1", "8 m Schuko") - or null where the
-    // circuit is not on a direct output or no length is typed. What the
-    // map's cable tag prints for it.
+    // the output's home-run length in the show's unit and its type - the
+    // screen's panel input, or both ends where the outlet is another plug
+    // (directCableType) - { ft, name, text } ("25' TRUE1",
+    // "8 m Schuko → powerCON") - or null where the circuit is not on a
+    // direct output or no length is typed. What the map's cable tag prints
+    // for it.
     directOutputCable(layer, circuitNum) {
         if (!layer) return null;
         const box = this._circuitBox(layer, circuitNum);
@@ -805,8 +882,9 @@ class _DistroSystems {
         if (!fbox || fbox.kind !== 'direct') return null;
         const ft = this.parseCableLength((layer.powerSocaLengths || {})[box.idx]);
         if (ft === null) return null;
-        const name = fbox.conn.cable;
-        return { ft, name, text: this.cableText(ft, name, 'circuit') };
+        const name = this.directCableType(fbox.conn.cable, layer);
+        // written from the direct-output cables' own stock (2026-10-21)
+        return { ft, name, text: this.cableText(ft, name, 'direct') };
     }
 
     // How many circuits sit on the DIRECT output that circuit `circuitNum`
@@ -836,8 +914,11 @@ class _DistroSystems {
     // pull sheet, the binder's captions and its Distro page all read this.
     directCircuitCable(layer, circuitNum) {
         if (this.directOutputCircuitCount(layer, circuitNum) !== 1) return null;
-        return this.powerCircuitCable(layer, circuitNum)
-            || this.directOutputCable(layer, circuitNum);
+        // The circuit's own cable IS the output's cable here, so it is
+        // written from the direct-output stock too (2026-10-21).
+        const own = this.powerCircuitCable(layer, circuitNum);
+        if (own) return { ...own, text: this.cableText(own.ft, own.name, 'direct') };
+        return this.directOutputCable(layer, circuitNum);
     }
 
     // ---- legs ------------------------------------------------------------
@@ -1059,11 +1140,13 @@ class _DistroSystems {
 
     // Every circuit on a distro, resolved: [{ layer, s, leg, box, info,
     // amps, label }]. `box` is the face box (null off the face or on an
-    // old distro).
+    // old distro). A hidden screen's are left out, as from the distro's
+    // load (getDistroLoads): its checks match the pull sheet.
     _distroCircuitsOn(d) {
         const out = [];
         for (const layer of (this.project && this.project.layers) || []) {
             if ((layer.type || 'screen') !== 'screen') continue;
+            if (layer.visible === false) continue;
             const assign = layer.powerSocaDistro || {};
             for (const s of this.getSocaPlan(layer)) {
                 if (assign[s.soca] !== d.id) continue;
@@ -1084,10 +1167,10 @@ class _DistroSystems {
         const out = [];
         if (!d) return out;
         const sys = this.distroSystem(d);
-        const name = d.name || d.id;
+        const name = this.distroLabel(d);
         if (!sys) {
             out.push({ mild: true,
-                       text: `${name} is ${this.distroSystemName(d)} — pick its system `
+                       text: `${name} is ${this.distroSystemName(d)}. Pick its system `
                            + '(120/208V, 120/240V, 120V, 230/400V or 230V) behind its ⚙.' });
             return out;
         }
@@ -1110,18 +1193,23 @@ class _DistroSystems {
             for (const r of face.rows) {
                 if (r.connector === 'powerconxx' && sys.region === 'us'
                         && r.coupling === 'll' && sys.vll > 127) {
-                    say(`xx:${r.id}`, `powerCON XX is only US-listed to 127V — ${name}'s `
+                    say(`xx:${r.id}`, `powerCON XX is only US-listed to 127V, and ${name}'s `
                         + `${r.count} powerCON XX output${r.count === 1 ? '' : 's'} run at ${sys.vll}V.`);
                 }
             }
             const physical = new Map();     // key -> [{c, label}]
+            const crowded = this._faceCrowding(d);
+            // The region's packing % (app-power _distroPackPct), the one
+            // the screens on this distro are packed to, so a fully packed
+            // circuit never trips this check.
             const limitOf = (box) => {
-                const pct = sys.region === 'us' && !d.breakers100 ? 0.8 : 1;
+                const own = typeof this._distroPackPct === 'function' ? this._distroPackPct(d) : null;
+                const pct = own === null ? (sys.region === 'us' && !d.breakers100 ? 0.8 : 1) : own;
                 return { amps: box.breakerA * pct, pct };
             };
             for (const c of circuits) {
                 if (!c.box) {
-                    say(`past:${c.s.number}`, `${name} ${c.s.number} is not on ${name}'s face — `
+                    say(`past:${c.s.number}`, `${this.distroBoxName(d, c.s.number)} is not on ${name}'s face: `
                         + `it has ${face.boxes.length} output${face.boxes.length === 1 ? '' : 's'}.`);
                     continue;
                 }
@@ -1131,10 +1219,20 @@ class _DistroSystems {
                 // (the dock's "more circuits than the three ...").
                 if (c.box.kind === 'direct' && c.s.legs.length > c.box.size) {
                     const conn = c.box.conn.short;
-                    const an = /^(?:[aeiou]|L\d)/i.test(conn) ? 'an' : 'a';
+                    const cr = crowded.find(r => r.number === c.box.number);
+                    const where = (cr && cr.where) || c.s.name || this.distroBoxName(d, c.box.number);
+                    // Other multis on the same output (a hidden screen's
+                    // among them, which keeps its slot): the line says the
+                    // output's whole count, as the pull sheet and the
+                    // distro sheet do, and names the hidden holder (round
+                    // 8). An over-capacity line below names it already.
+                    const all = cr && cr.circuits > c.s.legs.length
+                        ? `, and ${where} carries ${cr.circuits} circuits in all` : '';
+                    const held = cr && !this._crowdCapacityText(d, cr)
+                        ? this._hiddenHolderClause(cr.members) : '';
                     say(`dir:${c.layer.id}:${c.s.soca}`, `${c.layer.name}'s ${c.s.legs.length} `
-                        + `circuits are on ${c.s.name || `${name} ${c.box.number}`}, ${an} ${conn} `
-                        + '— one circuit only. Move it to a multi output.');
+                        + `circuits are on ${where}, ${this._aAn(conn)} ${conn} `
+                        + `that takes one circuit only${all}. Move it to a multi output.${held}`);
                 }
                 const elig = this.faceBoxEligible(d, c.box, c.layer);
                 if (!elig.ok && !/breakout/.test(elig.why)) say(`fv:${c.layer.id}:${c.box.number}`, elig.why);
@@ -1149,21 +1247,21 @@ class _DistroSystems {
                 const label = list.map(c => c.leg.label).join(' + ');
                 const numbers = new Set(list.map(c => c.box.number));
                 if (numbers.size > 1) {
-                    say(`pair:${key}`, `${label} are one circuit on two connectors (paired) — `
-                        + 'patch it to one or the other.');
+                    say(`pair:${key}`, `${label} are one circuit on two connectors (paired). `
+                        + 'Patch it to one or the other.');
                 }
                 const lim = limitOf(box);
                 if (amps > lim.amps + 1e-9) {
                     say(`brk:${key}`, sys.region === 'us' && lim.pct < 1
-                        ? `${label} draws ${amps.toFixed(1)} A on a ${box.breakerA} A breaker — `
+                        ? `${label} draws ${amps.toFixed(1)} A on a ${box.breakerA} A breaker, `
                             + `over the 80% continuous limit (${+lim.amps.toFixed(1)} A)`
-                        : `${label} draws ${amps.toFixed(1)} A on a ${box.breakerA} A breaker — OVER`);
+                        : `${label} draws ${amps.toFixed(1)} A on a ${box.breakerA} A breaker: OVER`);
                 }
                 for (const c of list) {
                     const rating = this.faceConnectorRatingA(d, c.box);
                     if (rating != null && amps > rating + 1e-9 && c.box.kind === 'direct') {
-                        say(`conn:${key}:${c.box.number}`, `${label} draws ${amps.toFixed(1)} A — `
-                            + `a ${c.box.conn.short} is rated ${rating} A here`);
+                        say(`conn:${key}:${c.box.number}`, `${label} draws ${amps.toFixed(1)} A, and `
+                            + `${this._aAn(c.box.conn.short)} ${c.box.conn.short} is rated ${rating} A here`);
                     }
                 }
             }
@@ -1171,12 +1269,125 @@ class _DistroSystems {
             // state) says the output's whole load against what it can
             // carry - its breaker and its connector's rating, the row's
             // override included (2026-10-18, "it should show over capacity").
-            for (const cr of this._faceCrowding(d)) {
+            // Under its capacity, an output holding more circuits than it
+            // takes is still crowded (several multis each within it - a
+            // hidden screen's among them, which keeps its output: round
+            // 6), said the way the pull sheet and the distro sheet say it.
+            // A single multi past it already has its own line above.
+            //
+            // Round 7 (crowding is flagged on every surface, and they
+            // agree): a single multi past the output has its own line
+            // above only when its screen is SHOWING - a hidden screen's
+            // circuits are not on this distro's list - so the crowd line is
+            // said whenever no visible member's own line was, a hidden
+            // member past the output included.
+            for (const cr of crowded) {
+                const held = this._hiddenHolderClause(cr.members);
                 const text = this._crowdCapacityText(d, cr);
-                if (text) say(`cap:${cr.number}`, text);
+                if (text) {
+                    say(`cap:${cr.number}`, held ? `${text}.${held}` : text);
+                } else if (!cr.members.some(m => !m.hidden && m.legs > cr.box.size)) {
+                    say(`cap:${cr.number}`, `${cr.where} ${cr.box.conn.short} carries ${cr.circuits} `
+                        + `circuits, and it takes ${this._circuitsWord(cr.box.size)} only. `
+                        + `Move one to a multi output.${held}`);
+                }
             }
         }
+        // A multi output holding more circuits than its fan (round 7): two
+        // multis pinned onto one box, a hidden screen's among them, deal
+        // past the box's last socket. The tray's box strip says it in the
+        // same words (the strip shows it once), naming the hidden holder.
+        for (const ov of this._boxOverflows(d)) {
+            say(`ovf:${ov.number}`, this._boxOverflowText(ov));
+        }
         return out;
+    }
+
+    // " WALL A is hidden and still holds it." for the hidden members of a
+    // crowded or overfull output, '' when none is hidden.
+    _hiddenHolderClause(members) {
+        const hidden = [...new Set((members || []).filter(m => m.hidden).map(m => m.layer.name))];
+        if (!hidden.length) return '';
+        const list = hidden.length === 1 ? hidden[0]
+            : `${hidden.slice(0, -1).join(', ')} and ${hidden[hidden.length - 1]}`;
+        return ` ${list} ${hidden.length === 1 ? 'is hidden and still holds' : 'are hidden and still hold'} it.`;
+    }
+
+    // "a" or "an" before a connector or box name, as it is said: "an
+    // L21-30", "an Edison", "a TRUE1", "a Socapex 208V". The one rule
+    // every crowding and overflow line reads.
+    _aAn(word) {
+        return /^(?:[aeiou]|L\d)/i.test(String(word || '').trim()) ? 'an' : 'a';
+    }
+
+    // ---- overfull multi outputs (round 7) ----------------------------------
+    //
+    // A multi output (a Socapex, an L21-30, a box on an old distro) has as
+    // many sockets as its type's fan. Multis pinned onto one box share its
+    // sockets (_resolveSharedSocas); asked for more, the extra circuits run
+    // off the fan (PD4-7, PD4-8 on a six-way) and the box is OVERFULL. A
+    // hidden screen keeps its slots (round 6), so its multi still fills the
+    // box. Every surface says it, from this one reading: the tray strip,
+    // the distro checks, the pull sheet and the distro sheet. A box only
+    // hidden screens fill is on no paper and is left out, as a crowded
+    // direct output is (_faceCrowding). Direct outputs are _faceCrowding's.
+    //
+    // [{ number, where, label, type, size, circuits, members: [{ layer,
+    // soca, legs, hidden }] }] - `where` is the tray's name for the box
+    // and `label` the name the multis wear on paper ("PD4" both, unless
+    // the paper has to tell two same-named boxes apart).
+    _boxOverflows(d) {
+        if (!d || typeof this._distroMultiNumbers !== 'function') return [];
+        const layers = (this.project && this.project.layers) || [];
+        const out = [];
+        let labels;
+        for (const [n, list] of this._distroMultiNumbers(d.id)) {
+            const info = this.distroBoxType(d, n, list);
+            if (info.faceBox && info.faceBox.kind === 'direct') continue;
+            const size = Number(info.type && info.type.boxSize) || 6;
+            const circuits = list.reduce((t, m) => t + (m.legs || 0), 0);
+            if (!(circuits > size)) continue;
+            const members = list.map(m => {
+                const layer = layers.find(l => l.id === m.layerId);
+                return layer ? { layer, soca: m.soca, legs: m.legs, hidden: layer.visible === false } : null;
+            }).filter(Boolean);
+            if (!members.some(m => !m.hidden)) continue;
+            if (labels === undefined) {
+                labels = typeof this.distroBoxLabels === 'function' ? this.distroBoxLabels() : null;
+            }
+            // `label` is the box's name on paper, the one the distro
+            // sheet's table and the pull sheet print (distroBoxLabels,
+            // round 8); the first named multi when the map has none.
+            const paper = labels ? labels.get(`${d.id}|${n}`) : null;
+            const named = paper ? null : members.filter(m => !m.hidden).concat(members.filter(m => m.hidden))
+                .map(m => this.getSocaPlan(m.layer).find(s => s.soca === m.soca))
+                .find(s => s && s.name);
+            out.push({ number: n, where: this.distroBoxName(d, n),
+                       label: paper || (named && named.name) || this.distroBoxName(d, n),
+                       type: info.type, size, circuits, members });
+        }
+        return out.sort((a, b) => a.number - b.number);
+    }
+
+    // Every distro's overfull boxes, keyed "distroId|number" (the pull
+    // sheet's box key).
+    _boxOverflowMap() {
+        const out = new Map();
+        for (const d of this.getDistros()) {
+            for (const ov of this._boxOverflows(d)) out.set(`${d.id}|${ov.number}`, ov);
+        }
+        return out;
+    }
+
+    _fanWord(n) {
+        return ({ 1: 'one', 3: 'three', 6: 'six' })[n] || String(n);
+    }
+
+    // The tray's and the checks' line: "PD 4 has more circuits than the six
+    // a Socapex 208V holds. WALL A is hidden and still holds it."
+    _boxOverflowText(ov) {
+        return `${ov.where} has more circuits than the ${this._fanWord(ov.size)} `
+            + `${this._aAn(ov.type.name)} ${ov.type.name} holds.${this._hiddenHolderClause(ov.members)}`;
     }
 
     // ---- crowded outputs (owner, 2026-10-18) -------------------------------
@@ -1192,13 +1403,27 @@ class _DistroSystems {
     // The direct outputs on `d`'s face (d may be a prospective copy) whose
     // PINNED multis carry more circuits than the output has:
     // [{ number, box, circuits, amps, members: [{ layer, soca, legs, amps,
-    // name }] }]. Autos never land on a direct output, so pins are all of it.
-    _faceCrowding(d) {
+    // name, hidden }] }]. Autos never land on a direct output, so pins are
+    // all of it.
+    //
+    // HIDDEN SCREENS KEEP THEIR SLOTS (the owner's ruling, round 6): a
+    // hidden screen's multi still holds its output, so a visible screen
+    // pinned onto that output crowds it, and the tray, the distro checks,
+    // the pull sheet and the distro sheet all say so (the pull sheet reads
+    // directOutputCircuitCount, which counts the box's every member). Its
+    // LOAD stays out (round 5): `amps` is what the visible screens draw.
+    // An output only hidden screens crowd is on no paper and is left out.
+    //
+    // `includeHidden` (the face-edit guard, _crowdingMadeBy): every member
+    // counts whole, hidden or not, and an output only hidden screens crowd
+    // is crowded too, as in v1.5.3 - an edit that would crowd one asks.
+    _faceCrowding(d, { includeHidden = false } = {}) {
         const face = d ? this.distroFace(d) : null;
         if (!face) return [];
         const by = new Map();
         for (const layer of (this.project && this.project.layers) || []) {
             if ((layer.type || 'screen') !== 'screen') continue;
+            const hidden = layer.visible === false;
             const assign = layer.powerSocaDistro || {};
             const pins = layer.powerSocaNumber || {};
             for (const s of this.getSocaPlan(layer)) {
@@ -1210,16 +1435,27 @@ class _DistroSystems {
                 const amps = (s.legs || []).reduce((t, g) => t + (Number(g.amps) || 0), 0);
                 const rec = by.get(n) || { number: n, box, circuits: 0, amps: 0, members: [] };
                 rec.circuits += s.legs.length;
-                rec.amps += amps;
-                rec.members.push({ layer, soca: s.soca, legs: s.legs.length, amps, name: s.name });
+                if (includeHidden || !hidden) rec.amps += amps;
+                rec.members.push({ layer, soca: s.soca, legs: s.legs.length, amps, name: s.name, hidden });
                 by.set(n, rec);
             }
         }
-        // `where` is the output as the labels name it ("PD4" - the name the
-        // multis on it wear), else the distro and number.
-        return [...by.values()].filter(r => r.circuits > r.box.size)
-            .map(r => ({ ...r, where: (r.members[0] && r.members[0].name)
-                || `${d.name || d.id} ${r.number}` }))
+        // `where` is the output as paper names it: the distro sheet's table
+        // and the pull sheet's label (distroBoxLabels, round 8), else the
+        // name the multis on it wear (a visible one's first), else the
+        // distro and number.
+        const crowded = [...by.values()]
+            .filter(r => r.circuits > r.box.size
+                && (includeHidden || r.members.some(m => !m.hidden)));
+        const labels = crowded.length && typeof this.distroBoxLabels === 'function'
+            ? this.distroBoxLabels() : null;
+        return crowded
+            .map(r => {
+                const paper = labels ? labels.get(`${d.id}|${r.number}`) : null;
+                const named = r.members.find(m => !m.hidden && m.name)
+                    || r.members.find(m => m.name);
+                return { ...r, where: paper || (named && named.name) || this.distroBoxName(d, r.number) };
+            })
             .sort((a, b) => a.number - b.number);
     }
 
@@ -1237,7 +1473,7 @@ class _DistroSystems {
         const cap = this._crowdCapacityA(d, cr.box);
         if (cap == null || !(cr.amps > cap + 1e-9)) return null;
         return `${cr.where} ${cr.box.conn.short} at `
-            + `${cr.amps.toFixed(1)} A of ${+cap.toFixed(1)} A — over capacity`;
+            + `${cr.amps.toFixed(1)} A of ${+cap.toFixed(1)} A: over capacity`;
     }
 
     // The distro a patch would make, for asking - never stored: its system
@@ -1264,8 +1500,12 @@ class _DistroSystems {
         if (!d || (patch.outputRows === undefined && patch.system === undefined)) return [];
         const key = (m, n) => `${m.layer.id}:${m.soca}@${n}`;
         const before = new Set();
-        this._faceCrowding(d).forEach(cr => cr.members.forEach(m => before.add(key(m, cr.number))));
-        return this._faceCrowding(this._distroAfterPatch(d, patch))
+        // Hidden screens' multis count (the owner's ruling, round 6: "Yes,
+        // still ask for hidden screens"): a hidden screen keeps its output,
+        // so an edit that would crowd it asks like any other.
+        const all = { includeHidden: true };
+        this._faceCrowding(d, all).forEach(cr => cr.members.forEach(m => before.add(key(m, cr.number))));
+        return this._faceCrowding(this._distroAfterPatch(d, patch), all)
             .filter(cr => cr.members.some(m => !before.has(key(m, cr.number))));
     }
 
@@ -1293,22 +1533,38 @@ class _DistroSystems {
         document.getElementById(ID)?.remove();
         const esc = (x) => String(x).replace(/[&<>"]/g, c => (
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-        const name = d.name || d.id;
+        const name = this.distroLabel(d);
         const members = made.flatMap(cr => cr.members.map(m => ({ ...m, cr })));
-        const locked = [...new Set(members.filter(m => m.layer.locked).map(m => m.layer))];
+        const locked = [...new Set(members.filter(m => this._layerLocked(m.layer)).map(m => m.layer))];
+        // A hidden screen's multi is asked about too (round 6), and the
+        // dialog says it is hidden, as the tray line does (round 7).
         const lines = made.map(cr => {
             const where = cr.where;
             const cap = this._crowdCapacityText(d, cr);
             return `<p style="margin:0 0 8px;">${esc(this._crowdWho(cr.members))} `
-                + `${cr.members.length === 1 ? 'is' : 'are'} on ${esc(where)}. ${esc(where)} would become `
-                + `a ${esc(cr.box.conn.short)}, which carries ${this._circuitsWord(cr.box.size)}.</p>`
+                + `${cr.members.length === 1 ? 'is' : 'are'} on ${esc(where)}.`
+                + `${esc(this._hiddenHolderClause(cr.members))} ${esc(where)} would become `
+                + `${this._aAn(cr.box.conn.short)} ${esc(cr.box.conn.short)}, which carries ${this._circuitsWord(cr.box.size)}.</p>`
                 + (cap ? `<p class="crowd-cap" style="margin:0 0 8px; color:#e05050;">${esc(cap)}</p>` : '');
         }).join('');
         const where = [...new Set(made.map(cr => cr.where))].join(', ');
         const who = this._crowdWho(members);
+        // The lock note names the LOCKED screens (round 7): an unlocked
+        // member of a half-locked group is held by its group's locked
+        // members, and those are the screens named (_lockedErrorNames,
+        // the locked error's own reading). The multis that cannot come off
+        // are named by their own screens when that is not the locked one.
+        const lockNames = typeof this._lockedErrorNames === 'function'
+            ? this._lockedErrorNames(locked) : locked.map(l => l.name);
+        const listOf = (xs) => (xs.length < 2 ? xs.join('')
+            : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+        const ownLocks = locked.every(l => l.locked);
+        const whose = ownLocks
+            ? (locked.length === 1 ? 'its multi' : 'their multis')
+            : `${listOf(locked.map(l => `${l.name}'s`))} ${locked.length === 1 ? 'multi' : 'multis'}`;
         const lockNote = locked.length
-            ? `<p class="crowd-locked" style="margin:8px 0 0; color:#dcb968;">${esc(locked.map(l => l.name).join(', '))} `
-                + `${locked.length === 1 ? 'is' : 'are'} locked, so ${locked.length === 1 ? 'its multi' : 'their multis'} `
+            ? `<p class="crowd-locked" style="margin:8px 0 0; color:#dcb968;">${esc(listOf(lockNames))} `
+                + `${lockNames.length === 1 ? 'is' : 'are'} locked, so ${esc(whose)} `
                 + 'cannot come off. Unlock to take it off, or cancel the change.</p>'
             : '';
         const el = document.createElement('div');
@@ -1380,22 +1636,29 @@ class _DistroSystems {
         const s = this.getSocaPlan(layer).find(x => x.soca === Number(socaIndex));
         if (!s) return null;
         let others = 0;
+        const holders = [];
         for (const l of (this.project && this.project.layers) || []) {
             if ((l.type || 'screen') !== 'screen') continue;
             const assign = l.powerSocaDistro || {};
             const pins = l.powerSocaNumber || {};
             for (const o of this.getSocaPlan(l)) {
                 if (l === layer && o.soca === s.soca) continue;
-                if (assign[o.soca] === d.id && parseInt(pins[o.soca], 10) === n) others += o.legs.length;
+                if (assign[o.soca] === d.id && parseInt(pins[o.soca], 10) === n) {
+                    others += o.legs.length;
+                    holders.push({ layer: l, hidden: l.visible === false });
+                }
             }
         }
         if (s.legs.length + others <= box.size) return null;
-        const where = `${d.name || d.id} ${n}`;
+        const where = this.distroBoxName(d, n);
+        const an = this._aAn(box.conn.short);
+        // The output already full because of a hidden screen's multi (it
+        // keeps its slot, round 6) names that screen, as the tray does.
         return s.legs.length > box.size
-            ? `${layer.name}'s ${s.legs.length}-circuit multi cannot go on ${where} — `
-                + `a ${box.conn.short} carries ${this._circuitsWord(box.size)}. Use a multi output.`
-            : `${where} already carries its ${this._circuitsWord(box.size)} — `
-                + `a ${box.conn.short} takes no more.`;
+            ? `${layer.name}'s ${s.legs.length}-circuit multi cannot go on ${where}: `
+                + `${an} ${box.conn.short} carries ${this._circuitsWord(box.size)}. Use a multi output.`
+            : `${where} already carries its ${this._circuitsWord(box.size)}, and `
+                + `${an} ${box.conn.short} takes no more.${this._hiddenHolderClause(holders)}`;
     }
 
     _sayCrowdRefusal(text) {
@@ -1477,14 +1740,14 @@ class _DistroSystems {
             method, headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         }).catch(() => {
-            throw new Error(`${failed} - the app's server could not be reached.`);
+            throw new Error(`${failed}: the app's server could not be reached.`);
         }).then(r => r.text().then(text => {
             let j = null;
             try { j = JSON.parse(text); } catch (e) { j = null; }
             if (!r.ok || !j || typeof j !== 'object') {
                 const why = j && typeof j.error === 'string' && j.error
                     ? j.error : `the server said ${r.status}`;
-                throw new Error(`${failed} - ${why}.`);
+                throw new Error(`${failed}: ${why}.`);
             }
             this._customDistroPresets = Array.isArray(j.presets) ? j.presets : [];
             return this._customDistroPresets;
@@ -1532,8 +1795,8 @@ class _DistroSystems {
         type.style.flex = '1 1 0';
         type.style.minWidth = '0';
         type.dataset.lrdField = `distro-type-${d.id}`;
-        type.title = 'What this distro is, the way the pull sheet lists it - '
-            + 'e.g. "200A 24 circuits". Blank prints "Distro". Starting from a '
+        type.title = 'What this distro is, the way the pull sheet lists it, '
+            + 'like "200A 24 circuits". Blank prints "Distro". Starting from a '
             + 'preset fills it with the preset\'s name.';
         type.addEventListener('change', () => patch({ typeName: type.value }));
         r0.appendChild(type);
@@ -1550,7 +1813,7 @@ class _DistroSystems {
         if (!sys) {
             const opt = document.createElement('option');
             opt.value = '';
-            opt.textContent = `${this.distroSystemName(d)} — pick a system`;
+            opt.textContent = `${this.distroSystemName(d)}: pick a system`;
             opt.selected = true;
             sel.appendChild(opt);
         }
@@ -1571,11 +1834,11 @@ class _DistroSystems {
         const input = document.createElement('select');
         input.className = 'info-select';
         input.dataset.lrdField = `distro-input-${d.id}`;
-        input.title = 'What feeds the distro. Picking one sets the rating '
+        input.title = 'What powers the distro. Picking one sets the rating '
             + 'per leg to the input\'s own figure.';
         const none = document.createElement('option');
         none.value = '';
-        none.textContent = '—';
+        none.textContent = '';
         input.appendChild(none);
         // Only the inputs that can feed this system - except the one the
         // distro already has, which stays listed and selected even when it
@@ -1624,7 +1887,14 @@ class _DistroSystems {
             cb.type = 'checkbox';
             cb.checked = !!on;
             cb.dataset.lrdField = `distro-${field}-${d.id}`;
-            cb.addEventListener('change', () => patch({ [key]: cb.checked }));
+            cb.addEventListener('change', () => {
+                // A refused tick (a locked screen it would repack) puts
+                // the box back the way the distro still is.
+                if (patch({ [key]: cb.checked }) === null) {
+                    const live = this.getDistros().find(x => x.id === d.id);
+                    cb.checked = !!(live && live[key]);
+                }
+            });
             lab.appendChild(cb);
             lab.appendChild(document.createTextNode(text));
             lab.title = title;
@@ -1658,7 +1928,7 @@ class _DistroSystems {
                     + (rule.pct < 1 ? ` (${this.distroMainLimitNote(rule)})` : '')
                 : 'under the limit now';
             r4.appendChild(check('overload-accepted', d.overloadAccepted,
-                `Accept overload — ${why}`,
+                `Accept overload: ${why}`,
                 'Accept this distro\'s overload: its error turns amber and reads '
                 + 'accepted. The figures stay as they are, and the acceptance '
                 + 'stays until you untick it.', 'overloadAccepted'));
@@ -1715,7 +1985,11 @@ class _DistroSystems {
         capRow.appendChild(sub);
         sec.appendChild(capRow);
         if (!sys) { wrap.appendChild(sec); return; }
-        const rows = this.distroRows(d);
+        // No rows with multis in use: the rows that cover them are shown,
+        // and every edit (+ Add output first) builds on them, so no multi
+        // in use is left off the face (_inUseFaceRows).
+        const stored = this.distroRows(d);
+        const rows = stored.length ? stored : (this._inUseFaceRows(d) || []);
         const commit = (next) => patch({ outputRows: next });
         const total = (r) => r.count * this.distroConnector(r.connector).circuits;
         rows.forEach((r, i) => {
@@ -1747,7 +2021,7 @@ class _DistroSystems {
             count.style.width = '44px';
             count.dataset.lrdField = `distro-row-count-${d.id}-${r.id}`;
             count.title = r.connector === 'edison'
-                ? 'How many receptacles - each receptacle of a duplex is its own circuit.'
+                ? 'How many receptacles. Each receptacle of a duplex is its own circuit.'
                 : 'How many of this connector the face carries.';
             count.addEventListener('change', () => {
                 const next = rows.map(x => ({ ...x }));
@@ -1838,8 +2112,8 @@ class _DistroSystems {
                 const pw = document.createElement('select');
                 pw.className = 'info-select';
                 pw.dataset.lrdField = `distro-row-paired-${d.id}-${r.id}`;
-                pw.title = 'Paired: the same circuits on a second set of connectors - '
-                    + 'they count once, and a circuit can be patched to either, not both.';
+                pw.title = 'Paired: the same circuits on a second set of connectors. '
+                    + 'They count once, and a circuit can be patched to either, not both.';
                 const noneOpt = document.createElement('option');
                 noneOpt.value = '';
                 noneOpt.textContent = 'not paired';
@@ -1959,8 +2233,9 @@ class _DistroSystems {
         save.title = 'Save this distro\'s system, input, rating and rows as a preset '
             + 'everyone connected can pick.';
         save.disabled = !rows.length;
-        save.addEventListener('click', () => {
-            const name = window.prompt('Name this preset', d.name || '');
+        save.addEventListener('click', async () => {
+            const name = await this.appPrompt('Name this preset', d.name || '',
+                { id: 'distro-preset-name-modal', title: 'Save preset', okLabel: 'Save' });
             if (!name || !name.trim()) return;
             this.saveDistroPreset(d.id, name).then(list => {
                 relist(list);
@@ -1995,12 +2270,13 @@ class _DistroSystems {
             dr.style.display = custom && custom.length ? '' : 'none';
         };
         fillDelete(this._customDistroPresets || []);
-        del.addEventListener('change', () => {
+        del.addEventListener('change', async () => {
             const name = del.value;
             del.value = '';
             if (!name) return;
-            if (!window.confirm(`Delete the preset "${name}"? `
-                    + 'Distros already set from it keep their outputs.')) return;
+            if (!(await this.appConfirm(`Delete the preset "${name}"? `
+                    + 'Distros already set from it keep their outputs.',
+                    { id: 'distro-preset-delete-modal', title: 'Delete preset', okLabel: 'Delete', danger: true }))) return;
             this.deleteDistroPreset(name).then(list => {
                 relist(list);
                 this._dockSay && this._dockSay(`Deleted preset "${name}".`);

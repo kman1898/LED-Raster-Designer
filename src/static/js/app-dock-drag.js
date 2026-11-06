@@ -151,11 +151,11 @@ class _DockDrag {
         if (!d || !s) return;
         const cur = this.distroService(d);
         if (cur && cur.id === s.id) {
-            this._dockSay(`${d.name || d.id} is already on ${s.name || s.id}.`);
+            this._dockSay(`${this.distroLabel(d)} is already on ${s.name || s.id}.`);
             return;
         }
         if (this.setDistroService(d.id, s.id)) {
-            this._dockSay(`${d.name || d.id} is on ${this.serviceLabel(s)}.`);
+            this._dockSay(`${this.distroLabel(d)} is on ${this.serviceLabel(s)}.`);
         }
         this.renderHardwareDock();
     }
@@ -316,7 +316,8 @@ class _DockDrag {
         if (drag.payload.type === 'distro' && typeof this._dockMarkServiceDrop === 'function') {
             this._dockMarkServiceDrop(target, drag.payload);
         }
-        if (drag.payload.type === 'plug' || drag.payload.output
+        if (drag.payload.type === 'plug' || drag.payload.type === 'port'
+                || drag.payload.output
                 || this._dockDropUnit(drag.payload)) {
             this._dockPlugPill(drag, ev, target);
         }
@@ -411,10 +412,15 @@ class _DockDrag {
         if (renderer.viewMode === 'data-flow') {
             if (hit && drag.dataMap && drag.dataMap.has(hit.panel)) {
                 const run = drag.dataMap.get(hit.panel);
-                return whole
-                    ? this._dockDataScreenTarget(drag, run.ownerId,
-                                                 run.portNum)
-                    : { kind: 'run', layerId: run.ownerId, num: run.portNum };
+                if (whole) {
+                    return this._dockDataScreenTarget(drag, run.ownerId,
+                                                      run.portNum);
+                }
+                const target = { kind: 'run', layerId: run.ownerId,
+                                 num: run.portNum };
+                const why = this._dockPortDropRefusal(drag.payload, run.ownerId);
+                if (why) target.pill = { ok: false, message: why };
+                return target;
             }
             if (whole) {
                 // Any layer under the cursor is a target, screen or not: the
@@ -516,8 +522,10 @@ class _DockDrag {
         const slot = ((proc && proc.slots) || []).find(s => s && s.card);
         if (!slot) return null;
         return { type: 'card', cardId: slot.card.id,
-                 title: (typeof this.cardTypedName === 'function'
-                     ? this.cardTypedName(proc, slot.card) : slot.card.name)
+                 title: (typeof this.cardShortName === 'function'
+                     && this.cardShortName(proc, slot.card))
+                     || (typeof this.cardTypedName === 'function'
+                         ? this.cardTypedName(proc, slot.card) : slot.card.name)
                      || slot.card.deviceName };
     }
 
@@ -531,6 +539,26 @@ class _DockDrag {
         const target = { kind: 'screen', layerId };
         const unit = this._dockDropUnit(drag.payload);
         if (!unit) return target;
+        // The SECOND screen of a card in Copy mode becomes the first one's
+        // copy (owner, 2026-11-01 - app-mirror-screens.js _copyDropPlan):
+        // the whole screen lights, and the pill says whose copy it is.
+        const copy = typeof this._copyDropPlan === 'function'
+            ? this._copyDropPlan(unit, layerId) : null;
+        if (copy) {
+            target.nums = copy.ok ? copy.nums.slice() : [];
+            target.pill = copy.ok ? { ok: true, text: copy.text }
+                : { ok: false, message: copy.message };
+            return target;
+        }
+        // A pill never says ok for a drop the release refuses (owner,
+        // 2026-11-04): a locked screen and a mirror screen take no ports
+        // of their own, and the release refuses both (_dockDropCardOrBox).
+        const refusal = this._dockDataGateRefusal(layerId);
+        if (refusal) {
+            target.nums = [];
+            target.pill = { ok: false, message: refusal };
+            return target;
+        }
         const plan = this._dockDataTakePlan(unit, layerId, num);
         target.nums = plan.nums.slice();
         if (num != null) target.upTo = num;
@@ -538,6 +566,89 @@ class _DockDrag {
             ? { ok: true, text: plan.text }
             : (plan.message ? { ok: false, message: plan.message } : null);
         return target;
+    }
+
+    // A box on a copy OPT set to Backup delivers the same sockets as the
+    // primary it backs up, so its drop is the primary's. On a screen already
+    // on those sockets there is nothing to land: its backup already rides
+    // on this box, and that is what is said (not "clear it first"). The
+    // ports it backs up are the card's resolution's (backsUpPorts): another
+    // box's, or the unit's own, where the primary has no box to name. A box
+    // that backs up nothing (a plain box on OPT 3 of an MX40 Pro in 40-port
+    // mode) has none, and neither does a screen with a port it does not
+    // cover. Null in every other case.
+    _dockBackupBoxCovers(unit, scr) {
+        if (!unit || unit.type !== 'box' || !scr) return null;
+        const found = typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(unit.cardId) : null;
+        const card = found && found.card;
+        const box = card && (card.cvts || []).find(b => b.id === unit.boxId);
+        if (!box) return null;
+        const ports = (scr.ports || []).filter(p => p.cardId);
+        if (!ports.length || ports.some(p => p.cardId !== unit.cardId)) return null;
+        const says = (primary) => `${scr.name} is on ${primary}, so its backup `
+            + `already rides on ${box.displayTitle}.`;
+        const backed = new Map((box.backsUpPorts || [])
+            .map(m => [Number(m.number), m]));
+        if (ports.every(p => backed.has(Number(p.port)))) {
+            const titles = [...new Set(ports.map(p => {
+                const main = backed.get(Number(p.port)).boxId;
+                const hit = main && (card.cvts || []).find(b => b.id === main);
+                return hit ? hit.displayTitle : this.cardShortName(found.proc, card)
+                    || this.cardTypedName(found.proc, card) || card.unitTitle
+                    || card.deviceName;
+            }))];
+            return says(titles.join(' and '));
+        }
+        const primary = box.backupOf
+            && (card.cvts || []).find(b => b.id === box.backupOf);
+        const numbers = new Set(box.portNumbers || []);
+        if (!primary || !ports.every(p => numbers.has(Number(p.port)))) return null;
+        return says(primary.displayTitle);
+    }
+
+    // Why one port chip dropped on a screen's run is refused, or null: the
+    // screen's own gate, or a mirror socket, which carries a copy and takes
+    // no port by hand (the server's place_port refuses it too). Null leaves
+    // the chip's drop to the placement, which may ask about a shared socket.
+    _dockPortDropRefusal(payload, layerId) {
+        const gate = this._dockDataGateRefusal(layerId);
+        if (gate) return gate;
+        if (!payload || payload.type !== 'port') return null;
+        const found = typeof this._dockFindCard === 'function'
+            ? this._dockFindCard(payload.cardId) : null;
+        const card = found && found.card;
+        const port = card && (card.ports || [])
+            .find(p => Number(p.number) === Number(payload.port));
+        if (!port || !port.mirrorOf) return null;
+        const box = (card.cvts || []).find(b => b.id === port.cvtId);
+        const name = (box && box.displayTitle) || 'its box';
+        return `Port ${port.localNumber || port.number} of ${name} carries a `
+            + `copy. Drag ${name} onto the screen that should be the mirror.`;
+    }
+
+    // Why a whole-unit data drop on this screen is refused before any port
+    // is counted, or null: the screen is locked (the locked-screens rule),
+    // or it mirrors another screen, whose ports follow the source's and
+    // are never placed on their own. The words the release says.
+    _dockDataGateRefusal(layerId) {
+        const layer = ((this.project && this.project.layers) || [])
+            .find(l => String(l.id) === String(layerId));
+        if (!layer) return null;
+        if (typeof this._layerLocked === 'function' && this._layerLocked(layer)) {
+            const names = typeof this._lockedErrorNames === 'function'
+                ? this._lockedErrorNames([layer]) : [layer.name];
+            const one = names.length <= 1;
+            const list = one ? (names[0] || layer.name)
+                : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+            return one ? `${list} is locked. Unlock it to change it.`
+                : `${list} are locked. Unlock them to change them.`;
+        }
+        if (typeof this.mirrorSourceOf === 'function' && this.mirrorSourceOf(layer)
+                && typeof this._mirrorErrorText === 'function') {
+            return this._mirrorErrorText(layer);
+        }
+        return null;
     }
 
     // The ONE resolution the preview and the release read for a whole-unit
@@ -567,7 +678,7 @@ class _DockDrag {
         }
         if (unit.type === 'box' && unit.beyondTrunks) {
             return { ok: false, nums: [],
-                     message: `${unit.title} has no trunk on its ${this.unitWordForCard(unit.cardId)} - its `
+                     message: `${unit.title} has no trunk on its ${this.unitWordForCard(unit.cardId)}, so its `
                         + 'ports are not delivered, so nothing can land on '
                         + 'them.' };
         }
@@ -578,9 +689,11 @@ class _DockDrag {
         }
         const unplaced = (scr.unplaced || []).map(i => i + 1);
         if (!unplaced.length) {
+            const backed = this._dockBackupBoxCovers(unit, scr);
+            if (backed) return { ok: false, nums: [], message: backed };
             return { ok: false, nums: [],
                      message: `Every port of ${scr.name} is already on a `
-                        + 'processor - clear it first' };
+                        + 'processor. Clear it first.' };
         }
         const wanted = upTo == null
             ? unplaced : unplaced.filter(n => n <= upTo);
@@ -591,8 +704,16 @@ class _DockDrag {
         }
         let free = null;
         if (unit.type === 'box') {
+            // A socket held by its role is not free to a fill: a mirror
+            // socket carries the copy of a primary, a backup socket a
+            // main's return (the server's place_overflow skips both).
+            const found = typeof this._dockFindCard === 'function'
+                ? this._dockFindCard(unit.cardId) : null;
+            const roleHeld = new Set(((found && found.card && found.card.ports) || [])
+                .filter(p => p.mirrorOf || p.backsUp).map(p => Number(p.number)));
             free = 0;
             for (let n = unit.first; n <= unit.last; n++) {
+                if (roleHeld.has(n)) continue;
                 if (!this._portOccupants(unit.cardId, n).length) free++;
             }
         } else if (card && card.free != null) {
@@ -702,8 +823,8 @@ class _DockDrag {
             if (load && load.ratingA > 0 && load.over) {
                 const lim = `${+load.limitA.toFixed(1)} A`;
                 warn = load.legs
-                    ? `${d.name || d.id} legs to ${load.amps.toFixed(0)} A of ${lim}`
-                    : `${d.name || d.id} to ${load.amps.toFixed(0)} A of ${lim}`;
+                    ? `${this.distroLabel(d)} legs to ${load.amps.toFixed(0)} A of ${lim}`
+                    : `${this.distroLabel(d)} to ${load.amps.toFixed(0)} A of ${lim}`;
             }
         } finally {
             if (had) map[s.soca] = prev; else delete map[s.soca];
@@ -711,12 +832,12 @@ class _DockDrag {
         }
         const nums = s.legs.map(g => g.circuit);
         const boxName = name
-            || `${d.name || d.id}${number != null ? ` ${number}` : ''}`;
+            || `${this.distroLabel(d)}${number != null ? ` ${number}` : ''}`;
         return {
             ok: true, glyph, socaIndex: s.soca, nums, number, boxName,
             amps: s.amps, badge: type.badge, warn,
             text: `${boxName} → circuit${nums.length === 1 ? '' : 's'} `
-                + `${this._fmtTails(nums).replace(/-/g, '–')} · `
+                + `${this._fmtTails(nums)} · `
                 + `${Math.round(s.amps)} A`,
         };
     }
@@ -761,7 +882,7 @@ class _DockDrag {
                 if (!faceRow) {
                     const why = fits.length
                         ? this.faceBoxEligible(d, fits[0].boxes[0], layer).why
-                        : `${d.name || d.id} has no multi outputs — drag one of its `
+                        : `${this.distroLabel(d)} has no multi outputs. Drag one of its `
                             + 'outputs onto a circuit';
                     return { ok: false, glyph: 'soca', message: why };
                 }
@@ -772,7 +893,7 @@ class _DockDrag {
             const type = this.faceBoxType(d, faceRow.boxes[0]);
             if (!layer || (layer.type || 'screen') !== 'screen') {
                 return { ok: false, glyph: type.glyph,
-                         message: `${(layer && layer.name) || 'That layer'} `
+                         message: `${(layer && layer.name) || 'That screen'} `
                             + 'draws no power.' };
             }
             const el = this.faceBoxEligible(d, faceRow.boxes[0], layer);
@@ -787,7 +908,7 @@ class _DockDrag {
         }
         if (!layer || (layer.type || 'screen') !== 'screen') {
             return { ok: false, glyph,
-                     message: `${(layer && layer.name) || 'That layer'} `
+                     message: `${(layer && layer.name) || 'That screen'} `
                         + 'draws no power.' };
         }
         // The distro's SYSTEM first (1.5, bug fix 4): a screen whose voltage
@@ -797,12 +918,14 @@ class _DockDrag {
         if (sysMsg) return { ok: false, glyph, message: sysMsg };
         const voltsMsg = this._voltageMismatchMessage(type, layer);
         if (voltsMsg) return { ok: false, glyph, message: voltsMsg };
+        const l620 = this._l620Refusal(layer, null);
+        if (l620) return { ok: false, glyph, message: `${l620}.` };
         const bt = this.getPowerBreakout(layer);
         if (!type.breakouts.includes(bt.id)) {
             return { ok: false, glyph,
                      message: `${layer.name} is set to `
-                        + `${this._breakoutShortName(bt)} — change its `
-                        + 'breakout first' };
+                        + `${this._breakoutShortName(bt)}. Change its `
+                        + 'breakout first.' };
         }
         return { ok: true, d, type, glyph };
     }
@@ -819,7 +942,7 @@ class _DockDrag {
         const box = this.faceRowFreeBoxes(d, faceRow)[0];
         if (!box) {
             return { ok: false, glyph,
-                     message: `Every ${type.name} on ${d.name || d.id} is in use.` };
+                     message: `Every ${type.name} on ${this.distroLabel(d)} is in use.` };
         }
         const plan = this.getSocaPlan(layer);
         const s = plan.find(x => !x.distroId);
@@ -832,13 +955,13 @@ class _DockDrag {
         }
         const nums = direct ? [s.legs[0].circuit] : s.legs.map(g => g.circuit);
         const amps = direct ? (s.legs[0].amps || 0) : s.amps;
-        const boxName = `${d.name || d.id} ${box.number}`;
+        const boxName = this.distroBoxName(d, box.number);
         return {
             ok: true, glyph, face: true, direct,
             socaIndex: (!direct || s.legs.length === 1) ? s.soca : null,
             nums, number: box.number, boxName, amps, badge: type.badge, warn: null,
             text: `${boxName} → circuit${nums.length === 1 ? '' : 's'} `
-                + `${this._fmtTails(nums).replace(/-/g, '–')} · ${Math.round(amps)} A`,
+                + `${this._fmtTails(nums)} · ${Math.round(amps)} A`,
         };
     }
 
@@ -848,7 +971,7 @@ class _DockDrag {
     _faceDropPlug(payload, layer, plan) {
         // A locked screen stays unchanged until unlocked, and says so
         // (owner, 2026-10-16).
-        if (layer.locked) {
+        if (this._layerLocked(layer)) {
             this._showLockedError([layer]);
             return;
         }
@@ -858,16 +981,28 @@ class _DockDrag {
             const r = this.takeSocaOnto(layer, ordinal, payload.distroId,
                                         plan.number, 'Assign Multi Distro');
             if (!r.ok) {
+                // a locked screen it would repack is named by the lock's
+                // own error already
+                if (r.locked) return;
                 this._dockSay(this._takeRefusalText(
                     payload, r, this.getPowerCircuitLabel(layer, plan.nums[0]), layer));
                 return;
             }
         } else {
+            // A locked screen the assignment would repack (one grouped
+            // with this screen) refuses the whole drop before the pin or
+            // the entry (owner, 2026-10-22).
+            if (this._assignRepacksLocked(layer, [[plan.socaIndex, payload.distroId]])) return;
+            // One gesture under the shared-box lock: either setter refused
+            // for a locked screen sharing the box refuses the drop whole
+            // (_lockedPowerTrial).
+            const shared = this._lockedPowerTrial();
             const touched = new Set();
             this.setSocaDistro(layer, plan.socaIndex, payload.distroId, false)
                 .forEach(l => touched.add(l));
             this.setSocaNumber(layer, plan.socaIndex, plan.number, false)
                 .forEach(l => touched.add(l));
+            if (shared()) return;
             this.updateLayers([...touched], true, 'Assign Multi Distro');
         }
         this._restateNaming();
@@ -899,7 +1034,7 @@ class _DockDrag {
             .flatMap(s => s.legs)
             .filter(g => nums.includes(g.circuit))
             .reduce((t, g) => t + (g.amps || 0), 0);
-        const boxName = `${d.name || d.id} ${plan.number}`;
+        const boxName = this.distroBoxName(d, plan.number);
         const whole = plan.seg && plan.spanStart === plan.seg.start
             && plan.spanEnd === plan.seg.end;
         return {
@@ -907,7 +1042,7 @@ class _DockDrag {
             nums, number: plan.number, boxName, amps, badge: type.badge,
             warn: null,
             text: `${boxName} → circuit${nums.length === 1 ? '' : 's'} `
-                + `${this._fmtTails(nums).replace(/-/g, '–')} · `
+                + `${this._fmtTails(nums)} · `
                 + `${Math.round(amps)} A`,
         };
     }
@@ -918,7 +1053,7 @@ class _DockDrag {
             // A paired connector whose circuits are already patched
             // through its pair (1.5, ruling 7).
             return `${payload.title} shares its circuits with ${r.busy[0].label} `
-                + '(paired) - a circuit can be patched to either connector, not both.';
+                + '(paired). A circuit can be patched to either connector, not both.';
         }
         if (r.why === 'other-box') {
             // A circuit on another box is somebody's feed: the drop never
@@ -927,13 +1062,13 @@ class _DockDrag {
             const rec = layer && r.seg && typeof this._powerNaming === 'function'
                 ? this._powerNaming(layer).socas.get(r.seg.index) : null;
             const where = rec && rec.name ? rec.name : 'another distro';
-            return `${label} is already on ${where} - clear it first; `
+            return `${label} is already on ${where}. Clear it first; `
                 + `${payload.title} never takes a circuit that is already fed.`;
         }
         // The place-overflow refusal, in circuits: a box with no free
         // circuit takes nothing, and no cut happens for nothing.
         const len = r.tailLen != null ? r.tailLen : r.remaining;
-        return `${payload.title} has no free circuits - the ${len} circuit`
+        return `${payload.title} has no free circuits: the ${len} circuit`
             + `${len === 1 ? '' : 's'} up to ${label} stay where they are.`;
     }
 
@@ -986,7 +1121,7 @@ class _DockDrag {
             if (p.glyph) pill.appendChild(this.plugGlyph(p.glyph));
             const t = document.createElement('span');
             t.textContent = p.ok
-                ? p.text + (p.warn ? ` — ${p.warn}` : '') : p.message;
+                ? p.text + (p.warn ? `. ${p.warn}` : '') : p.message;
             pill.appendChild(t);
         }
         pill.style.display = '';
@@ -1015,17 +1150,27 @@ class _DockDrag {
             return;
         }
         if (plan.face) return this._faceDropPlug(payload, layer, plan);
+        // A locked screen the assignment would repack (one grouped with
+        // this screen) refuses the drop before anything is stamped or
+        // recorded (owner, 2026-10-22).
+        if (this._assignRepacksLocked(layer, [[plan.socaIndex, payload.distroId]])) return;
+        // A locked screen the assignment would move on a shared box
+        // refuses the drop whole, the box type with it (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         // The box this makes wears the type it was dragged as - stamped
         // before the assignment's entry, so the gesture stays one step.
-        if (plan.number != null) {
-            this._stampBoxType(payload.distroId, plan.number, payload.output);
-        }
+        const typed = plan.number != null
+            && this._stampBoxType(payload.distroId, plan.number, payload.output);
         const touched = this.setSocaDistro(layer, plan.socaIndex,
                                            payload.distroId, false);
+        if (shared()) {
+            if (typed) this._persistDistros();
+            return;
+        }
         this.updateLayers([...new Set(touched)], true, 'Assign Multi Distro');
         this._restateNaming();
         if (plan.warn) {
-            this._dockSay(`${plan.boxName} landed on ${layer.name} — `
+            this._dockSay(`${plan.boxName} landed on ${layer.name}: `
                 + `${plan.warn}.`);
         }
     }
@@ -1052,7 +1197,7 @@ class _DockDrag {
         const loads = (typeof this.getDistroLoads === 'function'
             && this.getDistroLoads()) || [];
         const entries = distros.map(d => {
-            const name = d.name || d.id;
+            const name = this.distroLabel(d);
             if (this.distroFace(d)) {
                 // A face distro offers what its rows feed this screen.
                 const gate = this._plugGate({ distroId: d.id, output: null }, layer);
@@ -1060,8 +1205,12 @@ class _DockDrag {
                 const fig = load && load.ratingA > 0
                     ? ` ${load.amps.toFixed(0)}/${+load.limitA.toFixed(1)} A` : '';
                 if (!gate.ok) {
-                    return { label: `${name} — ${gate.message}`, disabled: true,
-                             title: gate.message };
+                    // A reason that already starts with the distro's name
+                    // is not named twice ("DISTRO 3: DISTRO 3 has no multi
+                    // outputs", QA 1.6.0-beta.4).
+                    const said = String(gate.message || '').startsWith(name);
+                    return { label: said ? gate.message : `${name}: ${gate.message}`,
+                             disabled: true, title: gate.message };
                 }
                 const payload = { type: 'plug', distroId: d.id,
                                   output: `face:${gate.faceRow.row.id}`,
@@ -1078,7 +1227,7 @@ class _DockDrag {
             }
             if (!this.distroOffers(d, type.id)) {
                 return {
-                    label: `${name} — does not offer ${type.name}`,
+                    label: `${name} does not offer ${type.name}`,
                     disabled: true,
                     title: `Tick ${type.name} under ${name}'s ⚙ Outputs to `
                         + 'offer it.',
@@ -1094,7 +1243,7 @@ class _DockDrag {
                 label: `${name}${fig}`,
                 disabled: !plan.ok,
                 title: plan.ok
-                    ? `${plan.text}${plan.warn ? ` — ${plan.warn}` : ''}. `
+                    ? `${plan.text}${plan.warn ? `. ${plan.warn}` : ''}. `
                         + 'One undoable step.'
                     : plan.message,
                 run: () => {
@@ -1105,7 +1254,22 @@ class _DockDrag {
                 },
             };
         });
-        return { label: `Add ${type.name} from…`, type: type.id, entries };
+        // The type said the way the tray's chips say it: on a show whose
+        // distros are all faces the box chips read their connector
+        // ("Socapex 208V"), and a header reading "Add Multi 208" beside
+        // them named the same thing twice (QA 1.6.0-beta.4). Where the
+        // face rows that feed this screen agree on one name, that is the
+        // header; otherwise the type's own name.
+        let word = type.name;
+        if (distros.every(d => this.distroFace(d))) {
+            const names = new Set();
+            distros.forEach(d => {
+                const gate = this._plugGate({ distroId: d.id, output: null }, layer);
+                if (gate.ok && gate.type) names.add(gate.type.name);
+            });
+            if (names.size === 1) word = [...names][0];
+        }
+        return { label: `Add ${word} from…`, type: type.id, entries };
     }
 
     // The screen a right-click names, for the outputs submenu: a circuit
@@ -1165,7 +1329,7 @@ class _DockDrag {
                 Object.keys(layer.customPortPaths).forEach(numStr => {
                     const num = parseInt(numStr, 10);
                     this.getResolvedPathPanels(
-                        layer, layer.customPortPaths[numStr] || [])
+                        layer, layer.customPortPaths[numStr] || [], 'data')
                         .forEach(r => map.set(r.panel,
                                               { ownerId: layer.id, portNum: num }));
                 });
@@ -1187,6 +1351,7 @@ class _DockDrag {
 
     _dockPerformDrop(payload, target) {
         sendClientLog('dock_drop', { payload, target });
+        this._dockSayClear();
         if (target && target.kind === 'reorder') {
             if (payload.type === 'processor') {
                 return this._dockReorderProcessors(payload.processorId,
@@ -1253,9 +1418,9 @@ class _DockDrag {
             // released, and the locked screens are named.
             const layerOf = (o) => (this.project.layers || [])
                 .find(l => String(l.id) === String(o.layerId));
-            const lockedClaims = claimants.map(layerOf).filter(l => l && l.locked);
+            const lockedClaims = claimants.map(layerOf).filter(l => l && this._layerLocked(l));
             this._showLockedError(lockedClaims);
-            const occupants = claimants.filter(o => { const l = layerOf(o); return !(l && l.locked); });
+            const occupants = claimants.filter(o => { const l = layerOf(o); return !(l && this._layerLocked(l)); });
             if (!occupants.length) return;
             // Every claim on a socket is a pin - nothing lands any other
             // way - so every claimant is released. One release per
@@ -1289,18 +1454,36 @@ class _DockDrag {
             this._dockSay('That screen needs no ports.');
             return;
         }
+        // A card in Copy mode dropped on a SECOND screen makes it the copy
+        // of the first (owner, 2026-11-01): it draws no path of its own -
+        // the preview's own plan (_copyDropPlan), so what lit is what lands.
+        const copy = typeof this._copyDropPlan === 'function'
+            ? this._copyDropPlan(payload, scr.layerId) : null;
+        if (copy) return this._dockDropMirror(target, copy);
+        // The pill's other refusals, met again at the release: a locked
+        // screen and a mirror screen take no ports of their own
+        // (_dockDataGateRefusal - the gate _assignmentRequest holds).
+        const layer = (this.project.layers || [])
+            .find(l => String(l.id) === String(scr.layerId));
+        if (layer && this._lockedRefused(layer)) return;
+        if (layer && typeof this._mirrorRefused === 'function'
+                && this._mirrorRefused(layer)) return;
         const upTo = target.upTo != null ? target.upTo : null;
         const plan = this._dockDataTakePlan(payload, scr.layerId, upTo);
         if (!plan.ok && plan.message) {
             this._dockSay(plan.message);
             return;
         }
+        // ...and the box itself: a box on two 10-port OPTs is 1-8 and
+        // 11-18, so the span alone would take in the unit's own 9 and 10.
         const window_ = payload.type === 'box'
-            ? { firstPort: payload.first, lastPort: payload.last } : {};
+            ? { firstPort: payload.first, lastPort: payload.last,
+                boxId: payload.boxId } : {};
         return this._takeOffer(Object.assign({
             action: 'place-overflow', layerId: scr.layerId,
             cardId: payload.cardId,
             lastIndex: upTo != null ? upTo - 1 : undefined,
+            fromDock: true,
         }, window_));
     }
 
@@ -1345,12 +1528,24 @@ class _DockDrag {
                     this._dockSay(plan.message);
                     return;
                 }
-                this._stampBoxType(payload.distroId, payload.number,
-                                   payload.output);
+                // A locked screen the take would repack refuses the drop
+                // before the box type is stamped (owner, 2026-10-22).
+                if (this._takeRepacksLocked(layer, this._socaTakePlan(layer, ordinal,
+                        payload.distroId, payload.number), payload.distroId)) return;
             }
+            // A take refused for a locked screen sharing the box takes the
+            // box type back with it (_lockedPowerTrial).
+            const shared = this._lockedPowerTrial();
+            const typed = !!payload.output && this._stampBoxType(
+                payload.distroId, payload.number, payload.output);
             const r = this.takeSocaOnto(layer, ordinal, payload.distroId,
                                         payload.number, 'Assign Multi Distro');
+            if (shared()) {
+                if (typed) this._persistDistros();
+                return;
+            }
             if (!r.ok) {
+                if (r.locked) return;
                 this._dockSay(this._takeRefusalText(payload, r, label, layer));
                 return;
             }
@@ -1359,7 +1554,7 @@ class _DockDrag {
                 // place-overflow follows with spare ports: the FIRST
                 // circuits land, the rest wait.
                 this._dockSay(`${payload.title} had ${r.free} free `
-                    + `circuit${r.free === 1 ? '' : 's'} - took ${r.took} `
+                    + `circuit${r.free === 1 ? '' : 's'} and took ${r.took} `
                     + `of the ${r.tailLen} circuits up to ${label}; `
                     + 'the rest stay as their own unassigned multi.');
             }
@@ -1433,7 +1628,7 @@ class _DockDrag {
             const busy = this._facePairedHolders(tailD, n, payload.tail);
             if (busy.length) {
                 this._dockSay(`${payload.title} is the same circuit as `
-                    + `${busy[0].label} (paired) - a circuit can be patched to `
+                    + `${busy[0].label} (paired). A circuit can be patched to `
                     + 'either connector, not both.');
                 return;
             }
@@ -1460,12 +1655,25 @@ class _DockDrag {
             if (ml === layer && m.soca === rec.index
                     && mr.circuits[i] === target.num) continue;
             this._dockSay(`Circuit ${payload.tail} is held by ${ml.name} `
-                + `${this.getPowerCircuitLabel(ml, mr.circuits[i])} - `
-                + 'clear it first, or drop on a free pip.');
+                + `${this.getPowerCircuitLabel(ml, mr.circuits[i])}. `
+                + 'Clear it first, or drop on a free pip.');
             return;
         }
         const at = rec.circuits.indexOf(target.num);
         if (at < 0) return;
+        // A locked screen the move would repack - one grouped with this
+        // screen, whose packing % the group shares - stays unchanged
+        // (owner, 2026-10-22): the cuts and the assignment are tried and
+        // put back, and the drop is refused whole when they move its %.
+        if (this._repackRefused(() => {
+            let i = rec.index;
+            if (at > 0) {
+                if (!this._splitSocaApply(layer, i, at)) return;
+                i += 1;
+            }
+            if (rec.circuits.length - at > 1 && !this._splitSocaApply(layer, i, 1)) return;
+            (layer.powerSocaDistro || (layer.powerSocaDistro = {}))[i] = payload.distroId;
+        }, [layer])) return;
         // Leaving its box - for another distro, another box on this one,
         // or from no distro at all - the circuit leaves the old feed's
         // lengths behind (owner, 2026-10-17): its cable, and the home run
@@ -1474,6 +1682,10 @@ class _DockDrag {
         const sameBox = !!rec.distroId && rec.distroId === payload.distroId
             && Number(rec.number) === n;
         const pullBefore = sameBox ? null : this._pullLiveRowKeys();
+        // A locked screen on the box the circuit leaves or lands on keeps
+        // its tails: refused whole when the move would deal them again,
+        // the screen named (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         const touched = new Set([layer]);
         let idx = rec.index;
         if (at > 0) {
@@ -1506,6 +1718,7 @@ class _DockDrag {
         (layer.powerSocaPhasePos || (layer.powerSocaPhasePos = {}))[idx]
             = [payload.tail];
         this._circuitTailCache = null;
+        if (shared()) return;
         this._dropPullEditsGoneWith(pullBefore);
         this.updateLayers([...touched], true, 'Assign Circuit');
         this._restateNaming();
@@ -1518,7 +1731,7 @@ class _DockDrag {
         if (!layer) return;
         if (this._lockedRefused(layer)) return;
         if ((layer.type || 'screen') !== 'screen') {
-            this._dockSay(`${layer.name || 'That layer'} draws no power.`);
+            this._dockSay(`${layer.name || 'That screen'} draws no power.`);
             return;
         }
         const plan = this.getSocaPlan(layer);
@@ -1538,7 +1751,7 @@ class _DockDrag {
         // that type passes the same gate a single-output drag does, with
         // the same refusal on the strip. All or nothing: one multi the
         // distro would not feed refuses the whole drop and nothing
-        // mutates. A screen whose breakout no output type names (L6-20)
+        // mutates. A screen whose breakout no output type names
         // is refused naming the breakout, as its chip drops are; a distro
         // whose explicit OUTPUTS list leaves the type out is refused the
         // way the right-click submenu greys it.
@@ -1549,12 +1762,21 @@ class _DockDrag {
                 return;
             }
         }
+        // All or nothing for the lock too: a locked screen the drop would
+        // repack (one grouped with this screen) refuses it whole (owner,
+        // 2026-10-22).
+        if (this._assignRepacksLocked(layer,
+                unassigned.map(s => [s.soca, payload.distroId]))) return;
         // The existing per-multi assignment, once per unassigned multi, in
         // plan order - the numbers fall out of the distro's own sequence.
         // Undo audit: one drag, one entry. The handle's own tooltip calls
         // this one act ("its unassigned multis ALL land on this distro");
         // recorded per-multi it cost N Ctrl+Z presses through half-cabled
         // intermediate walls.
+        // All or nothing for a locked screen sharing a box too: the drop
+        // and its box types are put back whole when they would move its
+        // circuits (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         const touched = new Set();
         unassigned.forEach(s => {
             this.setSocaDistro(layer, s.soca, payload.distroId, false)
@@ -1568,12 +1790,12 @@ class _DockDrag {
         const landedType = this.distroFace(this.getDistros()
             .find(x => x.id === payload.distroId)) ? null
             : this.outputTypeForBreakout(this.getPowerBreakout(layer), layer.powerVoltage);
+        let stamped = false;
         if (landedType) {
             this._circuitTailCache = null;
             const naming = this._powerNaming(layer);
             // Stamp every box, persist once: one POST for the gesture,
             // not one per multi the handle fed.
-            let stamped = false;
             unassigned.forEach(s => {
                 const rec = naming.socas.get(s.soca);
                 if (rec && rec.number != null) {
@@ -1582,8 +1804,9 @@ class _DockDrag {
                     }
                 }
             });
-            if (stamped) this._persistDistros();
         }
+        if (shared()) return;
+        if (stamped) this._persistDistros();
         this.updateLayers([...touched], true, 'Assign Multi Distro');
         this._restateNaming();
     }
@@ -1622,13 +1845,15 @@ class _DockDrag {
         const bt = this.getPowerBreakout(layer);
         const type = this.outputTypeForBreakout(bt, layer.powerVoltage);
         if (!type) {
-            return `${layer.name} is set to ${this._breakoutShortName(bt)} `
-                + '— change its breakout first';
+            const l620 = this._l620Refusal(layer, null);
+            if (l620) return `${l620}.`;
+            return `${layer.name} is set to ${this._breakoutShortName(bt)}. `
+                + 'Change its breakout first.';
         }
         if (!this.distroOffers(d, type.id)) {
-            return `${d.name || d.id} does not offer `
-                + `${type.name} — tick ${type.name} under its `
-                + '⚙ Outputs first';
+            return `${this.distroLabel(d)} does not offer `
+                + `${type.name}. Tick ${type.name} under its `
+                + '⚙ Outputs first.';
         }
         const gate = this._plugGate({ distroId: d.id, output: type.id }, layer);
         return gate.ok ? null : gate.message;

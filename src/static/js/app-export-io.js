@@ -793,6 +793,53 @@ class _ExportIo {
     }
 
 
+    // The host's Open dialog for a project file: { path, cancelled,
+    // unavailable }, the same contract as nativeSelectSavePath. File > Open
+    // uses it on the host so the show's path is known (Recent Files keeps
+    // the path and re-reads the file); unavailable falls back to the
+    // browser's own file chooser.
+    async nativeSelectOpenPath() {
+        let data = null;
+        try {
+            const response = await fetch('/api/native-dialog/open-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            if (!response.ok) return { path: null, cancelled: false, unavailable: true };
+            data = await response.json();
+        } catch (err) {
+            return { path: null, cancelled: false, unavailable: true };
+        }
+        if (data && data.ok && data.path) {
+            return { path: data.path, cancelled: false, unavailable: false };
+        }
+        return {
+            path: null,
+            cancelled: !!(data && data.cancelled),
+            unavailable: !(data && data.cancelled),
+        };
+    }
+
+    // A project file's text, read from disk on the host:
+    // { ok, text } | { ok: false, missing: true } | { ok: false, error }.
+    async nativeReadFile(path) {
+        try {
+            const response = await fetch('/api/native-dialog/read-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path })
+            });
+            let data = null;
+            try { data = await response.json(); } catch (_) { data = null; }
+            if (data && data.ok && typeof data.text === 'string') return { ok: true, text: data.text };
+            if (data && data.missing) return { ok: false, missing: true };
+            return { ok: false, error: (data && data.error) || `the server answered ${response.status}` };
+        } catch (err) {
+            return { ok: false, error: (err && err.message) || 'the server could not be reached' };
+        }
+    }
+
     // Only the HOST is warned about a missing folder chooser.
     //
     // On the host, a chooser is what should happen, so failing to get one is a
@@ -925,7 +972,14 @@ class _ExportIo {
         sendClientLog('save_blob_browser_download', { filename });
     }
 
-    async saveBlobWithPicker(blobOrFn, filename, mimeType) {
+    // Resolves to what happened, so a caller can tell a save from a cancel
+    // (Recent Files lists a show only once its file is written):
+    // { saved, cancelled, path, how }. `path` is the file's absolute path
+    // when the host's own dialog chose it, else null (the browser's picker
+    // and a download never say where the file went). `how` is 'native',
+    // 'picker' or 'download'. `opts.save`: the file is the project itself
+    // (File > Save), and a cancel says "Save canceled", not "Export".
+    async saveBlobWithPicker(blobOrFn, filename, mimeType, opts = {}) {
         await this.ensureHostCapability();
         // Sanitize so a project name with "/" or other illegal chars doesn't
         // get rejected by showSaveFilePicker / OS file APIs.
@@ -955,9 +1009,11 @@ class _ExportIo {
                 await writable.write(blob);
                 await writable.close();
                 sendClientLog('save_blob_picker_success', { filename });
-                return;
+                return { saved: true, cancelled: false, path: null, how: 'picker' };
             } catch (err) {
-                if (err && err.name === 'AbortError') return;
+                if (err && err.name === 'AbortError') {
+                    return { saved: false, cancelled: true, path: null, how: 'picker' };
+                }
                 // NotAllowedError on createWritable: Chrome already created the
                 // empty file via the picker but lost the user-activation needed
                 // to write to it. Fall through to native/browser fallback so we
@@ -982,9 +1038,9 @@ class _ExportIo {
                 // The user said no. Stop - saving anyway ignores them.
                 sendClientLog('save_blob_native_dialog_cancelled', { filename });
                 if (typeof this._toast === 'function') {
-                    this._toast('Export cancelled - nothing was saved.', false, 4000);
+                    this._toast(`${opts && opts.save ? 'Save' : 'Export'} canceled, nothing was saved.`, false, 4000);
                 }
-                return;
+                return { saved: false, cancelled: true, path: null, how: 'native' };
             }
             const savePath = picked.path;
             if (!savePath) {
@@ -998,7 +1054,7 @@ class _ExportIo {
             const ok = await this.nativeWriteFile(savePath, blob);
             if (ok) {
                 sendClientLog('save_blob_native_dialog_success', { filename, savePath });
-                return;
+                return { saved: true, cancelled: false, path: savePath, how: 'native' };
             }
             sendClientLog('save_blob_native_dialog_write_failed', { filename, savePath });
         } catch (err) {
@@ -1010,8 +1066,10 @@ class _ExportIo {
         try {
             const blob = await resolveBlob();
             this.browserDownload(blob, filename);
+            return { saved: true, cancelled: false, path: null, how: 'download' };
         } catch (err) {
             sendClientLog('save_blob_browser_download_error', { filename, message: err && err.message });
+            return { saved: false, cancelled: false, path: null, how: 'download' };
         }
     }
 
@@ -1077,7 +1135,7 @@ class _ExportIo {
                 // fallback, it is ignoring them.
                 sendClientLog('save_multiple_files_cancelled_by_user', { count: files.length });
                 if (typeof this._toast === 'function') {
-                    this._toast('Export cancelled - nothing was saved.', false, 4000);
+                    this._toast('Export canceled, nothing was saved.', false, 4000);
                 }
                 return;
             }

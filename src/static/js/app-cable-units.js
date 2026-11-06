@@ -44,16 +44,34 @@
 //     saved, loaded and undone with it. A show without one - every file
 //     saved before the setting - writes every length as typed, as before.
 //     Preferences keep named presets of it (app-cable-stock.js).
-//   * Three kinds take it: 'multi' (a multi's home run, distro to screen:
-//     powerSocaLengths), 'data' (a snake's home run, a loose port cable, a
-//     snaked port's extension) and 'circuit' (a circuit's own cable,
-//     powerCircuitCables, and a direct output's one cable). Fiber, the
-//     copper links and the jumpers do not: the jumpers keep their own
+//   * The kinds that take it: 'multi' (a multi's home run, distro to
+//     screen: powerSocaLengths), 'data' (a snake's home run, a loose port
+//     cable, a snaked port's extension) and 'circuit' (a circuit's own
+//     cable, powerCircuitCables). Since 2026-10-21 (owner: each cable kind
+//     gets its own list) also 'l2130' and 'harting' (an L21-30 or Harting
+//     box's home run, which was a multi's), 'direct' (a direct output's
+//     one cable - CEE, Schuko, Edison, L5-20, TRUE1, powerCON - which was
+//     a circuit's) and 'feeder' (a distro's feeder, app-services.js).
+//     The copper links and the jumpers do not: the jumpers keep their own
 //     ladder above.
-//   * ONE list for all three, or a list PER KIND (cableStock.perKind),
+//   * FIBER (owner, 2026-11-05: "we dont need two differnt fiber lenght
+//     types. MM and SM can be one box in preferences"): ONE list, 'fiber',
+//     a TAC, MTP or opticalCON of either mode pulled from it
+//     (app-fiber.js fiberStockKind). The mode stays on every cable, row,
+//     label and refusal: only the lengths are shared. It is ALWAYS its own
+//     list, whatever perKind says - a fiber is never pulled from a copper
+//     list, and a show saved before it has none, so its fiber is written
+//     as typed, as it always was. A cable whose boxes state no mode is
+//     written as typed too. A show or preset saved with the list per mode
+//     1.6.0's betas kept ('fiberSingle', 'fiberMulti') reads as one list
+//     holding every length of both (normalizeCableStock; the server folds
+//     the keys away, routes_cable_stock.py fold_fiber_lists).
+//   * ONE list for all of them, or a list PER KIND (cableStock.perKind),
 //     each kept in feet and in meters like the preferences: a show reads
 //     the list in its own unit. An empty list is no breakdown for that
-//     kind.
+//     kind. A show or preset saved before a kind had its own list reads
+//     that kind from the list it was pulled from then
+//     (CABLE_STOCK_FALLBACK): its runs are written as they always were.
 //   * A length the stock cannot make exactly takes the LEAST EXTRA
 //     length, then the FEWEST pieces (breakCableLength): with 25, 50, 100,
 //     125 is 100+25, 60 is 50+25, 130 is 100+50.
@@ -102,8 +120,15 @@ const TYPED_LENGTH_KEYS = new Set(['ft', 'ext', 'homeRun', 'fiberFt',
 
 // The cable kinds the show's stock covers, and the key of the one shared
 // list in each unit.
-export const CABLE_STOCK_KINDS = ['multi', 'data', 'circuit'];
+export const CABLE_STOCK_KINDS = ['multi', 'data', 'circuit', 'l2130', 'harting', 'direct', 'feeder'];
 export const CABLE_STOCK_ALL = 'all';
+// The fiber list: both modes', never shared with copper (above).
+export const CABLE_STOCK_FIBER = 'fiber';
+// The list per mode a stock may have been saved with: read into the one.
+const CABLE_STOCK_FIBER_RETIRED = ['fiberSingle', 'fiberMulti'];
+// A kind's list where a saved per-kind stock has none at all (saved
+// before the kind had one): the list its cables were pulled from then.
+export const CABLE_STOCK_FALLBACK = { l2130: 'multi', harting: 'multi', direct: 'circuit' };
 // The breakdown works on a grid of whole steps; past this many steps a
 // length is written as typed rather than searched (a figure no show cable
 // comes near).
@@ -224,6 +249,72 @@ class _CableUnits {
         return Number.isFinite(n) && n > 0 ? n : null;
     }
 
+    // A length TYPED INTO A FIELD, read for storing: { n, from } - `n` the
+    // length in the show's unit (or `unit`), null for none; `from` the
+    // other unit when the text carried that unit's suffix and was
+    // converted ("30m" in a feet show is 98.4 ft, to the figure's own
+    // decimals), else null. Blank is { n: null, bad: false }; text that
+    // is no length in either unit is { n: null, bad: true }, so a field
+    // can refuse it rather than clear what was there.
+    parseTypedCableLength(value, unit) {
+        const u = this.cableUnitAbbr(unit);
+        // a zero is no length, as it always read
+        const blank = value === null || value === undefined
+            || (typeof value === 'number' && value === 0)
+            || (typeof value === 'string' && /^0*\.?0*$/.test(value.trim()));
+        if (blank) return { n: null, from: null, bad: false };
+        const own = this.parseCableLength(value, u);
+        if (own !== null) return { n: own, from: null, bad: false };
+        const other = u === 'm' ? 'ft' : 'm';
+        const there = typeof value === 'string' && /[a-z'’]\s*\.?\s*$/i.test(value.trim())
+            ? this.parseCableLength(value, other) : null;
+        if (there === null) return { n: null, from: null, bad: true };
+        const n = Number(this.cableFigure(there * MM_PER_UNIT[other] / MM_PER_UNIT[u], u));
+        return n > 0 ? { n, from: other, bad: false } : { n: null, from: null, bad: true };
+    }
+
+    // A length TYPED INTO ANY FIELD, read and said the one way every
+    // length field says it (2026-10-22, the feeder field's rule for every
+    // typed length: a multi's home run, a direct output's cable, a circuit
+    // cable, a data port, a snake, a copper or fiber run): "30m" in a feet
+    // show is stored as 98.4 and said; text that is no length in either
+    // unit is refused, said, and the length that was there stays. `noun`
+    // names what the length is of, as the refusal says it ("Type the
+    // feed's length ..."). Returns { ok, n }: `ok` false for a refusal,
+    // `n` the length to store in the show's unit (null for none).
+    readTypedLength(value, noun = 'cable') {
+        const read = this.parseTypedCableLength(value);
+        const text = String(value == null ? '' : value).trim();
+        if (read.bad) {
+            this._sayTypedLength(`"${text}" is not a length. Type the ${noun}'s length in `
+                + `${this.cableUnitWord()}, like ${this.cableUnit() === 'm' ? '30' : '100'}.`);
+            return { ok: false, n: null };
+        }
+        if (read.from) {
+            this._sayTypedLength(`${text} is ${this.cableLengthWords(read.n)} `
+                + `in this ${this.cableUnitWord()} show.`);
+        }
+        return { ok: true, n: read.n };
+    }
+
+    // Said where the user is looking - a toast and the status bar - and
+    // once: a length written through to every screen sharing a multi is
+    // said for the one field that was typed in. The tray is redrawn a
+    // macrotask later, so the field shows what is stored now: the length
+    // that stayed, or the converted figure.
+    _sayTypedLength(text) {
+        const now = Date.now();
+        const last = this._typedLengthSaid;
+        if (!(last && last.text === text && now - last.at < 500)) {
+            this._typedLengthSaid = { text, at: now };
+            if (typeof this._toast === 'function') this._toast(text, true, 4000);
+            if (typeof this._dockSay === 'function') this._dockSay(text);
+        }
+        if (typeof this.renderHardwareDock === 'function') {
+            setTimeout(() => this.renderHardwareDock(), 0);
+        }
+    }
+
     // A length as every paper prints it: "100'" in feet, "30 m" in
     // meters, "" for a length nobody typed (blank, zero, not a length).
     cableLengthText(n, unit) {
@@ -242,10 +333,12 @@ class _CableUnits {
 
     // ---- the show's cable stock ------------------------------------------
 
-    // A stock as stored: { perKind, ft: { all, multi, data, circuit },
-    // m: { ... } }, every list positive lengths, ascending, once each
-    // (empty where nothing in it is a length). null for anything that is
-    // not a stock at all - a show without one.
+    // A stock as stored: { perKind, ft: { all, multi, data, circuit,
+    // l2130, harting, direct, feeder, fiber }, m: { ... } }, every list
+    // positive lengths, ascending, once each (empty where nothing in it is
+    // a length; a kind with no list at all reads its CABLE_STOCK_FALLBACK;
+    // the fiber list holds every length of the retired lists per mode).
+    // null for anything that is not a stock at all - a show without one.
     normalizeCableStock(stock) {
         if (!stock || typeof stock !== 'object' || Array.isArray(stock)) return null;
         const out = { perKind: stock.perKind === true };
@@ -253,8 +346,13 @@ class _CableUnits {
             const lists = stock[u] && typeof stock[u] === 'object' ? stock[u] : {};
             out[u] = {};
             for (const k of [CABLE_STOCK_ALL, ...CABLE_STOCK_KINDS]) {
-                out[u][k] = this.normalizeJumperStock(lists[k]) || [];
+                const from = lists[k] === undefined && CABLE_STOCK_FALLBACK[k]
+                    ? lists[CABLE_STOCK_FALLBACK[k]] : lists[k];
+                out[u][k] = this.normalizeJumperStock(from) || [];
             }
+            out[u][CABLE_STOCK_FIBER] = this.normalizeJumperStock(
+                [CABLE_STOCK_FIBER, ...CABLE_STOCK_FIBER_RETIRED]
+                    .flatMap(k => (Array.isArray(lists[k]) ? lists[k] : []))) || [];
         }
         return out;
     }
@@ -266,13 +364,15 @@ class _CableUnits {
 
     // The lengths one kind of cable comes in, in a unit (the show's by
     // default): the shared list, or the kind's own when the show keeps a
-    // list per kind. Empty for no stock, an empty list, or a cable the
-    // stock does not cover (no kind: a jumper, a fiber).
+    // list per kind. The 'fiber' kind always reads its own list. Empty
+    // for no stock, an empty list, or a cable the stock does not cover
+    // (no kind: a jumper, a fiber of no stated mode).
     cableStockList(kind, unit) {
-        if (!CABLE_STOCK_KINDS.includes(kind)) return [];
+        const fiber = kind === CABLE_STOCK_FIBER;
+        if (!fiber && !CABLE_STOCK_KINDS.includes(kind)) return [];
         const stock = this.cableStock();
         if (!stock) return [];
-        return stock[this.cableUnitAbbr(unit)][stock.perKind ? kind : CABLE_STOCK_ALL].slice();
+        return stock[this.cableUnitAbbr(unit)][fiber || stock.perKind ? kind : CABLE_STOCK_ALL].slice();
     }
 
     // The stock pieces one typed length is pulled as, longest first
@@ -431,20 +531,24 @@ class _CableUnits {
     // not change or the show already reads it (a pristine startup show
     // follows the Preferences on its own). Yes switches the show through
     // the export dialog's own path, without asking again; No leaves it.
-    // Returns true when the show's unit changed.
-    offerPreferredCableUnitToShow(previous) {
+    // Resolves true when the show's unit changed. The question is the
+    // app's own dialog (app-dialogs.js).
+    async offerPreferredCableUnitToShow(previous) {
         if (!this.project) return false;
         const to = this.preferredCableUnit();
         if (to === this.normalizeCableUnit(previous) || to === this.cableUnit()) return false;
         const count = this.typedCableLengthCount();
-        if (!window.confirm(this.cableUnitPreferenceQuestion(to, count))) return false;
+        const yes = await this.appConfirm(this.cableUnitPreferenceQuestion(to, count),
+            { id: 'cable-unit-offer-modal', title: 'Cable lengths' });
+        if (!yes) return false;
         return this.setCableUnit(to, false);
     }
 
     // Set the show's unit: one history entry, one project POST, every
     // label and paper redrawn. A show that holds typed lengths asks first
     // (`ask` false skips it - a caller that already asked). Returns true
-    // when the unit changed.
+    // when the unit changed; when it has to ask (the app's own dialog,
+    // app-dialogs.js), a Promise of that answer.
     setCableUnit(unit, ask = true) {
         if (!this.project) return false;
         const to = this.normalizeCableUnit(unit);
@@ -457,10 +561,19 @@ class _CableUnits {
             return false;
         }
         const count = this.typedCableLengthCount();
-        if (ask && count > 0 && !window.confirm(this.cableUnitChangeQuestion(to, count))) {
-            this.syncCableUnitControls();
-            return false;
+        if (ask && count > 0) {
+            return this.appConfirm(this.cableUnitChangeQuestion(to, count),
+                { id: 'cable-unit-change-modal', title: 'Cable lengths' }).then(yes => {
+                if (yes) return this._switchCableUnit(to);
+                this.syncCableUnitControls();
+                return false;
+            });
         }
+        return this._switchCableUnit(to);
+    }
+
+    // setCableUnit's change itself, once nothing is left to ask.
+    _switchCableUnit(to) {
         const from = this.cableUnit();
         this.project.cableUnit = to;
         // The pull sheet's edits are keyed by the row's printed length

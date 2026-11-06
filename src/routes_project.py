@@ -30,6 +30,39 @@ def _stamp_app_version(project):
     project['app_version'] = get_current_version()
 
 
+def _fold_fiber_stock(project):
+    """A show saved with a fiber list per mode goes on the one fiber list
+    (owner, 2026-11-05; routes_cable_stock.fold_fiber_lists), so the copy
+    the session edits and every save after it never carry the old keys.
+    Logged once: the pass is idempotent."""
+    import routes_cable_stock
+    if routes_cable_stock.fold_fiber_lists(project.get('cableStock')):
+        log_event('cable_stock_fiber_lists_merged', {'name': project.get('name')})
+
+
+# ── Unsaved changes across a reload (1.6.0) ──
+#
+# The page reads "unsaved" off its undo history, and a reload starts a new
+# history from the project as the server holds it: edits made before the
+# reload read as saved, and New, Open or a Recent file then dropped them
+# without asking. The page tells the server whenever the answer changes
+# (POST /api/project/unsaved) and reads it back with the project (the
+# X-Project-Unsaved header on GET /api/project). It lives here, beside the
+# project and never in it, so no file or undo snapshot carries it. A new
+# project starts saved; a show opened, or a project saved to a file, is
+# marked saved by the page that did it; a server restart starts saved with
+# the fresh project it builds.
+_unsaved = {'value': False}
+
+
+def project_unsaved():
+    return _unsaved['value']
+
+
+def set_project_unsaved(value):
+    _unsaved['value'] = bool(value)
+
+
 @project_bp.route('/api/project', methods=['GET'])
 def get_project():
     log_event('get_project')
@@ -38,7 +71,19 @@ def get_project():
     # entry point that was missed (2026-09-22: a GET never hands back a
     # screen without a breakout its voltage allows).
     app.normalize_power_breakouts(app.current_project, at='get_project')
-    return jsonify(app.current_project)
+    response = jsonify(app.current_project)
+    response.headers['X-Project-Unsaved'] = '1' if project_unsaved() else '0'
+    return response
+
+
+@project_bp.route('/api/project/unsaved', methods=['POST'])
+def post_project_unsaved():
+    data = request.get_json(silent=True) or {}
+    value = data.get('unsaved') is True
+    if value != project_unsaved():
+        log_event('project_unsaved_changed', {'unsaved': value})
+    set_project_unsaved(value)
+    return jsonify({'unsaved': value})
 
 
 @project_bp.route('/api/server-session', methods=['GET'])
@@ -70,6 +115,7 @@ def new_project():
     # Add default layer to new projects
     app.initialize_default_layer()
     _stamp_app_version(app.current_project)
+    set_project_unsaved(False)
     log_event('new_project')
     socketio.emit('project_cleared')
     return jsonify(app.current_project)
@@ -127,6 +173,8 @@ def save_project():
     # So do the services (the same push carries `services` once a show has
     # one): unique ids, and no distro left on a service that is gone.
     app._normalize_services(app.current_project)
+    # A stock saved with the list per mode rides this route too.
+    _fold_fiber_stock(app.current_project)
     # Same funnel duty for the processor tree: a payload can carry a
     # pre-stocking SX40 through this route too, and a boxless one is a
     # legacy shape, never a choice. Idempotent like the pass above it.
@@ -142,6 +190,12 @@ def save_project():
     # on its fixed card moves up to the unit here, once, and is logged.
     for moved in processor_catalog.adopt_fixed_card_names(app.current_project):
         log_event('processor_name_adopted_from_card', moved)
+    # A card mode saved under its old id opens as the mode it names now:
+    # an H_4xfiber's combined copy-backup is Backup, the enhanced card's
+    # one "default" mode is Backup (NovaStar's modes, 2026-10-30). Logged,
+    # once - the pass is idempotent.
+    for moved in processor_catalog.migrate_card_modes(app.current_project):
+        log_event('processor_card_mode_migrated', moved)
     # Snakes moved to the SHOW (2026-09-09: "Any sockets, any device"), so a
     # file - or an undo snapshot - that carries them per card or per box is
     # folded into project['snakes'] here, and every member is re-homed onto
@@ -154,6 +208,9 @@ def save_project():
     # follows its main's redundancy. Before the fiber settle, which would
     # otherwise drop the links the move keeps. Idempotent.
     processor_catalog.migrate_backup_processors(app.current_project)
+    # The bar's remembered Mixed pick held to its one shape (True, with
+    # redundancy on, on a chassis that can mix). Idempotent.
+    processor_catalog.settle_redundancy_mixed(app.current_project)
     # The fiber store held to its rules the same way (links that no longer
     # hold, a 1.4.0 opticalCON's ownerBoxId) - never a cable pruned for
     # being unused here: a restore is what it restores.
@@ -228,8 +285,10 @@ def restore_project():
         app.current_project['data_flow_perspective'] = 'front'
     if app.current_project.get('power_perspective') not in ('front', 'back'):
         app.current_project['power_perspective'] = 'front'
-    # The NAMES switch is per tab since 2026-10-01: a file carrying the one
-    # project-wide groupNameDisplay starts every tab on it. Idempotent.
+    # The NAMES switch is per tab since 2026-10-01 and per group since
+    # 2026-11-04: a file carrying the one project-wide groupNameDisplay
+    # starts every tab on it, and every group on its tabs' values.
+    # Idempotent.
     app._migrate_group_name_display(app.current_project)
     # Multi-canvas migration. Additive: leaves root-level raster fields in
     # place so the existing single-canvas client keeps working. Slice 6 will
@@ -273,6 +332,8 @@ def restore_project():
     # Services (2026-10-20): the same repair the save route runs - see
     # _normalize_services. A file with no services is left as it came.
     app._normalize_services(app.current_project)
+    # A show saved with a fiber list per mode opens on the one list.
+    _fold_fiber_stock(app.current_project)
     # A requires-distribution device saved before new_processor stocked its
     # default boxes arrives with an empty cvts list - a pre-stocking save,
     # not an arrangement. This funnel (file load, undo/redo) is where it is
@@ -292,6 +353,12 @@ def restore_project():
     # on its fixed card moves up to the unit here, once, and is logged.
     for moved in processor_catalog.adopt_fixed_card_names(app.current_project):
         log_event('processor_name_adopted_from_card', moved)
+    # A card mode saved under its old id opens as the mode it names now:
+    # an H_4xfiber's combined copy-backup is Backup, the enhanced card's
+    # one "default" mode is Backup (NovaStar's modes, 2026-10-30). Logged,
+    # once - the pass is idempotent.
+    for moved in processor_catalog.migrate_card_modes(app.current_project):
+        log_event('processor_card_mode_migrated', moved)
     # Snakes moved to the SHOW (2026-09-09: "Any sockets, any device"), so a
     # file - or an undo snapshot - that carries them per card or per box is
     # folded into project['snakes'] here, and every member is re-homed onto
@@ -304,6 +371,9 @@ def restore_project():
     # follows its main's redundancy. Before the fiber settle, which would
     # otherwise drop the links the move keeps. Idempotent.
     processor_catalog.migrate_backup_processors(app.current_project)
+    # The bar's remembered Mixed pick held to its one shape (True, with
+    # redundancy on, on a chassis that can mix). Idempotent.
+    processor_catalog.settle_redundancy_mixed(app.current_project)
     # The fiber store held to its rules the same way (links that no longer
     # hold, a 1.4.0 opticalCON's ownerBoxId) - never a cable pruned for
     # being unused here: a restore is what it restores.

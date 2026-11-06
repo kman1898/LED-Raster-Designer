@@ -71,7 +71,7 @@ def page(e2e_server, pw_browser):
     """One long-lived page; each test rebuilds a known project first."""
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -236,15 +236,23 @@ def undo(page):
     page.wait_for_timeout(900)
 
 
-def _next_duplicate_name(name):
+def _next_duplicate_name(name, taken=()):
     """The app's own convention (app-screen-groups.js _nextDuplicateName /
     app-clipboard.js getNextName): a trailing number increments, otherwise " 1"
-    is appended."""
+    is appended - and the number keeps climbing past every name in `taken`
+    (case-blind), so a copy never repeats a name in use (1.6.0 QA)."""
     import re
-    m = re.match(r'^(.*?)(\d+)$', name)
-    if m:
-        return f'{m.group(1)}{int(m.group(2)) + 1}'
-    return f'{name} 1'
+    used = {str(t).strip().lower() for t in taken}
+
+    def step(n):
+        m = re.match(r'^(.*?)(\d+)$', n)
+        if m:
+            return f'{m.group(1)}{int(m.group(2)) + 1}'
+        return f'{n} 1'
+    nxt = step(name)
+    while nxt.strip().lower() in used:
+        nxt = step(nxt)
+    return nxt
 
 
 def assert_whole_wall_copied(page, ids, gid, state, *, nudged=True):
@@ -265,13 +273,16 @@ def assert_whole_wall_copied(page, ids, gid, state, *, nudged=True):
     assert state['sourceGroup'] == ids, state
     # Per-member geometry rides along: the sizes are why the wall needed
     # more than one layer, and the rotation is one member's own.
+    # each copy steps past the source wall's names and the copies before it
+    taken = [s['name'] for s in state['sources']]
     for src, copy in zip(state['sources'], state['copies']):
         assert (copy['columns'], copy['rows']) == (src['columns'], src['rows']), \
             (src, copy)
         assert (copy['cabinet_width'], copy['cabinet_height']) \
             == (src['cabinet_width'], src['cabinet_height']), (src, copy)
         assert copy['rotation'] == src['rotation'], (src, copy)
-        assert copy['name'] == _next_duplicate_name(src['name']), (src, copy)
+        assert copy['name'] == _next_duplicate_name(src['name'], taken), (src, copy)
+        taken.append(copy['name'])
         if nudged:
             assert copy['offset_x'] == src['offset_x'] + 50, (src, copy)
             assert copy['offset_y'] == src['offset_y'] + 50, (src, copy)

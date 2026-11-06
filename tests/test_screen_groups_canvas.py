@@ -48,7 +48,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -1069,17 +1069,23 @@ def test_the_display_choice_rides_the_undo_snapshot(page):
             const app = window.app;
             delete app.project.groupNameDisplayByView;
             app.saveState('Setup');
-            // the switch is per tab (2026-10-01): the Data tab's own value
-            app.migrateGroupNameDisplay();
-            app.project.groupNameDisplayByView['data-flow'] = 'both';
+            // the switch is per group, per tab (2026-11-04): the group's
+            // own value for the Data tab, written the way the switch does
+            const g = app.project.groups[0];
+            const next = {};
+            for (const v of ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look']) {
+                next[v] = app.groupNameDisplayFor(v, g);
+            }
+            next['data-flow'] = 'both';
+            g.nameDisplayByView = next;
             app.saveState('Change Name Display');
-            const by = (i) => (app.history[i].project.groupNameDisplayByView || null);
+            const by = (i) => (app.history[i].project.groups[0].nameDisplayByView || null);
             const out = {
                 actions: app.history.map(h => h.action),
                 before: by(app.historyIndex - 1),
                 after: by(app.historyIndex),
             };
-            delete app.project.groupNameDisplayByView;
+            delete g.nameDisplayByView;
             return out;
     """)
     assert result['actions'] == ['Setup', 'Change Name Display']

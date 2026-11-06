@@ -354,7 +354,7 @@ label:has(#use-fractional-inches) { margin-left:8px !important; flex-shrink:0; }
 /* ════════ DENSER LAYER CARDS ════════ */
 .layer-item { padding:7px 9px !important; margin-bottom:5px !important; }
 .layer-item .layer-info { margin-top:3px !important; line-height:1.25 !important; }
-.layer-item .layer-header { gap:6px !important; }
+.layer-item .layer-header { gap:4px !important; }
 
 /* ════════ RESIZABLE SIDEBARS ════════ */
 /* width is driven by CSS vars (set/persisted by theme.js); collapse still wins */
@@ -406,6 +406,10 @@ select, .info-select {
   box-shadow:inset 0 3px 0 0 var(--ps-accent), 0 1px 3px rgba(0,0,0,0.45) !important; }
 .layer-item.drag-over-bottom {
   box-shadow:inset 0 -3px 0 0 var(--ps-accent), 0 1px 3px rgba(0,0,0,0.45) !important; }
+/* A canvas dragged over another lands before it (upper half) or after it
+   (lower half), app-canvas-ui.js dropsAfter; the line shows which. */
+.canvas-group.drag-before { box-shadow:inset 0 3px 0 0 var(--ps-accent) !important; }
+.canvas-group.drag-after { box-shadow:inset 0 -3px 0 0 var(--ps-accent) !important; }
 
 /* ---- layer state cues (primary / hidden / disabled arrows) ---- */
 /* v0.11.0: same bug class as the drag indicator above. The .layer-item tile
@@ -517,6 +521,15 @@ select, .info-select {
   font-family:var(--font-ps); color:var(--ps-text) !important;
 }
 .hw-dock-proc-model { color:var(--ps-dim); font-weight:500; }
+/* the processor's cable list, under its strip: one section per box, each
+   under the box's name as its strip reads */
+.hw-dock-proc-sheet { margin:4px 0 2px; }
+.hw-dock-proc-sheet-head {
+  font-size:11px; font-weight:600; color:var(--ps-text); padding:4px 4px 0;
+}
+.hw-dock-proc-sheet-sec + .hw-dock-proc-sheet-sec {
+  border-top:1px solid #2a2a2a; margin-top:4px;
+}
 
 /* ---- units and boxes: framed tiles on the tray, headers as mini
    titlebars. Grounds stay DARK below the chips' #0d0d0d/#1e1e1e rungs so
@@ -581,6 +594,13 @@ select, .info-select {
 }
 .hw-dock-loop-names { color:var(--ps-text); font-weight:600; }
 .hw-dock-loop-end { color:var(--ps-faint); }
+.hw-dock-fiber-mode { color:var(--ps-dim); }
+/* a folded strip's header carries its near box's ≡ and ⚙; open, the
+   rows below carry them */
+.hw-dock-foldctl { display:none; flex:0 0 auto; margin-left:auto;
+  align-items:center; gap:3px; }
+.hw-dock-foldctl > .hw-dock-cablebtn { margin-left:0; }
+.hw-dock-loop.lrd-sec-collapsed > .hw-dock-head-row > .hw-dock-foldctl { display:inline-flex; }
 /* the distro's always-on legs line sits OUTSIDE the foldable body, so the
    unit's zeroed padding must not glue it to the frame */
 .hw-dock-unit > .hw-dock-legs { margin:2px 6px; }
@@ -843,6 +863,8 @@ select, .info-select {
 .hw-dock-cablebtn-on { color:#f0d48a; border-color:#c8a04a; }
 /* the data side's ≡ announces in the data cable's blue, not power's gold */
 .hw-dock-cablebtn-data.hw-dock-cablebtn-on { color:#cfeaff; border-color:#8fd0ff; }
+/* the processor's ≡ (its cable list of every box on it) reads the same */
+.hw-dock-cablebtn-proc.hw-dock-cablebtn-on { color:#cfeaff; border-color:#8fd0ff; }
 .hw-dock-cablebtn:focus-visible { outline:1px solid var(--ps-accent); outline-offset:1px; }
 
 /* ---- gear popover: a Preferences card that floats ---- */
@@ -962,6 +984,7 @@ select, .info-select {
 #hardware-dock .btn,
 #hw-gear-popover .btn:not(.hw-pop-remove),
 #hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):not(.hw-pop-close),
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn,
 #balance-modal .btn {
   background:linear-gradient(#505050,#3a3a3a) !important;
   border:1px solid #161616 !important; border-radius:3px !important;
@@ -973,12 +996,14 @@ select, .info-select {
 #hardware-dock .btn:hover,
 #hw-gear-popover .btn:not(.hw-pop-remove):hover,
 #hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):not(.hw-pop-close):hover,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn:hover,
 #balance-modal .btn:hover {
   background:linear-gradient(#5a5a5a,#444) !important;
 }
 #hardware-dock .btn:active,
 #hw-gear-popover .btn:not(.hw-pop-remove):active,
 #hw-gear-popover button:not(.hw-pop-remove):not(.hw-dock-gear):not(.hw-pop-close):active,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn:active,
 #balance-modal .btn:active {
   transform:translateY(1px);
   background:linear-gradient(#2e2e2e,#383838) !important;
@@ -1014,29 +1039,42 @@ select, .info-select {
    dialog's Apply does. The per-slot chips are the same recipe one size
    down, the lit one in the backup role's gold as the mock draws it.
    Legends are primary text ("grey on grey is hard to read"). ---- */
-#hw-gear-popover .hw-pop-seg { display:flex; margin-top:8px; }
+/* ...and the same bar wherever it is drawn outside the popover: the
+   PLUGS IN AT switch in a port chip's editor in the tray
+   (app-mirror-screens.js _buildPlugSeg) */
+#hw-gear-popover .hw-pop-seg, .hw-pop-port-plug .hw-pop-seg { display:flex; margin-top:8px; }
 /* the bar's name (2026-09-05: "it doesnt say it is for redundancy") -
    the dock's strip caption (LEGS / OUTPUTS) in primary text, above the
    bar so the chassis's four segments keep the popover's whole width */
 #hw-gear-popover .hw-pop-red-strip { margin-top:8px; }
-#hw-gear-popover .hw-pop-red-cap {
+#hw-gear-popover .hw-pop-red-cap, .hw-pop-port-plug .hw-pop-red-cap {
   display:block; margin-bottom:3px;
   font:9px ui-monospace, Menlo, monospace; letter-spacing:0.5px;
   text-transform:uppercase; color:var(--ps-text) !important;
 }
-#hw-gear-popover .hw-pop-red-strip > .hw-pop-seg { margin-top:0; }
-#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn {
+#hw-gear-popover .hw-pop-red-strip > .hw-pop-seg,
+.hw-pop-port-plug.hw-pop-red-strip > .hw-pop-seg { margin-top:0; }
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn {
   flex:1 1 0; min-width:0; position:relative; margin-left:-1px;
   padding:3px 4px !important; border-radius:0 !important;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
-#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn:first-child {
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn:first-child,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn:first-child {
   margin-left:0; border-radius:3px 0 0 3px !important;
 }
-#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn:last-child {
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn:last-child,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn:last-child {
   border-radius:0 3px 3px 0 !important;
 }
-#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn.hw-pop-seg-on {
+/* a chassis's four segments (Off · Per card · Per port · Mixed): each as
+   wide as its word, Off the narrowest, so none is cut to "Per c…" */
+#hw-gear-popover .hw-pop-seg.hw-pop-seg-fit > button.hw-pop-seg-btn {
+  flex:1 1 auto; padding:3px 6px !important;
+}
+#hw-gear-popover .hw-pop-seg > button.hw-pop-seg-btn.hw-pop-seg-on,
+.hw-pop-port-plug .hw-pop-seg > button.hw-pop-seg-btn.hw-pop-seg-on {
   z-index:1;
   background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important;
   border-color:var(--ps-accent-deep) !important;
@@ -1055,6 +1093,14 @@ select, .info-select {
 #hw-gear-popover .hw-pop-red-row > select { flex:1 1 0; min-width:0; }
 #hw-gear-popover .hw-pop-red-row-chips { flex-wrap:wrap; gap:3px 6px; }
 #hw-gear-popover .hw-pop-red-row-chips > .hw-pop-red-key { flex:0 0 100%; max-width:100%; }
+/* a Mixed row at 1:1: its partner pick on a line of its own under the chips */
+#hw-gear-popover .hw-pop-red-row-chips > select { flex:1 1 100%; }
+/* a Mixed row's four chips: each as wide as its word, the short 1:1 the
+   narrowest, so Sequential and OPT Split are never cut */
+#hw-gear-popover .hw-pop-chips.hw-pop-chips-pair > button.hw-pop-chip {
+  flex:1 1 auto; padding:2px 6px !important;
+}
+#hw-gear-popover .hw-pop-chips-pair > button.hw-pop-chip[data-mode="1to1"] { flex:0 0 auto; }
 #hw-gear-popover .hw-pop-chips { display:flex; gap:4px; flex:1 1 100%; min-width:0; }
 #hw-gear-popover .hw-pop-chips > button.hw-pop-chip {
   flex:1 1 0; min-width:0; padding:2px 4px !important; font-size:10px !important;
@@ -1095,7 +1141,10 @@ select, .info-select {
   text-transform:uppercase; letter-spacing:0.03em; border-radius:4px 4px 0 0; }
 #pull-sheet-modal .pull-sheet-title span { color:var(--ps-dim) !important; font-weight:400 !important; text-transform:none; letter-spacing:0; margin-left:8px; }
 #pull-sheet-modal .pull-sheet-hint { color:var(--ps-dim); font-size:11px; padding:8px 14px 0; line-height:1.45; }
-.pull-sheet-board { display:flex; gap:12px; align-items:flex-start; overflow-x:auto; overflow-y:auto;
+/* The tiles wrap onto the next line when the window is too narrow for
+   them all: at 1600 px a two-position show's TOTALS ran 33 px past the
+   board's edge and its columns were cut off (QA 1.6.0). */
+.pull-sheet-board { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start; overflow-x:auto; overflow-y:auto;
   padding:12px 14px 14px; flex:1 1 auto; min-height:120px; }
 .pull-pos { flex:0 0 auto; min-width:420px; max-width:560px; background:var(--ps-inset); border:1px solid #565656;
   border-radius:4px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.05), 0 0 0 2px rgba(0,0,0,0.45), 0 2px 5px rgba(0,0,0,0.5);
@@ -1114,6 +1163,9 @@ select, .info-select {
 .pull-table td { padding:2px 4px; border-bottom:1px solid #262626; vertical-align:middle; position:relative; }
 .pull-table tr:last-child td { border-bottom:none; }
 .pull-table td.pull-ro { color:var(--ps-text); padding:4px 6px; white-space:nowrap; }
+/* A long gear name wraps inside its tile: it held the table wider than
+   the tile, and the tile's overflow cut off LABEL, NOTES and the x. */
+.pull-table td.pull-ro.pull-type { white-space:normal; overflow-wrap:anywhere; min-width:120px; }
 .pull-table td.pull-len { color:var(--ps-dim); }
 .pull-table td.pull-qty-ro { text-align:right; font-variant-numeric:tabular-nums; }
 .pull-table td.pull-label-ro { color:var(--ps-dim); white-space:normal; max-width:180px; }

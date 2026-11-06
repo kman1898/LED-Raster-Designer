@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LED Raster Designer v1.5.3</title>
+    <title>LED Raster Designer v1.6.0</title>
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="/static/css/color_picker.css">
@@ -99,7 +99,7 @@
             <div class="menu-option" data-action="copy" data-label="Copy" data-shortcut-mac="Cmd+C" data-shortcut-win="Ctrl+C"></div>
             <div class="menu-option" data-action="paste" data-label="Paste" data-shortcut-mac="Cmd+V" data-shortcut-win="Ctrl+V"></div>
             <div class="menu-option" data-action="duplicate" data-label="Duplicate" data-shortcut-mac="Cmd+J" data-shortcut-win="Ctrl+J"></div>
-            <div class="menu-option" data-action="delete" data-label="Delete Layer" data-shortcut-mac="Del" data-shortcut-win="Del"></div>
+            <div class="menu-option" data-action="delete" data-label="Delete Screen" data-shortcut-mac="Del" data-shortcut-win="Del"></div>
             <!-- Screen groups (v0.11.0). Shown/hidden in showContextMenu():
                  group needs 2+ screen layers selected, ungroup/remove need the
                  selection to already be in a group. -->
@@ -169,6 +169,10 @@
                  written at open time. -->
             <div class="menu-divider ovr-redraw-only" style="display: none;"></div>
             <div class="menu-option ovr-redraw-only" data-action="ovr-redraw" style="display: none;"></div>
+            <!-- Several ports picked with Shift: "Redraw ports 51-54 as one",
+                 armed by _prepareMergeRunsMenu (app-merge-runs.js). -->
+            <div class="menu-divider ovr-merge-div" style="display: none;"></div>
+            <div class="menu-option ovr-merge-only" data-action="ovr-merge" style="display: none;"></div>
             <div class="menu-option ovr-auto-only" data-action="ovr-auto" style="display: none;"></div>
             <div class="menu-divider hw-clear-only" style="display: none;"></div>
             <div class="menu-option hw-clear-only" data-action="hw-clear" style="display: none;"></div>
@@ -237,7 +241,7 @@
 
         <div id="toolbar">
             <div class="toolbar-section toolbar-project">
-                    <h1><svg class="lrd-logo-mark" width="38" height="38" viewBox="0 0 48 48" aria-hidden="true" style="vertical-align:middle; margin-right:11px;"><rect x="3" y="3" width="42" height="42" rx="10" fill="#161616" stroke="#3a3a3a" stroke-width="1.5"/><rect x="11" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="11" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="29" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="20" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="20" y="20" width="8" height="8" rx="2" fill="#cfcfcf"/><rect x="29" y="20" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="29" y="29" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/></svg><span style="white-space:nowrap; vertical-align:middle;">LED Raster Designer <span id="app-version-label" style="font-size: 0.6em; color: #888;">v1.5.3</span></span></h1>
+                    <h1><svg class="lrd-logo-mark" width="38" height="38" viewBox="0 0 48 48" aria-hidden="true" style="vertical-align:middle; margin-right:11px;"><rect x="3" y="3" width="42" height="42" rx="10" fill="#161616" stroke="#3a3a3a" stroke-width="1.5"/><rect x="11" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="11" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="29" y="11" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="20" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/><rect x="20" y="20" width="8" height="8" rx="2" fill="#cfcfcf"/><rect x="29" y="20" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="11" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="20" y="29" width="8" height="8" rx="2" fill="#5a5a5a"/><rect x="29" y="29" width="8" height="8" rx="2" fill="var(--ps-accent, #e22330)"/></svg><span class="lrd-app-title" style="white-space:nowrap; vertical-align:middle;">LED Raster Designer <span id="app-version-label" style="font-size: 0.6em; color: #888;">v1.6.0</span></span></h1>
                 <div style="position:relative;">
                     <input type="text" id="project-name" value="Untitled Project" class="editable-project-name">
                     <div id="project-name-warning" style="display:none; position:absolute; top:100%; left:0; margin-top:4px; padding:4px 8px; font-size:11px; color:#f5a623; background:#1a1a1a; border:1px solid #f5a623; border-radius:4px; white-space:nowrap; z-index:1000; pointer-events:none;"></div>
@@ -271,15 +275,15 @@
                 </div>
                 <!-- Pixel Map Controls -->
                 <div class="panel tab-panel" data-tab="pixel-map">
-                    <div class="panel-header" data-tooltip="Screen Info, Set the position, cabinet size, grid layout, physical dimensions, and weight of the selected LED screen layer.">
+                    <div class="panel-header" data-tooltip="Screen Info, Set the position, cabinet size, grid layout, physical dimensions, and weight of the selected LED screen.">
                         <h2>Screen Info</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row screen-only" data-tooltip="Offset X, Horizontal position of the layer on the canvas in pixels.">
+                        <div class="info-row screen-only" data-tooltip="Offset X, Horizontal position of the screen on the canvas in pixels.">
                             <label>Offset X</label>
                             <input type="text" id="offset-x" value="0">
                         </div>
-                        <div class="info-row screen-only" data-tooltip="Offset Y, Vertical position of the layer on the canvas in pixels.">
+                        <div class="info-row screen-only" data-tooltip="Offset Y, Vertical position of the screen on the canvas in pixels.">
                             <label>Offset Y</label>
                             <input type="text" id="offset-y" value="0">
                         </div>
@@ -297,6 +301,10 @@
                             <select id="layer-beach" class="info-select" data-lrd-field="layer-beach"></select>
                         </div>
                         <div id="screen-grid-settings" class="screen-only">
+                            <div class="info-row" data-tooltip="Panel, The panel this screen hangs, as the pull sheet names it. It starts as the name of the panel the screen was made with: a pick from the panel library, a preset, or the last screen's panel. Type over it to name a custom panel. Changing the cabinet's pixels or size by hand clears it. A screen with no name here has no panel row on the pull sheet.">
+                                <label>Panel</label>
+                                <input type="text" id="panel-model-name" value="" autocomplete="off" spellcheck="false">
+                            </div>
                             <div class="info-row" data-tooltip="Cabinet Width, Width of a single LED cabinet/panel in pixels.">
                                 <label>Cabinet Width (px)</label>
                                 <input type="text" id="cabinet-width" value="128">
@@ -377,7 +385,7 @@
                         <div id="image-layer-section" style="display: none;">
                             <div class="info-row" style="margin-top: 8px;">
                                 <label>Image/Logo</label>
-                                <button id="btn-replace-image" class="btn btn-secondary" style="width: 100%;" data-tooltip="Replace Image, Choose a new image file to replace the current image layer.">Replace Image</button>
+                                <button id="btn-replace-image" class="btn btn-secondary" style="width: 100%;" data-tooltip="Replace Image, Choose a new image file to replace the current image.">Replace Image</button>
                             </div>
                             <div class="info-row">
                                 <label>Image Size</label>
@@ -435,19 +443,20 @@
 
                 <!-- Labels Section -->
                 <div class="panel tab-panel screen-only" data-tab="pixel-map">
-                    <div class="panel-header" data-tooltip="Labels, Control which information labels are displayed on each screen layer in the pixel map view.">
+                    <div class="panel-header" data-tooltip="Labels, Control which information labels are displayed on each screen in the pixel map view.">
                         <h2>Labels</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Display the layer's name on the canvas. Each tab has its own independent toggle.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Display the screen's name on the canvas. Each tab has its own independent toggle.">
                             <input type="checkbox" id="show-label-name" checked>
                             <label for="show-label-name">Screen Name</label>
                         </div>
                         <!-- Names for grouped screens: a drawing convention per
-                             tab (2026-10-01), beside every tab's Screen Name
-                             control; each copy drives its own tab's value
-                             (data-name-view). -->
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
+                             group, per tab (2026-11-04), beside every tab's
+                             Screen Name control; each copy drives its own
+                             tab's value (data-name-view) on the selected
+                             group(s), and hides with no group selected. -->
+                        <div id="name-display-row-pixel-map" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="pixel-map" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -455,49 +464,49 @@
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="pixel-map" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
                             </div>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Layer Size (px), Show the total pixel dimensions of the screen layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Size (px), Show the total pixel dimensions of the screen.">
                             <input type="checkbox" id="show-label-size-px">
-                            <label for="show-label-size-px">Layer Size (px)</label>
+                            <label for="show-label-size-px">Screen Size (px)</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Layer Size (m), Show the physical size of the screen in meters, based on panel dimensions.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Size (m), Show the physical size of the screen in meters, based on panel dimensions.">
                             <input type="checkbox" id="show-label-size-m">
-                            <label for="show-label-size-m">Layer Size (m)</label>
+                            <label for="show-label-size-m">Screen Size (m)</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Layer Size (ft), Show the physical size in feet and inches. Enable Fractions to show fractional inches.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Size (ft), Show the physical size in feet and inches. Enable Fractions to show fractional inches.">
                             <input type="checkbox" id="show-label-size-ft">
-                            <label for="show-label-size-ft">Layer Size (ft)</label>
+                            <label for="show-label-size-ft">Screen Size (ft)</label>
                             <label style="margin-left: 10px; font-size: 11px; color: #888;">
                                 <input type="checkbox" id="use-fractional-inches">
                                 Fractions
                             </label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Panel Weight, Show the total weight of all panels in the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Panel Weight, Show the total weight of all panels in the screen.">
                             <input type="checkbox" id="show-label-weight">
                             <label for="show-label-weight">Panel Weight</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Info, Show a custom info label on each layer. Adjust the font size with the number field.">
+                        <div class="info-row checkbox-row" data-tooltip="Info, Show a custom info label on each screen. Adjust the font size with the number field.">
                             <input type="checkbox" id="show-label-info">
                             <label for="show-label-info">Info</label>
                             <input type="number" id="info-label-size" min="8" max="200" value="14" autocomplete="off" style="margin-left: auto; width: 64px;">
                         </div>
                         <div style="margin-top: 10px; margin-bottom: 6px; color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;">Offset Labels</div>
-                        <div class="info-row checkbox-row" data-tooltip="Top Left, Show the pixel offset label at the top-left corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Top Left, Show the pixel offset label at the top-left corner of the screen.">
                             <input type="checkbox" id="show-offset-tl">
                             <label for="show-offset-tl">Top Left</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Top Right, Show the pixel offset label at the top-right corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Top Right, Show the pixel offset label at the top-right corner of the screen.">
                             <input type="checkbox" id="show-offset-tr">
                             <label for="show-offset-tr">Top Right</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Bottom Left, Show the pixel offset label at the bottom-left corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Bottom Left, Show the pixel offset label at the bottom-left corner of the screen.">
                             <input type="checkbox" id="show-offset-bl">
                             <label for="show-offset-bl">Bottom Left</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Bottom Right, Show the pixel offset label at the bottom-right corner of the layer.">
+                        <div class="info-row checkbox-row" data-tooltip="Bottom Right, Show the pixel offset label at the bottom-right corner of the screen.">
                             <input type="checkbox" id="show-offset-br">
                             <label for="show-offset-br">Bottom Right</label>
                         </div>
-                        <div class="info-row" data-tooltip="Labels Color, Set the text color for all labels on this layer.">
+                        <div class="info-row" data-tooltip="Labels Color, Set the text color for all labels on this screen.">
                             <label>Labels Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
                                 <input type="color" id="labels-color" value="#ffffff">
@@ -537,12 +546,12 @@
                         <h2>Cabinet ID Settings</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in Cabinet ID view.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen name on the canvas in Cabinet ID view.">
                             <input type="checkbox" id="show-label-name-cabinet" checked>
                             <label for="show-label-name-cabinet">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
+                        <div id="name-display-row-cabinet-id" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="cabinet-id" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -630,11 +639,11 @@
 
                 <div class="panel tab-panel image-only" data-tab="cabinet-id" style="display: none;">
                     <div class="panel-header">
-                        <h2>Image Layer</h2>
+                        <h2>Image</h2>
                     </div>
                     <div class="panel-content">
                         <div style="color:#aaa; font-size: 12px;">
-                            Image layers do not use Cabinet ID settings.
+                            Images do not use Cabinet ID settings.
                         </div>
                     </div>
                 </div>
@@ -656,7 +665,7 @@
                             <label>Show Offset Y</label>
                             <input type="text" id="show-offset-y" value="0">
                         </div>
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name.">
+                        <div id="name-display-row-show-look" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="show-look" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -668,7 +677,7 @@
                             <button id="show-look-reset" class="btn" style="width:100%;" data-tooltip="Reset this screen's Show Look position to match its Pixel Map position. Also re-links its canvas's Show Look raster to its Pixel Map raster.">Reset to Pixel Map Position</button>
                         </div>
                         <div style="margin-top: 6px;">
-                            <button id="show-look-reset-all" class="btn" style="width:100%;" data-tooltip="Reset the ENTIRE Show Look across every canvas: all layer positions, show-canvas overrides, and show-raster sizes snap back to mirror Pixel Map. Undoable.">Reset Entire Show Look</button>
+                            <button id="show-look-reset-all" class="btn" style="width:100%;" data-tooltip="Reset the ENTIRE Show Look across every canvas: all screen positions, show-canvas overrides, and show-raster sizes snap back to mirror Pixel Map. Undoable.">Reset Entire Show Look</button>
                         </div>
                     </div>
                 </div>
@@ -688,12 +697,12 @@
                             </div>
                         </div>
 
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in Data Flow view.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen name on the canvas in Data Flow view.">
                             <input type="checkbox" id="show-label-name-data" checked>
                             <label for="show-label-name-data">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name. The binder's Data sheets follow it: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
+                        <div id="name-display-row-data-flow" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name. The binder's Data sheets follow each group's choice: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="data-flow" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -717,7 +726,7 @@
                             <input type="checkbox" id="show-data-flow-port-load">
                             <label for="show-data-flow-port-load">Show Port Load %</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Show Cable Tags, Print each port's home run beside its label - the snake it rides (SNAKE A) or its own cable (50' CAT). Off by default; turn on for the per-screen docs." data-cable-unit-tip="Show Cable Tags, Print each port's home run beside its label - the snake it rides (SNAKE A) or its own cable ({len:50:15} CAT). Off by default; turn on for the per-screen docs.">
+                        <div class="info-row checkbox-row" data-tooltip="Show Cable Tags, Print each port's home run beside its label: the snake it rides (SNAKE A) or its own cable (50' Cat6). Off by default; turn on for the per-screen docs." data-cable-unit-tip="Show Cable Tags, Print each port's home run beside its label: the snake it rides (SNAKE A) or its own cable ({len:50:15} Cat6). Off by default; turn on for the per-screen docs.">
                             <input type="checkbox" id="show-data-cable-tags">
                             <label for="show-data-cable-tags">Show Cable Tags</label>
                         </div>
@@ -726,14 +735,14 @@
                             <div style="display: grid; grid-template-columns: max-content 44px max-content; gap: 4px 6px; align-items: center; font-size: 11px;">
                                 <span>Vertical</span><input type="text" inputmode="decimal" id="data-jump-v" placeholder="none" autocomplete="off" aria-label="Data jumper vertical length (ft)" data-cable-unit-aria="Data jumper vertical length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
                                 <span>Horizontal</span><input type="text" inputmode="decimal" id="data-jump-h" placeholder="none" autocomplete="off" aria-label="Data jumper horizontal length (ft)" data-cable-unit-aria="Data jumper horizontal length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
-                                <span>Unit</span><select id="data-jump-unit" class="cable-unit-select" aria-label="Cable length unit of this show" data-tooltip="Unit, The unit this show's cable lengths are typed and printed in: one setting for the whole show, the same as the Export dialog's Cable lengths. Changing it keeps every typed number: 25 ft becomes 25 m." style="grid-column: 2 / span 2; justify-self: start; width: 58px; padding: 3px 6px; font-size: 11px; box-sizing: border-box;"><option value="ft">ft</option><option value="m">m</option></select>
+                                <span>Unit</span><select id="data-jump-unit" class="cable-unit-select" aria-label="Cable length unit of this show" data-tooltip="Unit, The unit this show's cable lengths are typed and printed in: one setting for the whole show, the same as the Export dialog's Cable lengths. Changing it keeps every typed number: 25 ft becomes 25 m." style="grid-column: 2 / span 2; justify-self: start; width: 44px; padding: 3px 6px; font-size: 11px; box-sizing: border-box;"><option value="ft">ft</option><option value="m">m</option></select>
                             </div>
                         </div>
 
                         <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Click & drag the screen name to reposition</p>
-                        
+
                         <!-- Port Capacity Settings -->
-                        <div style="margin-top: 15px; padding: 12px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
+                        <div style="margin-top: 15px; padding: 12px 6px; background: #1a1a1a; border-radius: 6px; border: 1px solid #333;">
                             <label style="font-weight: 600; margin-bottom: 10px; display: block; color: #4A90E2;">Port Capacity</label>
                             
                             <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Processing, Select the video processor model to calculate port pixel capacity.">
@@ -750,7 +759,7 @@
                             
                             <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Bit Depth, Color depth used by the processor; higher values reduce pixels per port.">
                                 <label>Bit Depth</label>
-                                <select id="bit-depth" class="info-select" style="width: 100%;">
+                                <select id="bit-depth" class="info-select" style="width: 72px;">
                                     <option value="8">8-bit</option>
                                     <option value="10">10-bit</option>
                                     <option value="12">12-bit</option>
@@ -759,7 +768,7 @@
                             
                             <div class="info-row" style="margin-bottom: 8px;" data-tooltip="Frame Rate, Output refresh rate in Hz; higher rates reduce pixels per port.">
                                 <label>Frame Rate</label>
-                                <select id="frame-rate" class="info-select" style="width: 100%;">
+                                <select id="frame-rate" class="info-select" style="width: 96px;">
                                     <option value="23.976">23.976 Hz</option>
                                     <option value="24">24 Hz</option>
                                     <option value="25">25 Hz</option>
@@ -789,13 +798,34 @@
                                          .mapping-mode-btn.active in theme.css); no inline background/color. -->
                                     <button type="button" id="mapping-organized" class="mapping-mode-btn active"
                                         style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
-                                        title="Ports fill complete rows or columns only - clean rectangular port regions">
+                                        title="Ports fill complete rows or columns: clean rectangular port regions. A row or column too long for one port is cut into ports of whole cabinets">
                                         Organized
                                     </button>
                                     <button type="button" id="mapping-max-capacity" class="mapping-mode-btn"
                                         style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
-                                        title="Ports fill to maximum pixel capacity - may split mid-row/column">
+                                        title="Ports fill to maximum pixel capacity, and may split mid-row/column">
                                         Max Capacity
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Port numbers (layer.portNumberOrder): how the
+                                 ports Organized cuts from a row (or column)
+                                 too long for one port are numbered. Shown
+                                 only while that happens on this screen
+                                 (updatePortNumberOrderControl). -->
+                            <div class="info-row" id="port-number-order-row" style="margin-bottom: 8px; display: none;" data-tooltip="Port numbers, Across numbers the ports along each row first; Down numbers them down the stacks, then starts the next stack back at the first row.">
+                                <label>Port numbers</label>
+                                <div style="display: flex; gap: 4px; width: 100%;">
+                                    <button type="button" id="port-number-across" class="mapping-mode-btn active"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
+                                        title="Number the ports along each row first, then the next row">
+                                        Across
+                                    </button>
+                                    <button type="button" id="port-number-down" class="mapping-mode-btn"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
+                                        title="Number the ports down the stacks, then start the next stack back at the first row">
+                                        Down
                                     </button>
                                 </div>
                             </div>
@@ -871,11 +901,15 @@
                             <p id="low-latency-derate-note" style="display: none; font-size: 11px; color: #ff9955; margin: 6px 0 0 0;"></p>
                         </div>
                         
-                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Flow Pattern, Choose the serpentine direction data cables follow through the cabinets.">
+                        <div class="info-row" style="margin-top: 15px;" data-tooltip="Flow Pattern, Choose the path data cables follow through the cabinets. Top row: snakes, every row or column runs back the other way. Bottom row: Z patterns, every row or column starts again from the same side.">
                             <label style="font-weight: 600; margin-bottom: 12px; display: block;">Flow Pattern</label>
-                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
-                                <!-- Row 1: Top start patterns -->
-                                <!-- 1. Top-left start, horizontal-first serpentine (Z-shape) -->
+                            <div style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px;" class="flow-pattern-grid-16">
+                                <!-- Two rows of 8 (the owner, 2026-11-01): each row is the four
+                                     horizontal-first corners TL, TR, BL, BR, then the four
+                                     vertical-first ones. Top row: the snakes, where every row or
+                                     column runs back the other way. Bottom row: their Z twins
+                                     (code + "-z"), where every row or column starts again from
+                                     the same side. helpers.js FLOW_AUTO_PATTERNS is this order. -->
                                 <button type="button" class="flow-pattern-btn active" data-pattern="tl-h" title="Top-left, horizontal first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="4" cy="4" r="3" fill="#00cc00"/>
@@ -883,17 +917,6 @@
                                         <polygon points="28,28 22,24 22,32" fill="#cc0000"/>
                                     </svg>
                                 </button>
-                                
-                                <!-- 2. Top-left start, vertical-first serpentine -->
-                                <button type="button" class="flow-pattern-btn" data-pattern="tl-v" title="Top-left, vertical first">
-                                    <svg width="32" height="32" viewBox="0 0 32 32">
-                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
-                                        <path d="M 4 4 L 4 28 L 16 28 L 16 4 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
-                                    </svg>
-                                </button>
-                                
-                                <!-- 3. Top-right start, horizontal-first serpentine (reversed Z) -->
                                 <button type="button" class="flow-pattern-btn" data-pattern="tr-h" title="Top-right, horizontal first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="28" cy="4" r="3" fill="#00cc00"/>
@@ -901,18 +924,6 @@
                                         <polygon points="4,28 10,24 10,32" fill="#cc0000"/>
                                     </svg>
                                 </button>
-                                
-                                <!-- 4. Top-right start, vertical-first serpentine -->
-                                <button type="button" class="flow-pattern-btn" data-pattern="tr-v" title="Top-right, vertical first">
-                                    <svg width="32" height="32" viewBox="0 0 32 32">
-                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
-                                        <path d="M 28 4 L 28 28 L 16 28 L 16 4 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
-                                    </svg>
-                                </button>
-                                
-                                <!-- Row 2: Bottom start patterns -->
-                                <!-- 5. Bottom-left start, horizontal-first serpentine -->
                                 <button type="button" class="flow-pattern-btn" data-pattern="bl-h" title="Bottom-left, horizontal first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="4" cy="28" r="3" fill="#00cc00"/>
@@ -920,17 +931,6 @@
                                         <polygon points="28,4 22,0 22,8" fill="#cc0000"/>
                                     </svg>
                                 </button>
-                                
-                                <!-- 6. Bottom-left start, vertical-first serpentine -->
-                                <button type="button" class="flow-pattern-btn" data-pattern="bl-v" title="Bottom-left, vertical first">
-                                    <svg width="32" height="32" viewBox="0 0 32 32">
-                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
-                                        <path d="M 4 28 L 4 4 L 16 4 L 16 28 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
-                                    </svg>
-                                </button>
-                                
-                                <!-- 7. Bottom-right start, horizontal-first serpentine -->
                                 <button type="button" class="flow-pattern-btn" data-pattern="br-h" title="Bottom-right, horizontal first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="28" cy="28" r="3" fill="#00cc00"/>
@@ -938,12 +938,87 @@
                                         <polygon points="4,4 10,0 10,8" fill="#cc0000"/>
                                     </svg>
                                 </button>
-                                
-                                <!-- 8. Bottom-right start, vertical-first serpentine -->
+                                <button type="button" class="flow-pattern-btn" data-pattern="tl-v" title="Top-left, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 4 28 L 16 28 L 16 4 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="tr-v" title="Top-right, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 28 28 L 16 28 L 16 4 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="bl-v" title="Bottom-left, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 4 4 L 16 4 L 16 28 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
                                 <button type="button" class="flow-pattern-btn" data-pattern="br-v" title="Bottom-right, vertical first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="28" cy="28" r="3" fill="#00cc00"/>
                                         <path d="M 28 28 L 28 4 L 16 4 L 16 28 L 4 28 L 4 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,4 0,10 8,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="tl-h-z" title="Top-left, horizontal first, every row starts at the left">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 28 4 L 4 16 L 28 16 L 4 28 L 22 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 22,24 22,32" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="tr-h-z" title="Top-right, horizontal first, every row starts at the right">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 4 4 L 28 16 L 4 16 L 28 28 L 10 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 10,24 10,32" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="bl-h-z" title="Bottom-left, horizontal first, every row starts at the left">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 28 28 L 4 16 L 28 16 L 4 4 L 22 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 22,0 22,8" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="br-h-z" title="Bottom-right, horizontal first, every row starts at the right">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 28 28 L 4 28 L 28 16 L 4 16 L 28 4 L 10 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,4 10,0 10,8" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="tl-v-z" title="Top-left, vertical first, every column starts at the top">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 4 28 L 16 4 L 16 28 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="tr-v-z" title="Top-right, vertical first, every column starts at the top">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 28 28 L 16 4 L 16 28 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="bl-v-z" title="Bottom-left, vertical first, every column starts at the bottom">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 4 4 L 16 28 L 16 4 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn" data-pattern="br-v-z" title="Bottom-right, vertical first, every column starts at the bottom">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 28 28 L 28 4 L 16 28 L 16 4 L 4 28 L 4 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
                                         <polygon points="4,4 0,10 8,10" fill="#cc0000"/>
                                     </svg>
                                 </button>
@@ -1104,11 +1179,11 @@
 
                 <div class="panel tab-panel image-only" data-tab="data-flow" style="display: none;">
                     <div class="panel-header">
-                        <h2>Image Layer</h2>
+                        <h2>Image</h2>
                     </div>
                     <div class="panel-content">
                         <div style="color:#aaa; font-size: 12px;">
-                            Image layers do not use Data settings.
+                            Images do not use Data settings.
                         </div>
                     </div>
                 </div>
@@ -1177,12 +1252,12 @@
                             </div>
                         </div>
 
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in Power view.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen name on the canvas in Power view.">
                             <input type="checkbox" id="show-label-name-power" checked>
                             <label for="show-label-name-power">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus every layer's. Each tab keeps its own choice. Ungrouped screens always keep their own name. The binder's Power sheets follow it: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
+                        <div id="name-display-row-power" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name. The binder's Power sheets follow each group's choice: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="power" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -1203,7 +1278,7 @@
                             <input type="checkbox" id="show-power-nfer-tags" checked>
                             <label for="show-power-nfer-tags">Show 2fer / 3fer Tags</label>
                         </div>
-                        <div class="info-row checkbox-row" data-tooltip="Show Cable Tags, Print each circuit's cable (10' True1) beside its label. Off by default; turn on for the per-screen docs." data-cable-unit-tip="Show Cable Tags, Print each circuit's cable ({len:10:3} True1) beside its label. Off by default; turn on for the per-screen docs.">
+                        <div class="info-row checkbox-row" data-tooltip="Show Cable Tags, Print each circuit's cable (10' TRUE1) beside its label. Off by default; turn on for the per-screen docs." data-cable-unit-tip="Show Cable Tags, Print each circuit's cable ({len:10:3} TRUE1) beside its label. Off by default; turn on for the per-screen docs.">
                             <input type="checkbox" id="show-power-cable-tags">
                             <label for="show-power-cable-tags">Show Cable Tags</label>
                         </div>
@@ -1212,7 +1287,7 @@
                             <div style="display: grid; grid-template-columns: max-content 44px max-content; gap: 4px 6px; align-items: center; font-size: 11px;">
                                 <span>Vertical</span><input type="text" inputmode="decimal" id="power-jump-v" placeholder="none" autocomplete="off" aria-label="Power jumper vertical length (ft)" data-cable-unit-aria="Power jumper vertical length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
                                 <span>Horizontal</span><input type="text" inputmode="decimal" id="power-jump-h" placeholder="none" autocomplete="off" aria-label="Power jumper horizontal length (ft)" data-cable-unit-aria="Power jumper horizontal length ({unit})" style="width: 44px; text-align: right; box-sizing: border-box;"><span data-cable-unit>ft</span>
-                                <span>Unit</span><select id="power-jump-unit" class="cable-unit-select" aria-label="Cable length unit of this show" data-tooltip="Unit, The unit this show's cable lengths are typed and printed in: one setting for the whole show, the same as the Export dialog's Cable lengths. Changing it keeps every typed number: 25 ft becomes 25 m." style="grid-column: 2 / span 2; justify-self: start; width: 58px; padding: 3px 6px; font-size: 11px; box-sizing: border-box;"><option value="ft">ft</option><option value="m">m</option></select>
+                                <span>Unit</span><select id="power-jump-unit" class="cable-unit-select" aria-label="Cable length unit of this show" data-tooltip="Unit, The unit this show's cable lengths are typed and printed in: one setting for the whole show, the same as the Export dialog's Cable lengths. Changing it keeps every typed number: 25 ft becomes 25 m." style="grid-column: 2 / span 2; justify-self: start; width: 44px; padding: 3px 6px; font-size: 11px; box-sizing: border-box;"><option value="ft">ft</option><option value="m">m</option></select>
                             </div>
                         </div>
                         
@@ -1221,7 +1296,7 @@
                         <div class="info-row" data-tooltip="Voltage, Supply voltage for circuit capacity calculations.">
                             <label>Voltage (V)</label>
                             <div style="display: flex; gap: 6px; align-items: center;">
-                                <select id="power-voltage-select" class="info-select" style="width: auto;">
+                                <select id="power-voltage-select" class="info-select" style="width: 76px;">
                                     <option value="110">110V</option>
                                     <option value="208">208V</option>
                                     <option value="220">220V</option>
@@ -1229,23 +1304,25 @@
                                     <option value="240">240V</option>
                                     <option value="custom">Custom</option>
                                 </select>
-                                <input type="number" id="power-voltage-custom" min="1" max="1000" step="1" autocomplete="off" placeholder="V" style="width: 70px; display: none;">
+                                <input type="number" id="power-voltage-custom" min="1" max="1000" step="1" autocomplete="off" placeholder="V" style="width: 52px; display: none;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Amperage, Circuit breaker rating used to calculate how many panels fit per circuit.">
+                        <div class="info-row" data-tooltip="Amperage, the size of the breaker each circuit is on (type the breaker, not the usable amps). A US circuit carries a continuous load to 80% of it, so a 20 A breaker gives 16 A usable. UK/EU circuits, and US distros with 100% rated breakers, use the whole breaker. The usable amps show beside it.">
                             <label>Amperage (A)</label>
-                            <div style="display: flex; gap: 6px; align-items: center;">
-                                <select id="power-amperage-select" class="info-select" style="width: auto;">
+                            <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+                                <select id="power-amperage-select" class="info-select" style="width: 76px;">
                                     <option value="15">15A</option>
+                                    <option value="16">16A</option>
                                     <option value="20">20A</option>
                                     <option value="custom">Custom</option>
                                 </select>
-                                <input type="number" id="power-amperage-custom" value="15" min="0" step="0.1" autocomplete="off" style="width: 70px; display: none;">
+                                <input type="number" id="power-amperage-custom" value="15" min="0" step="0.1" autocomplete="off" style="width: 52px; display: none;">
+                                <span id="power-amperage-usable" style="flex: 1 0 100%; font-size: 11px; color: var(--ps-dim, #c0c0c0); white-space: nowrap;"></span>
                             </div>
                         </div>
                         <div class="info-row" data-tooltip="Watts per Panel, Power draw of a single LED cabinet at full white, used to calculate circuits required. Math OK (e.g., 200+50, 500*2, 1000/3).">
                             <label>Watts per Panel</label>
-                            <input type="text" inputmode="decimal" id="power-panel-watts" value="200" autocomplete="off" style="width: 100px;" placeholder="e.g., 200 or 200+50">
+                            <input type="text" inputmode="decimal" id="power-panel-watts" value="200" autocomplete="off" style="width: 64px;" placeholder="e.g., 200 or 200+50">
                         </div>
 
                         <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc; margin-bottom: 12px;">
@@ -1268,11 +1345,15 @@
                              in refreshSplitterPanel. -->
                         <div class="lrd-side-block" style="margin-bottom: 12px;">
                             <label class="lrd-side-block-h">Multis &amp; Splitters</label>
-                            <div class="info-row" style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px;" data-tooltip="Breakout, How the multi terminates: True1 or powerCON breakouts feed panels directly (the 6-channel default), Edison is the 110V option, L6-20 adds L6-20-to-panel cables per circuit. Drives the gear checklist.">
+                            <div class="info-row" style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px;" data-tooltip="Breakout, How the multi terminates: TRUE1 or powerCON breakouts feed panels directly (the 6-channel default), Edison is the 110V option, L6-20 adds L6-20-to-panel cables per circuit. Drives the gear checklist.">
                                 <label style="font-weight: 400;">Breakout</label>
-                                <select id="power-breakout-type" data-lrd-field="power-breakout-type" class="info-select" style="flex: 1 1 100px; min-width: 0; max-width: 150px;"></select>
+                                <select id="power-breakout-type" data-lrd-field="power-breakout-type" class="info-select" style="flex: 1 1 100%; min-width: 0;"></select>
                             </div>
-                            <div class="info-row checkbox-row" data-tooltip="Circuit sharing, Put consecutive row/column runs onto one shared circuit through a 2fer or 3fer, up to the splitter size and the circuit capacity. Only adjacent runs share - a run is never skipped to pair two non-neighbours. Share one circuit, or remove its 2fer or 3fer, by right-clicking it on the map or its chip in the Hardware tray. A share past the circuit's amps is refused in automatic mode; custom mode allows it and flags it OVER.">
+                            <div class="info-row" id="power-panel-input-row" style="display: none; flex-wrap: wrap; align-items: center; gap: 5px;" data-tooltip="Panel input, The connector the panels take power in on: TRUE1 or powerCON. An Edison or L6-20 breakout needs one cable to it per circuit (Edison → TRUE1, say), and the jumpers and splitters are this connector.">
+                                <label style="font-weight: 400;">Panel input</label>
+                                <select id="power-panel-input" data-lrd-field="power-panel-input" class="info-select" style="flex: 1 1 100%; min-width: 0;"></select>
+                            </div>
+                            <div class="info-row checkbox-row" data-tooltip="Circuit sharing, Put consecutive row/column runs onto one shared circuit through a 2fer or 3fer, up to the splitter size and the circuit capacity. Only adjacent runs share: a run is never skipped to pair two runs that aren't neighbors. Share one circuit, or remove its 2fer or 3fer, by right-clicking it on the map or its chip in the Hardware tray. A share past the circuit's amps is refused in automatic mode; custom mode allows it and flags it OVER.">
                                 <input type="checkbox" id="power-splitters-enabled" data-lrd-field="power-splitters-enabled">
                                 <label for="power-splitters-enabled">Share circuits via splitters</label>
                             </div>
@@ -1315,24 +1396,29 @@
                                 <button id="power-label-apply-selected" class="btn" style="flex: 1; padding: 5px 10px;">Apply</button>
                                 <button id="power-label-clear-selected" class="btn" style="flex: 1; padding: 5px 10px; background: #333;">Clear</button>
                             </div>
-                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Left blank, a circuit is named by its multi — which is named by its distro, or by this template.</p>
+                            <p style="font-size: 11px; color: #888; margin: 6px 0 0;">Left blank, a circuit is named by its multi, which is named by its distro or by this template.</p>
                         </div>
 
                         <div style="margin-bottom: 12px;">
                             <label style="font-weight: 600; margin-bottom: 8px; display: block;">Flow Pattern</label>
-                            <div class="flow-pattern-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+                            <style>
+                            /* the power picker's two rows of 8 fit the sidebar: the tiles shrink and
+                               their icons scale with them */
+                            #power-flow-pattern-grid .flow-pattern-btn { min-width: 0; padding: 2px; min-height: 36px; }
+                            #power-flow-pattern-grid .flow-pattern-btn svg { width: 100%; max-width: 32px; height: auto; }
+                            </style>
+                            <div id="power-flow-pattern-grid" class="flow-pattern-grid" style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px;">
+                                <!-- Two rows of 8 (the owner, 2026-11-01): each row is the four
+                                     horizontal-first corners TL, TR, BL, BR, then the four
+                                     vertical-first ones. Top row: the snakes, where every row or
+                                     column runs back the other way. Bottom row: their Z twins
+                                     (code + "-z", isZFlowPattern), where every row or column
+                                     starts again from the same side. -->
                                 <button type="button" class="flow-pattern-btn power-flow-pattern-btn active" data-pattern="tl-h" title="Top-left, horizontal first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="4" cy="4" r="3" fill="#00cc00"/>
                                         <path d="M 4 4 L 28 4 L 28 16 L 4 16 L 4 28 L 22 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
                                         <polygon points="28,28 22,24 22,32" fill="#cc0000"/>
-                                    </svg>
-                                </button>
-                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tl-v" title="Top-left, vertical first">
-                                    <svg width="32" height="32" viewBox="0 0 32 32">
-                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
-                                        <path d="M 4 4 L 4 28 L 16 28 L 16 4 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
                                     </svg>
                                 </button>
                                 <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tr-h" title="Top-right, horizontal first">
@@ -1342,25 +1428,11 @@
                                         <polygon points="4,28 10,24 10,32" fill="#cc0000"/>
                                     </svg>
                                 </button>
-                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tr-v" title="Top-right, vertical first">
-                                    <svg width="32" height="32" viewBox="0 0 32 32">
-                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
-                                        <path d="M 28 4 L 28 28 L 16 28 L 16 4 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
-                                    </svg>
-                                </button>
                                 <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="bl-h" title="Bottom-left, horizontal first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="4" cy="28" r="3" fill="#00cc00"/>
                                         <path d="M 4 28 L 28 28 L 28 16 L 4 16 L 4 4 L 22 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
                                         <polygon points="28,4 22,0 22,8" fill="#cc0000"/>
-                                    </svg>
-                                </button>
-                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="bl-v" title="Bottom-left, vertical first">
-                                    <svg width="32" height="32" viewBox="0 0 32 32">
-                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
-                                        <path d="M 4 28 L 4 4 L 16 4 L 16 28 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
                                     </svg>
                                 </button>
                                 <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="br-h" title="Bottom-right, horizontal first">
@@ -1370,10 +1442,87 @@
                                         <polygon points="4,4 10,0 10,8" fill="#cc0000"/>
                                     </svg>
                                 </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tl-v" title="Top-left, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 4 28 L 16 28 L 16 4 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tr-v" title="Top-right, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 28 28 L 16 28 L 16 4 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="bl-v" title="Bottom-left, vertical first">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 4 4 L 16 4 L 16 28 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
                                 <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="br-v" title="Bottom-right, vertical first">
                                     <svg width="32" height="32" viewBox="0 0 32 32">
                                         <circle cx="28" cy="28" r="3" fill="#00cc00"/>
                                         <path d="M 28 28 L 28 4 L 16 4 L 16 28 L 4 28 L 4 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,4 0,10 8,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tl-h-z" title="Top-left, horizontal first, every row starts at the left">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 28 4 L 4 16 L 28 16 L 4 28 L 22 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 22,24 22,32" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tr-h-z" title="Top-right, horizontal first, every row starts at the right">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 4 4 L 28 16 L 4 16 L 28 28 L 10 28" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 10,24 10,32" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="bl-h-z" title="Bottom-left, horizontal first, every row starts at the left">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 28 28 L 4 16 L 28 16 L 4 4 L 22 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 22,0 22,8" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="br-h-z" title="Bottom-right, horizontal first, every row starts at the right">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 28 28 L 4 28 L 28 16 L 4 16 L 28 4 L 10 4" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,4 10,0 10,8" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tl-v-z" title="Top-left, vertical first, every column starts at the top">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 4 4 L 4 28 L 16 4 L 16 28 L 28 4 L 28 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,28 24,22 32,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="tr-v-z" title="Top-right, vertical first, every column starts at the top">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="4" r="3" fill="#00cc00"/>
+                                        <path d="M 28 4 L 28 28 L 16 4 L 16 28 L 4 4 L 4 22" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="4,28 0,22 8,22" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="bl-v-z" title="Bottom-left, vertical first, every column starts at the bottom">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="4" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 4 28 L 4 4 L 16 28 L 16 4 L 28 28 L 28 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <polygon points="28,4 24,10 32,10" fill="#cc0000"/>
+                                    </svg>
+                                </button>
+                                <button type="button" class="flow-pattern-btn power-flow-pattern-btn" data-pattern="br-v-z" title="Bottom-right, vertical first, every column starts at the bottom">
+                                    <svg width="32" height="32" viewBox="0 0 32 32">
+                                        <circle cx="28" cy="28" r="3" fill="#00cc00"/>
+                                        <path d="M 28 28 L 28 4 L 16 28 L 16 4 L 4 28 L 4 10" stroke="#888" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
                                         <polygon points="4,4 0,10 8,10" fill="#cc0000"/>
                                     </svg>
                                 </button>
@@ -1419,9 +1568,28 @@
                                 <input type="checkbox" id="power-maximize">
                                 <label for="power-maximize">Maximize Power Use</label>
                             </div>
-                            <div class="info-row checkbox-row" data-tooltip="Organized, Assign circuits in clean rows or columns instead of splitting mid-row.">
+                            <div class="info-row checkbox-row" data-tooltip="Organized, Assign circuits in clean rows or columns. A row too big for one circuit is split into several circuits along the row, never onto the next row.">
                                 <input type="checkbox" id="power-organized" checked>
                                 <label for="power-organized">Organized</label>
+                            </div>
+                            <!-- Circuit numbers (powerNumberOrder): shown only where
+                                 Organized splits a row (or a column) into several
+                                 circuits - the one case the numbers have a choice
+                                 (syncPowerNumberOrder). Highlight from .active only. -->
+                            <div class="info-row" id="power-number-order-row" style="display: none; margin-bottom: 8px;" data-tooltip="Circuit numbers, Across numbers the circuits along each row first; Down numbers them down the stacks, then starts the next stack back at the first row. Until you pick one it follows the flow pattern: Across when horizontal first, Down when vertical first.">
+                                <label>Circuit numbers</label>
+                                <div style="display: flex; gap: 4px; width: 100%;">
+                                    <button type="button" id="power-number-across" class="mapping-mode-btn" data-order="across"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
+                                        title="Number the circuits along each row first, then the next row">
+                                        Across
+                                    </button>
+                                    <button type="button" id="power-number-down" class="mapping-mode-btn" data-order="down"
+                                        style="flex: 1; padding: 5px 8px; font-size: 11px; border: 1px solid #555; border-radius: 4px; cursor: pointer; transition: all 0.15s;"
+                                        title="Number the circuits down the stacks, then start the next stack back at the first row">
+                                        Down
+                                    </button>
+                                </div>
                             </div>
                             <div style="margin-top: 12px;">
                                 <label style="font-weight: 600; margin-bottom: 8px; display: block;">Custom Power Path</label>
@@ -1515,11 +1683,11 @@
 
                 <div class="panel tab-panel image-only" data-tab="power" style="display: none;">
                     <div class="panel-header">
-                        <h2>Image Layer</h2>
+                        <h2>Image</h2>
                     </div>
                     <div class="panel-content">
                         <div style="color:#aaa; font-size: 12px;">
-                            Image layers do not use Power settings.
+                            Images do not use Power settings.
                         </div>
                     </div>
                 </div>
@@ -1785,7 +1953,7 @@
                                 <input type="checkbox" id="text-layer-show-date"> Date
                             </label>
                             <label style="text-transform:uppercase; font-size:10px; color:#666; margin:8px 0 4px; display:block;">Data &amp; Power Scope</label>
-                            <select id="text-layer-dynamic-info-scope" style="width:100%; padding:4px 6px; background:#1a1a1a; border:1px solid #444; color:#ddd; border-radius:3px; font-size:12px; margin-bottom:6px;" data-tooltip="Choose which totals to inject into the text layer. 'This Canvas' uses the text layer's parent canvas; 'Both' renders both lines (e.g. 'Primary Ports (SR): 4' and 'Primary Ports (Total): 12').">
+                            <select id="text-layer-dynamic-info-scope" style="width:100%; padding:4px 6px; background:#1a1a1a; border:1px solid #444; color:#ddd; border-radius:3px; font-size:12px; margin-bottom:6px;" data-tooltip="Choose which totals to inject into the text label. 'This Canvas' uses the text label's parent canvas; 'Both' renders both lines (e.g. 'Primary Ports (SR): 4' and 'Primary Ports (Total): 12').">
                                 <option value="canvas">This Canvas Only</option>
                                 <option value="project" selected>All Canvases (Project Total)</option>
                                 <option value="both">Both, This Canvas + Project Total</option>
@@ -1852,14 +2020,14 @@
                     <input type="text" id="zoom-level" value="100%" style="width: 60px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; padding: 2px 4px;" data-tooltip="Zoom Level, Current zoom percentage. Type a value or use +/- buttons. Scroll wheel to zoom on canvas.">
                     <button id="btn-zoom-in" data-tooltip="Zoom in">+</button>
                     <button id="btn-fit" data-tooltip="Fit raster to view (Ctrl/Cmd+Shift+1)">Fit</button>
-                    <button id="btn-zoom-actual" data-tooltip="Zoom to Selection, Zoom to fit the selected screen layer at actual size (Ctrl/Cmd+Shift+2)">1:1</button>
+                    <button id="btn-zoom-actual" data-tooltip="Zoom to Selection, Zoom to fit the selected screen at actual size (Ctrl/Cmd+Shift+2)">1:1</button>
                     <!-- The custom-run readout: the active port (Data) or
                          circuit (Power) while a custom flow is being drawn,
                          its count against the cap, and any pending marquee
                          count. canvas.js _drawActiveBadge is its only writer;
                          it hides on any frame that draws no custom run. -->
                     <span id="custom-run-readout" hidden data-tooltip="Active run, The port or circuit you are drawing, how many cabinets it holds against its capacity, and how many cabinets a pending selection would add."><span class="cr-label"></span><span class="cr-pill"></span><span class="cr-selected" hidden></span></span>
-                    <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap layers to grid when dragging (Ctrl/Cmd+Shift+')">
+                    <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap screens to grid when dragging (Ctrl/Cmd+Shift+')">
                         <input type="checkbox" id="magnetic-snap" checked>
                         <span>🧲 Snap</span>
                     </label>
@@ -1893,7 +2061,7 @@
                         </span>
                         <span id="hw-dock-power-controls" class="hw-dock-ctl view-hidden">
                             <button id="power-distro-add" class="btn" data-lrd-field="power-distro-add" data-tooltip="Add a power distro, A project-level power source. Its multis appear in this tray to drag onto circuits, and the load rolls up on its header.">+ Add distro</button>
-                            <button id="power-service-add" class="btn" data-lrd-field="power-service-add" data-tooltip="Add a service, the house power several distros are fed from. Drag a distro's header bar onto its card to put the distro on it; the card adds up their leg loads against the service.">+ Add service</button>
+                            <button id="power-service-add" class="btn" data-lrd-field="power-service-add" data-tooltip="Add a service, the house power several distros draw from. Drag a distro's header bar onto its card to put the distro on it; the card adds up their leg loads against the service.">+ Add service</button>
                         </span>
                         <span class="hw-dock-head-sp"></span>
                         <button type="button" id="hw-dock-flag" class="view-hidden" data-lrd-field="hw-dock-flag" aria-label="Attachment flag"></button>
@@ -1921,18 +2089,18 @@
         <button id="right-sidebar-toggle" class="sidebar-toggle" data-side="right" title="Collapse right panel" aria-label="Toggle right panel">›</button>
         <div id="right-sidebar">
             <div class="panel">
-                <div class="panel-header" data-lrd-grip="screens" data-tooltip="Screens, Manage screen and image layers: reorder, lock, add, or remove layers in the design.">
+                <div class="panel-header" data-lrd-grip="screens" data-tooltip="Screens, Manage screens, images and text labels: reorder, lock, add, or remove them in the design.">
                     <h2>Screens</h2>
                 </div>
                 <div class="panel-content">
                     <div class="info-row" style="gap: 8px; margin-bottom: 8px; align-items: center;">
-                        <button id="toggle-lock-selected" class="btn btn-secondary" title="Toggle Lock Selected" data-tooltip="Lock or unlock the selected layer">🔒</button>
-                        <span style="color:#888; font-size:12px;">Lock Selected</span>
+                        <button id="toggle-lock-selected" class="btn btn-secondary" title="Toggle Lock Selected" data-tooltip="Lock or unlock the selected screen">🔒</button>
+                        <span id="toggle-lock-selected-label" style="color:#888; font-size:12px; cursor:pointer;">Lock Selected</span>
                     </div>
                     <div id="layers-list"></div>
                     <div id="beaches-panel" data-tooltip="Beaches, The positions the show is pulled to, in pull-sheet and binder order. Drag to reorder, double-click a name to rename, x to remove."></div>
                     <button id="btn-add-canvas" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a new canvas (a separate raster / processor) to this project">+ Add Canvas</button>
-                    <button id="btn-save-preset" class="btn btn-secondary full-width" style="margin-top: 6px;" data-tooltip="Save the currently selected layer's settings as a reusable preset">Save as Preset</button>
+                    <button id="btn-save-preset" class="btn btn-secondary full-width" style="margin-top: 6px;" data-tooltip="Save the currently selected screen's settings as a reusable preset">Save as Preset</button>
                 </div>
             </div>
 
@@ -2056,11 +2224,11 @@
                 <label style="display: block; margin-bottom: 6px; color: #ccc; font-size: 13px;">Export Format:</label>
                 <select id="export-format" style="width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 4px;">
                     <option value="png">PNG (Separate files per view)</option>
-                    <option value="svg">SVG (Vector - editable in Illustrator, smart object in Photoshop)</option>
-                    <option value="psd">PSD (Layered standard editors - screens as layers)</option>
+                    <option value="svg">SVG (Vector, editable in Illustrator, smart object in Photoshop)</option>
+                    <option value="psd">PSD (Layered for standard editors, screens as layers)</option>
                     <option value="pdf">PDF (All views combined)</option>
                     <option value="resolume-xml">Resolume XML (Advanced Output)</option>
-                    <option value="pull-sheet">Pull Sheet (Excel workbook - cable list by position)</option>
+                    <option value="pull-sheet">Pull Sheet (Excel workbook, gear list by position)</option>
                     <option value="binder">Binder (PDF)</option>
                     <!-- NovaStar SCR export is parked, not gone: the .scr file
                          layer lives in src/scr_project.py / scr_encoder.py /
@@ -2081,22 +2249,26 @@
                 <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">Pull Sheet:</label>
                 <div class="export-views" style="display: flex; flex-direction: column; gap: 8px;">
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
-                        <span style="flex: none; width: 92px;">Cable lengths</span>
+                        <span style="flex: none; width: 128px; white-space: nowrap;">Cable lengths</span>
                         <select id="export-pull-sheet-cable-unit" class="cable-unit-select" data-tooltip="The unit this show's cable lengths are typed and printed in. Saved with the project; new shows start in the Preferences' unit. Changing it keeps every typed number: 25 ft becomes 25 m." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                             <option value="ft">Feet</option>
                             <option value="m">Meters</option>
                         </select>
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
-                        <span style="flex: none; width: 92px;">Data jumper</span>
-                        <input type="text" id="export-pull-sheet-data-jump-name" placeholder="Data Jump" data-tooltip="The data jumper's name on the pull sheet - one row per length. Each screen sets its own lengths in the Data sidebar's Jumpers row." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <span style="flex: none; width: 128px; white-space: nowrap;">Data jumper</span>
+                        <input type="text" id="export-pull-sheet-data-jump-name" placeholder="Data Jump" data-tooltip="The data jumper's name on the pull sheet, one row per length. Each screen sets its own lengths in the Data sidebar's Jumpers row." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
-                        <span style="flex: none; width: 92px;">Power jumper</span>
-                        <input type="text" id="export-pull-sheet-power-jump-name" placeholder="Tru-1 Power Jump" data-tooltip="The power jumper's name on the pull sheet - one row per length. Each screen sets its own lengths in the Power sidebar's Jumpers row." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <span style="flex: none; width: 128px; white-space: nowrap;">TRUE1 jumper</span>
+                        <input type="text" id="export-pull-sheet-power-jump-name-true1" placeholder="TRUE1 Power Jump" data-tooltip="The TRUE1 power jumper's name on the pull sheet, one row per length. Each screen sets its own lengths in the Power sidebar's Jumpers row." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
-                        <span style="flex: none; width: 92px;">Engineer</span>
+                        <span style="flex: none; width: 128px; white-space: nowrap;">powerCON jumper</span>
+                        <input type="text" id="export-pull-sheet-power-jump-name-powercon" placeholder="powerCON Power Jump" data-tooltip="The powerCON power jumper's name on the pull sheet, one row per length. Each screen sets its own lengths in the Power sidebar's Jumpers row." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 128px; white-space: nowrap;">Engineer</span>
                         <input type="text" id="export-pull-sheet-engineer" placeholder="Name" data-tooltip="Printed in the sheet's ENGINEER cell. Remembered as a preference." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                         <span style="flex: none;">Rev</span>
                         <input type="text" id="export-pull-sheet-rev" placeholder="1.0" data-tooltip="Printed in the sheet's REV cell." style="flex: none; width: 44px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; text-align: right;">
@@ -2110,8 +2282,9 @@
             </div>
 
             <!-- Binder (format binder only): the show as a DRAWING SET - one
-                 sheet per subject on numbered sheets (1.x overview, 2.x power,
-                 3.x data, 4.x pull, 5.x hardware), every sheet with a border
+                 sheet per subject on numbered sheets (1.x overview, 2.x screens,
+                 3.x fiber, 4.x pull, 5.x hardware; 3.x pull and 4.x
+                 hardware without the fiber page), every sheet with a border
                  and a title block down its right edge (app-binder.js). Scope
                  (the whole show, or one screen - the canvas's right-click
                  presets it), the sheet size (a preference; Tabloid 17 x 11 by
@@ -2141,7 +2314,7 @@
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Screen order</span>
-                        <select id="export-binder-screen-order" data-tooltip="The order a beach's screens run in. Beaches come first, in the Beaches panel's order; this sorts the screens within one - and the CONTENTS and view numbers follow. Saved with the project." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <select id="export-binder-screen-order" data-tooltip="The order a beach's screens run in. Beaches come first, in the Beaches panel's order; this sorts the screens within one, and the CONTENTS and view numbers follow. Saved with the project." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                             <option value="alpha" selected>Alphabetical by name</option>
                             <option value="layers">Screens panel, top to bottom</option>
                             <option value="layers-up">Screens panel, bottom to top</option>
@@ -2159,7 +2332,7 @@
                     <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Palette</span>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-palette" id="export-binder-colour" value="colour" checked> Color</label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="Black and white: grey cabinets, black runs told apart by a dash pattern per circuit, white label discs."><input type="radio" name="export-binder-palette" id="export-binder-printer" value="printer"> Printer</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="Black and white: gray cabinets, black runs told apart by a dash pattern per circuit, white label discs."><input type="radio" name="export-binder-palette" id="export-binder-printer" value="printer"> Printer</label>
                     </div>
                     <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Maps</span>
@@ -2193,9 +2366,10 @@
                         <span style="flex: none; width: 92px; line-height: 20px;">Sheets</span>
                         <div style="flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 14px;">
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="Sheet 1.1: the show map with the positions, the show totals and the contents."><input type="checkbox" id="export-binder-cover" checked> Overview</label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A pull sheet per position with tick boxes (3.x), and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull sheets</label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One sheet per distro and per processor at the back (4.x)."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A wiring sheet behind each map (2.x): Power Wiring right after a screen's Power sheet, every circuit wired to its breakout; Data Wiring right after its Data sheet, every port wired to its socket. Each follows its own map - Maps on Power gives no Data Wiring sheet, and the other way round."><input type="checkbox" id="export-binder-wiring" checked> Wiring</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A pull sheet per position with tick boxes (3.x, or 4.x after a Fiber sheet), and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull sheets</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One sheet per distro and per processor at the back (4.x, or 5.x after a Fiber sheet)."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A wiring sheet behind each map (2.x): Power Wiring right after a screen's Power sheet, every circuit wired to its breakout; Data Wiring right after its Data sheet, every port wired to its socket. Each follows its own map: Maps on Power gives no Data Wiring sheet, and the other way round."><input type="checkbox" id="export-binder-wiring" checked> Wiring</label>
+                        <label id="export-binder-fiber-label" style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One Fiber sheet right after the screens, before the pull sheets (3.x), offered when the show uses fiber: every processor to its breakout boxes, a row per link, with the strand maps and the fiber cables to pull."><input type="checkbox" id="export-binder-fiber" checked> Fiber</label>
                         </div>
                     </div>
                     <!-- The border, the title block column and the rev line, or
@@ -2203,7 +2377,7 @@
                          only the view bubble and its heading name it, at the foot. -->
                     <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Frame</span>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap;" data-tooltip="On, every sheet wears the border and the title block column down its right edge. Off, the drawing and its tables take the whole sheet inside a small margin - no border, no column, no rev line - and the numbered view bubble with its heading at the foot is what names the sheet. Remembered as a preference."><input type="checkbox" id="export-binder-title-block" checked> Border and title block</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap;" data-tooltip="On, every sheet wears the border and the title block column down its right edge. Off, the drawing and its tables take the whole sheet inside a small margin, with no border, column or rev line, and the numbered view bubble with its heading at the foot is what names the sheet. Remembered as a preference."><input type="checkbox" id="export-binder-title-block" checked> Border and title block</label>
                     </div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Engineer</span>
@@ -2253,7 +2427,7 @@
                     <div id="export-binder-logo-status" style="display: none; font-size: 11px; color: #e0a060; margin: -4px 0 0 100px;"></div>
                     <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px;">Revision note</span>
-                        <input type="text" id="export-binder-revision-note" placeholder="What changed in this rev" data-tooltip="The note for the newest Rev: a new Rev adds a row to the REVISIONS table - the date, your initials, this note - and a note typed after it lands in that row. A Rev that already has a row logs nothing." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                        <input type="text" id="export-binder-revision-note" placeholder="What changed in this rev" data-tooltip="The note for the newest Rev: a new Rev adds a row to the REVISIONS table with the date, your initials and this note, and a note typed after it lands in that row. A Rev that already has a row logs nothing." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
                     </div>
                     <div style="display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: #aaa;">
                         <span style="flex: none; width: 92px; padding-top: 4px;">Revisions</span>
@@ -2288,7 +2462,7 @@
                     <option value="screens">One layer per screen</option>
                     <option value="elements">Elements per screen (checkerboard, borders, cabinet ids, arrows, circuits, labels as separate layers)</option>
                 </select>
-                <div style="margin-top: 4px; font-size: 11px; color: #777;">Elements puts each screen in a group of layers - Panels, Borders, Test pattern, Cabinet IDs, Data, Power, Screen name - and the images, text and canvas outline in a Canvas group. Layers with nothing on them are left out. Renders once per element, so it takes longer.</div>
+                <div style="margin-top: 4px; font-size: 11px; color: #777;">Elements puts each screen in a group of layers: Panels, Borders, Test pattern, Cabinet IDs, Data, Power and Screen name. The images, text and canvas outline go in a Canvas group. Layers with nothing on them are left out. Renders once per element, so it takes longer.</div>
             </div>
 
             <!-- File naming preview -->
@@ -2369,31 +2543,19 @@
                                 <span>Rows</span>
                             </div>
                         </div>
+                        <!-- The panel itself is no preference (1.6.0): a new
+                             project asks for it from the panel library, and
+                             Add Screen copies the last screen's. The weight
+                             unit stays, a display choice. -->
                         <div class="pm-row">
-                            <label>Panel size (px)</label>
+                            <label>Weight unit</label>
                             <div class="prefs-row">
-                                <input type="text" id="pref-panel-width" placeholder="128">
-                                <span>×</span>
-                                <input type="text" id="pref-panel-height" placeholder="128">
-                            </div>
-                        </div>
-                        <div class="pm-row">
-                            <label>Panel size (mm)</label>
-                            <div class="prefs-row">
-                                <input type="text" id="pref-panel-width-mm" placeholder="500">
-                                <span>×</span>
-                                <input type="text" id="pref-panel-height-mm" placeholder="500">
-                            </div>
-                        </div>
-                        <div class="pm-row">
-                            <label>Panel weight</label>
-                            <div class="prefs-row">
-                                <input type="number" id="pref-panel-weight" placeholder="20" step="0.1">
                                 <select id="pref-weight-unit" class="pm-fit">
                                     <option value="kg">kg</option>
                                     <option value="lb">lb</option>
                                 </select>
                             </div>
+                            <div class="pm-note">The unit a panel picked from the library gives its weight in.</div>
                         </div>
                         <div class="pm-row">
                             <label>Canvas gap</label>
@@ -2618,6 +2780,7 @@
                                 <input type="text" id="pref-power-voltage-custom" inputmode="numeric" min="1" max="1000" placeholder="Custom V" style="display:none;">
                                 <select id="pref-power-amperage-select">
                                     <option value="15">15A</option>
+                                    <option value="16">16A</option>
                                     <option value="20">20A</option>
                                     <option value="custom">Custom</option>
                                 </select>
@@ -2642,7 +2805,7 @@
                             <div class="prefs-row">
                                 <input type="number" id="pref-distro-rating" placeholder="400" min="1">
                                 <span>A</span>
-                                <select id="pref-distro-system" class="pm-fit" title="The power system a new distro starts on - the same list its gear offers."></select>
+                                <select id="pref-distro-system" class="pm-fit" title="The power system a new distro starts on: the same list its gear offers."></select>
                             </div>
                         </div>
                         <div class="pm-row">
@@ -2708,6 +2871,7 @@
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-pull"> Pull sheets</label>
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-hardware"> Hardware</label>
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-wiring"> Wiring</label>
+                                <label class="pm-check"><input type="checkbox" id="pref-binder-fiber"> Fiber</label>
                             </div>
                         </div>
                         <div class="pm-row">
@@ -2772,21 +2936,29 @@
                                     <option value="m">Meters</option>
                                 </select>
                             </div>
-                            <div class="pm-note">What a new show starts in. Each show keeps its own (the Jumpers unit in the Data and Power sidebars, or the Export dialog); a change here offers to switch the open show too. Below, a show uses the lengths in its unit.</div>
+                            <div class="pm-note" title="Each show keeps its own unit: the Jumpers unit in the Data and Power sidebars, or the Export dialog. Below, a show uses the lengths in its unit.">What a new show starts in. A change here offers to switch the open show too.</div>
+                        </div>
+                        <div class="pm-row">
+                            <label>Power jumper names</label>
+                            <div class="prefs-row">
+                                <span>TRUE1</span>
+                                <input type="text" id="pref-pull-power-jump-name-true1" placeholder="TRUE1 Power Jump" title="The TRUE1 power jumper's name on the pull sheet" aria-label="TRUE1 power jumper name" class="pm-wide">
+                                <span>powerCON</span>
+                                <input type="text" id="pref-pull-power-jump-name-powercon" placeholder="powerCON Power Jump" title="The powerCON power jumper's name on the pull sheet" aria-label="powerCON power jumper name" class="pm-wide">
+                            </div>
                         </div>
                         <div class="pm-row">
                             <label>Power jumper</label>
                             <div class="prefs-row">
-                                <input type="text" id="pref-pull-power-jump-name" placeholder="Tru-1 Power Jump" class="pm-wide">
                                 <span>V</span>
-                                <input type="text" id="pref-pull-power-jump-length" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-power-jump-length" class="pm-short">
                                 <span>H</span>
-                                <input type="text" id="pref-pull-power-jump-length-h" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-power-jump-length-h" class="pm-short">
                                 <span class="pm-unit">ft</span>
                                 <span>V</span>
-                                <input type="text" id="pref-pull-power-jump-length-m" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-power-jump-length-m" class="pm-short">
                                 <span>H</span>
-                                <input type="text" id="pref-pull-power-jump-length-h-m" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-power-jump-length-h-m" class="pm-short">
                                 <span class="pm-unit">m</span>
                             </div>
                         </div>
@@ -2795,14 +2967,14 @@
                             <div class="prefs-row">
                                 <input type="text" id="pref-pull-data-jump-name" placeholder="Data Jump" class="pm-wide">
                                 <span>V</span>
-                                <input type="text" id="pref-pull-data-jump-length" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-data-jump-length" class="pm-short">
                                 <span>H</span>
-                                <input type="text" id="pref-pull-data-jump-length-h" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-data-jump-length-h" class="pm-short">
                                 <span class="pm-unit">ft</span>
                                 <span>V</span>
-                                <input type="text" id="pref-pull-data-jump-length-m" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-data-jump-length-m" class="pm-short">
                                 <span>H</span>
-                                <input type="text" id="pref-pull-data-jump-length-h-m" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-pull-data-jump-length-h-m" class="pm-short">
                                 <span class="pm-unit">m</span>
                             </div>
                             <div class="pm-note">The lengths a new screen starts with: V to the cabinet above or below, H to the one beside. Blank: no cable counted.</div>
@@ -2815,17 +2987,17 @@
                                 <input type="text" id="pref-jumper-stock-m" placeholder="1, 2, 3, 5, 10" class="pm-wide">
                                 <span class="pm-unit">m</span>
                             </div>
-                            <div class="pm-note">A jump between cabinets that do not touch: center to center plus 1 ft (0.3 m), up to the next of these; past the last, the next 5.</div>
+                            <div class="pm-note" title="A jump between cabinets that do not touch: center to center plus 1 ft (0.3 m), up to the next of these lengths; past the last, the next 5.">Cabinets that don't touch: center to center plus 1 ft (0.3 m), rounded up to a length here.</div>
                         </div>
                         <div class="pm-row">
                             <label>Snake home run</label>
                             <div class="prefs-row">
-                                <input type="text" id="pref-snake-home-run-length" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-snake-home-run-length" class="pm-short">
                                 <span class="pm-unit">ft</span>
-                                <input type="text" id="pref-snake-home-run-length-m" placeholder="—" class="pm-short">
+                                <input type="text" id="pref-snake-home-run-length-m" class="pm-short">
                                 <span class="pm-unit">m</span>
+                                <span style="font-size: 11px;">Blank: a new snake starts with no length.</span>
                             </div>
-                            <div class="pm-note">Blank: a new snake starts with no length.</div>
                         </div>
                         <div class="pm-row">
                             <label>Loose port cable</label>
@@ -2856,9 +3028,9 @@
                         <div class="pm-row">
                             <label>This show</label>
                             <div class="prefs-row">
-                                <label class="pm-check" data-tooltip="Off: one list for multis, data and power cables. On: a list for each."><input type="checkbox" id="pref-cable-stock-per-kind"> A list for each kind of cable</label>
+                                <label class="pm-check" data-tooltip="Off: one list for every cable. On: a list for each kind: multis, data, power, L21-30 and Harting home runs, direct-output cables and power in cables."><input type="checkbox" id="pref-cable-stock-per-kind"> A list for each kind of cable</label>
                             </div>
-                            <div class="pm-note">The cable lengths this show has on hand, saved with the show. A run the stock cannot make exactly is written as the pieces with the least extra length: with 25, 50 and 100, a 125 run reads 100'+25' on the map tags, the pull sheet and the binder. Blank: lengths are written as typed. Fiber and jumpers are not counted here.</div>
+                            <div class="pm-note" title="A run the stock can't make exactly is written as the pieces with the least extra length, on the map tags, the pull sheet and the binder. Fiber keeps a single mode list and a multimode list of its own. Jumpers aren't counted here.">The lengths this show has on hand. With 25, 50 and 100, a 125 run reads 100'+25'. Blank: lengths are written as typed.</div>
                         </div>
                         <div class="pm-row" data-cable-stock-list="all">
                             <label>All cables</label>
@@ -2890,9 +3062,54 @@
                         <div class="pm-row" data-cable-stock-list="circuit">
                             <label>Power cables</label>
                             <div class="prefs-row">
-                                <input type="text" id="pref-cable-stock-circuit-ft" placeholder="none" class="pm-wide" data-tooltip="Circuit cable lengths in feet: the cable on each circuit and a direct output's cable.">
+                                <input type="text" id="pref-cable-stock-circuit-ft" placeholder="none" class="pm-wide" data-tooltip="Circuit cable lengths in feet: the cable on each circuit of a multi.">
                                 <span class="pm-unit">ft</span>
-                                <input type="text" id="pref-cable-stock-circuit-m" placeholder="none" class="pm-wide" data-tooltip="Circuit cable lengths in meters: the cable on each circuit and a direct output's cable.">
+                                <input type="text" id="pref-cable-stock-circuit-m" placeholder="none" class="pm-wide" data-tooltip="Circuit cable lengths in meters: the cable on each circuit of a multi.">
+                                <span class="pm-unit">m</span>
+                            </div>
+                        </div>
+                        <div class="pm-row" data-cable-stock-list="l2130">
+                            <label>L21-30 home runs</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-cable-stock-l2130-ft" placeholder="none" class="pm-wide" data-tooltip="L21-30 home run lengths in feet: an L21-30 box's run from its distro.">
+                                <span class="pm-unit">ft</span>
+                                <input type="text" id="pref-cable-stock-l2130-m" placeholder="none" class="pm-wide" data-tooltip="L21-30 home run lengths in meters: an L21-30 box's run from its distro.">
+                                <span class="pm-unit">m</span>
+                            </div>
+                        </div>
+                        <div class="pm-row" data-cable-stock-list="harting">
+                            <label>Harting home runs</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-cable-stock-harting-ft" placeholder="none" class="pm-wide" data-tooltip="Harting home run lengths in feet: a Harting box's run from its distro.">
+                                <span class="pm-unit">ft</span>
+                                <input type="text" id="pref-cable-stock-harting-m" placeholder="none" class="pm-wide" data-tooltip="Harting home run lengths in meters: a Harting box's run from its distro.">
+                                <span class="pm-unit">m</span>
+                            </div>
+                        </div>
+                        <div class="pm-row" data-cable-stock-list="direct">
+                            <label>Direct-output cables</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-cable-stock-direct-ft" placeholder="none" class="pm-wide" data-tooltip="Direct-output cable lengths in feet: the one cable from a CEE, Schuko, Edison, L5-20, TRUE1 or powerCON output to its screen.">
+                                <span class="pm-unit">ft</span>
+                                <input type="text" id="pref-cable-stock-direct-m" placeholder="none" class="pm-wide" data-tooltip="Direct-output cable lengths in meters: the one cable from a CEE, Schuko, Edison, L5-20, TRUE1 or powerCON output to its screen.">
+                                <span class="pm-unit">m</span>
+                            </div>
+                        </div>
+                        <div class="pm-row" data-cable-stock-list="feeder">
+                            <label>Power in cables</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-cable-stock-feeder-ft" placeholder="none" class="pm-wide" data-tooltip="Power in cable lengths in feet: the cam set or other cable that powers a distro.">
+                                <span class="pm-unit">ft</span>
+                                <input type="text" id="pref-cable-stock-feeder-m" placeholder="none" class="pm-wide" data-tooltip="Power in cable lengths in meters: the cam set or other cable that powers a distro.">
+                                <span class="pm-unit">m</span>
+                            </div>
+                        </div>
+                        <div class="pm-row" data-cable-stock-fiber="fiber">
+                            <label>Fiber</label>
+                            <div class="prefs-row">
+                                <input type="text" id="pref-cable-stock-fiber-ft" placeholder="none" class="pm-wide" data-tooltip="Fiber lengths in feet: the TACs, MTPs and opticalCONs, single mode and multimode alike. Always a list of its own.">
+                                <span class="pm-unit">ft</span>
+                                <input type="text" id="pref-cable-stock-fiber-m" placeholder="none" class="pm-wide" data-tooltip="Fiber lengths in meters: the TACs, MTPs and opticalCONs, single mode and multimode alike. Always a list of its own.">
                                 <span class="pm-unit">m</span>
                             </div>
                         </div>
@@ -2901,10 +3118,9 @@
                             <div class="prefs-row">
                                 <select id="pref-cable-stock-preset" class="pm-fit" data-tooltip="A cable stock saved under a name, for every show."></select>
                                 <button type="button" id="pref-cable-stock-load" class="btn" data-tooltip="Put the picked preset's lengths in the fields above. Save gives them to this show.">Load</button>
-                                <button type="button" id="pref-cable-stock-save-preset" class="btn" data-tooltip="Save the lengths in the fields above as a preset.">Save as preset…</button>
-                                <button type="button" id="pref-cable-stock-delete" class="btn" data-tooltip="Delete the picked preset. Shows already using its lengths keep them.">Delete</button>
+                                <button type="button" id="pref-cable-stock-save-preset" class="btn" data-tooltip="Save the lengths in the fields above as a preset. The preset is saved right away.">Save as preset…</button>
+                                <button type="button" id="pref-cable-stock-delete" class="btn" data-tooltip="Delete the picked preset right away. Shows already using its lengths keep them.">Delete</button>
                             </div>
-                            <div class="pm-note">Load fills the fields; Save at the foot gives them to this show. Saving or deleting a preset happens right away.</div>
                             <div class="pm-note" id="pref-cable-stock-status" style="display: none;"></div>
                         </div>
                         <div class="pm-row">
@@ -2940,10 +3156,10 @@
                 <h3>Everywhere</h3>
                 <table class="sc-table">
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Z / <span data-sc-mod>Ctrl</span>+Shift+Z</td><td>Undo / redo</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+C / <span data-sc-mod>Ctrl</span>+V</td><td>Copy / paste the selected layer</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+J</td><td>Duplicate the current layer</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+C / <span data-sc-mod>Ctrl</span>+V</td><td>Copy / paste the selected screen</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+J</td><td>Duplicate the selected screens</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+A</td><td>Select every screen on the canvas (every cabinet of the screen when a cabinet selection is open)</td></tr>
-                    <tr><td class="sc-key">Delete / Backspace</td><td>Delete the current layer</td></tr>
+                    <tr><td class="sc-key">Delete / Backspace</td><td>Delete the current screen</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+,</td><td>Open Preferences</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+O</td><td>Open a project file</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+S</td><td>Save the project to a file</td></tr>
@@ -2958,8 +3174,8 @@
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+click a screen</td><td>Toggle it in or out of the selection</td></tr>
                     <tr><td class="sc-key">Drag in empty space</td><td>Marquee-select screens; hold <span data-sc-mod>Ctrl</span> to toggle the caught ones</td></tr>
                     <tr><td class="sc-key">Click &amp; drag a screen-name label</td><td>Move the current screen's label in that view</td></tr>
-                    <tr><td class="sc-key">Shift+drag</td><td>In Cabinet ID, Data and Power: move the screen-name label, not the screen</td></tr>
-                    <tr><td class="sc-key">Right-click</td><td>The menu for what is under the cursor - a screen, a run, a chip, a row</td></tr>
+                    <tr><td class="sc-key">Shift+drag</td><td>In Cabinet ID, Data and Power: move the screen-name label, not the screen (in Data, a Shift+drag that starts on a run picks ports instead)</td></tr>
+                    <tr><td class="sc-key">Right-click</td><td>The menu for what is under the cursor: a screen, a run, a chip, a row</td></tr>
                     <tr><td class="sc-key">Enter / Esc in a rename field</td><td>Commit / revert the name</td></tr>
                     <tr><td class="sc-key">Esc</td><td>Close a menu, a popover or a prompt</td></tr>
                 </table>
@@ -2999,19 +3215,23 @@
                     <tr><td class="sc-key">Esc</td><td>End the redraw (the drawing stays) or drop the cabinet selection</td></tr>
                     <tr><td class="sc-key">Tab / Shift+Tab, ] / [</td><td>Next / previous port in custom mode</td></tr>
                     <tr><td class="sc-key">Right-click a run</td><td>Redraw port N, Port N back to auto, Clear port N</td></tr>
-                    <tr><td class="sc-key">Drag a port, card, box or processor onto a screen</td><td>Assign it - a port lands on a run, a card or box fills ports in order</td></tr>
+                    <tr><td class="sc-key">Shift+click a run</td><td>Pick that port (Shift+click again to drop it)</td></tr>
+                    <tr><td class="sc-key">Shift+drag a box from a run</td><td>Pick every port the box touches</td></tr>
+                    <tr><td class="sc-key">Alt+drag across runs</td><td>Pick every port the drag crosses</td></tr>
+                    <tr><td class="sc-key">Right-click the picked ports</td><td>Redraw ports N-M as one: draw one new port, Enter keeps it, Esc puts the ports back</td></tr>
+                    <tr><td class="sc-key">Drag a port, card, box or processor onto a screen</td><td>Assign it: a port lands on a run, a card or box fills ports in order</td></tr>
                     <tr><td class="sc-key">Drag an assigned port back onto the tray</td><td>Release it</td></tr>
                     <tr><td class="sc-key">Right-click a port chip, card or box header</td><td>Clear it</td></tr>
                     <tr><td class="sc-key">Click a port chip (Enter / Space when focused)</td><td>Open its editor; Esc closes it</td></tr>
                     <tr><td class="sc-key">⚙ on a header</td><td>Configure the processor, card or box</td></tr>
                     <tr><td class="sc-key">Drag ⋮⋮ along the tray</td><td>Reorder the processors</td></tr>
                     <tr><td class="sc-key">Esc mid-drag</td><td>Cancel the drag</td></tr>
-                    <tr><td class="sc-key">Alt+press a port chip, sweep across chips</td><td>Light a run of ports - across cards and boxes</td></tr>
+                    <tr><td class="sc-key">Alt+press a port chip, sweep across chips</td><td>Light a run of ports, across cards and boxes</td></tr>
                     <tr><td class="sc-key">Right-click the lit ports</td><td>Snake these N, Set home run…, Unsnake</td></tr>
                     <tr><td class="sc-key">Alt+Enter</td><td>Snake the lit ports</td></tr>
                     <tr><td class="sc-key">Esc / click away</td><td>Drop the lit ports</td></tr>
                     <tr><td class="sc-key">Right-click a snake's tag</td><td>Rename, Set home run of…, Unsnake</td></tr>
-                    <tr><td class="sc-key">≡ on a card or box header</td><td>Flip its chips into the cable sheet - snakes and home runs per port</td></tr>
+                    <tr><td class="sc-key">≡ on a card or box header</td><td>Flip its chips into the cable sheet: snakes and home runs per port</td></tr>
                 </table>
             </section>
             <section class="sc-group">
@@ -3028,7 +3248,7 @@
                     <tr><td class="sc-key">Drag across cabinets (custom mode)</td><td>Select cabinets for a pattern button</td></tr>
                     <tr><td class="sc-key">Esc</td><td>End the redraw, or drop the sweep or the cabinet selection</td></tr>
                     <tr><td class="sc-key">Tab / Shift+Tab, ] / [</td><td>Next / previous circuit in custom mode</td></tr>
-                    <tr><td class="sc-key">Drag a multi slot, circuit chip or distro onto a screen</td><td>Assign it - a slot lands on a circuit, a distro feeds the screen's unassigned multis</td></tr>
+                    <tr><td class="sc-key">Drag a multi slot, circuit chip or distro onto a screen</td><td>Assign it: a slot lands on a circuit, a distro feeds the screen's unassigned multis</td></tr>
                     <tr><td class="sc-key">Drag an assigned slot or circuit chip back onto the tray</td><td>Clear it</td></tr>
                     <tr><td class="sc-key">Click a box's type chip</td><td>Cycle its connector type</td></tr>
                     <tr><td class="sc-key">Click a circuit chip</td><td>Edit its label</td></tr>
@@ -3036,7 +3256,7 @@
                     <tr><td class="sc-key">Drag ⋮⋮ along the tray</td><td>Reorder the distros</td></tr>
                     <tr><td class="sc-key">Drag a distro's header bar onto a Service card</td><td>Put the distro on that service (same system only)</td></tr>
                     <tr><td class="sc-key">Esc mid-drag</td><td>Cancel the drag</td></tr>
-                    <tr><td class="sc-key">≡ on a multi header</td><td>Flip its chips into the cable sheet - a length and connector per circuit</td></tr>
+                    <tr><td class="sc-key">≡ on a multi header</td><td>Flip its chips into the cable sheet: a length and connector per circuit</td></tr>
                 </table>
             </section>
             <section class="sc-group">
@@ -3046,15 +3266,15 @@
                     <tr><td class="sc-key">Shift+click a row</td><td>Select the range from the last pick, across canvases</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+click a row</td><td>Toggle it in or out of the selection</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+right-click a row</td><td>Toggle it and open the menu</td></tr>
-                    <tr><td class="sc-key">Right-click a row</td><td>The screen menu - Put on beach, Group Screens, Export this screen…, Move to Canvas…, Change cabinet…</td></tr>
-                    <tr><td class="sc-key">▦ on a row</td><td>Change cabinet… - re-pick the screen's cabinet from the catalog or a preset; columns, rows, position, ports and circuits stay</td></tr>
+                    <tr><td class="sc-key">Right-click a row</td><td>The screen menu: Put on beach, Group Screens, Export this screen…, Move to Canvas…, Change cabinet…</td></tr>
+                    <tr><td class="sc-key">▦ on a row</td><td>Change cabinet…: re-pick the screen's cabinet from the catalog or a preset; columns, rows, position, ports and circuits stay</td></tr>
                     <tr><td class="sc-key">Double-click a name</td><td>Rename a screen, canvas, group or beach (Enter commits, Esc reverts)</td></tr>
                     <tr><td class="sc-key">Drag a row</td><td>Reorder screens within their canvas</td></tr>
                     <tr><td class="sc-key">Drag a row onto another canvas's header</td><td>Move it there; hold <span data-sc-mod>Ctrl</span> or Alt to duplicate</td></tr>
                     <tr><td class="sc-key">Drag ⋮⋮ on a canvas header</td><td>Reorder the canvases</td></tr>
                     <tr><td class="sc-key">Click a group header</td><td>Select all its members; ▸ folds and unfolds it</td></tr>
                     <tr><td class="sc-key">+ Add beach</td><td>Make a beach</td></tr>
-                    <tr><td class="sc-key">Drag ⋮⋮ on a beach</td><td>Reorder the beaches - the pull sheet and binder run in this order</td></tr>
+                    <tr><td class="sc-key">Drag ⋮⋮ on a beach</td><td>Reorder the beaches: the pull sheet and binder run in this order</td></tr>
                     <tr><td class="sc-key">× on a beach</td><td>Remove it; its screens go back to their own positions</td></tr>
                     <tr><td class="sc-key">Right-click selected screens → Put on beach</td><td>Put them on a beach, or + New beach…</td></tr>
                 </table>
@@ -3069,14 +3289,14 @@
                 </table>
             </section>
             <section class="sc-group">
-                <h3>Guided tours</h3>
+                <h3>Guides</h3>
                 <table class="sc-table">
                     <tr><td class="sc-key">Enter</td><td>Next (Done on the last step)</td></tr>
-                    <tr><td class="sc-key">Esc</td><td>Leave the tour</td></tr>
+                    <tr><td class="sc-key">Esc</td><td>Leave the guide</td></tr>
                     <tr><td class="sc-key">Back</td><td>Return to the previous step</td></tr>
                     <tr><td class="sc-key">↻ Replay</td><td>Play this step again</td></tr>
                     <tr><td class="sc-key">Go to N, then Enter</td><td>Jump to step N</td></tr>
-                    <tr><td class="sc-key">Skip</td><td>End the tour</td></tr>
+                    <tr><td class="sc-key">Skip</td><td>End the guide</td></tr>
                 </table>
             </section>
             </div>
@@ -3089,9 +3309,10 @@
     <!-- About Modal -->
     <div id="preset-picker-modal" class="modal" style="display: none;">
         <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 20px; width: 900px; max-width: 95vw; margin: 50px auto; border: 1px solid #3a3a3a;">
-            <!-- Add mode's heading and brief. Change cabinet… (app-presets.js
-                 _setPickerChrome) rewrites both, and the confirm button, for
-                 replace mode, and puts them back for the next add. -->
+            <!-- Add mode's heading and brief. Change cabinet… and the
+                 start-up pick (app-presets.js _setPickerChrome) rewrite
+                 both, and the confirm button, for their modes, and put
+                 them back for the next add. -->
             <h2 id="preset-picker-title" style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Add Screen</h2>
             <div id="preset-picker-subtitle" style="color: #888; font-size: 12px; margin-bottom: 14px;">Pick a saved preset <em>or</em> a panel from the built-in catalog.</div>
             <div style="display: flex; gap: 14px;">
@@ -3126,7 +3347,7 @@
                 </div>
             </div>
             <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; gap: 12px;">
-                <div id="preset-picker-summary" style="color: #888; font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Nothing selected, will use Default.</div>
+                <div id="preset-picker-summary" style="color: #888; font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Nothing selected.</div>
                 <div style="display: flex; gap: 8px;">
                     <button id="preset-picker-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
                     <button id="preset-picker-add" class="btn btn-primary" style="padding: 8px 16px;">Add Screen</button>
@@ -3137,8 +3358,8 @@
 
     <div id="preset-save-modal" class="modal" style="display: none;">
         <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 460px; margin: 80px auto; border: 1px solid #3a3a3a;">
-            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Save Layer as Preset</h2>
-            <div id="preset-save-sublabel" style="color: #888; font-size: 12px; margin-bottom: 12px;">Save the current layer's settings for reuse.</div>
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 4px; font-size: 18px;">Save Screen as Preset</h2>
+            <div id="preset-save-sublabel" style="color: #888; font-size: 12px; margin-bottom: 12px;">Save the current screen's settings for reuse.</div>
             <label style="color: #ccc; font-size: 12px; display: block; margin-bottom: 4px;">Preset name</label>
             <input id="preset-save-name" type="text" maxlength="80" placeholder="e.g., Standard SRR Pillar"
                    style="width: 100%; padding: 8px; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; color: #fff; font-size: 13px; box-sizing: border-box; margin-bottom: 8px;">
@@ -3171,6 +3392,21 @@
                 <button id="group-lock-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
                 <button id="group-lock-unlock" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Unlock it</button>
                 <button id="group-lock-lock" class="btn btn-primary" style="padding: 8px 16px;">Lock the whole group</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- A box going on a copy output of a card that picks per box (the MX40
+         Pro in 20-port mode): Mirror or Backup (app-mirror-screens.js
+         askCopyRole). -->
+    <div id="copy-role-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="background: #252525; border-radius: 8px; padding: 24px; max-width: 460px; margin: 80px auto; border: 1px solid #3a3a3a;">
+            <h2 style="margin-top: 0; color: #fff; margin-bottom: 8px; font-size: 18px;">Mirror or backup?</h2>
+            <div id="copy-role-text" style="color: #aaa; font-size: 12px; margin-bottom: 16px;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+                <button id="copy-role-cancel" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Cancel</button>
+                <button id="copy-role-backup" class="btn" style="background: #3a3a3a; padding: 8px 16px;">Backup</button>
+                <button id="copy-role-mirror" class="btn btn-primary" style="padding: 8px 16px;">Mirror</button>
             </div>
         </div>
     </div>
@@ -3222,7 +3458,7 @@
             <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
                 <label style="color: #ccc; font-size: 12px;">From:
                     <input id="logs-since" type="number" step="any" min="0" placeholder="10"
-                           title="Start of range, included — this many minutes ago. Pick a unit next to it, or Date… to type an absolute date. Blank = no start bound."
+                           title="Start of range, included: this many minutes ago. Pick a unit next to it, or Date… to type an absolute date. Blank = no start bound."
                            style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px 6px; border-radius: 4px; margin-left: 4px; width: 70px; font-family: inherit; font-size: 12px;">
                     <select id="logs-since-unit"
                             title="Unit for the From number. Date… switches the field to an absolute date (YYYY-MM-DD HH:MM), today, or yesterday."
@@ -3236,7 +3472,7 @@
                 </label>
                 <label style="color: #ccc; font-size: 12px;">To:
                     <input id="logs-until" type="number" step="any" min="0" placeholder="5"
-                           title="End of range, included — this many minutes ago. Same units as From. Blank = now."
+                           title="End of range, included: this many minutes ago. Same units as From. Blank = now."
                            style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px 6px; border-radius: 4px; margin-left: 4px; width: 70px; font-family: inherit; font-size: 12px;">
                     <select id="logs-until-unit"
                             title="Unit for the To number. Date… switches the field to an absolute date; a date with no time covers that whole day."
@@ -3278,7 +3514,7 @@
                 <div style="color: #888; font-size: 12px; margin-bottom: 8px;">Created by Matt Knotts</div>
                 <a href="https://github.com/kman1898/LED-Raster-Designer" target="_blank" rel="noopener"
                    style="color: var(--ps-accent, #4A90E2); font-size: 12px; text-decoration: none;">github.com/kman1898/LED-Raster-Designer</a>
-                <div id="about-license" style="color: #888; font-size: 12px; margin-top: 10px; line-height: 1.5;">Free to use, including on paid shows. LED Raster Designer License — Help → License.</div>
+                <div id="about-license" style="color: #888; font-size: 12px; margin-top: 10px; line-height: 1.5;">Free to use, including on paid shows. LED Raster Designer License: see Help > License.</div>
             </div>
 
             <button id="about-close" class="btn" style="background: #3a3a3a; padding: 8px 24px; margin-top: 4px;">Close</button>

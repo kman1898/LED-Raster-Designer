@@ -1,4 +1,4 @@
-"""Per-circuit cables: the 10' True1 on circuit 1, where it is typed and
+"""Per-circuit cables: the 10' TRUE1 on circuit 1, where it is typed and
 where it reads back.
 
 "we need to be able to add cables to each circuit on the distro besides just
@@ -15,7 +15,7 @@ connector, stored like the label overrides:
 
   - layer.powerCircuitCables = { [circuitNum]: { ft, connector } } where a
     null connector FOLLOWS THE BOX - the connector the circuit's box type
-    breaks out to (True1 on a Multi 208 feeding a True1 screen, Edison on a
+    breaks out to (TRUE1 on a Multi 208 feeding a TRUE1 screen, Edison on a
     Multi 120, the L21-30 breakout's own tail connector).
   - Option B: a raised ≡ on the box header flips the chips into a sheet -
     tail · circuit · screen · ft · connector - Tab walking the ft column,
@@ -72,7 +72,8 @@ SEED_JS = """async () => {
     for (const l of p1.layers) {
         await fetch(`/api/layer/${l.id}`, {method: 'PUT',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({powerVoltage: 208, powerAmperage: 10,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            body: JSON.stringify({powerVoltage: 208, powerAmperage: 12.5,
                                   panelWatts: 200,
                                   processorType: 'novastar-coex-1g'})});
     }
@@ -218,7 +219,7 @@ FOCUS_JS = """() => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)
@@ -282,8 +283,8 @@ def test_the_store_round_trips_through_the_project(page):
 def test_the_box_header_flips_into_the_sheet(page):
     """The raised ≡ on the box header flips the chips into the sheet: six
     rows, tail · circuit · screen · ft · connector, WALL on every tail,
-    the connector blank reading "follows Multi 208 (True1)" - a Multi 208
-    feeding a True1 screen. The flip is per box in localStorage, and the
+    the connector blank reading "TRUE1 (follows Multi 208)" - a Multi 208
+    feeding a TRUE1 screen. The flip is per box in localStorage, and the
     chip grid is gone while the sheet is up."""
     pg, ids = page
     before = _sheet(pg, ids)
@@ -300,8 +301,11 @@ def test_the_box_header_flips_into_the_sheet(page):
     assert s['heads'] == ['no.', 'circuit', 'screen', 'cable', 'connector'], s['heads']
     assert all(r['who'] == 'WALL' and not r['free'] for r in s['rows']), s
     assert all(r['ft'] == '' and r['connector'] == '' for r in s['rows']), s
-    assert all(r['blank'] == 'follows Multi 208 (True1)' for r in s['rows']), s
-    assert s['rows'][0]['options'] == ['', 'true1', 'powercon', 'edison', 'l620'], s
+    assert all(r['blank'] == 'TRUE1 (default)' for r in s['rows']), s
+    # the breakouts' connectors, then every distro face connector's cable
+    # (2026-10-21: a cable off a direct output can be any of them)
+    assert s['rows'][0]['options'] == ['', 'true1', 'powercon', 'edison', 'l620', 'powerconxx',
+                                       'l520', 'stagepin', 'cee16a', 'cee32a', 'schuko'], s
     assert s['total'] == 'no cables', s
     # the fixed fills, then the typed length's box and its button
     assert s['fills'] == [
@@ -315,7 +319,7 @@ def test_the_box_header_flips_into_the_sheet(page):
 def test_a_length_commit_is_one_entry_and_undo_restores(page):
     """Typing 10 in circuit 1's ft field and leaving it is ONE 'Set Circuit
     Cable' step: the store holds {ft: 10, connector: null}, the resolved
-    cable reads 10' True1 (the box's connector), the totals line counts it,
+    cable reads 10' TRUE1 (the box's connector), the totals line counts it,
     and undo forgets it."""
     pg, ids = page
     # History position, not length: an undo earlier in the module leaves
@@ -330,10 +334,10 @@ def test_a_length_commit_is_one_entry_and_undo_restores(page):
     assert st['action'] == 'Set Circuit Cable' and st['index'] == index + 1, (
         f'one commit, one entry: {st}')
     cable = pg.evaluate(CABLE_JS, [ids['id'], 1])
-    assert cable['text'] == "10' True1" and cable['id'] == 'true1', cable
+    assert cable['text'] == "10' TRUE1" and cable['id'] == 'true1', cable
     s = _sheet(pg, ids)
     assert s['rows'][0]['ft'] == '10', s
-    assert s['total'] == "1 × 10' True1", s
+    assert s['total'] == "1 × 10' TRUE1", s
     pg.evaluate('() => window.app.undo()')
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids['id'])
@@ -378,11 +382,11 @@ def test_tab_walks_the_length_column(page):
         '5': {'ft': 6, 'connector': None}, '6': {'ft': 10, 'connector': None},
     }, f'the user\'s own example - 1: 10, 2: 6, 3/4 none, 5: 6, 6: 10: {st}'
     s = _sheet(pg, ids)
-    assert s['total'] == "2 × 10' True1 · 2 × 6' True1", s
+    assert s['total'] == "2 × 10' TRUE1 · 2 × 6' TRUE1", s
 
 
 def test_the_connector_follows_the_box_and_an_override_wins(page):
-    """Blank connector = the box's: True1 here. Picking powerCON on circuit
+    """Blank connector = the box's: TRUE1 here. Picking powerCON on circuit
     1 stores the id, the reading says 10' powerCON, and it is its own 'Set
     Circuit Cable' step; back to blank follows the box again."""
     pg, ids = page
@@ -396,14 +400,14 @@ def test_the_connector_follows_the_box_and_an_override_wins(page):
     assert st['action'] == 'Set Circuit Cable' and st['index'] == index + 1, st
     cable = pg.evaluate(CABLE_JS, [ids['id'], 1])
     assert cable['text'] == "10' powerCON" and cable['connector'] == 'powercon', cable
-    assert _sheet(pg, ids)['total'] == "1 × 10' powerCON · 2 × 6' True1 · 1 × 10' True1"
+    assert _sheet(pg, ids)['total'] == "1 × 10' powerCON · 2 × 6' TRUE1 · 1 × 10' TRUE1"
     pg.locator(
         f'[data-lrd-field="power-cable-connector-{ids["id"]}-1"]'
     ).select_option('')
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids['id'])
     assert st['cables']['1'] == {'ft': 10, 'connector': None}, st
-    assert pg.evaluate(CABLE_JS, [ids['id'], 1])['text'] == "10' True1"
+    assert pg.evaluate(CABLE_JS, [ids['id'], 1])['text'] == "10' TRUE1"
 
 
 def test_quick_fill_is_one_entry(page):
@@ -418,7 +422,7 @@ def test_quick_fill_is_one_entry(page):
         str(i): {'ft': 6, 'connector': None} for i in range(1, 7)}, st
     assert st['action'] == 'Set Circuit Cable' and st['index'] == index + 1, (
         f'a quick fill is ONE entry: {st}')
-    assert _sheet(pg, ids)['total'] == "6 × 6' True1"
+    assert _sheet(pg, ids)['total'] == "6 × 6' TRUE1"
     pg.locator(f'[data-lrd-field="power-cable-fill-{ids["distroId"]}-1-none"]').click()
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids['id'])
@@ -470,7 +474,7 @@ def test_a_typed_length_fills_every_circuit(page):
                      lambda s: (s['cables'] or {}).get('6', {}).get('ft') == 37)
     assert served['cables'] == {
         str(i): {'ft': 37, 'connector': None} for i in range(1, 7)}, served
-    assert _sheet(pg, ids)['total'] == "6 × 37' True1"
+    assert _sheet(pg, ids)['total'] == "6 × 37' TRUE1"
     assert _any_box(pg, ids).input_value() == '37', (
         'the rebuilt box shows the length in force')
     # Enter in the box fills too; a half foot goes as the row field takes it
@@ -517,7 +521,7 @@ def test_a_typed_length_fills_every_circuit(page):
 
 def test_a_closed_sheet_shows_the_cable_on_the_chip(page):
     """Flip back to chips: a chip with a cable wears it in its corner
-    ("10' True1"), a chip with none wears nothing, and the flip is
+    ("10' TRUE1"), a chip with none wears nothing, and the flip is
     forgotten from localStorage."""
     pg, ids = page
     pg.locator(f'[data-lrd-field="power-cable-sheet-{ids["distroId"]}-1"]').click()
@@ -528,9 +532,9 @@ def test_a_closed_sheet_shows_the_cable_on_the_chip(page):
     corners = {c['key']: c['corner'] for c in s['corners']}
     d = ids['distroId']
     assert corners == {
-        f'ptail-{d}-1-1': "10' True1", f'ptail-{d}-1-2': "6' True1",
+        f'ptail-{d}-1-1': "10' TRUE1", f'ptail-{d}-1-2': "6' TRUE1",
         f'ptail-{d}-1-3': None, f'ptail-{d}-1-4': None,
-        f'ptail-{d}-1-5': "6' True1", f'ptail-{d}-1-6': "10' True1",
+        f'ptail-{d}-1-5': "6' TRUE1", f'ptail-{d}-1-6': "10' TRUE1",
     }, corners
 
 
@@ -566,14 +570,14 @@ def test_clearing_the_circuit_forgets_its_cable(page):
     pg.wait_for_timeout(900)
     st = pg.evaluate(STATE_JS, ids['id'])
     assert st['cables']['1'] == {'ft': 10, 'connector': None}, st
-    assert pg.evaluate(CABLE_JS, [ids['id'], 1])['text'] == "10' True1", (
+    assert pg.evaluate(CABLE_JS, [ids['id'], 1])['text'] == "10' TRUE1", (
         'undo must put the multi back on SR 1 so the connector follows it')
 
 
 def test_the_canvas_tag_follows_the_switch(page):
     """Off (the default): the power pass paints no cable text, on screen or
     in exportMode. Tick Show Cable Tags: one 'Toggle Cable Tags' step, the
-    flag lands on the server, and both passes paint 10' True1 beside
+    flag lands on the server, and both passes paint 10' TRUE1 beside
     circuit 1 (and the others' cables). Undo un-ticks and un-paints."""
     pg, ids = page
     box = pg.locator('#show-power-cable-tags')
@@ -587,7 +591,7 @@ def test_the_canvas_tag_follows_the_switch(page):
     assert st['flag'] is True and st['action'] == 'Toggle Cable Tags', st
     assert st['index'] == index + 1, st
     frame = pg.evaluate(FRAME_TEXTS_JS)
-    want = ["10' True1", "6' True1", "6' True1", "10' True1"]
+    want = ["10' TRUE1", "6' TRUE1", "6' TRUE1", "10' TRUE1"]
     assert sorted(frame['interactive']) == sorted(want), frame
     assert sorted(frame['exported']) == sorted(want), (
         f'the export pass must match the screen: {frame}')
@@ -642,8 +646,13 @@ TAG_SIDES_JS = """([pattern, labelSize]) => {
             labels.push([text, p[1], group.reduce((a, g) => a + g[2], 0) / group.length]);
         }
     });
+    // A tag beside its label on the side its run leaves by stands just
+    // above the run's line (QA 1.6.0-beta.4), so it is matched to the
+    // nearest label within a label's height, not on the label's own y.
     return tags.map(t => {
-        const lab = labels.find(x => Math.abs(x[2] - t[2]) < 2);
+        const near = labels.filter(x => Math.abs(x[2] - t[2]) < labelSize)
+            .sort((a, b) => Math.abs(a[2] - t[2]) - Math.abs(b[2] - t[2]));
+        const lab = near[0];
         return { tag: t[0], side: lab ? (t[1] > lab[1] ? 'right' : 'left') : 'none',
                  lx: lab ? Math.round(lab[1]) : null, tx: Math.round(t[1]) };
     });
@@ -685,7 +694,7 @@ def test_a_tag_on_the_wall_s_edge_flips_inside_the_screen(page):
 
 # A cable tag never covers another label. "the cables added to the power or
 # data sometimes go under labels and overlap" (user, 2026-09-09, on a
-# screenshot of "10' True1" tags lying across the S1-1-1 / S1-1-2 discs):
+# screenshot of "10' TRUE1" tags lying across the S1-1-1 / S1-1-2 discs):
 # when two circuits begin ONE PANEL apart, the tag hanging beside the first
 # label lands on the second. placeCableTag is the rule as built - beside its
 # own label, the other side, below it, above it; the first pill that covers
@@ -789,7 +798,7 @@ def test_a_cable_tag_never_covers_another_label(page):
     """Circuits ONE PANEL apart - the wall flowed down its columns at 170 W
     a cabinet (a column is 2040 W, a thirteenth cabinet 2210 - over the
     2080 W circuit), so a column is a circuit and every label sits on row 1
-    of the next column - labels at 30 px, "10' True1" tags. Beside its own
+    of the next column - labels at 30 px, "10' TRUE1" tags. Beside its own
     label each tag would lie across its neighbour's disc; placed, no pill
     meets any disc but the one it hangs off, every pill is inside the
     screen, and the pill drawn is the pill that was placed. exportMode
@@ -852,16 +861,16 @@ def test_the_switch_reads_the_selected_screen(page):
 
 
 def test_a_box_typed_l2130_defaults_its_tails_to_that_breakout(page):
-    """A spare box typed L21-30 breaks out to True1 (the L21-30 type's
+    """A spare box typed L21-30 breaks out to TRUE1 (the L21-30 type's
     first breakout) for a tail nobody holds; a holder whose breakout is
-    l2130-powercon reads powerCON. A Multi 120 box (Edison / True1 /
-    powerCON since 2026-09-22) reads its holder's breakout - True1 for a
-    208V True1 holder (the box names True1, so the holder's own wins),
+    l2130-powercon reads powerCON. A Multi 120 box (Edison / TRUE1 /
+    powerCON since 2026-09-22) reads its holder's breakout - TRUE1 for a
+    208V TRUE1 holder (the box names TRUE1, so the holder's own wins),
     Edison for a 120V Edison holder - and for a tail nobody holds it
     reads EDISON: the spare follows the box TYPE's own breakout order
     (Multi 120 leads with Edison), never the breakout catalog's order,
-    which put True1 first and read a spare Multi 120 as True1 (the bug
-    this pins, 2026-09-22). A spare Multi 208 reads True1 the same way.
+    which put TRUE1 first and read a spare Multi 120 as TRUE1 (the bug
+    this pins, 2026-09-22). A spare Multi 208 reads TRUE1 the same way.
     Off any distro the screen's own breakout answers; an Edison holder
     only reads Edison at a voltage that can run it (up to 120V), because
     a screen always carries an eligible breakout."""
@@ -899,9 +908,9 @@ def test_a_box_typed_l2130_defaults_its_tails_to_that_breakout(page):
         return r;
     }""", ids)
     assert out == {
-        'spare': 'True1', 'true1Holder': 'True1', 'box1': 'True1',
-        'soca120': 'True1', 'soca120Spare': 'Edison', 'soca208Spare': 'True1',
-        'offDistro': 'True1',
+        'spare': 'TRUE1', 'true1Holder': 'TRUE1', 'box1': 'TRUE1',
+        'soca120': 'TRUE1', 'soca120Spare': 'Edison', 'soca208Spare': 'TRUE1',
+        'offDistro': 'TRUE1',
         'powerconHolder': 'powerCON', 'soca120Edison': 'Edison',
         'offDistroL620': 'L6-20',
     }, out
@@ -1058,7 +1067,7 @@ def test_the_quick_fills_sit_above_the_rows(page):
     assert out['labels'] == ["all 10'", "all 6'", 'none', 'all'], out
     assert out['last'] == 'hw-dock-cable-total', out
     assert out['headers'][-1] == 'connector', (
-        'the power sheet keeps its plug column - True1 / powerCON / Edison '
+        'the power sheet keeps its plug column - TRUE1 / powerCON / Edison '
         'are real choices', out)
     _flip(pg, ids)
     assert not _sheet(pg, ids)['open']
@@ -1094,8 +1103,8 @@ CHIP_TOP_JS = """([key, plant]) => {
 
 
 def test_a_chip_reads_its_label_and_its_length_side_by_side(page):
-    """Circuit 3 (bare in the user's own example) given a 10' True1: its
-    chip's top line reads the number, the label and "10' True1" whole, in
+    """Circuit 3 (bare in the user's own example) given a 10' TRUE1: its
+    chip's top line reads the number, the label and "10' TRUE1" whole, in
     the cable's gold, side by side and never overlapping, the bar row
     below; a long label planted in the same chip ellipsizes while the
     length still reads whole. Circuit 4, with no cable, keeps its plain
@@ -1123,7 +1132,7 @@ def test_a_chip_reads_its_label_and_its_length_side_by_side(page):
         print('\npower chip top line:', json.dumps(line))
         assert line and line['cableClass'] and line['flex'] == 'flex', line
         assert line['num'] == '3' and line['label'] == ids['labels'][2], line
-        assert line['len'] == "10' True1", line
+        assert line['len'] == "10' TRUE1", line
         assert line['labelFits'] and line['lenFits'], line
         assert line['disjoint'] and line['numDisjoint'] and line['sameLine'] and line['lenOnLine'], line
         assert line['lenColor'] == 'rgb(240, 212, 138)', line['lenColor']
@@ -1133,7 +1142,7 @@ def test_a_chip_reads_its_label_and_its_length_side_by_side(page):
         print('power chip top line, long label:', json.dumps(long))
         assert long['labelFits'] is False, long
         assert long['lenFits'] and long['disjoint'] and long['lenOnLine'], long
-        assert long['len'] == "10' True1", long
+        assert long['len'] == "10' TRUE1", long
         plain = pg.evaluate(CHIP_TOP_JS, [f'ptail-{d}-1-4', None])
         assert plain and not plain['cableClass'] and plain['len'] is None, plain
         assert plain['label'] == ids['labels'][3], plain

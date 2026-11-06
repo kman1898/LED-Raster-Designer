@@ -3,6 +3,11 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
+// The most the copies kept in Recent Files may take together, in
+// characters (about 3 MB of localStorage, which counts UTF-16), so other
+// writes always have room (saveRecentFiles).
+const RECENT_COPY_BUDGET = 1500000;
+
 class _LogsRecent {
     // ── Logs Viewer (Help → Show Logs…) ──
     openLogsModal() {
@@ -258,8 +263,8 @@ class _LogsRecent {
             input.style.width = '70px';
             input.placeholder = from ? '10' : '5';
             input.title = from
-                ? `Start of range, included — this many ${word} ago. Pick a unit next to it, or Date… to type an absolute date. Blank = no start bound.`
-                : `End of range, included — this many ${word} ago. Same units as From. Blank = now.`;
+                ? `Start of range, included: this many ${word} ago. Pick a unit next to it, or Date… to type an absolute date. Blank = no start bound.`
+                : `End of range, included: this many ${word} ago. Same units as From. Blank = now.`;
         }
     }
 
@@ -293,7 +298,7 @@ class _LogsRecent {
             // plainly that no filtering happened.
             if (statusEl) {
                 statusEl.style.color = '#f0ad4e';
-                statusEl.textContent = `${bad.join(' and ')} unrecognized — filter not applied`;
+                statusEl.textContent = `${bad.join(' and ')} unrecognized, so the filter is not applied`;
             }
             return { lines, sinceMs, untilMs, valid: false };
         }
@@ -428,53 +433,249 @@ class _LogsRecent {
             .then(r => {
                 if (!r.ok) return r.json().then(e => Promise.reject(e));
             })
-            .catch(err => alert('Failed to open logs folder: ' + (err && err.error || 'unknown')));
+            .catch(err => this._toast('The logs folder did not open: ' + (err && err.error || 'unknown error'), true, 6000));
     }
 
-    clearLogs() {
-        if (!confirm('Clear the current log file? Archived (rotated) logs will be preserved.')) return;
+    async clearLogs() {
+        const yes = await this.appConfirm('Clear the current log file? Archived (rotated) logs are kept.',
+            { id: 'logs-clear-modal', title: 'Clear Log', okLabel: 'Clear' });
+        if (!yes) return;
         fetch('/api/logs', { method: 'DELETE' })
             .then(r => {
                 if (!r.ok) return r.json().then(e => Promise.reject(e));
                 return r.json();
             })
             .then(() => this.refreshLogs(true))
-            .catch(err => alert('Failed to clear logs: ' + (err && err.error || 'unknown')));
+            .catch(err => this._toast('The log was not cleared: ' + (err && err.error || 'unknown error'), true, 6000));
     }
 
     // ── Recent Files ──────────────────────────────────────────────
+    //
+    // The list lives in this browser's localStorage (per machine). Since
+    // 1.6.0 an entry made where the file's path is known (the host's own
+    // Save and Open dialogs) keeps only the path, the show's name, its
+    // screen count and when it was last used, and opening it reads the
+    // FILE again (openProjectFromPath): the show on disk, as last saved
+    // on any machine. Before that, every entry held a whole copy of the
+    // show, and the copy went stale: a full localStorage (about 5 MB on
+    // the Mac) made the update throw after the file was written, a show
+    // saved on the other machine opened as this machine's copy, two files
+    // of one name shared one entry, and a cancelled save still updated it.
+    //
+    // An entry whose path is not known (a browser download, or a remote
+    // client's save, or an entry from before 1.6.0) still keeps its copy,
+    // and opening it says so. Entries are keyed by path, else by name.
 
     getRecentFiles() {
         try {
-            return JSON.parse(localStorage.getItem('ledRasterRecentFiles') || '[]');
+            const list = JSON.parse(localStorage.getItem('ledRasterRecentFiles') || '[]');
+            return Array.isArray(list) ? list.filter(e => e && (e.path || e.name)) : [];
         } catch (e) {
             return [];
         }
     }
 
+    // Write the list. Never throws: a full localStorage drops the oldest
+    // stored copies (path entries cost almost nothing) and tries again.
+    // The kept copies together stay under RECENT_COPY_BUDGET characters
+    // (the newest copy is always kept), so Recent Files can no longer fill
+    // localStorage on its own. Returns whether the list was written.
+    //
+    // Storage filled by something else (QA round 3: a save then went
+    // unlisted, the log said recent_files_write_failed and the window said
+    // nothing): with no copies left to drop, the oldest entries go, one at
+    // a time, the newest kept, the way the list's 20th entry falls off.
+    // If even the newest alone cannot be written, the person is told.
     saveRecentFiles(files) {
-        localStorage.setItem('ledRasterRecentFiles', JSON.stringify(files));
+        const list = this._withinCopyBudget(Array.isArray(files) ? files.slice() : []);
+        let dropped = 0;
+        for (;;) {
+            try {
+                localStorage.setItem('ledRasterRecentFiles', JSON.stringify(list));
+                if (dropped) sendClientLog('recent_files_quota_trimmed', { dropped, kept: list.length });
+                return true;
+            } catch (e) {
+                const quota = e && (e.name === 'QuotaExceededError'
+                    || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014);
+                let oldest = -1;
+                if (quota) {
+                    for (let i = list.length - 1; i >= 0; i--) {
+                        if (list[i] && list[i].data) { oldest = i; break; }
+                    }
+                    if (oldest < 0 && list.length > 1) oldest = list.length - 1;
+                }
+                if (oldest < 0) {
+                    sendClientLog('recent_files_write_failed', {
+                        name: e && e.name, message: e && e.message, entries: list.length, dropped
+                    });
+                    if (typeof this._toast === 'function') {
+                        this._toast(quota
+                            ? 'Recent Files could not be updated: the storage this app keeps in the browser is full.'
+                            : 'Recent Files could not be updated.', true, 8000);
+                    }
+                    return false;
+                }
+                list.splice(oldest, 1);
+                dropped += 1;
+            }
+        }
     }
 
-    addToRecentFiles(projectData) {
-        if (!projectData || !projectData.name) return;
-        const recent = this.getRecentFiles();
-        // Remove existing entry with the same name
-        const filtered = recent.filter(f => f.name !== projectData.name);
-        // Add to front
-        filtered.unshift({
-            name: projectData.name,
-            timestamp: Date.now(),
-            layerCount: projectData.layers ? projectData.layers.length : 0,
-            data: projectData
+    // The list with the oldest kept copies dropped until the copies fit
+    // the budget; path entries are never dropped here.
+    _withinCopyBudget(list) {
+        let used = 0, first = true;
+        return list.filter(e => {
+            if (!e || !e.data) return true;
+            let size = 0;
+            try { size = JSON.stringify(e.data).length; } catch (_) { return false; }
+            if (!first && used + size > RECENT_COPY_BUDGET) return false;
+            first = false;
+            used += size;
+            return true;
         });
-        // Keep max 10
-        // Keep max 20 recent files
-        this.saveRecentFiles(filtered.slice(0, 20));
-        this.updateRecentFilesMenu();
+    }
+
+    // Make room in localStorage for another write: drop the oldest kept
+    // copy from Recent Files. True when one went.
+    pruneRecentCopies() {
+        const list = this.getRecentFiles();
+        for (let i = list.length - 1; i >= 0; i--) {
+            if (!list[i] || !list[i].data) continue;
+            const name = list[i].name;
+            list.splice(i, 1);
+            try {
+                localStorage.setItem('ledRasterRecentFiles', JSON.stringify(list));
+            } catch (e) {
+                // Still too big to write back: take the whole list out.
+                try { localStorage.removeItem('ledRasterRecentFiles'); } catch (_) { return false; }
+                sendClientLog('recent_files_cleared_for_space', { entries: list.length + 1 });
+                return true;
+            }
+            sendClientLog('recent_files_copy_dropped_for_space', { name });
+            try { this.updateRecentFilesMenu(); } catch (_) { /* the list is still written */ }
+            return true;
+        }
+        return false;
+    }
+
+    // A path as a key: one spelling per file (Windows paths and drive
+    // letters are case-blind, and take either slash).
+    _recentPathKey(path) {
+        const p = String(path || '').replace(/\\/g, '/');
+        return /^[a-z]:\//i.test(p) || p.startsWith('//') ? p.toLowerCase() : p;
+    }
+
+    recentFileKey(entry) {
+        if (!entry) return '';
+        return entry.path ? 'path:' + this._recentPathKey(entry.path) : 'name:' + (entry.name || '');
+    }
+
+    _recentScreenCount(projectData) {
+        const layers = projectData && Array.isArray(projectData.layers) ? projectData.layers : [];
+        return layers.filter(l => l && (l.type || 'screen') === 'screen').length;
+    }
+
+    // List the show at the top of Recent Files: by its path when the
+    // file's path is known (no copy of the show is kept), else as a copy
+    // under its name. Never throws, so a save or an open never fails on
+    // its account.
+    addToRecentFiles(projectData, opts = {}) {
+        try {
+            if (!projectData || !projectData.name) return false;
+            const path = opts.path || null;
+            const now = Date.now();
+            const entry = path
+                ? { name: projectData.name, path, timestamp: now,
+                    screenCount: this._recentScreenCount(projectData) }
+                : { name: projectData.name, timestamp: now, savedAt: now,
+                    screenCount: this._recentScreenCount(projectData),
+                    data: JSON.parse(JSON.stringify(projectData)) };
+            const key = this.recentFileKey(entry);
+            // The same file goes; so does a kept copy under the same name,
+            // which this listing supersedes (an older copy of the same show
+            // is what reopened stale).
+            const rest = this.getRecentFiles().filter(f => this.recentFileKey(f) !== key
+                && !(!f.path && f.name === entry.name));
+            rest.unshift(entry);
+            const ok = this.saveRecentFiles(rest.slice(0, 20));
+            this.updateRecentFilesMenu();
+            return ok;
+        } catch (e) {
+            sendClientLog('recent_files_add_failed', { message: e && e.message });
+            return false;
+        }
+    }
+
+    // A reopened entry moves to the top as it is (a kept copy is not
+    // re-copied, so its date stays the date of the copy).
+    touchRecentFile(key) {
+        try {
+            const list = this.getRecentFiles();
+            const i = list.findIndex(f => this.recentFileKey(f) === key);
+            if (i < 0) return false;
+            const [entry] = list.splice(i, 1);
+            entry.timestamp = Date.now();
+            list.unshift(entry);
+            const ok = this.saveRecentFiles(list);
+            this.updateRecentFilesMenu();
+            return ok;
+        } catch (e) {
+            sendClientLog('recent_files_touch_failed', { message: e && e.message });
+            return false;
+        }
+    }
+
+    removeRecentFile(key) {
+        try {
+            const list = this.getRecentFiles().filter(f => this.recentFileKey(f) !== key);
+            const ok = this.saveRecentFiles(list);
+            this.updateRecentFilesMenu();
+            return ok;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // What a row says: the file's name when the path is known, else the
+    // show's name; under it the date and the screen count.
+    recentFileLabel(entry) {
+        if (entry && entry.path) {
+            const base = String(entry.path).split(/[\\/]/).pop() || entry.path;
+            return base.replace(/\.json$/i, '');
+        }
+        return (entry && entry.name) || 'Untitled';
+    }
+
+    // The labels of a whole list: two files of one name (two folders)
+    // each say their folder too, "Show A (Tour)" and "Show A (Backup)".
+    recentFileLabels(list) {
+        const labels = (list || []).map(e => this.recentFileLabel(e));
+        const counts = {};
+        labels.forEach(l => { counts[l] = (counts[l] || 0) + 1; });
+        return labels.map((l, i) => {
+            const e = list[i];
+            if (counts[l] < 2 || !e || !e.path) return l;
+            const parts = String(e.path).split(/[\\/]/).filter(Boolean);
+            return parts.length >= 2 ? `${l} (${parts[parts.length - 2]})` : l;
+        });
+    }
+
+    recentFileDetail(entry) {
+        const date = new Date(entry.timestamp);
+        const dateStr = isNaN(date.getTime()) ? ''
+            : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        let n = entry.screenCount;
+        if (typeof n !== 'number') {
+            n = entry.data ? this._recentScreenCount(entry.data) : (entry.layerCount || 0);
+        }
+        const screens = `${n} ${n === 1 ? 'screen' : 'screens'}`;
+        return dateStr ? `${dateStr} · ${screens}` : screens;
     }
 
     updateRecentFilesMenu() {
+        // The start page shows the same list (app-start-page.js).
+        if (typeof this.renderStartPageRecent === 'function') this.renderStartPageRecent();
         const list = document.getElementById('recent-files-list');
         const divider = document.getElementById('recent-files-divider');
         if (!list) return;
@@ -489,13 +690,13 @@ class _LogsRecent {
             return;
         }
         if (divider) divider.style.display = '';
+        const labels = this.recentFileLabels(recent);
         recent.forEach((file, idx) => {
             const item = document.createElement('div');
             item.className = 'menu-option';
             item.setAttribute('data-action', `recent-file-${idx}`);
-            const date = new Date(file.timestamp);
-            const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-            item.innerHTML = `<div class="recent-file-item"><span class="recent-file-name">${this.escapeHtml(file.name)}</span><span class="recent-file-date">${dateStr} &middot; ${file.layerCount || 0} layers</span></div>`;
+            if (file.path) item.title = file.path;
+            item.innerHTML = `<div class="recent-file-item"><span class="recent-file-name">${this.escapeHtml(labels[idx])}</span><span class="recent-file-date">${this.escapeHtml(this.recentFileDetail(file))}</span></div>`;
             item.addEventListener('click', (e) => {
                 e.stopPropagation();
                 // Hide all menus
@@ -517,111 +718,86 @@ class _LogsRecent {
         ));
     }
 
-    loadRecentFile(idx) {
+    // Open entry `idx`. An entry with a path reads the file from disk;
+    // one without opens the copy it kept and says so. Both open through
+    // _openProjectData, File > Open's own path. Resolves true when the
+    // show opened.
+    async loadRecentFile(idx) {
         const recent = this.getRecentFiles();
-        if (idx < 0 || idx >= recent.length) return;
+        if (idx < 0 || idx >= recent.length) return false;
+        // Unsaved work is asked about first, as File > Open and New do.
+        if (!(await this.confirmUnsavedChanges('open'))) return false;
         const file = recent[idx];
+        if (file && file.path) {
+            sendClientLog('recent_file_open', { path: file.path });
+            return this.openProjectFromPath(file.path, { source: 'recent' });
+        }
         if (!file || !file.data) {
-            alert('Recent file data is unavailable.');
-            return;
+            this._toast('This Recent Files entry has no copy of the show to open.', true, 6000);
+            return false;
         }
-        try {
-            this.resetApplicationState();
-            this.project = file.data;
-            if (this.project.layers) {
-                this.project.layers.forEach(layer => {
-                    this.applyMissingLayerDefaults(layer);
-                    this.normalizeLoadedPowerFlowPattern(layer);
-                });
-            }
-            // Same stamp as loadProjectFromFile, for the same reason: the
-            // migrations have run, the PUT below never stamps on the server.
-            this.project.app_version = this.appVersion();
-            // v0.11.0: same Armor Port Mapping fix-up as loadProjectFromFile.
-            // Runs before the PUT so the server (and the first undo snapshot)
-            // get the corrected mode.
-            this.normalizeArmorPortMapping(this.project);
-            // Sync renderer's pixel/show raster fields from the loaded file.
-            // syncRasterFromProject handles view-aware raster + toolbar input.
-            this.syncRasterFromProject();
-            if (file.data.raster_width && file.data.raster_height) {
-                this.saveRasterSize();
-            }
-            this.updateUI();
-            if (this.project.layers && this.project.layers.length > 0) {
-                this.selectLayer(this.project.layers[0]);
-            }
-            this.saveClientSideProperties();
-            window.canvasRenderer.fitToView();
+        const when = new Date(file.savedAt || file.timestamp);
+        const whenStr = isNaN(when.getTime()) ? 'an earlier session'
+            : when.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+        sendClientLog('recent_file_open_copy', { name: file.name, savedAt: file.savedAt || file.timestamp || null });
+        const opened = await this._openProjectData(JSON.parse(JSON.stringify(file.data)),
+            { source: 'recent', recentKey: this.recentFileKey(file) });
+        if (opened && typeof this._toast === 'function') {
+            this._toast(`This is the copy of ${file.name} kept in Recent Files from ${whenStr}, not the file itself. Use File > Open to open the file.`, false, 9000);
+        }
+        return opened;
+    }
 
-            const loaded = this.project;
-            this._layerSavesSettled().then(() => fetch('/api/project', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(loaded)
-            }))
-                .then(res => res.json())
-                .then(data => {
-                    if (!data || !Array.isArray(data.layers)) {
-                        throw new Error('Invalid project data returned from server');
-                    }
-                    this.project = data;
-                    this.dedupeProjectLayers('load_recent_file');
-                    this.syncRasterFromProject();
-                    if (this.project.layers) {
-                        this.project.layers.forEach(layer => {
-                            this.applyMissingLayerDefaults(layer);
-                            this.normalizeLoadedPowerFlowPattern(layer);
-                        });
-                    }
-                    // v0.11.0: no-op when the pre-PUT pass already fixed them;
-                    // kept so the object that feeds resetHistory() below is
-                    // always normalized.
-                    this.normalizeArmorPortMapping(this.project);
-                    this.updateUI();
-                    if (this.project.layers && this.project.layers.length > 0) {
-                        this.selectLayer(this.project.layers[0]);
-                    }
-                    this.saveClientSideProperties();
-                    window.canvasRenderer.fitToView();
-                    this.updateLayers(this.project.layers, false, 'Recent File Load Sync');
-                    this.resetHistory('Initial State');
-                    document.getElementById('status-message').textContent = 'Project loaded from recent files';
-                    setTimeout(() => {
-                        document.getElementById('status-message').textContent = 'Ready';
-                    }, 2000);
-                    // Slice 12: same migration toast path as loadProjectFromFile.
-                    // Recent-file loads also go through PUT /api/project so the
-                    // server emits _migration_notice when the cached payload
-                    // lacked format_version: "0.8".
-                    if (data && data._migration_notice) {
-                        delete this.project._migration_notice;
-                        sendClientLog('migration_notice_shown', {
-                            name: this.project.name,
-                            layers: this.project.layers ? this.project.layers.length : 0,
-                            source: 'recent'
-                        });
-                        if (typeof this._toast === 'function') {
-                            this._toast(
-                                'Project upgraded to multi-canvas format (v0.8). Save to keep changes. Older app versions can no longer open this file.',
-                                false,
-                                10000
-                            );
-                        }
-                    }
-                })
-                .catch(() => {
-                    this.resetHistory('Initial State');
-                    document.getElementById('status-message').textContent = 'Project loaded (server sync failed)';
-                    setTimeout(() => {
-                        document.getElementById('status-message').textContent = 'Ready';
-                    }, 2000);
-                });
-            // Update timestamp so it moves to top of recent list
-            this.addToRecentFiles(file.data);
-        } catch (error) {
-            alert('Error loading recent file: ' + error.message);
-        }
+    // A listed file that is no longer on disk: say so, and offer to take
+    // it off the list. Never opens anything in its place. Resolves true
+    // when the entry was removed.
+    recentFileMissing(path) {
+        const key = this.recentFileKey({ path });
+        const listed = this.getRecentFiles().some(f => this.recentFileKey(f) === key);
+        const name = this.recentFileLabel({ path });
+        const modal = document.createElement('div');
+        modal.id = 'recent-missing-modal';
+        modal.className = 'modal';
+        modal.style.display = 'block';
+        modal.innerHTML = `<div class="modal-content recent-missing-content">
+            <h2>File not found</h2>
+            <p class="recent-missing-text"></p>
+            <div class="recent-missing-path"></div>
+            <div class="recent-missing-buttons"></div>
+        </div>`;
+        modal.querySelector('.recent-missing-text').textContent =
+            `${name} is no longer where it was saved. It may have been moved, renamed or deleted.`
+            + (listed ? ' Remove it from Recent Files?' : '');
+        modal.querySelector('.recent-missing-path').textContent = path;
+        const buttons = modal.querySelector('.recent-missing-buttons');
+        return new Promise(resolve => {
+            const done = (remove) => {
+                document.removeEventListener('keydown', onKey, true);
+                modal.remove();
+                if (remove) this.removeRecentFile(key);
+                sendClientLog('recent_file_missing_answered', { path, removed: !!remove });
+                resolve(!!remove);
+            };
+            const onKey = (e) => {
+                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+            };
+            const button = (label, primary, remove) => {
+                const b = document.createElement('button');
+                b.className = primary ? 'btn btn-primary' : 'btn';
+                b.textContent = label;
+                b.addEventListener('click', () => done(remove));
+                buttons.appendChild(b);
+                return b;
+            };
+            if (listed) {
+                button('Keep in list', false, false);
+                button('Remove', true, true).id = 'recent-missing-remove';
+            } else {
+                button('OK', true, false);
+            }
+            document.addEventListener('keydown', onKey, true);
+            document.body.appendChild(modal);
+        });
     }
 
     // ── End Recent Files ─────────────────────────────────────────

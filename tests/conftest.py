@@ -85,6 +85,34 @@ def _scratch_cable_stock_presets_file(tmp_path_factory):
     yield routes_cable_stock.CABLE_STOCK_PRESETS_FILE
 
 
+# No test ever opens a real Save or folder dialog on the desktop. The server
+# runs in the test process, so an export a test did not stub reached
+# PowerShell / osascript and put a dialog in front of whoever was at the
+# machine (2026-10-30). A dialog helper about to really run answers
+# "unavailable" - the app's own fallback, a browser download. A test that
+# wants another answer patches _run_dialog_command or the dialog choosers
+# (test_native_dialogs), or fakes subprocess.run (test_native_dialog_contract),
+# and those still go through.
+
+@pytest.fixture(scope="session", autouse=True)
+def _no_os_dialogs():
+    import subprocess
+    import routes_dialog
+    real_run_dialog = routes_dialog._run_dialog_command
+    real_subprocess_run = subprocess.run
+
+    def guarded(cmd, what='dialog'):
+        binary = os.path.basename(str((cmd or [''])[0])).lower()
+        if (binary in ('powershell', 'powershell.exe', 'osascript', 'zenity')
+                and subprocess.run is real_subprocess_run):
+            return None, 'unavailable'
+        return real_run_dialog(cmd, what)
+
+    routes_dialog._run_dialog_command = guarded
+    yield
+    routes_dialog._run_dialog_command = real_run_dialog
+
+
 # ── Waiting for the page to settle ───────────────────────────────────────
 # A fixed sleep and then a read is a guess about how fast the machine is.
 # On a busy Windows box the dock's fold transition and the next animation
@@ -92,6 +120,43 @@ def _scratch_cable_stock_presets_file(tmp_path_factory):
 # arrived 556 ms after the click, not the usual 20 ms), the read saw the old
 # state, and a test that failed half-way left the dock folded for every test
 # after it in that worker.
+
+def open_app(page, url=None, timeout_ms=60000):
+    """Load the app (reload it, with no url) and wait for the real ready
+    signal: window.app is the app (every ESM mixin installed) and its
+    first project load is done.
+
+    A fixed sleep after goto() was the old wait. Two things it missed:
+    the first load can land after it (2 of 60 loads under a CPU burner
+    were not done 2 s after DOMContentLoaded), and a page whose module
+    graph failed - one app-*.js that did not arrive - never builds an app
+    at all, so window.app stays the <div id="app"> element and the next
+    read said only "app.dedupeProjectLayers is not a function", once per
+    test of the module. The modules run before DOMContentLoaded, so a page
+    with no app by then never gets one: that stops here, naming what
+    failed to load."""
+    trouble = []
+    on_failed = lambda r: trouble.append(f'{r.url} failed: {r.failure}')
+    on_resp = lambda r: r.status >= 400 and trouble.append(f'{r.url} answered {r.status}')
+    on_error = lambda e: trouble.append(f'page error: {e}')
+    page.on('requestfailed', on_failed)
+    page.on('response', on_resp)
+    page.on('pageerror', on_error)
+    try:
+        if url is None:
+            page.reload(wait_until='domcontentloaded', timeout=timeout_ms)
+        else:
+            page.goto(url, wait_until='domcontentloaded', timeout=timeout_ms)
+        built = page.evaluate(
+            "() => !!(window.app && typeof window.app.dedupeProjectLayers === 'function')")
+        assert built, ('the app never started (its modules run before DOMContentLoaded, '
+                       'so window.app is still the <div id="app">): ' + '; '.join(trouble or ['nothing reported']))
+        page.wait_for_function("() => window.app._initialLoadComplete === true", timeout=timeout_ms)
+    finally:
+        page.remove_listener('requestfailed', on_failed)
+        page.remove_listener('response', on_resp)
+        page.remove_listener('pageerror', on_error)
+
 
 def settled(page, read, ok, timeout_ms=5000):
     """read() until ok(value) holds or TIMEOUT_MS passes; return the last
@@ -329,14 +394,21 @@ def _snapshot_project():
     # and every binder sheet after it printed that engineer's initials in
     # its revision row and his name in the overview's contents
     # (2026-09-11). Snapshotting the project alone left that behind.
+    # And the page's "unsaved" answer the server keeps beside the project
+    # (routes_project.py): a module that leaves an edited show behind
+    # must not hand the next one a page that reads unsaved.
+    import routes_project
     return (copy.deepcopy(app_module.current_project),
             app_module.next_layer_id,
-            copy.deepcopy(getattr(app_module, 'server_preferences', None)))
+            copy.deepcopy(getattr(app_module, 'server_preferences', None)),
+            routes_project.project_unsaved())
 
 
 def _restore_project(snapshot):
-    project, next_id, prefs = snapshot
+    project, next_id, prefs, unsaved = snapshot
     app_module.current_project, app_module.next_layer_id = project, next_id
+    import routes_project
+    routes_project.set_project_unsaved(unsaved)
     # save_preferences REASSIGNS app.server_preferences rather than mutating
     # it, so putting the old dict back is what restores it.
     if prefs is not None:

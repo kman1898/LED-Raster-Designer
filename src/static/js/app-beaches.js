@@ -22,7 +22,7 @@
 // Info panel (#layer-beach, 'Set Beach'), the distro's gear (distro-beach-<id>,
 // 'Set Distro Beach') and the box's gear (processor-cvt-beach-<id>, 'Set Box
 // Beach'). It is a <select> of the project's beaches in order, a blank
-// "- no beach -" entry, and a last "+ New beach..." entry that prompts for a
+// "No beach" entry, and a last "+ New beach..." entry that prompts for a
 // name, creates the beach and selects it - one history entry for the whole
 // gesture, under the picker's own action name.
 //
@@ -31,7 +31,7 @@
 // other organising things (canvases, groups) are already renamed by
 // double-click and reordered by drag, so the idiom is the panel's own.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, holdDragOff } from './helpers.js';
 
 // The picker's "make one" entry. Never a beach id (ids are b<N>).
 const NEW_BEACH = '__new_beach__';
@@ -131,7 +131,7 @@ class _Beaches {
             select.appendChild(o);
             return o;
         };
-        opt('', mixed ? '-' : '— no beach —');
+        opt('', mixed ? '-' : 'No beach');
         for (const b of this.getBeaches()) opt(b.id, b.name || b.id);
         // An action, not a value: picking it prompts for a name. Marked so
         // a sweep over the app's fields (tests/test_all_fields_sweep.py)
@@ -156,7 +156,7 @@ class _Beaches {
                 onPick(chosen || null);
                 return;
             }
-            const name = (window.prompt('New beach name:') || '').trim();
+            const name = ((await this.appPrompt('New beach name:', '', { id: 'beach-name-modal', title: 'New beach' })) || '').trim();
             if (!name) {
                 select.value = select.dataset.beachValue || '';
                 return;
@@ -190,7 +190,7 @@ class _Beaches {
         select.style.boxSizing = 'border-box';
         select.style.fontFamily = 'monospace';
         if (fieldKey) select.dataset.lrdField = fieldKey;
-        select.title = title || 'Where this sits - pick one of the project\'s beaches, '
+        select.title = title || 'Where this sits: pick one of the project\'s beaches, '
             + 'or make one. Every row it produces is pulled there.';
         this.fillBeachPicker(select, value);
         this.wireBeachPicker(select, onPick || (() => {}));
@@ -239,7 +239,7 @@ class _Beaches {
     // blank or nothing is selected.
     async putSelectionOnNewBeach() {
         if (!this.getSelectedScreenLayers().length) return null;
-        const name = (window.prompt('New beach name:') || '').trim();
+        const name = ((await this.appPrompt('New beach name:', '', { id: 'beach-name-modal', title: 'New beach' })) || '').trim();
         if (!name) return null;
         const beach = await this.createBeach(name, null);
         if (!beach) return null;
@@ -279,7 +279,7 @@ class _Beaches {
             entries,
             newBeach: {
                 label: '+ New beach…',
-                title: 'Make a beach and put the selection on it - one undoable step.',
+                title: 'Make a beach and put the selection on it. One undoable step.',
                 run: () => this.putSelectionOnNewBeach(),
             },
         };
@@ -352,10 +352,10 @@ class _Beaches {
         head.className = 'beaches-head';
         head.innerHTML = '<span class="beaches-title">Beaches</span>'
             + '<button type="button" class="btn btn-secondary beaches-add" '
-            + 'title="Make a beach - a position the pull sheet lists and the order the binder runs the screens in">+ Add beach</button>';
-        head.querySelector('.beaches-add').addEventListener('click', (e) => {
+            + 'title="Make a beach: a position the pull sheet lists and the order the binder runs the screens in">+ Add beach</button>';
+        head.querySelector('.beaches-add').addEventListener('click', async (e) => {
             e.stopPropagation();
-            const name = (window.prompt('New beach name:') || '').trim();
+            const name = ((await this.appPrompt('New beach name:', '', { id: 'beach-name-modal', title: 'New beach' })) || '').trim();
             if (name) this.createBeach(name);
         });
         host.appendChild(head);
@@ -377,11 +377,11 @@ class _Beaches {
             row.draggable = true;
             const n = counts.get(beach.id) || 0;
             row.innerHTML = `
-                <span class="canvas-drag-handle beach-drag-handle" title="Drag to reorder - the pull sheet and binder run in this order">⋮⋮</span>
+                <span class="canvas-drag-handle beach-drag-handle" title="Drag to reorder. The pull sheet and binder run in this order">⋮⋮</span>
                 <span class="beach-order">${index + 1}</span>
                 <input class="beach-name-input" type="text" value="${this._escapeAttr(beach.name || '')}" readonly title="Double-click to rename">
                 <span class="beach-count" title="Screens, distros and boxes on this beach">${n ? n : ''}</span>
-                <button type="button" class="layer-btn beach-remove" title="Remove this beach - whatever is on it goes back to its own position">×</button>
+                <button type="button" class="layer-btn beach-remove" title="Remove this beach. Whatever is on it goes back to its own position">×</button>
             `;
             this._wireBeachRow(row, beach);
             list.appendChild(row);
@@ -393,17 +393,43 @@ class _Beaches {
         const nameInput = row.querySelector('.beach-name-input');
         const removeBtn = row.querySelector('.beach-remove');
 
-        nameInput.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
+        // The second click opens the edit as well as the dblclick: the line
+        // is rebuilt when the server answers a rename, so ending one beach's
+        // rename and double-clicking the next can put a new field under the
+        // second click, and Firefox sends no dblclick when the two clicks
+        // land on different elements. Whichever comes first opens it; the
+        // other finds it open.
+        //
+        // The read-only name is draggable and its dragstart reaches the
+        // row's, as on the canvas headers (WebKit may start no ancestor
+        // drag from a press on a text field). While it is edited neither the
+        // field nor the row is draggable, so a drag in the field selects
+        // text instead of moving the beach (helpers.js holdDragOff).
+        nameInput.draggable = true;
+        let releaseDrag = null;
+        const startRename = () => {
+            if (!nameInput.readOnly) return;
             nameInput.readOnly = false;
+            releaseDrag = holdDragOff(nameInput, row);
             nameInput.classList.add('editing');
             nameInput.focus();
             nameInput.select();
+        };
+        nameInput.addEventListener('click', (e) => {
+            if (nameInput.readOnly && e.detail >= 2) startRename();
         });
-        const commitName = () => {
-            if (nameInput.readOnly) return;
+        nameInput.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            startRename();
+        });
+        const endEdit = () => {
             nameInput.readOnly = true;
             nameInput.classList.remove('editing');
+            if (releaseDrag) { releaseDrag(); releaseDrag = null; }
+        };
+        const commitName = () => {
+            if (nameInput.readOnly) return;
+            endEdit();
             const newName = nameInput.value.trim();
             if (newName && newName !== beach.name) {
                 this.renameBeach(beach.id, newName);
@@ -416,8 +442,7 @@ class _Beaches {
             if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
             else if (e.key === 'Escape') {
                 nameInput.value = beach.name || '';
-                nameInput.readOnly = true;
-                nameInput.classList.remove('editing');
+                endEdit();
                 nameInput.blur();
             }
             if (!nameInput.readOnly) e.stopPropagation();

@@ -3,7 +3,7 @@
 "i like option one that i can import and edit further. or better yet edit
 in the app and then export a whole file i can share" (user, 2026-09-06).
 So: a modal over the engine's list (app-pull-sheet-editor.js) laid out
-like the workbook - positions side by side, Cable Type · Length · Qty ·
+like the workbook - positions side by side, Gear · Length · Qty ·
 Label · Notes, TOTALS at the right - whose edits are stored as deltas in
 project.pullSheetEdits and overlaid by buildPullSheet(), the ONE list the
 workbook export and the binder's pull pages both read. Engine rows keep
@@ -62,8 +62,10 @@ def test_the_menu_item_the_modal_the_button_and_the_gear_list_are_served(client)
     r = client.get('/api/pull-sheet/gear-list')
     assert r.status_code == 200
     v = r.get_json()
-    for word in ('Tru-1', 'Multi', 'Ether-con Snake', 'Tru-1 2fer'):
+    for word in ('TRUE1', 'Multi', 'etherCON Snake', 'etherCON', 'etherCON Barrel', 'TRUE1 2fer'):
         assert word in v['types'], word
+    # the template's old spellings are never offered (connector_spelling)
+    assert not [t for t in v['types'] if 'Ether-con' in t or 'Tru-1' in t], v['types']
     assert 'EA' in v['lengths'] and "100'" in v['lengths']
     assert v == dict(pull_sheet.gear_list(), meter_lengths=pull_sheet.meter_gear_lengths())
 
@@ -126,7 +128,7 @@ PROC = 'Processor - H9 · Pull list'
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)
@@ -266,34 +268,39 @@ def test_the_file_menu_opens_the_editor_laid_out_like_the_workbook(page):
     # a loose screen is its own position; its name is not said twice
     assert _pos(pg, ids['center']).locator('.pull-pos-screens').inner_text() == ''
     heads = _pos(pg, ids['sr']).locator('thead th').evaluate_all("els => els.map(e => e.textContent)")
-    assert heads == ['Cable Type', 'Length', 'Qty', 'Label', 'Notes', '']
+    assert heads == ['Gear', 'Length', 'Qty', 'Label', 'Notes', '']
     engine = pg.evaluate(LIST_JS)
     keys = _pos(pg, ids['sr']).locator('tr.pull-row').evaluate_all("els => els.map(e => e.dataset.key)")
     # a grouped wall's jumper rows are one per member (2026-10-01), keyed
     # with the screen they sit on so an edit lands on that screen's row
     assert keys == [f"{r['type']}|{r['length']}" + (f"|{r['split']}" if r.get('split') else '')
+                    + (f"|{r['apart']}" if r.get('apart') else '')
                     for r in engine['positions'][0]['rows']]
+    # a snake's row is keyed with its snake, so two never share an edit
+    assert any(k.startswith("Cat6 Snake|100'|snake:") for k in keys), keys
     assert "Data Jump|1'|WALL-A" in keys, keys
     # type and length are readouts, the three others fields
     first = _pos(pg, ids['sr']).locator('tr.pull-row').first
     assert first.locator('td.pull-ro').count() == 2 and first.locator('input').count() == 3
     assert [f for f in first.locator('input').evaluate_all("els => els.map(e => e.dataset.field)")] == ['qty', 'label', 'notes']
-    assert _cell(pg, ids['sr'], "Tru-1|10'", 'qty').input_value() == '2'
-    assert _cell(pg, ids['sr'], "Tru-1|10'", 'label').input_value() == 'SR1-1, SR1-2'
+    assert _cell(pg, ids['sr'], "TRUE1|10'", 'qty').input_value() == '2'
+    assert _cell(pg, ids['sr'], "TRUE1|10'", 'label').input_value() == 'SR1-1, SR1-2'
     # TOTALS is a readout block with the engine's totals
     tot = pg.locator('#pull-sheet-totals tr').evaluate_all(
         "els => els.slice(1).map(tr => [...tr.children].map(td => td.textContent))")
-    # the jumpers head the totals - one row per length (2026-09-25,
-    # test_pull_list's seed) - then the distro's own row, by its Type
-    # ("Distro" with none, 2026-10-18)
-    assert tot[0:4] == [['Data Jump', "1'", '9', 'WALL-A'], ['Data Jump', "1.5'", '4', 'CENTER'],
+    # the screens name no panel, so no panel row (owner, 2026-11-05): the
+    # Cat6 home runs head the totals, then the jumpers - one row per length
+    # (2026-09-25, test_pull_list's seed) - then the distro's own row, by
+    # its Type ("Distro" with none, 2026-10-18)
+    assert tot[0:2] == [['Cat6', "50'", '1', 'SR-3'], ['Cat6 Snake', "100'", '1', 'SR-1, SR-2']]
+    assert tot[2:6] == [['Data Jump', "1'", '9', 'WALL-A'], ['Data Jump', "1.5'", '4', 'CENTER'],
                         ['Data Jump', "2'", '2', 'WALL-A'], ['Data Jump', "6'", '11', 'WALL-B']]
-    assert tot[4] == ['Distro', 'EA', '1', 'SR']
+    assert tot[6] == ['Distro', 'EA', '1', 'SR']
     assert pg.locator('#pull-sheet-totals input').count() == 0
     assert 'tails' not in pg.locator('#pull-sheet-modal').inner_text().lower()
     # the pickers carry the GEAR LIST plus the show's own words
     opts = pg.locator('#pull-sheet-types option').evaluate_all("els => els.map(e => e.value)")
-    assert 'Tru-1' in opts and 'Multi' in opts and 'Edison 2fer' in opts and 'Data Jump' in opts
+    assert 'TRUE1' in opts and 'Multi' in opts and 'TRUE1 2fer' in opts and 'Data Jump' in opts
     lens = pg.locator('#pull-sheet-lengths option').evaluate_all("els => els.map(e => e.value)")
     assert 'EA' in lens and "100'" in lens and "125'" in lens
     _close(pg)
@@ -324,9 +331,9 @@ def test_a_qty_override_rides_into_the_wrapper_the_workbook_and_the_binder(page)
     pg, ids = page
     _open(pg)
     before = pg.evaluate(HIST_JS)
-    _set(pg, _cell(pg, ids['sr'], "Tru-1|10'", 'qty'), '7')
-    assert pg.evaluate(STORE_JS) == {'positions': {'g1': {'rows': [{'key': "Tru-1|10'", 'qty': 7}], 'added': []}}}
-    cell = _cell(pg, ids['sr'], "Tru-1|10'", 'qty')
+    _set(pg, _cell(pg, ids['sr'], "TRUE1|10'", 'qty'), '7')
+    assert pg.evaluate(STORE_JS) == {'positions': {'g1': {'rows': [{'key': "TRUE1|10'", 'qty': 7}], 'added': []}}}
+    cell = _cell(pg, ids['sr'], "TRUE1|10'", 'qty')
     assert 'pull-edited' in cell.locator('xpath=..').get_attribute('class')
     assert 'pull-row-edited' in cell.locator('xpath=../..').get_attribute('class')
     assert cell.get_attribute('title') == 'The show says 2'
@@ -334,35 +341,35 @@ def test_a_qty_override_rides_into_the_wrapper_the_workbook_and_the_binder(page)
     assert after['steps'] == before['steps'] + 1 and after['last'] == 'Edit Pull Sheet Row'
     # the wrapper: the position row and the total move; the engine does not
     sheet = pg.evaluate(SHEET_JS)
-    assert ('Tru-1', "10'", 7, 'SR1-1, SR1-2', '') in _rows_of(sheet, 'SR Beach')
-    assert _totals(sheet)[('Tru-1', "10'")] == (7, 'SR1-1, SR1-2', '')
+    assert ('TRUE1', "10'", 7, 'SR1-1, SR1-2', '') in _rows_of(sheet, 'SR Beach')
+    assert _totals(sheet)[('TRUE1', "10'")] == (7, 'SR1-1, SR1-2', '')
     engine = pg.evaluate(LIST_JS)
-    assert ('Tru-1', "10'", 2, 'SR1-1, SR1-2', '') in _rows(engine['positions'][0]['rows'])
+    assert ('TRUE1', "10'", 2, 'SR1-1, SR1-2', '') in _rows(engine['positions'][0]['rows'])
     # an untouched total is the engine's own, folded labels and all
-    assert _totals(sheet)[('Tru-1 Breakout', 'EA')] == (2, 'SR 1-2', '')
+    assert _totals(sheet)[('TRUE1 Breakout', 'EA')] == (2, 'SR1, SR2', '')
     assert _totals(sheet)[('Data Jump', "6'")] == (11, 'WALL-B', '')
     # the TOTALS block redrew without rebuilding the edited row
     tot = pg.locator('#pull-sheet-totals tr').evaluate_all(
         "els => els.slice(1).map(tr => [...tr.children].map(td => td.textContent))")
-    assert ['Tru-1', "10'", '7', 'SR1-1, SR1-2'] in tot
+    assert ['TRUE1', "10'", '7', 'SR1-1, SR1-2'] in tot
     # the workbook export from the footer posts the edited list
     wb, body = _export_xlsx(pg)
     sr = next(p for p in body['pull_list']['positions'] if p['name'] == 'SR Beach')
-    assert {(r['type'], r['length']): r['qty'] for r in sr['rows']}[('Tru-1', "10'")] == 7
+    assert {(r['type'], r['length']): r['qty'] for r in sr['rows']}[('TRUE1', "10'")] == 7
     ws = wb['Pull Sheet']
     assert ws.cell(5, 1).value == 'SR Beach'
-    assert ('Tru-1', "10'", 7, 'SR1-1, SR1-2', None) in _block(ws, 0)
+    assert ('TRUE1', "10'", 7, 'SR1-1, SR1-2', None) in _block(ws, 0)
     assert pg.locator('#pull-sheet-modal').is_visible(), 'the editor stays up after an export'
     # the binder's pull sheet (SR Beach's column of it) and its totals page
     # draw the same figure
     cols = _columns(pg, PULL)
     assert list(cols) == ['', 'SR Beach', 'CENTER'], list(cols)
-    assert ('Tru-1', "10'", '7') in _triples(cols['SR Beach']) and ('Tru-1', "10'", '2') not in _triples(cols[''])
-    assert ('Tru-1', "10'", '7') not in _triples(cols['CENTER'])
+    assert ('TRUE1', "10'", '7') in _triples(cols['SR Beach']) and ('TRUE1', "10'", '2') not in _triples(cols[''])
+    assert ('TRUE1', "10'", '7') not in _triples(cols['CENTER'])
     # the show's pull list rides beside the processor (4.2) as its own
     # column, ALL POSITIONS over a PULL LIST table
     totals = _columns(pg, PROC, first={'All positions': 'PULL LIST'})['All positions']
-    assert ('Tru-1', "10'", '7') in _triples(totals) and ('Tru-1', "10'", '2') not in _triples(totals)
+    assert ('TRUE1', "10'", '7') in _triples(totals) and ('TRUE1', "10'", '2') not in _triples(totals)
     _close(pg)
 
 
@@ -397,7 +404,7 @@ def test_label_and_notes_overrides_wear_a_dot_and_reset_takes_the_row_back(page)
     row = _pos(pg, ids['sr']).locator('tr.pull-row[data-key="Multi|125\'"]')
     assert row.locator('td.pull-edited').count() == 0
     assert not row.locator('.pull-reset').is_visible()
-    assert ('Multi', "125'", 1, 'SR 1', '') in _rows_of(pg.evaluate(SHEET_JS), 'SR Beach')
+    assert ('Multi', "125'", 1, 'SR1', '') in _rows_of(pg.evaluate(SHEET_JS), 'SR Beach')
     # a non-number qty is refused, not stored
     _set(pg, _cell(pg, ids['sr'], "Multi|125'", 'qty'), 'lots')
     assert not any(r['key'] == "Multi|125'" for r in pg.evaluate(STORE_JS)['positions']['g1']['rows'])
@@ -409,33 +416,33 @@ def test_a_hidden_row_leaves_every_paper_and_comes_back_from_the_fold(page):
     pg, ids = page
     _open(pg)
     before = pg.evaluate(HIST_JS)
-    row = _pos(pg, ids['sr']).locator('tr.pull-row[data-key="Tru-1 Breakout|EA"]')
+    row = _pos(pg, ids['sr']).locator('tr.pull-row[data-key="TRUE1 Breakout|EA"]')
     row.locator('.pull-hide').click()
     pg.wait_for_timeout(400)
     after = pg.evaluate(HIST_JS)
     assert after['steps'] == before['steps'] + 1 and after['last'] == 'Remove Pull Sheet Row'
-    assert _pos(pg, ids['sr']).locator('tr.pull-row[data-key="Tru-1 Breakout|EA"]').count() == 0
+    assert _pos(pg, ids['sr']).locator('tr.pull-row[data-key="TRUE1 Breakout|EA"]').count() == 0
     fold = _pos(pg, ids['sr']).locator('details.pull-hidden')
     assert fold.locator('summary').inner_text() == 'Hidden rows (1)'
-    assert 'Tru-1 Breakout · EA · 2' in fold.evaluate("el => el.textContent")
+    assert 'TRUE1 Breakout · EA · 2' in fold.evaluate("el => el.textContent")
     store = pg.evaluate(STORE_JS)
-    assert {'key': 'Tru-1 Breakout|EA', 'removed': True} in store['positions']['g1']['rows']
+    assert {'key': 'TRUE1 Breakout|EA', 'removed': True} in store['positions']['g1']['rows']
     sheet = pg.evaluate(SHEET_JS)
-    assert not any(t == 'Tru-1 Breakout' for t, *_ in _rows_of(sheet, 'SR Beach'))
-    assert ('Tru-1 Breakout', 'EA') not in _totals(sheet), 'no other position has one'
+    assert not any(t == 'TRUE1 Breakout' for t, *_ in _rows_of(sheet, 'SR Beach'))
+    assert ('TRUE1 Breakout', 'EA') not in _totals(sheet), 'no other position has one'
     # the packed pull sheet: the row is off SR Beach's column and the sheet
     cols = _columns(pg, PULL)
-    assert 'Tru-1 Breakout' not in cols['SR Beach'] and 'Tru-1 Breakout' not in cols['']
+    assert 'TRUE1 Breakout' not in cols['SR Beach'] and 'TRUE1 Breakout' not in cols['']
     # restore
     fold.locator('summary').click()
     fold.locator('.pull-restore').click()
     pg.wait_for_timeout(400)
     assert pg.evaluate(HIST_JS)['last'] == 'Restore Pull Sheet Row'
-    assert _pos(pg, ids['sr']).locator('tr.pull-row[data-key="Tru-1 Breakout|EA"]').count() == 1
+    assert _pos(pg, ids['sr']).locator('tr.pull-row[data-key="TRUE1 Breakout|EA"]').count() == 1
     assert _pos(pg, ids['sr']).locator('details.pull-hidden').count() == 0
     assert pg.evaluate(STORE_JS) is None or 'g1' not in pg.evaluate(STORE_JS)['positions'] \
-        or not any(r['key'] == 'Tru-1 Breakout|EA' for r in pg.evaluate(STORE_JS)['positions']['g1']['rows'])
-    assert _totals(pg.evaluate(SHEET_JS))[('Tru-1 Breakout', 'EA')] == (2, 'SR 1-2', '')
+        or not any(r['key'] == 'TRUE1 Breakout|EA' for r in pg.evaluate(STORE_JS)['positions']['g1']['rows'])
+    assert _totals(pg.evaluate(SHEET_JS))[('TRUE1 Breakout', 'EA')] == (2, 'SR1, SR2', '')
     _close(pg)
 
 
@@ -472,7 +479,8 @@ def test_an_added_row_with_a_new_type_lands_in_the_export_and_the_gear_list(page
     assert (widget['length'], widget['qty'], widget['label'], widget['notes'], widget['side']) == ("12'", 3, 'X', 'new', 'power')
     assert _totals(sheet)[('Widget Cable', "12'")] == (3, 'X', 'new')
     # sorted into place, EA last
-    assert [t for t, *_ in _rows(center['rows'])] == ['Data Jump', 'Edison 2fer', 'Ether-con', 'Tru-1 Power Jump', 'Widget Cable']
+    assert [t for t, *_ in _rows(center['rows'])] == ['Cat6', 'Data Jump', 'Edison → TRUE1 cable', 'TRUE1 2fer',
+                                                      'TRUE1 Power Jump', 'Widget Cable']
     assert _rows(sheet['totals'])[-1][0] == 'Widget Cable' or _rows(sheet['totals'])[-1][1] == 'EA'
     # the export: the row in the CENTER block, the type in the GEAR LIST
     wb, body = _export_xlsx(pg)
@@ -491,10 +499,10 @@ def test_an_added_row_with_a_new_type_lands_in_the_export_and_the_gear_list(page
     assert center.index('Widget Cable') < center.index('DATA CABLES'), center
     assert ('Widget Cable', "12'", '3') not in _triples(cols['SR Beach'])
     # a data word goes to the data side
-    idx = pg.evaluate("(k) => window.app.addPullSheetRow(k, {type: 'Ether-con Barrel', length: 'EA', qty: 2})", ids['center'])
+    idx = pg.evaluate("(k) => window.app.addPullSheetRow(k, {type: 'Cat6 Barrel', length: 'EA', qty: 2})", ids['center'])
     assert idx == 1
     sheet = pg.evaluate(SHEET_JS)
-    barrel = next(r for p in sheet['positions'] for r in p['rows'] if r['type'] == 'Ether-con Barrel')
+    barrel = next(r for p in sheet['positions'] for r in p['rows'] if r['type'] == 'Cat6 Barrel')
     assert barrel['side'] == 'data'
     pg.evaluate("() => window.app.renderPullSheetEditor()")
     pg.wait_for_timeout(200)
@@ -516,8 +524,8 @@ def test_a_stale_override_is_kept_flagged_and_never_exported(page):
     pg, ids = page
     _open(pg)
     # WALL-B circuit 1 is the only 6' cable on SR Beach
-    _set(pg, _cell(pg, ids['sr'], "Tru-1|6'", 'qty'), '5')
-    assert _totals(pg.evaluate(SHEET_JS))[('Tru-1', "6'")][0] == 5
+    _set(pg, _cell(pg, ids['sr'], "TRUE1|6'", 'qty'), '5')
+    assert _totals(pg.evaluate(SHEET_JS))[('TRUE1', "6'")][0] == 5
     # the show changes: that cable becomes 25'
     pg.evaluate("""(ids) => {
         const app = window.app;
@@ -528,22 +536,22 @@ def test_a_stale_override_is_kept_flagged_and_never_exported(page):
     pg.wait_for_timeout(500)
     sheet = pg.evaluate(SHEET_JS)
     sr = _rows_of(sheet, 'SR Beach')
-    assert not any(t == 'Tru-1' and l == "6'" for t, l, *_ in sr)
-    assert ('Tru-1', "25'", 1, 'SR2-1', '') in sr
-    assert ('Tru-1', "6'") not in _totals(sheet) and _totals(sheet)[('Tru-1', "25'")][0] == 1
+    assert not any(t == 'TRUE1' and l == "6'" for t, l, *_ in sr)
+    assert ('TRUE1', "25'", 1, 'SR2-1', '') in sr
+    assert ('TRUE1', "6'") not in _totals(sheet) and _totals(sheet)[('TRUE1', "25'")][0] == 1
     # kept in the store, flagged on its position, out of the rows
     store = pg.evaluate(STORE_JS)
-    assert {'key': "Tru-1|6'", 'qty': 5} in store['positions']['g1']['rows']
+    assert {'key': "TRUE1|6'", 'qty': 5} in store['positions']['g1']['rows']
     stale = _pos(pg, ids['sr']).locator('.pull-stale')
     assert stale.count() == 1
     assert stale.inner_text().startswith('STALE')
-    assert "Tru-1 6' · qty \"5\"" in stale.inner_text()
-    assert _pos(pg, ids['sr']).locator('tr.pull-row[data-key="Tru-1|6\'"]').count() == 0
-    assert pg.evaluate("() => window.app.pullSheetStaleEdits().map(s => [s.positionKey, s.key])") == [['g1', "Tru-1|6'"]]
+    assert "TRUE1 6' · qty \"5\"" in stale.inner_text()
+    assert _pos(pg, ids['sr']).locator('tr.pull-row[data-key="TRUE1|6\'"]').count() == 0
+    assert pg.evaluate("() => window.app.pullSheetStaleEdits().map(s => [s.positionKey, s.key])") == [['g1', "TRUE1|6'"]]
     wb, body = _export_xlsx(pg)
     sr_rows = next(p for p in body['pull_list']['positions'] if p['name'] == 'SR Beach')['rows']
-    assert not any(r['type'] == 'Tru-1' and r['length'] == "6'" for r in sr_rows)
-    assert not any(t == 'Tru-1' and l == "6'" for t, l, *_ in _block(wb['Pull Sheet'], 0))
+    assert not any(r['type'] == 'TRUE1' and r['length'] == "6'" for r in sr_rows)
+    assert not any(t == 'TRUE1' and l == "6'" for t, l, *_ in _block(wb['Pull Sheet'], 0))
     # the show comes back: the override applies again
     pg.evaluate("""(ids) => {
         const app = window.app;
@@ -553,8 +561,8 @@ def test_a_stale_override_is_kept_flagged_and_never_exported(page):
     }""", ids)
     pg.wait_for_timeout(500)
     assert _pos(pg, ids['sr']).locator('.pull-stale').count() == 0
-    assert _cell(pg, ids['sr'], "Tru-1|6'", 'qty').input_value() == '5'
-    assert _totals(pg.evaluate(SHEET_JS))[('Tru-1', "6'")][0] == 5
+    assert _cell(pg, ids['sr'], "TRUE1|6'", 'qty').input_value() == '5'
+    assert _totals(pg.evaluate(SHEET_JS))[('TRUE1', "6'")][0] == 5
     # forget it from the stale list when it is stale again
     pg.evaluate("""(ids) => {
         const app = window.app;
@@ -567,7 +575,7 @@ def test_a_stale_override_is_kept_flagged_and_never_exported(page):
     pg.wait_for_timeout(300)
     assert pg.evaluate(HIST_JS)['last'] == 'Reset Pull Sheet Row'
     store = pg.evaluate(STORE_JS)
-    assert store is None or not any(r['key'] == "Tru-1|6'" for r in store['positions'].get('g1', {'rows': []})['rows'])
+    assert store is None or not any(r['key'] == "TRUE1|6'" for r in store['positions'].get('g1', {'rows': []})['rows'])
     pg.evaluate("""(ids) => {
         const app = window.app;
         const b = app.project.layers.find(l => l.id === ids.b);
@@ -606,7 +614,7 @@ def test_undo_and_redo_step_one_edit_at_a_time(page):
     pg.wait_for_timeout(700)
     store = pg.evaluate(STORE_JS)
     assert store['positions']['g1']['rows'] == [{'key': "Multi|100'", 'qty': 3}]
-    assert _cell(pg, ids['sr'], "Multi|100'", 'label').input_value() == 'SR 2'
+    assert _cell(pg, ids['sr'], "Multi|100'", 'label').input_value() == 'SR2'
     assert _cell(pg, ids['sr'], "Multi|100'", 'qty').input_value() == '3'
     pg.evaluate("() => window.app.undo()")
     pg.wait_for_timeout(600)
@@ -638,7 +646,7 @@ def test_the_edits_persist_through_the_project_api(page):
         return {served: back.pullSheetEdits, sheet: JSON.parse(JSON.stringify(window.app.buildPullSheet()))};
     }""")
     assert out['served'] == {'positions': {'g1': {'rows': [{'key': "Multi|100'", 'qty': 4, 'notes': 'via PUT'}], 'added': []}}}
-    assert ('Multi', "100'", 4, 'SR 2', 'via PUT') in _rows_of(out['sheet'], 'SR Beach')
+    assert ('Multi', "100'", 4, 'SR2', 'via PUT') in _rows_of(out['sheet'], 'SR Beach')
     # clearing the last override deletes the key client-side and empties it server-side
     pg.evaluate("""() => window.app.resetPullSheetRow('g1', "Multi|100'")""")
     pg.wait_for_timeout(500)
@@ -681,7 +689,7 @@ SCREENSHOT = os.path.join(os.path.dirname(SCRATCH_FIXTURE), 'pull-sheet-editor-l
 @pytest.mark.skipif(bool(private_fixture_missing(SCRATCH_FIXTURE)),
                     reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_smoke_live_show_b(page):
-    """The real show: beach SR's Tru-1 10' row (8 as the show says - six on
+    """The real show: beach SR's TRUE1 10' row (8 as the show says - six on
     SR - MAIN, two on SR - Return) edited to 9 in the editor; the
     workbook's cell reads 9."""
     pg, ids = page
@@ -708,17 +716,17 @@ def test_smoke_live_show_b(page):
     names = pg.locator('.pull-pos .pull-pos-name').all_inner_texts()
     assert names == ['SR', 'SL', 'TOTALS']
     key = f'beach:{sr_beach}'
-    assert _cell(pg, key, "Tru-1|10'", 'qty').input_value() == '8'
-    _set(pg, _cell(pg, key, "Tru-1|10'", 'qty'), '9')
+    assert _cell(pg, key, "TRUE1|10'", 'qty').input_value() == '8'
+    _set(pg, _cell(pg, key, "TRUE1|10'", 'qty'), '9')
     pg.screenshot(path=SCREENSHOT, full_page=False)
     sheet = pg.evaluate(SHEET_JS)
-    assert ('Tru-1', "10'", 9, 'SR1-1, SR1-6, SR2-2, SR3-1, SR3-6, SR4-1, SR5-2, SR5-5', '') in _rows_of(sheet, 'SR')
-    assert _totals(sheet)[('Tru-1', "10'")][0] == 17       # 9 + SL's 8
+    assert ('TRUE1', "10'", 9, 'SR1-1, SR1-6, SR2-2, SR3-1, SR3-6, SR4-1, SR5-2, SR5-5', '') in _rows_of(sheet, 'SR')
+    assert _totals(sheet)[('TRUE1', "10'")][0] == 17       # 9 + SL's 8
     wb, body = _export_xlsx(pg)
     ws = wb['Pull Sheet']
     assert ws.cell(5, 1).value == 'SR'
     block = _block(ws, 0)
-    row = next(r for r in block if r[0] == 'Tru-1' and r[1] == "10'")
+    row = next(r for r in block if r[0] == 'TRUE1' and r[1] == "10'")
     assert row[2] == 9
     _close(pg)
     assert os.path.exists(SCREENSHOT)

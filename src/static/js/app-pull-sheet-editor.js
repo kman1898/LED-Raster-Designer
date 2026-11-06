@@ -2,7 +2,7 @@
 // list (app-pull-list.js). Ruling (user, 2026-09-06): "edit in the app and
 // then export a whole file i can share" - so the list buildPullList()
 // recomputes from the show is shown as the user's workbook lays it out
-// (positions side by side, Cable Type · Length · Qty · Label · Notes, a
+// (positions side by side, Gear · Length · Qty · Label · Notes, a
 // TOTALS block at the right), and what he changes is stored as deltas in
 // project.pullSheetEdits and read back by BOTH exports through
 // buildPullSheet().
@@ -192,7 +192,7 @@ class _PullSheetEditor {
             html.push(`<div class="pull-pos" data-pos="${esc(key)}">`);
             html.push(`<div class="pull-pos-head"><div class="pull-pos-name">${esc(pos.name)}</div>`
                 + `<div class="pull-pos-screens">${esc(screensText)}</div></div>`);
-            html.push('<table class="pull-table"><thead><tr><th>Cable Type</th><th>Length</th>'
+            html.push('<table class="pull-table"><thead><tr><th>Gear</th><th>Length</th>'
                 + '<th class="pull-th-qty">Qty</th><th>Label</th><th>Notes</th><th></th></tr></thead><tbody>');
             const hidden = [];
             for (const r of pos.rows) {
@@ -205,7 +205,7 @@ class _PullSheetEditor {
                 html.push(this._pullSheetAddedRowHtml(a, idx, vocab));
             });
             if (!pos.rows.length && !(pe.added || []).length) {
-                html.push('<tr class="pull-empty"><td colspan="6">No cable on this position.</td></tr>');
+                html.push('<tr class="pull-empty"><td colspan="6">No gear on this position.</td></tr>');
             }
             html.push('</tbody></table>');
             html.push(`<div class="pull-pos-foot"><button type="button" class="btn pull-add" tabindex="-1">+ Add row</button>`
@@ -222,8 +222,9 @@ class _PullSheetEditor {
             const mine = stale.filter(s => s.positionKey === key);
             if (mine.length) {
                 html.push('<div class="pull-stale-list">');
+                const liveKeys = pos.rows.map(r => this.pullRowKey(r));
                 for (const s of mine) {
-                    const [t, l] = s.key.split('|');
+                    const [t, l] = this._pullStaleKeyText(s.key, liveKeys);
                     const what = s.edit.removed ? 'hidden' : FIELDS.filter(f => s.edit[f] !== undefined)
                         .map(f => `${f} ${JSON.stringify(String(s.edit[f]))}`).join(', ');
                     html.push(`<div class="pull-stale" data-key="${esc(s.key)}" title="The show no longer produces this row; the edit is kept but not exported.">`
@@ -241,7 +242,7 @@ class _PullSheetEditor {
             html.push('<div class="pull-pos pull-pos-orphan" data-pos="">'
                 + '<div class="pull-pos-head"><div class="pull-pos-name">Positions no longer in the show</div></div><div class="pull-stale-list">');
             for (const s of orphan) {
-                const [t, l] = s.key.split('|');
+                const [t, l] = this._pullStaleKeyText(s.key, []);
                 html.push(`<div class="pull-stale" data-pos="${esc(s.positionKey)}" data-key="${esc(s.key)}">`
                     + `<span class="pull-stale-tag">STALE</span><span class="pull-stale-text">${esc(t)} ${esc(l)}</span>`
                     + '<button type="button" class="btn pull-forget" tabindex="-1">Forget</button></div>');
@@ -251,6 +252,21 @@ class _PullSheetEditor {
         html.push('<div class="pull-pos pull-totals" id="pull-sheet-totals"></div>');
         board.innerHTML = html.join('');
         this.renderPullSheetEditorTotals(sheet);
+    }
+
+    // A stale edit's type and length as the editor names it: in today's
+    // spelling, never a retired one ("Tru-1 Power Jump 6'" reads "TRUE1
+    // Power Jump 6'"); an old row that is two rows now names both ("TRUE1
+    // Power Jump / powerCON Power Jump 6'"), so the user sees which rows
+    // the count could have meant. [type, length].
+    _pullStaleKeyText(key, liveKeys) {
+        const raw = String(key == null ? '' : key);
+        const length = raw.split('|')[1] || '';
+        const hits = typeof this._pullEditHits === 'function' ? this._pullEditHits(raw, liveKeys || []) : [];
+        const types = [...new Set(hits.map(k => String(k).split('|')[0]))];
+        if (types.length > 1) return [types.join(' / '), length];
+        const type = typeof this._pullEditType === 'function' ? this._pullEditType(raw) : raw.split('|')[0];
+        return [type, length];
     }
 
     _pullSheetEngineRowHtml(r, e) {
@@ -303,7 +319,7 @@ class _PullSheetEditor {
         const rows = list.totals || [];
         const html = ['<div class="pull-pos-head"><div class="pull-pos-name">TOTALS</div>'
             + `<div class="pull-pos-screens">${list.positions.length} ${list.positions.length === 1 ? 'position' : 'positions'}</div></div>`];
-        html.push('<table class="pull-table pull-table-ro"><thead><tr><th>Cable Type</th><th>Length</th>'
+        html.push('<table class="pull-table pull-table-ro"><thead><tr><th>Gear</th><th>Length</th>'
             + '<th class="pull-th-qty">Qty</th><th>Label</th></tr></thead><tbody>');
         for (const r of rows) {
             html.push(`<tr><td class="pull-ro pull-type">${esc(r.type)}</td><td class="pull-ro pull-len">${esc(r.length || '')}</td>`

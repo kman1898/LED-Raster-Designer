@@ -52,7 +52,7 @@ def _guard(server_project_guard):
 def _open(pw_browser, url):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -97,7 +97,8 @@ SEED_JS = """async () => {
 SETUP_JS = """(o) => {
     const app = window.app;
     const l = app.project.layers[0];
-    Object.assign(l, { powerVoltage: 120, powerAmperage: 20, panelWatts: 198,
+    // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+    Object.assign(l, { powerVoltage: 120, powerAmperage: 25, panelWatts: 198,
                        powerSocaDistro: {}, powerSocaNumber: {}, powerSocaPhasePos: {},
                        powerSocaLengths: {}, powerSocaSplits: [], powerSocaNames: {},
                        powerBreakoutType: null, locked: false }, o.wall || {});
@@ -120,12 +121,12 @@ READ_JS = """() => {
     const unit = document.querySelector('[data-lrd-distro="d1"]');
     const q = (sel) => unit.querySelector(sel);
     const meat = q('.hw-dock-headbar > i');
-    const strip = (app._dockPowerWarnings || []).filter(w => /^D1 /.test(w.text));
+    const strip = (app._dockPowerWarnings || []).filter(w => /^D1[ ,]/.test(w.text));
     // the binder's Service block for d1, caught as the page builds it
     const caught = [];
     const orig = app._bKvLines;
     app._bKvLines = function (book, title, pairs) {
-        if (title === 'Service') caught.push(pairs.map(p => p.slice()));
+        if (title === 'Distro') caught.push(pairs.map(p => p.slice()));
         return orig.apply(this, arguments);
     };
     try {
@@ -228,7 +229,7 @@ def test_us_400a_at_330a_is_an_error(seeded):
     assert out['legBars'] == ['hw-dock-bar-over'] * 3
     assert len(out['strip']) == 1 and not out['strip'][0]['mild'], out['strip']
     assert out['strip'][0]['text'] == \
-        'D1 — worst leg X 330.0 A / 320 A (80% of 400 A, continuous) — OVER', out['strip']
+        'D1, worst leg X 330.0 A / 320 A (80% of 400 A, continuous): OVER', out['strip']
     assert out['strip'][0]['offer'] == 'Accept overload'
     # the binder's one Load line: every leg, the three-phase total - by
     # hand 118800 W / (208 V x 1.73) = 330.1 A - the power, the limit and
@@ -287,7 +288,7 @@ def test_eu_63a_at_63a_is_ok_and_past_it_is_over(seeded):
           wall={'powerVoltage': 230, 'powerAmperage': 16, 'panelWatts': 245})
     out = read(pg)
     assert out['over'] and out['use'] == '63.9/63 A' and out['lim'] is None
-    assert out['strip'][0]['text'] == 'D1 — worst leg L1 63.9 A / 63 A (101%) — OVER', out['strip']
+    assert out['strip'][0]['text'] == 'D1, worst leg L1 63.9 A / 63 A (101%): OVER', out['strip']
 
 
 def test_accept_overload_turns_amber_notes_the_binder_and_undoes(seeded):
@@ -307,8 +308,8 @@ def test_accept_overload_turns_amber_notes_the_binder_and_undoes(seeded):
     assert out['flag'] == 'OVER · accepted' and 'hw-dock-unit-flag-ok' in out['flagClass']
     assert out['bar'] == 'hw-dock-bar-accepted'
     assert out['legBars'] == ['hw-dock-bar-accepted'] * 3
-    assert out['strip'] == [{'text': 'D1 — worst leg X 330.0 A / 320 A (80% of 400 A, continuous)'
-                                     ' — over, accepted', 'mild': True, 'offer': None}], out['strip']
+    assert out['strip'] == [{'text': 'D1, worst leg X 330.0 A / 320 A (80% of 400 A, continuous)'
+                                     ': over, accepted', 'mild': True, 'offer': None}], out['strip']
     assert out['binderLoad'] == ('X 330.0 · Y 330.0 · Z 330.0 A · 3φ 330.1 A · 118.8 kW · '
                                  'limit 320 A (80% of 400 A) · OVER on X, Y, Z · overload accepted')
     # it does not clear itself when the load changes - under the limit it
@@ -360,7 +361,7 @@ def test_the_gear_offers_main_100_beside_the_breakers_and_accept_while_over(seed
     assert out['mainText'] == 'Main 100% rated'
     assert '80%' in out['mainTip'] and 'continuous' in out['mainTip']
     assert 'tail' not in out['mainTip'].lower()
-    assert out['accept'] == 'Accept overload — busiest leg 330.0 A of 320 A (80% of 400 A)'
+    assert out['accept'] == 'Accept overload: busiest leg 330.0 A of 320 A (80% of 400 A)'
     # ticking Main 100% rated lifts the limit, one step, and the accept row goes
     pg.locator('[data-lrd-field="distro-main100-d1"]').check()
     pg.wait_for_timeout(300)
@@ -448,7 +449,7 @@ def test_an_old_show_opens_unchanged_on_the_server(e2e_server, pw_browser, seede
     pg.evaluate("""async (d) => {
         const proj = await (await fetch('/api/project')).json();
         const l = proj.layers[0];
-        Object.assign(l, { powerVoltage: 208, powerAmperage: 20, panelWatts: 150,
+        Object.assign(l, { powerVoltage: 208, powerAmperage: 25, panelWatts: 150,
                            powerSocaDistro: { 1: 'd1', 2: 'd1' }, powerSocaNumber: {},
                            powerSocaPhasePos: {}, powerSocaSplits: [], locked: false });
         proj.distros = [d];

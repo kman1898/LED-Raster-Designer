@@ -22,6 +22,7 @@ import os
 import sys
 
 import pytest
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -69,7 +70,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -127,7 +128,8 @@ def _reset(pg, bodies, unit='ft', strip=()):
 def _screen(name, cols, rows, w=60, h=60, **extra):
     body = {'name': name, 'columns': cols, 'rows': rows, 'cabinet_width': w, 'cabinet_height': h,
             'processorType': 'novastar-armor', 'flowPattern': 'tl-h',
-            'powerVoltage': 208, 'powerAmperage': 20, 'panelWatts': 200}
+            # A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            'powerVoltage': 208, 'powerAmperage': 25, 'panelWatts': 200}
     body.update(extra)
     return body
 
@@ -163,9 +165,9 @@ def test_a_feet_show_that_stores_its_jumpers_prints_exactly_as_before(page):
     assert out['rows'] == [
         ['Data Jump', "2'", 4, 'STORED', ''],
         ['Data Jump', "6'", 1, 'STORED', ''],
-        ['Tru-1 Power Jump', "6'", 1, 'STORED', ''],
+        ['TRUE1 Power Jump', "6'", 1, 'STORED', ''],
         ['Data Jump', "6'", 5, 'OLD', ''],
-        ['Tru-1 Power Jump', "6'", 5, 'OLD', ''],
+        ['TRUE1 Power Jump', "6'", 5, 'OLD', ''],
     ], out
     assert out['per'] == {
         'STORED': {'data': {'2': 4, '6': 1}, 'power': {'6': 1}},
@@ -202,8 +204,9 @@ def test_a_new_screens_untouched_jumpers_follow_the_unit_and_are_not_counted(pag
     pg.locator('#power-jump-v').dispatch_event('change')
     pg.wait_for_function("() => window.app.typedCableLengthCount() === 1")
     asked = []
-    pg.once('dialog', lambda d: (asked.append(d.message), d.accept()))
-    assert ev(pg, "return app.setCableUnit('m');") is True
+    pg.evaluate("() => { window.__unitAnswer = window.app.setCableUnit('m'); }")
+    asked.append(answer_app_dialog(pg))
+    assert pg.evaluate("() => window.__unitAnswer") is True
     assert asked and '1 cable length already typed' in asked[0], asked
     out = ev(pg, """const l = app.currentLayer;
         return { reads: app.screenJumperLengths(l), shown: document.getElementById('data-jump-v').value };""")
@@ -300,7 +303,7 @@ def test_a_multi_home_run_typed_with_the_shows_unit_prints_its_length(page):
                                                'powerSocaLengths': {'1': typed}}}})
         rows = pg.evaluate(ROWS_JS)
         multi = [r for r in rows if r[0] == 'Multi']
-        assert multi == [['Multi', length, 1, 'SL 1', note]], (typed, unit, rows)
+        assert multi == [['Multi', length, 1, 'SL1', note]], (typed, unit, rows)
         out = ev(pg, """const W = app.project.layers[0];
             const s = app.getSocaPlan(W)[0];
             return { count: app.typedCableLengthCount(),
@@ -312,7 +315,9 @@ def test_a_multi_home_run_typed_with_the_shows_unit_prints_its_length(page):
 
 def test_typing_a_home_run_with_the_unit_stores_the_number(page):
     """setSocaLength keeps the number of a length typed with the show's
-    unit, so a later unit change relabels it by number like any other."""
+    unit, so a later unit change relabels it by number like any other. A
+    length in the other unit is converted (2026-10-22): "30m" in a feet
+    show is 98.4."""
     pg, _ = page
     _power_show(pg)
     pg.evaluate(SETUP_JS, {'distros': [DIST_US],
@@ -323,8 +328,8 @@ def test_typing_a_home_run_with_the_unit_stores_the_number(page):
         app.setSocaLength(W, 1, '30m', false);
         const b = W.powerSocaLengths[1];
         return [a, b];""")
-    # the other unit's suffix is kept as typed - it reads as no length
-    assert out == ['125', '30m'], out
+    # the other unit's suffix is converted to the show's unit
+    assert out == ['125', '98.4'], out
 
 
 def test_a_direct_output_reads_the_same_lengths(page):
@@ -333,8 +338,8 @@ def test_a_direct_output_reads_the_same_lengths(page):
     '30m' there is no length - not 30'."""
     pg, _ = page
     _power_show(pg)
-    for typed, want, row in (('25ft', "25' True1", ['Tru-1', "25'", 1, 'SL 5', '']),
-                             ('30m', None, ['Tru-1', '', 1, 'SL 5', 'no length'])):
+    for typed, want, row in (('25ft', "25' TRUE1", ['TRUE1', "25'", 1, 'SL5', '']),
+                             ('30m', None, ['TRUE1', '', 1, 'SL5', 'no length'])):
         nums = pg.evaluate(SETUP_JS, {'distros': [DIST_US], 'walls': {'W': {
             'powerSocaSplits': [1], 'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 5},
             'powerSocaLengths': {'1': typed}}}})
@@ -376,10 +381,10 @@ def test_a_direct_output_with_its_own_circuit_cable_prints_one_cable(page):
     pg, errors = page
     _power_show(pg)
     for lengths, cable, want in (
-            ({'1': '25'}, {'ft': 10, 'connector': None}, [['Tru-1', "10'", 1, 'SL 5', '']]),
-            ({}, {'ft': 10, 'connector': None}, [['Tru-1', "10'", 1, 'SL 5', '']]),
-            ({'1': '25'}, None, [['Tru-1', "25'", 1, 'SL 5', '']]),
-            ({}, None, [['Tru-1', '', 1, 'SL 5', 'no length']])):
+            ({'1': '25'}, {'ft': 10, 'connector': None}, [['TRUE1', "10'", 1, 'SL5', '']]),
+            ({}, {'ft': 10, 'connector': None}, [['TRUE1', "10'", 1, 'SL5', '']]),
+            ({'1': '25'}, None, [['TRUE1', "25'", 1, 'SL5', '']]),
+            ({}, None, [['TRUE1', '', 1, 'SL5', 'no length']])):
         nums = pg.evaluate(SETUP_JS, {'distros': [DIST_US], 'walls': {'W': {
             'powerSocaSplits': [1], 'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 5},
             'powerSocaLengths': lengths}}})
@@ -391,10 +396,10 @@ def test_a_direct_output_with_its_own_circuit_cable_prints_one_cable(page):
             return { tag: (own && own.text) || (direct && direct.text) || null };""",
                  {'circuit': circuit, 'cable': cable})
         every = pg.evaluate(ROWS_JS)
-        rows = [r for r in every if r[0] == 'Tru-1']
+        rows = [r for r in every if r[0] == 'TRUE1']
         assert rows == want, (lengths, cable, every, out)
         if want[0][1]:
-            assert out['tag'] == f"{want[0][1]} True1", out
+            assert out['tag'] == f"{want[0][1]} TRUE1", out
     assert errors == [], errors
 
 
@@ -450,7 +455,7 @@ def test_undo_waits_for_a_cable_unit_post_still_in_flight(page):
 def test_run_load_readouts_print_en_us_figures_in_a_german_browser(e2e_server, pw_browser):
     context = pw_browser.new_context(locale='de-DE')
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     try:
         pg.goto(e2e_server, wait_until='domcontentloaded')

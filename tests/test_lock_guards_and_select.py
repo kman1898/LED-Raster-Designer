@@ -4,7 +4,7 @@ The owner's ruling (2026-10-16): "If it's locked it stays locked and
 unchanged until unlocked. If you try to change it shows an error dialog and
 tells why it can't change." The lock guards EVERYTHING, not only position:
 every action that would modify a locked screen leaves it alone and shows the
-one locked error naming it ("<name> is locked - unlock it to change it."),
+one locked error naming it ("<name> is locked. Unlock it to change it."),
 the unlocked screens of the same action still take it, and an action that
 would change nothing says nothing. SELECTING a locked screen or its cabinets
 is not a change, so it is never an error.
@@ -70,7 +70,7 @@ FIT_COUNTER_JS = """
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 1000})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     # Count the renderer's fits: the app fits the view a moment after it
     # loads, and a fit landing between two clicks of a test moves the wall
@@ -100,9 +100,9 @@ MODIFIER = "Meta" if sys.platform == "darwin" else "Control"
 
 def locked_msg(*names):
     if len(names) == 1:
-        return f'{names[0]} is locked - unlock it to change it.'
+        return f'{names[0]} is locked. Unlock it to change it.'
     return (', '.join(names[:-1]) + ' and ' + names[-1]
-            + ' are locked - unlock them to change them.')
+            + ' are locked. Unlock them to change them.')
 
 
 # Three ungrouped 2x2 screens of 128 px cabinets, side by side and apart.
@@ -493,7 +493,11 @@ def test_a_sidebar_funnel_edit_on_only_locked_screens_changes_nothing(page):
 
 
 def test_a_group_edit_leaves_a_locked_peer_alone_and_names_it(page):
+    # A half-locked group (an old file's) is locked as a whole until the
+    # user picks Lock or Unlock (round 6): the edit on its unlocked member
+    # is refused too, and the locked member is named.
     a, b, c = reset(page, locked=[1], group=[0, 1], selected=[0], current=0)
+    before_a = layer(page, a)
     before_b = layer(page, b)
     page.evaluate("""() => {
         const el = document.getElementById('number-size');
@@ -501,7 +505,7 @@ def test_a_group_edit_leaves_a_locked_peer_alone_and_names_it(page):
         el.dispatchEvent(new Event('change', { bubbles: true }));
     }""")
     saves_settled(page)
-    assert layer(page, a)['number_size'] == 41
+    assert layer(page, a)['number_size'] == before_a['number_size']
     assert layer(page, b) == before_b
     assert server_layer(page, b)['number_size'] == before_b['number_size']
     assert toasts(page) == [locked_msg('Lock B')]
@@ -543,12 +547,15 @@ def test_jumper_field_writes_the_unlocked_screen_only(page):
 
 
 def test_change_cabinet_and_route_as_one_refuse_locked_screens(page):
+    # A and B are a half-locked group (an old file's), locked as a whole
+    # until the user picks Lock or Unlock (round 6): neither changes.
     a, b, c = reset(page, locked=[0], group=[0, 1], selected=[0, 1], current=1)
     before = layer(page, a)
+    before_b = layer(page, b)
     page.evaluate("""(ids) => window.app.changeCabinetForLayers(ids,
         { cabinet_width: 64, cabinet_height: 64 })""", [a, b])
     saves_settled(page)
-    assert layer(page, b)['cabinet_width'] == 64
+    assert layer(page, b)['cabinet_width'] == before_b['cabinet_width']
     assert layer(page, a)['cabinet_width'] == before['cabinet_width']
     assert toasts(page) == [locked_msg('Lock A')]
     page.evaluate("() => { window.__toasts = []; }")

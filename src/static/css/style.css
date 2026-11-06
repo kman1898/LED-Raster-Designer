@@ -28,6 +28,25 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .toolbar-actions { flex: 0 0 auto; }
 .toolbar-project { flex: 0 1 auto; }
 #toolbar h1 { font-size: 16px; color: #4A90E2; }
+/* Narrow windows (1.6 QA): below 1120 px the title text gives way to the
+   logo, and the toolbar and the canvas strip wrap onto a second row rather
+   than run on under the Screens panel. The default 1600-wide layout never
+   reaches either query. */
+#toolbar h1 { white-space: nowrap; }
+@media (max-width: 1119px) {
+    #toolbar { height: auto; min-height: 50px; flex-wrap: wrap; row-gap: 6px; padding-top: 6px; padding-bottom: 6px; }
+    #toolbar h1 .lrd-app-title { display: none; }
+    #toolbar h1 .lrd-logo-mark { margin-right: 0 !important; }
+    #project-name { min-width: 120px; }
+    /* The strip wraps, but never taller than its column leaves room for:
+       in a window too narrow for the panels beside it, one control a row
+       stacked the strip past the window's bottom and took the hardware
+       tray, its gears and their panels with it. It scrolls instead (the
+       column it sits in may give way below its content for that). */
+    #canvas-container { min-height: 0; }
+    #canvas-controls { flex-wrap: wrap; row-gap: 6px; min-height: 0; overflow-y: auto; }
+    #canvas-controls .magnet-toggle { margin-left: 0 !important; }
+}
 #project-name { color: #e0e0e0; font-size: 13px; background: transparent; border: 1px solid transparent; padding: 4px 8px; border-radius: 4px; min-width: 200px; }
 #project-name:hover { background: #1a1a1a; border-color: #3a3a3a; }
 #project-name:focus { background: #1a1a1a; border-color: #4A90E2; outline: none; }
@@ -44,7 +63,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .btn-primary:hover { background: #357ABD; }
 .full-width { width: 100%; }
 #left-sidebar, #right-sidebar { background: #252525; width: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; padding: 10px; box-sizing: border-box; transition: width 0.18s ease, padding 0.18s ease, border-color 0.18s ease; }
-#right-sidebar { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+/* The right sidebar never scrolls itself (its panels do), so it holds no
+   scrollbar gutter: a stable one left a blank strip down its right side. */
+#right-sidebar { display: flex; flex-direction: column; overflow: hidden; padding: 0; scrollbar-gutter: auto; }
 /* A panel's seam is on its inner edge, the one facing the canvas. */
 .lrd-panel[data-lrd-edge="left"] { border-right: 1px solid #3a3a3a; }
 .lrd-panel[data-lrd-edge="right"] { border-left: 1px solid #3a3a3a; }
@@ -166,6 +187,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .image-only { display: none; }
 .info-row { margin-bottom: 10px; }
 .info-row label { display: block; color: #888; font-size: 11px; margin-bottom: 4px; text-transform: uppercase; }
+/* No fill offers itself inside a field (helpers.js installFieldGuard). One rule each:
+   a browser drops a whole list over a pseudo-element it does not know. */
+input::-webkit-contacts-auto-fill-button { visibility: hidden; display: none !important; }
+input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none !important; }
 .info-row input[type="number"], .info-row input[type="text"] { width: 100%; background: #1a1a1a; border: 1px solid #3a3a3a; color: #e0e0e0; padding: 6px; border-radius: 4px; font-size: 12px; }
 .info-row input[type="number"] { 
     -webkit-appearance: none; 
@@ -181,6 +206,15 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     cursor: pointer;
 }
 .info-row input[type="checkbox"] { width: 18px; height: 18px; }
+/* The Processing select carries the longest processor names
+   ("NovaStar COEX A10s/A8s (1G)"): a tighter arrow gutter, with the Port
+   Capacity box's narrower sides, keeps the whole name readable closed.
+   Where the font is wider than that room (Linux's DejaVu Sans; the name is
+   about 183 px there, the room 162) the name wraps onto a second line
+   instead of being cut off, the way the distro panel's selects do. */
+#processor-type { padding-left: 5px !important; padding-right: 16px !important;
+    background-position: right 5px center !important;
+    white-space: normal; height: auto; text-align: left; }
 .info-row select, .info-select { 
     width: 100%; 
     background: #1a1a1a url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='white'%3E%3Cpath d='M0 0l6 8 6-8H0z'/%3E%3C/svg%3E") no-repeat right 8px center; 
@@ -226,7 +260,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     display: none;
     margin: 0;
 }
-#layers-list { margin-bottom: 10px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+/* The scrollbar takes room only when the list is long enough to scroll;
+   until then the screen rows use the whole width. */
+#layers-list { margin-bottom: 10px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: auto; }
 .layer-item { background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 4px; padding: 10px; margin-bottom: 8px; cursor: pointer; box-sizing: border-box; width: 100%; }
 .layer-item:hover { background: #2a2a2a; }
 .layer-item.active { border-color: #4A90E2; background: #1a2a3a; }
@@ -511,7 +547,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .layer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
 .layer-name { font-size: 13px; color: #e0e0e0; font-weight: 600; }
-.layer-controls { display: flex; gap: 5px; align-items: center; }
+.layer-controls { display: flex; gap: 1px; align-items: center; }
+/* A screen row's arrows, grid and eye sit close together, so the name
+   gets the width. */
+.layer-controls > .layer-btn { padding: 2px 3px; }
 .layer-btn { background: transparent; border: none; color: #888; cursor: pointer; padding: 2px 6px; font-size: 14px; }
 .layer-btn:hover { color: #e0e0e0; }
 .layer-btn:disabled { color: #444; cursor: default; }
@@ -552,6 +591,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #custom-run-readout .cr-pill { background: #2f3a2f; color: #bfe8bf; border: 1px solid #4a6a4a; }
 #custom-run-readout.cr-empty .cr-pill { color: #9cc09c; border-color: #3e553e; }
 #custom-run-readout.cr-full .cr-pill { background: #f2c744; color: #111; border-color: #f2c744; }
+#custom-run-readout.cr-over .cr-pill { background: #ff6b6b; color: #111; border-color: #ff6b6b; }
 #custom-run-readout .cr-selected { background: #f2c744; color: #111; border: 1px solid #f2c744; }
 #custom-run-readout .cr-selected[hidden] { display: none; }
 .canvas-raster-input { width: 82px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #e0e0e0; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
@@ -794,15 +834,174 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 .recent-file-date {
     font-size: 11px;
-    color: #666;
+    /* QA round 3: #666 on the menu's grey could hardly be read. The
+       secondary text colour (6:1 on the submenu), and the row's own text
+       on hover. */
+    color: var(--ps-dim, #c0c0c0);
     flex-shrink: 0;
 }
+#recent-files-list .menu-option:hover .recent-file-date { color: inherit; }
 .recent-files-empty {
     padding: 6px 14px;
     font-size: 12px;
-    color: #666;
+    color: var(--ps-dim, #c0c0c0);
     font-style: italic;
 }
+
+/* The start page a launch opens on (app-start-page.js): a card over the
+   dimmed app, the modal language of the panel picker (theme.css gives
+   .modal-content and its first h2 the panel surface and accent bar). */
+.start-page-content {
+    position: relative;
+    box-sizing: border-box;
+    width: 520px;
+    max-width: calc(100vw - 32px);
+    margin: 12vh auto 40px;
+    padding: 0 0 16px;
+    background: var(--ps-panel, #2e2e2e);
+    border: 1px solid var(--ps-dark, #131313);
+    border-radius: 4px;
+    color: var(--ps-text, #f0f0f0);
+}
+.start-page-content > h2 {
+    margin: 0;
+    padding: 10px 44px 10px 16px;
+    font-size: 15px;
+}
+.start-page-close {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--ps-dim, #c0c0c0);
+    font-size: 20px;
+    line-height: 28px;
+    cursor: pointer;
+    border-radius: 3px;
+}
+.start-page-close:hover { color: var(--ps-text, #f0f0f0); background: rgba(255, 255, 255, 0.08); }
+.start-page-actions {
+    display: flex;
+    gap: 10px;
+    padding: 16px 16px 6px;
+}
+.start-page-actions .btn { flex: 1; padding: 9px 14px; font-size: 13px; }
+.start-page-heading {
+    padding: 12px 16px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--ps-faint, #969696);
+}
+.start-page-recent {
+    margin: 0 16px;
+    max-height: 340px;
+    overflow-y: auto;
+    border: 1px solid var(--ps-dark, #131313);
+    border-radius: 3px;
+    background: var(--ps-inset, #1c1c1c);
+}
+.start-page-recent-row {
+    display: flex;
+    width: 100%;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 8px 12px;
+    border: none;
+    border-bottom: 1px solid var(--ps-panel-2, #262626);
+    background: transparent;
+    color: var(--ps-text, #f0f0f0);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+.start-page-recent-row:last-child { border-bottom: none; }
+.start-page-recent-row:hover, .start-page-recent-row:focus-visible {
+    background: var(--ps-tile, #3c3c3c);
+    outline: none;
+}
+.start-page-recent-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.start-page-recent-detail {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--ps-faint, #969696);
+}
+.start-page-empty {
+    padding: 14px 12px;
+    font-size: 12px;
+    color: var(--ps-faint, #969696);
+}
+
+/* A Recent Files entry whose file is gone (app-logs-recent.js). */
+.recent-missing-content {
+    box-sizing: border-box;
+    width: 460px;
+    max-width: calc(100vw - 32px);
+    margin: 18vh auto 40px;
+    padding: 0 0 14px;
+    background: var(--ps-panel, #2e2e2e);
+    border: 1px solid var(--ps-dark, #131313);
+    border-radius: 4px;
+    color: var(--ps-text, #f0f0f0);
+}
+.recent-missing-content > h2 { margin: 0; padding: 10px 16px; font-size: 15px; }
+.recent-missing-text { margin: 14px 16px 6px; font-size: 13px; line-height: 1.45; }
+.recent-missing-path {
+    margin: 0 16px;
+    font-size: 11px;
+    color: var(--ps-faint, #969696);
+    overflow-wrap: anywhere;
+}
+.recent-missing-buttons { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 16px 0; }
+
+/* The app's own question dialog, in place of alert / confirm / prompt
+   (app-dialogs.js). Above every other dialog: it is asked over them. */
+.modal.app-ask-modal { z-index: 10500; }
+.app-ask-content {
+    box-sizing: border-box;
+    width: 460px;
+    max-width: calc(100vw - 32px);
+    margin: 18vh auto 40px;
+    padding: 0 0 14px;
+    background: var(--ps-panel, #2e2e2e);
+    border: 1px solid var(--ps-dark, #131313);
+    border-radius: 4px;
+    color: var(--ps-text, #f0f0f0);
+}
+.app-ask-content > h2 { margin: 0; padding: 10px 16px; font-size: 15px; }
+.app-ask-text { margin: 14px 16px 6px; font-size: 13px; line-height: 1.45; white-space: pre-line; }
+.app-ask-detail {
+    margin: 0 16px;
+    font-size: 11px;
+    color: var(--ps-faint, #969696);
+    overflow-wrap: anywhere;
+}
+.app-ask-input {
+    box-sizing: border-box;
+    width: calc(100% - 32px);
+    margin: 6px 16px 0;
+    padding: 5px 8px;
+    background: var(--ps-inset, #1c1c1c);
+    border: 1px solid var(--ps-dark, #131313);
+    border-radius: 3px;
+    color: var(--ps-text, #f0f0f0);
+    font: inherit;
+    font-size: 13px;
+}
+.app-ask-buttons { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 14px 16px 0; }
+.app-ask-buttons .app-ask-danger { background: #a8324b; border-color: #a8324b; color: #fff; }
 
 .prefs-grid {
     display: flex;
@@ -859,6 +1058,20 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 6px;
+}
+
+/* The Data Flow picker, two rows of 8 (snakes over their Z twins): a
+   tile shrinks its icon to the column rather than push the panel wider. */
+.flow-pattern-grid-16 .flow-pattern-btn {
+    min-width: 0;
+    padding: 2px;
+}
+.flow-pattern-grid-16 .flow-pattern-btn svg {
+    display: block;
+    width: 100%;
+    max-width: 32px;
+    height: auto;
+    margin: 0 auto;
 }
 
 .pref-flow-pattern-btn {
@@ -953,6 +1166,13 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 }
 #preferences-modal .pm-row > label:first-child { margin: 0; white-space: nowrap; }
 #preferences-modal .pm-row .prefs-row { min-width: 0; }
+/* Cable stock: a list for each kind of cable and the fiber list stand in
+   one tab, so its list rows sit a step closer and the tab still fits the
+   body without a scroll */
+#preferences-modal #pm-sec-stock .pm-row[data-cable-stock-list],
+#preferences-modal #pm-sec-stock .pm-row[data-cable-stock-fiber] { padding: 1px 0; }
+#preferences-modal #pm-sec-stock .pm-row[data-cable-stock-list] input.pm-wide,
+#preferences-modal #pm-sec-stock .pm-row[data-cable-stock-fiber] input.pm-wide { padding-top: 5px; padding-bottom: 5px; }
 #preferences-modal .pm-note { grid-column: 2; font-size: 11px; color: #888; margin-top: 3px; line-height: 1.3; }
 #preferences-modal .prefs-row input[type="number"] {
     width: 80px;
@@ -1334,7 +1554,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    folded section must keep working. !important because the Screens panel's
    content is display:flex by id above, which would otherwise outrank this. */
 .lrd-sec-collapsed > .panel-content,
-.lrd-sec-collapsed > .lrd-sec-body { display: none !important; }
+.lrd-sec-collapsed > .lrd-sec-body,
+/* a strip that sits outside the body but folds with it (a distro card's
+   OUTPUTS row, app-dock.js) */
+.lrd-sec-collapsed > .lrd-sec-folds { display: none !important; }
 /* a folded Screens panel must not keep its flex:1 slot as a big empty box */
 #right-sidebar > .panel.lrd-sec-collapsed { flex: 0 0 auto; }
 /* double-click toggles, so a stray double-click must not smear a text
@@ -1597,6 +1820,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     flex: 0 0 auto; font-size: 10px; font-family: monospace;
     white-space: nowrap;
 }
+.hw-dock-fiber-mode {
+    flex: 0 0 auto; font-size: 10px; font-family: monospace;
+    white-space: nowrap;
+}
 .hw-dock-grid { margin-top: 4px; }
 /* A redundant pair reads as ONE group everywhere "X backs up Y" is drawn -
    the SX40's fixed A/B and C/D boxes, a designated 1:1 backup unit - so the
@@ -1689,12 +1916,16 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
    it carries the issues, and each section header carries its thing's name
    inline plus a ⚙ opening its configuration popover. */
 #hardware-dock .hw-dock-head {
-    display: flex; align-items: center; gap: 8px;
+    /* wraps in a narrow window rather than running the flag pill over
+       the processor picker (QA round 3, 800 px) */
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
     border-bottom: 1px solid #131313;
 }
 .hw-dock-ctl { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .hw-dock-ctl.view-hidden { display: none; }
-#processor-add-device { max-width: 220px; min-width: 0; font-size: 11px; }
+/* min-width: the picker keeps its "Add a processor…" whole in a narrow
+   window (QA round 3: it read "Add a proce" at 800 px). */
+#processor-add-device { max-width: 220px; min-width: 122px; font-size: 11px; }
 #processor-add-btn, #power-distro-add { padding: 2px 10px; font-size: 11px; }
 .hw-dock-head-sp { flex: 1 1 auto; }
 /* The attachment flag pill (app-dock.js _renderDockFlag): red while any
@@ -2064,7 +2295,7 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 /* the power sheet's plug column - True1 / powerCON / Edison are real
    choices there; the data sheet has none (CAT is the only data plug) */
 .hw-dock-cable-connector {
-    width: 120px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
+    width: auto; min-width: 120px; max-width: 200px; background: #0d0d0d; color: #eeeeee; border: 1px solid #555;
     border-radius: 3px; padding: 1px 4px;
     font: 10.5px ui-monospace, Menlo, monospace;
 }
@@ -2139,6 +2370,13 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
 .hw-dock-fiber-editor {
     margin-left: 7.5ch; padding: 3px 5px; border-left: 2px solid #444;
 }
+/* a link's extension at the box end (2026-11-02): its own line right
+   under the link it extends, indented like the editor */
+.hw-dock-fiber-ext {
+    display: flex; flex-wrap: wrap; gap: 6px; row-gap: 3px; align-items: center;
+    margin-left: 7.5ch; padding: 1px 5px; border-left: 2px solid #444;
+}
+.hw-dock-fiber-ext .hw-dock-fiber-ext-end { width: 13ch; }
 .hw-dock-fiber-editor { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .hw-dock-fiber-field { display: inline-flex; align-items: center; gap: 4px; }
 .hw-dock-fiber-names {
@@ -2476,8 +2714,11 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
     background: var(--ps-dark, #1a1a1a); color: var(--ps-text, #e6e6e6);
     white-space: nowrap; line-height: 1.5;
 }
+/* a distro on the service with nothing connected: listed, not counted */
+.hw-dock-svc-chip.hw-dock-svc-chip-idle {
+    color: var(--ps-faint, #969696); border-style: dashed; background: transparent;
+}
 .hw-dock-svc-sum { white-space: nowrap; color: var(--ps-faint, #969696); }
-.hw-dock-svc-sum-over { color: #d8a13c; }
 .hw-dock-svc-empty { color: var(--ps-faint, #969696); font-style: italic; }
 #hw-gear-popover .hw-pop-svc-row { justify-content: space-between; }
 #hw-gear-popover .hw-pop-svc-name { font-size: 11px; }

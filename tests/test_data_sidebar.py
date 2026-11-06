@@ -46,6 +46,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
+from conftest import open_app  # noqa: E402
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _restore_server_project(server_project_guard):
@@ -140,10 +142,9 @@ POWER_SEED_JS = """() => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
-    pg.goto(e2e_server, wait_until='domcontentloaded')
-    pg.wait_for_timeout(2000)  # socket connect + app init
+    open_app(pg, e2e_server)
     assert pg.evaluate(RESET_JS), "test project was not created"
     pg.wait_for_timeout(600)
     yield pg
@@ -177,6 +178,7 @@ STATE_JS = """() => {
 
 def open_view(page, mode):
     page.locator(f'[data-mode="{mode}"]').click()
+    page.wait_for_function("(m) => window.canvasRenderer.viewMode === m", arg=mode)
     page.wait_for_timeout(400)
 
 
@@ -605,8 +607,7 @@ def test_the_section_collapsed_state_survives_a_reload(page):
     hdr.locator('.lrd-sec-arrow').click()
     page.wait_for_timeout(100)
     assert header_state(page, 'Data Settings')['collapsed'] is True
-    page.reload(wait_until='domcontentloaded')
-    page.wait_for_timeout(2000)
+    open_app(page)  # the reload, to the app's own ready signal
     open_view(page, 'data-flow')
     s = header_state(page, 'Data Settings')
     assert s['collapsed'] is True, (

@@ -139,7 +139,9 @@ def test_a_bare_card_has_no_port_and_each_box_adds_its_share(client,
     per_box = min(catalog.port_capacity(box)['count'], device['portsPerTrunk'])
     ceiling = catalog.port_capacity(card_device)['count']
     for n in range(1, device['trunks'] + 1):
-        resp = add_box(client, pid, cid, box)
+        # one box per OPT, no default backup pair: the enhanced card's OPT
+        # 5-8 back up OPT 1-4 (H15 Specifications V1.15.0 p.37)
+        resp = add_box(client, pid, cid, box, pair=False)
         assert resp.status_code == 201, resp.get_data(as_text=True)
         card = resolved_card(resp.get_json(), cid)
         assert numbers(card) == list(range(1, min(n * per_box, ceiling) + 1))
@@ -332,7 +334,7 @@ HIST_JS = "() => window.app.history[window.app.historyIndex].action"
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -435,7 +437,7 @@ def test_a_fiber_card_picked_into_a_slot_opens_its_box_picker(page,
     if card_device == 'novastar-card-mx-1x40g':
         assert st['items'] == ['CVT8-5G'], st
     else:
-        assert 'CVT10' in st['items'], st
+        assert 'CVT10-S' in st['items'], st
     # closing it leaves the card with no ports - and no chip in the tray
     pg.keyboard.press('Escape')
     pg.wait_for_timeout(300)

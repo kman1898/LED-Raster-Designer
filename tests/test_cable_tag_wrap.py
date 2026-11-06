@@ -3,7 +3,7 @@
 "also we should add wrapping like we did to port labels on cable extensions
 such as Snake 1 SR A would be / Snake 1 / SR A" (user, 2026-09-07). The
 cable tag - the small pill beside a label when "show cable tags" is on: a
-power circuit's "10' True1", a data port's "50' CAT" or "SR Primary Snake
+power circuit's "10' True1", a data port's "50' Cat6" or "SR Primary Snake
 +10'" - used to draw as ONE line however long it ran. canvas.js now lays it
 out through cableTagLayout(text, labelSize) -> { lines, width, height }:
 
@@ -140,7 +140,7 @@ window.__tw = {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -266,7 +266,7 @@ def test_three_lines_is_the_most_a_tag_takes(page):
 # -- the width the flip rule reads ------------------------------------------
 
 @pytest.mark.parametrize('text,label_size', [
-    ("10' True1", 30), (LONG, 30), (USERS, 10), ("50' CAT", 24),
+    ("10' True1", 30), (LONG, 30), (USERS, 10), ("50' Cat6", 24),
 ])
 def test_cable_tag_width_is_the_widest_line_plus_padding(page, text, label_size):
     """cableTagWidth = gap + widest wrapped line + padding, so a wrapped
@@ -297,26 +297,34 @@ def test_printer_mode_draws_the_same_lines(page):
 
 def test_a_tall_tag_stays_inside_the_screen(page):
     """Handed the screen's top and bottom, a wrapped pill shifts inside
-    them; without them (or with room) it sits centred on y as always."""
+    them; without them (or with room) it sits centred on y as always.
+    Inside means its ink: the rim is stroked on the pill's edge, half of
+    it outside the box, so a pill slid to an edge stops that half short
+    of it (QA 1.6.0, test_power_tag_placement's rim rulings)."""
     free = _draw(page, LONG, 30)
     pill = free['rects'][0]
     assert pill['y'] == pytest.approx(100 - pill['h'] / 2)
+    # Half the rim: the tag's text is 85% of the label size, the rim a
+    # tenth of that (canvas-power _tagRim).
+    half = max(1, max(8, 30 * 0.85) * 0.1) / 2
 
-    # Top edge just under the pill's natural top: it moves down to it.
+    # Top edge just under the pill's natural top: it moves down to it,
+    # its rim inside.
     top = pill['y'] + 5
     clamped = _draw(page, LONG, 30, {'top': top, 'bottom': 1000})
     cp = clamped['rects'][0]
-    assert cp['y'] == pytest.approx(top), (pill, cp)
+    assert cp['y'] - half == pytest.approx(top), (pill, cp)
     assert cp['h'] == pytest.approx(pill['h'])
     # The text moved with the pill, still centred in it.
     ys = [t['y'] for t in clamped['texts']]
     assert sum(ys) / len(ys) == pytest.approx(cp['y'] + cp['h'] / 2)
 
-    # Bottom edge above the pill's natural bottom: it moves up to it.
+    # Bottom edge above the pill's natural bottom: it moves up to it,
+    # its rim inside.
     bottom = pill['y'] + pill['h'] - 5
     clamped = _draw(page, LONG, 30, {'top': -1000, 'bottom': bottom})
     cp = clamped['rects'][0]
-    assert cp['y'] + cp['h'] == pytest.approx(bottom), (pill, cp)
+    assert cp['y'] + cp['h'] + half == pytest.approx(bottom), (pill, cp)
 
     # Plenty of room: untouched.
     roomy = _draw(page, LONG, 30, {'top': -1000, 'bottom': 1000})

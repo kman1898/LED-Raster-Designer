@@ -108,7 +108,7 @@ def _restore_server_project(e2e_server):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -138,7 +138,10 @@ window.__ph = {
             cabinet_width: 128, cabinet_height: 128,
             offset_x: 0, offset_y: 0,
             panel_weight: 20, weight_unit: 'kg',
-            panelWatts: 100, powerVoltage: 100, powerAmperage: 5,
+            // 6.25 A: a US circuit packs to 80 percent of its breaker (2026-10-22),
+            // so it carries the 5 A (five 100 W tiles) these walls are laid
+            // out for. Every powerAmperage here is the old figure x 1.25.
+            panelWatts: 100, powerVoltage: 100, powerAmperage: 6.25,
             processorType: 'brompton', bitDepth: 8, frameRate: 60,
             lowLatency: false,
             flowPattern: 'tl-h', portMappingMode: 'organized',
@@ -189,7 +192,7 @@ window.__ph = {
         for (const k in cols) paths[k] = cols[k].map(rc => ({row: rc[0], col: rc[1]}));
         return this.screen(Object.assign({
             id: 3, name: 'Unequal', columns: 6, rows: 3,
-            powerAmperage: 6,
+            powerAmperage: 7.5,
             powerFlowPattern: 'custom', powerCustomIndex: 6,
             powerCustomPaths: paths,
             powerSocaDistro: { 1: 'd1' },
@@ -364,7 +367,7 @@ def test_shared_circuit_label_centers_over_the_run_head_span(page):
                 return orig.call(this, x, y, r, ...a);
             };
             const S = ph.screen({ id: 7, name: 'Wall', columns: 3, rows: 5,
-                powerAmperage: 15,
+                powerAmperage: 18.75,
                 powerSplitters: { enabled: true, maxWays: 3,
                                   manual: { merge: [], split: [] } } });
             const shared = ph.withProject({ layers: [S] }, () => {
@@ -401,7 +404,7 @@ def test_fanout_stubs_radiate_from_the_bubble_to_every_head(page):
             ctxp.moveTo = function (x, y) { if (dashed) moves.push([x, y]); return oMove.call(this, x, y); };
             ctxp.lineTo = function (x, y) { if (dashed) lines.push([x, y]); return oLine.call(this, x, y); };
             const S = ph.screen({ id: 9, name: 'Wall', columns: 3, rows: 5,
-                powerAmperage: 15,
+                powerAmperage: 18.75,
                 powerSplitters: { enabled: true, maxWays: 3,
                                   manual: { merge: [], split: [] } } });
             ph.withProject({ layers: [S] }, () => cr.renderPowerArrows(S));
@@ -1101,7 +1104,7 @@ def test_one_scheme_one_name_in_the_select_the_derived_entry_and_the_help(page):
     assert out['modalNames'] == names, (
         f"the help modal names the schemes differently from the select - the "
         f"exact drift that made a user ask what the difference was: {out}")
-    assert out['selected'] == f"Follow the circuit voltage — {out['derivedName']}", (
+    assert out['selected'] == f"Follow the circuit voltage: {out['derivedName']}", (
         f"the derived entry names its scheme its own way: {out}")
     assert out['derivedName'] == 'Line-to-line, paired (XY ZX YZ)', (
         f"208V circuits on a 208V service derive the line-to-line scheme: {out}")
@@ -2088,7 +2091,7 @@ def test_a_110v_multi_rides_one_leg_per_circuit_at_screen_voltage(page):
     120 V line-to-neutral figure. A full multi balances itself."""
     out = page.evaluate(LEGS_OF_JS, {'screens': [
         {'id': 91, 'name': 'ED', 'columns': 6,
-         'extra': {'powerVoltage': 110, 'powerAmperage': 5}}]})
+         'extra': {'powerVoltage': 110, 'powerAmperage': 6.25}}]})
     want = 2 * 500 / 110
     for k in ('X', 'Y', 'Z'):
         assert abs(out[k] - want) < 0.01, (k, out)
@@ -2106,9 +2109,9 @@ def test_mixed_110v_and_208v_screens_sum_per_circuit_on_one_distro(page):
     scheme."""
     out = page.evaluate(LEGS_OF_JS, {'screens': [
         {'id': 92, 'name': 'ED', 'columns': 6,
-         'extra': {'powerVoltage': 110, 'powerAmperage': 5}},
+         'extra': {'powerVoltage': 110, 'powerAmperage': 6.25}},
         {'id': 93, 'name': 'WALL', 'columns': 6,
-         'extra': {'powerVoltage': 208, 'powerAmperage': 2.5}}]})
+         'extra': {'powerVoltage': 208, 'powerAmperage': 3.125}}]})
     want = 2 * 500 / 110 + 2 * (500 / 208) * (3 ** 0.5)
     for k in ('X', 'Y', 'Z'):
         assert abs(out[k] - want) < 0.01, (k, want, out)
@@ -2124,7 +2127,7 @@ def test_an_explicit_ll_scheme_never_pairs_up_110v_circuits(page):
     cannot run."""
     out = page.evaluate(LEGS_OF_JS, {
         'screens': [{'id': 94, 'name': 'ED', 'columns': 6,
-                     'extra': {'powerVoltage': 110, 'powerAmperage': 5}}],
+                     'extra': {'powerVoltage': 110, 'powerAmperage': 6.25}}],
         'distro': {'phasing': 'paired-ll'}})
     want = 2 * 500 / 110
     for k in ('X', 'Y', 'Z'):
@@ -2141,10 +2144,10 @@ def test_balance_spreads_stacked_110v_multis_across_the_legs(page):
         const ph = window.__ph;
         const app = window.app;
         const A = ph.col5(95, 'EDA', 2,
-            { powerVoltage: 110, powerAmperage: 5,
+            { powerVoltage: 110, powerAmperage: 6.25,
               powerSocaDistro: { 1: 'd1' } });
         const B = ph.col5(96, 'EDB', 2,
-            { powerVoltage: 110, powerAmperage: 5,
+            { powerVoltage: 110, powerAmperage: 6.25,
               powerSocaDistro: { 1: 'd1' } });
         return ph.withProject({ layers: [A, B],
                                 distros: [ph.box('d1', 'D')] }, () => {
@@ -2183,7 +2186,7 @@ def test_l2130_screens_box_three_circuits_with_leg_pairs(page):
         const ph = window.__ph;
         const app = window.app;
         const S = ph.col5(97, 'L21', 7,
-            { powerVoltage: 208, powerAmperage: 2.5,
+            { powerVoltage: 208, powerAmperage: 3.125,
               powerBreakoutType: 'l2130-true1',
               powerSocaDistro: { 1: 'd1', 2: 'd1', 3: 'd1' } });
         return ph.withProject({ layers: [S],
@@ -2225,7 +2228,7 @@ L2130_DOCK_JS = """(over) => {
     // past the 30 A too). The single-circuit rig keeps 19.2 A on both its
     // legs, under the 24 A.
     const S = ph.col5(98, 'L21', over ? 2 : 1,
-        { powerVoltage: 208, powerAmperage: 20, panelWatts: 800,
+        { powerVoltage: 208, powerAmperage: 25, panelWatts: 800,
           powerBreakoutType: 'l2130-powercon',
           powerSocaDistro: { 1: 'dq' } });
     return ph.withProject({ layers: [S],
@@ -2247,7 +2250,7 @@ L2130_DOCK_JS = """(over) => {
                 chipCount: chips.length,
                 clash: !!(sec
                     && sec.classList.contains('hw-dock-multi-clash')),
-                feedWarn: warnings.some(t => t.includes('feed leg')),
+                feedWarn: warnings.some(t => t.includes('L21-30 leg')),
                 worstFeed: Math.max(feed.X, feed.Y, feed.Z),
             };
         } finally {
@@ -2339,16 +2342,16 @@ def test_the_breakout_select_gates_on_the_screen_voltage(page):
     assert out['shown230'] == 'soca-true1', out
     t230 = {o['id']: o['title'] for o in out['at230']}
     assert t230['soca-edison'] == \
-        'Not available at 230V — Edison is for screens up to 120V.', t230
+        'Not available at 230V: Edison is for screens up to 120V.', t230
     assert t230['l2130-true1'] == \
-        'Not available at 230V — L21-30 is 208V only.', t230
+        'Not available at 230V: L21-30 is 208V only.', t230
     blank = {o['id']: o['disabled'] for o in out['atBlank']}
     assert blank == {'soca-true1': False, 'soca-powercon': False,
                      'soca-edison': False, 'soca-l620': False,
                      'l2130-true1': True, 'l2130-powercon': True}, out
     tblank = {o['id']: o['title'] for o in out['atBlank']}
     assert tblank['l2130-powercon'] == \
-        'Not available until a voltage is set — L21-30 is 208V only.', tblank
+        'Not available until a voltage is set: L21-30 is 208V only.', tblank
     for o in out['atBlank'] + out['at230'] + out['at208']:
         assert 'null' not in o['title'] and ' V.' not in o['title'], o
 
@@ -2392,7 +2395,7 @@ window.__ph.customWall = function (id, name, nums, extra) {
     return this.screen(Object.assign({
         id, name, columns: 28, rows: 11,
         cabinet_width: 500, cabinet_height: 500,
-        panelWatts: 600, powerVoltage: 208, powerAmperage: 20,
+        panelWatts: 600, powerVoltage: 208, powerAmperage: 25,
         powerFlowPattern: 'custom', powerCustomPath: true,
         powerCustomIndex: 1, powerCustomPaths: paths,
         powerOrganized: false,
@@ -2559,7 +2562,7 @@ def test_the_badge_names_the_circuit_the_click_stores_under(page):
             l => (l.type || 'screen') === 'screen')[0];
         L.powerFlowPattern = 'tl-h'; L.powerOrganized = false;
         L.powerMaximize = false;
-        L.powerVoltage = 208; L.powerAmperage = 20; L.panelWatts = 600;
+        L.powerVoltage = 208; L.powerAmperage = 25; L.panelWatts = 600;
         L.powerCustomPaths = {}; L.powerCustomOverrides = [];
         app.currentLayer = L; app.selectedLayerIds = new Set([L.id]);
         r.viewMode = 'power';
@@ -2665,7 +2668,7 @@ FRESH_SHOW_JS = """async () => {
         await fetch(`/api/layer/${id}`, { method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ panelWatts: 305, powerVoltage: 208,
-                powerAmperage: 20, powerOrganized: true, powerMaximize: false,
+                powerAmperage: 25, powerOrganized: true, powerMaximize: false,
                 powerFlowPattern: 'tl-h' }) });
     }
     return { ids, saved };
@@ -2761,10 +2764,11 @@ def test_a_fresh_show_names_every_circuit_under_the_cursor(page):
         })""", seed['ids'])
         assert [s[1] for s in starts] == ['S1-1'] * 4, (
             f"every S1-# screen with no distro starts at S1-1: {starts}")
-        # The 28-wide MAINs have no automatic plan at all on tl-h (a full
-        # 28 x 305 W row does not fit one 4160 W circuit), so only the two
-        # Returns hold a multi to name - and each is S1, not S1 and S2.
-        assert [s[2] for s in starts] == [None, 'S1', None, 'S1'], starts
+        # A full 28 x 305 W row does not fit one circuit, and since
+        # 2026-11-01 Organized cuts it into circuits along the row instead
+        # of leaving the 28-wide MAINs with no plan, so every screen holds a
+        # multi to name - and each is its own S1, not S1 and S2.
+        assert [s[2] for s in starts] == ['S1', 'S1', 'S1', 'S1'], starts
         page.check('#power-custom-toggle')
         page.wait_for_timeout(300)
         nothing = page.evaluate(FRESH_FRAME_JS, sr_main)

@@ -372,3 +372,46 @@ def test_no_live_heading_loses_a_product_spelling(tmp_path):
     bad = [h for h in headings
            if re.search(r"\b(powercon|true1|edison|novastar|brompton|l6-20|l21-30)\b|\b\d+[vaw]\b", h)]
     assert not bad, bad
+
+
+# ── Fixes that change counts keep their heading ──────────────────────────
+
+_NUMBER_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+                 "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
+
+
+def test_count_changing_fixes_keep_a_heading_of_their_own(tmp_path):
+    """A post prints its bullets without their kind, so a FIX (IMPORTANT)
+    is marked only by the heading over it. In the live top entry every
+    important fix sits under a heading with no ordinary fix beside it, the
+    way v1.5.0 put them under "Opening a 1.4 show", and the rendered post
+    keeps that heading. A lede that counts them ("Three of the fixes")
+    must count right."""
+    version, body = gen.read_top_entry(VERSION_TXT)
+    if not gen.has_lede(body):
+        pytest.skip("the top entry is a list; build() lifts IMPORTANT fixes itself")
+    blocks = gen.parse_post(body)
+    sections, heading, lede = {}, None, []
+    for b in blocks:
+        if b["type"] == "h":
+            heading = b["text"]
+        elif b["type"] == "item":
+            sections.setdefault(heading, []).append(b["important"])
+        elif heading is None:
+            lede.append(b["text"])
+    important = sum(sum(flags) for flags in sections.values())
+    for h, flags in sections.items():
+        if any(flags):
+            assert h is not None, "an important fix sits in the lede"
+            assert all(flags), f"heading {h!r} mixes important and ordinary fixes"
+    proc, out = run(tmp_path, "--tag", version)
+    assert proc.returncode == 0, proc.stderr
+    rendered = re.findall(r"^## (.+)$", out.read_text(encoding="utf-8"), re.M)
+    for h, flags in sections.items():
+        if any(flags):
+            assert h in rendered, (h, rendered)
+    m = re.search(r"\b(\d+|%s) of the fixes\b" % "|".join(_NUMBER_WORDS), " ".join(lede), re.I)
+    if m:
+        said = m.group(1).lower()
+        assert int(_NUMBER_WORDS.get(said, said)) == important, (
+            f"the lede says {m.group(0)!r} but the entry has {important} important fixes")

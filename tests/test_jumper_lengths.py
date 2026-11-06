@@ -2,7 +2,7 @@
 
 Owner rulings, 2026-09-25, from a show of vertical-flow walls of
 500 x 1000 mm cabinets whose binder listed 205 "Data Jump 6'" and 205
-"Tru-1 Power Jump 6'" per screen while the real links are about a foot.
+"TRUE1 Power Jump 6'" per screen while the real links are about a foot.
 Every link between two consecutive cabinets of a data run or a power run
 is one of:
 
@@ -128,7 +128,7 @@ RESET_JS = """async (bodies) => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -372,7 +372,7 @@ def test_a_vertical_flow_wall_of_tall_cabinets_counts_one_foot_links(page):
         assert {x['kind'] for x in out['links'][side]} <= {'vertical', 'horizontal'}, out['links'][side]
         assert out['jumpers'][side] == n and out['lengths'][side] == {'1': n}, (side, out)
     assert out['rows'] == [['Data Jump', "1'", out['panels'] - out['runs']['data']],
-                           ['Tru-1 Power Jump', "1'", out['panels'] - out['runs']['power']]], out['rows']
+                           ['TRUE1 Power Jump', "1'", out['panels'] - out['runs']['power']]], out['rows']
     # most links run down a column: a 6-high column has 5 of them
     assert sum(1 for x in out['links']['data'] if x['kind'] == 'vertical') >= 21 * 5 - out['runs']['data']
     # hide row 2 of column 10: the run walks over it
@@ -393,8 +393,8 @@ def test_a_vertical_flow_wall_of_tall_cabinets_counts_one_foot_links(page):
         ones = out['panels'] - out['runs'][side] - 1
         assert out['lengths'][side] == {'1': ones, '10': 1}, (side, out['lengths'])
     assert out['rows'] == [['Data Jump', "1'", out['lengths']['data']['1']], ['Data Jump', "10'", 1],
-                           ['Tru-1 Power Jump', "1'", out['lengths']['power']['1']],
-                           ['Tru-1 Power Jump', "10'", 1]], out['rows']
+                           ['TRUE1 Power Jump', "1'", out['lengths']['power']['1']],
+                           ['TRUE1 Power Jump', "10'", 1]], out['rows']
 
 
 def test_blank_counts_no_cable_and_the_pull_sheet_sums_per_length(page):

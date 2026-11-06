@@ -1,10 +1,12 @@
 // LEDRasterApp core: constructor, socket wiring, and primary UI setup.
 // Feature areas live in the app-*.js modules, which extend the prototype.
-import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit } from './helpers.js';
+import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit, installNameDragSelects } from './helpers.js';
 
 // The tabs the NAMES switch keeps a value for, by the canvas's view mode
-// (setupNameDisplayToggles; owner, 2026-10-01: "Yes, per tab").
+// (setupNameDisplayToggles; owner, 2026-10-01: "Yes, per tab"; per group
+// since 2026-11-04), and the values it takes.
 export const NAME_DISPLAY_VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look'];
+export const NAME_DISPLAY_VALUES = ['screens', 'group', 'both'];
 
 export class LEDRasterApp {
     constructor() {
@@ -82,7 +84,18 @@ export class LEDRasterApp {
             } catch (e) {
                 console.error('WebSocket init failed; continuing without live updates:', e);
             }
+            // A reload of this browser tab keeps its place; anything else
+            // is a launch (app-start-page.js).
+            if (typeof this._takeReloadPlace === 'function') this._takeReloadPlace();
             this.loadProject();
+            // A reload or a closing window says "unsaved" one last time,
+            // so a debounced edit still waiting is counted too, and notes
+            // the tab and any start page still up for a reload to read.
+            window.addEventListener('pagehide', () => {
+                if (typeof this._saveReloadPlace === 'function') this._saveReloadPlace();
+                if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
+                if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState({ beacon: true });
+            });
             // Reads /api/version once: a beta build names itself in the
             // title and header (app-project-io.js _showBuildVersion).
             if (typeof this.appVersion === 'function') this.appVersion();
@@ -163,14 +176,24 @@ export class LEDRasterApp {
                 const edge = edgeNow();
                 const step = stepNow(edge);
                 const rect = sidebar.getBoundingClientRect();
+                // A side tab sits halfway down the canvas, not the window:
+                // the hardware tray drawn tall reaches the window's middle,
+                // and a tab there covered the first letters of the tray's
+                // rows (QA, 1.6.0 beta 5: "creen1 7 of 12 ports"). Where
+                // the canvas cannot be measured, the window's middle.
+                const wrap = document.getElementById('canvas-wrapper');
+                const wr = wrap ? wrap.getBoundingClientRect() : null;
+                const sideTop = (wr && wr.height > 0)
+                    ? `${Math.round(wr.top + wr.height / 2 + step)}px`
+                    : (step ? `calc(50% + ${step}px)` : '');
                 if (edge === 'left') {
                     btn.style.left = `${Math.round(rect.right)}px`;
                     btn.style.right = '';
-                    btn.style.top = step ? `calc(50% + ${step}px)` : '';
+                    btn.style.top = sideTop;
                 } else if (edge === 'right') {
                     btn.style.right = `${Math.round(window.innerWidth - rect.left)}px`;
                     btn.style.left = '';
-                    btn.style.top = step ? `calc(50% + ${step}px)` : '';
+                    btn.style.top = sideTop;
                 } else {
                     // Across the top or bottom: the tab sits on the panel's
                     // inner edge, centred on it - "hug the inner edge" turned
@@ -243,6 +266,9 @@ export class LEDRasterApp {
                 const el = document.getElementById(sidebarId);
                 if (el) all.observe(el);
             });
+            // The side tabs ride the canvas's middle (positionToggle).
+            const wrap = document.getElementById('canvas-wrapper');
+            if (wrap) all.observe(wrap);
         }
     }
 
@@ -343,13 +369,14 @@ export class LEDRasterApp {
     }
 
     // Whether `container`'s fold hides `el`: the fold hides exactly the
-    // section's body (.lrd-sec-body / .panel-content, style.css), so an
-    // element on the header or on anything the section carries outside
-    // its body stays visible through the fold.
+    // section's body (.lrd-sec-body / .panel-content, style.css) and any
+    // strip marked to fold with it (.lrd-sec-folds, a distro card's
+    // OUTPUTS row), so an element on the header or on anything else the
+    // section carries outside its body stays visible through the fold.
     _sectionFoldHides(container, el) {
-        const body = container.querySelector(
-            ':scope > .lrd-sec-body, :scope > .panel-content');
-        return !!(body && body.contains(el));
+        const parts = container.querySelectorAll(
+            ':scope > .lrd-sec-body, :scope > .panel-content, :scope > .lrd-sec-folds');
+        return [...parts].some(p => p.contains(el));
     }
 
     _setSectionCollapsed(container, collapsed) {
@@ -616,6 +643,9 @@ export class LEDRasterApp {
         try {
             const response = await fetch('/api/server-session');
             const data = await response.json();
+            // A reload counts only on the server that wrote its record
+            // (app-start-page.js _takeReloadPlace).
+            this._serverSessionId = data && data.session_id ? data.session_id : null;
             const savedSessionId = localStorage.getItem('ledRasterServerSession');
 
             if (savedSessionId !== data.session_id) {
@@ -810,7 +840,19 @@ export class LEDRasterApp {
                 // something the page does not already hold (a normalized
                 // path, a derived field); the same copy is let go.
                 const mine = (this.project && this.project.layers || []).find(l => l.id === layer.id);
-                if (mine && typeof this._canonicalJson === 'function'
+                // A screen this page has taken out since (deleted, or its
+                // project replaced): the echo landed after the delete.
+                // Applying it put the screen back on this page only, the
+                // server no longer holding it; a reload over the emptied
+                // launch project came back with its startup screen (CI,
+                // 2026-11-04). The server holds socket sends while the
+                // socket upgrades from polling, so an echo can land well
+                // after its PUT's own answer and the DELETE's.
+                if (!mine) {
+                    sendClientLog('socket_layer_updated_suppressed_gone', { id: layer.id });
+                    return;
+                }
+                if (typeof this._canonicalJson === 'function'
                         && this._canonicalJson(mine) === this._canonicalJson(layer)) {
                     sendClientLog('socket_layer_updated_suppressed_same_copy', { id: layer.id });
                     return;
@@ -853,6 +895,7 @@ export class LEDRasterApp {
             processorType: layer.processorType,
             lowLatency: layer.lowLatency,
             portMappingMode: layer.portMappingMode,
+            portNumberOrder: layer.portNumberOrder,
             portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
             portLabelTemplateReturn: layer.portLabelTemplateReturn,
             portLabelOverridesPrimary: layer.portLabelOverridesPrimary,
@@ -901,6 +944,7 @@ export class LEDRasterApp {
             panelWatts: layer.panelWatts,
             powerMaximize: layer.powerMaximize,
             powerOrganized: layer.powerOrganized,
+            powerNumberOrder: layer.powerNumberOrder,
             powerCustomPath: layer.powerCustomPath,
             powerFlowPattern: layer.powerFlowPattern,
             powerLineWidth: layer.powerLineWidth,
@@ -1017,10 +1061,19 @@ export class LEDRasterApp {
 
     loadProject() {
         fetch('/api/project')
-            .then(res => res.json())
+            .then(res => {
+                // Unsaved edits made before this page loaded (the server
+                // keeps the answer: app-project-io markProjectClean).
+                this._unsavedCarried = res.headers.get('X-Project-Unsaved') === '1';
+                this._serverUnsaved = this._unsavedCarried;
+                return res.json();
+            })
             .then(data => {
                 this.project = data;
                 this.dedupeProjectLayers('load_project');
+                // The server migrated the Names values as the show opened;
+                // the same pass here is a no-op then, idempotent either way.
+                this.migrateGroupNameDisplay();
                 if (data && data.raster_width && data.raster_height) {
                     this.syncRasterFromProject();
                     this.saveRasterSize();
@@ -1043,13 +1096,19 @@ export class LEDRasterApp {
                 if (breakoutRewrote.length) this.updateLayers(breakoutRewrote);
                 
                 // Auto-select first layer BEFORE updateUI so render has correct data
-                if (this.project.layers && this.project.layers.length > 0) {
-                    this.selectLayer(this.project.layers[0]);
+                // (the first on the active canvas, so a reload stays on it)
+                if (this._selectOpeningScreen()) {
                     // Never force-apply defaults to arbitrary loaded projects.
                     // Only apply to true startup default project when criteria match.
                     this.applyPreferencesToDefaultLayerIfMatch(false);
                 }
                 
+                // A circuit redraw the page was reloaded on ends here, the
+                // way Esc ends it (app-run-overrides finishRedrawLeftOpen).
+                if (typeof this.finishRedrawLeftOpen === 'function') {
+                    this.finishRedrawLeftOpen(this._redrawLeftOnReload());
+                }
+
                 // Save initial state for undo/redo
                 this.resetHistory('Initial State');
 
@@ -1057,6 +1116,10 @@ export class LEDRasterApp {
                 // is dropped after this (see the socket handler); a later one
                 // is a reconnect and does not re-apply preferences.
                 this._initialLoadComplete = true;
+                // The carried answer was used by the reset above (or the
+                // project is the pristine startup one, which never asks).
+                this._unsavedCarried = false;
+                if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState();
                 // The page paints from the loaded project itself. This used
                 // to ride on the first connect's project_data, which landed a
                 // moment later and ran updateUI; that copy is now dropped, and
@@ -1064,10 +1127,33 @@ export class LEDRasterApp {
                 // the rest of updateUI stayed as the page shipped.
                 this.updateUI();
 
+                // A launch is a fresh project (the app never reopens a
+                // show at boot): ask for the first screen's panel once the
+                // guide and the What's New window are out of the way
+                // (app-presets.js maybeOpenStartupPicker). A reload of
+                // this browser tab goes back to its tab instead and asks
+                // only if the start page was still up (app-start-page.js
+                // resumeOrLaunch).
+                if (typeof this.resumeOrLaunch === 'function') this.resumeOrLaunch();
+                else if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker('launch');
+
                 // Default to Fit view on load. Retry while layout settles: on
                 // a slow first paint the canvas wrapper can still be 0-height
                 // at +100ms, which computes zoom 0 and leaves the canvas blank
                 // until the user manually hits Fit.
+                //
+                // A view moved at any time before this fit (a hand on the
+                // wheel, a drag, a guide, a test's seed) is left alone, so
+                // the fit compares with the view the renderer was built
+                // with: the canvas takes input from the moment it is there,
+                // long before this load answers. Compared with the view at
+                // load done, a wheel just before it counted as no move and
+                // the fit landed on it (owner, 2026-11-05: zooming or
+                // panning right as the app opens stays put). Fitting over a
+                // view set after it moved the walls off the canvas under
+                // the next drag (CI, 2026-11-04).
+                const viewNow = () => window.canvasRenderer.viewKey();
+                let viewAtLoad = window.canvasRenderer.openingView;
                 const initialFit = (attempt = 0) => {
                     // A panel saved folded folds again as the app starts. A
                     // fit made mid-fold measured a canvas that was still
@@ -1081,9 +1167,12 @@ export class LEDRasterApp {
                             .then(() => initialFit(attempt + 1));
                         return;
                     }
+                    const viewMoved = viewNow() !== viewAtLoad;
                     window.canvasRenderer.setupCanvas();
+                    if (viewMoved) return;
                     window.canvasRenderer.fitToView();
                     if (!window.canvasRenderer.zoom && attempt < 8) {
+                        viewAtLoad = viewNow();
                         setTimeout(() => initialFit(attempt + 1), 250);
                     }
                 };
@@ -1276,6 +1365,10 @@ export class LEDRasterApp {
                 setTimeout(() => {
                     window.canvasRenderer.fitToView();
                 }, 100);
+
+                // File > New asks for the panel of the first screen, the
+                // same as a launch (app-presets.js maybeOpenStartupPicker).
+                if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker('new');
             });
     }
 
@@ -1283,11 +1376,9 @@ export class LEDRasterApp {
         if (!this.currentLayer) return;
         this.currentLayer.columns = prefs.columns;
         this.currentLayer.rows = prefs.rows;
-        this.currentLayer.cabinet_width = prefs.panelWidth;
-        this.currentLayer.cabinet_height = prefs.panelHeight;
-        this.currentLayer.panel_width_mm = prefs.panelWidthMM;
-        this.currentLayer.panel_height_mm = prefs.panelHeightMM;
-        this.currentLayer.panel_weight = prefs.panelWeight;
+        // The cabinet itself (pixels, millimeters, weight) is no longer a
+        // preference (1.6.0): the startup screen keeps the server's
+        // cabinet until the startup panel pick replaces the screen.
         this.currentLayer.weight_unit = prefs.weightUnit || 'kg';
         this.currentLayer.number_size = prefs.cabinetFontSize;
         this.currentLayer.labelsFontSize = prefs.labelFontSize;
@@ -1410,7 +1501,14 @@ export class LEDRasterApp {
 
     _layerSavesSettled() {
         const pending = [...(this._inflightLayerPuts || [])]
-            .concat([...((this._layerPutChains && this._layerPutChains.values()) || [])]);
+            .concat([...((this._layerPutChains && this._layerPutChains.values()) || [])])
+            // and an undo or redo's restore PUT (app-history
+            // _syncRestoredProject), which carries the whole project as it
+            // was: landing after New or Open's PUT, it put the undone show
+            // back over the new one, its screens under the new screens' ids
+            // (2026-11-01: a test's last Undo overwrote the next test's
+            // freshly made screen 2 with the old 4-wide one).
+            .concat([...(this._restorePutsInFlight || [])]);
         // the pull sheet's POST queue too (the show's cable unit, its edits)
         const sheet = typeof this._pullSheetStateSettled === 'function'
             ? this._pullSheetStateSettled() : null;
@@ -1879,19 +1977,26 @@ export class LEDRasterApp {
 
     /**
      * Wire the NAMES switch (Screens / Group / Both) for grouped screens.
-     * PER TAB (owner, 2026-10-01: "Yes, per tab"): Pixel Map, Cabinet ID,
-     * Data, Power and Show Look each keep their own value in
-     * project.groupNameDisplayByView, keyed by the canvas's view mode. It
-     * still names a drawing convention for every grouped wall - not any
-     * single layer's toggle - but one tab's convention, and the binder's
-     * Power and Data sheets follow their own tab's (a wall named by its
-     * group on Power prints one Power sheet; set to Screens on Data it
-     * prints a Data sheet per member). The switch beside each tab's Screen
-     * Name control drives that tab's value only (data-name-view). Before
-     * this it was ONE field, project.groupNameDisplay: an old show starts
-     * every tab on that value (groupNameDisplayFor reads it as the
-     * fallback, and the first change copies it onto every tab). 'group' is
-     * the default and the pre-switch behaviour.
+     * PER GROUP, PER TAB (owner, 2026-11-04: "depending on which group is
+     * selected, I need to be able to individually change screens, group or
+     * both per group"): each group keeps its own value for each of Pixel
+     * Map, Cabinet ID, Data, Power and Show Look in
+     * group.nameDisplayByView, keyed by the canvas's view mode. The switch
+     * acts on the SELECTION: a selected member or the whole group sets that
+     * group, several groups selected are set together, and with no group in
+     * the selection the row hides (refreshNameDisplayButtons). The binder's
+     * Power and Data sheets follow each group's own value (a wall named by
+     * its group on Power prints one Power sheet; set to Screens on Data it
+     * prints a Data sheet per member).
+     *
+     * Before this the value was per tab for the whole show,
+     * project.groupNameDisplayByView (2026-10-01), and before that ONE
+     * field, project.groupNameDisplay. Both stay where they are (an older
+     * build still reads them) and are now the show-wide value: what a
+     * group with no value of its own reads (groupNameDisplayFor), so a new
+     * group starts on it, and what an old show's groups are given as it
+     * opens (migrateGroupNameDisplay). 'group' is the default and the
+     * pre-switch behaviour.
      */
     setupNameDisplayToggles() {
         document.querySelectorAll('.name-display-btn').forEach(btn => {
@@ -1899,25 +2004,56 @@ export class LEDRasterApp {
                 const value = btn.getAttribute('data-name-display');
                 const view = btn.getAttribute('data-name-view');
                 if (!value || !this.project || !NAME_DISPLAY_VIEWS.includes(view)) return;
-                if (this.groupNameDisplayFor(view) === value) return;
-                this.migrateGroupNameDisplay();
-                this.project.groupNameDisplayByView[view] = value;
+                if (!NAME_DISPLAY_VALUES.includes(value)) return;
+                const groups = this.nameDisplayGroups();
+                if (!groups.length) return;
+                if (groups.every(g => this.groupNameDisplayFor(view, g) === value)) return;
+                // Each group keeps a whole record from here: every tab as it
+                // reads now, the clicked one set.
+                groups.forEach(g => {
+                    const next = {};
+                    for (const v of NAME_DISPLAY_VIEWS) next[v] = this.groupNameDisplayFor(v, g);
+                    next[view] = value;
+                    g.nameDisplayByView = next;
+                });
                 this.refreshNameDisplayButtons();
                 this.saveProject();
                 this.saveState('Change Name Display');
                 if (window.canvasRenderer) window.canvasRenderer.render();
                 if (typeof sendClientLog === 'function') {
-                    sendClientLog('name_display_change', { value, view });
+                    sendClientLog('name_display_change',
+                        { value, view, groups: groups.map(g => g.id) });
                 }
             });
         });
         this.refreshNameDisplayButtons();
     }
 
-    // One tab's Names value: its own where it has one, else the single
-    // project field every tab shared before 2026-10-01, else 'group'.
-    groupNameDisplayFor(view) {
-        const ok = (m) => m === 'screens' || m === 'both' || m === 'group';
+    // The groups the Names switch acts on: every group the selection
+    // touches (a member picked out of a wall counts), first-seen order.
+    nameDisplayGroups() {
+        if (!this.project || typeof this.getSelectedGroupIds !== 'function') return [];
+        return this.getSelectedGroupIds()
+            .map(id => (typeof this.resolveGroup === 'function') ? this.resolveGroup(id) : null)
+            .filter(Boolean);
+    }
+
+    // THE one reader of the Names value: the canvas, the binder and the
+    // switch's own buttons all ask here. With a group (or its id): that
+    // group's own value for the tab where it has one. Without one, or for
+    // a group that has none: the show-wide value, the tab's own
+    // (project.groupNameDisplayByView), else the single project field every
+    // tab shared before 2026-10-01, else 'group'. A binder sheet drawing a
+    // group or one member pins the answer for its view while it draws
+    // (_nameDisplayForce, app-binder.js).
+    groupNameDisplayFor(view, group = null) {
+        const ok = (m) => NAME_DISPLAY_VALUES.includes(m);
+        const force = this._nameDisplayForce;
+        if (force && ok(force[view])) return force[view];
+        const g = (group && typeof this.resolveGroup === 'function') ? this.resolveGroup(group) : group;
+        const own = g && g.nameDisplayByView && typeof g.nameDisplayByView === 'object'
+            ? g.nameDisplayByView[view] : null;
+        if (ok(own)) return own;
         const p = this.project || {};
         const by = (p.groupNameDisplayByView && typeof p.groupNameDisplayByView === 'object')
             ? p.groupNameDisplayByView : {};
@@ -1925,27 +2061,63 @@ export class LEDRasterApp {
         return ok(p.groupNameDisplay) ? p.groupNameDisplay : 'group';
     }
 
-    // Every tab given its own stored value, each from what it reads now -
-    // so an old show's single value lands on all five, and a tab already
-    // set keeps its own. Idempotent; the old field is left where it was
-    // (an older build still reads it). The server does the same on load
-    // (routes_project.restore_project).
+    // An old show opening. A file carrying the single groupNameDisplay
+    // gets it on every tab of groupNameDisplayByView that has no value of
+    // its own; then, when the show has a show-wide value at all, every
+    // group is given each tab's value where it has none of its own, so
+    // nothing visible changes. A show with neither field is left alone: its
+    // groups read 'group', the default, either way. Idempotent; the old
+    // fields are left where they were (an older build still reads them).
+    // The server does the same on load (app._migrate_group_name_display,
+    // from routes_project.restore_project).
     migrateGroupNameDisplay() {
-        if (!this.project) return;
-        const by = (this.project.groupNameDisplayByView
-            && typeof this.project.groupNameDisplayByView === 'object')
-            ? this.project.groupNameDisplayByView : {};
-        const next = {};
-        for (const v of NAME_DISPLAY_VIEWS) next[v] = this.groupNameDisplayFor(v);
-        this.project.groupNameDisplayByView = { ...by, ...next };
+        const p = this.project;
+        if (!p) return false;
+        const ok = (m) => NAME_DISPLAY_VALUES.includes(m);
+        const isMap = (o) => !!o && typeof o === 'object' && !Array.isArray(o);
+        let changed = false;
+        let by = isMap(p.groupNameDisplayByView) ? p.groupNameDisplayByView : null;
+        if (ok(p.groupNameDisplay)) {
+            if (!by) by = {};
+            for (const v of NAME_DISPLAY_VIEWS) {
+                if (!ok(by[v])) { by[v] = p.groupNameDisplay; changed = true; }
+            }
+            if (p.groupNameDisplayByView !== by) p.groupNameDisplayByView = by;
+        }
+        const showWide = ok(p.groupNameDisplay)
+            || (!!by && NAME_DISPLAY_VIEWS.some(v => ok(by[v])));
+        if (!showWide || !Array.isArray(p.groups)) return changed;
+        for (const g of p.groups) {
+            if (!isMap(g)) continue;
+            const own = isMap(g.nameDisplayByView) ? g.nameDisplayByView : {};
+            const missing = NAME_DISPLAY_VIEWS.filter(v => !ok(own[v]));
+            if (!missing.length) continue;
+            for (const v of missing) own[v] = this.groupNameDisplayFor(v);
+            g.nameDisplayByView = own;
+            changed = true;
+        }
+        return changed;
     }
 
+    // The buttons follow the selection: the row hidden with no group in
+    // it, the group's value lit for one group (or several that agree), none
+    // lit when the selected groups differ (data-mixed on the row).
     refreshNameDisplayButtons() {
         if (!this.project) return;
+        const groups = this.nameDisplayGroups();
+        const rows = new Map();
         document.querySelectorAll('.name-display-btn').forEach(btn => {
             const view = btn.getAttribute('data-name-view');
-            btn.classList.toggle('active',
-                btn.getAttribute('data-name-display') === this.groupNameDisplayFor(view));
+            const values = new Set(groups.map(g => this.groupNameDisplayFor(view, g)));
+            const shown = values.size === 1 ? [...values][0] : null;
+            btn.classList.toggle('active', btn.getAttribute('data-name-display') === shown);
+            const row = btn.closest('.name-display-row');
+            if (row) rows.set(row, values.size > 1);
+        });
+        rows.forEach((mixed, row) => {
+            row.style.display = groups.length ? '' : 'none';
+            if (mixed) row.setAttribute('data-mixed', '1');
+            else row.removeAttribute('data-mixed');
         });
     }
 
@@ -1956,6 +2128,7 @@ export class LEDRasterApp {
         // doesn't complete the process. It doesn't until I click out of the
         // box"). Tab is untouched.
         installEnterEndsEdit(document);
+        installNameDragSelects(document);
         this.setupPixelMapBulkActions();
         this.setupPerspectiveToggles();
         this.setupNameDisplayToggles();
@@ -1996,10 +2169,20 @@ export class LEDRasterApp {
         return `Screen${maxNum + 1}`;
     }
 
+    // Resolves once the new screen has landed (or the add has failed and
+    // said so), so a caller can follow it: the startup panel pick resets
+    // the history after it.
     addLayer(presetData) {
         // Server-side props control panel generation (columns/rows/cabinet sizes/colors/etc.)
         // Client-side props (data flow, power, labels...) are applied after the layer is returned.
         const prefs = this.getPreferences();
+        // Nothing picked: the new screen hangs the last screen's panel
+        // (1.6.0, owner 2026-11-02; the cabinet is no longer a
+        // preference). With no screen to copy, the server's own cabinet.
+        if (!(presetData && typeof presetData === 'object')
+                && typeof this._lastScreenPanelData === 'function') {
+            presetData = this._lastScreenPanelData() || undefined;
+        }
         // A stored preference that is not a colour ('#FFF', 'abcdef', '')
         // must not reach the server verbatim; the literal is what shipped.
         // The tile colours take the same check (a 3-digit '#FFF' expands):
@@ -2031,18 +2214,26 @@ export class LEDRasterApp {
             const hex = tile(value, '');
             return hex ? this.hexToRgb(hex) : fallback;
         };
+        // A cabinet figure the data does not carry is left out of the
+        // request (undefined drops from the JSON), so the server's own
+        // default stands: the canvas's newest screen, else 128 px, 500 mm,
+        // 20 kg (routes_layers add_layer, create_layer). A weight and its
+        // unit travel as a pair, so a missing weight never takes a unit
+        // that does not belong to it.
+        const given = (v) => (v != null && v !== '' ? v : undefined);
         let serverProps;
         if (presetData && typeof presetData === 'object') {
+            const weight = given(presetData.panel_weight);
             serverProps = {
                 columns: presetData.columns != null ? presetData.columns : prefs.columns,
                 rows: presetData.rows != null ? presetData.rows : prefs.rows,
-                cabinet_width: presetData.cabinet_width != null ? presetData.cabinet_width : prefs.panelWidth,
-                cabinet_height: presetData.cabinet_height != null ? presetData.cabinet_height : prefs.panelHeight,
+                cabinet_width: given(presetData.cabinet_width),
+                cabinet_height: given(presetData.cabinet_height),
                 color1: tileRgb(presetData.color1, color1),
                 color2: tileRgb(presetData.color2, color2),
                 border_color: tile(presetData.border_color, borderColor),
-                panel_weight: presetData.panel_weight != null ? presetData.panel_weight : prefs.panelWeight,
-                weight_unit: presetData.weight_unit || prefs.weightUnit,
+                panel_weight: weight,
+                weight_unit: weight === undefined ? undefined : (presetData.weight_unit || prefs.weightUnit),
                 // The two colours the server sets on a new layer (create_layer);
                 // the Look tab's "Info labels" and "Cabinet ID text" preferences.
                 // A preset value that is not a colour ('nope', 'red', [], {})
@@ -2060,16 +2251,13 @@ export class LEDRasterApp {
                 powerVoltageCustom: presetData.powerVoltage != null ? presetData.powerVoltage : prefs.powerVoltage
             };
         } else {
+            // No screen to copy (an empty project): the server's cabinet.
             serverProps = {
                 columns: prefs.columns,
                 rows: prefs.rows,
-                cabinet_width: prefs.panelWidth,
-                cabinet_height: prefs.panelHeight,
                 color1: color1,
                 color2: color2,
                 border_color: borderColor,
-                panel_weight: prefs.panelWeight,
-                weight_unit: prefs.weightUnit,
                 labelsColor: labelsColor,
                 cabinetIdColor: cabinetIdColor,
                 // Same reason as the preset branch above.
@@ -2078,13 +2266,14 @@ export class LEDRasterApp {
             };
         }
 
-        fetch('/api/layer/add', {
+        const spot = this._newScreenSpot(serverProps, presetData);
+        return fetch('/api/layer/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: this.getNextScreenName(),
-                offset_x: 0,
-                offset_y: 0,
+                offset_x: spot.x,
+                offset_y: spot.y,
                 ...serverProps
             })
         })
@@ -2176,6 +2365,72 @@ export class LEDRasterApp {
                 this._toast('The screen was not added. Check the connection and try again.', true);
             }
         });
+    }
+
+    // Where a new screen lands (the owner, 2026-11-04): the FIRST FREE SPOT
+    // on the active canvas, the first gap big enough for it, scanning left
+    // to right, then top to bottom. An empty canvas is 0,0, and it never
+    // overlaps a screen on that canvas. It landed at 0,0 every time, on top
+    // of the screen already there.
+    //
+    // Its size is the one the server will build (create_layer): columns x
+    // rows of the cabinet the data names, else the cabinet of the canvas's
+    // newest screen (_seed_data_with_canvas_defaults), else 128 px; a
+    // preset's 90 / 270 rotation turns its footprint. Coordinates are the
+    // canvas raster's pixels (offset_x / offset_y, Pixel Map), the screens
+    // there read as drawn (getLayerFootprintBounds).
+    //
+    // The scan steps through the left and top edges a free spot can start
+    // at: 0 and every screen's right edge across, 0 and every screen's
+    // bottom edge down. The first free spot of a pixel-by-pixel scan always
+    // sits on one of them (slid any further up or left it would meet a
+    // screen or the canvas edge), so this finds the same spot, exactly, in
+    // a few hundred looks. Stepping by the new screen's size or by its
+    // cabinet would miss a gap whose edges are off that grid. A screen that
+    // fits nowhere on the canvas starts a row under the lowest screen.
+    _newScreenSpot(serverProps, presetData) {
+        const p = this.project || {};
+        const r = window.canvasRenderer;
+        const activeId = p.active_canvas_id || null;
+        const screens = (p.layers || []).filter(l => l && (l.type || 'screen') === 'screen'
+            && (l.canvas_id || null) === activeId);
+        if (!screens.length || !r || typeof r.getLayerFootprintBounds !== 'function') return { x: 0, y: 0 };
+        const size = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+        const donor = screens.reduce((a, b) => ((Number(b.id) || 0) > (Number(a.id) || 0) ? b : a));
+        const props = serverProps || {};
+        const cw = size(props.cabinet_width) || size(donor.cabinet_width) || 128;
+        const ch = size(props.cabinet_height) || size(donor.cabinet_height) || 128;
+        const w = (Number(props.columns) || 0) * cw;
+        const h = (Number(props.rows) || 0) * ch;
+        const deg = ((((Number(presetData && presetData.rotation) || 0) % 360) + 360) % 360);
+        const swap = deg === 90 || deg === 270;
+        const fw = swap ? h : w;
+        const fh = swap ? w : h;
+        // A turned screen's footprint sits off its stored offset by this
+        // (getLayerFootprintOffset).
+        const dx = swap ? (w - h) / 2 : 0;
+        const dy = swap ? (h - w) / 2 : 0;
+        const boxes = screens.map(l => {
+            const b = r.getLayerFootprintBounds(l);
+            return { x1: b.x, y1: b.y, x2: b.x + b.width, y2: b.y + b.height };
+        });
+        const canvas = (p.canvases || []).find(c => c && c.id === activeId) || {};
+        const rasterW = size(canvas.raster_width) || size(p.raster_width) || Infinity;
+        const rasterH = size(canvas.raster_height) || size(p.raster_height) || Infinity;
+        const hits = (x, y) => boxes.some(b => x < b.x2 && x + fw > b.x1 && y < b.y2 && y + fh > b.y1);
+        const edges = (vals) => [...new Set([0, ...vals])].filter(v => Number.isFinite(v) && v >= 0)
+            .sort((a, b) => a - b);
+        const xs = edges(boxes.map(b => b.x2));
+        const ys = edges(boxes.map(b => b.y2));
+        for (const y of ys) {
+            if (y + fh > rasterH) break;
+            for (const x of xs) {
+                if (x + fw > rasterW) break;
+                if (!hits(x, y)) return { x: x - dx, y: y - dy };
+            }
+        }
+        const below = Math.max(0, ...boxes.map(b => b.y2));
+        return { x: 0 - dx, y: below - dy };
     }
 
     applyNewScreenPowerPreferences(layer, presetData) {

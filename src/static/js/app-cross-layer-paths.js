@@ -169,10 +169,14 @@ class _CrossLayerPaths {
     // step on this layer (2026-09-23, "a circuit is one circuit"; see the
     // section comment above). A run that touches a locked screen is kept
     // whole and its locked screens are reported in `skipped`.
-    clearCustomRun(layer, kind, num) {
+    // `opts.pullBefore`: the caller already read the pull sheet's rows
+    // (clearCustomCircuit, clearing several runs as one) and sweeps the
+    // edits itself.
+    clearCustomRun(layer, kind, num, opts) {
         if (!layer) return { touched: [], skipped: [] };
         const k = this._customRunKeys(kind);
-        const pullBefore = this._pullLiveRowKeys();
+        const swept = opts && opts.pullBefore;
+        const pullBefore = swept || this._pullLiveRowKeys();
         const touched = [];
         const skipped = new Map();
         const own = layer[k.paths];
@@ -181,9 +185,19 @@ class _CrossLayerPaths {
             if (locked.length) {
                 locked.forEach(l => skipped.set(l.id, l));
             } else {
-                delete own[num];
-                this._forgetRunCable(layer, kind, num);
-                touched.push(layer);
+                // A power circuit comes off its multi with every other
+                // circuit kept on its feed (_clearDrawnCircuitKeepFeeds);
+                // deleting the path alone slid the next circuit onto the
+                // freed slot.
+                const fed = kind === 'power'
+                    ? this._clearDrawnCircuitKeepFeeds(layer, num) : null;
+                if (fed) {
+                    fed.forEach(l => { if (!touched.includes(l)) touched.push(l); });
+                } else {
+                    delete own[num];
+                    this._forgetRunCable(layer, kind, num);
+                    touched.push(layer);
+                }
             }
         }
         this.getPathScopeLayers(layer).forEach(peer => {
@@ -201,8 +215,43 @@ class _CrossLayerPaths {
         });
         // An edit on a pull-sheet row the clear took away goes with it -
         // before the caller's snapshot, so undo brings both back.
-        if (touched.length) this._dropPullEditsGoneWith(pullBefore);
+        if (touched.length && !swept) this._dropPullEditsGoneWith(pullBefore);
         return { touched, skipped: [...skipped.values()] };
+    }
+
+    // Clear Circuit on a custom power wall (the owner's ruling, 2026-10-21):
+    // a 2fer or 3fer is ONE circuit, so the active number - whichever leg
+    // it names - clears every leg of its share, and the share's group goes
+    // with them, all in the caller's one history entry. A leg that touches
+    // a locked screen keeps the whole circuit, and the screen is named.
+    // A circuit that is not shared clears exactly as clearCustomRun does.
+    clearCustomCircuit(owner, num) {
+        if (!owner) return { touched: [], skipped: [] };
+        const head = parseInt(this._customCircuitHead(owner, num), 10);
+        const legs = this._customMergeGroups(owner).find(g => g.includes(head));
+        if (!legs) return this.clearCustomRun(owner, 'power', num);
+        const locked = new Map();
+        legs.forEach(n => this._runLockedLayers(owner, 'power', n)
+            .forEach(l => locked.set(l.id, l)));
+        if (locked.size) return { touched: [], skipped: [...locked.values()] };
+        const pullBefore = this._pullLiveRowKeys();
+        // The circuit off its multi first, while it still reads as ONE
+        // circuit, every other circuit kept on its feed - wiping the
+        // group first made each leg a circuit of its own and moved every
+        // later circuit a place along.
+        const fed = this._clearDrawnCircuitKeepFeeds(owner, head, true) || [];
+        // The group, while the store still reads the custom id space.
+        this._wipeSplitterManualFor(owner, legs);
+        const touched = new Map([[owner.id, owner]]);
+        fed.forEach(l => touched.set(l.id, l));
+        const skipped = new Map();
+        legs.forEach(n => {
+            const r = this.clearCustomRun(owner, 'power', n, { pullBefore });
+            r.touched.forEach(l => touched.set(l.id, l));
+            r.skipped.forEach(l => skipped.set(l.id, l));
+        });
+        this._dropPullEditsGoneWith(pullBefore);
+        return { touched: [...touched.values()], skipped: [...skipped.values()] };
     }
 
     // Every member's runs go, and the wall is back to automatic - except a
@@ -235,7 +284,7 @@ class _CrossLayerPaths {
         const overrides = (typeof this.getOverrideNums === 'function')
             ? this.getOverrideNums(member, kind) : [];
         const drawn = drawnNums.length > 0 || overrides.length > 0;
-        if (member.locked) {
+        if (this._layerLocked(member)) {
             // Reported only when there was something to leave alone.
             if (drawn) skipped.set(member.id, member);
             return false;
@@ -294,35 +343,48 @@ class _CrossLayerPaths {
         if (!owner) return [];
         const k = this._customRunKeys(kind);
         const out = new Map();
-        if (owner.locked) out.set(owner.id, owner);
+        if (this._layerLocked(owner)) out.set(owner.id, owner);
         const path = (owner[k.paths] && owner[k.paths][num]) || [];
         path.forEach(e => {
             const target = this.resolvePathEntryLayer(owner, e);
-            if (target && target.locked) out.set(target.id, target);
+            if (target && this._layerLocked(target)) out.set(target.id, target);
         });
         return [...out.values()];
     }
 
     // The one error every custom-mode change gives when it meets a locked
-    // screen, naming each one: "Upper is locked - unlock it to change it."
+    // screen, naming each one: "Upper is locked. Unlock it to change it."
     // An error toast (the app's error style), up a little longer than the
     // default so a list of names can be read.
-    _showLockedError(layers) {
+    //
+    // `why` 'repack' (the owner's ruling, 2026-10-23): the user acted on
+    // another screen, a distro or a group, and the change would repack the
+    // locked screens' circuits, so the error says why: "B is locked, and
+    // this would repack its circuits. Unlock it to change it." An action
+    // on the locked screen itself keeps the plain wording.
+    //
+    // `why` 'shared': a change on another screen would move the locked
+    // screens' circuits on a multi box they share with it ("B is locked,
+    // and this would move its circuits on a shared multi."). `lead`, when
+    // given, is a sentence said first, naming what the lock kept (a wall
+    // that shrank, app-power _trimCircuitsOffWall).
+    _showLockedError(layers, why = null, lead = '') {
         if (!layers || layers.length === 0 || typeof this._toast !== 'function') return;
-        const seen = new Set();
-        const names = [];
-        layers.forEach(l => {
-            if (!l || seen.has(l.id)) return;
-            seen.add(l.id);
-            names.push(l.name || `Screen ${l.id}`);
-        });
+        const names = this._lockedErrorNames(layers);
         if (names.length === 0) return;
         const one = names.length === 1;
         const list = one ? names[0]
             : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
-        const msg = one
-            ? `${list} is locked - unlock it to change it.`
-            : `${list} are locked - unlock them to change them.`;
+        const repack = why === 'repack';
+        const shared = why === 'shared';
+        const said = one
+            ? (repack ? `${list} is locked, and this would repack its circuits. Unlock it to change it.`
+                : shared ? `${list} is locked, and this would move its circuits on a shared multi. Unlock it to change it.`
+                    : `${list} is locked. Unlock it to change it.`)
+            : (repack ? `${list} are locked, and this would repack their circuits. Unlock them to change them.`
+                : shared ? `${list} are locked, and this would move their circuits on a shared multi. Unlock them to change them.`
+                    : `${list} are locked. Unlock them to change them.`);
+        const msg = lead ? `${lead} ${said}` : said;
         // One gesture, one error: a verb guarded at its entry and again in
         // the setter it calls would otherwise say the same thing twice in
         // the same turn. An action that runs on across awaits (a chain of
@@ -337,6 +399,25 @@ class _CrossLayerPaths {
         this._lockedErrorThisTurn = msg;
         Promise.resolve().then(() => { this._lockedErrorThisTurn = null; });
         this._toast(msg, true, 5000);
+    }
+
+    // The screens the locked error names for `layers`, once each, in order.
+    // An unlocked member of a half-locked group is held by the group's
+    // locked members (_layerLocked): those are the screens named.
+    _lockedErrorNames(layers) {
+        const seen = new Set();
+        const names = [];
+        const say = (l) => {
+            if (!l || seen.has(l.id)) return;
+            seen.add(l.id);
+            names.push(l.name || `Screen ${l.id}`);
+        };
+        (layers || []).forEach(l => {
+            const holders = l && !l.locked ? this._halfLockHolders(l) : [];
+            if (holders.length) holders.forEach(say);
+            else say(l);
+        });
+        return names;
     }
 
     // One action for the locked error, from here until the returned end()
@@ -354,7 +435,7 @@ class _CrossLayerPaths {
     // locked screen refuses it with the same error (the owner's ruling,
     // 2026-10-16: "Block it too"). True when the step must not happen.
     _lockedStepRefused(layer) {
-        if (!layer || !layer.locked) return false;
+        if (!layer || !this._layerLocked(layer)) return false;
         this._showLockedError([layer]);
         return true;
     }
@@ -365,14 +446,53 @@ class _CrossLayerPaths {
     // shared shape of that rule; the lock toggle itself, visibility and
     // selection are not changes and never come through here.
     //
+    // A HALF-LOCKED GROUP IS LOCKED (the owner's ruling, round 6): a group
+    // an old file left with some members locked and some not is treated as
+    // fully locked until the user picks Lock or Unlock for it (the first
+    // lock toggle asks, askGroupLock). Every guard reads a screen's lock
+    // through _layerLocked, so an unlocked member of such a group refuses
+    // every change the way a locked screen does, and the error names the
+    // group's locked members. The stored `locked` flags stay as the file
+    // had them, so the lock toggle can still ask which way.
+    //
+    // The locked members of `layer`'s group when that group is half
+    // locked; [] otherwise (an ungrouped screen, a group locked or unlocked
+    // as one).
+    _halfLockedGroupHolders(layer) {
+        if (!layer || !layer.group_id || !this.project) return [];
+        const group = typeof this.resolveGroup === 'function'
+            ? this.resolveGroup(layer.group_id) : null;
+        if (!group) return [];
+        const members = (this.project.layers || []).filter(l => l
+            && l.group_id === group.id && (l.type || 'screen') === 'screen');
+        const locked = members.filter(l => l.locked);
+        if (!locked.length || locked.length === members.length) return [];
+        return locked;
+    }
+
+    // The locked members holding an UNLOCKED `layer` through its half-locked
+    // group; [] for a screen that is locked itself or not held.
+    _halfLockHolders(layer) {
+        if (!layer || layer.locked) return [];
+        return this._halfLockedGroupHolders(layer);
+    }
+
+    // Is `layer` locked for a change: locked itself, or a member of a
+    // half-locked group. The one predicate every lock guard reads.
+    _layerLocked(layer) {
+        if (!layer) return false;
+        if (layer.locked) return true;
+        return this._halfLockHolders(layer).length > 0;
+    }
+
     // True when any of `layers` (one layer or a list) is locked; the locked
     // ones are named in the one error. For a change that must happen whole
     // or not at all.
-    _lockedRefused(layers) {
+    _lockedRefused(layers, why = null) {
         const list = (Array.isArray(layers) ? layers : [layers]).filter(Boolean);
-        const locked = list.filter(l => l.locked);
+        const locked = list.filter(l => this._layerLocked(l));
         if (locked.length === 0) return false;
-        this._showLockedError(locked);
+        this._showLockedError(locked, why);
         return true;
     }
 
@@ -380,10 +500,10 @@ class _CrossLayerPaths {
     // are named in the one error. The unlocked ones still take the change.
     _writableLayers(layers) {
         const list = (layers || []).filter(Boolean);
-        const locked = list.filter(l => l.locked);
+        const locked = list.filter(l => this._layerLocked(l));
         if (locked.length === 0) return list;
         this._showLockedError(locked);
-        return list.filter(l => !l.locked);
+        return list.filter(l => !this._layerLocked(l));
     }
 
     // A HOLD on the locked screens among `layers` for the edit funnels
@@ -399,7 +519,7 @@ class _CrossLayerPaths {
     _holdLockedLayers(layers) {
         const held = [];
         (layers || []).forEach(layer => {
-            if (!layer || !layer.locked) return;
+            if (!layer || !this._layerLocked(layer)) return;
             const fields = new Map();
             Object.keys(layer).forEach(k => {
                 if (LOCK_EXEMPT_FIELD(k)) return;
@@ -434,6 +554,33 @@ class _CrossLayerPaths {
         };
     }
 
+    // A hold on EVERY field of `layers`, locked or not (the leading-
+    // underscore render caches aside): the returned release() puts each
+    // field back exactly as it was, an added one taken away. For a change
+    // tried on the live screens and taken back whole (the locked-repack
+    // check of the edit funnel and of grouping).
+    _holdLayerFields(layers) {
+        const held = [...new Set((layers || []).filter(Boolean))].map(layer => {
+            const fields = new Map();
+            Object.keys(layer).forEach(k => {
+                if (k.charAt(0) === '_') return;
+                fields.set(k, JSON.stringify(layer[k] === undefined ? null : layer[k]));
+            });
+            return { layer, fields };
+        });
+        return () => {
+            held.forEach(({ layer, fields }) => {
+                Object.keys(layer).forEach(k => {
+                    if (k.charAt(0) !== '_' && !fields.has(k)) delete layer[k];
+                });
+                fields.forEach((json, k) => {
+                    if (JSON.stringify(layer[k] === undefined ? null : layer[k]) === json) return;
+                    layer[k] = JSON.parse(json);
+                });
+            });
+        };
+    }
+
     // The screens a Delete may remove, out of `ids`: never a locked one, and
     // never the last unlocked member of a group a locked screen would be
     // left alone in - a group of one is dissolved, which would change the
@@ -445,7 +592,7 @@ class _CrossLayerPaths {
         const locked = new Map();
         let keep = (ids || []).filter(id => {
             const l = byId.get(id);
-            if (l && l.locked) { locked.set(l.id, l); return false; }
+            if (l && this._layerLocked(l)) { locked.set(l.id, l); return false; }
             return true;
         });
         const going = new Set(keep);
@@ -455,7 +602,7 @@ class _CrossLayerPaths {
             if (!l || !l.group_id || heldGroups.has(l.group_id)) return;
             const members = typeof this.groupMembersOf === 'function' ? this.groupMembersOf(l) : [];
             const left = members.filter(m => !going.has(m.id));
-            const lockedLeft = left.filter(m => m.locked);
+            const lockedLeft = left.filter(m => this._layerLocked(m));
             if (lockedLeft.length && left.length < 2) {
                 heldGroups.add(l.group_id);
                 lockedLeft.forEach(m => locked.set(m.id, m));
@@ -485,7 +632,9 @@ class _CrossLayerPaths {
     // The attempt is read from the event being handled (window.event): an
     // `input` or a pointer move is live; anything else - a change, a key, a
     // release, or no event at all (a programmatic call) - is a commit.
-    _reportLockedEdit(layers) {
+    // `why` is _showLockedError's ('repack': the edit would repack a
+    // locked screen it never touched).
+    _reportLockedEdit(layers, why = null) {
         const list = (layers || []).filter(Boolean);
         const ev = (typeof window !== 'undefined' && window.event) || null;
         const live = !!(ev && LIVE_EDIT_EVENTS.has(ev.type));
@@ -502,7 +651,7 @@ class _CrossLayerPaths {
                 && last.el === target && now - last.at < 1500);
             const sameAttempt = !!(last && last.ids === ids && (last.open || colourStream
                 || (ev && (last.ev === ev || last.closedBy === ev))));
-            if (!sameAttempt) this._showLockedError(list);
+            if (!sameAttempt) this._showLockedError(list, why);
             this._lastLockedEditReport = {
                 ids, ev, open: live, el: target, at: now,
                 pointer: !!(ev && POINTER_MOVE_EVENTS.has(ev.type)),
@@ -659,13 +808,18 @@ class _CrossLayerPaths {
 
     // Hidden panels are dropped HERE rather than by each caller, matching the
     // read-time `.filter(p => p && !p.hidden)` every path consumer already ran
-    // before a step could name a peer.
-    getResolvedPathPanels(ownerLayer, path) {
+    // before a step could name a peer. A DATA path (`kind` 'data') drops a
+    // legacy blank as well (isPanelDataDark): a blank carries no pixels and
+    // takes no port, on a hand-drawn path exactly as on the automatic walk.
+    // Power reads `hidden` alone.
+    getResolvedPathPanels(ownerLayer, path, kind = null) {
         if (!ownerLayer || !Array.isArray(path)) return [];
+        const dark = kind === 'data' && typeof this.isPanelDataDark === 'function'
+            ? (p) => this.isPanelDataDark(p) : (p) => !!p.hidden;
         const out = [];
         path.forEach(entry => {
             const resolved = this.resolvePathEntry(ownerLayer, entry);
-            if (resolved && !resolved.panel.hidden) out.push(resolved);
+            if (resolved && !dark(resolved.panel)) out.push(resolved);
         });
         return out;
     }
@@ -725,9 +879,17 @@ class _CrossLayerPaths {
     // "port 2", or "port 2 on North Lower" when the conflict lives on a peer.
     // R3C4 alone stops meaning anything the moment two grids are in play, so
     // a toast that names only the number sends the user hunting.
+    // A circuit is named by the label the wall prints ("circuit S1-2"),
+    // never by its drawn number: a leg of a custom 3fer is drawn as its
+    // own number, which nothing on screen shows (the owner, 2026-10-21).
     _describePathConflict(conflict, kind) {
         if (!conflict) return '';
-        const base = `${kind} ${conflict.number}`;
+        const circuit = kind === 'circuit' && conflict.layer
+            && typeof this.getPowerCircuitLabel === 'function';
+        const base = circuit
+            ? `${kind} ${this.getPowerCircuitLabel(conflict.layer,
+                this._customCircuitHead(conflict.layer, conflict.number))}`
+            : (kind === 'port' ? `P${conflict.number}` : `${kind} ${conflict.number}`);
         return conflict.foreign ? `${base} on ${this._pathLayerName(conflict.layer)}` : base;
     }
 

@@ -9,9 +9,22 @@ from flask import Blueprint, request, jsonify
 
 import app
 import port_assignment
+import port_assignment as assignment
 from app import _assign_canvas_id, _build_panels, _find_canvas, _rebuild_layer_geometry_from_panel_states, _seed_data_with_canvas_defaults, create_image_layer, create_layer, create_text_layer, log_event, socketio
 
 layers_bp = Blueprint('layers', __name__)
+
+
+def _next_free_screen_name():
+    """Add Screen's default name, ScreenN, stepping past any name in use
+    (case-blind): with Screen1 deleted out of two, the next add is Screen3,
+    not a second Screen2."""
+    taken = {str(l.get('name') or '').strip().lower()
+             for l in app.current_project.get('layers', [])}
+    n = len(app.current_project.get('layers', [])) + 1
+    while f'screen{n}' in taken:
+        n += 1
+    return f'Screen{n}'
 
 @layers_bp.route('/api/layer/add', methods=['POST'])
 def add_layer():
@@ -22,7 +35,7 @@ def add_layer():
     # paths (which send full data) are unaffected.
     _seed_data_with_canvas_defaults(data)
     layer = create_layer(
-        name=data.get('name', f'Screen{len(app.current_project["layers"]) + 1}'),
+        name=data.get('name') or _next_free_screen_name(),
         columns=data.get('columns', 8),
         rows=data.get('rows', 5),
         cabinet_width=data.get('cabinet_width', 128),
@@ -38,13 +51,17 @@ def add_layer():
         'sizeByDimensions', 'targetWidth', 'targetHeight', 'targetUnit',
         'lastFlowPattern',
         'weight_unit', 'infoLabelSize',
+        # The panel saved on the screen (2026-10-22): the library model it
+        # was picked from, its name, and its halves' names. A copy is the
+        # same panel.
+        'panelModelId', 'panelModelName', 'panelModelHalves',
         'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow',
         'show_numbers', 'number_size', 'show_panel_borders', 'panel_border_width', 'show_circle_with_x',
         'border_color', 'border_color_pixel', 'border_color_cabinet', 'border_color_data', 'border_color_power',
         'cabinetIdStyle', 'cabinetIdPosition', 'cabinetIdColor',
         'dataFlowPattern', 'arrowLineWidth', 'arrowSize', 'arrowColor', 'dataFlowColor', 'primaryColor', 'primaryTextColor', 'backupColor', 'backupTextColor',
         'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom', 'panelWatts',
-        'powerMaximize', 'powerOrganized', 'powerCustomPath', 'powerFlowPattern',
+        'powerMaximize', 'powerOrganized', 'powerNumberOrder', 'powerCustomPath', 'powerFlowPattern',
         'powerLineWidth', 'powerLineColor', 'powerArrowColor', 'powerRandomColors',
         'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor', 'powerLabelTemplate', 'powerLabelOverrides',
         'powerCircuitCables',
@@ -95,6 +112,8 @@ def add_layer():
         'powerSocaLengths', 'powerSocaPhaseOffset',
         'powerSocaPhasePos', 'powerBreakoutType', 'showSocaBrackets',
         'powerSocaDistro',
+        # The panel input of an Edison / L6-20 screen ('true1' / 'powercon').
+        'powerPanelInput',
         # Multi names ({socaIndex: 'SL1'}), the numbers pinned onto multis
         # ({socaIndex: 3} - two multis pinned to one number on one distro are
         # one physical soca), and the stamp saying the per-multi stores above
@@ -284,6 +303,27 @@ def _apply_group_id(layer, previous_group_id, requested):
     app._enforce_group_integrity(app.current_project)
 
 
+@layers_bp.route('/api/layer/<int:layer_id>/mirror-refusal', methods=['GET'])
+def mirror_refusal_check(layer_id):
+    """Why this screen may not mirror the screen `of`, asked BEFORE the PUT
+    that sets it: {'error': why} or {'error': None}, always 200. A refusal
+    is an expected answer to a drop, said to the user out loud, and a 409
+    on the wire is logged by the browser as an error - so the dock asks
+    here first and the PUT's own 409 stays a guard nobody normally meets.
+    The same rule as the PUT (port_assignment.mirror_set_refusal)."""
+    layer = next((l for l in app.current_project['layers']
+                  if l['id'] == layer_id), None)
+    if not layer:
+        return jsonify({'error': 'That screen is not in this project.'})
+    wanted = request.args.get('of')
+    if wanted in (None, ''):
+        return jsonify({'error': None})
+    if str(wanted) == str(layer.get('dataMirrorOf')):
+        return jsonify({'error': None})
+    return jsonify({'error': assignment.mirror_set_refusal(
+        app.current_project, layer, wanted)})
+
+
 @layers_bp.route('/api/layer/<int:layer_id>', methods=['PUT'])
 def update_layer(layer_id):
     data = dict(request.json or {})
@@ -309,9 +349,57 @@ def update_layer(layer_id):
     previous_group_id = layer.get('group_id')
     previous_beach_id = layer.get('beachId')
 
+    # MIRROR A SCREEN (owner, 2026-10-30): dataMirrorOf names the screen
+    # this one copies - its data port map follows that screen's and lands on
+    # the copy OPTs of the card feeding it (port_assignment's mirror pass).
+    # Since 2026-11-01 (owner) the dock sets it when a card in Copy mode is
+    # dragged onto a second screen (app-mirror-screens.js _copyDropPlan).
+    # It names another object, so it is validated, not taken on trust, and a
+    # refused one refuses the whole PUT before anything is written: a size,
+    # pixel or port-order mismatch, a copy of a copy, itself
+    # (port_assignment.mirror_set_refusal). A PUT carrying the value the
+    # layer already has changes nothing and is never refused. Setting it
+    # lets go of the screen's own pins - from here on its ports follow the
+    # source's.
+    mirror_set = False
+    if 'dataMirrorOf' in data:
+        wanted = data.get('dataMirrorOf')
+        wanted = None if wanted in (None, '') else wanted
+        if str(wanted) != str(layer.get('dataMirrorOf')) \
+                and not (wanted is None and layer.get('dataMirrorOf') is None):
+            if wanted is not None:
+                why = assignment.mirror_set_refusal(app.current_project,
+                                                    layer, wanted)
+                if why:
+                    log_event('update_layer_mirror_refused',
+                              {'id': layer_id, 'mirrorOf': wanted,
+                               'why': why})
+                    return jsonify({'error': why, 'mirror': True}), 409
+                try:
+                    wanted = int(wanted)
+                except (TypeError, ValueError):
+                    pass
+            mirror_set = True
+        data.pop('dataMirrorOf', None)
+        if mirror_set:
+            if wanted is None:
+                layer.pop('dataMirrorOf', None)
+            else:
+                layer['dataMirrorOf'] = wanted
+                state = app.current_project.get(assignment.STATE_KEY)
+                if isinstance(state, dict) and state.get('pins'):
+                    state['pins'] = [p for p in state['pins']
+                                     if str((p or {}).get('layerId'))
+                                     != str(layer_id)]
+            log_event('update_layer_mirror', {'id': layer_id,
+                                              'mirrorOf': wanted})
+
     for key in ['name', 'columns', 'rows', 'cabinet_width', 'cabinet_height',
                 'offset_x', 'offset_y', 'rotation', 'color1', 'color2',
                 'panel_width_mm', 'panel_height_mm', 'panel_weight', 'weight_unit', 'visible',
+                # The panel saved on the screen (2026-10-22): its library
+                # model, its name and its halves' names.
+                'panelModelId', 'panelModelName', 'panelModelHalves',
                 'halfFirstColumn', 'halfLastColumn', 'halfFirstRow', 'halfLastRow',
                 'show_numbers', 'number_size', 'show_panel_borders', 'panel_border_width', 'show_circle_with_x', 'border_color',
                 'border_color_pixel', 'border_color_cabinet', 'border_color_data', 'border_color_power',
@@ -322,7 +410,7 @@ def update_layer(layer_id):
                 'labelsColor', 'labelsFontSize', 'infoLabelSize', 'useFractionalInches',
                 'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR',
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom', 'panelWatts',
-                'powerMaximize', 'powerOrganized', 'powerCustomPath', 'powerFlowPattern', 'powerLineWidth',
+                'powerMaximize', 'powerOrganized', 'powerNumberOrder', 'powerCustomPath', 'powerFlowPattern', 'powerLineWidth',
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',
                 # Per-circuit cables ({circuit: {ft, connector}}) - the
@@ -372,7 +460,11 @@ def update_layer(layer_id):
                 # v0.11.0: lowLatency rides with processorType - leaving it out
                 # would drop the flag on every per-layer PUT.
                 'flowPattern', 'bitDepth', 'frameRate', 'processorType', 'lowLatency',
-                'portMappingMode',
+                'portMappingMode', 'portNumberOrder',
+                # A locked screen an older show opened with, still owed its
+                # pins' follow of the stacked leftovers (app-merge-runs.js
+                # followOldLeftoverStacks). It outlives the file's stamp.
+                'leftoverFollowDue',
                 'dataFlowColor', 'dataFlowLabelSize', 'randomDataColors',
                 'portLabelTemplatePrimary', 'portLabelTemplateReturn',
                 'portLabelOverridesPrimary', 'portLabelOverridesReturn',
@@ -417,6 +509,9 @@ def update_layer(layer_id):
                 # soca-l620), and the power-map bracket toggle.
                 'powerSocaLengths', 'powerSocaPhaseOffset', 'powerSocaPhasePos',
                 'powerBreakoutType', 'showSocaBrackets',
+                # The panel input an Edison / L6-20 screen's adapter cables,
+                # jumpers and splitters are ('true1' / 'powercon'; absent is TRUE1).
+                'powerPanelInput',
                 # Production suite: power splitters (circuit sharing) -
                 # {enabled, maxWays, manual: {merge, split}}. Must be listed
                 # or every per-layer PUT drops the packing toggle and the
@@ -590,7 +685,19 @@ def delete_layer(layer_id):
         log_event('port_cables_forgotten', {
             'at': 'delete_layer', 'layerId': layer_id,
             'sockets': [f'{c}:{n}' for c, n in sorted(released)]})
-    app.current_project['is_pristine'] = False
+    # `keep_pristine`: the start page's X and the startup picker's Cancel
+    # take the launch's untouched startup screen out (app-presets.js
+    # _dropStartupScreen). The project left behind is still the one the
+    # launch made, so it stays pristine while it is empty; the next page
+    # load puts a startup screen back (app.index), which a launch opens
+    # like any launch and a reload of the same tab takes out again
+    # (app-start-page.js resumeOrLaunch). Any
+    # other delete, or one that leaves a screen standing, clears the flag.
+    # A request marker, never stored.
+    keep_pristine = (str(request.args.get('keep_pristine', '')).lower() in ('1', 'true', 'yes')
+                     and app.current_project.get('is_pristine') is True
+                     and not app.current_project['layers'])
+    app.current_project['is_pristine'] = keep_pristine
     log_event('delete_layer', {'id': layer_id, 'name': deleted_name, 'remaining_layers': len(app.current_project['layers'])})
     socketio.emit('layer_deleted', {'id': layer_id})
     return jsonify(app.current_project)

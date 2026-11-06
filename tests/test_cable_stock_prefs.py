@@ -24,6 +24,7 @@ sys.path.insert(0, HERE)
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 from test_power_cables import SEED_JS  # noqa: E402
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -52,7 +53,7 @@ def _presets_file():
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1440, 'height': 900})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -137,23 +138,32 @@ def test_the_tab_shows_the_show_s_lists_and_save_gives_them_to_the_show(page):
 
 
 def test_a_list_per_kind(page):
-    """The toggle swaps the shared row for one row per kind; the kinds'
-    lists are the show's after Save and each kind reads its own."""
+    """The toggle swaps the shared row for one row per kind - multis,
+    data, power, and since 2026-10-21 L21-30 and Harting home runs,
+    direct-output cables and feeders; the kinds' lists are the show's after
+    Save and each kind reads its own."""
     pg, errors = page
     _open(pg)
     pg.check('#pref-cable-stock-per-kind')
-    assert _shown(pg) == ['multi', 'data', 'circuit']
+    assert _shown(pg) == ['multi', 'data', 'circuit', 'l2130', 'harting', 'direct', 'feeder']
     pg.fill('#pref-cable-stock-multi-ft', '50, 100')
     pg.fill('#pref-cable-stock-data-ft', '25, 50')
     pg.fill('#pref-cable-stock-circuit-ft', '')
+    pg.fill('#pref-cable-stock-l2130-ft', '30, 60')
+    pg.fill('#pref-cable-stock-harting-ft', '')
+    pg.fill('#pref-cable-stock-direct-ft', '10, 25')
+    pg.fill('#pref-cable-stock-feeder-ft', '50, 100')
     pg.click('#preferences-save')
     pg.wait_for_timeout(500)
     got = pg.evaluate("""() => { const a = window.app;
         return [a.cableStock().perKind, a.cableStockText(125, 'multi'), a.cableStockText(125, 'data'),
-                a.cableStockText(125, 'circuit')]; }""")
-    assert got == [True, "100'+50'", "50'+50'+25'", "125'"], got
+                a.cableStockText(125, 'circuit'), a.cableStockText(125, 'l2130'),
+                a.cableStockText(125, 'harting'), a.cableStockText(35, 'direct'),
+                a.cableStockText(125, 'feeder')]; }""")
+    assert got == [True, "100'+50'", "50'+50'+25'", "125'", "60'+60'+30'",
+                   "125'", "25'+10'", "100'+50'"], got
     _open(pg)
-    assert pg.is_checked('#pref-cable-stock-per-kind') and _shown(pg) == ['multi', 'data', 'circuit']
+    assert pg.is_checked('#pref-cable-stock-per-kind') and _shown(pg) == ['multi', 'data', 'circuit', 'l2130', 'harting', 'direct', 'feeder']
     pg.uncheck('#pref-cable-stock-per-kind')
     assert _shown(pg) == ['all']
     pg.click('#preferences-save')
@@ -170,9 +180,8 @@ def test_presets_save_load_and_delete(page):
     _open(pg)
     pg.fill('#pref-cable-stock-all-ft', '20, 40, 80')
     pg.fill('#pref-cable-stock-all-m', '6, 12')
-    answers = iter(['Shop B'])
-    pg.once('dialog', lambda d: d.accept(next(answers)))
     pg.click('#pref-cable-stock-save-preset')
+    answer_app_dialog(pg, text='Shop B')
     pg.wait_for_timeout(500)
     presets = _presets(pg)
     assert [p['name'] for p in presets] == ['Shop B'], presets
@@ -200,12 +209,12 @@ def test_presets_save_load_and_delete(page):
     _open(pg)
     pg.wait_for_function("() => document.querySelectorAll('#pref-cable-stock-preset option').length > 1")
     pg.select_option('#pref-cable-stock-preset', 'Shop B')
-    pg.once('dialog', lambda d: d.dismiss())
     pg.click('#pref-cable-stock-delete')
+    answer_app_dialog(pg, accept=False)
     pg.wait_for_timeout(300)
     assert [p['name'] for p in _presets(pg)] == ['Shop B']
-    pg.once('dialog', lambda d: d.accept())
     pg.click('#pref-cable-stock-delete')
+    answer_app_dialog(pg)
     pg.wait_for_timeout(500)
     assert _presets(pg) == []
     assert pg.evaluate("() => document.querySelectorAll('#pref-cable-stock-preset option').length") == 1

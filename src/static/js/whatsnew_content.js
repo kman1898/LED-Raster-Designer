@@ -5,7 +5,8 @@
  * A patch release (0.12.1 -> 0.12.2) re-opens the window only when it added
  * Advanced Guide steps (a step's `since`, quickstart.js); it may carry an
  * entry of its own keyed by the full version ("1.5.3"), and without one the
- * window lists the new steps' titles. This is NOT the changelog: VERSION.txt
+ * window lists the new steps' titles. An update that skips a patch shows
+ * every patch entry since the version last run, newest first. This is NOT the changelog: VERSION.txt
  * is the full record; each entry here is 4-8 short items a person can read
  * in a minute.
  *
@@ -14,14 +15,35 @@
  * cannot ship without its highlights.
  *
  * Shape: { 'MAJOR.MINOR' | 'X.Y.Z': { title: str, items: [{ h: str, d: str }] } }
- *   h - short heading, d - one or two plain sentences. No markup, no emoji.
+ *   h: short heading, d: one or two plain sentences. No markup, no emoji.
  */
 window.WHATS_NEW_CONTENT = {
+    '1.6': {
+        title: 'A start page, cables named by their connector, US circuits at 80%, a power in for every distro, your panels on the pull sheet, mixed redundancy, mirror screens, a Fiber page and Z flow patterns',
+        items: [
+            { h: 'TRUE1 or powerCON, Cat6 or etherCON, and a panel input',
+              d: 'The pull sheet and the binder say exactly which cable to pull. Power reads TRUE1 or powerCON from each screen\'s breakout, and data reads Cat6 or etherCON from each box\'s own outputs. The ≡ on a processor\'s header opens one cable list of every box on it. An Edison or L6-20 breakout now asks which connector your panels take, TRUE1 or powerCON, and the jumpers and splitters follow it. Each circuit gets one cable from its Edison or L6-20 plug to that panel input, with the 2fers at the panels.' },
+            { h: 'US circuits filled to 80%',
+              d: 'A circuit on a US distro, or on a screen with no distro at 208 V or below, is now filled to 80% of its breaker unless the distro\'s breakers are 100% rated, so a US screen may need more circuits than before. You still type the breaker size in the Amperage box, and the amps you can use now show beside it.' },
+            { h: 'A power in for every distro',
+              d: 'Open a distro\'s gear, type its power in length and pick whether it\'s powered from the service or thru another distro. A 400 A cam input lists a 400 A cam set with 5-wire, and the power in is on the pull sheet even before you type a length.' },
+            { h: 'A start page, and your panels and cable stock on the pull sheet',
+              d: 'The app opens on a start page: start a new project, open a file, or pick one of your recent files, which now opens as you last saved it. A new project opens the panel library first, and the panel you pick makes its first screen. Add Screen with nothing picked uses the last screen\'s panel. A panel you pick from the library is saved on the screen, and the pull sheet counts your panels by name, a row for each type on each screen. In Preferences > Cable stock, tick A list for each kind of cable to give multis, data, power, power in cables and the rest their own lengths.' },
+            { h: 'Mixed redundancy, mirror screens and a Fiber page',
+              d: 'On a chassis like an H series, the redundancy bar has a Mixed choice, so card 1 can be backed up 1:1 by card 2 while card 3 pairs its own ports. With an H_4xfiber in Copy mode, or an MX40 Pro with a box set to Mirror, drag the card or processor onto one screen, then drag the box on the copy OPT onto a matching second screen, and the second becomes its copy with its runs off that box. A show that uses fiber gets a Fiber page in the binder: every processor to its breakout boxes on one sheet, with the strands at both ends, the strand maps and the fiber cables to pull. The CVT10, CVT10 Pro and CVT4K come as single mode and multimode boxes, and each box and fiber cable says which.' },
+            { h: 'Z flow patterns, and long rows cut into ports and circuits',
+              d: 'Data and power get eight Z flow patterns, where every row starts again from the same side. Organized now cuts a row too long for one port or circuit into whole cabinets, Port numbers and Circuit numbers set the order, and Ports required shows the fewest ports a screen needs.' },
+            { h: 'Names for each group',
+              d: 'Select a group and the Names switch sets how it reads on that tab: Screens, Group or Both. Each group keeps its own choice on every tab, and the binder\'s Data and Power sheets follow it. With several groups selected, one click sets them all, and with none selected the switch is hidden. A show from an earlier version opens with every group named the way it was.' },
+            { h: 'Check paperwork you\'ve already ordered from',
+              d: 'US screens may need more circuits, powerCON screens listed TRUE1 jumpers, Edison and L6-20 screens had the wrong cables, and saved 2fers and 3fers past 80% now read OVER. If you ordered from an older pull sheet, export it again and compare.' }
+        ]
+    },
     '1.5.3': {
         title: '2fers and 3fers in custom mode, the cable you stock, and house power as a service',
         items: [
             { h: '2fers and 3fers in custom mode and groups',
-              d: 'With Share circuits via splitters on, a fill in custom mode makes 2fers and 3fers one run per column, the same as automatic mode, and a group shares them as one wall. The 3fer Screen button splits a circuit that spans three columns into its own three legs and never builds an OVER.' },
+              d: 'With Share circuits via splitters on, a fill in custom mode makes 2fers and 3fers one run per column, the same as automatic mode, and a group shares them as one wall. Right-click the screen and pick 3fer this screen: a circuit that spans three columns splits into its own three legs, and it never builds an OVER.' },
             { h: 'Right-click to 3fer a circuit',
               d: 'Right-click a circuit and pick 3fer it to split it into one leg per column on that same circuit, or 2fer it and 4fer it for two and four columns. The menu says what it does now: Un-share is Remove 3fer, and the tray\'s Clear multi and Clear circuit are Unplug multi and Unplug circuit.' },
             { h: 'Cable stock',
@@ -42,7 +64,7 @@ window.WHATS_NEW_CONTENT = {
         title: 'Distros built from their outputs, cable lengths in meters, and custom mode that stays on',
         items: [
             { h: 'Distros built from their outputs',
-              d: 'Pick a power system, an input and amps per leg, then list the outputs: Socapex, L21-30, or True1, powerCON, Edison and CEE outlets straight off the distro face. Start from a preset of a common US or EU distro, or save your own.' },
+              d: 'Pick a power system, an input and amps per leg, then list the outputs: Socapex, L21-30, or TRUE1, powerCON, Edison and CEE outlets straight off the distro face. Start from a preset of a common US or EU distro, or save your own.' },
             { h: 'Every circuit checked against its breaker',
               d: 'US distros hold circuits to 80% of the breaker unless the breakers are 100% rated, and the distro to 80% of its rating unless the main is. Accept overload turns a red OVER amber, and the binder\'s Load line shows every leg and the 3-phase total.' },
             { h: 'Feet or meters',
@@ -81,14 +103,14 @@ window.WHATS_NEW_CONTENT = {
         ]
     },
     '1.3': {
-        title: 'A default for every screen color, True1 and powerCON on 120V, whole-row fills, a rear view binder',
+        title: 'A default for every screen color, TRUE1 and powerCON on 120V, whole-row fills, a rear view binder',
         items: [
             { h: 'A default for every screen color',
               d: 'Preferences has a labeled color for every mark a screen draws, on the Look, Data and Power tabs. A new screen takes them all and keeps them; existing screens are not touched.' },
-            { h: 'True1 and powerCON on 110V and 120V',
-              d: 'A screen at or below 120V can be set to Multi → True1 or Multi → powerCON as well as Edison, and a Multi 120 output feeds any of the three.' },
+            { h: 'TRUE1 and powerCON on 110V and 120V',
+              d: 'A screen at or below 120V can be set to Multi → TRUE1 or Multi → powerCON as well as Edison, and a Multi 120 output feeds any of the three.' },
             { h: 'Every screen carries a breakout',
-              d: 'The Preferences breakout is the default when the voltage allows it; otherwise Edison at or below 120V and True1 above. Edison is not offered above 120V and L21-30 stays 208V only.' },
+              d: 'The Preferences breakout is the default when the voltage allows it; otherwise Edison at or below 120V and TRUE1 above. Edison is not offered above 120V and L21-30 stays 208V only.' },
             { h: 'Apply Pattern fills whole rows',
               d: 'In custom mode on an Organized screen a circuit or port takes another row or column only when all of it fits, so a run never starts in the middle of a row; Max Capacity and Maximize Power Use pack each run full. The marquee clears when the fill lands.' },
             { h: 'Deleting a canvas keeps shown screens',
@@ -133,15 +155,15 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Hardware lives in a tray',
               d: 'Processors, cards, breakout boxes and distros sit in a tray under the canvas, and the middle sidebars are gone. Drag a port, a card, a multi or a whole unit onto a screen to wire it; a red flag on the tray counts what is still unattached and flies you to it.' },
             { h: 'Nothing lands by itself',
-              d: 'A port is on a socket because you put it there, Clear always takes it off, and the drawing prints the socket it sits on - 6, 7, 8, 9 - the same numbers the tray shows.' },
+              d: 'A port is on a socket because you put it there, Clear always takes it off, and the drawing prints the socket it sits on (6, 7, 8, 9), the same numbers the tray shows.' },
             { h: 'Redundancy is one bar',
               d: 'Off, Whole unit, Per card or Per port, behind the processor’s gear, with exactly one thing beneath it. Every tray header wears a gold pill that reads the shape in force.' },
             { h: 'Power that adds up',
-              d: 'A distro has a rating, a voltage and a phase, its legs are summed the way a genset spec means it, and every number on it is a plug you drag - Multi 208, Multi 120, L21-30. Shared circuits never pass their amps unless you draw the runs yourself.' },
+              d: 'A distro has a rating, a voltage and a phase, its legs are summed the way a genset spec means it, and every number on it is a plug you drag: Multi 208, Multi 120, L21-30. Shared circuits never pass their amps unless you draw the runs yourself.' },
             { h: 'Every cable on paper',
               d: 'A cable sheet on every multi and card, snakes under a blue bracket, an extension off the fan-out, and Show Cable Tags to print them on the wall.' },
             { h: 'Beaches',
-              d: 'A position the show keeps. Screens, distros and boxes pick theirs - select several screens and right-click to put them on one - and the pull sheet and binder follow that order.' },
+              d: 'A position the show keeps. Screens, distros and boxes pick theirs (select several screens and right-click to put them on one), and the pull sheet and binder follow that order.' },
             { h: 'The binder is a drawing set',
               d: 'Numbered sheets with a title block and a revision log, real text in the PDF, a wiring sheet behind every map, and a screen’s own amps on the legs that feed it. Export Pull Sheet fills the shop workbook.' },
             { h: 'Guides that show you each step',
@@ -162,9 +184,9 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Export treats a group as one screen',
               d: 'One shape in the Resolume XML named for the group, one Photoshop layer, and a rectangular group exports as a plain rectangle.' },
             { h: 'Drop shadows on logos and images',
-              d: 'An image layer can cast a drop shadow - color, opacity, angle, distance, spread and size. It is drawn into the artwork, so it exports exactly as you see it.' },
+              d: 'An image can cast a drop shadow, with its color, opacity, angle, distance, spread and size. It is drawn into the artwork, so it exports exactly as you see it.' },
             { h: 'Export asks where to save',
-              d: 'On the machine running the app, export asks for a folder even when you opened the app at its network address, and cancelling the chooser actually cancels.' }
+              d: 'On the machine running the app, export asks for a folder even when you opened the app at its network address, and canceling the chooser actually cancels.' }
         ]
     }
 };

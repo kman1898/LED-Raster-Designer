@@ -20,8 +20,12 @@ Two rulings, pinned here:
 
   1. A CLEAR FORGETS THE CUTS TOO (extends 2026-08-30: "clearing must not
      remember how i had it programmed"). The split points at a cleared
-     multi's edges go with its programming, so the cleared circuits fall
-     back onto the natural box grid; multis that were NOT cleared keep
+     multi's edges go with its programming when the multi on the other
+     side is unassigned too, so the cleared circuits fall back onto the
+     natural box grid; a cut against a multi that is still fed stays
+     (owner, 2026-11-02: "it should just clear the ports"), so a clear
+     never grows another feed over the freed circuits. Multis that were
+     NOT cleared keep
      their name, distro, number and length under their new index
      (_resegmentSocaStores). One history entry; one undo restores the
      cuts. AND every cut left between two multis that are both unassigned
@@ -89,7 +93,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1500, 'height': 900})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -108,6 +112,11 @@ def page(e2e_server, pw_browser):
 # first, and the module guard puts the server back at the end.
 SEED_JS = """async (spec) => {
     const app = window.app, r = window.canvasRenderer;
+    // Every save the test before made lands first - its last Undo's restore
+    // PUT above all. Landing after this seed, it put that test's screen back
+    // over the one made here under the same id (2026-11-01: counts {W: 4}
+    // for a 6-wide W, reproduced by holding the restore PUT).
+    await app._layerSavesSettled();
     let project = await (await fetch('/api/project')).json();
     project.layers = (project.layers || [])
         .filter(l => !String(l.name || '').startsWith('TK '));
@@ -139,7 +148,8 @@ SEED_JS = """async (spec) => {
             // screen is refused (owner, 2026-10-16: 110, 115 and 120 are 120V;
             // anything else that does not fit the system is refused). 110V x 5A
             // still fits five 100W cabinets a circuit, so the plans are unchanged.
-            powerVoltage: '110', powerAmperage: '5', panelWatts: '100',
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            powerVoltage: '110', powerAmperage: '6.25', panelWatts: '100',
             powerOrganized: true, powerMaximize: false,
             powerFlowPattern: 'tl-v',
         }, s.fields || {});
@@ -329,10 +339,13 @@ def test_uncleared_multis_keep_their_identity_under_the_new_index(page):
     assert read(page, lid) == before, 'one undo did not restore everything'
 
 
-def test_a_cleared_run_welds_onto_its_one_kept_neighbour(page):
-    """[1-2] kept on the box, [3-6] cleared: the cut after 2 goes, the kept
-    multi holds the whole natural block [1-6] and re-deals its tails on
-    its box (the stored set covered two circuits, not six)."""
+def test_a_cleared_run_never_welds_onto_a_fed_neighbour(page):
+    """[1-2] kept on the box, [3-6] cleared: the cut after 2 stays, so the
+    kept multi holds its two circuits and its two tails exactly as before
+    and [3-6] just sits unplugged. Owner (2026-11-02): "when i clear a
+    breakout on the power it jumps them to another breakout. it should
+    just clear the ports." The cut used to go, and the kept multi grew
+    over [1-6] and dealt itself four more tails on its box."""
     ids = seed(page, [{'name': 'W', 'columns': 6, 'fields': {
         'powerSocaSplits': [2],
         'powerSocaDistro': {'1': 'dtk', '2': 'dtk'},
@@ -345,11 +358,12 @@ def test_a_cleared_run_welds_onto_its_one_kept_neighbour(page):
     }""", lid)
     page.wait_for_timeout(600)
     out = read(page, lid)
-    assert out['splits'] == [] and out['shape'] == [6], out
+    assert out['splits'] == [2] and out['shape'] == [2, 4], out
     assert out['distro'] == {'1': 'dtk'} and out['num'] == {'1': 1}, out
-    assert out['pos'] == {}, (
-        f'a multi that grew must shed its stored tail set: {out}')
-    assert out['plan'][0]['tails'] == [1, 2, 3, 4, 5, 6], out
+    assert out['pos'] == {'1': [5, 6]}, (
+        f'the kept multi lost its stored tails: {out}')
+    assert out['plan'][0]['tails'] == [5, 6], out
+    assert out['plan'][1]['distro'] is None, out
 
 
 def test_a_cleared_run_flanked_by_kept_multis_keeps_both_cuts(page):
@@ -662,7 +676,7 @@ def test_head_circuits_on_another_box_are_skipped(page):
     assert read(page, lid) == before, 'a refused drop mutated the wall'
     assert page.evaluate(HIST_LEN_JS) == hist
     said = page.evaluate(SAID_JS)
-    assert 'is already on ' in said and 'clear it first' in said and 'breakout' not in said, said
+    assert 'is already on ' in said and 'Clear it first' in said and 'breakout' not in said, said
 
     page.evaluate(HUSH_JS)
     drop_slot(page, lid, 4, 'dtk', 2, 'SR 2')

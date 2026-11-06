@@ -119,6 +119,7 @@ SETTLED_CEILINGS = [
     ('novastar-novapro-uhd', 16),
     ('novastar-novapro-uhd-jr', 16),
     ('novastar-novapro-hd', 4),
+    ('novastar-4k-prime', 16),
     ('novastar-card-h-20xrj45', 20),
     ('novastar-card-h-16xrj45-2xfiber', 16),
     ('novastar-card-h-4xfiber', 32),
@@ -189,7 +190,8 @@ def test_the_novapro_uhds_opts_copy_their_own_copper():
     Ethernet 1-8 / 9-16, OPT 3/4 are their copy/hot backup - which is exactly
     what copy delivery with four trunks at 8 per trunk produces. No documented
     OPT mode adds a port, so unlike the MX40 Pro there is no mode switch."""
-    for device_id in ('novastar-novapro-uhd', 'novastar-novapro-uhd-jr'):
+    for device_id in ('novastar-novapro-uhd', 'novastar-novapro-uhd-jr',
+                      'novastar-4k-prime'):
         device = catalog.get_device(device_id)
         assert device['form'] == 'all-in-one', device_id
         assert device['trunkDelivery'] == 'copy', (
@@ -230,12 +232,16 @@ NOVASTAR_10G_TRUNKS = [
     ('novastar-mx30', 2, 10, 'copy'),
     ('novastar-mx20', 2, 6, 'copy'),
     ('novastar-vx400-pro', 2, 4, 'copy'),
-    # VX600 / VX1000 non-Pro: OPT 1 is a documented 10G output copying the
-    # copper; OPT 2 copies too but its sheet names NO rate for it, so it is
-    # not a trunk - one ruling from Matt away from 2.
+    # VX600 non-Pro: OPT 1 is a documented 10G output copying the copper;
+    # OPT 2 copies too but its sheet names NO rate for it, so it is not a
+    # trunk - one ruling from Matt away from 2.
     ('novastar-vx600', 1, 6, 'copy'),
     ('novastar-vx600-pro', 2, 6, 'copy'),
-    ('novastar-vx1000', 1, 10, 'copy'),
+    # VX1000 non-Pro: its own sheet's table row is "OPT | 2 | 10G optical
+    # fiber ports" with "OPT 2: For output only, with copy and backup modes"
+    # (Specifications V1.6.0 p.7), and the owner turned OPT 2 on
+    # (2026-11-02), so both OPTs are trunks, as on the Pro.
+    ('novastar-vx1000', 2, 10, 'copy'),
     ('novastar-vx1000-pro', 2, 10, 'copy'),
     ('novastar-vx2000-pro', 4, 10, 'copy'),
     ('novastar-mctrl4k', 4, 8, 'copy'),
@@ -243,9 +249,16 @@ NOVASTAR_10G_TRUNKS = [
     ('novastar-mctrl-r5', 2, 8, 'copy'),
     ('novastar-novapro-uhd', 4, 8, 'copy'),
     ('novastar-novapro-uhd-jr', 4, 8, 'copy'),
+    # 4K-Prime: its sheet (Specifications V1.0.0, Output table) maps the
+    # carriage, "OPT 1 transmits data of Ethernet ports 1-8", OPT 2 9-16,
+    # OPT 3/4 their copy/hot backup, and states no rate. The 10G is the
+    # owner's own ruling: "It's 10G, I know it" (2026-11-04).
+    ('novastar-4k-prime', 4, 8, 'copy'),
     ('novastar-card-h-16xrj45-2xfiber', 2, 8, 'copy'),
     ('novastar-card-h-4xfiber', 4, 8, 'distinct'),
-    ('novastar-card-h-4xfiber-enhanced', 4, 10, 'distinct'),
+    # Eight OPTs: "8x 10G OPT Ports" (H15 Video Wall Splicer
+    # Specifications V1.15.0 p.37) - OPT 5-8 back up or copy OPT 1-4.
+    ('novastar-card-h-4xfiber-enhanced', 8, 10, 'distinct'),
     ('novastar-card-mx-4x10g', 4, 10, 'distinct'),
 ]
 
@@ -281,6 +294,25 @@ def test_a_documented_10g_opt_device_accepts_a_box(device_id, trunks,
     ok, why = catalog.can_add_cvt(card, 'novastar-cvt8-5g')
     assert not ok, f'{device_id} took a CVT8-5G onto a 10G trunk'
     assert '40G' in why and '10G' in why, why
+
+
+def test_the_4k_prime_takes_the_10g_boxes_and_refuses_the_40g_one():
+    """The owner's ruling, "It's 10G, I know it" (2026-11-04), is the
+    4K-Prime's rate, quoted in its note beside the sheet that states none.
+    Rated like the UHD Jr, it takes every box of the 10G line and refuses
+    the CVT8-5G with both rates in the reason."""
+    device = catalog.get_device('novastar-4k-prime')
+    assert device['trunkRate'] == '10G'
+    assert "It's 10G, I know it" in device['note']
+    assert 'no OPT line rate' in device['note']
+    card = catalog.new_card('novastar-4k-prime', 'sweep', fixed=True)
+    for box in ('novastar-cvt10', 'novastar-cvt10-pro', 'novastar-cvt4k-s'):
+        ok, why = catalog.can_add_cvt(card, box)
+        assert ok, f'the 4K-Prime refused {box}: {why}'
+    ok, why = catalog.can_add_cvt(card, 'novastar-cvt8-5g')
+    assert not ok, 'the 4K-Prime took a CVT8-5G onto a 10G trunk'
+    assert why == ('CVT8-5G hangs off a 40G trunk and the trunks on '
+                   '4K-Prime are 10G - the rates must match.'), why
 
 
 def _mx40(boxes=0, halves=False):
@@ -454,8 +486,9 @@ def test_the_vx_pairs_are_split_and_each_side_keeps_its_own_sheet():
     """VX400/600/1000 and their Pros are different processors (Matt), so six
     entries, each carrying only its own sheet's fields. The split must not
     leak figures across a pair: the Pros document 2x 10G OPT and 650k per
-    port; the non-Pros document no per-port figure, and their second OPT -
-    or, on the VX400, both OPTs - carries no stated rate."""
+    port; the non-Pros document no per-port figure. The VX600's second OPT
+    and both of the VX400's carry no stated rate; the VX1000's own sheet
+    states 2x 10G (V1.6.0 p.7), so it has two trunks like its Pro."""
     for plain_id, pro_id in (('novastar-vx400', 'novastar-vx400-pro'),
                              ('novastar-vx600', 'novastar-vx600-pro'),
                              ('novastar-vx1000', 'novastar-vx1000-pro')):
@@ -470,13 +503,19 @@ def test_the_vx_pairs_are_split_and_each_side_keeps_its_own_sheet():
             'the pair disagrees on the one figure the sheets agree on')
     assert 'trunks' not in catalog.get_device('novastar-vx400'), (
         'the VX400 grew trunks; its sheet states no optical rate at all')
+    assert catalog.get_device('novastar-vx600')['trunks'] == 1, (
+        'the VX600 grew a second trunk; its sheet names no rate for OPT 2')
+    assert catalog.get_device('novastar-vx1000')['trunks'] == 2
 
 
 def test_a_single_trunk_vx_delivers_its_whole_copper_once(client):
-    """VX1000: OPT 1 is the documented 10G output and it copies all ten
+    """VX600: OPT 1 is the documented 10G output and it copies all six
     Ethernet ports, so ONE box takes the whole unit out on fiber - and there
-    is no second trunk for another. The card stays ten ports throughout."""
-    state = add_processor(client, 'novastar-vx1000')
+    is no second trunk for another (its sheet names no rate for OPT 2). The
+    card stays six ports throughout. The VX1000 was the case here until its
+    own sheet's "OPT | 2 | 10G optical fiber ports" turned OPT 2 on
+    (2026-11-02, tests/test_copy_backup_all.py)."""
+    state = add_processor(client, 'novastar-vx600')
     pid = only(state)['id']
     card_id = first_card(only(state))['id']
     state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
@@ -484,8 +523,8 @@ def test_a_single_trunk_vx_delivers_its_whole_copper_once(client):
                               'pair': False}).get_json()
     card = first_card(only(state))
     box = card['cvts'][0]
-    assert (box['firstPort'], box['portCount']) == (1, 10)
-    assert card['ceiling'] == 10 and card['defined'] == 10
+    assert (box['firstPort'], box['portCount']) == (1, 6)
+    assert card['ceiling'] == 6 and card['defined'] == 6
     assert card['trunksCopyOwnPorts'] is True
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                        json={'deviceId': 'novastar-cvt10'})
@@ -575,6 +614,10 @@ def test_the_conditions_the_table_records_are_carried_across():
     Pro is 40 or 20 by optical mode, and Brompton redundancy halves the usable
     count because a backup port consumes a port number rather than adding one."""
     assert catalog.port_capacity('novastar-card-h-4xfiber', 'independent')['count'] == 32
+    # Copy and Backup are both 16 (H15 Specifications V1.15.0 p.36); the old
+    # combined id copy-backup reads as Backup.
+    assert catalog.port_capacity('novastar-card-h-4xfiber', 'copy')['count'] == 16
+    assert catalog.port_capacity('novastar-card-h-4xfiber', 'backup')['count'] == 16
     assert catalog.port_capacity('novastar-card-h-4xfiber', 'copy-backup')['count'] == 16
     assert catalog.port_capacity('novastar-mx40-pro', '40-port')['count'] == 40
     assert catalog.port_capacity('novastar-mx40-pro', '20-port')['count'] == 20
@@ -951,22 +994,27 @@ def test_a_copper_only_card_takes_no_box_at_all(client):
     assert 'copper' in resp.get_json()['error']
 
 
-def test_the_enhanced_cards_backup_opts_are_not_offered_as_trunks(client):
-    """Eight 10G connectors, four primaries - OPT 5-8 back up OPT 1-4. Treating
-    the backups as usable would take eight boxes and imply 80 ports on a
-    40-port card, which is the same connector-counting trap as its port count,
-    one level down."""
+def test_the_enhanced_cards_backup_opts_never_add_ports(client):
+    """Eight 10G connectors, four primaries: "OPT 1 to OPT 4 serve as the
+    primary ports, and OPT 5 to OPT 8 serve as the backup ones" (H15 Video
+    Wall Splicer Specifications V1.15.0 p.37). Each is a real OPT a box can
+    hang off, so the card has eight trunks - but a box on OPT 5-8 delivers
+    OPT 1-4's ports again, never 41-80: 80 on a 40-port card would be the
+    same connector-counting trap as its port count, one level down. A
+    ninth box has no OPT left."""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-4xfiber-enhanced')
-    for _ in range(4):
+    for _ in range(8):
         assert client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
-                           json={'deviceId': 'novastar-cvt10'}).status_code == 201
+                           json={'deviceId': 'novastar-cvt10',
+                                 'pair': False}).status_code == 201
     resp = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                        json={'deviceId': 'novastar-cvt10'})
-    assert resp.status_code == 400, 'a backup OPT was offered as a fifth trunk'
+    assert resp.status_code == 400, 'a ninth box found an OPT'
     card = first_card(only(client.get('/api/processors').get_json()))
-    assert card['trunks'] == 4 and card['trunksUsed'] == 4
+    assert card['trunks'] == 8 and card['trunksUsed'] == 8
     assert card['ceiling'] == 40 and card['defined'] == 40
+    assert [b['firstPort'] for b in card['cvts'][4:]] == [1, 11, 21, 31]
 
 
 def test_a_backup_box_does_not_rename_the_ports_the_primary_named(client):
@@ -1173,7 +1221,7 @@ def test_the_same_card_falls_eight_short_on_cvt4k_s_and_says_so(client):
         'eight ports vanished with nothing said about it')
     assert card['shortfall']['delivered'] == 32
     assert card['shortfall']['ceiling'] == 40
-    assert 'CVT10' in card['shortfall']['reachesWith']
+    assert 'CVT10-S' in card['shortfall']['reachesWith']
     assert 'CVT4K-S' not in card['shortfall']['reachesWith'], (
         'the box that fell short was named as the fix')
 
@@ -1190,14 +1238,16 @@ def test_the_same_boxes_on_a_plain_four_fiber_card_fall_short_of_nothing(client)
 
 
 def test_a_half_patched_card_is_not_reported_as_falling_short(client):
-    """One box on a four-OPT card is not a shortfall, it is a card someone has
-    not finished patching. Two OPTs are still free and the next box fills
-    them - nagging here would train people to ignore the message that matters."""
+    """One box on a card is not a shortfall, it is a card someone has not
+    finished patching. Its other primary OPTs are still free and the next box
+    fills them - nagging here would train people to ignore the message that
+    matters. (The enhanced card has eight OPTs, H15 Specifications V1.15.0
+    p.37, so one box leaves seven.)"""
     pid, card_id = with_card(client, 'novastar-h9',
                              'novastar-card-h-4xfiber-enhanced')
     state = add_boxes(client, pid, card_id, 1, 'novastar-cvt10')
     card = first_card(only(state))
-    assert card['trunksFree'] == 3
+    assert card['trunksFree'] == 7
     assert card['shortfall'] is None
 
 
@@ -1248,7 +1298,7 @@ def test_box_owned_ports_number_off_the_boxs_own_face_whoever_names_them(
         'the second box must read its own 1-8, not the card-wide 9-16')
     # The disambiguators: each box's resolved display name carries its
     # trunk letter, and each port says which local number it wears.
-    assert [c['displayTitle'] for c in card['cvts']] == ['CVT10 A', 'CVT10 B']
+    assert [c['displayTitle'] for c in card['cvts']] == ['CVT10-S A', 'CVT10-S B']
     assert [p['localNumber'] for p in card['ports'][:16]] == \
         list(range(1, 9)) * 2
 
@@ -1528,7 +1578,9 @@ def test_the_tree_round_trips_through_save_and_reload(client):
     assert proc['name'] == 'FOH'
     card = first_card(proc)
     assert card['name'] == 'SR'
-    assert card['mode'] == 'copy-backup'
+    # copy-backup is the old id of Backup (NovaStar's three modes, H15
+    # Specifications V1.15.0 p.36): stored and reloaded as the mode it named.
+    assert card['mode'] == 'backup'
     # the mode's count; the card's own ceiling follows its boxes
     # ("Follow the boxes", 2026-10-04) - one CVT10 pair, ports 1-8
     assert card['modeCeiling'] == 16, 'the stored mode was lost on reload'
@@ -1587,8 +1639,11 @@ def test_a_project_with_no_processors_is_shaped_exactly_as_before(client):
     # the project below stays byte-for-byte what it was.
     # `snakes` is the show's own list (2026-09-09) and rides the same
     # payload, and so does `fiberCables` (2026-09-25); both empty here, and
-    # reading them stamps nothing.
-    assert resp.get_json() == {
+    # reading them stamps nothing. `stateStamp` numbers the reply, never
+    # the project (app.processor_state_stamp, 2026-10-30).
+    body = resp.get_json()
+    assert set(body.pop('stateStamp')) == {'boot', 'n'}
+    assert body == {
         'processors': [], 'resolved': [], 'snakes': [], 'fiberCables': [],
         'dataCableConnectors': catalog.data_cable_connectors()}
 
@@ -1900,7 +1955,7 @@ def panel_page(e2e_server, pw_browser):
     # client tests rebuild the shared project (see tests/conftest.py).
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     context.add_init_script(FETCH_COUNT_JS)
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -2521,17 +2576,39 @@ def test_the_novastar_pair_is_freely_overridable(client):
     card = first_card(only(state))
     assert len(card['cvts']) == 2
     assert all(c['backupOf'] is None for c in card['cvts'])
-    # Rebuilt, then the PRIMARY deleted: the backup link goes with it.
+    # With both primary OPTs taken, the next box lands on OPT 3 and IS a
+    # backup - of OPT 1's box, because Backup mode says OPT 3 backs up OPT
+    # 1 (resolve_card) - so it takes no pair of its own: a pair there was a
+    # backup of a backup that no strip of the tray drew (beta.4 QA).
     state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
                         json={'deviceId': 'novastar-cvt10'}).get_json()
     card = first_card(only(state))
-    primary_id = card['cvts'][2]['id']
-    assert card['cvts'][3]['backupOf'] == primary_id
+    assert len(card['cvts']) == 3
+    by_trunk = {c['trunkTitle']: c for c in card['cvts']}
+    assert by_trunk['OPT 3']['backupOf'] == by_trunk['OPT 1']['id']
+    raw = next(s['card'] for s in state['processors'][0]['slots']
+               if s['card'])
+    assert all(not c.get('backupOf') for c in raw['cvts']), (
+        'the add stored a pair link on a box that landed on a backup OPT')
+    # Rebuilt from empty, then the PRIMARY deleted: the backup link goes
+    # with it.
+    for box in card['cvts']:
+        client.delete(f'/api/processors/{pid}/cvts/{box["id"]}')
+    state = client.post(f'/api/processors/{pid}/cards/{card_id}/cvts',
+                        json={'deviceId': 'novastar-cvt10'}).get_json()
+    card = first_card(only(state))
+    assert len(card['cvts']) == 2
+    primary_id = card['cvts'][0]['id']
+    assert card['cvts'][1]['backupOf'] == primary_id
     state = client.delete(
         f'/api/processors/{pid}/cvts/{primary_id}').get_json()
     card = first_card(only(state))
-    assert all(c['backupOf'] is None for c in card['cvts']), (
+    assert all(c['backupOf'] != primary_id for c in card['cvts']), (
         'a backup still points at a deleted primary')
+    raw = next(s['card'] for s in state['processors'][0]['slots']
+               if s['card'])
+    assert all(not c.get('backupOf') for c in raw['cvts']), (
+        'a stored link outlived the box it named')
 
 
 def test_a_pair_that_does_not_fit_degrades_to_one_box(client):
@@ -2546,7 +2623,13 @@ def test_a_pair_that_does_not_fit_degrades_to_one_box(client):
                         json={'deviceId': 'novastar-cvt10'}).get_json()
     card = first_card(only(state))
     assert len(card['cvts']) == 4
-    assert card['cvts'][3]['backupOf'] is None
+    # No second box was made for it, so its record carries no link...
+    raw = next(s['card'] for s in state['processors'][0]['slots']
+               if s['card'])
+    assert not raw['cvts'][3].get('backupOf')
+    # ...and on OPT 4 of a Backup card it backs up OPT 2's box all the same.
+    assert card['cvts'][3]['trunkTitle'] == 'OPT 4'
+    assert card['cvts'][3]['backupOf'] == card['cvts'][1]['id']
     assert card['trunksUsed'] == 4
 
 
@@ -3051,24 +3134,24 @@ def test_the_reporting_left_the_retired_hosts_for_the_strip():
 
 def test_the_dock_wires_the_shared_fold_machinery():
     """One mechanism, not a copy: the dock's sections go through
-    _wireSectionCollapse on every rebuild, keyed per card/box id, and the
-    gear's Remove takes the deleted machine's keys with it - every other
-    way a processor leaves (undo, a project loading over this one) merely
-    orphans a key, which nothing can inherit because ids never recur
-    within a project."""
+    _wireSectionCollapse on every rebuild, keyed per card/box id. Ids DO
+    recur - undo of an add rewinds the counter and every show numbers from
+    1 - so a key goes with its record whichever way the record leaves:
+    every tree the page adopts forgets the keys of cards and boxes not in
+    it, and another show opening forgets them all (_forgetHardwareViews;
+    behavior in test_hardware_view_memory)."""
     source = js_source('app-dock.js')
     assert 'this._wireSectionCollapse(body)' in source
     assert 'head.dataset.lrdSec = secId' in source
     assert "body.className = 'lrd-sec-body'" in source
     assert 'hwdock-card-${card.id}' in source
     assert 'hwdock-box-${cvt.id}' in source
-    # The remove lives in the gear popovers' content, so the key cleanup
-    # lives with it in the processors module.
+    sheets = js_source('app-dock-cable-sheets.js')
+    assert 'ledRasterPanelCollapsed_hwdock-(card|box)-' in sheets, (
+        'the fold keys of gone cards and boxes are not forgotten')
     procs = js_source('app-processors.js')
-    assert 'ledRasterPanelCollapsed_hwdock-card-' in procs, (
-        'the deleted card key is not cleaned up')
-    assert 'ledRasterPanelCollapsed_hwdock-box-' in procs, (
-        'the deleted box key is not cleaned up')
+    assert 'this._forgetHardwareViews(data.resolved)' in procs, (
+        'an adopted tree does not forget the gone records\' keys')
 
 
 FOLD_SEED_JS = """async () => {
@@ -3234,10 +3317,10 @@ def test_the_arrow_folds_a_card_and_nothing_leaves_the_dom(panel_page):
 
 def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
     """The header's glance, read off the assignment summary and nothing
-    else: sockets taken (primaries and their returns) over capacity, on
-    the same header that carries the model
-    text and the inline name. The redundant SX40 reads /40 - redundancy is
-    a patching plan, never a renumbering, so the socket count stands (the
+    else: primaries over the sockets that can carry one (owner,
+    2026-11-04), on the same header that carries the model
+    text and the inline name. The redundant SX40 reads /20 - its looped
+    B and D carry the backups on their own - and never renumbers (the
     'redundant' flag of the retired summary line lives in the gear's
     checkbox now). The used side is the occupancy's answer, never a
     one-to-one assumption: the live screen sits on the first machine's
@@ -3270,15 +3353,17 @@ def test_the_glance_reads_the_occupancy_and_never_renumbers(panel_page):
     }""", ids)
     assert summary['sx'], 'the assignment resolved no summary for the SX40'
     sx_glance = fold_state(panel_page, card_sec(ids, 'sxCard'))['glanceText']
-    # n is every socket TAKEN - primaries and the returns they put on
-    # the partner box (owner, 2026-09-24: "11 primary and 11 redundant
-    # ... it's 22/40"): the redundant SX40 reads twice its primaries.
-    assert sx_glance == (f"{summary['sx']['taken']}/"
-                         f"{summary['sx']['capacity']}"), (
-        f'the glance is not the assignment summary\'s own count: '
+    # The tray counts PRIMARIES over the sockets that can carry one
+    # (owner, 2026-11-04: "the backups are automatic, so we don't need to
+    # count the backups"): the redundant SX40's B and D carry its returns
+    # on their own, so it reads its primaries over 20, while the server's
+    # summary (the binder's count) still counts every socket taken.
+    assert sx_glance == (f"{summary['sx']['used']}/"
+                         f"{summary['sx']['capacity'] - summary['sx']['backing']}"), (
+        f'the glance is not the summary\'s primaries over primary sockets: '
         f'{sx_glance} vs {summary["sx"]}')
-    assert sx_glance.endswith('/40'), (
-        f'redundancy renumbered the sockets out of the glance: {sx_glance}')
+    assert sx_glance.endswith('/20'), (
+        f'the glance counted the automatic backups: {sx_glance}')
     assert summary['sx']['used'] > 0, (
         'the live screen never landed on the first machine, so this test '
         'proves nothing')
@@ -3334,7 +3419,8 @@ def test_the_glance_follows_the_occupancy_as_screens_arrive(panel_page):
             f'the new screen took no ports: {before} -> {after}')
         glance = fold_state(panel_page,
                             card_sec(ids, 'sxCard'))['glanceText']
-        assert glance == f"{after['taken']}/{after['capacity']}", (
+        assert glance == (f"{after['used']}/"
+                          f"{after['capacity'] - after['backing']}"), (
             f'the glance did not follow the occupancy: {glance} vs {after}')
     finally:
         # the added layer would haunt every later seed's occupancy
@@ -4067,8 +4153,8 @@ def test_the_gear_wires_the_modes_the_house_way():
     for a vendor-fixed pairing, every new edit takes a named history
     snapshot, and a refusal's reason is surfaced instead of swallowed."""
     source = js_source('app-processors.js')
-    for builder in ('_buildCardShapeChips(proc, card) {',
-                    '_buildCardBackupPick(proc, card) {'):
+    for builder in ('_buildCardShapeChips(proc, card, opts = {}) {',
+                    '_buildCardBackupPick(proc, card, extra = null) {'):
         body = source[source.index(builder):]
         body = body[:body.index('\n    }')]
         assert 'if (!shape || shape.forced) return null;' in body, (
@@ -4077,6 +4163,7 @@ def test_the_gear_wires_the_modes_the_house_way():
                    "'Set Redundancy Per Port'",
                    "`Set Redundancy Per ${this.unitWordTitle(this.unitWordFor(proc))}`",
                    "'Set Redundancy Backed Up'", "'Toggle Redundancy'",
+                   "'Set Redundancy Mixed'",
                    "'Set Redundancy Loops'", "'Add Backup Processor'",
                    "'Remove Backup Processor'", "'Rename Backup Processor'"):
         assert action in source, f'{action} takes no history snapshot'
@@ -4247,7 +4334,7 @@ def test_the_bar_draws_the_partner_row_only_where_the_vendor_does_not_fix(
     }""", ids)
     assert out['underBar'], 'the partner pick does not sit under the bar'
     assert out['partnerTexts'][0] == 'backed up by…', out
-    assert any('BK - 6 ports' in t for t in out['partnerTexts']), out
+    assert any('BK · 6 ports' in t for t in out['partnerTexts']), out
     assert not out['levelSelect'], 'the level select is back'
     assert not out['modeSelect'], 'the four-way mode select is back'
     assert not out['switchBox'], 'the checkbox switch is back'
@@ -4358,7 +4445,7 @@ def test_the_bar_says_it_is_for_redundancy_on_every_device(panel_page):
         return h2.id;
     }""")
     quiet(page)
-    for key, levels in (('h2Id', ['off', 'card', 'port']),
+    for key, levels in (('h2Id', ['off', 'card', 'port', 'mixed']),
                         ('mxId', ['off', 'unit', 'port']),
                         ('sxId', ['A', 'C'])):
         assert page.evaluate(OPEN_GEAR_JS, f"proc-{ids[key]}"), (
@@ -4562,9 +4649,9 @@ BACKUP_JS = """(pid) => {
 def test_a_chassis_chooses_its_level_and_switches_its_backup_processor_on(
         panel_page):
     """The user's rulings (2026-09-04, 2026-09-25) in the DOM: behind the
-    processor's gear an H9 with two cards gets the three-segment bar - Off
-    · Per card · Per port, "Whole unit" gone - lit Per card with one
-    partner row per slot. Under it, the BACKUP PROCESSOR switch, Off · On:
+    processor's gear an H9 with two cards gets the bar - Off · Per card ·
+    Per port, "Whole unit" gone, and Mixed since 2026-10-29 - lit Per card
+    with one partner row per slot. Under it, the BACKUP PROCESSOR switch, Off · On:
     On is ONE request and ONE history entry, adds no processor to the tray,
     shows the name field ("SR BU" until one is typed - Enter ends the
     edit) and the gold "Backup: SR BU" pill on the main's header; Off takes
@@ -4578,11 +4665,10 @@ def test_a_chassis_chooses_its_level_and_switches_its_backup_processor_on(
         'the chassis gear did not open')
     bar = page.evaluate(BAR_JS, ids['mainId'])
     assert bar, 'no bar in the chassis gear'
-    assert bar['levels'] == ['off', 'card', 'port'], bar
-    assert bar['texts'] == ['Off', 'Per card', 'Per port'], bar
+    assert bar['levels'] == ['off', 'card', 'port', 'mixed'], bar
+    assert bar['texts'] == ['Off', 'Per card', 'Per port', 'Mixed'], bar
     assert bar['lit'] == 'card' and bar['litCount'] == 1, bar
-    assert bar['rows'] == ['Slot 1 · H_16xRJ45+2xfiber',
-                           'Slot 2 · H_16xRJ45+2xfiber'], bar
+    assert bar['rows'] == ['Slot 1 · Card 1', 'Slot 2 · Card 2'], bar
     out = page.evaluate(BACKUP_JS, ids['mainId'])
     assert out['cap'] == 'BACKUP PROCESSOR' and out['underBar'], out
     assert out['levels'] == ['off', 'on'] and out['lit'] == 'off', out
@@ -4636,8 +4722,9 @@ def test_a_chassis_chooses_its_level_and_switches_its_backup_processor_on(
 def test_the_bar_lights_the_derived_segment_for_each_state(panel_page):
     """The lit segment is DERIVED from what is stored, never from what was
     clicked: Off with redundancy off, Per port when every card is in a
-    port shape, Per card otherwise - every card paired onto another unit
-    and a half-and-half chassis included. The backup processor's switch
+    port shape, Mixed where the cards disagree - a half-and-half chassis
+    (2026-10-29: the bar's Mixed segment) - and Per card otherwise, every
+    card paired onto another unit included. The backup processor's switch
     beside it moves none of that."""
     pytest.importorskip("playwright.sync_api",
                         reason="playwright is not installed")
@@ -4662,7 +4749,7 @@ def test_the_bar_lights_the_derived_segment_for_each_state(panel_page):
     assert lit == 'card' and len(rows) == 2, (lit, rows)
     lit, rows = lit_after({'partner': '', 'modes': ['sequential', 'halves']})
     assert lit == 'port' and len(rows) == 2, (lit, rows)
-    assert lit_after({'modes': ['1to1', 'halves']})[0] == 'card'
+    assert lit_after({'modes': ['1to1', 'halves']})[0] == 'mixed'
     assert lit_after({'modes': ['manual', 'manual']})[0] == 'port'
     assert lit_after({'backupUnit': {}})[0] == 'port'
     assert lit_after({'backupUnit': None, 'redundancy': False}) == ('off', [])
@@ -5271,8 +5358,11 @@ async () => {
     const h9 = st.resolved[st.resolved.length - 1];
     await send(`/api/processors/${h9.id}/slots/0`, 'PUT',
                { deviceId: 'novastar-card-h-4xfiber' });
+    // A second four-OPT card (the enhanced card has eight OPTs since
+    // 2026-10-30 - H15 Specifications V1.15.0 p.37 - and in Backup a box
+    // brings its backup pair, so it no longer runs out of trunks here).
     st = await send(`/api/processors/${h9.id}/slots/1`, 'PUT',
-                    { deviceId: 'novastar-card-h-4xfiber-enhanced' });
+                    { deviceId: 'novastar-card-h-4xfiber' });
     const h9cards = st.resolved.find(p => p.id === h9.id)
         .slots.filter(s => s.card).map(s => s.card.id);
     const novaCard = h9cards[0];

@@ -21,7 +21,7 @@ class _ClientProps {
             console.log('Props version mismatch, resetting to new defaults');
             localStorage.removeItem('ledRasterClientProps');
             localStorage.removeItem('ledRasterSize'); // Also reset raster size
-            localStorage.setItem('ledRasterPropsVersion', currentVersion);
+            this._setLocalItem('ledRasterPropsVersion', currentVersion);
             // Don't load from localStorage, just use defaults below
             window.canvasRenderer.rasterWidth = prefs.rasterWidth;
             window.canvasRenderer.rasterHeight = prefs.rasterHeight;
@@ -52,6 +52,7 @@ class _ClientProps {
                         if (layerProps.processorType !== undefined) layer.processorType = layerProps.processorType;
                         if (layerProps.lowLatency !== undefined) layer.lowLatency = layerProps.lowLatency;
                         if (layerProps.portMappingMode !== undefined) layer.portMappingMode = layerProps.portMappingMode;
+                        if (layerProps.portNumberOrder !== undefined) layer.portNumberOrder = layerProps.portNumberOrder;
                         if (layerProps.portLabelTemplatePrimary !== undefined) layer.portLabelTemplatePrimary = layerProps.portLabelTemplatePrimary;
                         if (layerProps.portLabelTemplateReturn !== undefined) layer.portLabelTemplateReturn = layerProps.portLabelTemplateReturn;
                         if (layerProps.portLabelOverridesPrimary !== undefined) layer.portLabelOverridesPrimary = layerProps.portLabelOverridesPrimary;
@@ -66,6 +67,7 @@ class _ClientProps {
                         if (layerProps.panelWatts !== undefined) layer.panelWatts = layerProps.panelWatts;
                         if (layerProps.powerMaximize !== undefined) layer.powerMaximize = layerProps.powerMaximize;
                         if (layerProps.powerOrganized !== undefined) layer.powerOrganized = layerProps.powerOrganized;
+                        if (layerProps.powerNumberOrder !== undefined) layer.powerNumberOrder = layerProps.powerNumberOrder;
                         if (layerProps.powerCustomPath !== undefined) layer.powerCustomPath = layerProps.powerCustomPath;
                         if (layerProps.powerFlowPattern !== undefined) layer.powerFlowPattern = layerProps.powerFlowPattern;
                         if (layerProps.powerLineWidth !== undefined) layer.powerLineWidth = layerProps.powerLineWidth;
@@ -230,7 +232,9 @@ class _ClientProps {
             if (layer.halfFirstRow === undefined) layer.halfFirstRow = false;
             if (layer.halfLastRow === undefined) layer.halfLastRow = false;
             if (layer.weight_unit === undefined) layer.weight_unit = prefs.weightUnit || 'kg';
-            if (layer.panel_weight === undefined) layer.panel_weight = prefs.panelWeight || 20;
+            // The server's own default weight (create_layer); the panel
+            // weight is no longer a preference (1.6.0).
+            if (layer.panel_weight === undefined) layer.panel_weight = 20;
             if (layer.infoLabelSize === undefined) layer.infoLabelSize = 14;
             if (layer.showDataFlowPortInfo === undefined) layer.showDataFlowPortInfo = false;
             // v0.11.0: port load % defaults OFF - an existing project must open
@@ -316,7 +320,9 @@ class _ClientProps {
             layer.backupTextColor = layer.backupTextColor || '#FFFFFF';
             layer.powerLabelBgColor = layer.powerLabelBgColor || '#D95000';
             layer.powerLabelTextColor = layer.powerLabelTextColor || '#000000';
-            layer.panel_weight = prefs.panelWeight || 20;
+            // The weight unit only: the cabinet (and its weight) is no
+            // longer a preference (1.6.0); the startup panel pick makes
+            // the first screen from the panel library instead.
             layer.weight_unit = prefs.weightUnit || 'kg';
             // Apply default raster on startup so app open matches Preferences.
             // Both the Pixel Map raster AND the Show Look raster start at the
@@ -407,6 +413,7 @@ class _ClientProps {
                 processorType: layer.processorType,
                 lowLatency: layer.lowLatency,
                 portMappingMode: layer.portMappingMode,
+                portNumberOrder: layer.portNumberOrder,
                 portLabelTemplatePrimary: layer.portLabelTemplatePrimary,
                 portLabelTemplateReturn: layer.portLabelTemplateReturn,
                 portLabelOverridesPrimary: layer.portLabelOverridesPrimary,
@@ -480,6 +487,7 @@ class _ClientProps {
                 panelWatts: layer.panelWatts,
                 powerMaximize: layer.powerMaximize,
                 powerOrganized: layer.powerOrganized,
+                powerNumberOrder: layer.powerNumberOrder,
                 powerCustomPath: layer.powerCustomPath,
                 powerFlowPattern: layer.powerFlowPattern,
                 powerLineWidth: layer.powerLineWidth,
@@ -550,7 +558,31 @@ class _ClientProps {
             };
         });
 
-        localStorage.setItem('ledRasterClientProps', JSON.stringify(propsMap));
+        this._setLocalItem('ledRasterClientProps', JSON.stringify(propsMap));
+    }
+
+    // localStorage.setItem that never throws. A full localStorage (about
+    // 5 MB on the Mac, most of it once taken by copies of shows in Recent
+    // Files) threw out of this file's writes mid-way through opening a
+    // show, and the open was logged as failed with its last steps skipped
+    // (2026-11-03). On quota the oldest kept Recent copies make room
+    // (app-logs-recent.js pruneRecentCopies) and the write is tried again.
+    _setLocalItem(key, value) {
+        for (let tries = 0; tries < 25; tries++) {
+            try {
+                localStorage.setItem(key, value);
+                return true;
+            } catch (e) {
+                if (!(typeof this.pruneRecentCopies === 'function' && this.pruneRecentCopies())) {
+                    if (!this._localStorageFullLogged) {
+                        this._localStorageFullLogged = true;
+                        sendClientLog('local_storage_write_failed', { key, name: e && e.name, message: e && e.message });
+                    }
+                    return false;
+                }
+            }
+        }
+        return false;
     }
     
     // Save raster size to localStorage
@@ -559,7 +591,7 @@ class _ClientProps {
             width: window.canvasRenderer.rasterWidth,
             height: window.canvasRenderer.rasterHeight
         };
-        localStorage.setItem('ledRasterSize', JSON.stringify(rasterSize));
+        this._setLocalItem('ledRasterSize', JSON.stringify(rasterSize));
     }
 
     /**
@@ -634,7 +666,7 @@ class _ClientProps {
             console.log('Version mismatch in loadRasterSize - clearing ALL localStorage');
             localStorage.removeItem('ledRasterSize');
             localStorage.removeItem('ledRasterClientProps');
-            localStorage.setItem('ledRasterPropsVersion', currentVersion);
+            this._setLocalItem('ledRasterPropsVersion', currentVersion);
             const prefs = this.getPreferences();
             seed(prefs.rasterWidth, prefs.rasterHeight);
             this.saveRasterSize();

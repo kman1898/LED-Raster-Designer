@@ -37,7 +37,7 @@ pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -79,7 +79,8 @@ window.__gt = {
             cabinet_width: 128, cabinet_height: 128,
             offset_x: 0, offset_y: 0,
             panel_weight: 20, weight_unit: 'kg',
-            panelWatts: 200, powerVoltage: 208, powerAmperage: 20,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            panelWatts: 200, powerVoltage: 208, powerAmperage: 25,
             processorType: 'brompton', bitDepth: 8, frameRate: 60,
             lowLatency: false,
             flowPattern: 'tl-h', portMappingMode: 'organized',
@@ -563,7 +564,7 @@ def test_a_member_with_no_visible_key_still_counts(page):
                     columns: cols, rows: rows,
                     cabinet_width: cab, cabinet_height: cab,
                     panel_weight: weight, panelWatts: watts, weight_unit: 'kg',
-                    powerVoltage: 208, powerAmperage: 20,
+                    powerVoltage: 208, powerAmperage: 25,
                     processorType: 'brompton', bitDepth: 8, frameRate: 60,
                     flowPattern: 'tl-h', offset_x: 0, offset_y: 0,
                     powerOrganized: true, portMappingMode: 'organized'};
@@ -601,7 +602,7 @@ def test_an_explicitly_hidden_member_is_excluded(page):
                 const L = {id, type: 'screen', name: 'M' + id, group_id: 'g1',
                     columns: 2, rows: 2, cabinet_width: 128, cabinet_height: 128,
                     panel_weight: 20, panelWatts: 300, weight_unit: 'kg',
-                    powerVoltage: 208, powerAmperage: 20,
+                    powerVoltage: 208, powerAmperage: 25,
                     processorType: 'brompton', bitDepth: 8, frameRate: 60,
                     flowPattern: 'tl-h', offset_x: 0, offset_y: 0,
                     powerOrganized: true, portMappingMode: 'organized'};
@@ -1197,7 +1198,7 @@ ROUTE_BATTERY_JS = """
         org_v: () => gt.screen({ id: 1, name: 'OrgV', columns: 5, rows: 7,
             flowPattern: 'br-v', portMappingMode: 'organized',
             powerFlowPattern: 'bl-v', powerOrganized: true,
-            panelWatts: 150, powerVoltage: 110, powerAmperage: 20 }),
+            panelWatts: 150, powerVoltage: 110, powerAmperage: 25 }),
         maxcap: () => gt.screen({ id: 1, name: 'Max', columns: 7, rows: 4,
             flowPattern: 'tr-h', portMappingMode: 'maximize',
             powerFlowPattern: 'tr-h', powerOrganized: false, powerMaximize: true }),

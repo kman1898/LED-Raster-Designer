@@ -265,14 +265,19 @@ class _Jumpers {
 
     // Every link of one run, in order: [{ a, b, la, lb, kind, ft }]. `layers`
     // is index-aligned with `panels` (a crossing run's own member per
-    // cabinet); absent, every cabinet is on `owner`.
+    // cabinet); absent, every cabinet is on `owner`. A BLANK cabinet takes
+    // no power (2026-10-21): on the power side a hand-drawn run that steps
+    // over one links the cabinets either side of it, as the automatic
+    // runs - which never hold a blank - do.
     jumperLinksOfRun(panels, layers, owner, side = 'data') {
         const out = [];
-        for (let i = 1; i < (panels || []).length; i++) {
-            const a = panels[i - 1], b = panels[i];
+        let steps = (panels || []).map((p, i) => ({ p, l: (layers && layers[i]) || owner }));
+        if (side === 'power') steps = steps.filter(st => !(st.p && st.p.blank));
+        for (let i = 1; i < steps.length; i++) {
+            const a = steps[i - 1].p, b = steps[i].p;
             if (!a || !b) continue;
-            const la = (layers && layers[i - 1]) || owner;
-            const lb = (layers && layers[i]) || owner;
+            const la = steps[i - 1].l;
+            const lb = steps[i].l;
             out.push({ a, b, la, lb, ...this.jumperLink(a, la, b, lb, side) });
         }
         return out;
@@ -380,8 +385,8 @@ class _Jumpers {
                 // A locked screen keeps its jumper (the owner's ruling,
                 // 2026-10-16): named when the figure would change it, and
                 // the fields show what the screens really hold.
-                const lockedMet = selected.filter(l => l.locked && l[field] !== val);
-                const writable = selected.filter(l => !l.locked);
+                const lockedMet = selected.filter(l => this._layerLocked(l) && l[field] !== val);
+                const writable = selected.filter(l => !this._layerLocked(l));
                 if (lockedMet.length) {
                     this._showLockedError(lockedMet);
                     this.syncJumperControls(selected);

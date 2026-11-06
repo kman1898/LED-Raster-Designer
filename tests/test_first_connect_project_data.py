@@ -40,7 +40,7 @@ DELAY_PROJECT_DATA = """(() => {
 
 def _open(e2e_server, pw_browser, delay_ms):
     ctx = pw_browser.new_context()
-    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     ctx.add_init_script(DELAY_PROJECT_DATA % delay_ms)
     pg = ctx.new_page()
     errors = []

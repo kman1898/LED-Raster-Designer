@@ -50,7 +50,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     errors = []
@@ -244,12 +244,25 @@ def test_the_shared_predicate_reads_controls_as_not_typing(page):
 # ── the reported defect ───────────────────────────────────────────────────
 
 def test_cmd_j_duplicates_with_the_custom_toggle_focused(page):
+    """Two loose screens selected and a checkbox focused: Cmd+J still
+    reaches the duplicate, and since QA round 3 (2026-11-03) it copies every
+    selected screen (app-clipboard duplicateSelection), not only the current
+    one. Each copy sits 50 px down and right of its own source, and the
+    copies are what is selected after."""
     state = reset(page, multi=True)
     assert len(state['selected']) == 2, state
     focus(page, '#power-custom-toggle')
-    after = press(page, f'{MODIFIER}+KeyJ', settle=700)
-    assert after['layers'] == 4, (
-        f'Cmd+J with #power-custom-toggle focused made nothing: {after}')
+    after = press(page, f'{MODIFIER}+KeyJ', settle=900)
+    assert after['layers'] == 5, (
+        f'Cmd+J with #power-custom-toggle focused did not copy both '
+        f'selected screens: {after}')
+    layers = page.evaluate("""() => window.app.project.layers.map(l => (
+        { id: l.id, x: l.offset_x, y: l.offset_y }))""")
+    made = [l for l in layers if l['id'] not in state['ids']]
+    sources = [l for l in layers if l['id'] in state['selected']]
+    assert sorted((m['x'], m['y']) for m in made) == sorted(
+        (s['x'] + 50, s['y'] + 50) for s in sources), (made, sources)
+    assert sorted(after['selected']) == sorted(m['id'] for m in made), after
     assert page.page_errors == [], page.page_errors
 
 

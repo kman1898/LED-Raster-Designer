@@ -6,7 +6,7 @@ data tab". Picked, exactly:
 
 Power
 - Delete a distro: every multi home run (powerSocaLengths) and every circuit
-  cable (powerCircuitCables, the "25' True1" tags) on the screens it fed,
+  cable (powerCircuitCables, the "25' TRUE1" tags) on the screens it fed,
   a direct output's home run on the distro face included.
 - Clear a multi: its home run and the cables on its circuits.
 - Clear a circuit: that circuit's cable (and, where the circuit IS the
@@ -66,7 +66,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -85,7 +85,7 @@ def page(e2e_server, pw_browser):
 
 
 # 208V x 5A / 208W = five cabinets a circuit, tl-v organized, five rows: a
-# screen's `columns` IS its circuit count. PD is a distro FACE - five True1
+# screen's `columns` IS its circuit count. PD is a distro FACE - five TRUE1
 # direct outputs (1-5) then two soca multis (6, 7); SR an old-style distro.
 #   A  7 wide: multi 1 (circuits 1-6) on PD 6, home run 100', cables on 1
 #      and 2; multi 2 (circuit 7) on PD 1 - a direct output - home run 25'.
@@ -99,7 +99,8 @@ window.__fl = {
             type: 'screen', visible: true, locked: false,
             columns: 3, rows: 5, cabinet_width: 128, cabinet_height: 128,
             offset_x: 0, offset_y: 0, panel_weight: 20, weight_unit: 'kg',
-            panelWatts: 208, powerVoltage: 208, powerAmperage: 5,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            panelWatts: 208, powerVoltage: 208, powerAmperage: 6.25,
             processorType: 'novastar-armor', bitDepth: 8, frameRate: 60, lowLatency: false,
             flowPattern: 'tl-h', portMappingMode: 'organized',
             powerFlowPattern: 'tl-v', powerOrganized: true, powerMaximize: false,
@@ -419,7 +420,7 @@ def test_a_length_an_older_file_left_on_an_unfed_multi_never_rides_a_new_feed(pa
     assert a['powerSocaLengths'] == {'1': '100', '2': '75'}, 'opening rewrote the stored lengths'
     assert sorted(a['powerCircuitCables']) == ['1', '7'], 'opening rewrote the stored cables'
     assert pg.evaluate("() => window.app.printedCircuitCable(window.__fl.layer('A'), 7)") is None
-    assert pg.evaluate("() => window.app.printedCircuitCable(window.__fl.layer('A'), 1).text") == "10' True1"
+    assert pg.evaluate("() => window.app.printedCircuitCable(window.__fl.layer('A'), 1).text") == "10' TRUE1"
     lengths = [r[2] for r in pg.evaluate("() => window.__fl.rows()")]
     assert "75'" not in lengths and "11'" not in lengths, lengths
     texts = pg.evaluate("() => window.__fl.binderTexts()")
@@ -1079,11 +1080,11 @@ def _client_edits(pg):
         return out; }"""))
 
 
-# W and X on beach SL, V loose: W's own runs print as SL's 25' and 75'
-# Ether-con, and SL's 6' Data Jump is W's AND X's.
-W_ROW = ('beach:b1', "Ether-con|25'", 'W run')
+# W and X on beach SL, V loose: W's own runs print as SL's 25' extension and 75'
+# Cat6 (V's 50' an extension too), and SL's 6' Data Jump is W's AND X's.
+W_ROW = ('beach:b1', "Cat6 Extension|25'", 'W run')
 SHARED_ROW = ('beach:b1', "Data Jump|6'", 'both walls')
-V_ROW = ('layer:2', "Ether-con|50'", 'spare')
+V_ROW = ('layer:2', "Cat6 Extension|50'", 'spare')
 
 
 def _beach_with_edits(pg):
@@ -1151,7 +1152,7 @@ def test_every_delete_path_drops_the_gone_rows_edits_and_undo_restores_them(page
     ids = _shared(pg, **({'multi': {}, 'group': {'group': True},
                           'canvas': {'canvas': True}}[how]))
     pk = {'multi': 'layer:1', 'group': 'g1', 'canvas': 'layer:1'}[how]
-    _edit_rows(pg, [(pk, "Ether-con|25'", 'W run'), V_ROW])
+    _edit_rows(pg, [(pk, "Cat6 Extension|25'", 'W run'), V_ROW])
     full = _srv_edits()
     steps = pg.evaluate("() => window.app.historyIndex")
     if how == 'multi':

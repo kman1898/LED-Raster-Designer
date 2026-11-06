@@ -61,16 +61,35 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.fillRect(bounds.x, bounds.y, layerWidth, layerHeight);
         
         // Measure text to size box appropriately
+        // A data walk only stops now when ONE panel is bigger than a port:
+        // Organized cuts a row or column too long for one port into ports of
+        // whole cabinets, and Max Capacity always could. Any other unit type
+        // keeps its old wording.
+        const onePanel = err.unitType === 'panel';
+        // Low Latency lowers a port's capacity the lower on the canvas it
+        // starts (the walk's derate): a cabinet that fits at the top can
+        // fit nowhere this low, and the error names Low Latency.
+        const lowLatency = onePanel && !!err.lowLatency;
         this.ctx.font = `bold 48px ${projectFontFamily()}`;
-        const titleText = `CANNOT FIT COMPLETE ${err.unitType.toUpperCase()}`;
+        const titleText = lowLatency
+            ? 'LOW LATENCY: NO PORT THIS LOW TAKES A PANEL'
+            : (onePanel
+                ? 'ONE PANEL IS BIGGER THAN A PORT'
+                : `CANNOT FIT COMPLETE ${String(err.unitType || '').toUpperCase()}`);
         const titleWidth = this.ctx.measureText(titleText).width;
-        
+
         this.ctx.font = `28px ${projectFontFamily()}`;
-        const detailText = `Need ${err.unitCount} panels, port only fits ${err.panelsPerPort}`;
+        const detailText = lowLatency
+            ? 'Low Latency gives a port fewer pixels the lower it starts. Turn it off or move the screen up'
+            : (onePanel
+                ? 'Lower the bit depth or frame rate, or pick a processor with bigger ports'
+                : `Need ${err.unitCount} panels, port only fits ${err.panelsPerPort}`);
         const detailWidth = this.ctx.measureText(detailText).width;
         
         this.ctx.font = `24px ${projectFontFamily()}`;
-        const infoText = `Port: ${err.portCapacity.toLocaleString('en-US')} px | Panel: ${err.panelPixels.toLocaleString('en-US')} px`;
+        const portPx = lowLatency && Number.isFinite(err.portCapacityHere)
+            ? err.portCapacityHere : err.portCapacity;
+        const infoText = `Port${lowLatency ? ' here' : ''}: ${portPx.toLocaleString('en-US')} px | Panel: ${err.panelPixels.toLocaleString('en-US')} px`;
         const infoWidth = this.ctx.measureText(infoText).width;
         
         // Size box to fit text with padding
@@ -110,52 +129,181 @@ Object.assign(CanvasRenderer.prototype, {
         this._fillText(infoText, layerCenterX, layerCenterY + 45);
     },
 
-    // v0.11.0: the load badge that sits under a port's primary marker. Healthy
-    // reads in the ordinary label colour - the owner reported coloured healthy
-    // readouts being taken for faults - and only the warning (#ff6600) and
-    // over-capacity (#ff0000) states get a colour, the same two the Port
-    // Capacity panel uses. Drawn on the house dark plate so it stays legible
-    // over any cabinet colour, and sized from the layer's own data-flow label
-    // size so it tracks the slider like the P/R markers do.
-    drawPortLoadBadge(layer, portPanels, centerX, centerY, markerRadius, labelSize, bounds) {
+    // v0.11.0: the load badge that sits beside a port's primary marker.
+    // Healthy reads in the ordinary label colour - the owner reported
+    // coloured healthy readouts being taken for faults - and only the
+    // over-capacity (#ff0000) state gets a colour. Drawn on the house dark
+    // plate so it stays legible over any cabinet colour, and sized from the
+    // layer's own data-flow label size so it tracks the slider like the P/R
+    // markers do.
+    //
+    // 1.6.0: measured here when the port is drawn, PLACED once every label
+    // of the screen is down (renderDataFlowArrows' drawCableTags pass,
+    // placePortLoadBadge) and painted by drawPortLoadBadge. It used to be
+    // painted on the spot, under its marker, before the cable tags were
+    // placed - and a port whose run leaves its disc going UP hangs its home
+    // run's tag under the disc too, so the tag printed straight over the
+    // percentage (1.5.3, a Brompton wall fed from its bottom row: "it is
+    // hidden by the cable length"). Null when the port cannot be scored.
+    portLoadBadgeLayout(layer, portPanels, labelSize) {
         const stats = this.getPortLoadStats(layer, portPanels);
-        if (!stats) return;
-
+        if (!stats) return null;
         const fontSize = Math.max(8, Math.round(labelSize * 0.55));
         const text = `${stats.shown}%`;
+        this.ctx.save();
         this.ctx.font = `bold ${fontSize}px ${projectFontFamily()}`;
         const padX = Math.max(3, Math.round(fontSize * 0.35));
         const padY = Math.max(2, Math.round(fontSize * 0.2));
-        const plateWidth = this.ctx.measureText(text).width + padX * 2;
-        const plateHeight = fontSize + padY * 2;
+        const w = this.ctx.measureText(text).width + padX * 2;
+        this.ctx.restore();
+        return { text, state: stats.state, fontSize, w, h: fontSize + padY * 2,
+                 gap: Math.max(2, Math.round(fontSize * 0.25)) };
+    },
 
-        // Under the marker by default; above it when the marker sits so low in
-        // the screen that the badge would hang off the bottom edge.
-        const gap = Math.max(2, Math.round(fontSize * 0.25));
-        let cy = centerY + markerRadius + gap + plateHeight / 2;
-        if (bounds && cy + plateHeight / 2 > bounds.bottom) {
-            cy = centerY - markerRadius - gap - plateHeight / 2;
+    // Where a port's load badge goes, in the upright frame the cable tags
+    // are placed in (_tagFrame): `own` is its marker ({ x, y, r }),
+    // `ownTag` the rect its home run's tag took (placeCableTag's, with its
+    // `side`) or null, `bounds` the screen, `discs` every label disc of the
+    // pass and `taken` every pill already down - the tags, the jump tags
+    // and the badges placed before it. THE TAG KEEPS ITS SIDE (the run's
+    // side, the owner's ruling of 2026-09-25) AND THE BADGE TAKES THE
+    // OTHER ONE: under the marker as it always was, over it where the tag
+    // hangs under (a run that leaves going up); then the remaining side
+    // over / under, then beside the marker, right then left. The first
+    // spot inside the screen that covers no other disc and no pill wins;
+    // when none is clear the one that covers least (_tagCover, the tags'
+    // own scoring). An over / under badge is centred on its marker and
+    // slides along the screen's edge rather than hang over it, as before.
+    // Returns the plate's rect.
+    placePortLoadBadge(badge, own, ownTag, bounds, discs, taken) {
+        const { w, h, gap } = badge;
+        const slide = (cx) => {
+            if (cx - w / 2 < bounds.left) cx = bounds.left + w / 2;
+            if (cx + w / 2 > bounds.right) cx = bounds.right - w / 2;
+            return cx;
+        };
+        const at = (cx, cy) => ({ x: cx - w / 2, y: cy - h / 2, w, h });
+        const spots = {
+            under: () => at(slide(own.x), own.y + own.r + gap + h / 2),
+            over: () => at(slide(own.x), own.y - own.r - gap - h / 2),
+            right: () => at(own.x + own.r + gap + w / 2, own.y),
+            left: () => at(own.x - own.r - gap - w / 2, own.y),
+        };
+        const order = (ownTag && ownTag.side === 'below')
+            ? ['over', 'under', 'right', 'left']
+            : ['under', 'over', 'right', 'left'];
+        // a pill already down is kept a stand-off away, not merely un-met,
+        // so plate and pill never read as one
+        const cover = this._tagCover(bounds, discs, own, [], false);
+        const pills = (taken || []).filter(Boolean);
+        const cost = (rc) => {
+            const near = { x: rc.x - gap, y: rc.y - gap, w: rc.w + 2 * gap, h: rc.h + 2 * gap };
+            let k = cover(rc);
+            for (const t of pills) {
+                k += Math.max(0, Math.min(near.x + near.w, t.x + t.w) - Math.max(near.x, t.x))
+                    * Math.max(0, Math.min(near.y + near.h, t.y + t.h) - Math.max(near.y, t.y));
+            }
+            return k;
+        };
+        let best = null, bestCost = Infinity;
+        for (const name of order) {
+            const rect = spots[name]();
+            const k = cost(rect);
+            if (k <= 1e-6) return rect;
+            if (k < bestCost) { bestCost = k; best = rect; }
         }
-        let cx = centerX;
-        if (bounds) {
-            if (cx - plateWidth / 2 < bounds.left) cx = bounds.left + plateWidth / 2;
-            if (cx + plateWidth / 2 > bounds.right) cx = bounds.right - plateWidth / 2;
-        }
-        cx = this.snap(cx);
-        cy = this.snap(cy);
+        return best;
+    },
 
+    // Paints a badge placePortLoadBadge put at `rect`, in the upright frame
+    // `F` (_tagFrame). On a rotated or mirrored screen the plate is painted
+    // under the same counter-turn drawCableTag gives a pill, about the
+    // layer-frame point the plate's centre came from, so plate and text
+    // stand up together; otherwise it lands on the pixel grid as before.
+    // Noted in the label registry as 'load'.
+    drawPortLoadBadge(layer, badge, rect, F) {
+        let cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+        const turned = !!(F && F.active);
+        this.ctx.save();
+        if (turned) {
+            const pivot = F.fromU(cx, cy);
+            const upright = this._keepTextUpright && this._activeRotationRad;
+            this.ctx.translate(pivot.x, pivot.y);
+            if (upright) this.ctx.rotate(-this._activeRotationRad);
+            if (this._mirror) this.ctx.scale(-1, 1);
+            this.ctx.translate(-cx, -cy);
+        } else {
+            cx = this.snap(cx);
+            cy = this.snap(cy);
+        }
+        const plate = turned
+            ? { x: cx - rect.w / 2, y: cy - rect.h / 2, width: rect.w, height: rect.h }
+            : this.snapRect(cx - rect.w / 2, cy - rect.h / 2, rect.w, rect.h);
+        this._noteLabelBox('load', badge.text, plate.x, plate.y, plate.width, plate.height);
         this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        const plate = this.snapRect(cx - plateWidth / 2, cy - plateHeight / 2, plateWidth, plateHeight);
         this.ctx.fillRect(plate.x, plate.y, plate.width, plate.height);
 
-        if (stats.state === 'over') {
-            this.ctx.fillStyle = '#ff0000';
-        } else {
-            this.ctx.fillStyle = layer.labelsColor || '#ffffff';
-        }
+        this.ctx.fillStyle = badge.state === 'over' ? '#ff0000' : (layer.labelsColor || '#ffffff');
+        this.ctx.font = `bold ${badge.fontSize}px ${projectFontFamily()}`;
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
-        this._fillText(text, cx, cy);
+        // the frame is upright here already, so a plain fillText
+        this.ctx.fillText(badge.text, cx, cy);
+        this.ctx.restore();
+    },
+
+    // ONE ROW OF TAGS PER ROW OF DISCS (data map, 2026-11-02). A tag
+    // hangs a fixed gap off its own disc, and a disc grows with its label
+    // ("UL B-10" against "UL B-9"), so the tags under one row of discs
+    // stepped by a few pixels where a label ran longer. The tags placeTagHeads
+    // hung clear on one side of discs that share a centre line are lined
+    // up with the one farthest out (the lowest under the row, the highest
+    // over it), each only where it lands clear there - inside the screen,
+    // off every disc and every other pill - else it stays where it was.
+    // `placed` and `taken` are updated in place.
+    _alignDataTagRows(heads, placed, labelSize, bounds, discs, taken) {
+        const eps = 1e-6;
+        const rows = new Map();
+        heads.forEach((h, i) => {
+            const tag = placed[i] && placed[i].tag;
+            const side = tag && tag.opts && tag.opts.side;
+            if (!tag || !tag.clear || (side !== 'below' && side !== 'above')) return;
+            const key = `${side}|${Math.round(h.own.y * 2) / 2}`;
+            if (!rows.has(key)) rows.set(key, { side, members: [] });
+            rows.get(key).members.push(i);
+        });
+        for (const { side, members } of rows.values()) {
+            if (members.length < 2) continue;
+            const ys = members.map(i => placed[i].tag.rect.y);
+            const target = side === 'below' ? Math.max(...ys) : Math.min(...ys);
+            for (const i of members) {
+                const tag = placed[i].tag;
+                const delta = target - tag.rect.y;
+                if (Math.abs(delta) <= eps) continue;
+                const rect = this.cableTagRect(heads[i].text, tag.x, tag.y + delta, labelSize, tag.opts);
+                if (Math.abs(rect.y - target) > eps) continue;          // the screen's edge held it
+                const others = taken.filter(r => r !== tag.rect);
+                if (this._tagCover(bounds, discs, heads[i].own, others, true)(rect) > eps) continue;
+                const at = taken.indexOf(tag.rect);
+                if (at >= 0) taken[at] = rect;
+                placed[i].tag = Object.assign({}, tag, { y: tag.y + delta, rect });
+            }
+        }
+    },
+
+    // One dashed accent ring per freed cabinet, under the runs.
+    _drawMergeFreedRings(panels) {
+        this.ctx.save();
+        this.ctx.strokeStyle = this._accentUnderlayColor();
+        this.ctx.lineWidth = Math.max(6, 8 / Math.max(this.zoom, 0.01));
+        this.ctx.setLineDash([this.ctx.lineWidth * 2, this.ctx.lineWidth * 1.5]);
+        panels.forEach(p => {
+            const inset = Math.min(p.width, p.height) * 0.12;
+            this.ctx.strokeRect(p.x + inset, p.y + inset,
+                                p.width - inset * 2, p.height - inset * 2);
+        });
+        this.ctx.setLineDash([]);
+        this.ctx.restore();
     },
 
     renderDataFlowArrows(layer) {
@@ -210,6 +358,16 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.save();
         this._clipToActiveRaster();
 
+        // Several ports being redrawn as one (app-merge-runs.js), or one
+        // port (app-run-overrides.js): the cabinets they freed that the
+        // new path has not taken yet wear a dashed ring, so what is left
+        // to draw is on the wall.
+        if (!this.exportMode && !this._crossMemberPass && window.app
+                && typeof window.app.mergeFreedPanels === 'function') {
+            const freed = window.app.mergeFreedPanels(layer);
+            if (freed.length) this._drawMergeFreedRings(freed);
+        }
+
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
 
@@ -248,6 +406,11 @@ Object.assign(CanvasRenderer.prototype, {
         // backup feeds it: from the last cabinet back to the one before.
         const labelDiscs = [];
         const pendingTags = [];
+        // Every run line this pass draws (layer frame), so a pill is not
+        // hung across one (_placeCableTag).
+        const runSegs = [];
+        // The ports' load badges, placed after the tags (placePortLoadBadge).
+        const pendingLoads = [];
         // LONG JUMPS (2026-09-25): with the cable tags on, a link between
         // two cabinets that do not touch wears its jumper's length at the
         // middle of its segment ("10'"); a short link above / below or
@@ -306,16 +469,40 @@ Object.assign(CanvasRenderer.prototype, {
                 paint(j.text, at, 'jump');
             }
             pendingJumps.length = 0;
-            for (const t of pendingTags) {
-                const own = discsU[labelDiscs.indexOf(t.disc)];
-                // no stacked second pill on a data tag, so no `stack`
-                const at = this.placeCableTag(t.text, own.x, own.y, own.r, labelSize,
-                                              bounds, discsU, own, taken,
-                                              { prefer: this._tagRunSide(t.step, F) });
-                taken.push(at.rect);
-                paint(t.text, at, undefined);
-            }
+            // One side for the screen's tags (placeTagHeads, owner
+            // 2026-10-30, the power map's rule): the run's side when every
+            // tag fits there, else the other side, else the side most of
+            // them fit. A data tag has no stacked second pill.
+            const heads = pendingTags.map(t => ({
+                text: t.text, nfer: null,
+                own: discsU[labelDiscs.indexOf(t.disc)],
+                prefer: this._tagRunSide(t.step, F),
+                run: this._tagRunDir(t.step, F),
+                line: this._tagRunLine(t.step, F),
+                segs: this._tagRunSegs(runSegs.filter(g => g[4] === t.run), F),
+            }));
+            const placed = this.placeTagHeads(heads, labelSize, bounds, discsU, taken,
+                                              this._tagSideKey('data', layer));
+            this._alignDataTagRows(heads, placed, labelSize, bounds, discsU, taken);
+            // the rect each disc's tag took, for the load badge beside it
+            const tagOf = new Map();
+            heads.forEach((h, i) => {
+                tagOf.set(pendingTags[i].disc, placed[i].tag.rect);
+                paint(h.text, placed[i].tag, undefined);
+            });
             pendingTags.length = 0;
+            // The load badges last (1.6.0): every tag keeps the side
+            // placeTagHeads gave it and each badge takes a spot clear of all of them
+            // (placePortLoadBadge) - the % under its marker, or over it
+            // where the marker's own tag hangs under.
+            for (const b of pendingLoads) {
+                const own = discsU[labelDiscs.indexOf(b.disc)];
+                const rect = this.placePortLoadBadge(b.badge, own, tagOf.get(b.disc) || null,
+                                                     bounds, discsU, taken);
+                taken.push(rect);
+                this.drawPortLoadBadge(layer, b.badge, rect, F);
+            }
+            pendingLoads.length = 0;
         };
 
         // A run's step off a marker - its cabinet to the next one along,
@@ -324,7 +511,8 @@ Object.assign(CanvasRenderer.prototype, {
         // port of one cabinet. The tag's side is read off it (2026-09-25).
         const runStep = (a, b) => (a && b)
             ? { dx: (b.x + b.width / 2) - (a.x + a.width / 2),
-                dy: (b.y + b.height / 2) - (a.y + a.height / 2) }
+                dy: (b.y + b.height / 2) - (a.y + a.height / 2),
+                ax: a.x + a.width / 2, ay: a.y + a.height / 2 }
             : null;
 
         const drawPort = (portPanels, portNum, loadPanels) => {
@@ -356,6 +544,7 @@ Object.assign(CanvasRenderer.prototype, {
                 this.ctx.moveTo(cx, cy);
                 this.ctx.lineTo(nx, ny);
                 this.ctx.stroke();
+                runSegs.push([cx, cy, nx, ny, portNum]);
             }
             this.ctx.restore();
             
@@ -473,7 +662,7 @@ Object.assign(CanvasRenderer.prototype, {
             }
 
             // The port's home run, as a small blue tag beside its label -
-            // the snake it rides ("SNAKE A") or its own cable ("50' CAT"):
+            // the snake it rides ("SNAKE A") or its own cable's length ("50'"):
             // "the same option for data homeruns" (2026-09-06), per screen,
             // default OFF, and the same test in exportMode so the PDF is
             // what was asked for. The power tag's drawer, in the data
@@ -494,10 +683,16 @@ Object.assign(CanvasRenderer.prototype, {
                 // taller than its label circle, so it carries the
                 // screen's top and bottom too and shifts inside them the
                 // way the circle's centre was shifted.
+                // The tag reads the LENGTH only ("25'", owner 2026-11-02,
+                // dataMapTagText): the connector is named once in the
+                // binder, under the screen's name.
+                const tagText = (c) => (c && typeof window.app.dataMapTagText === 'function')
+                    ? window.app.dataMapTagText(c) : (c && c.text) || '';
                 const cable = window.app.dataPortCableForScreen(layer, portNum);
-                if (cable && cable.text) {
-                    pendingTags.push({ text: cable.text, disc: primaryDisc,
-                                       step: runStep(portPanels[0], portPanels[1]) });
+                const cableTag = tagText(cable);
+                if (cableTag) {
+                    pendingTags.push({ text: cableTag, disc: primaryDisc,
+                                       step: runStep(portPanels[0], portPanels[1]), run: portNum });
                 }
                 // The return marker wears the BACKUP socket's own tag the
                 // same way - the backup box's snake, its extension, or its
@@ -506,21 +701,23 @@ Object.assign(CanvasRenderer.prototype, {
                 // port has no backup or the backup socket carries nothing.
                 const backup = typeof window.app.dataPortBackupCableForScreen === 'function'
                     ? window.app.dataPortBackupCableForScreen(layer, portNum) : null;
-                if (backup && backup.text) {
+                const backupTag = tagText(backup);
+                if (backupTag) {
                     const n = portPanels.length;
-                    pendingTags.push({ text: backup.text, disc: returnDisc,
-                                       step: runStep(portPanels[n - 1], portPanels[n - 2]) });
+                    pendingTags.push({ text: backupTag, disc: returnDisc,
+                                       step: runStep(portPanels[n - 1], portPanels[n - 2]), run: portNum });
                 }
             }
 
-            // v0.11.0: how close this port is to its limit, under the primary
+            // v0.11.0: how close this port is to its limit, beside the primary
             // marker so it reads with the port it belongs to and never covers
             // the port number itself. Runs for the hand-drawn custom paths too,
-            // which is the case the percentage was asked for.
+            // which is the case the percentage was asked for. Measured now,
+            // placed and painted with the tags (drawCableTags) so it keeps
+            // clear of them - see placePortLoadBadge.
             if (showPortLoad && scoredPanels) {
-                this.drawPortLoadBadge(layer, scoredPanels, px, py, primaryFit.radius, labelSize, {
-                    left: layerLeft, right: layerRight, top: layerTop, bottom: layerBottom
-                });
+                const badge = this.portLoadBadgeLayout(layer, scoredPanels, labelSize);
+                if (badge) pendingLoads.push({ badge, disc: primaryDisc });
             }
         };
 
@@ -539,13 +736,18 @@ Object.assign(CanvasRenderer.prototype, {
                 // takes the other side of both branches below.
                 if (this._deferCrossMemberPath(layer, path)) return;
                 if (this._crossMemberPass) {
-                    drawPort(this._crossMemberDrawPanels(layer, path), portNum,
+                    drawPort(this._crossMemberDrawPanels(layer, path, 'data'), portNum,
                         this._crossMemberLoadPanels(layer, path));
                     return;
                 }
+                // A blank cabinet, like a hidden one, carries no data and
+                // counts nothing on a hand-drawn path (isPanelDataDark).
+                const app = window.app;
+                const dark = (panel) => (app && typeof app.isPanelDataDark === 'function'
+                    ? app.isPanelDataDark(panel) : !!(panel.hidden || panel.blank));
                 const portPanels = path.map(p => {
                     const panel = layer.panels.find(panel => panel.row === p.row && panel.col === p.col);
-                    return panel && !panel.hidden ? panel : null;
+                    return panel && !dark(panel) ? panel : null;
                 }).filter(Boolean);
                 drawPort(portPanels, portNum);
             });

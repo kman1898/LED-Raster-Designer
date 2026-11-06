@@ -63,7 +63,7 @@ def page(e2e_server, pw_browser):
     shipped one to the byte (a drop lands on the same cabinet)."""
     context = pw_browser.new_context(viewport=builder.VIEWPORT)
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_function(
@@ -240,7 +240,7 @@ def _indices(tour, n, every=1):
     return [i for i in range(1, n) if (i % every == 0 or i == n - 1)]
 
 
-ADVANCED_STEPS = 74
+ADVANCED_STEPS = 100
 QUICK_STEPS = 10
 
 
@@ -286,12 +286,13 @@ def test_ids_after_a_restored_show_do_not_collide(page):
     try:
         _assert_landed('advanced', i, landed, landing, st)
         assert page.evaluate("() => window.app.getDistros().map(d => d.id)") == ['d1']
+        # the guide's MX40 Pro and the H9 its Mixed redundancy step adds
         procs = page.evaluate("() => (window.app._processorsResolved || []).map(p => p.id)")
-        assert len(procs) == 1, procs
+        assert len(procs) == 2, procs
         fresh = page.evaluate("""() => fetch('/api/processors', {method: 'POST',
             headers: {'Content-Type': 'application/json'}, body: JSON.stringify({deviceId: 'novastar-h9'})})
             .then(r => r.json()).then(st => st.processors.map(p => p.id))""")
-        assert len(fresh) == 2 and len(set(fresh)) == 2, fresh
+        assert len(fresh) == 3 and len(set(fresh)) == 3, fresh
     finally:
         _end(page)
 
@@ -321,11 +322,16 @@ def test_a_jump_past_the_preference_steps_still_puts_preferences_back(page):
         assert i > _step_index(page, 'advanced', 'Border and title block')
         landed, landing, st = _jump(page, 'advanced', i)
         _assert_landed('advanced', i, landed, landing, st)
-        page.locator('#qs-next').click()      # Next from Preferences: Help
-        st = _wait_step(page, i + 1)
-        assert st['state'] == 'done', st
+        # Next from Preferences through every later step (Mirror a screen,
+        # Port numbers, the power Z patterns, Circuit numbers, Help), each
+        # taking
+        n = page.evaluate("() => window.QuickStart.tours().advanced.length")
+        for k in range(i + 1, n - 1):
+            page.locator('#qs-next').click()
+            st = _wait_step(page, k)
+            assert st['state'] == 'done', st
         page.locator('#qs-next').click()      # the outro
-        _wait_step(page, i + 2)
+        _wait_step(page, n - 1)
         page.locator('#qs-next').click()      # Done
         page.wait_for_timeout(1500)
         assert not page.evaluate("window.QuickStart.state().visible")
@@ -444,3 +450,50 @@ def test_a_guide_step_survives_the_tray_rebuilding_under_it(page):
         assert st['state'] == 'done' and not st['fail'], st
     finally:
         _end(page)
+
+
+ODD_PROCESSING = {'bitDepth': 10, 'frameRate': 50, 'lowLatency': True}
+# The guide steps that put in a screen of their own and count its ports.
+PRACTICE_STEPS = ('mirrorScreen', 'portNumbers', 'portsMinimum',
+                  'redrawAsOne', 'sweepPorts')
+
+
+def test_practice_screens_ignore_the_processing_preferences(page):
+    """1.6.0 QA: with 10-bit, 50 Hz and Low Latency in Preferences, "Redraw
+    several ports as one" and "Port numbers" did not take - their practice
+    screens took the preferences' processing (initializeLayerDefaults), so
+    a port carried fewer cabinets than the step counts on. Every screen a
+    guide puts in is 8-bit, 60 Hz, Low Latency off, whatever the
+    preferences say; the scratch show's DEMO WALL too."""
+    from test_tour_anchors import PREFS_JS
+    original = page.evaluate(PREFS_JS, None)
+    page.evaluate(PREFS_JS, ODD_PROCESSING)
+    page.wait_for_timeout(300)
+    try:
+        page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
+        page.evaluate("(k) => { window.QuickStart.startSteps(k); }",
+                      list(PRACTICE_STEPS))
+        made = {}
+        for i, key in enumerate(PRACTICE_STEPS):
+            if i:
+                page.fill('#qs-jump', str(i + 1))
+                page.press('#qs-jump', 'Enter')
+            st = _wait_step(page, i)
+            assert st['state'] == 'done' and not st['fail'], (key, st)
+            for name, bits, rate, ull in page.evaluate(
+                    "() => window.app.project.layers.map(l => "
+                    "[l.name, l.bitDepth, l.frameRate, !!l.lowLatency])"):
+                made[name] = (bits, rate, ull)
+        _end(page)
+        for name in ('IMAG L', 'IMAG R', 'LONG ROWS', 'LEFTOVERS'):
+            assert made.get(name) == (8, 60, False), (name, made)
+        st = _start(page, 'quick')
+        assert st['state'] in ('done', 'idle'), st
+        wall = page.evaluate(
+            "() => { const l = window.app.project.layers.find("
+            "x => x.name === 'DEMO WALL'); "
+            "return [l.bitDepth, l.frameRate, !!l.lowLatency]; }")
+        assert wall == [8, 60, False], wall
+    finally:
+        _end(page)
+        page.evaluate(PREFS_JS, {k: original.get(k) for k in ODD_PROCESSING})

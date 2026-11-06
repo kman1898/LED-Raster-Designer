@@ -5,6 +5,10 @@ import { sendClientLog } from './helpers.js';
 
 class _History {
     // ===== HISTORY SYSTEM =====
+    // An 'Initial State' history is the project as it was loaded, opened
+    // or made new: nothing unsaved (app-project-io markProjectClean). A
+    // guide's 'Tutorial' and 'Recovered' are not: the recovered project
+    // was never saved as it stands.
     resetHistory(initialAction = 'Initial State') {
         this.history = [];
         this.historyIndex = -1;
@@ -14,6 +18,9 @@ class _History {
         this._multiBaseline = null;
         this._multiHoldsDirty = false;
         this.saveState(initialAction);
+        if (initialAction === 'Initial State' && typeof this.markProjectClean === 'function') {
+            this.markProjectClean();
+        }
         sendClientLog('history_reset', { action: initialAction });
     }
     
@@ -58,6 +65,16 @@ class _History {
                 sendClientLog('multi_numbers_commit_failed', { action, error: String(e && e.message || e) });
             }
         }
+        // A mirror screen's data map is its source's (2026-10-30): copied
+        // onto it before the entry is taken, so undo, redo and save carry
+        // the map the canvas draws (app-mirror-screens.js).
+        if (typeof this._syncMirrorScreens === 'function') {
+            try {
+                this._syncMirrorScreens();
+            } catch (e) {
+                sendClientLog('mirror_sync_failed', { action, error: String(e && e.message || e) });
+            }
+        }
 
         const json = JSON.stringify(this.project, this._snapshotReplacer);
 
@@ -80,7 +97,10 @@ class _History {
         const state = {
             action: action,
             project: JSON.parse(json),
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            // A circuit redraw open as this entry is taken: the project reads
+            // right only with its hold (app-run-overrides _powerRedrawRecord).
+            redraw: typeof this._powerRedrawRecord === 'function' ? this._powerRedrawRecord() : null
         };
 
 
@@ -107,7 +127,8 @@ class _History {
             selectedLayers: this.selectedLayerIds ? [...this.selectedLayerIds] : [],
             currentLayerId: this.currentLayer ? this.currentLayer.id : null
         });
-
+        // The server keeps "unsaved" across a reload (app-project-io).
+        if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState();
     }
 
     /**
@@ -174,6 +195,10 @@ class _History {
             });
             
             this._reconcileSelectionAfterRestore();
+            this._activeCanvasFollowsSelection(state);
+            // The circuit redraw this entry had open comes back with it, and
+            // one it did not have closes (app-run-overrides).
+            if (typeof this._restorePowerRedraw === 'function') this._restorePowerRedraw(state.redraw);
             // Both, not just the data side. loadLayerToInputs() below happens
             // to refresh the power one too, so this was only exposed on its
             // early-return paths - but an undo in Power view has no business
@@ -205,6 +230,7 @@ class _History {
             // funnel's response would faithfully hand the un-undone drag
             // back for adoption. See _syncRestoredProject.
             this._syncRestoredProject(state, 'Undo');
+            if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState();
         } else {
         }
     }
@@ -363,6 +389,28 @@ class _History {
         if (typeof this._screenSelectionChanged === 'function') this._screenSelectionChanged();
     }
 
+    // The active canvas is whichever one the selected screen sits on, however
+    // the selection got there. A history entry holds the active canvas of the
+    // moment it was taken, and selecting is not a step of its own: click B1 on
+    // Canvas 2, change a figure, undo, and the entry from before the click put
+    // the active canvas back on Canvas 1 with B1 still selected, so Raster read
+    // the wrong canvas (1.6.0 QA, beta.6; owner: the raster size shows the
+    // canvas of the screen you select). Called before the restore's PUT, which
+    // carries it to the server. The entry takes it too, so the PUT's answer
+    // does not read as a repair. Nothing selected: the entry's canvas stands.
+    _activeCanvasFollowsSelection(entry) {
+        const layer = this.currentLayer;
+        if (!layer || !this.project) return;
+        const canvases = Array.isArray(this.project.canvases) ? this.project.canvases : [];
+        const r = window.canvasRenderer;
+        const showView = !!(r && r.isShowLookView && r.isShowLookView());
+        const id = (showView && layer.show_canvas_id) ? layer.show_canvas_id : layer.canvas_id;
+        if (!id || id === this.project.active_canvas_id) return;
+        if (!canvases.some(c => c.id === id)) return;
+        this.project.active_canvas_id = id;
+        if (entry && entry.project) entry.project.active_canvas_id = id;
+    }
+
     // Undo/redo's half of the power feature's refresh discipline. Every write
     // to the distro list or a soca field drops _circuitTailCache and restates
     // the three hosts; a restore that swaps the whole project out from under
@@ -397,6 +445,10 @@ class _History {
             });
             
             this._reconcileSelectionAfterRestore();
+            this._activeCanvasFollowsSelection(state);
+            // The circuit redraw this entry had open comes back with it, and
+            // one it did not have closes (app-run-overrides).
+            if (typeof this._restorePowerRedraw === 'function') this._restorePowerRedraw(state.redraw);
             // Both, not just the data side. loadLayerToInputs() below happens
             // to refresh the power one too, so this was only exposed on its
             // early-return paths - but an undo in Power view has no business
@@ -420,6 +472,7 @@ class _History {
             
             // Same sequenced sync-and-adopt as undo - see _syncRestoredProject.
             this._syncRestoredProject(state, 'Redo');
+            if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState();
         } else {
         }
     }
@@ -448,7 +501,10 @@ class _History {
         // Don't delete if it would remove ALL layers
         if (idsToDelete.length >= this.project.layers.length) {
             // Keep at least one layer
-            if (this.project.layers.length <= 1) return;
+            if (this.project.layers.length <= 1) {
+                this._toast('The last screen cannot be deleted.', true);
+                return;
+            }
             idsToDelete.pop(); // Remove last one from delete list to keep it
         }
         

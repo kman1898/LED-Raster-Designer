@@ -49,7 +49,7 @@ GROUP_HEADINGS = [
     'Power view & the tray',
     'Screens & Beaches panels',
     'Cable sheets',
-    'Guided tours',
+    'Guides',
 ]
 
 # One distinctive phrase per row of the modal. Platform-neutral on purpose:
@@ -57,8 +57,8 @@ GROUP_HEADINGS = [
 GESTURE_PHRASES = [
     # Everywhere
     'Undo / redo',
-    'Copy / paste the selected layer',
-    'Duplicate the current layer',
+    'Copy / paste the selected screen',
+    'Duplicate the selected screens',
     'Select every screen on the canvas',
     'Delete / Backspace',
     'Open Preferences',
@@ -107,6 +107,10 @@ GESTURE_PHRASES = [
     'Redraw port N',
     'back to auto',
     'Clear port N',
+    'Pick that port',
+    'Pick every port the box touches',
+    'Pick every port the drag crosses',
+    'Redraw ports N-M as one',
     'Drag a port, card, box or processor onto a screen',
     'Drag an assigned port back onto the tray',
     'Open its editor; Esc closes it',
@@ -162,13 +166,13 @@ GESTURE_PHRASES = [
     'Show the chips again',
     'Enter in a pull sheet cell',
     'the board redraws',
-    # Guided tours
+    # Guides
     'Next (Done on the last step)',
-    'Leave the tour',
+    'Leave the guide',
     'Return to the previous step',
     'Play this step again',
     'Go to N',
-    'End the tour',
+    'End the guide',
 ]
 
 # (handler marker, source file under src/static/js, phrase in the modal).
@@ -188,7 +192,7 @@ HANDLER_MARKERS = [
     # Select All rides the same dispatcher but is not a File menu item.
     ('mod+KeyA', 'app-menubar.js', 'Select every screen on the canvas'),
     ('deleteCurrentLayer', 'canvas-input.js', 'Delete / Backspace'),
-    ('duplicateLayer', 'canvas-input.js', 'Duplicate the current layer'),
+    ('duplicateSelection', 'canvas-input.js', 'Duplicate the selected screens'),
     ('_toggleLayerSelectionFromCanvas', 'canvas-input.js',
      'Toggle it in or out of the selection'),
     ('selectLayersInRect', 'canvas-input.js', 'Marquee-select screens'),
@@ -208,6 +212,11 @@ HANDLER_MARKERS = [
      'Click cabinets / arrow keys'),
     ('stepCustomPort', 'canvas-input.js', 'Tab / Shift+Tab, ] / ['),
     ('_prepareOverrideMenu', 'app-run-overrides.js', 'back to auto'),
+    ('togglePortPick', 'canvas-input.js', 'Pick that port'),
+    ('pickPortsInRect', 'canvas-input.js', 'Pick every port the box touches'),
+    ('_portSweepExtend', 'canvas-input.js', 'Pick every port the drag crosses'),
+    ('_prepareMergeRunsMenu', 'app-merge-runs.js', 'Redraw ports N-M as one'),
+    ('cancelMergeRedraw', 'canvas-input.js', 'Esc puts the ports back'),
     ('_prepareClearMenu', 'app-dock-menus.js', 'Clear port N'),
     ('_prepareShareMenus', 'app-dock-menus.js',
      'Share with next run via 2fer or 3fer'),
@@ -450,7 +459,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1440, 'height': 850})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(1500)

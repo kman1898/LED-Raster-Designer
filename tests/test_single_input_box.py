@@ -109,7 +109,9 @@ def test_only_the_cvt4k_s_documents_one_input():
     """The no-assumptions rule: the option is the CVT4K-S's, read off its
     catalog entry, and no other box grows one."""
     with_it = [d['id'] for d in catalog.devices('cvt') if d.get('singleInput')]
-    assert with_it == [CVT4K], with_it
+    # and its multimode twin, the CVT4K-M, which behaves exactly as it
+    # does but for its fiber (owner, 2026-11-04)
+    assert with_it == [CVT4K, 'novastar-cvt4k-m'], with_it
     box = catalog.get_device(CVT4K)
     assert box['singleInput'] == {'ports': 8}
     assert catalog.trunks_in(box) == 2, 'trunks_in keeps the nameplate'
@@ -150,15 +152,24 @@ def test_four_single_input_boxes_on_a_uhd_jr_are_1_8_9_16_and_their_copies(clien
 
 
 def test_a_vx1000_takes_one_and_gets_8_of_its_10(client):
-    """The VX1000's one OPT carries 10, and a single-input CVT4K-S delivers
-    its own 8 of them: min(8, 10)."""
+    """Each VX1000 OPT carries its 10, and a single-input CVT4K-S delivers
+    its own 8 of them: min(8, 10). Since OPT 2 became a trunk (its sheet's
+    "OPT | 2 | 10G optical fiber ports", owner 2026-11-02) a second one
+    goes on OPT 2 as the first box's backup, and the unit stays 10 ports."""
     pid, cid = _unit(client, VX1000)
-    _refused(_add(client, pid, cid))          # 2 OPT does not fit 1 trunk
     _ok(_add(client, pid, cid, inputs=1), 201)
     card = _res_card(client, cid)
     (box,) = card['cvts']
     assert (box['trunksIn'], box['portCount'], _span(box)) == (1, 8, (1, 8))
-    assert (card['trunksUsed'], card['trunksFree']) == (1, 0)
+    assert (card['trunksUsed'], card['trunksFree']) == (1, 1)
+    _ok(_add(client, pid, cid, inputs=1), 201)
+    card = _res_card(client, cid)
+    first, second = card['cvts']
+    assert (second['trunksIn'], second['portCount'], _span(second)) == (1, 8, (1, 8))
+    assert (second['copyRole'], second['backupOf']) == ('backup', first['id'])
+    assert (card['trunksUsed'], card['trunksFree']) == (2, 0)
+    assert card['ceiling'] == 10
+    assert 'Both trunks' in _refused(_add(client, pid, cid, inputs=1))
 
 
 def test_the_enhanced_h_card_gives_8_not_10_on_one_input(client):
@@ -360,7 +371,7 @@ CARD_JS = """(cardId) => window.app._dockFindCard(cardId).card"""
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 1000})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -385,7 +396,7 @@ def test_the_box_fits_offer_a_cvt4k_s_on_the_one_trunk_left(page):
         .map(d => [d.id, d.name, d.addInputs || null, d.pickKey || null])""",
                        ids['card'])
     assert ['novastar-cvt4k-s', 'CVT4K-S (1 OPT)', 1, 'novastar-cvt4k-s:1'] in fits, fits
-    assert ['novastar-cvt10', 'CVT10', None, None] in fits, fits
+    assert ['novastar-cvt10', 'CVT10-S', None, None] in fits, fits
     # the gear's picker lists it under its own key
     assert pg.evaluate(OPEN_GEAR_JS, f"card-{ids['card']}")
     pg.wait_for_timeout(200)
@@ -402,6 +413,10 @@ def test_the_box_fits_offer_a_cvt4k_s_on_the_one_trunk_left(page):
     item = pg.locator(f'[data-lrd-field="dock-addbox-{ids["card"]}-novastar-cvt4k-s:1"]')
     assert item.text_content() == 'CVT4K-S (1 OPT)'
     item.click()
+    # The last OPT is a copy OPT the box there picks Mirror or Backup on
+    # (owner, 2026-11-02), so the add asks first.
+    pg.locator('#copy-role-modal').wait_for(state='visible')
+    pg.locator('#copy-role-backup').click()
     pg.wait_for_timeout(900)
     card = pg.evaluate(CARD_JS, ids['card'])
     last = card['cvts'][-1]

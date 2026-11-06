@@ -31,7 +31,7 @@ def _restore_server_project(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -94,9 +94,11 @@ window.__cd = {
     window.app.currentLayer = window.app.project.layers.find(l => l.id === ids[ids.length - 1]);
     window.app.lastSelectedLayerId = ids[ids.length - 1];
   },
+  // The app asks in its own dialog (app-dialogs.js appConfirm): stubbed
+  // here with the answer, the question recorded.
   stubConfirm(answer) {
     window.__cd.asked = [];
-    window.confirm = (m) => { window.__cd.asked.push(m); return answer; };
+    window.app.appConfirm = (m) => { window.__cd.asked.push(m); return Promise.resolve(answer); };
   },
   // Drive the real sidebar kebab: its menu button, then the Delete entry.
   async deleteViaKebab(canvasId) {
@@ -156,7 +158,7 @@ def test_confirm_names_the_one_canvas_the_kept_screens_move_to(page):
     ])
     assert len(out['asked']) == 1, out
     msg = out['asked'][0]
-    assert msg.startswith("Delete canvas 'Canvas 1' and its 1 layer?"), msg
+    assert msg.startswith("Delete canvas 'Canvas 1' and its 1 screen?"), msg
     assert "1 screen shown on 'Canvas 2' will move to that canvas instead." in msg, msg
     assert 'overlap' not in msg, msg
     assert out['canvases'] == ['c1', 'c2'], 'No must not delete'
@@ -208,7 +210,7 @@ def test_confirm_does_not_claim_the_delete_cannot_be_undone(page):
         {'name': 'S2', 'canvas': 'c1', 'x': 600, 'y': 0},
     ])
     msg = out['asked'][0]
-    assert msg == "Delete canvas 'Canvas 1' and its 2 layers?", msg
+    assert msg == "Delete canvas 'Canvas 1' and its 2 screens?", msg
     assert 'cannot be undone' not in msg.lower(), msg
 
 

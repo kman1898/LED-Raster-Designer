@@ -74,14 +74,28 @@ class _Selection {
         const hold = this._holdLockedLayers ? this._holdLockedLayers(layers) : null;
         const snapshot = this._snapshotSharedFields
             ? this._snapshotSharedFields(layers) : null;
+        // NOR IS A LOCKED SCREEN REPACKED THROUGH ANOTHER (the owner's
+        // ruling, 2026-10-23): a power setting written onto an unlocked
+        // member of a locked screen's group (its panel watts, say) can move
+        // the group's packing % (circuitCapacity). The edit is checked once
+        // it is written; when it moves a locked screen's %, every screen it
+        // reached is put back and the locked screen is named, so the
+        // caller's commit records nothing. The same for a locked screen
+        // whose circuits the edit would move on a multi box it shares with
+        // a screen the edit reached (the list marked why: 'shared').
+        const repack = this._repackEditTrial ? this._repackEditTrial(layers) : null;
         layers.forEach(fn);
-        const refused = hold ? hold.release() : [];
+        let refused = hold ? hold.release() : [];
         if (snapshot && this._propagateChangedSharedFields) {
             this._propagateChangedSharedFields(layers, snapshot, { lockedOut: refused });
         }
+        const repacked = repack ? repack() : [];
+        if (repacked.length) refused = repacked;
         // Called with nothing refused too: a commit that reaches the funnel
         // ends the attempt and lets a waiting snap-back repaint run.
-        if (this._reportLockedEdit) this._reportLockedEdit(refused);
+        if (this._reportLockedEdit) {
+            this._reportLockedEdit(refused, repacked.length ? (repacked.why || 'repack') : null);
+        }
     }
 
     setSelectedLayersByIds(ids, primaryId = null) {
@@ -97,6 +111,14 @@ class _Selection {
         if (this.currentLayer) {
             this.lastSelectedLayerId = this.currentLayer.id;
             this.selectionAnchorLayerId = this.currentLayer.id;
+        }
+        // The primary screen's canvas becomes the active one, as for every
+        // other way of selecting: a click on a group's header on another
+        // canvas left the toolbar's Raster W x H on the canvas before it
+        // (owner's report, 1.6.0 beta.5). preserveSelection: the ids given
+        // are the selection, whatever canvases they sit on.
+        if (typeof this._activateCanvasForLayer === 'function') {
+            this._activateCanvasForLayer(this.currentLayer, { preserveSelection: true });
         }
         this._screenSelectionChanged();
         this.renderLayers();
@@ -169,6 +191,45 @@ class _Selection {
         this.renderLayers();
         this.loadLayerToInputs();
         window.canvasRenderer.render();
+    }
+
+    // A group's header in the Screens list, the twins of toggleLayerSelection
+    // and selectLayerRange. A group is its members, so the header's Cmd/Ctrl
+    // adds them all (or, all selected already, takes them all out), and the
+    // anchor stays where the row clicks leave it.
+    toggleGroupSelection(group) {
+        const ids = this.getGroupMembers(group).map(l => l.id);
+        if (ids.length === 0) return;
+        const anchor = this.selectionAnchorLayerId;
+        const selected = new Set(this.selectedLayerIds || []);
+        const whole = ids.every(id => selected.has(id));
+        ids.forEach(id => (whole ? selected.delete(id) : selected.add(id)));
+        const stays = this.currentLayer && selected.has(this.currentLayer.id);
+        this.setSelectedLayersByIds([...selected], whole && stays ? this.currentLayer.id : ids[0]);
+        if (anchor) this.selectionAnchorLayerId = anchor;
+    }
+
+    // Shift on a group's header: everything from the anchor to the group, in
+    // the order selectLayerRange reads, the group whole. A group the anchor
+    // was selected with stays whole too, so header to header takes both.
+    selectGroupRange(group) {
+        const ids = this.getGroupMembers(group).map(l => l.id);
+        if (ids.length === 0) return;
+        const order = this.layerListOrder || [...this.project.layers].reverse().map(l => l.id);
+        const anchorId = this.selectionAnchorLayerId || (this.currentLayer ? this.currentLayer.id : ids[0]);
+        if (order.indexOf(anchorId) === -1) {
+            this.setSelectedLayersByIds(ids, ids[0]);
+            return;
+        }
+        const anchorLayer = this.project.layers.find(l => l.id === anchorId);
+        const anchorGroup = anchorLayer && anchorLayer.group_id ? this.resolveGroup(anchorLayer.group_id) : null;
+        const anchorWall = anchorGroup ? this.getGroupMembers(anchorGroup).map(l => l.id) : [];
+        const wallSelected = anchorWall.length > 0 && anchorWall.every(id => this.selectedLayerIds.has(id));
+        const spots = [...ids, anchorId, ...(wallSelected ? anchorWall : [])]
+            .map(id => order.indexOf(id)).filter(i => i !== -1);
+        const rangeIds = order.slice(Math.min(...spots), Math.max(...spots) + 1);
+        this.setSelectedLayersByIds(rangeIds, ids[0]);
+        this.selectionAnchorLayerId = anchorId;
     }
 
     // Cmd/Ctrl+A (app-menubar's handleMenuShortcut). Selects everything in

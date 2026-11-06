@@ -7,7 +7,7 @@
 // did. Nothing here is shared between blocks: every handle and closure
 // a block uses is declared inside it.
 import { LEDRasterApp } from './app-core.js';
-import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex } from './helpers.js';
+import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, commitEditOnPress } from './helpers.js';
 
 // How long after one custom-mode box change a REVERSED change with no
 // pointer or key press in between is read as the same click firing twice
@@ -268,6 +268,7 @@ class _Wiring {
         if (addCanvasBtn) {
             addCanvasBtn.addEventListener('click', () => this.addCanvas());
         }
+        this._wireCanvasListDrop();
         const savePresetBtn = document.getElementById('btn-save-preset');
         if (savePresetBtn) {
             savePresetBtn.addEventListener('click', () => this.openPresetSaveModal());
@@ -299,6 +300,12 @@ class _Wiring {
             toggleLockBtn.addEventListener('click', () => {
                 this.toggleLockOnSelected();
             });
+            // The words beside the button are part of the control: a click
+            // on them is a click on the button.
+            const toggleLockLabel = document.getElementById('toggle-lock-selected-label');
+            if (toggleLockLabel) {
+                toggleLockLabel.addEventListener('click', () => toggleLockBtn.click());
+            }
         }
         
     }
@@ -353,7 +360,7 @@ class _Wiring {
     // Screen Info: the numeric geometry inputs, the Show Look resets,
     // Image Scale, Drop Shadow, Show Numbers and the weight unit.
     _wireScreenInfo() {
-        ['offset-x', 'offset-y', 'cabinet-width', 'cabinet-height',
+        ['offset-x', 'offset-y', 'cabinet-width', 'cabinet-height', 'panel-model-name',
          'screen-columns', 'screen-rows', 'number-size', 'panel-width-mm', 'panel-height-mm', 'panel-weight-kg', 'image-scale', 'image-scale-range',
          'show-offset-x', 'show-offset-y',
          'size-by-dimensions', 'target-width', 'target-height', 'target-unit'].forEach(id => {
@@ -501,7 +508,7 @@ class _Wiring {
                 // the typed field is judged on its commit, by the Screen
                 // Info funnel (updateLayerFromInputs) - the slider names it
                 // as it moves.
-                if (this.currentLayer.locked) {
+                if (this._layerLocked(this.currentLayer)) {
                     const cur = Number(this.currentLayer.imageScale) || 1;
                     if (!typed && Math.abs(cur - pct / 100) > 1e-9) {
                         this._reportLockedEdit([this.currentLayer]);
@@ -515,7 +522,7 @@ class _Wiring {
                 if (!this.currentLayer || (this.currentLayer.type || 'screen') !== 'image') return;
                 // A locked image wrote nothing: the commit only ends the
                 // attempt and lets the field snap back.
-                if (this.currentLayer.locked) {
+                if (this._layerLocked(this.currentLayer)) {
                     this._lockedEditSettled();
                     return;
                 }
@@ -664,7 +671,7 @@ class _Wiring {
                     .filter(l => l && (l.type || 'screen') === 'screen');
                 screens.forEach(layer => {
                     const oldUnit = layer.weight_unit || 'kg';
-                    if (layer.locked || oldUnit === newUnit) return;
+                    if (this._layerLocked(layer) || oldUnit === newUnit) return;
                     // || 20: the figure Screen Info and the labels show
                     // for a screen with no weight stored
                     const value = Number(layer.panel_weight) || 20;
@@ -1080,6 +1087,28 @@ class _Wiring {
         if (mappingMaxCapBtn) {
             mappingMaxCapBtn.addEventListener('click', () => setMappingMode('max-capacity'));
         }
+
+        // Port numbers (Across / Down): how Organized numbers the ports it
+        // cuts from a row or column too long for one port. Only the numbers
+        // move; every port keeps its cabinets.
+        const setPortNumberOrder = (order) => {
+            this.applyToSelectedLayers(layer => {
+                layer.portNumberOrder = order;
+            });
+            this.saveClientSideProperties();
+            this.updatePortCapacityDisplay();
+            this.updatePortLabelEditor();
+            this.updateLayers(this.getSelectedLayers(), true, 'Change Port Numbers');
+            window.canvasRenderer.render();
+        };
+        const portNumberAcrossBtn = document.getElementById('port-number-across');
+        const portNumberDownBtn = document.getElementById('port-number-down');
+        if (portNumberAcrossBtn) {
+            portNumberAcrossBtn.addEventListener('click', () => setPortNumberOrder('across'));
+        }
+        if (portNumberDownBtn) {
+            portNumberDownBtn.addEventListener('click', () => setPortNumberOrder('down'));
+        }
         
         // Flow Pattern buttons
         document.querySelectorAll('.flow-pattern-btn:not(.power-flow-pattern-btn)').forEach(btn => {
@@ -1091,6 +1120,7 @@ class _Wiring {
                 // through here used to set flowPattern on the selection and
                 // its group - the screen silently left custom mode while
                 // the box stayed ticked (2026-10-16).
+                this._logPatternTile('data', pattern);
                 if (this.applyPatternTileInCustom('data', pattern)) {
                     this._dropPatternTileFocus(btn, e);
                     return;
@@ -1128,6 +1158,7 @@ class _Wiring {
             btn.addEventListener('click', (e) => {
                 const pattern = btn.getAttribute('data-pattern');
                 // Same rule as the data tiles above.
+                this._logPatternTile('power', pattern);
                 if (this.applyPatternTileInCustom('power', pattern)) {
                     this._dropPatternTileFocus(btn, e);
                     return;
@@ -1377,7 +1408,7 @@ class _Wiring {
                 if (!this.currentLayer) return;
                 // The number already active is no change, so no error.
                 const typedPort = parseInt(customActivePortInput.value, 10);
-                if (this.currentLayer.locked
+                if (this._layerLocked(this.currentLayer)
                         && typedPort === (this.currentLayer.customPortIndex || 1)) return;
                 if (this._lockedStepRefused(this.currentLayer)) {
                     customActivePortInput.value = `${this.currentLayer.customPortIndex || 1}`;
@@ -1667,39 +1698,70 @@ class _Wiring {
 
         if (powerMaximizeCheckbox) {
             powerMaximizeCheckbox.addEventListener('change', () => {
+                // The circuits renumber: each cable stays with its cabinets
+                // (_cableCarryBegin, owner 2026-11-04).
+                const carry = this._cableCarryBegin(this.getSelectedLayers());
                 this.applyToSelectedLayers(layer => {
                     layer.powerMaximize = powerMaximizeCheckbox.checked;
                     if (powerMaximizeCheckbox.checked) {
                         layer.powerOrganized = false;
                     }
                 });
+                this._cableCarryApply(carry);
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
                 if (powerOrganizedCheckbox && powerMaximizeCheckbox.checked) {
                     powerOrganizedCheckbox.checked = false;
                 }
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Mode');
+                this.updateLayers([...new Set([...this.getSelectedLayers(), ...carry.changed])],
+                    true, 'Change Power Mode');
+                this._cableCarrySay(carry);
                 window.canvasRenderer.render();
             });
         }
 
         if (powerOrganizedCheckbox) {
             powerOrganizedCheckbox.addEventListener('change', () => {
+                const carry = this._cableCarryBegin(this.getSelectedLayers());
                 this.applyToSelectedLayers(layer => {
                     layer.powerOrganized = powerOrganizedCheckbox.checked;
                     if (powerOrganizedCheckbox.checked) {
                         layer.powerMaximize = false;
                     }
                 });
+                this._cableCarryApply(carry);
                 this.saveClientSideProperties();
                 this.updatePowerCapacityDisplay();
                 if (powerMaximizeCheckbox && powerOrganizedCheckbox.checked) {
                     powerMaximizeCheckbox.checked = false;
                 }
-                this.updateLayers(this.getSelectedLayers(), true, 'Change Power Mode');
+                this.updateLayers([...new Set([...this.getSelectedLayers(), ...carry.changed])],
+                    true, 'Change Power Mode');
+                this._cableCarrySay(carry);
                 window.canvasRenderer.render();
             });
         }
+
+        // Circuit numbers: Across | Down (powerNumberOrder). Only the
+        // numbers move; which cabinets share a circuit never does.
+        document.querySelectorAll('#power-number-order-row [data-order]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const order = btn.getAttribute('data-order');
+                // Only the numbers move: each cable stays with its cabinets.
+                const carry = this._cableCarryBegin(this.getSelectedLayers());
+                this.applyToSelectedLayers(layer => {
+                    layer.powerNumberOrder = order;
+                });
+                this._circuitTailCache = null;
+                this._cableCarryApply(carry);
+                this.saveClientSideProperties();
+                this.updatePowerCapacityDisplay();
+                this.updateLayers([...new Set([...this.getSelectedLayers(), ...carry.changed])],
+                    true, 'Change Circuit Numbers');
+                this._cableCarrySay(carry);
+                window.canvasRenderer.render();
+            });
+        });
 
         if (powerRandomColorsCheckbox) {
             powerRandomColorsCheckbox.addEventListener('change', () => {
@@ -1824,7 +1886,7 @@ class _Wiring {
                     layer.showDataCableTags = showDataCableTagsEl.checked;
                 });
                 this.saveClientSideProperties();
-                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Data Cable Tags');
+                this.updateLayers(this.getSelectedLayers(), true, 'Toggle Data Tags');
                 window.canvasRenderer.render();
             });
         }
@@ -1957,9 +2019,14 @@ class _Wiring {
                 const owner = this.powerPathOwner(this.currentLayer);
                 const circuitNum = owner.powerCustomIndex || 1;
                 // This screen's circuit, and - whole - any peer's circuit of
-                // the same number that lands here - see clearCustomRun.
-                const { touched, skipped } = this.clearCustomRun(owner, 'power', circuitNum);
-                if (touched.length) {
+                // the same number that lands here - see clearCustomRun. A
+                // custom 2fer / 3fer is one circuit: every leg goes, in one
+                // entry (clearCustomCircuit).
+                // A clear that would move a locked screen's circuits on a
+                // multi box it shares is put back whole (_lockedPowerTrial).
+                const shared = this._lockedPowerTrial();
+                const { touched, skipped } = this.clearCustomCircuit(owner, circuitNum);
+                if (touched.length && !shared()) {
                     this.saveState('Power Custom Clear Circuit');
                     this.saveClientSideProperties();
                     this.updateLayers(this._persistWith(touched));
@@ -1975,9 +2042,10 @@ class _Wiring {
                 if (!this.currentLayer) return;
                 // Overrides go with their paths - see the data Clear All. On a
                 // grouped screen the whole wall clears (clearAllCustomRuns).
+                const shared = this._lockedPowerTrial();
                 const { touched, skipped } = this.clearAllCustomRuns(this.currentLayer, 'power');
                 this.powerCustomSelection.clear();
-                if (touched.length) {
+                if (touched.length && !shared()) {
                     this.saveState('Power Custom Clear All');
                     this.saveClientSideProperties();
                     this.updateLayers(this._persistWith(touched));
@@ -2000,21 +2068,28 @@ class _Wiring {
                 // The active circuit of a custom group is the wall owner's
                 // (powerPathOwner).
                 const owner = this.powerPathOwner(this.currentLayer);
+                // The field reads and takes the CIRCUIT on a custom wall:
+                // 5 is the fifth circuit, a 3fer's legs counted once
+                // (customCircuitRun), never the drawn run numbered 5.
+                const shownNow = () => `${this.customCircuitShown(owner, owner.powerCustomIndex || 1)}`;
+                const typed = parseInt(powerCustomActive.value, 10);
+                const typedCircuit = (Number.isFinite(typed) && typed >= 1
+                        && !this._isOverrideEditing(owner, 'power'))
+                    ? this.customCircuitRun(owner, typed) : typed;
                 // The number already active is no change, so no error.
-                const typedCircuit = parseInt(powerCustomActive.value, 10);
-                if (owner.locked
+                if (this._layerLocked(owner)
                         && typedCircuit === (owner.powerCustomIndex || 1)) return;
                 if (this._lockedStepRefused(owner)) {
-                    powerCustomActive.value = `${owner.powerCustomIndex || 1}`;
+                    powerCustomActive.value = shownNow();
                     return;
                 }
                 this.ensureCustomPowerState(owner);
-                const nextVal = parseInt(powerCustomActive.value, 10);
+                const nextVal = typedCircuit;
                 // Pinned to the override list while one is open - see the
                 // data-flow input above.
                 if (this._isOverrideEditing(owner, 'power')
                         && !this.getOverrideNums(owner, 'power').includes(nextVal)) {
-                    powerCustomActive.value = `${owner.powerCustomIndex || 1}`;
+                    powerCustomActive.value = shownNow();
                     return;
                 }
                 if (Number.isFinite(nextVal) && nextVal >= 1) {
@@ -2341,10 +2416,10 @@ class _Wiring {
     // export modal: option preview, format-specific rows, confirm, and
     // the backdrop close.
     _wireExportAndPrefs() {
+        // New asks about unsaved changes, as File > New does
+        // (app-project-io requestNewProject).
         document.getElementById('btn-new').addEventListener('click', () => {
-            if (confirm('Create a new project? Unsaved changes will be lost.')) {
-                this.createNewProject();
-            }
+            this.requestNewProject();
         });
         
         document.getElementById('btn-open').addEventListener('click', () => {
@@ -2411,6 +2486,9 @@ class _Wiring {
             document.getElementById('export-modal').style.display = 'none';
         });
         
+        // A Rev (or any field) still being typed in commits before the
+        // export reads it (helpers.js commitEditOnPress).
+        commitEditOnPress(document.getElementById('export-confirm'));
         document.getElementById('export-confirm').addEventListener('click', async () => {
             const projectName = document.getElementById('export-name').value.trim() || 'Project';
             const format = document.getElementById('export-format').value;
@@ -2483,7 +2561,7 @@ class _Wiring {
             if (document.getElementById('export-power').checked) views.push('power');
 
             if (views.length === 0) {
-                alert('Please select at least one view to export.');
+                this._toast('Pick at least one view to export.', true);
                 return;
             }
 
@@ -2494,7 +2572,7 @@ class _Wiring {
             // matching v0.7 export behaviour exactly.
             const canvasIds = this.getSelectedExportCanvasIds();
             if (canvasIds.length === 0) {
-                alert('Please select at least one canvas to export.');
+                this._toast('Pick at least one canvas to export.', true);
                 return;
             }
 

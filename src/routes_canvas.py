@@ -240,13 +240,21 @@ def duplicate_canvas(canvas_id):
             continue
         new_group_id = app._next_group_id(app.current_project)
         cloned_ids = [id_map[mid] for mid in member_ids]
-        app.current_project['groups'].append({
+        copy = {
             'id': new_group_id,
             # The canvas name already tells the two apart, so the group keeps
             # its name - it is the same wall, on a copy of the canvas.
             'name': group.get('name') or 'Group',
             'layer_ids': cloned_ids,
-        })
+            # a new group: its copies carry no feeds, so it walks power as
+            # one wall (decidePowerPerMemberOnOpen, app-screen-groups.js)
+            'powerPerMember': False,
+        }
+        # The same wall again, so it is named the way the source is on every
+        # tab (the NAMES switch, per group since 2026-11-04).
+        if isinstance(group.get('nameDisplayByView'), dict):
+            copy['nameDisplayByView'] = dict(group['nameDisplayByView'])
+        app.current_project['groups'].append(copy)
         for lid in cloned_ids:
             clone_by_id[lid]['group_id'] = new_group_id
     # The clones carry verbatim customPortPaths / powerCustomPaths, so a

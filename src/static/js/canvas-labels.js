@@ -625,21 +625,18 @@ Object.assign(CanvasRenderer.prototype, {
             // null and the label says so instead of printing a blended
             // figure nobody can act on.
             const circuits = groupTotals.circuits;
-            // Split-aware and box-size-aware, per member: socaCountFor
-            // reads each screen's own split points and breakout box
-            // size (three tails on an L21-30, six on a soca), so the
-            // group line agrees with the dock. A peer-served member
-            // reports zero circuits and therefore zero boxes.
+            // Counted by box across the members (infoMultiCount): the
+            // parts of a multi left on one box are one multi, a box two
+            // members share is one, a direct output is none, and a part
+            // on no box yet counts by the box grid (three tails on an
+            // L21-30, six on a soca). A peer-served member has no
+            // circuits and so no boxes.
             let multis = 0;
             if (circuits > 0 && window.app
-                    && typeof window.app.socaCountFor === 'function'
-                    && typeof window.app.screenCircuitCount === 'function'
+                    && typeof window.app.infoMultiCount === 'function'
                     && typeof window.app.getGroupMembers === 'function') {
-                (window.app.getGroupMembers(gplan.group) || []).forEach(m => {
-                    if (!m || (m.type || 'screen') !== 'screen') return;
-                    multis += window.app.socaCountFor(
-                        m, window.app.screenCircuitCount(m));
-                });
+                multis = window.app.infoMultiCount(
+                    window.app.getGroupMembers(gplan.group) || []);
             } else if (circuits > 0) {
                 multis = Math.ceil(circuits / 6);
             }
@@ -673,7 +670,7 @@ Object.assign(CanvasRenderer.prototype, {
         // In 'both' every member draws its own name and the group's
         // consolidated label moves to a separate pass hosted by the last
         // member, carrying the group's name as the wall's headline.
-        const nameMode = this._groupNameMode();
+        const nameMode = this._groupNameMode(layer);
         const plan = nameMode === 'screens' ? null : this._groupLabelPlan(layer);
         const memberNamePass = !!plan && nameMode === 'both' && !groupLabelPass;
         // No headline is drawn in 'screens', so no ghost of one may be left
@@ -955,11 +952,12 @@ Object.assign(CanvasRenderer.prototype, {
                         }
                     }
                 }
-                // Split-aware: a multi broken at a chosen boundary is two
-                // multis, and this line must agree with the soca panel.
+                // Counted by box (infoMultiCount): the parts of a multi an
+                // Unplug circuit left on one box are one multi, and a
+                // circuit on a direct output is on none.
                 const multis = circuits > 0
-                    ? (typeof window.app.socaCountFor === 'function'
-                        ? window.app.socaCountFor(layer, circuits)
+                    ? (typeof window.app.infoMultiCount === 'function'
+                        ? window.app.infoMultiCount(layer)
                         : Math.ceil(circuits / 6))
                     : 0;
                 if (!peerServed) {

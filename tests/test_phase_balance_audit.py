@@ -54,7 +54,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -717,8 +717,8 @@ def test_past_the_cap_the_search_is_bounded_and_says_so(page):
 
 def test_a_crowded_direct_output_is_said_in_the_connectors_terms(page):
     """The no-targets dialog sizes a multi by its CONNECTOR: three circuits
-    left on a one-circuit True1 direct output are not "partly filled" of
-    six - the dialog says the True1 carries one circuit."""
+    left on a one-circuit TRUE1 direct output are not "partly filled" of
+    six - the dialog says the TRUE1 carries one circuit."""
     out = page.evaluate(r"""() => {
         const B = window.__pb;
         const d = B.distro('d1', 'SL', '120/208', { outputRows: [
@@ -733,8 +733,8 @@ def test_a_crowded_direct_output_is_said_in_the_connectors_terms(page):
         });
     }""")
     assert out['blockers']['crowded'] == [
-        {'name': 'SL5', 'layers': 'A', 'legs': 3, 'size': 1, 'conn': 'True1'}], out
-    assert 'has 3 circuits on a True1, which carries one circuit' in out['t'], out['t']
+        {'name': 'SL5', 'layers': 'A', 'legs': 3, 'size': 1, 'conn': 'TRUE1'}], out
+    assert 'has 3 circuits on a TRUE1, which carries one circuit' in out['t'], out['t']
     assert 'no partly-filled multi lands on it' not in out['t']
 
 

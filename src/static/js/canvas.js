@@ -55,6 +55,11 @@ class CanvasRenderer {
         this.zoom = 1.0;
         this.panX = 100;
         this.panY = 100;
+        // The view as it was built. Nothing but a person (or a guide, or a
+        // test's seed) moves it before the opening fit, so the fit can tell
+        // from this whether it has been moved at any time since (app-core
+        // loadProject).
+        this.openingView = this.viewKey();
         this.isDragging = false;
         this.isDraggingLayer = false;
         this.isDraggingScreenName = false;
@@ -1244,15 +1249,18 @@ class CanvasRenderer {
     // and the v0.11.0 behaviour): ONE name - the group's - over the whole
     // wall. 'screens': every member keeps its own name, the way the wall
     // read before it was grouped. 'both': the group's name headlines the
-    // wall AND every member keeps its own. Project-level, because it names
-    // a drawing convention for every grouped wall - not one layer's toggle -
-    // and the exports simply bake whatever the canvas draws. PER TAB since
-    // 2026-10-01 ("Yes, per tab"): the value of the view being drawn
-    // (app.groupNameDisplayFor, which falls back to the old single field).
-    _groupNameMode() {
+    // wall AND every member keeps its own. Stored on the GROUP, per tab
+    // (2026-11-04: "individually change screens, group or both per group"),
+    // and the exports simply bake whatever the canvas draws: the value of
+    // `layer`'s group for the view being drawn (app.groupNameDisplayFor, the
+    // one reader, which falls back to the show-wide value). No layer given
+    // (the headline drag's hit test): the current layer's group.
+    _groupNameMode(layer) {
         const app = window.app;
+        const subject = layer === undefined ? (app && app.currentLayer) : layer;
+        const group = subject ? this._groupForLayer(subject) : null;
         const m = app && app.project && (typeof app.groupNameDisplayFor === 'function'
-            ? app.groupNameDisplayFor(this.viewMode) : app.project.groupNameDisplay);
+            ? app.groupNameDisplayFor(this.viewMode, group) : app.project.groupNameDisplay);
         return (m === 'screens' || m === 'both') ? m : 'group';
     }
 
@@ -1662,11 +1670,11 @@ class CanvasRenderer {
     // A path resolved to {layer, panel} pairs, hidden cabinets dropped, in path
     // order. Falls back to owner-only resolution so this is safe before
     // app-power.js grows getResolvedPathPanels.
-    _resolvePathPanels(ownerLayer, path) {
+    _resolvePathPanels(ownerLayer, path, kind = null) {
         const app = window.app;
         if (!app || !Array.isArray(path)) return [];
         if (typeof app.getResolvedPathPanels === 'function') {
-            return app.getResolvedPathPanels(ownerLayer, path) || [];
+            return app.getResolvedPathPanels(ownerLayer, path, kind) || [];
         }
         return path
             .map(pos => {
@@ -1713,8 +1721,8 @@ class CanvasRenderer {
     // duty: a printed map must not carry a data cable running off the wall onto
     // blank paper. So the line stops at the last cabinet that is actually drawn,
     // which is the same way the circle-and-X shrinks to what is lit.
-    _crossMemberDrawPanels(ownerLayer, path) {
-        return this._resolvePathPanels(ownerLayer, path)
+    _crossMemberDrawPanels(ownerLayer, path, kind = null) {
+        return this._resolvePathPanels(ownerLayer, path, kind)
             .filter(hit => hit && hit.layer && hit.layer.visible !== false)
             .map(hit => this._crossMemberPanelShim(hit.layer, hit.panel));
     }
@@ -1741,7 +1749,8 @@ class CanvasRenderer {
     // this returns null and the caller draws no badge rather than a number
     // nobody can act on.
     _crossMemberLoadPanels(ownerLayer, path) {
-        const hits = this._resolvePathPanels(ownerLayer, path);
+        // a data port's load: a blank cabinet counts nothing (isPanelDataDark)
+        const hits = this._resolvePathPanels(ownerLayer, path, 'data');
         if (hits.length === 0) return [];
         const rasterId = ownerLayer && ownerLayer.canvas_id;
         for (const hit of hits) {
@@ -2031,6 +2040,35 @@ class CanvasRenderer {
         if (!same) this.render();
     }
 
+    // Data's sweep (the owner, 2026-11-02: "Data should match Power"): the
+    // armed Alt+press, past the threshold, picks every port it crosses into
+    // the picks Shift makes (app-merge-runs.js sweepPortPicks), ready for
+    // "Redraw ports N-M as one". Crossed means under any point of the
+    // cursor's way since the last move, read every few screen pixels, so a
+    // fast drag skips no port. A port of another screen is passed over:
+    // like the Power sweep, it never jumps walls.
+    _portSweepExtend(worldX, worldY) {
+        const p = this._sweepPending;
+        const app = window.app;
+        if (!p || !p.anchor || !app || typeof app.runAtPoint !== 'function'
+                || typeof app.sweepPortPicks !== 'function') return;
+        const x0 = Number.isFinite(p.lastX) ? p.lastX : worldX;
+        const y0 = Number.isFinite(p.lastY) ? p.lastY : worldY;
+        const step = 4 / (this.zoom || 1);
+        const n = Math.min(400, Math.max(1,
+            Math.ceil(Math.hypot(worldX - x0, worldY - y0) / step)));
+        const nums = [];
+        for (let i = 0; i <= n; i++) {
+            const t = i / n;
+            const run = app.runAtPoint(x0 + (worldX - x0) * t, y0 + (worldY - y0) * t);
+            if (run && run.kind === 'data' && run.layer.id === p.anchor.ownerId
+                    && !nums.includes(run.num)) nums.push(run.num);
+        }
+        p.lastX = worldX;
+        p.lastY = worldY;
+        app.sweepPortPicks(p.anchor, nums);
+    }
+
     // The counter pill riding the cursor mid-sweep: "3 circuits · 24.5 A".
     // Plain facts only - the OVER story belongs to the menu's deal and the
     // committed brackets, where a GROUP has a load to answer for.
@@ -2082,6 +2120,19 @@ class CanvasRenderer {
             : (sw.layerId === layer.id && Array.isArray(sw.nums)
                 && sw.nums.includes(num)))) {
             return true;
+        }
+        // Data ports picked for "Redraw ports ... as one" (app-merge-runs.js)
+        // wear it while picked, the box being dragged lights what it will
+        // pick, and the one port such a redraw is drawing stays lit until it
+        // is kept or put back.
+        if (this.viewMode === 'data-flow' && window.app) {
+            const pk = window.app._portPicks;
+            if (pk && pk.layerId === layer.id && pk.nums.includes(num)) return true;
+            const box = this._portPickPending;
+            if (box && box.run && box.run.layerId === layer.id
+                    && Array.isArray(box.preview) && box.preview.includes(num)) return true;
+            const mr = window.app._mergeRedraw;
+            if (mr && mr.ready && mr.layerId === layer.id && mr.num === num) return true;
         }
         // The run open for redrawing stays lit until the redraw ends (Esc,
         // or another run picked): the owner, 2026-10-20, "it stays
@@ -2166,6 +2217,10 @@ class CanvasRenderer {
         // part way through cannot carry an owner into the next one.
         this._crossMemberOwners = [];
         this._crossMemberPass = false;
+        // The side a grouped wall's cable tags took this frame
+        // (canvas-power.js placeTagHeads): a group's heads are drawn in
+        // more than one pass, and later passes lean to the first one's.
+        this._tagSideMemo = new Map();
         // Group members' name plates in the wiring views are drawn AFTER the
         // cross-member overlay pass, not in the member's own pass (see
         // _memberLabelsDeferred). Cleared here for the same reason as above.
@@ -2703,6 +2758,21 @@ class CanvasRenderer {
                 this.ctx.restore();
             }
 
+            // The Shift+drag box picking data ports (app-merge-runs.js): the
+            // same dashed outline the screen marquee draws; the ports it
+            // will pick light up under it (_runUnderlayLit).
+            const pickBox = this._portPickPending && this._portPickPending.rect;
+            if (!this.exportMode && pickBox) {
+                this.ctx.save();
+                this.ctx.strokeStyle = '#4A90E2';
+                this.ctx.lineWidth = 2 / this.zoom;
+                this.ctx.setLineDash([6 / this.zoom, 4 / this.zoom]);
+                this.ctx.strokeRect(Math.min(pickBox.x1, pickBox.x2), Math.min(pickBox.y1, pickBox.y2),
+                    Math.abs(pickBox.x2 - pickBox.x1), Math.abs(pickBox.y2 - pickBox.y1));
+                this.ctx.setLineDash([]);
+                this.ctx.restore();
+            }
+
             // The landing pulse (pulseLayer): a transient outline that grows
             // and fades over the pulsed layer for ~1.2s, so "center on this
             // screen" ends with the eye on the right wall. Pure view state -
@@ -2831,6 +2901,7 @@ class CanvasRenderer {
     // device px). This keeps render math unchanged and only adjusts the I/O
     // boundary with the zoom-level input.
     _displayDpr() { return window.devicePixelRatio || 1; }
+    viewKey() { return `${this.zoom}|${this.panX}|${this.panY}`; }
     _zoomToPercent(z) { return Math.round(z * this._displayDpr() * 100); }
     _percentToZoom(p) { return p / 100 / this._displayDpr(); }
 
@@ -3138,11 +3209,25 @@ class CanvasRenderer {
     }
     
     setViewMode(mode) {
+        // Ports picked on the wall belong to the Data view; a tab switch
+        // drops them. A redraw of several ports as one keeps its drawing,
+        // the way a single redraw does (finishMergeRedraw).
+        if (window.app && window.app._portPicks && mode !== this.viewMode) {
+            window.app._portPicks = null;
+        }
+        if (window.app && window.app._mergeRedraw && mode !== this.viewMode
+                && typeof window.app.finishMergeRedraw === 'function') {
+            window.app.finishMergeRedraw();
+        }
         // An open override edit is a gesture of the view it began in; a tab
         // switch closes it (the override itself stays). The hover highlight
-        // goes with it.
-        if (window.app && window.app._overrideEditing
-                && typeof window.app.endOverrideEdit === 'function') {
+        // goes with it. The exception is coming back to Power to a circuit
+        // redraw that undo opened on another tab: it waits there, the one
+        // place it can go on.
+        const openEdit = window.app && window.app._overrideEditing;
+        const backToRedraw = !!openEdit && openEdit.kind === 'power'
+            && mode === 'power' && this.viewMode !== 'power';
+        if (openEdit && !backToRedraw && typeof window.app.endOverrideEdit === 'function') {
             window.app.endOverrideEdit();
         }
         if (window.app && window.app._overrideHover

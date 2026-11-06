@@ -2,8 +2,30 @@
 // builds one row per screen (swatch, name edit, visibility, lock, drag
 // handle) and then hands the flat list to the canvas and group regroupers.
 import { LEDRasterApp } from './app-core.js';
+import { holdDragOff } from './helpers.js';
 
 class _LayersPanel {
+
+    // Whether a plain click on `layer`'s row would leave the selection as
+    // it is: the screen is already current and the only one selected, it
+    // anchors the next Shift-click, and its canvas is already the active
+    // one (selectLayer would activate it). The row's click then skips
+    // selectLayer, which rebuilds the whole list. This lives here, not in
+    // selectLayer, because selectLayer is also the re-select after undo,
+    // load and layer updates, where the list must be rebuilt for a screen
+    // with the same id.
+    _layerClickChangesNothing(layer) {
+        const sel = this.selectedLayerIds;
+        if (!layer || this.currentLayer !== layer) return false;
+        if (!sel || sel.size !== 1 || !sel.has(layer.id)) return false;
+        if (this.selectionAnchorLayerId !== layer.id
+            || this.lastSelectedLayerId !== layer.id) return false;
+        const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const cid = (isShowView && layer.show_canvas_id) ? layer.show_canvas_id : layer.canvas_id;
+        if (cid && this.project && cid !== this.project.active_canvas_id) return false;
+        return true;
+    }
 
     renderLayers() {
         
@@ -141,13 +163,26 @@ ${cabinetBtn}
             //     the caret; re-selecting would rebuild the list and drop
             //     the edit;
             //   - the SECOND click of a double-click on a name (e.detail
-            //     2): the first click selected the row and rebuilt the
-            //     list, and the dblclick is dispatched to the field that
-            //     took this second click - rebuild again here and it goes
-            //     to a detached node, so the rename never opens.
+            //     2) OPENS the rename, on this field, the live one. The
+            //     first click of a double-click on a screen not yet
+            //     selected selects it and rebuilds the list, so the second
+            //     click lands on a new field. Chrome sends the dblclick to
+            //     that new field; Firefox sends a dblclick only when both
+            //     clicks hit the same element, so it never sends one and
+            //     the rename never opened there (field report, 1.6.0
+            //     beta.5). The second click itself reaches the new field in
+            //     every browser, so it is what opens the edit; the dblclick
+            //     below stays and does nothing more on an open edit.
+            // A plain click that changes nothing (the screen is already the
+            // only selection) does not re-select: selectLayer rebuilds the
+            // whole list, and nothing on screen would change for it.
             layerDiv.addEventListener('click', (e) => {
                 const onName = e.target.classList.contains('layer-name-input');
-                if (onName && (!e.target.readOnly || e.detail >= 2)) return;
+                if (onName && !e.target.readOnly) return;
+                if (onName && e.detail >= 2) {
+                    enterEditMode();
+                    return;
+                }
                 if (!e.target.classList.contains('layer-btn')) {
                     const isToggle = e.metaKey || e.ctrlKey;
                     const isRange = e.shiftKey;
@@ -155,7 +190,7 @@ ${cabinetBtn}
                         this.selectLayerRange(layer);
                     } else if (isToggle) {
                         this.toggleLayerSelection(layer);
-                    } else {
+                    } else if (!this._layerClickChangesNothing(layer)) {
                         this.selectLayer(layer);
                     }
                 }
@@ -181,6 +216,13 @@ ${cabinetBtn}
             });
 
             const handleDragStart = (e) => {
+                // A name being edited is never the start of a row drag (the
+                // row is not draggable then, below; this covers a browser
+                // that starts one anyway).
+                if (nameInput && !nameInput.readOnly) {
+                    e.preventDefault();
+                    return;
+                }
                 e.dataTransfer.setData('text/plain', String(layer.id));
                 e.dataTransfer.effectAllowed = 'move';
                 this.dragLayerId = layer.id;
@@ -224,18 +266,27 @@ ${cabinetBtn}
             // Handle name input: single-click selects layer (the row's click
             // handler above, since a read-only name is part of the row),
             // double-click edits name. The first click of the double-click
-            // selects and rebuilds the list, the second is left alone, and
-            // the dblclick lands on the rebuilt field for this same screen
-            // and opens the edit.
+            // selects (and, on a screen not yet selected, rebuilds the
+            // list); the second click opens the edit on the field it lands
+            // on, and the dblclick, when the browser sends one, finds the
+            // edit already open.
             const nameInput = layerDiv.querySelector('.layer-name-input');
             nameInput.readOnly = true;
             nameInput.draggable = true;
             nameInput.style.cursor = 'default';
             nameInput.addEventListener('dragstart', handleDragStart);
 
+            // While the name is edited nothing it sits in is draggable: the
+            // field, the header holding it, the info line and the row
+            // (helpers.js holdDragOff says why: WebKit). Put back on exit.
+            let releaseDrag = null;
             const enterEditMode = () => {
+                // Once only: the second click opens it and Chrome's
+                // dblclick then arrives on the open edit, which it leaves
+                // as it is.
+                if (!nameInput.readOnly) return;
                 nameInput.readOnly = false;
-                nameInput.draggable = false;
+                releaseDrag = holdDragOff(nameInput, headerEl, infoEl, layerDiv);
                 nameInput.style.cursor = 'text';
                 // v0.11.0: class, not inline - theme.css styles .layer-name-input
                 // with !important, so an inline border/background never painted.
@@ -246,13 +297,13 @@ ${cabinetBtn}
 
             const exitEditMode = () => {
                 nameInput.readOnly = true;
-                nameInput.draggable = true;
+                if (releaseDrag) { releaseDrag(); releaseDrag = null; }
                 nameInput.style.cursor = 'default';
                 nameInput.classList.remove('editing');
                 const newName = nameInput.value.trim() || layer.name;
                 // A locked screen keeps its name (the owner's ruling,
                 // 2026-10-16): the field goes back and the error says why.
-                if (newName !== layer.name && layer.locked) {
+                if (newName !== layer.name && this._layerLocked(layer)) {
                     nameInput.value = layer.name;
                     this._showLockedError([layer]);
                     return;

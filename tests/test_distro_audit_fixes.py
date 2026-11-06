@@ -32,7 +32,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -73,7 +73,8 @@ SETUP_JS = """(o) => {
     const app = window.app;
     for (const l of app.project.layers) {
         const key = l.name === 'WALL A' ? 'a' : 'b';
-        Object.assign(l, { powerVoltage: 208, powerAmperage: 20, panelWatts: 200,
+        // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+        Object.assign(l, { powerVoltage: 208, powerAmperage: 25, panelWatts: 200,
                            powerSocaDistro: {}, powerSocaNumber: {}, powerSocaPhasePos: {},
                            powerSocaLengths: {}, powerSocaSplits: [], powerSocaNames: {},
                            powerLabelOverrides: {}, powerBreakoutType: null, locked: false },
@@ -128,9 +129,9 @@ FACE = {'id': 'd1', 'name': 'PD', 'ratingA': 200, 'system': '120/208',
 # first circuit cut off on its own and pinned on output 5 (the other one).
 # At 10 A a circuit is one row of ten cabinets (9.6 A at 208V), so WALL A
 # makes six circuits and every circuit sits inside its 80% breaker figure.
-WALLS = {'a': {'powerAmperage': 10, 'powerSocaDistro': {'1': 'd1'},
+WALLS = {'a': {'powerAmperage': 12.5, 'powerSocaDistro': {'1': 'd1'},
                'powerSocaNumber': {'1': 4}},
-         'b': {'powerAmperage': 10, 'powerSocaSplits': [1], 'powerSocaDistro': {'1': 'd1'},
+         'b': {'powerAmperage': 12.5, 'powerSocaSplits': [1], 'powerSocaDistro': {'1': 'd1'},
                'powerSocaNumber': {'1': 5}}}
 
 READ_FACE = """
@@ -155,9 +156,9 @@ READ_FACE = """
 
 
 def test_a_multi_left_on_a_direct_output_is_said_and_kept_apart(seeded):
-    """Rows True1 x3 + Socapex x2: a six-circuit multi on output 4 and a
-    one-circuit screen on output 5. Raising True1 3 -> 5 leaves both on
-    True1s. The six circuits used to read PD4 on one leg pair, with their
+    """Rows TRUE1 x3 + Socapex x2: a six-circuit multi on output 4 and a
+    one-circuit screen on output 5. Raising TRUE1 3 -> 5 leaves both on
+    TRUE1s. The six circuits used to read PD4 on one leg pair, with their
     tails 2-6 aliasing outputs 5-9 - a false "paired" line for PD4 + PD5
     and a breaker line summing both screens."""
     pg, _ = seeded
@@ -180,12 +181,12 @@ def test_a_multi_left_on_a_direct_output_is_said_and_kept_apart(seeded):
     assert out['kinds'] == ['direct', 'direct'], out
     assert out['aCircuits'] == 6 and out['bCircuits'] == 1
     name_a = 'PD4'
-    want = (f"WALL A's 6 circuits are on {name_a}, a True1 — one circuit only. "
+    want = (f"WALL A's 6 circuits are on {name_a}, a TRUE1 that takes one circuit only. "
             'Move it to a multi output.')
     assert want in out['checks'], out['checks']
     assert want in out['strip'], 'the dock strip carries the check'
     assert out['checks'].count(want) == 1
-    # WALL B's one circuit on its True1 is fine.
+    # WALL B's one circuit on its TRUE1 is fine.
     assert not [c for c in out['checks'] if c.startswith('WALL B')], out['checks']
     # Never a pairing that is not there, never a breaker line summing the two.
     assert not [c for c in out['checks'] if 'paired' in c], out['checks']
@@ -193,7 +194,7 @@ def test_a_multi_left_on_a_direct_output_is_said_and_kept_apart(seeded):
     # Keys: A's circuits never share B's (or each other's).
     assert out['bKey'] not in out['aKeys'], out
     assert len(set(out['aKeys'])) == 6, out
-    # Legs: the output's own pair (True1 #4 of a rotating LL face: XY),
+    # Legs: the output's own pair (TRUE1 #4 of a rotating LL face: XY),
     # each circuit booked once - nothing dropped, nothing doubled.
     assert out['aLegs'] == ['XY'] * 6, out
     assert out['watts'] == pytest.approx(out['wattsA'])
@@ -203,7 +204,7 @@ def test_a_multi_left_on_a_direct_output_is_said_and_kept_apart(seeded):
 
 
 def test_a_socapex_row_turned_true1_under_a_multi_is_said(seeded):
-    """The other way in: the Socapex row's connector changed to True1
+    """The other way in: the Socapex row's connector changed to TRUE1
     while the multi sits on it."""
     pg, _ = seeded
     setup(pg, distros=[FACE], walls=WALLS)
@@ -219,7 +220,7 @@ def test_a_socapex_row_turned_true1_under_a_multi_is_said(seeded):
         return true;""")
     out = ev(pg, READ_FACE)
     assert out['kinds'] == ['direct', 'direct'], out
-    assert ("WALL A's 6 circuits are on PD4, a True1 — one circuit only. "
+    assert ("WALL A's 6 circuits are on PD4, a TRUE1 that takes one circuit only. "
             'Move it to a multi output.') in out['checks'], out['checks']
     assert not [c for c in out['checks'] if 'paired' in c], out['checks']
 
@@ -318,7 +319,7 @@ def test_an_l2130_box_on_an_old_208v_single_phase_distro_keeps_its_feed_check(se
     worst = max(out['fl'])
     assert worst > 30
     # an old 208 V record is a US one: the leg is held to 80% of 30 A
-    assert any(f'feed leg at {worst:.2f} A / 24 A (80% of 30 A) — OVER' in w for w in out['strip']), out['strip']
+    assert any(f'L21-30 leg at {worst:.1f} A / 24 A (80% of 30 A), OVER' in w for w in out['strip']), out['strip']
 
 
 # ── EU phasing select ─────────────────────────────────────────────────────
