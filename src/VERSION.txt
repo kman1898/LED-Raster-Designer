@@ -1,7 +1,7 @@
 LED RASTER DESIGNER - VERSION HISTORY
 =====================================
 
-v1.6.0 - November 1, 2026
+v1.6.0 - November 6, 2026
 ----------------------------
 
 The pull sheet and the binder now say exactly which cable to pull, every

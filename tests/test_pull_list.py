@@ -1307,16 +1307,15 @@ def test_smoke_live_show_b(page):
         ('TRUE1 Power Jump', "6'", 286, 'SL - MAIN', ''),
     ]
     # A position is its screens' rows merged by (type, length), labels in
-    # screen order, plus what the position alone carries: a row for each
-    # panel type on its screens (both walls are Absen VN 8.3, 308 + 66
-    # cabinets), five boxes in use on SR (SR1-SR4 on the MAIN, SR5 on the
+    # screen order, plus what the position alone carries: no panel row, as
+    # this save names no panel on its walls (a size is never guessed into a
+    # model name, 2026-11-05), five boxes in use on SR (SR1-SR4 on the MAIN, SR5 on the
     # Return), its gear row a "Distro", listed once, with its Power in (no
     # length typed in this save); both CVTs by the names their ⚙ carry. A
     # plain home run and an extension of one length are two rows - two
     # different cables - so SL's 100' loose run on SL A-5 is an etherCON
     # row of its own beside SL B-4's 100' extension.
     assert by['SR'] == [
-        ('Absen VN 8.3', 'EA', 374, 'SR - MAIN, SR - Return', ''),
         ('CVT4K-S', 'EA', 2, 'SR A, SR B', ''),
         ('Data Jump', "6'", 369, 'SR - MAIN, SR - Return', ''),
         ('Distro', 'EA', 1, 'SR', ''),
@@ -1340,7 +1339,6 @@ def test_smoke_live_show_b(page):
         ('TRUE1 Power Jump', "6'", 341, 'SR - MAIN, SR - Return', ''),
     ]
     assert by['SL'] == [
-        ('Absen VN 8.3', 'EA', 374, 'SL - MAIN, SL - Return', ''),
         ('CVT4K-S', 'EA', 2, 'SL A, SL B', ''),
         ('Data Jump', "6'", 369, 'SL - MAIN, SL - Return', ''),
         ('Distro', 'EA', 1, 'SL', ''),
@@ -1366,7 +1364,6 @@ def test_smoke_live_show_b(page):
     # and notes unioned in position order; long label runs fold to their
     # ends and a count, past eight pieces
     assert _rows(out['totals']) == [
-        ('Absen VN 8.3', 'EA', 748, 'SR - MAIN, SR - Return, SL - MAIN, SL - Return', ''),
         ('CVT4K-S', 'EA', 4, 'SR A, SR B, SL A, SL B', ''),
         ('Data Jump', "6'", 738, 'SR - MAIN, SR - Return, SL - MAIN, SL - Return', ''),
         ('Distro', 'EA', 2, 'SR, SL', ''),
