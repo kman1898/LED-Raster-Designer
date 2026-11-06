@@ -4,378 +4,173 @@ LED RASTER DESIGNER - VERSION HISTORY
 v1.6.0 - November 1, 2026
 ----------------------------
 
-The pull sheet and the binder now say exactly which cable to pull: TRUE1
-or powerCON for power, Cat6 or etherCON for data, and every distro gets a
-row for its Power in cable. Edison and L6-20 screens pick the connector their
-panels take, each kind of cable can have its own stock list, and the
-panel you pick is saved on the screen and counted on the pull sheet.
+The pull sheet and the binder now say exactly which cable to pull, every
+distro has a Power in, and the panel you pick is saved on the screen and
+counted.
 
-On the data side, Mixed redundancy lets each card on a chassis be backed
-up its own way, and a box on a copy OPT feeds a mirror screen: drag the
-card onto one screen, then drag the box onto a matching second screen,
-and the second becomes its copy.
+You also get a start page, mixed redundancy, mirror screens, a Fiber page
+and Z flow patterns, and Organized now cuts a long row instead of stopping
+with an error.
 
-Data and power both get eight Z flow patterns, where every row starts
-again from the same side. Organized now cuts a row that's too long for
-one port or circuit instead of stopping with an error, and Ports
-required tells you the fewest ports a screen needs.
+US circuits now fill to 80% of the breaker, and other changes affect
+counts on the pull sheet, so check any show you've already ordered cable
+from. They're all listed under Opening an older show.
 
-US circuits now fill to 80% of the breaker, and several other fixes
-change counts on the pull sheet, so check any show you've already ordered
-cable from. They're all listed under Opening an older show.
+THE PULL SHEET SAYS WHICH CABLE TO PULL
 
-POWER CABLES NAME THEIR CONNECTOR
+Power cables now read TRUE1 or powerCON and data cables read Cat6 or
+etherCON, on the pull sheet and in the binder, and the ≡ on a processor's
+header opens one cable list of every box on it. An Edison or L6-20
+breakout now asks which connector your panels take, and each circuit gets
+one cable from its plug to that panel input, with the 2fers at the panels.
 
-Power cables are spelled the way Neutrik spells them, TRUE1 and powerCON,
-on the map, in the tray, on the pull sheet and in the binder. A screen's
-jumpers follow its own breakout, so a show with TRUE1 screens and powerCON
-screens lists both. Preferences > Pull sheet & cables and the Export
-dialog have a name for each jumper, and a power jumper name you'd changed
-before carries over to TRUE1.
+CIRCUITS NOW FILL TO 80% OF THE BREAKER
 
-THE PANEL INPUT
+A circuit on US power now fills to 80% of its breaker unless the distro's
+breakers are 100% rated. You still type the breaker size in the Amperage
+box, and the amps you can use show beside it: 20 A breaker · 16 A usable
+on US power, or 20 A breaker · 20 A usable where the breakers are 100%
+rated and on EU and UK power.
 
-An Edison or L6-20 breakout doesn't say what your panels take, so those
-screens now have a Panel input under Breakout: TRUE1 or powerCON. The
-jumpers and splitters follow it, and each circuit gets one cable from the
-breakout's plug to the panel input: Edison → TRUE1, Edison → powerCON,
-L6-20 → TRUE1 or L6-20 → powerCON. The 2fers and 3fers sit at the
-panels.
+A POWER IN FOR EVERY DISTRO
 
-DATA CABLES NAME THEIR CONNECTOR
-
-Data runs read etherCON where the box's output is etherCON and Cat6 where
-it's plain RJ45, on the pull sheet, in the binder, on the map tags and the
-tray's chips. The catalog now says which one each processor and breakout
-box has, from the maker's spec sheet, and a box always uses its own
-connector, never its card's.
-
-POWER IN
-
-Every distro has a Power in behind its gear: a length, and whether it's
-powered from the service or thru another distro. A 400 A cam input lists
-a 400 A cam set with 5-wire in Notes, and an L21-30 input lists an
-L21-30 power in. The power in is always on the pull sheet, with no
-length until you type one, and the binder says what each distro is
-powered from, like Powered from: HOUSE · 600 A · 120/208V 3φ · 200 A cam
-set 100'+50'. It only reads Power in: when there's no service or distro
-to name.
-
-A distro you power thru is listed even with nothing plugged into it, and
-the load of a distro powered thru another counts on the service. The binder's
-FACTS for a screen on that distro show the service it's really on. Thru
-only links distros on the same power system, so you can't move a distro
-to another system while it's powered thru, or powers, another distro, and the
-app tells you which distro that is.
-
-THE PANEL ON EACH SCREEN
-
-When you pick a panel from the library, the screen now saves it. Screen
-Info has a Panel field that shows its name, and you can type your own
-name for a custom panel. Half tiles read their name, weight and watts
-from the saved panel, even where other panels in the library are the
-same size. If you type your own panel weight, the half tiles follow it,
-keeping the library's split between a full and a half tile.
-
-The pull sheet counts your panels: a row for each panel type on each
-screen, under the screen's position, and TOTALS adds them up across the
-show. Half tiles get rows of their own, and blank and hidden cabinets
-aren't counted. A screen with no panel name, like one from an older
-show, has no panel row: the app never guesses a panel from its size.
+Every distro now has a Power in: a length, and whether it's powered from
+the service or thru another distro. A 400 A cam input lists a 400 A cam
+set, and the power in is on the pull sheet even before you type a length.
+The binder says what each distro is powered from, and the load of a distro
+powered thru another counts on the service.
 
 A START PAGE, THEN A PANEL
 
-The app opens on a start page: start a new project, open a file, or
-pick one of your recent files. New project opens the panel library,
-and so does File > New. Pick a panel or one of your presets and Use
-Panel makes Screen1 from it, with the panel's pixels, size, weight and watts, and
-its name in Screen Info's Panel field, where you can type over it.
-Cancel takes you back to the start page (after File > New it starts an
-empty project), and closing the start page starts an empty project too;
-Add Screen makes the first screen when you're ready. Opening a saved
-show never asks.
+The app now opens on a start page, where you can start a new project, open
+a file or pick a recent one. A new project opens the panel library first,
+and the panel you pick makes your first screen. Add Screen with nothing
+picked uses the last screen's panel, and Preferences no longer has Panel
+size or Panel weight.
 
-Add Screen with nothing picked now makes a screen of the last screen's
-panel, and the line at the foot says which one, like Screen3's panel
-(ROE Black Pearl BP2V2). In an empty project, pick a panel or a preset
-first. Change cabinet also waits for you to pick one.
+YOUR PANELS ON THE PULL SHEET
 
-Preferences no longer has Panel size or Panel weight. The kg or lb
-choice is its own Weight unit row, and a panel from the library gives
-its weight in that unit.
-
-THE AMPERAGE BOX
-
-You still type the breaker size in a screen's Amperage box, and the
-amps you can use now show beside it: 20 A breaker · 16 A usable on US
-power, or 20 A breaker · 20 A usable where the breakers are 100% rated
-and on EU and UK power. If you typed 16 in an older show to allow for the
-80% rule, it now reads 16 A breaker · 12.8 A usable, so change it to the
-breaker size.
-
-NEW TILES IN THE PANEL LIBRARY
-
-The panel library has every Graphite model from ROE's spec sheets: 12
-tiles, including the GP1.9 (4 in 1) and the GP2.6 Right Angle corners,
-with corrected weights and power. The GP2.6 (4 in 1) is now named the way
-ROE names it, Graphite GP2.6 (4 in 1).
+A panel you pick from the library is now saved on the screen, and the pull
+sheet counts it: a row for each type on each screen, added up under
+TOTALS. A screen with no panel name, like one from an older show, has no
+panel row, because the app never guesses one from its size.
 
 A STOCK LIST FOR EACH KIND OF CABLE
 
-Tick A list for each kind of cable in Preferences > Cable stock and you
-get lists for L21-30 and Harting home runs, direct-output cables and
-power in cables, as well as multis, data and power. Older shows and presets read
+Preferences > Cable stock can now hold a list for each kind of cable, and
+there's one Fiber list for every fiber run. Older shows and presets read
 the new lists from the ones those cables used before.
 
-MIXED REDUNDANCY ON ONE PROCESSOR
+BACK UP EACH CARD ITS OWN WAY
 
-On a chassis like an H series, the redundancy bar behind the processor's
-⚙ now reads Off, Per card, Per port and Mixed. Pick Mixed and each card
-gets a row of its own: back up card 1 with card 2, 1:1, and let card 3
-pair its own ports with Sequential, OPT Split or Manual. A card that
-backs up another says which one, and the tray, the binder and the pull
-sheet read each card the way you set it. A show whose cards were already
-set different ways opens on Mixed, just as you left it.
+On a chassis like an H series, the redundancy bar now has a Mixed choice.
+Card 1 can be backed up 1:1 by card 2 while card 3 pairs its own ports,
+and the tray, the binder and the pull sheet follow what you set.
 
-MIRROR SCREENS AND COPY MODE
+MIRROR SCREENS AND BACKUP BOXES
 
-An H_4xfiber card now has NovaStar's three modes: Independent, Copy and
-Backup. In Copy, OPT 3 copies OPT 1 and OPT 4 copies OPT 2, and those
-copies feed a second screen. Drag the card onto the first screen as
-usual, then drag the box on the copy OPT onto the second screen, and the
-second screen becomes its copy. Its port map follows the first screen cabinet
-for cabinet and can't be drawn on its own, and its runs come off the
-boxes on the copy OPTs. Both screens must have the same columns and rows,
-the same pixels per cabinet and their blank, hidden and half cabinets in
-the same places, or the app tells you what's different. The panels can
-be different models as long as their pixels match. Unplug the card from
-the first screen and the copy unplugs too; unplug it from the copy alone
-and only the copy goes. The enhanced H_4xfiber does the same with OPT 5
-to 8, and on an MX40 Pro in 20-port mode a box going on OPT 3 or 4 asks
-whether it's a Mirror or a Backup. With a Mirror box there, drag that
-box onto a second screen the same way. The tray, the pull sheet and
-the binder list the mirror's runs on its own boxes, and a second card
-backing up the first 1:1 backs up the mirror too. A card saved in the old
-Copy / Backup mode opens as Backup, the way it ran.
+A breakout box on a copy OPT can now feed a mirror screen. Drag it onto a
+second screen that matches the first, and the second becomes its copy. If
+they match in size and shape but differ in a setting like frame rate, the
+drop says Not allowed, lists what's different and offers to match it.
 
-Z FLOW PATTERNS
+A box on a copy OPT now works the way NovaStar documents it on each
+processor: a backup or a mirror, and never extra ports. A card saved in
+the old Copy / Backup mode opens as Backup, the way it ran.
 
-Eight Z flow patterns join the eight snakes, for data and for power. On a
-snake each row or column runs back the other way. On a Z pattern every
-row or column starts again from the same side, the way a cable goes back
-to the start before each new row.
+Z FLOW PATTERNS AND LONG ROWS
 
-The snakes are the top row of the picker and the Z patterns the row under
-it, both in the order top left, top right, bottom left, bottom right,
-horizontal first and then vertical first. Flow Pattern is laid out that
-way on the Data tab, in Power Settings and in Preferences.
-
-ORGANIZED CUTS LONG ROWS
-
-Organized used to stop with a capacity error when a row was longer than
-one port carries. Now it fills the port with as many whole cabinets as
-fit and starts the next port in the same row, and a column that's too
-tall works the same way. The error shows only when one panel alone is
-bigger than a port.
-
-Organized power works the same way. Each circuit takes as many whole
-panels as fit along the row, the next one starts where it stopped in the
-same row, and the last takes the rest, so a row of 90 panels that fit 22
-to a circuit is four circuits of 22 and one of 2. A column too tall for
-one circuit is cut the same way, and the short circuits at the end share
-through 2fers and 3fers like any others. Only a single panel that draws
-more than a circuit carries still can't fit.
-
-Where Organized cuts a row or column, a Port numbers switch beside it on
-the Data tab, and a Circuit numbers switch in Power Settings, set the
-order of the new ports and circuits. Across goes along each row first.
-Down goes down the stacks and starts the next stack back at the first
-row. The ports and circuits stay the same, only their numbers change.
-Until you pick one, each switch follows the flow pattern: Across when
-it's horizontal first, Down when it's vertical first. Older shows keep
-the numbers they had.
-
-PORTS REQUIRED IS THE MINIMUM
-
-On a custom data path, Ports required now says the fewest ports the
-screen needs in its Organized or Max Capacity setting, under ideal
-circumstances, not how many ports you've drawn so far. It's the number
-to plan cards and boxes around before you start drawing. The ports you
-draw are still the ones the cards, the port labels and the map count.
+Data and power both get eight Z flow patterns, where every row or column
+starts again from the same side. Organized now cuts a row or column too
+long for one port or circuit into whole cabinets, and Port numbers and
+Circuit numbers set the order of the new ones. Older shows keep the
+numbers they had. Ports required now tells you the fewest ports a screen
+needs.
 
 REDRAW SEVERAL PORTS AS ONE
 
-In the Data view, Shift+click a run to pick its port, and Shift+click it
-again to drop it. Shift+drag a box from a run to pick every port the box
-touches. With two or more picked, right-click and choose Redraw ports
-51-54 as one (it reads 51, 53, 54 when the numbers aren't in a row).
-Their panels are freed and you draw one new port by clicking the panels
-in order, the same way Redraw port works. The new port keeps the first
-number and the ports after it move down to close the gap, so 54 ports
-become 51. Enter keeps the drawing, and so does drawing every freed
-panel. Esc puts the ports back the way they were, and one undo takes
-the whole thing back.
+You can now pick several ports in the Data view and redraw them as one.
+The new port keeps the first number, the ports after it close the gap, and
+one undo takes it all back.
 
-Ports already on a card stay on their sockets under their new numbers.
-The new port keeps the first port's socket, and the sockets of the ports
-that went away are freed. A locked screen can't be redrawn this way, and
-the app tells you why.
+FIBER FROM THE PROCESSOR TO THE BOX
 
-FIBER EXTENSIONS
-
-A TAC or MTP doesn't always plug straight into the box. An MTP can't
-run direct to an XD's X1, for example. On a breakout box's sheet,
-each link on a TAC or MTP now has + Extension. Pick a fan-out or a
-duplex patch, the connector at each end and its length. A new one on a
-TAC starts as a fan-out to LC duplex, and on an MTP as a duplex patch.
-The trunk end starts as the TAC's or MTP's own connector, and you can
-pick ST, LC duplex, opticalCON DUO, opticalCON QUAD or MTP / MPO, or
-type your own. Each link gets its own, so two boxes on one shared MTP
-can have one extension and one without. A backup link can have its own
-too. Remove takes it off in one click.
-
-The pull sheet lists extensions as cables to pull, with matching ones
-counted together on one row. The binder's Fiber connections table shows
-the extension at the breakout end, and the strand map notes it beside
-the link. An extension goes when its link, its TAC or MTP, or its box
-does. Shows without extensions open exactly as before.
-
-A FIBER PAGE IN THE BINDER
-
-A show that uses fiber now gets a Fiber page right after the screens,
-before the pull sheets. It draws every processor out to its breakout
-boxes on one sheet, a row per link: the output, the strand colors at the
-processor, the cable, any fan-out or patch, the strand colors at the box
-and the box itself. Beside the drawing are a strand map for each cable
-and the fiber cables to pull. When there's a lot of fiber the drawing
-splits into two columns, and past that it carries on to the next sheet.
-The Fiber tick in the Export dialog and in Preferences > Binder turns
-the page off. The processor pages keep their own Fiber connections
-tables.
+A show that uses fiber now gets a Fiber page in the binder, with every
+processor out to its breakout boxes on one sheet. A link on a TAC or MTP
+can have an extension at the box end, and the pull sheet lists it. The
+CVT10, CVT10 Pro and CVT4K now come as single mode and multimode boxes,
+and each box and fiber cable says which. A show saved with a CVT10 or
+CVT10 Pro opens with the single mode box.
 
 NAMES FOR EACH GROUP
 
-Names (Screens, Group or Both) is set per group now: select a group and
-pick how its names show on each tab. With several groups selected, one
-click sets them all, and the binder's Data and Power sheets follow each
-group's own choice. A show from an earlier version opens with every
-group named the way it was.
+Names (Screens, Group or Both) is now set per group on each tab, and the
+binder's Data and Power sheets follow it. A show from an earlier version
+opens with every group named the way it was.
 
-SINGLE MODE AND MULTIMODE BOXES
+NEW TILES AND A NEW PROCESSOR
 
-NovaStar makes the CVT10, CVT10 Pro and CVT4K in two versions, single
-mode and multimode, and the box picker now lists both: the CVT10-S,
-CVT10 Pro-S and CVT4K-S first, then the CVT10-M, CVT10 Pro-M and
-CVT4K-M. A multimode box works exactly like its single mode twin, with
-the same ports, OPTs, backup and copy, and only its fiber is different.
-Each box says Single mode or Multimode on its header in the tray, behind
-its gear and on its sheet, and the pull sheet, the binder and the box's
-sheet name the mode on every fiber cable, like TAC 12 · ST · Single mode.
-The processor pages give it in short, like TAC A (TAC 12 SM) or (TAC 12 MM).
-
-A single mode box and a multimode box can't share a TAC, an MTP or an
-opticalCON. Picking a cable that a box of the other mode is on is
-refused, and the message says which box is on it. Preferences > Cable
-stock has one Fiber list, and the pull sheet makes every fiber run from
-it, single mode and multimode alike, with the mode still on each row.
-A show saved with a CVT10 or CVT10 Pro opens with the CVT10-S or
-CVT10 Pro-S, and its fiber cables read Single mode.
+The panel library now has every Graphite model from ROE's spec sheets,
+with corrected weights and power, and the NovaStar 4K-Prime is in the
+processor list.
 
 OPENING AN OLDER SHOW
 
-Some counts will change when you open a show from an earlier version.
-The first four come from the new 80% fill, the last six change what's
-listed or what you can do, and the rest were wrong before. Export the
-pull sheet again and compare it with anything you've already ordered.
+Your older shows open and keep working, but some counts will change.
+Export the pull sheet again and compare it with anything you've already
+ordered.
 
-- FIX (IMPORTANT): Circuits on US power now fill to 80% of the breaker,
-  the same limit the distro checks them against, so a US screen may need
-  more circuits than before. The limit follows the distro's region: a
-  circuit on a US distro fills to 80% whatever its voltage, so 240V on a
-  US 120/240V distro is 80%, and the distro checks hold it to 80% too. A
-  US distro with 100% rated breakers fills to 100%, and so do EU and UK
-  distros. A screen on no distro goes by its voltage: 80% at 208V and
-  below, 100% above. The panels per circuit and watts per circuit
-  readouts follow. A change that would repack a locked screen is refused,
-  and the message names the screen: turning 100% rated on or off,
-  changing a distro's system, removing a distro, plugging in, moving or
-  unplugging a multi, grouping, sharing circuits through a 2fer or 3fer
-  or removing one, 2fer it or 3fer it, typing a power setting on a screen
-  grouped with it, or hiding or showing a screen.
-- FIX (IMPORTANT): Automatic 2fers and 3fers saved in an older show that
-  fit at 100% can be over the limit at 80%. They're kept as they were and
-  flagged OVER, so share them again.
-- FIX (IMPORTANT): A screen whose panels can't fit on a circuit at 80%
-  warns you when you export the binder, and its power sheet prints with a
-  note that it can't fit.
+- FIX (IMPORTANT): Circuits on US power, and on a screen with no distro at
+  208V or below, now fill to 80% of the breaker, so you may need more
+  circuits. A change that would repack a locked screen is refused, and the
+  message names the screen.
+- FIX (IMPORTANT): Automatic 2fers and 3fers that fit at 100% but not at
+  80% are kept as they were and flagged OVER, so share them again. A
+  screen whose panels can't fit on a circuit at 80% warns you when you
+  export the binder.
 - CHANGE (IMPORTANT): A screen you set to 16 A in an older show to allow
   for the 80% rule now reads 16 A breaker · 12.8 A usable. Change it to
   the breaker size.
-- FIX (IMPORTANT): powerCON screens listed their jumpers as TRUE1 power
-  jumpers. They list powerCON jumpers now, under the powerCON jumper name.
-- FIX (IMPORTANT): Edison and L6-20 screens listed the wrong cables and
-  splitters. Each circuit now gets one cable to the panel input (Edison →
-  TRUE1, Edison → powerCON, L6-20 → TRUE1 or L6-20 → powerCON), and the
-  splitters at the panels are TRUE1 or powerCON 2fers.
-- FIX (IMPORTANT): Blank cabinets on a hand-drawn run counted jumpers.
-  They count nothing now, on power and data, and a data path you draw
-  steps over them in the drawing too, the same as automatic routing.
+- FIX (IMPORTANT): powerCON screens listed TRUE1 jumpers, and Edison and
+  L6-20 screens listed the wrong cables and splitters. They list the right
+  ones now.
+- FIX (IMPORTANT): Blank cabinets on a hand-drawn run no longer count
+  jumpers, on power or data.
 - FIX (IMPORTANT): When the cable stock makes a run from more than one
-  piece, the pull sheet adds a barrel for each join on data (one per
-  channel on a snake) and a powerCON Coupler on powerCON. TRUE1 cables and
-  multis need none.
+  piece, the pull sheet adds a barrel for each join on data and a powerCON
+  Coupler on powerCON.
 - FIX (IMPORTANT): A multi shared by screens with different breakouts
-  lists a breakout for each connector, and the binder's band names the
-  connector.
+  lists a breakout for each connector.
 - FIX (IMPORTANT): A placed data port with no home run typed is still
-  listed on the pull sheet, as a Cat6 or etherCON row with no length.
-- FIX (IMPORTANT): The QD-S input fiber is listed where its boxes are,
-  and with the screen's cables.
+  listed, as a Cat6 or etherCON row with no length.
+- FIX (IMPORTANT): The QD-S input fiber is listed where its boxes are, and
+  with the screen's cables.
 - FIX (IMPORTANT): Rows you hide and counts you change on the pull sheet
-  now reach the binder's cable tables for each screen and the distro and
-  processor pull lists.
-- FIX (IMPORTANT): Pull sheet edits saved in an older version follow
-  their rows when the rows are renamed. Where one old row is now two,
-  like TRUE1 and powerCON jumpers of the same length, a hidden row hides
-  both, and a count you changed goes back to the show's count and is
+  now reach the binder.
+- FIX (IMPORTANT): Pull sheet edits from an older version follow their
+  renamed rows. Where one old row is now two, a count you changed is
   listed as stale for you to redo.
-- FIX (IMPORTANT): A multi box carrying more circuits than it holds gets
-  a note on the pull sheet, like 8 circuits on a six-circuit output, and
-  a Crowded line on the distro sheet.
-- FIX (IMPORTANT): A breakout box that backs up another on a copy OPT,
-  like an H_4xfiber or enhanced card in Backup or a NovaPro UHD or UHD Jr
-  box set to Backup, is on the paperwork. The pull sheet counts the
-  backup box and a home run for each backup socket, the binder's Ports
-  table fills its BACKUP half, CABLES THIS SCREEN counts the backup runs,
-  and the processor sheet lists the backup box's sockets. FACTS says
-  Backup boxes and the Cards table says which box backs up which, where
-  they said Off or "1:1, no partner". Check the cable counts on any show
-  with these boxes.
-- FIX (IMPORTANT): A CVT4K-S's outputs 1-8 always belong to its first
-  input, and its second input always starts at output 9. On a VX400 Pro
-  the main OPT is outputs 1-4 and the backup or copy is 9-12; on a VX600
-  Pro, an MCTRL660 Pro or an MX20 it is 1-6 and 9-14. Shows with a
-  CVT4K-S on those processors renumber the box's second input that way.
+- FIX (IMPORTANT): A multi box carrying more circuits than it holds gets a
+  note on the pull sheet and a Crowded line on the distro sheet.
+- FIX (IMPORTANT): A breakout box backing up another on a copy OPT is now
+  on the paperwork, with a home run for each backup socket, so check your
+  cable counts.
+- FIX (IMPORTANT): A CVT4K-S's second input always starts at output 9, and
+  on a 10-port OPT it carries ports 1-8 and 11-18, not 1-16. Older shows
+  renumber that way, and their port counts stay the same.
 - CHANGE (IMPORTANT): The pull sheet has a row for each named panel type
-  on each screen and a Power in row for each distro, so an older show's
-  pull sheet gets these new rows.
+  on each screen and a Power in row for each distro.
 - CHANGE (IMPORTANT): Hidden screens keep their multi numbers and outputs
   reserved, so no other screen takes them, but they're left out of distro
-  and service loads everywhere, so the distro and Service sheets match
-  the pull sheet. Balance holds their multis in place and leaves them out
-  of what it searches.
-- CHANGE (IMPORTANT): The Overview's totals in the binder leave out
-  hidden screens.
-- CHANGE (IMPORTANT): A distro with nothing on it, or only hidden
-  screens, is left off the binder, and a service with nothing printing on
-  it gets no Service sheet.
-- CHANGE (IMPORTANT): The library's corrected Graphite figures change
-  older shows with ROE Graphite screens. GP2.6 (4 in 1) half tiles now
-  draw 50% of a full tile instead of 64%. GP2.6, GP3.1 and GP3.9 Full
-  Tile screens saved at 8.5 kg no longer match the library, which now
-  lists 9.0 kg, so their panel rows print by size and their half tiles
-  weigh 65% of a full tile. Pick the panel from the library again to get
-  the new figures.
+  and service loads everywhere, and out of the binder's Overview totals.
+- CHANGE (IMPORTANT): A distro with nothing on it, or only hidden screens,
+  is left off the binder, and a service with nothing printing on it gets
+  no Service sheet.
+- CHANGE (IMPORTANT): On ROE Graphite, GP2.6 (4 in 1) half tiles now draw
+  50% of a full tile instead of 64%. GP2.6, GP3.1 and GP3.9 Full Tile
+  screens saved at 8.5 kg no longer match the library, which now lists 9.0
+  kg, so their half tiles weigh 65% of a full tile. Pick the panel from
+  the library again to get the new figures.
 - CHANGE (IMPORTANT): A group saved half locked in an older show now
   counts as locked. You can still hide and show its screens when that
   doesn't change their circuits, but any other edit waits until you pick
@@ -383,706 +178,67 @@ pull sheet again and compare it with anything you've already ordered.
 
 FIXES
 
-- FIX: Amperage offers 16A beside 15A and 20A, in Power settings and in
-  Preferences, so a 16 A circuit no longer needs Custom.
-- FIX: The Unit, Voltage, Amperage, Watts per Panel, Bit Depth and Frame
-  Rate boxes in Data and Power settings are only as wide as what they hold.
-- FIX: The Screens list uses its whole width. The blank strip down its
-  right side is gone and the arrows, grid and eye sit closer together, so
-  longer screen names show in full.
-- FIX: A direct output's cable names both ends, like CEE 16A → TRUE1, or
-  just TRUE1 when the outlet already is one.
-- FIX: Distro boxes are listed by their own names everywhere (SR1,
-  DISTRO 1-1, or the name you typed).
-- FIX: When two distros share a name they read SR-1 and SR-2 everywhere,
-  and their boxes and circuits are named from that, so a box name never
-  matches a circuit name. Only distros that print are counted, so an
-  unused duplicate doesn't add a suffix.
-- FIX: Typing a multi name another multi already has shows a warning
-  asking you to rename it.
-- FIX: A single name is never split, so SR 13x5 stays SR 13x5, and a run
-  of names folds into one, like SR-1 … SR-6.
-- FIX: Rows you typed on the pull sheet yourself in an older version are
-  updated to today's spellings, like TRUE1 and etherCON, in their notes as
-  well as their type.
-- FIX: Snakes are labeled by their ports, with the snake's name and size
-  in Notes (SNAKE A · 4 channel), and an extension by its port. Two snakes
-  are never merged into one row.
-- FIX: The exported workbook's GEAR LIST lists only the connectors the
-  show uses, spelled etherCON and TRUE1.
-- FIX: A fiber cable with no length is flagged in the binder's cable
-  tables, strand maps and fiber connections.
-- FIX: A data port with no home run says no length in the binder's Ports
-  table, the same as in its cable list.
-- FIX: The binder's tables no longer cut off names or overlap. Distro
-  names and cable types wrap onto another line instead of folding into
-  +N more.
-- FIX: A length typed in the other unit, like 30m in a feet show,
-  converts wherever you type a home run, cable, power in, snake or fiber
-  length.
-- FIX: A favorite panel in Add Screen and Change cabinet uses the
-  library's figures as they are now, not as they were when you saved it,
-  and finds a panel the library has renamed.
-- FIX: A custom Share with next run no longer joins a wide circuit, or a
-  circuit already on a 2fer or 3fer.
-- FIX: Clear Circuit clears a whole custom 3fer, not just one leg of it.
-- FIX: After Clear Circuit, the circuit field still matches the numbers
-  on the wall, and Next and Previous skip the gap.
-- FIX: On a custom wall, a 2fer or 3fer shows its circuit number in the
-  field and in messages.
-- FIX: The custom fill readout and its limit count every leg of a 2fer
-  or 3fer, so you can't click a shared circuit past its amps.
-- FIX: Picking 2fer this screen or 3fer this screen ticks Share circuits
-  via splitters for you, in automatic mode as well as custom.
-- FIX: Sharing a whole screen or a selection from the right-click menu
-  keeps to the screen's splitter size.
-- FIX: Locked screens keep their settings when you group them, Share
-  circuits via splitters included, and screens you ungroup keep the
-  settings they had in the group.
-- FIX: Every distro's rating reads the same way, like
-  400 A service · 120/208V 3φ.
-- FIX: The tray's chips on direct outputs name the same cable as the
-  paperwork.
-- FIX: When a Power sheet has too many multis for their labels to fit
-  beside the wall, the brackets get short tags and a key on the sheet
-  lists each tag's full name and length. Tags come from the distro's own
-  name, so B1 is always DISTRO B's multi 1. Before, the labels were cut
-  to D… or ran into each other. Power sheets whose labels already fit
-  print as they did; deep stacks print their labels larger where there's
-  room.
+- FIX: Unplugging a multi, a circuit or a distro takes off only the
+  circuits it fed.
+- FIX: Clear Circuit clears a whole custom 3fer and leaves every other
+  circuit in place.
+- FIX: A locked screen sharing a multi keeps its circuits when you change
+  the other screen.
+- FIX: A circuit's cable length stays with its cabinets when the circuits
+  renumber.
+- FIX: While you redraw a port or circuit, clicking an earlier cabinet
+  cuts it back, so a redraw no longer dead-ends.
+- FIX: Custom ports always run 1 to N with no gaps.
+- FIX: Making a screen smaller takes the lost cabinets out of the ports
+  and circuits you drew.
+- FIX: Two distros with the same name read SR-1 and SR-2 everywhere.
+- FIX: A service counts only the distros connected to it, and it checks
+  their load, not their ratings.
+- FIX: An L6-20 screen now plugs into a distro's L6-20 outputs.
 - FIX: The tray and the distro checks now warn you when an output carries
-  more circuits than it takes, like two visible screens on a one-circuit
-  output or a multi with more circuits than its output has. The pull
-  sheet and the distro sheet already showed a crowded direct output and
-  a multi on a one-circuit output, and now they flag a multi box carrying
-  more circuits than it holds too.
-- FIX: The binder's Cards table lists a card's 1:1 partner only while
-  the card is backed up 1:1, never an old partner from before you
-  switched it to Sequential, OPT Split or Manual, and a card that backs
-  up another says which one, like backs up SR.
-- FIX: On the binder's data wiring sheets, a breakout box on an SX40 or
-  another processor without cards no longer says slot 1. A named one
-  reads XD B · SX40 S3 · trunk B, and an unnamed one reads XD B · trunk B.
-- FIX: A card you haven't named in an H series, MX2000 or MX6000 reads
-  Card 1, Card 2, Card 3 by the slot it's in, instead of its long model
-  name. That's in the tray, the processor's and the card's settings,
-  the redundancy picks and messages, and every binder sheet. A name you
-  type on a card still wins. The model is still listed where you pull
-  gear, on the binder's Cards table and its pull page, and under the
-  card's name in its settings.
-- FIX: The binder's Cards table says each card's redundancy the way the
-  app does, like 1:1, backed up by Card 2, Sequential or OPT Split,
-  instead of the raw setting names it printed before.
-- FIX: The binder's pull page lists a 1:1 backup card under Hardware
-  with the cards a screen runs on. Before, it was left off.
-- FIX: On a slow or busy computer, renaming a processor or changing one
-  of its cards could show the old setting again a moment later, even
-  though the change was saved. The newest change now always stays on
-  screen.
-- FIX: The not all attached list updates the moment ports are released,
-  instead of showing them attached until the next release.
-- NEW: NovaStar 4K-Prime in the processor list: 16 ports, OPT 1/2 carry
-  ports 1-8 and 9-16, OPT 3/4 copy or back them up.
-- FIX: The enhanced H_4xfiber has all eight of its OPTs. OPT 1 to 4 carry
-  its 40 ports and OPT 5 to 8 back them up or copy them, so a box can go on
-  any of the eight and never adds ports. In Backup mode a new box brings
-  its backup on the OPT that backs it up. Older shows keep their boxes on
-  OPT 1 to 4.
-- FIX: On an MX40 Pro or an H_16xRJ45+2xfiber, each port an OPT also
-  carries plugs in at one place, the unit's or card's own RJ45 or the
-  breakout box, never both. Pick it on the port's chip in the tray, or for
-  a whole OPT in the card's ⚙. Labels, the binder's Ports table and wiring
-  sheets, the pull sheet and the socket counts follow. Ports a box carries
-  stay at the box until you change them.
-- FIX: An H_4xfiber can't load a screen together with an H_20xRJ45 or an
-  H_16xRJ45+2xfiber card, an enhanced H_4xfiber can't share a screen with
-  any of those, and enhanced cards set to different modes can't load one
-  screen. The app refuses that placement, or the mode change that would
-  cause it, and says why.
-- FIX: On the Data view with Show Port Load % and Show Cable Tags both on,
-  a port's cable length no longer covers its load percentage. The cable
-  tag keeps its place by the port's label and the percentage moves to the
-  other side of the label, or beside it when there's no room, on the
-  screen and in the binder.
-- FIX: A minimized distro in the tray shows only its header and legs. Its
-  outputs, like Multi 208 or L21-30, are hidden until you open it again,
-  so there's nothing to drag off a minimized distro.
-- FIX: Esc ends an Alt+click redraw or drops an Alt sweep of circuits in
-  Power, even when a box in the left panel still had the cursor. Before,
-  that box took the Esc and the circuit stayed selected.
-- FIX: A screen's cable lengths and 2fer or 3fer tags all sit on the same
-  side of their circuit labels on the Power and Data views and in the
-  binder. Before, a circuit with a length and a 3fer could sit under its
-  label while the circuits next to it sat above theirs. Only a label with
-  no room on that side puts its tags somewhere else.
-- FIX: The panel library shows a panel's average power beside its max,
-  like 340W max · 120W avg, where the spec sheet gives one. Power is still
-  planned on the max.
-- FIX: On a Mac, opening the launcher no longer hides the app's menu-bar
-  icon behind the menu bar, so it stays visible and clickable. Thanks to
-  kcikcreative33 for this fix.
-- FIX: Starting a new show or opening one right after an Undo waits for
-  the Undo to finish saving, so the undone show can no longer land on top
-  of the one you just opened.
-- FIX: Unplugging a multi, a single circuit or a whole distro in Power
-  takes off only the circuits it fed. Before, the multi or circuit next
-  to them could grow onto the freed circuits and take new circuits on
-  its own box, so a circuit you never touched moved to another breakout.
-- FIX: A minimized pair of breakout boxes in a redundancy loop, like an
-  XD A and B on an SX40, shows the cable sheet and gear buttons on its
-  header. They open the primary box's sheet and settings. Before, you
-  had to open the pair to reach them.
-- FIX: A box's cable list shows its backup ports' cables with the box
-  folded too, not only when it is open.
-- NEW: A processor's ≡ opens the cable list of every box on it at once,
-  folded or open.
-- FIX: Data cable tags show only the length, like 25'. With the connector
-  on every tag, a wall of narrow columns had tags wider than a column, so
-  they zig-zagged over and under the ports. They now sit in one row. The
-  binder names the connector once, under each screen's name on its data
-  page, like Port cables: etherCON.
-- FIX: On the binder's wiring pages, a run going straight from a port to
-  the socket in line with it is no longer drawn over that port's cable
-  tag. It steps past the tag and reaches its socket outside the screen.
-- FIX: The binder's pull lists head their first column GEAR, not CABLE,
-  since they list every piece of gear: cables, distros, boxes and cards.
-  The pull sheet spreadsheet and the in-app pull sheet say Gear too, in
-  place of Cable Type, and the spreadsheet's READ ME is titled LED GEAR
-  PULL SHEET.
-- FIX: An H_4xfiber card set to Backup pairs its breakout boxes the way
-  NovaStar wires it: the box on OPT 3-4 is the backup of the box on OPT
-  1-2, even when the boxes went on before Backup was picked. Before, that
-  box showed in the Data tray as a copy with 16 free ports. Switching the
-  card to Independent or Copy undoes the pairing. The enhanced H_4xfiber
-  pairs OPT 5-8 with OPT 1-4 the same way, and on an MX40 Pro in 20-port
-  mode a box on OPT 3 or 4 set to Backup now pairs with the box on OPT 1
-  or 2 too, however it was added.
-- FIX: A breakout box on OPT 3 or 4 of a NovaPro UHD or UHD Jr is the hot
-  backup of the box on OPT 1 or 2 and shows in the Data tray as one loop
-  with it, so two CVT4K-S boxes give 16 ports, each with its backup. Like
-  the MX40 Pro, each box there can be set to Mirror instead, to feed a
-  mirror screen.
-- FIX: The VX400 Pro, VX600 Pro, VX1000 Pro and VX2000 Pro have an OPT
-  mode, Copy or Backup, as on the unit's own menu. In Backup, the default,
-  a breakout box on OPT 2 (OPT 3 or 4 on the VX2000 Pro) is the backup of
-  the box it copies and shows in the Data tray as one loop with it. In
-  Copy, that box feeds a mirror screen. Files saved before open in Backup.
-- FIX: The VX1000 takes a breakout box on OPT 2 as well as OPT 1, and has
-  the same OPT mode, Copy or Backup. In Backup, the default, the box on
-  OPT 2 is the backup of the box on OPT 1 and shows in the Data tray as one
-  loop with it. In Copy, it feeds a mirror screen. The VX1000 keeps its 10
-  ports, and files saved before open in Backup.
-- FIX: A breakout box on OPT 2 of an MCTRL660 Pro is the backup of the
-  box on OPT 1. On an MCTRL R5 (OPT 2) or an MCTRL4K (OPT 3 or 4), each
-  copy box can be set to Backup, the default, or Mirror, like the NovaPro
-  UHD.
-- FIX: A breakout box on OPT 2 of an MX30 or MX20 is a copy of the box on
-  OPT 1 and feeds a mirror screen, since NovaStar documents that OPT as a
-  copy channel. The port count never changes.
-- FIX: A breakout box set to Backup on a copy OPT backs up its primaries
-  port by port when the boxes differ, like a CVT4K-S on OPT 5-6 behind two
-  CVT10s, or CVT10s on OPT 5 and 6 behind one CVT4K-S. In the Data tray
-  each primary ends in a loop row of the backup sockets for its ports.
-  Each socket reads its own number on the box, the row says which ports
-  it carries, and the box's cable sheet, its settings and the binder's
-  Breakout boxes table name the port each socket backs up. Before, the
-  backup box showed as a copy with free sockets.
-- FIX: A backup box never adds ports to its card. An enhanced H_4xfiber
-  in Backup with CVT4K-S boxes on OPT 1-2 and 3-4 and CVT10s on OPT 5 and
-  6 read 36 ports; it reads 32 now.
-- FIX: A breakout box takes from each OPT only as many ports as it has
-  outputs for one OPT. A CVT4K-S has 8 for each OPT, so on the 10-port
-  OPTs of an enhanced H_4xfiber, an MX40 Pro or a VX2000 Pro it carries
-  ports 1-8 and 11-18, not 1-16. Shows you already have with those boxes
-  on those processors renumber that way; their port counts stay the same.
-  A CVT10 on an 8-port OPT gives 8.
-- FIX: A CVT4K-S on a main OPT and the copy OPT beside it, like OPT 1-2 of
-  a VX1000 where OPT 2 copies OPT 1, carries that OPT's ports on its
-  outputs 1-8 (8 of the VX1000's 10) and their backup on outputs 9-16. In
-  the Data tray those sockets are the box's own loop row. Where the
-  processor's OPT mode or the box is set to Mirror, outputs 9-16 feed a
-  mirror screen instead. The port count stays the main OPT's ports.
-- FIX: A breakout box can go on a copy OPT with nothing on the OPT it
-  copies, on the NovaPro UHD and UHD Jr, the MX40 Pro in 20-port mode,
-  the VX400 Pro, VX600 Pro, VX1000, VX1000 Pro and VX2000 Pro, the
-  MCTRL660 Pro, MCTRL R5 and MCTRL4K, and the MX30 and MX20: + Box offers
-  each box on the free copy OPTs. As a backup it backs up the
-  processor's own Ethernet ports, shown as loop rows under them in the
-  Data tray, and as a mirror it feeds a mirror of them, by the
-  processor's OPT mode or the box's own setting. The MX30 and MX20 only
-  mirror, and the MCTRL660 Pro only backs up. The processor keeps its
-  own port count. Some ports on a box and some on the processor's own
-  Ethernet are backed up port by port the same way.
-- FIX: The binder's Overview page draws your screens much bigger. Its
-  tables now share one short band across the top, with a long Contents
-  list split into two or more columns, and the drawing fills the whole
-  width under them. A Contents title that fits on one line no longer
-  leaves an empty line under it, and every sheet is listed: on a long
-  binder the last few used to be left off.
-- FIX: With Port numbers on Down, a row cut differently from the rows
-  above it, like a bottom row of half-height panels that fits 17 to a
-  port under rows of 8, no longer weaves its numbers through the stacks.
-  Each of its ports takes the number right after the stack its first
-  panel sits under, so ports 1 to 4 run down the first stack and port 5
-  is the bottom row's first port. A column cut differently on a vertical
-  pattern numbers the same way with Across.
-- FIX: Circuit numbers on Down follow the same rule as Port numbers.
-  A row cut differently from the rows above it, like a bottom row of
-  half-height panels that fits twice as many to a circuit, gives each of
-  its circuits the number right after the stack its first panel sits
-  under, instead of weaving through the stacks. The circuits themselves
-  and the panels sharing a 2fer or 3fer don't change, only the numbers.
-  A column cut differently on a vertical pattern numbers the same way
-  with Across.
-- FIX: Making a screen smaller, by its columns or rows, by Size by Wall
-  Dimensions or through its group, takes the panels that came off the
-  wall out of every port you drew. A port left with no panels is removed
-  and the ports after it move up to close the gap, with their names and
-  their card sockets. Before, the drawn ports kept the missing panels, so
-  a port could sit wholly off the wall and leave a hole in the numbers.
-  A show saved that way is fixed when you open it.
-- FIX: Redraw ports as one counts only the panels on the wall, and when
-  the picked ports hold more panels than one port takes, it says so
-  before freeing anything, like Ports 46-47 hold 10 panels together, and
-  one port takes 8 panels at 659,722 px/port. Before, it freed them all
-  and stopped you partway through drawing with Port 46 is full.
-- FIX: In the Data view, Alt+drag across runs picks every port the drag
-  crosses for Redraw ports as one, the way Alt+drag picks circuits in
-  Power. Shift+click and Shift+drag still pick, and Alt+click still
-  redraws one port.
-- FIX: Custom power screens show the Circuit numbers switch, the way
-  custom data screens show Port numbers. With Down picked, Apply Pattern
-  numbers the circuits it cuts from long rows down the stacks, by the
-  same rule as the automatic map, so a half-height bottom row's circuit
-  takes the number right after the stack its first panel sits under.
-  Which panels share a 2fer or 3fer doesn't change, and circuits you've
-  already drawn keep their numbers.
-- FIX: Making a screen smaller takes the panels that came off the wall out
-  of every power circuit you drew or took over too. A circuit left with
-  no panels is removed and comes off its distro, with its cable length,
-  and the other circuits keep their numbers and stay where they are on
-  their multis. A 2fer or 3fer keeps the legs that are still on the
-  wall. Before, a circuit could sit wholly off the wall and still be
-  listed and counted in Circuits Required. Circuits Required now counts
-  the circuits drawn, so a gap a cleared circuit leaves doesn't count
-  either. A show saved that way is fixed when you open it. A locked
-  screen keeps its circuits as they are, and a circuit whose removal
-  would move a locked screen's circuits on a shared multi stays until
-  that screen is unlocked. Either way a message says which locked
-  screen kept which circuit.
-- FIX: A locked screen sharing a multi with another screen keeps its
-  circuits when you change the other screen. Unplug circuit, Unplug
-  multi, a new multi number or distro, a split or un-split, a circuit
-  dropped on a box, moved circuits, a 2fer or 3fer, Clear Circuit and
-  Clear All, a drawn panel, a panel setting or a change to the distro's
-  outputs is refused when it would move the locked screen's circuits:
-  nothing changes, and a message says which screen is locked and why.
-  When the locked screen's circuits stay as they are, the change goes
-  through and the locked screen isn't touched. Before, these could move
-  a locked screen's circuits on the multi or write to it.
-- FIX: Recent Files could open an older version of a show
-  than the one you last saved, and on the Mac a nearly full browser
-  storage could make File > Open stop partway. A recent show is now read
-  from its file each time you open it, so it opens as last saved on any
-  machine. A file that has moved says so, two files with the same name
-  are listed separately, and Recent Files counts screens.
-- FIX: The binder marks every circuit over its limit: OVER
-  beside its amps in Circuits and Shared circuits, an Over line in Facts,
-  and a warning at export naming the screens and circuits.
-- FIX: Redraw port on an automatic screen no longer dead-ends. The port
-  keeps its cabinets while you redraw it: click one of its cabinets to
-  cut the run back to it, then click the rest in any order. Clear Port no
-  longer hands them to the other ports, and any you leave undrawn go back
-  to the automatic ports with a note saying where.
-- FIX: On a custom screen too, clicking an earlier cabinet of the port
-  you are drawing cuts the run back to that cabinet; the cabinets after
-  it are free to draw again.
-- FIX: Custom ports always run 1 to N with no gaps. A show opened with a
-  gap in its custom ports, or a screen switched to custom with one,
-  closes it up; the ports after it keep their names and card places.
-- FIX: With two or more ports picked, right-click offers only Redraw
-  ports as one. The single Redraw port shows when one port or none is
-  picked.
-- FIX: Keeping a half-drawn Redraw ports as one says which ports the
-  cabinets left over went to.
-- FIX: Esc ends a port redraw even after a box in the side panel was
-  clicked.
-- FIX: Redraw port on a mirror screen says why it can't be redrawn
-  instead of doing nothing.
-- FIX: A screen that was locked when its show was opened gets the same
-  port repair as soon as it is unlocked.
-- FIX: Port redraw and fill messages name ports one way, by the screen's
-  port number (P15).
-- FIX: A mirror screen is checked again whenever either screen is
-  resized or a cabinet is blanked, hidden or made a half tile, not only
-  when the mirror is made. An edit that breaks it says which screens no
-  longer match and why, and the warning clears as soon as they match
-  again. Mirror messages read as plain sentences and say which setting
-  to change.
-- FIX: Dragging a processor onto a second screen no longer makes a mirror
-  with nowhere to plug in. Where the box on the copy OPT is set to
-  Backup, the drop is refused and says to set it to Mirror.
-- FIX: The guides' practice screens no longer take your Preferences' bit
-  depth, frame rate or Low Latency, so steps like Redraw several ports
-  as one and Port numbers work whatever those are set to. The Advanced
-  Guide's Redraw port step checks that the cabinets you clicked joined
-  the port.
-- FIX: Unplug multi on the map takes the whole multi off its
-  distro, even after a circuit was unplugged from the middle of it, and
-  a multi's home-run length stays as long as any of its circuits are
-  still on the distro.
-- FIX: Clear Circuit on a custom screen leaves every other
-  circuit where it was. Before, the next circuit could slide onto the
-  freed spot on the distro.
-- FIX: Grouping screens with different amperage asks which one the group
-  uses, as it does for voltage. When the selected screens disagree,
-  Voltage, Amperage, Watts per Panel and the per-circuit figures read
-  "-" instead of one screen's numbers.
-- FIX: A distro powered thru another distro no longer counts toward its
-  service's ratings.
-- FIX: Power wording is the same everywhere. Boxes read DISTRO 1-1 or
-  SR1, the Add menu matches its chip (Add Socapex 208V), a direct
-  output's menu says what it is (Unplug TRUE1 PD1), "thru" replaces
-  "daisy chain", and the Multi count on a screen's circuit info counts
-  each distro box once.
-- FIX: A custom circuit past its limit reads "over" instead of "full".
-- FIX: The binder's strand map gives each input of a CVT4K-S the outputs
-  it feeds: on 10-port OPTs, OPT1 is 1-8 and OPT2 is 9-16.
-- FIX: The processor sheet's Snakes & home runs names each socket by the
-  number on its box, lists a backup box's sockets, and no longer prints
-  a length left on a card's own socket after a breakout box took it.
-- FIX: In the Data tray a backup box says which box it backs up by its
-  letter, a loop row names its ports by the primary box's numbers, and a
-  card with both trunks full says "Both trunks are used."
-- FIX: Export Binder from the pull sheet editor prints on the saved sheet
-  size.
-- FIX: The distro sheet names a screen once when two of its multis share
-  a box, and pull sheet totals no longer fold two different names such
-  as Screen1 and Screen 2 into one run.
-- FIX: A 2fer or 3fer pill no longer touches the cable tag above it, and
-  a tag at a wall's edge stays inside the wall.
-- FIX: Empty cells on the binder, the cable sheets and the pull sheet
-  boxes in Preferences are blank instead of a dash, and ranges read 6-12.
+  more circuits than it takes.
+- FIX: A crowded Power sheet gives its multis short tags and a key.
+- FIX: A grouped wall runs its circuits across its screens, even on
+  different processor canvases.
+- FIX: Amperage offers 16A beside 15A and 20A.
+- FIX: A length typed in the other unit, like 30m in a feet show, converts
+  wherever you type a home run, cable, power in, snake or fiber length.
+- FIX: A looped XD pair with 9 primaries now reads 9/10 in the tray, not
+  18/20.
+- FIX: A card you haven't named reads Card 1, Card 2 and so on by its
+  slot.
+- FIX: Removing a processor or a card releases its ports and says which
+  ones are unplaced.
+- FIX: Snakes are labeled by their ports, and two snakes are never merged
+  into one row.
+- FIX: A big show's binder is a fraction of the size, about 13 MB where
+  one was about 250 MB.
+- FIX: The binder's Overview draws your screens much bigger and lists
+  every sheet.
+- FIX: The binder marks every circuit over its limit and warns you when
+  you export.
+- FIX: Binder tables wrap long text instead of cutting it off, and empty
+  cells are blank.
+- FIX: On a Data Wiring sheet, each breakout box names its fiber cable on
+  each input.
+- FIX: The binder's pull page lists a 1:1 backup card.
+- FIX: Labels on a group's seam print whole on its sheets.
+- FIX: Your browser's AutoFill can no longer change a show.
+- FIX: Recent Files opens each show as you last saved it.
+- FIX: New, File > Open and Recent Files ask before unsaved changes are
+  lost.
 - FIX: A show with more than one canvas opens on the canvas it was saved
   on.
-- FIX: Duplicate, a copied screen, Duplicate group and Add Screen never
-  give a screen a name another screen already has.
-- FIX: Esc closes the right-click menu, and closes Preferences, Export,
-  About, Keyboard Shortcuts, Logs and What's New the way Cancel or Close
-  does.
-- FIX: The app says Screen, not Layer, in its menus, labels, tooltips,
-  the shortcuts list and Recent Files.
-- FIX: In a narrow window the toolbar and the canvas controls wrap onto a
-  second row instead of hiding under the Screens panel.
-- FIX: Long names show in full: NovaStar COEX A10s/A8s (1G) in
-  Processing, Custom in Voltage and Amperage, the Breakout names, and
-  the cable sheet's connector, which now shows the plug first.
-- FIX: The panel library opens with its search and manufacturer filter
-  cleared.
-- FIX: Help > Check for Updates answers in the app's own message, and
-  clicking the words Lock Selected locks or unlocks the selection.
-- FIX: With no screen selected, Screen Info is blank and can't be typed
-  in.
-- FIX: A show's snakes save the same way whatever order shows were opened
-  in, the gear popover stays put when you pick a mode in it, and the
-  PLUGS IN AT switch in a port's editor has the same buttons as the gear
-  popover.
-- FIX: The What's New window's 1.6 heading names what the window lists.
-- FIX: A binder for a big show is a fraction of the size. Maps
-  print at 300 dpi and each one is saved whichever way is smaller, so a
-  binder that came out at about 250 MB is now about 13 MB.
-- FIX: Removing a processor, emptying a slot or swapping a
-  card releases every port pinned to it and says which screen ports are
-  unplaced again. Undo puts the pins back.
-- FIX: No phantom ports. A redraw that ends with its number
-  left empty hands the number back, the card and the port name follow
-  their cabinets, and nothing lands on an empty number.
-- FIX: A show saved before the column-first Down numbering
-  opens with its card pins and port names moved to the new numbers with
-  their cabinets.
-- FIX: Grouped screens that overlap no longer overload one
-  port. A port on a rectangle processor is never charged less than its
-  cabinets' own pixels.
-- FIX: Automatic circuits slide left after a redraw, so two
-  columns that can share a circuit become a 2fer again. A redraw you end
-  without changing anything goes back to automatic.
-- FIX: Drawing a new custom circuit after a Clear Circuit no
-  longer moves the other circuits onto the freed socket. The new circuit
-  takes the next free socket and the freed one stays free.
-- FIX: Sharing a free socket on a multi no longer renumbers
-  the screen that already owns that multi.
-- FIX: A screen on Multi > L6-20 plugs only into a distro's
-  L6-20 outputs, with an L6-20 cable for each circuit. Other outputs
-  refuse it and say why.
-- FIX: A service counts only the distros connected to it, so
-  the tray and the binder agree. Distro ratings that add up past the
-  service are a fact, not a warning; the load against 80% of the service
-  is what's checked.
-- FIX: A CVT4K-S that backs up its own outputs lists each backup output
-  as its own cable with its own length, and says it backs up outputs 1-8
-  on 9-16.
-- FIX: A processor's capacity reads usable ports with the backups beside
-  them, like 40 / 40 ports · 40 backup, and a backup box's ports count as
-  backup.
-- FIX: When a backup box carries fewer ports than the box it backs up,
-  the tray and the processor settings say which ports have no backup.
-- FIX: Per card, a card that backs up another reads "backs up Card 1"
-  instead of offering its own backup picker, and no partner list offers
-  a card that's already a backup.
-- FIX: A new card, breakout box or distro starts with its cable sheet
-  closed and its section open, even when it reuses a number from an
-  undone add or another show.
-- FIX: Every breakout box shows in the tray, and a box added onto a
-  backup output no longer gets a backup of its own.
-- FIX: A full TAC or MTP shows as full in a box's link picker and can't
-  be picked.
-- FIX: Dropping a full card on a second screen says how to make that
-  screen a copy when the card's copy output is set to Backup.
-- FIX: A card you name goes by that name alone in the tray.
-- FIX: A screen that shrank no longer counts its old pins as taken, so a
-  box's count matches its free tiles.
-- FIX: With several ports picked, Back to auto and Clear act on all of
-  them and name them.
-- FIX: A grouped screen's Power settings show the whole group's circuits
-  and amps whichever member is selected.
-- FIX: Turning custom circuits on no longer leaves the screen's old multi
-  load on the distro.
-- FIX: After a Clear Circuit, the Active Circuit field reads the same
-  number as the circuit labels.
-- FIX: A 2fer or 3fer pill sits beside its disc on the same side as the
-  screen's other pills, never on a run line, and a cable tag beside its
-  disc stays off its own run line.
-- FIX: Pull sheet tables wrap long gear names instead of running past
-  their box.
-- FIX: Power warnings and menus read plainly: the L21-30 warning names
-  the L21-30 leg, a service and a distro are named once, two distros
-  read DISTRO 1, DISTRO 2, the binder says 22 circuits over 16 A (80% of
-  20 A), the cable sheet's default plug reads TRUE1 (default), Merge back
-  and Unplug multi are offered only where they work, and processor and
-  box messages no longer use a spaced hyphen as a dash.
-- FIX: The guides never fail from timing or a hand on the mouse. Each
-  step waits for the app to finish and checks its result again for up to
-  ten seconds. While a step plays your mouse and keys can't disturb it,
-  and a second click on Next waits for the step.
-- FIX: The guides run on the shipped Preferences and on a canvas of their
-  own, so your Preferences or a show with several canvases no longer
-  makes a step fail. Your Preferences come back when the guide ends.
-- FIX: The guide's box stays inside the window, so Next is never off the
-  bottom of a short window.
-- FIX: The guides keep a window open from one step to the next when both
-  steps use it, instead of closing it and opening it again.
-- FIX: A guide started right after leaving another one waits for your
-  project to come back first. Started at once, it ran on your project
-  instead of its scratch show, and leaving it lost your project.
-- FIX: In a narrow window the canvas controls scroll instead of pushing
-  the hardware tray off the window, and a Processing name too long for
-  its box wraps onto a second line.
-- FIX: Opening a show from Recent or File > Open, and New, ask before
-  unsaved changes are lost: Save, Don't Save or Cancel.
-- FIX: Export clicked right after typing a new Rev exports, with the new
-  Rev.
-- FIX: The start page shows on every launch, also after quitting in the
-  middle of a guide.
-- FIX: With the browser's storage full, Save still lists the show in
-  Recent Files, or says why it couldn't.
-- FIX: Esc closes the File, Edit, View and Help menus, and in the panel
-  picker it's the same as Cancel.
-- FIX: Every question and message is the app's own dialog or notice,
-  never the browser's.
-- FIX: Ctrl+J and Duplicate copy every selected screen.
-- FIX: Renaming a screen by double-clicking its name works in Firefox, and
-  dragging inside a name being edited selects its text instead of moving
-  the screen. Canvas, group and beach names rename the same way, and a
-  drag inside any of them selects text too, the first drag after the
-  double-click included.
-- FIX: Canvases drag to a new place in the list, to the end too, and from
-  anywhere on their header.
-- FIX: The raster size shows the canvas of the screen you select,
-  wherever you select it from, a group's header in the Screens list or a
-  cabinet on another selected screen in Pixel Map too, and it stays on
-  that canvas through undo and redo.
-- FIX: The processor picker in the Data tray reads whole in a narrow
-  window, and the dates and screen counts in Recent Files are easier to
-  read.
-- FIX: The pull sheet no longer carries a note that wasn't meant for
-  you, and its labels fold return runs as 1-10, 1R-10R.
-- FIX: Binder cells keep one type size, and a breakout box's name is
-  never cut short.
-- FIX: A box with one socket says port 1.
-- FIX: A screen that gets smaller lets go of the card ports past its last
-  port, so another screen can take those sockets and growing the first
-  screen back never brings a clash. Undo puts them back.
-- FIX: Turning custom runs on lets go of the card ports on numbers with
-  nothing drawn, so a port you draw later never lands on a socket by
-  itself, and custom ports start at the first free number.
-- FIX: Clicking an earlier cabinet of a power circuit being redrawn cuts
-  it back, as on data. Clear Circuit no longer refuses the circuit's own
-  cabinets, and a redraw left with nothing drawn goes back to automatic.
-- FIX: Edits not yet saved are still known after the page reloads, so New,
-  Open and a Recent file ask before they go.
-- FIX: A distro with multis in use always shows an output for every multi.
-  An older show opens with them filled in, and + Add output adds to them.
-- FIX: A distro on a service with nothing connected is listed muted and
-  says nothing connected, since the service doesn't count it.
-- FIX: Redraw port on a locked screen always says the screen is locked.
-- FIX: A run's menu names the screen port, like Clear port P6.
-- FIX: A card with nothing free to back it up says so instead of opening
-  an empty list.
-- FIX: The side panels' collapse tabs sit halfway down the canvas, clear
-  of a tall hardware tray.
-- FIX: The Pull Sheet window's tiles wrap when the window is narrow, so
-  TOTALS is never cut off.
-- FIX: Canceling the save dialog says Save canceled, not Export canceled.
-- FIX: Reloading the page keeps you on the tab you were on and no longer
-  brings up the start page over an open show. A project you left empty
-  stays empty.
-- FIX: A drop that goes through clears an earlier refusal from the status
-  bar, Save Screen as Preset selects the name it fills in, and after a
-  guide Preferences opens on the tab you had.
-- FIX: Circuit ranges in drag hints and tooltips use a plain hyphen.
-- FIX: Every binder table prints its cells at one size and its headings
-  at one size. Text too long for its column wraps at its words, or the
-  table takes the room the sheet has, instead of shrinking or being cut.
-  A pull sheet with wide tables holds three positions at full size.
-- FIX: The Fiber page names the screen each breakout box feeds, and wraps
-  a box's list of screens instead of cutting it short.
-- FIX: The pull sheet never joins multis with a hyphen, which reads like a
-  circuit: two read SR1, SR2 and more read VX UPSTG 1 … 3. Its overflow
-  notice reads right for one position or several.
-- FIX: A move or mapping a processor's canvas can't take always says why
-  in a red message, even with the hardware tray folded away, and names
-  the screens that make up the span, with their canvases when they sit on
-  more than one.
-- FIX: The processor tray counts primary ports only where backups ride
-  along on their own: a looped XD pair with 9 primaries reads 9/10, not
-  18/20.
-- FIX: A circuit drawn or redrawn on a grouped wall runs across its
-  screens the way it does on one screen, even when the screens sit on
-  different processor canvases. The wall's automatic circuits are
-  numbered as one, so the last column of one screen and the first column
-  of the next share a 2fer. A wall like this in an older show keeps its
-  circuits screen by screen when it is locked, or when a screen after the
-  first has circuits of its own plugged into a distro, labeled, cabled or
-  redrawn.
-- FIX: Clearing a distro's multis also forgets a cable length left on a
-  circuit number the screen no longer has, so it can't come back on the
-  next circuit to take that number.
-- FIX: A circuit's cable length stays with its cabinets when the circuits
-  renumber: a redraw ends, Return to automatic, Organized or Max
-  Capacity, 2fer packing, or the Circuit numbers switch. When two cables
-  land on one circuit, the one plugged into its first cabinet stays and a
-  message names the screen and the circuit.
-- FIX: A redrawn circuit left with nothing drawn goes back to automatic
-  and the circuits after it close up, and their typed labels now move
-  with their cabinets, the way data port names do.
-- FIX: Undo after a circuit redraw ends opens the redraw again, so the
-  circuits, their cables and their labels all go back together and the
-  cabinets it held can still be clicked. Ending a redraw that hands its
-  circuit back is one undo step.
-- FIX: A show saved or a page reloaded with a circuit redraw still open
-  ends that redraw as it opens, the same as Esc, so each cable and label
-  stays with its cabinets. Save leaves the redraw in hand open.
-- FIX: A circuit picked up during another redraw and left as it was goes
-  back to automatic when its redraw ends.
-- FIX: Clear Circuit while you redraw a circuit no longer gives the next
-  circuit the same name. Every other circuit keeps its label while you
-  draw the redrawn one again.
-- FIX: In Custom mode, Clear Circuit on a circuit that isn't plugged into
-  a distro no longer leaves two circuits with the same name. The circuits
-  after it still close up, and the cleared circuit reads the next name
-  after the last one until you draw on it again.
-- FIX: Turning Custom on with one port left says the port moved up to
-  port 1 instead of "run 1-1", and a port with nothing drawn and nothing
-  after it is said to be gone.
-- FIX: New on the start page with unsaved changes keeps the start page
-  open while it asks to save them, so Cancel goes back to it, the same as
-  Open file and Recent.
-- FIX: The Quick Start guide opens on the first run only. Every launch
-  after that opens on the start page, so the two no longer take turns,
-  and the guide's Don't show on startup box is gone. Help still opens
-  the guides any time.
-- FIX: A screen you add with + Add > Screen goes to the first free spot
-  on its canvas that fits it, left to right and then top to bottom,
-  instead of landing on top of the screen at the corner. On an empty
-  canvas it still starts at the corner.
-- FIX: Picking a pattern while redrawing ports fills only the ports being
-  redrawn and no longer re-lays the whole screen. Redraw ports as one
-  also frees the right ports when a save lands while its menu is open.
-- FIX: Organized data fills the leftover ports at the end of each row as
-  fully as the port allows, stacking them across rows, so an 84 panel
-  row at 8 a port leaves one port of 8 for every two rows, not a port of
-  4 for each. Columns stack the same way. Hand drawn ports in a saved
-  show stay as drawn.
-- FIX: The binder prints the Fiber page right after the screens, before
-  the pull sheets, and the sheets after it number on from it with no gap.
-- FIX: A project you emptied with the start page's X stays empty, after
-  a reload too, whatever you did to it since: named it, added a canvas or
-  a beach, or added a screen and undid it. A late update could put its
-  first screen back on the page a moment later, though the project no
-  longer had it.
-- FIX: Dropping a Mirror box on a screen makes that screen the mirror in
-  one step, with its runs on that box, and one undo takes it back. A drop
-  that can't work says why before you let go: the screens don't match,
-  nothing is on the box it copies yet, or the screen is locked. A Backup
-  box dropped on a screen already on its primary box says its backup is
-  already there. A screen the same size and shape but with other settings,
-  a frame rate of 30 against 60 for one, is no longer changed without a
-  word: the drop says Not allowed, lists what differs and offers to match
-  it to the first screen, and one undo takes back the match too.
-- FIX: Opening a show saved before Organized stacked its leftovers keeps
-  each processor port on its cabinets. Ports past the new last number are
-  no longer dropped, and typed names move with them. Where two leftovers
-  became one port, one keeps its processor port and the other is
-  released. A locked screen follows when you unlock it.
-- FIX: Zooming or panning right as the app opens stays put. The opening
-  fit could land a moment later and move the view.
-- FIX: The guide's Pick the strands step carries on when the tray redraws
-  as it reaches for a strand, instead of stopping there.
-- FIX: Removing a processor or a card lets a mirror go with its first
-  screen, in the same undo step, so the second screen can take a processor
-  of its own. It used to stay a mirror with nothing plugged in and no way
-  to stop. Removing the Mirror box lets the mirror go too, and the first
-  screen keeps its ports.
-- FIX: A mirror with nothing to plug into, because its box is set to Backup
-  or its card left Copy, says which setting brings it back and offers Stop
-  mirroring in the tray. A drop on it says so too, instead of telling you to
-  unplug a card that isn't there.
-- FIX: A fiber extension names its mode on the pull sheet, in the binder and
-  on the box sheet, like the cable it extends, so a single mode piece and a
-  multimode piece are never counted as one row. A folded loop of a single
-  mode box and a multimode box reads both.
-- FIX: A Backup box dropped on a screen on the unit's own ports says its
-  backup is already there, instead of telling you to clear the screen.
-- FIX: Ctrl or Cmd on a group's header in the Screens list adds the group
-  to the selection and Shift selects up to it, as on the screen rows, so
-  one click on Names can set several groups.
-- FIX: Delete on the last screen says it can't be deleted instead of
-  doing nothing.
-- FIX: A strand pick you open on a fiber link stays open when the tray
-  redraws, instead of turning back into the chip.
-- FIX: The guide's ring stays on the control a step is working on while
-  the step plays. Mirror a screen ringed the wrong box for the whole drag.
-- FIX: The tray no longer slips a little each time it redraws with a snake
-  on a processor, which could leave a box just past its bottom edge.
-- FIX: A menu you open right after leaving a guide stays open. It shut
-  by itself as your project came back.
-- FIX: Where a group prints screen by screen, a circuit or port shared
-  across the seam keeps its whole label on both sheets. Its circle, 2fer
-  pill and cable tag were cut in half at the edge of the screen.
-- FIX: On a wiring sheet, the circles and the runs stand on the circuits
-  and ports they belong to. On a group whose screens sit in a different
-  place on the processor, they landed beside their labels or off the sheet.
-- FIX: On a Data Wiring sheet, each breakout box names the fiber on each
-  input, like TAC A (TAC 12 SM), before its strand colors and numbers. The
-  inputs sit on their own line under the box's name, so every box is drawn
-  the same way and no wider than it needs to be.
-- FIX: A screen with no panel name is left off the panel rows on the pull
-  sheet and the binder's pull pages. It used to print a size, or a model
-  nobody chose that happened to match the size, pixels and weight.
-- FIX: Your browser's AutoFill can no longer change a show. A fill from
-  your contacts could write a name or a phone number into fields you
-  weren't in, even in a folded panel, and rename multis across screens.
-  Now a field only takes what you type or pick.
+- FIX: Ctrl+J and Duplicate copy every selected screen, and a copy never
+  takes a name that's in use.
+- FIX: A screen you add goes to the first free spot on its canvas.
+- FIX: Esc closes the app's menus and dialogs, and it always ends a
+  redraw.
+- FIX: Renaming a screen by double-click works in Firefox.
+- FIX: The guides no longer fail from timing or your Preferences, and
+  starting one right after another can't lose your project.
+- FIX: On a Mac, opening the launcher no longer hides the app's menu-bar
+  icon. Thanks to kcikcreative33 for this fix.
 
 v1.5.3 - October 21, 2026
 ----------------------------

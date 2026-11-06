@@ -58,10 +58,7 @@ def _bullets(section):
 def test_already_showed_covers_only_what_was_already_shown():
     fixes = _fixes()
     assert ('- FIX: The tray and the distro checks now warn you when an output carries more '
-            'circuits than it takes, like two visible screens on a one-circuit output or a multi '
-            'with more circuits than its output has. The pull sheet and the distro sheet already '
-            'showed a crowded direct output and a multi on a one-circuit output, and now they '
-            'flag a multi box carrying more circuits than it holds too.') in fixes
+            'circuits than it takes.') in fixes
     assert 'already showed these' not in fixes
 
 
@@ -69,17 +66,13 @@ def test_the_overfull_box_note_is_listed_for_older_shows():
     older = _older()
     bullets = _bullets(older)
     line = ('- FIX (IMPORTANT): A multi box carrying more circuits than it holds gets a note on '
-            'the pull sheet, like 8 circuits on a six-circuit output, and a Crowded line on the '
-            'distro sheet.')
+            'the pull sheet and a Crowded line on the distro sheet.')
     assert line in bullets
-    # among the ones that were wrong before: after the first four, before
-    # the last six, and the intro still counts them right
-    assert 4 <= bullets.index(line) < len(bullets) - 6
-    assert len(bullets) == 22   # beta.4 QA: loop backup boxes, CVT4K-S input 2 at 9
-    intro = _flat(older[:older.index('\n- ')])
-    assert 'The first four come from the new 80% fill' in intro
-    assert "the last six change what's listed or what you can do" in intro
-    assert all(b.startswith('- CHANGE (IMPORTANT): ') for b in bullets[-6:])
+    # among the ones that were wrong before: after the 80% lines, before
+    # the last five
+    assert 3 <= bullets.index(line) < len(bullets) - 5
+    assert len(bullets) == 19   # the short notes share near-duplicates on a line
+    assert all(b.startswith('- CHANGE (IMPORTANT): ') for b in bullets[-5:])
 
 
 def test_the_overfull_box_note_is_the_apps_own_wording():
@@ -91,36 +84,15 @@ def test_the_overfull_box_note_is_the_apps_own_wording():
     assert "pairs.push(['Crowded', `${ov.label} ${ov.type.name} carries ${ov.circuits} circuits`" in binder
 
 
-def test_deep_stacks_print_larger():
-    fixes = _fixes()
-    assert ("Power sheets whose labels already fit print as they did; deep stacks print their "
-            "labels larger where there's room.") in fixes
-    assert 'Other Power sheets print as they did' not in fixes
-
-
-def test_tags_come_from_the_distros_own_name():
-    fixes = _fixes()
-    assert ("- FIX: When a Power sheet has too many multis for their labels to fit beside the "
-            "wall, the brackets get short tags and a key on the sheet lists each tag's full name "
-            "and length. Tags come from the distro's own name, so B1 is always DISTRO B's "
-            "multi 1. Before, the labels were cut to D… or ran into each other.") in fixes
-
-
-def test_balance_leaves_hidden_screens_multis_alone():
+def test_hidden_screens_keep_their_outputs_and_leave_the_loads():
     flat = _flat(_older())
     assert ('- CHANGE (IMPORTANT): Hidden screens keep their multi numbers and outputs reserved, '
-            "so no other screen takes them, but they're left out of distro and service loads "
-            'everywhere, so the distro and Service sheets match the pull sheet. Balance holds '
-            'their multis in place and leaves them out of what it searches.') in flat
+            "so no other screen takes them, but they're left out of distro and service loads") in flat
 
 
 def test_hiding_joins_the_locked_screen_refusal():
     flat = _flat(_top_entry())
-    assert ('A change that would repack a locked screen is refused, and the message names '
-            "the screen: turning 100% rated on or off, changing a distro's system, removing a "
-            'distro, plugging in, moving or unplugging a multi, grouping, sharing circuits '
-            'through a 2fer or 3fer or removing one, 2fer it or 3fer it, typing a power '
-            'setting on a screen grouped with it, or hiding or showing a screen.') in flat
+    assert 'A change that would repack a locked screen is refused, and the message names the screen.' in flat
     # a half-locked group hides and shows only where no locked circuit changes
     assert ('- CHANGE (IMPORTANT): A group saved half locked in an older show now counts as '
             'locked. You can still hide and show its screens when that doesn\'t change their '

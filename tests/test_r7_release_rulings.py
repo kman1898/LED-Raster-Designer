@@ -44,8 +44,8 @@ def _section(start, end):
 
 
 def test_the_feeder_example_names_the_service_with_its_size():
-    feeders = _section('\nPOWER IN\n', '\nTHE PANEL ON EACH SCREEN\n')
-    assert "like Powered from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'." in feeders
+    feeders = _section('\nA POWER IN FOR EVERY DISTRO\n', '\nA START PAGE, THEN A PANEL\n')
+    assert 'The binder says what each distro is powered from' in feeders
     # the binder joins the service label and the feeder with " · ", and the
     # service label is "name · size · system"
     services = _read(JS, 'app-services.js')
@@ -56,17 +56,13 @@ def test_the_feeder_example_names_the_service_with_its_size():
 
 def test_the_crowded_power_sheet_fix():
     fixes = _section('\nFIXES\n', None)
-    assert ("- FIX: When a Power sheet has too many multis for their labels to fit beside the "
-            "wall, the brackets get short tags and a key on the sheet lists each tag's full name "
-            "and length.") in fixes
-    assert "Before, the labels were cut to D… or ran into each other." in fixes
+    assert "- FIX: A crowded Power sheet gives its multis short tags and a key." in fixes
 
 
 def test_the_crowded_output_warning_fix():
     fixes = _section('\nFIXES\n', None)
     assert ("- FIX: The tray and the distro checks now warn you when an output carries more "
-            "circuits than it takes, like two visible screens on a one-circuit output or a multi "
-            "with more circuits than its output has.") in fixes
+            "circuits than it takes.") in fixes
 
 
 def test_a_half_locked_group_still_hides_and_shows():
@@ -79,7 +75,7 @@ def test_a_half_locked_group_still_hides_and_shows():
 def test_the_new_lines_change_no_counts():
     top = _top_entry()
     older = top[top.index('OPENING AN OLDER SHOW'):top.index('\nFIXES\n')]
-    assert len(re.findall(r'^- ', older, re.M)) == 22   # round 8: the overfull box note; beta.4 QA: backup boxes, CVT4K-S
+    assert len(re.findall(r'^- ', older, re.M)) == 19   # the short notes share near-duplicates on a line
     assert 'short tags' not in older and 'more circuits than it takes' not in older
 
 

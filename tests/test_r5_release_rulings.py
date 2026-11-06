@@ -49,11 +49,7 @@ def test_the_notes_say_what_160_does():
     # the fix to code new in this release is gone; the refusal is one sentence of
     # the 80% section
     assert "doesn't repack a locked screen" not in flat
-    assert ('A change that would repack a locked screen is refused, and the message names '
-            'the screen: turning 100% rated on or off, changing a distro\'s system, removing a '
-            'distro, plugging in, moving or unplugging a multi, grouping, sharing circuits '
-            'through a 2fer or 3fer or removing one, 2fer it or 3fer it, typing a power '
-            'setting on a screen grouped with it, or hiding or showing a screen.') in flat
+    assert 'A change that would repack a locked screen is refused, and the message names the screen.' in flat
     # lengths convert in every field but a jumper's
     assert 'converts wherever you type a home run, cable, power in, snake or fiber length' in flat
     assert 'converts wherever you type a cable length' not in flat
@@ -63,12 +59,6 @@ def test_the_notes_say_what_160_does():
     assert '16 A breaker · 12.8 A usable' in flat
     # wording
     assert 'A 400 A cam input lists a 400 A cam set' in flat
-    assert "can't move a distro to another system while it's powered thru, or powers, another distro" in flat
-    assert 'the GP2.6 Right Angle corners' in flat
-    assert 'a data path you draw steps over them in the drawing too, the same as automatic routing' in flat
-    # suffixes count distros that print; a typed weight reaches the halves
-    assert 'Only distros that print are counted' in flat
-    assert 'If you type your own panel weight, the half tiles follow it' in flat
 
 
 def test_count_changes_are_listed_under_opening_an_older_show():
@@ -78,11 +68,11 @@ def test_count_changes_are_listed_under_opening_an_older_show():
     for line in ('- CHANGE (IMPORTANT): The pull sheet has a row for each named panel type on each screen '
                  'and a Power in row for each distro',
                  '- CHANGE (IMPORTANT): Hidden screens keep their multi numbers and outputs reserved',
-                 '- CHANGE (IMPORTANT): The Overview\'s totals in the binder leave out hidden screens.',
                  '- CHANGE (IMPORTANT): A distro with nothing on it, or only hidden screens, is left '
                  'off the binder, and a service with nothing printing on it gets no Service sheet.'):
         assert line in flat, line
-    assert 'the last six change what\'s listed or what you can do' in flat
+    # the Overview's totals ride the hidden screens line
+    assert "left out of distro and service loads everywhere, and out of the binder's Overview totals." in flat
 
 
 def test_whats_new_80_item_covers_a_screen_on_no_distro():

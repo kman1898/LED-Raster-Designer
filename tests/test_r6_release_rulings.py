@@ -54,18 +54,14 @@ def test_the_date():
 def test_the_refusal_lists_only_what_the_app_refuses():
     flat = _flat(_top_entry())
     assert 'pasting power settings' not in flat and 'paste' not in flat.lower()
-    # round 8: hiding or showing a screen joins the list
-    assert ('sharing circuits through a 2fer or 3fer or removing one, 2fer it or 3fer it, '
-            'typing a power setting on a screen grouped with it, or hiding or showing a '
-            'screen.') in flat
+    # the short notes say the refusal once, without the list of gestures
+    assert 'A change that would repack a locked screen is refused, and the message names the screen.' in flat
 
 
 def test_the_feeder_example_is_the_fed_from_line():
     top = _top_entry()
-    feeders = _flat(top[top.index('\nPOWER IN\n'):top.index('\nTHE PANEL ON EACH SCREEN\n')])
-    # round 7: the service prints with its size, as the binder prints it
-    assert "like Powered from: HOUSE · 600 A · 120/208V 3φ · 200 A cam set 100'+50'." in feeders
-    assert "It only reads Power in: when there's no service or distro to name." in feeders
+    feeders = _flat(top[top.index('\nA POWER IN FOR EVERY DISTRO\n'):top.index('\nA START PAGE, THEN A PANEL\n')])
+    assert 'The binder says what each distro is powered from' in feeders
     assert "Power in: 50'" not in feeders
     # "feed", never "feeder" (2026-11-01). A pull sheet row only ever said
     # feeder in the 1.5.4 betas, never in a public release, so the notes
@@ -76,22 +72,15 @@ def test_the_feeder_example_is_the_fed_from_line():
 def test_opening_an_older_show_lists_the_round_6_changes():
     older = _older()
     bullets = _bullets(older)
-    intro = _flat(older[:older.index('\n- ')])
-    # the counts in the intro match the list
-    assert 'The first four come from the new 80% fill' in intro
-    assert "the last six change what's listed or what you can do" in intro
-    # round 8 adds the overfull multi box note, a FIX among the rest
-    assert len(bullets) == 22, bullets   # beta.4 QA: loop backup boxes, CVT4K-S input 2 at 9
-    assert '80%' in bullets[3] and '16 A breaker · 12.8 A usable' in bullets[3], bullets[3]
-    assert all(b.startswith('- CHANGE (IMPORTANT): ') for b in bullets[-6:]), bullets[-6:]
-    assert not any(b.startswith('- CHANGE') for b in bullets[:3] + bullets[4:-6])
+    # the short notes: near-duplicates share a line, every count change is still here
+    assert len(bullets) == 19, bullets
+    assert '80%' in bullets[2] and '16 A breaker · 12.8 A usable' in bullets[2], bullets[2]
+    assert all(b.startswith('- CHANGE (IMPORTANT): ') for b in bullets[-5:]), bullets[-5:]
+    assert not any(b.startswith('- CHANGE') for b in bullets[:2] + bullets[3:-5])
     flat = _flat(older)
-    # (e) the 16 A box, short, and still in THE AMPERAGE BOX
+    # (e) the 16 A box, short
     assert ('- CHANGE (IMPORTANT): A screen you set to 16 A in an older show to allow for the '
             '80% rule now reads 16 A breaker · 12.8 A usable. Change it to the breaker size.') in flat
-    top = _top_entry()
-    amps = _flat(top[top.index('\nTHE AMPERAGE BOX\n'):top.index('\nNEW TILES IN THE PANEL LIBRARY\n')])
-    assert '16 A breaker · 12.8 A usable' in amps
     # (c) hidden screens keep their slots, their loads are left out
     assert ('- CHANGE (IMPORTANT): Hidden screens keep their multi numbers and outputs reserved, '
             "so no other screen takes them, but they're left out of distro and service loads "
@@ -103,9 +92,10 @@ def test_opening_an_older_show_lists_the_round_6_changes():
             'sheet.') in flat
     # (d) the corrected Graphite figures
     assert 'GP2.6 (4 in 1) half tiles now draw 50% of a full tile instead of 64%.' in flat
+    # no panel row by size any more: a screen with no panel name has none
     assert ('GP2.6, GP3.1 and GP3.9 Full Tile screens saved at 8.5 kg no longer match the '
-            'library, which now lists 9.0 kg, so their panel rows print by size and their half '
-            'tiles weigh 65% of a full tile.') in flat
+            'library, which now lists 9.0 kg, so their half tiles weigh 65% of a full tile.') in flat
+    assert 'print by size' not in flat
     assert 'Pick the panel from the library again to get the new figures.' in flat
     # (b) a half-locked group is locked (round 7: hide and show still work)
     assert ('- CHANGE (IMPORTANT): A group saved half locked in an older show now counts as '
