@@ -48,7 +48,7 @@ def _bullets(section):
 
 
 def test_the_date():
-    assert _top_entry().startswith('v1.6.0 - November 1, 2026\n')
+    assert _top_entry().startswith('v1.6.0 - November 6, 2026\n')
 
 
 def test_the_refusal_lists_only_what_the_app_refuses():
