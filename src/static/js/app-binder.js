@@ -283,9 +283,10 @@ const BINDER_DEFAULTS = {
 // first page"). Absent = front.
 const BINDER_VIEWS = ['front', 'rear'];
 // The renderer's word for each: a canvas's data_flow_perspective /
-// power_perspective is 'front' or 'back'.
+// power_perspective is 'front' or 'back'. rigging_perspective is the
+// binder's alone: nothing saves it, and only a paint sets it.
 const VIEW_PERSPECTIVE = { front: 'front', rear: 'back' };
-const PERSPECTIVE_KEYS = ['data_flow_perspective', 'power_perspective'];
+const PERSPECTIVE_KEYS = ['data_flow_perspective', 'power_perspective', 'rigging_perspective'];
 // The orders a beach's screens can run in (project.binder.screenOrder,
 // the export dialog's "Screen order"): alphabetical by name, the Screens
 // panel's order top-down or bottom-up, by first port, by first circuit.
@@ -1169,6 +1170,10 @@ class _Binder {
         // ahead and says which
         const over = this.binderOverWarning(opts);
         if (over && typeof this._toast === 'function') this._toast(over, true, 12000);
+        // bars that no longer fit their wall print as they stand, marked;
+        // the export goes ahead and says which
+        const misfit = (opts.rigging !== false || opts.pull !== false) ? this.riggingFitWarning() : '';
+        if (misfit && typeof this._toast === 'function') this._toast(misfit, true, 12000);
         // the bitmaps the request carries, by kind, and their size: a map
         // is one PNG or a JPEG under a PNG (_bLayMapBitmap)
         const bitmaps = { png: 0, jpeg: 0, mb: 0 };
@@ -1731,9 +1736,9 @@ class _Binder {
         const answers = (opts && opts.groupSheets && typeof opts.groupSheets === 'object')
             ? opts.groupSheets : this.getBinderInfo().groupSheets;
         const canvasOf = (l) => l.show_canvas_id || l.canvas_id || null;
-        const tab = this.groupNameDisplayFor('rigging');
         for (const g of groups) {
             if (!g || g.id == null) continue;
+            const tab = this.groupNameDisplayFor('rigging', g);
             const members = this.getGroupMembers(g).filter(m => shown.has(m));
             if (members.length < 2 || !members.every(m => canvasOf(m) === canvasOf(members[0]))) continue;
             if (!members.some(m => this._bHasRigging(m))) continue;
@@ -5139,8 +5144,8 @@ class _Binder {
     // area: the wall with its gutters, and the height used.
     _bMap(book, layer, view, area, gutter) {
         // The set's one View choice, for the length of this paint: the
-        // renderer mirrors a Power or Data map when ITS canvas's
-        // perspective key says 'back', so every canvas (and the project
+        // renderer mirrors a Power, Data or Header/Footer map when ITS
+        // canvas's perspective key says 'back', so every canvas (and the project
         // root, the legacy single-canvas keys) is set to the binder's side
         // and put back afterwards - the workspace's own Front / Back
         // toggles read exactly as before, nothing is persisted. A caller
@@ -5149,7 +5154,7 @@ class _Binder {
         return this._bWithPerspective(side, () => this._bPaintMap(book, layer, view, area, gutter));
     }
 
-    // Every canvas's two perspective keys and the project root's pair set
+    // Every canvas's perspective keys and the project root's set
     // to `side` ('front' or 'back') while `fn` runs, then every value put
     // back - a key that was absent is absent again - whatever fn did or
     // threw. The renderer is the only reader; no PUT, no undo entry.
@@ -6795,6 +6800,14 @@ class _Binder {
         const rows = [['Header', layers.map(l => list(l, 'riggingBars'))],
                       ['Footer', layers.map(l => list(l, 'riggingFooterBars'))]]
             .filter(([, lists]) => lists.some(bars => bars.length));
+        // Rows that no longer add up to their wall say so above the tables,
+        // the way a screen that cannot fit a circuit does.
+        const misfits = layers.flatMap(l => this.riggingMisfits(l));
+        const notes = misfits.length ? [{ lines: this._bTableLines(book, {
+            title: 'Bars no longer fit',
+            cols: [{ title: 'note', w: 1, list: 6, words: true }],
+            rows: misfits.map(m => ({ cells: [this.riggingMisfitLine(m, layers.length > 1)] })),
+        }) }] : [];
         const blocks = rows.map(([word, lists]) => {
             const { total, bySize } = RiggingMath.tally(lists.filter(bars => bars.length));
             const kind = word === 'Footer' ? 'footer' : 'header';
@@ -6808,7 +6821,7 @@ class _Binder {
                 rows: lines,
             }) };
         });
-        return blocks;
+        return [...notes, ...blocks];
     }
 
     // The band over a multi's circuits: "SR1 · Multi 208 · 125' · 6
@@ -8282,7 +8295,7 @@ class _Binder {
         const rigging = (pos.rows || []).filter(r => r.side === 'rigging');
         for (const [title, word] of [['Header bars', 'Header'], ['Footer bars', 'Footer']]) {
             const rows = rigging.filter(r => String(r.type || '').startsWith(word))
-                .map(r => ({ cells: ['', this._bType(r.type), r.length || '\u2014', this._bQty(r.qty), r.label || ''] }));
+                .map(r => ({ cells: ['', this._bType(r.type), r.length || '', this._bQty(r.qty), r.label || ''] }));
             if (rows.length) blocks.push(this._bPullBlock(book, { title, cols: cableCols, rows }));
         }
         // Hardware: the socas, the distros, the cards these screens hang on.

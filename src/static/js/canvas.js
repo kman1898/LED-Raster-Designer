@@ -270,13 +270,14 @@ class CanvasRenderer {
         // loop). This now answers "is ANY visible canvas mirrored in the
         // current view", used to gate the BACK VIEW badge layer and to
         // short-circuit hit-test unmirror when nothing is mirrored.
-        if (this.viewMode !== 'data-flow' && this.viewMode !== 'power') return false;
+        if (this.viewMode !== 'data-flow' && this.viewMode !== 'power' && this.viewMode !== 'rigging') return false;
         if (!window.app || !window.app.project) return false;
         const proj = window.app.project;
         const arr = Array.isArray(proj.canvases) ? proj.canvases : [];
         if (arr.length === 0) {
             // Pre-Slice-1 legacy projects: read project-root field.
-            const key = this.viewMode === 'data-flow' ? 'data_flow_perspective' : 'power_perspective';
+            const key = { 'data-flow': 'data_flow_perspective', power: 'power_perspective',
+                          rigging: 'rigging_perspective' }[this.viewMode];
             return proj[key] === 'back';
         }
         return arr.some(c => c && c.visible !== false && this._isCanvasMirrored(c));
@@ -291,6 +292,10 @@ class CanvasRenderer {
         if (!canvas) return false;
         if (this.viewMode === 'data-flow') return canvas.data_flow_perspective === 'back';
         if (this.viewMode === 'power') return canvas.power_perspective === 'back';
+        // Header/Footer has no Front / Back toggle: the key is only ever set
+        // for the length of a binder paint (_bWithPerspective), so a Rear
+        // binder's sheet mirrors and the tab itself never does.
+        if (this.viewMode === 'rigging') return canvas.rigging_perspective === 'back';
         return false;
     }
 

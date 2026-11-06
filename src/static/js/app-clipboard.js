@@ -299,6 +299,18 @@ class _Clipboard {
             screenNameOffsetYPower: layer.screenNameOffsetYPower,
             screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
             screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
+            // Header/Footer: the bars and their colors, and the tab's name
+            // settings (owner, 2026-11-06: "copies keep them"). Copies of
+            // the arrays, never the source's.
+            riggingSizes: Array.isArray(layer.riggingSizes) ? layer.riggingSizes.slice() : undefined,
+            riggingBars: Array.isArray(layer.riggingBars) ? layer.riggingBars.slice() : undefined,
+            riggingFooterBars: Array.isArray(layer.riggingFooterBars) ? layer.riggingFooterBars.slice() : undefined,
+            riggingColor: layer.riggingColor,
+            riggingTextColor: layer.riggingTextColor,
+            showLabelNameRigging: layer.showLabelNameRigging,
+            screenNameSizeRigging: layer.screenNameSizeRigging,
+            screenNameOffsetXRigging: layer.screenNameOffsetXRigging,
+            screenNameOffsetYRigging: layer.screenNameOffsetYRigging,
             // Appearance (v0.11.0): the gradient, palette and Transparent
             // Fill. Copies of the arrays, never the source's - a reference
             // handed to the copy is one in-place edit away from two screens

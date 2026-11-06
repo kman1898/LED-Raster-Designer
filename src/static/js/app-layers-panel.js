@@ -28,6 +28,9 @@ class _LayersPanel {
     }
 
     renderLayers() {
+        // The eye on a screen or a group changes what the Header/Footer
+        // totals count.
+        if (typeof this.refreshRiggingTotals === 'function') this.refreshRiggingTotals();
         
         const container = document.getElementById('layers-list');
         container.innerHTML = '';

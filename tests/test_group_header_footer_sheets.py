@@ -1,8 +1,8 @@
 """A grouped wall's Header/Footer sheet follows the Header/Footer tab's
 Names switch, the way its Power and Data sheets follow theirs.
 
-The owner, 2026-11-03, on a show (Boston) whose Header/Footer tab names its
-group by Group: "so the header/footer tab doesn't follow those rules. does
+The owner, 2026-11-03, on a show whose Header/Footer tab names its group by
+Group: "so the header/footer tab doesn't follow those rules. does
 it need an update?" - the binder printed a Header/Footer sheet per member
 whatever the switch said.
 
@@ -304,3 +304,111 @@ def test_a_saved_answer_survives_the_reader(page):
     }""")
     assert out == {'g1': {'rigging': 'screens', 'power': 'group'}}, out
     assert not errors, errors
+
+
+# ── each group's OWN Names value (per group since 2026-11-04) ────────────
+# Two groups, the one reader the canvas uses. _run above only ever set the
+# show-wide value, which is how #121 passed while reading one value for
+# every group.
+
+SECOND_GROUP_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    const wall = {columns: 4, rows: 3, cabinet_width: 200, cabinet_height: 200, panelWatts: 200,
+                  flowPattern: 'tl-h', processorType: 'novastar-armor'};
+    await j('POST', '/api/layer/add', {...wall, name: 'SIDE-L', offset_x: 3000});
+    await j('POST', '/api/layer/add', {...wall, name: 'SIDE-R', offset_x: 3800, panelWatts: 150});
+    let p = await j('GET', '/api/project');
+    const L = p.layers.find(l => l.name === 'SIDE-L'), R = p.layers.find(l => l.name === 'SIDE-R');
+    L.group_id = 'g2'; R.group_id = 'g2'; L.riggingBars = [4]; R.riggingBars = [4];
+    p.groups.push({id: 'g2', name: 'SIDE', layer_ids: [L.id, R.id], routeDataAsOne: false});
+    await j('PUT', '/api/project', p);
+    p = await j('GET', '/api/project');
+    app.project = p;
+    app.dedupeProjectLayers('group_rig_second');
+    app.renderLayers();
+    window.canvasRenderer.render();
+    app.resetHistory('Second Group');
+}"""
+
+DROP_SECOND_GROUP_JS = """async () => {
+    const app = window.app;
+    const p = await fetch('/api/project').then(r => r.json());
+    p.layers = p.layers.filter(l => !/^SIDE-/.test(l.name));
+    p.groups = p.groups.filter(g => g.id !== 'g2');
+    p.groups.forEach(g => { delete g.nameDisplayByView; });
+    delete p.groupNameDisplayByView;
+    await fetch('/api/project', {method: 'PUT', headers: {'Content-Type': 'application/json'},
+                                 body: JSON.stringify(p)});
+    app.project = await fetch('/api/project').then(r => r.json());
+    app.dedupeProjectLayers('group_rig_second_gone');
+    app.renderLayers();
+    window.canvasRenderer.render();
+}"""
+
+OWN_JS = """([own, showWide, opts]) => {
+    const app = window.app;
+    const wasWide = app.project.groupNameDisplayByView;
+    const groups = app.project.groups;
+    const was = groups.map(g => g.nameDisplayByView);
+    groups.forEach(g => { const v = own[g.id];
+        if (v) g.nameDisplayByView = { ...(g.nameDisplayByView || {}), rigging: v };
+        else delete g.nameDisplayByView; });
+    if (showWide) app.project.groupNameDisplayByView = { rigging: showWide };
+    else delete app.project.groupNameDisplayByView;
+    try {
+        app.openExportModal('binder');
+        app._renderBinderGroupRows();
+        const rows = [...document.querySelectorAll('#export-binder-groups .binder-group-row')]
+            .map(r => r.querySelector('.binder-group-name').textContent);
+        document.getElementById('export-modal').style.display = 'none';
+        return { sheets: app.planBinder(opts).filter(p => p.kind === 'rigging').map(p => p.title),
+                 rows };
+    } finally {
+        groups.forEach((g, i) => { if (was[i]) g.nameDisplayByView = was[i]; else delete g.nameDisplayByView; });
+        if (wasWide) app.project.groupNameDisplayByView = wasWide; else delete app.project.groupNameDisplayByView;
+    }
+}"""
+
+
+@pytest.fixture()
+def two_groups(page):
+    pg, ids, errors = page
+    pg.evaluate(SECOND_GROUP_JS)
+    pg.wait_for_timeout(300)
+    yield pg
+    pg.evaluate(DROP_SECOND_GROUP_JS)
+    pg.wait_for_timeout(300)
+
+
+GROUP_SHEET = {'g1': 'WALL - Header/Footer - Front View', 'g2': 'SIDE - Header/Footer - Front View'}
+MEMBERS = {'g1': ['WALL-L - Header/Footer - Front View', 'WALL-R - Header/Footer - Front View'],
+           'g2': ['SIDE-L - Header/Footer - Front View', 'SIDE-R - Header/Footer - Front View']}
+
+
+def test_a_group_on_screens_prints_a_sheet_per_member_beside_a_group_on_group(two_groups):
+    out = two_groups.evaluate(OWN_JS, [{'g1': 'screens', 'g2': 'group'}, None, OPTS])
+    assert all(t in out['sheets'] for t in MEMBERS['g1']), out
+    assert GROUP_SHEET['g1'] not in out['sheets'], out
+    assert GROUP_SHEET['g2'] in out['sheets'], out
+    assert not any(t in out['sheets'] for t in MEMBERS['g2']), out
+    assert out['rows'] == [], out
+
+
+def test_a_group_on_both_gets_its_row_and_the_other_does_not(two_groups):
+    out = two_groups.evaluate(OWN_JS, [{'g1': 'group', 'g2': 'both'}, None, OPTS])
+    assert out['rows'] == ['SIDE'], out
+    assert GROUP_SHEET['g1'] in out['sheets'] and GROUP_SHEET['g2'] in out['sheets'], out
+
+
+def test_a_leftover_show_wide_value_splits_neither_group(two_groups):
+    # An old show's single value, left on the project, with each group's own
+    # value set: the groups stay whole.
+    out = two_groups.evaluate(OWN_JS, [{'g1': 'group', 'g2': 'group'}, 'screens', OPTS])
+    assert GROUP_SHEET['g1'] in out['sheets'] and GROUP_SHEET['g2'] in out['sheets'], out
+    assert not any(t in out['sheets'] for t in MEMBERS['g1'] + MEMBERS['g2']), out
+    # and the other way about: a leftover Both asks for neither.
+    out = two_groups.evaluate(OWN_JS, [{'g1': 'group', 'g2': 'group'}, 'both', OPTS])
+    assert out['rows'] == [], out

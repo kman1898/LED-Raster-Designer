@@ -113,6 +113,8 @@ class _ClientProps {
                         if (layerProps.screenNameOffsetYDataFlow !== undefined) layer.screenNameOffsetYDataFlow = layerProps.screenNameOffsetYDataFlow;
                         if (layerProps.screenNameOffsetXPower !== undefined) layer.screenNameOffsetXPower = layerProps.screenNameOffsetXPower;
                         if (layerProps.screenNameOffsetYPower !== undefined) layer.screenNameOffsetYPower = layerProps.screenNameOffsetYPower;
+                        if (layerProps.screenNameOffsetXRigging !== undefined) layer.screenNameOffsetXRigging = layerProps.screenNameOffsetXRigging;
+                        if (layerProps.screenNameOffsetYRigging !== undefined) layer.screenNameOffsetYRigging = layerProps.screenNameOffsetYRigging;
                         if (layerProps.screenNameOffsetXShowLook !== undefined) layer.screenNameOffsetXShowLook = layerProps.screenNameOffsetXShowLook;
                         if (layerProps.screenNameOffsetYShowLook !== undefined) layer.screenNameOffsetYShowLook = layerProps.screenNameOffsetYShowLook;
                         if (layerProps.gradientEnabled !== undefined) layer.gradientEnabled = layerProps.gradientEnabled;
@@ -434,6 +436,8 @@ class _ClientProps {
                 screenNameOffsetYDataFlow: layer.screenNameOffsetYDataFlow,
                 screenNameOffsetXPower: layer.screenNameOffsetXPower,
                 screenNameOffsetYPower: layer.screenNameOffsetYPower,
+                screenNameOffsetXRigging: layer.screenNameOffsetXRigging,
+                screenNameOffsetYRigging: layer.screenNameOffsetYRigging,
                 screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
                 screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
                 gradientEnabled: layer.gradientEnabled,

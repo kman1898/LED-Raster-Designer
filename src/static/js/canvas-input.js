@@ -38,8 +38,8 @@ Object.assign(CanvasRenderer.prototype, {
             const layer = hit && app && app.project
                 ? app.project.layers.find(l => l.id === hit.layerId) : null;
             if (layer) {
-                if (layer.locked) {
-                    if (typeof app._showLockedError === 'function') app._showLockedError([layer]);
+                if (app._layerLocked(layer)) {
+                    app._showLockedError([layer]);
                     return;
                 }
                 if (!(app.selectedLayerIds && app.selectedLayerIds.has(layer.id))) {
@@ -126,6 +126,9 @@ Object.assign(CanvasRenderer.prototype, {
                 } else if (this.viewMode === 'power') {
                     currentOffsetX = layer.screenNameOffsetXPower || 0;
                     currentOffsetY = layer.screenNameOffsetYPower || 0;
+                } else if (this.viewMode === 'rigging') {
+                    currentOffsetX = layer.screenNameOffsetXRigging || 0;
+                    currentOffsetY = layer.screenNameOffsetYRigging || 0;
                 } else if (this.viewMode === 'show-look') {
                     currentOffsetX = layer.screenNameOffsetXShowLook || 0;
                     currentOffsetY = layer.screenNameOffsetYShowLook || 0;
@@ -355,6 +358,9 @@ Object.assign(CanvasRenderer.prototype, {
                     } else if (this.viewMode === 'power') {
                         currentOffsetX = window.app.currentLayer.screenNameOffsetXPower || 0;
                         currentOffsetY = window.app.currentLayer.screenNameOffsetYPower || 0;
+                    } else if (this.viewMode === 'rigging') {
+                        currentOffsetX = window.app.currentLayer.screenNameOffsetXRigging || 0;
+                        currentOffsetY = window.app.currentLayer.screenNameOffsetYRigging || 0;
                     }
 
                     this.screenNameStartOffset = { x: currentOffsetX, y: currentOffsetY };
@@ -594,6 +600,9 @@ Object.assign(CanvasRenderer.prototype, {
                     } else if (this.viewMode === 'power') {
                         currentOffsetX = window.app.currentLayer.screenNameOffsetXPower || 0;
                         currentOffsetY = window.app.currentLayer.screenNameOffsetYPower || 0;
+                    } else if (this.viewMode === 'rigging') {
+                        currentOffsetX = window.app.currentLayer.screenNameOffsetXRigging || 0;
+                        currentOffsetY = window.app.currentLayer.screenNameOffsetYRigging || 0;
                     }
                     
                     this.screenNameStartOffset = {
@@ -1084,6 +1093,9 @@ Object.assign(CanvasRenderer.prototype, {
                 } else if (this.viewMode === 'power') {
                     layer.screenNameOffsetXPower = newOffsetX;
                     layer.screenNameOffsetYPower = newOffsetY;
+                } else if (this.viewMode === 'rigging') {
+                    layer.screenNameOffsetXRigging = newOffsetX;
+                    layer.screenNameOffsetYRigging = newOffsetY;
                 } else if (this.viewMode === 'show-look') {
                     layer.screenNameOffsetXShowLook = newOffsetX;
                     layer.screenNameOffsetYShowLook = newOffsetY;
@@ -1871,6 +1883,9 @@ Object.assign(CanvasRenderer.prototype, {
                 } else if (this.viewMode === 'power') {
                     currentOffsetX = layer.screenNameOffsetXPower || 0;
                     currentOffsetY = layer.screenNameOffsetYPower || 0;
+                } else if (this.viewMode === 'rigging') {
+                    currentOffsetX = layer.screenNameOffsetXRigging || 0;
+                    currentOffsetY = layer.screenNameOffsetYRigging || 0;
                 } else if (this.viewMode === 'show-look') {
                     currentOffsetX = layer.screenNameOffsetXShowLook || 0;
                     currentOffsetY = layer.screenNameOffsetYShowLook || 0;

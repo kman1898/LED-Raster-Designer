@@ -46,6 +46,7 @@ Object.assign(CanvasRenderer.prototype, {
         if (!header.length && !footer.length) return;
 
         const box = this.getLayerFootprintInActiveView(layer);
+        const wall = RiggingMath.wallPanels(layer.columns, layer.rows, layer.rotation);
         const baseH = Math.max(36, Math.min(96, box.height * 0.18));
         const ctx = this.ctx;
         // The screen's own colors (black bar, white text unless changed). A
@@ -78,7 +79,7 @@ Object.assign(CanvasRenderer.prototype, {
             const { gap, h } = fit(this.riggingTopRoom);
             let top = box.y - gap - h;
             if (clipToRaster && top < 0) top = 0;
-            this._drawRiggingRow(layer, 'header', header, box, top, h, style);
+            this._drawRiggingRow(layer, 'header', header, box, top, h, style, wall);
         }
         if (footer.length) {
             const { gap, h } = fit(this.riggingBottomRoom);
@@ -86,17 +87,20 @@ Object.assign(CanvasRenderer.prototype, {
             if (clipToRaster && Number.isFinite(this.rasterHeight) && top + h > this.rasterHeight) {
                 top = Math.max(0, this.rasterHeight - h);
             }
-            this._drawRiggingRow(layer, 'footer', footer, box, top, h, style);
+            this._drawRiggingRow(layer, 'footer', footer, box, top, h, style, wall);
         }
         ctx.restore();
     },
 
-    // One row of bars across the wall's width, and the mouse's view of it.
-    _drawRiggingRow(layer, row, bars, box, top, barH, style) {
+    // One row of bars from the wall's left edge, and the mouse's view of it.
+    // A panel of bar is a panel of wall: a row that no longer adds up to the
+    // wall (`wall` panels wide) stops short of it or runs past it at its
+    // true width, never stretched to look as if it fits, and is marked.
+    _drawRiggingRow(layer, row, bars, box, top, barH, style, wall) {
         const total = bars.reduce((a, b) => a + b, 0);
         if (total <= 0) return;
         const ctx = this.ctx;
-        const unit = box.width / total;
+        const unit = box.width / (wall > 0 ? wall : total);
         // Where each bar and edge sits on the screen (canvas pixels), for
         // the mouse: read through the current transform, so the layer's
         // workspace offset and a mirrored canvas are already in it. A
@@ -144,8 +148,34 @@ Object.assign(CanvasRenderer.prototype, {
             ctx.font = `bold ${fontPx}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(String(span), x + w / 2, top + barH / 2);
+            this._fillText(String(span), x + w / 2, top + barH / 2);
             x += w;
         }
+        if (wall > 0 && total !== wall) this._drawRiggingMisfit(box, top, barH, x);
+    },
+
+    // The mark on a row that no longer fits: a dashed outline where the
+    // bars should reach, and the words beside the bars' own end, inside the
+    // gap on a short row and past the bars on a long one.
+    _drawRiggingMisfit(box, top, barH, barsEnd) {
+        const ctx = this.ctx;
+        const ink = this.printerMode ? PRINTER_INK : '#ff5a4f';
+        ctx.save();
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = 3;
+        ctx.setLineDash([barH * 0.25, barH * 0.15]);
+        ctx.strokeRect(box.x, top, box.width, barH);
+        ctx.setLineDash([]);
+        const fontPx = Math.max(10, Math.min(barH * 0.4, 28));
+        ctx.font = `bold ${fontPx}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = ink;
+        const word = 'No longer fits';
+        const half = ctx.measureText(word).width / 2;
+        const gap = box.x + box.width - barsEnd;
+        const x = gap > half * 2 ? barsEnd + gap / 2 : barsEnd + half + fontPx / 2;
+        this._fillText(word, x, top + barH / 2);
+        ctx.restore();
     },
 });

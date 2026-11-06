@@ -1722,12 +1722,12 @@
                         <h2>Header/Footer Settings</h2>
                     </div>
                     <div class="panel-content">
-                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen layer name on the canvas in the Header/Footer view.">
+                        <div class="info-row checkbox-row" data-tooltip="Screen Name, Show or hide the screen name on the canvas in the Header/Footer view.">
                             <input type="checkbox" id="show-label-name-rigging" checked>
                             <label for="show-label-name-rigging">Screen Name</label>
                         </div>
 
-                        <div class="info-row" data-tooltip="Names, How grouped screens are named on this tab. Screens draws each layer's own name, Group draws one name across the whole group, Both draws the group name plus each layer's own.">
+                        <div id="name-display-row-rigging" class="info-row name-display-row" data-tooltip="Names, How the selected group's screens are named on this tab. Screens draws each screen's own name, Group draws one name across the whole group, Both draws the group name plus every screen's. Sets the selected group, or every selected group at once; each group keeps its own choice on each tab. Shows only while a grouped screen is selected; ungrouped screens always keep their own name. The binder's Header/Footer sheets follow each group's choice: Group prints one sheet for the group, Screens a sheet per screen, Both asks at export.">
                             <label>Names</label>
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="rigging" data-name-display="screens" style="flex: 1; padding: 4px 6px; font-size: 11px;">Screens</button>
@@ -1790,6 +1790,14 @@
                             </div>
                         </div>
                         <div id="rigging-status" style="color:#aaa; font-size: 12px; margin-top: 8px; white-space: pre-line;"></div>
+                        <!-- Rows of bars that no longer add up to their wall
+                             (a resize or a turn). Nothing changes until Auto
+                             here is pressed. _refreshRiggingFitBox fills it. -->
+                        <div id="rigging-fit-warning" style="display: none; margin-top: 8px; padding: 6px 8px; font-size: 12px; color: #f5a623; background: #1a1a1a; border: 1px solid #f5a623; border-radius: 4px;" data-tooltip="Bars no longer fit, A screen was resized or turned, so its bars no longer add up to its wall. They stay as they are until you press Auto here.">
+                            <div style="font-weight: 600; margin-bottom: 2px;">Bars no longer fit</div>
+                            <div id="rigging-fit-text" style="white-space: pre-line; margin-bottom: 6px;"></div>
+                            <button type="button" id="rigging-fit-auto" class="btn btn-primary" style="width: 100%;" data-tooltip="Auto, Fit these bars to their walls again, with each screen's own lit sizes.">Auto</button>
+                        </div>
                         <!-- Every screen in the show, not just the selected ones.
                              Filled by refreshRiggingTotals (app-rigging.js). -->
                         <div style="margin-top: 14px; padding: 8px; background: #111; border: 1px solid #4a4a4a; border-radius: 4px; font-size: 12px; color: #ccc;"
@@ -2496,7 +2504,7 @@
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One sheet per distro and per processor at the back (4.x, or 5.x after a Fiber sheet)."><input type="checkbox" id="export-binder-hardware" checked> Hardware</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A wiring sheet behind each map (2.x): Power Wiring right after a screen's Power sheet, every circuit wired to its breakout; Data Wiring right after its Data sheet, every port wired to its socket. Each follows its own map: Maps on Power gives no Data Wiring sheet, and the other way round."><input type="checkbox" id="export-binder-wiring" checked> Wiring</label>
                         <label id="export-binder-fiber-label" style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One Fiber sheet right after the screens, before the pull sheets (3.x), offered when the show uses fiber: every processor to its breakout boxes, a row per link, with the strand maps and the fiber cables to pull."><input type="checkbox" id="export-binder-fiber" checked> Fiber</label>
-                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A Header/Footer sheet for each screen that has header or footer bars (2.x): the wall with its bars drawn above and below it, and a table of the bars it needs. Screens with none print no Header/Footer sheet."><input type="checkbox" id="export-binder-rigging" checked> Header/Footer</label>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A Header/Footer sheet for each screen or group that has header or footer bars (2.x): the wall with its bars drawn above and below it, and a table of the bars it needs. A group follows the Header/Footer tab's Names switch. Screens with none print no Header/Footer sheet."><input type="checkbox" id="export-binder-rigging" checked> Header/Footer</label>
                         </div>
                     </div>
                     <!-- The border, the title block column and the rev line, or

@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look']
+VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look', 'rigging']
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -122,7 +122,7 @@ HELPERS_JS = """() => {
         values(id) {
             const app = window.app, g = this.G(id);
             const out = {};
-            for (const v of ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look']) {
+            for (const v of ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look', 'rigging']) {
                 out[v] = app.groupNameDisplayFor(v, g);
             }
             return out;
@@ -514,7 +514,7 @@ def test_an_old_show_opens_with_every_group_on_the_tab_value(page):
         return res;
     }""")
     want = {'pixel-map': 'screens', 'cabinet-id': 'group', 'data-flow': 'group',
-            'power': 'both', 'show-look': 'group'}
+            'power': 'both', 'show-look': 'group', 'rigging': 'group'}
     assert out['first'] is True and out['second'] is False, out
     assert out['byView'] == {'wall': want, 'side': want}, out
     assert out['byViewField'] == {'pixel-map': 'screens', 'power': 'both'}, out

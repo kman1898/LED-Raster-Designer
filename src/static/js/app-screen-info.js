@@ -1713,6 +1713,8 @@ class _ScreenInfo {
                     screenNameOffsetYDataFlow: this.currentLayer.screenNameOffsetYDataFlow,
                     screenNameOffsetXPower: this.currentLayer.screenNameOffsetXPower,
                     screenNameOffsetYPower: this.currentLayer.screenNameOffsetYPower,
+                    screenNameOffsetXRigging: this.currentLayer.screenNameOffsetXRigging,
+                    screenNameOffsetYRigging: this.currentLayer.screenNameOffsetYRigging,
                     screenNameOffsetXShowLook: this.currentLayer.screenNameOffsetXShowLook,
                     screenNameOffsetYShowLook: this.currentLayer.screenNameOffsetYShowLook,
                     gradientEnabled: this.currentLayer.gradientEnabled,
@@ -1857,6 +1859,10 @@ class _ScreenInfo {
         // _canvasGuardEdit). Every layer commit funnels through here.
         if (typeof this._canvasGuardEdit === 'function' && !this._canvasGuardEdit()) return;
 
+        // Bars the edit left short or long say so; they stay as they are
+        // until the person presses Auto (app-rigging.js).
+        if (typeof this.riggingFitCheck === 'function') this.riggingFitCheck(layers);
+
         // An older show's kept 2fers that this edit repacked go (app-power
         // pruneStaleKeptShares), and a screen that loses one rides along.
         if (typeof this.pruneStaleKeptShares === 'function') {
@@ -1932,7 +1938,8 @@ class _ScreenInfo {
                 'screenNameOffsetYCabinet',
                 'screenNameOffsetXDataFlow',
                 'screenNameOffsetYDataFlow', 'screenNameOffsetXPower',
-                'screenNameOffsetYPower', 'screenNameOffsetXShowLook',
+                'screenNameOffsetYPower', 'screenNameOffsetXRigging',
+                'screenNameOffsetYRigging', 'screenNameOffsetXShowLook',
                 'screenNameOffsetYShowLook', 'gradientEnabled',
                 'transparentFill', 'rotation', 'gradientType',
                 'gradientScope', 'gradientPanelAlternate',

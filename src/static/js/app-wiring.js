@@ -2288,6 +2288,7 @@ class _Wiring {
                 this.applyToSelectedLayers(layer => {
                     layer.screenNameSizeRigging = parseInt(screenNameSizeRiggingInput.value) || 30;
                 });
+                this.saveClientSideProperties();
                 this.updateLayers(this.getSelectedLayers(), true, 'Change Screen Name Size');
                 window.canvasRenderer.render();
             });
@@ -2581,6 +2582,10 @@ class _Wiring {
             if (views.length === 0) {
                 this._toast('Pick at least one view to export.', true);
                 return;
+            }
+            if (views.includes('rigging')) {
+                const misfit = this.riggingFitWarning();
+                if (misfit) this._toast(misfit, true, 12000);
             }
 
             // Slice 11: collect selected canvas IDs from the dynamic

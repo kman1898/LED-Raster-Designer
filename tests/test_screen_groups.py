@@ -831,7 +831,7 @@ def test_a_tab_set_on_its_own_keeps_its_value(client):
 def test_per_tab_names_survive_save_and_load(client):
     project, gid, ids = _grouped_project(client)
     by = {'pixel-map': 'group', 'cabinet-id': 'both', 'data-flow': 'screens',
-          'power': 'group', 'show-look': 'screens'}
+          'power': 'group', 'show-look': 'screens', 'rigging': 'both'}
     project['groupNameDisplayByView'] = by
     assert client.post('/api/project', json=project).status_code == 200
     assert _get_project(client)['groupNameDisplayByView'] == by
@@ -874,7 +874,7 @@ def test_an_old_show_with_per_tab_values_gives_each_group_each_tab(client):
     project['groupNameDisplayByView'] = {'pixel-map': 'screens', 'power': 'both'}
     loaded = _put(client, project)
     want = {'pixel-map': 'screens', 'cabinet-id': 'group', 'data-flow': 'group',
-            'power': 'both', 'show-look': 'group'}
+            'power': 'both', 'show-look': 'group', 'rigging': 'group'}
     for gid in (g1, g2):
         assert _group_of(loaded, gid)['nameDisplayByView'] == want
     # the show-wide fields stay exactly as they were, for an older build
@@ -907,9 +907,9 @@ def test_a_show_without_a_show_wide_value_pins_nothing_on_its_groups(client):
 def test_per_group_names_survive_save_and_load(client):
     project, g1, g2 = _two_groups(client)
     a = {'pixel-map': 'group', 'cabinet-id': 'both', 'data-flow': 'group',
-         'power': 'screens', 'show-look': 'group'}
+         'power': 'screens', 'show-look': 'group', 'rigging': 'screens'}
     b = {'pixel-map': 'screens', 'cabinet-id': 'group', 'data-flow': 'screens',
-         'power': 'group', 'show-look': 'both'}
+         'power': 'group', 'show-look': 'both', 'rigging': 'both'}
     _group_of(project, g1)['nameDisplayByView'] = a
     _group_of(project, g2)['nameDisplayByView'] = b
     assert client.post('/api/project', json=project).status_code == 200
@@ -924,7 +924,7 @@ def test_per_group_names_survive_save_and_load(client):
 def test_a_duplicated_canvas_copies_each_groups_names(client):
     project, g1, g2 = _two_groups(client)
     a = {'pixel-map': 'screens', 'cabinet-id': 'group', 'data-flow': 'both',
-         'power': 'screens', 'show-look': 'group'}
+         'power': 'screens', 'show-look': 'group', 'rigging': 'screens'}
     _group_of(project, g1)['nameDisplayByView'] = a
     _put(client, project)
     src = _get_project(client)['active_canvas_id']

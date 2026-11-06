@@ -174,6 +174,26 @@ const RiggingMath = (() => {
         return { total, bySize };
     }
 
+    // How many panels wide the wall stands: its columns, or its rows once it
+    // is turned a quarter (the footprint the bars hang on, canvas.js
+    // _layerRotationGeom swaps the same two angles).
+    function wallPanels(columns, rows, rotation) {
+        const deg = (((Number(rotation) || 0) % 360) + 360) % 360;
+        return Number(deg === 90 || deg === 270 ? rows : columns) || 0;
+    }
+
+    // How many panels a row of bars covers.
+    function barPanels(bars) {
+        return (Array.isArray(bars) ? bars : []).reduce((sum, n) => sum + (Number(n) || 0), 0);
+    }
+
+    // Do these bars cover a wall this many panels wide, edge to edge? An
+    // empty row is no claim on the wall, so it never fails.
+    function barsFit(bars, width) {
+        const panels = barPanels(bars);
+        return panels === 0 || panels === width;
+    }
+
     // Dragging the edge between bars[boundary] and bars[boundary + 1] by
     // `deltaPanels` (positive = to the right): the bar the edge belongs to
     // grows and the one beside it shrinks by the same whole number of
@@ -205,7 +225,8 @@ const RiggingMath = (() => {
         return `${kind === 'footer' ? 'Footer' : 'Header'} Bar - ${sizeWord(size)}`;
     }
 
-    return { cleanSizes, arrangeSymmetric, isSymmetric, fitBars, moveBar, moveBarWithSlot, resizeBoundary, tally, sizeWord, barName };
+    return { cleanSizes, arrangeSymmetric, isSymmetric, fitBars, moveBar, moveBarWithSlot, resizeBoundary, tally, sizeWord, barName,
+             wallPanels, barPanels, barsFit };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = RiggingMath;

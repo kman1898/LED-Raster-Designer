@@ -86,7 +86,7 @@ ADVANCED_RUNS = [
      'distroPreset', 'distroRows'],                          # gear:distro
     ['jumperNames', 'pullPanels'],                           # export:pull-sheet
     ['cableStock', 'cableStockPerKind'],                     # prefs:stock
-    ['exportBinder', 'screenOrder', 'wiringTick',
+    ['exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet',
      'fiberPage', 'titleBlock'],                             # export:binder
 ]
 QUICK_RUNS = []

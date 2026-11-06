@@ -3239,6 +3239,8 @@ class _PullList {
         }
         const pullList = this.buildPullSheet();
         const settings = pullList.settings;
+        const misfit = typeof this.riggingFitWarning === 'function' ? this.riggingFitWarning() : '';
+        if (misfit && typeof this._toast === 'function') this._toast(misfit, true, 12000);
         const body = {
             project_name: name,
             ...this._pullSheetDate(),

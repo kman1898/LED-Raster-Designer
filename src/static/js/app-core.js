@@ -917,6 +917,8 @@ export class LEDRasterApp {
             screenNameOffsetYDataFlow: layer.screenNameOffsetYDataFlow,
             screenNameOffsetXPower: layer.screenNameOffsetXPower,
             screenNameOffsetYPower: layer.screenNameOffsetYPower,
+            screenNameOffsetXRigging: layer.screenNameOffsetXRigging,
+            screenNameOffsetYRigging: layer.screenNameOffsetYRigging,
             screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
             screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
             gradientEnabled: layer.gradientEnabled,
