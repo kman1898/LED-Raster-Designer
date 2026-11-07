@@ -628,23 +628,20 @@ def test_a_module_change_on_a_marked_screen_asks_then_clears(page):
     wait_served_marks(page, 'IdmA', ['0,0,0,0', '2,1,1,1'])
     page.evaluate("() => window.app.selectLayer(window.app.project.layers.find(x => x.name === 'IdmA'))")
     page.wait_for_timeout(150)
-    messages = []
-
-    def dismiss(d):
-        messages.append(d.message)
-        d.dismiss()
-    page.once('dialog', dismiss)
     page.fill('#idm-modules-x', '3')
     page.keyboard.press('Enter')
-    page.wait_for_timeout(400)
-    assert messages and 'clears its 2 marks' in messages[0], messages
+    page.wait_for_selector('#idm-modules-confirm')
+    assert 'clears its 2 marks' in page.inner_text('#idm-modules-confirm')
+    page.keyboard.press('Escape')
+    page.wait_for_selector('#idm-modules-confirm', state='detached')
+    page.wait_for_timeout(200)
     assert page.input_value('#idm-modules-x') == '2'     # put back
     assert idm_of(layer_of(page, 'IdmA'))['modulesX'] == 2
     assert len(marks_of(layer_of(page, 'IdmA'))) == 2
     before = history_len(page)
-    page.once('dialog', lambda d: d.accept())
     page.fill('#idm-modules-x', '3')
     page.keyboard.press('Enter')
+    page.click('#idm-modules-confirm .btn-primary')
     got = settled(page, lambda: idm_of(served_layer(page, 'IdmA')),
                   lambda v: v == {'modulesX': 3, 'modulesY': 2, 'marks': {}})
     assert got == {'modulesX': 3, 'modulesY': 2, 'marks': {}}, got
@@ -784,8 +781,8 @@ def test_a_locked_screen_keeps_its_modules_and_marks_and_says_why(page):
     assert set(marks_of(layer_of(page, 'IdmB'))) == {'0,0,0,0'}
 
     page.evaluate("document.getElementById('app-toast-host').innerHTML = ''")
-    page.evaluate("window.confirm = () => true")
     page.click('#idm-clear-all')
+    page.click('#idm-clear-all-confirm .btn-primary')
     assert said in settled(page, lambda: page.inner_text('#app-toast-host'), lambda t: said in t, 3000)
     page.wait_for_timeout(300)
     assert marks_of(layer_of(page, 'IdmA')) == {}

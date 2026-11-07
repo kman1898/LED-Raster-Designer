@@ -774,14 +774,14 @@ def test_a_pending_camera_save_can_be_flushed_or_dropped(page):
     replaces the show, so the guide's camera never lands on the person's."""
     reset(page)
     open_3d(page, 2)
-    page.click('[data-s3d-view="left"]')
-    page.evaluate("() => { delete window.app.project.stage3dCamera; window.app._s3dSaveCameraSoon(); }")
-    page.evaluate("() => window.app._s3dFlushCamera()")
-    assert page.evaluate("() => !!window.app.project.stage3dCamera")
-    page.evaluate("() => { delete window.app.project.stage3dCamera; window.app._s3dSaveCameraSoon();"
+    page.evaluate("() => { document.querySelector('[data-s3d-view=\"left\"]').click();"
+                  " window.app._s3dFlushCamera(); }")
+    left = page.evaluate("() => window.app.project.stage3dCamera")
+    assert left, 'the flush saved nothing'
+    page.evaluate("() => { document.querySelector('[data-s3d-view=\"top\"]').click();"
                   " window.app._s3dDropPendingCamera(); }")
     page.wait_for_timeout(700)
-    assert page.evaluate("() => !window.app.project.stage3dCamera")
+    assert page.evaluate("() => window.app.project.stage3dCamera") == left
 
 
 def test_no_webgl_says_so_and_the_panel_still_places(e2e_server, pw_browser):

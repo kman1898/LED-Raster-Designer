@@ -215,8 +215,8 @@ SKIP = {
     # ... and so are its Colours (the same block, the same route).
     **{key: 'writes project.idmField through PUT /api/project/idm-field, not '
             'the layer; driven end-to-end by tests/test_idm_colours.py'
-       for key in ('idm-label-colour', 'idm-module-edge-colour', 'idm-cabinet-edge-colour',
-                   'idm-shade-colour', 'idm-shade-percent')},
+       for key in ('idm-label-color', 'idm-module-edge-color', 'idm-cabinet-edge-color',
+                   'idm-shade-color', 'idm-shade-percent')},
     # The show's cable unit beside the jumper fields (2026-10-17): a
     # project setting (project.cableUnit through setCableUnit), the same
     # one the export dialog's Cable lengths selects write.

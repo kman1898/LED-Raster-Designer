@@ -1161,9 +1161,9 @@ class _IdmLocator {
     // The two fields, committed together (Enter or Tab ends the edit and
     // fires change - helpers.js installEnterEndsEdit). A field left empty
     // (a mixed selection's) keeps each screen's own figure. A change of
-    // count on a screen with marks clears them, after a confirm that says
-    // how many.
-    _idmCommitModules() {
+    // count on a screen with marks clears them, after the app's own dialog
+    // says how many.
+    async _idmCommitModules() {
         const r = window.canvasRenderer;
         const read = (id) => {
             const el = document.getElementById(id);
@@ -1202,7 +1202,10 @@ class _IdmLocator {
             const msg = losing.length === 1
                 ? `Changing the modules on ${losing[0].layer.name || 'this screen'} clears its ${plural(lost, 'mark')}. Continue?`
                 : `Changing the modules clears ${plural(lost, 'mark')} on ${losing.length} screens. Continue?`;
-            if (!window.confirm(msg)) {
+            const yes = await this.appConfirm(msg, {
+                id: 'idm-modules-confirm', title: 'Change the modules', okLabel: 'Change', danger: true,
+            });
+            if (!yes) {
                 this._idmRevertFields();
                 return;
             }
@@ -1238,7 +1241,7 @@ class _IdmLocator {
         this._idmClearLayers(screens, 'Clear Screen Marks');
     }
 
-    _idmClearAll() {
+    async _idmClearAll() {
         const screens = ((this.project && this.project.layers) || [])
             .filter(l => l && (l.type || 'screen') === 'screen' && markCount(l) > 0);
         if (!screens.length) {
@@ -1247,7 +1250,10 @@ class _IdmLocator {
         }
         const total = screens.reduce((n, l) => n + markCount(l), 0);
         const msg = `Clear all ${plural(total, 'mark')} on ${plural(screens.length, 'screen')}?`;
-        if (!window.confirm(msg)) return;
+        const yes = await this.appConfirm(msg, {
+            id: 'idm-clear-all-confirm', title: 'Clear all marks', okLabel: 'Clear', danger: true,
+        });
+        if (!yes) return;
         this._idmClearLayers(screens, 'Clear All Marks');
     }
 
