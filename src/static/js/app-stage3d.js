@@ -517,10 +517,10 @@ class _Stage3D {
     // Show Look one). Curves stay each screen's own. One updateLayers call,
     // one undo step.
     //
-    // A locked screen stays where it is (app-cross-layer-paths.js): an edit
-    // on it is refused and the panel goes back to its figures; a locked
-    // peer stays behind and is named, and the unlocked ones still move, as
-    // a group's drag does on the 2D tabs.
+    // A locked screen stays where it is, and a group with a locked member
+    // counts as locked whole (app-cross-layer-paths.js _layerLocked), so
+    // one check covers every peer below: the edit is refused, the screens
+    // are named and the panel goes back to its figures.
     _s3dCommit(layer, next, action) {
         if (!layer) return;
         if (this._lockedRefused(layer)) {
@@ -534,11 +534,8 @@ class _Stage3D {
         ['pitch', 'yaw', 'roll'].forEach(k => { placed[k] = round(wrap180(placed[k]), 6); });
         const changed = [layer];
         const turned = placed.pitch !== prev.pitch || placed.yaw !== prev.yaw || placed.roll !== prev.roll;
-        const shifted = placed.x !== prev.x || placed.y !== prev.y || placed.z !== prev.z;
         const dq = turned ? quatMul(quatFromPlacement(placed), quatInv(quatFromPlacement(prev))) : null;
-        // A curve moves no peer, so a locked one has nothing to say.
-        const peers = this._s3dGroupPeers(layer);
-        for (const peer of (turned || shifted) ? this._writableLayers(peers) : peers.filter(p => !this._layerLocked(p))) {
+        for (const peer of this._s3dGroupPeers(layer)) {
             const mp = this._s3dPlacementOf(peer, layout);
             const rel = [mp.x - prev.x, mp.y - prev.y, mp.z - prev.z];
             const moved = dq ? quatRotate(dq, rel) : rel;

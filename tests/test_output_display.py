@@ -34,7 +34,7 @@ sys.path.insert(0, HERE)
 
 from conftest import settled  # noqa: E402
 
-pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+pw_api = pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -280,6 +280,27 @@ def test_panning_the_designer_does_not_redraw_the_output(page):
         out.close()
 
 
+def test_header_footer_goes_out_at_the_show_raster(page):
+    """Header/Footer is a Show Look tab like Data and Power: the dialog
+    offers it, between Power and the IDM Locator, and its note gives the
+    Show Look raster."""
+    ids = reset_project(page)
+    page.evaluate("""(id) => { const c = window.app.project.canvases.find(x => x.id === id);
+        c.show_raster_width = 2222; c.show_raster_height = 1111; }""", ids['c1'])
+    page.evaluate("window.app.handleMenuAction('output-to-display')")
+    page.wait_for_selector('#output-display-modal', state='visible')
+    views = page.evaluate("[...document.querySelectorAll('#output-display-view option')].map(o => o.value)")
+    assert views == ['pixel-map', 'cabinet-id', 'show-look', 'data-flow', 'power', 'rigging', 'idm']
+    assert page.evaluate(f"window.app._outputDisplayRasterSize('{ids['c1']}', 'rigging')") == \
+        {'width': 2222, 'height': 1111}
+    close_dialog(page)
+    out = open_from_dialog(page, ids['c1'], view='rigging')
+    assert 'Header/Footer' in out.title()
+    assert ' - ' not in out.title()
+    out.close()
+    close_dialog(page)
+
+
 # ── the dialog's list, closing ────────────────────────────────────────────
 
 def test_dialog_lists_and_closes_outputs(page):
@@ -302,9 +323,14 @@ def test_escape_out_of_full_screen_closes_the_output(page):
     out = open_from_dialog(page, ids['c1'])
     close_dialog(page)
     assert out.locator('#output-hint').inner_text().startswith('Click or press F for full screen')
-    # keydown alone: the window is gone before a keyup could reach it.
+    # keydown alone: the window is gone before a keyup could reach it, and
+    # it can go before the browser answers the key press itself. The close
+    # event is what this test asks for, so that answer is not waited on.
     with out.expect_event('close', timeout=5000):
-        out.keyboard.down('Escape')
+        try:
+            out.keyboard.down('Escape')
+        except pw_api.Error as gone:
+            assert 'closed' in str(gone), gone
     settled(page, lambda: page.evaluate("window.app.listOutputDisplays().length"),
             lambda n: n == 0)
     assert page.evaluate("window.app.listOutputDisplays().length") == 0

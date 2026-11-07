@@ -753,7 +753,43 @@ def test_a_locked_screen_cannot_be_marked(page):
     assert marks_of(layer_of(page, 'IdmB')) == {}
     assert marks_of(served_layer(page, 'IdmB')) == {}
     assert history_len(page) == before
-    assert 'locked' in page.inner_text('#app-toast-host')
+    assert 'IdmB is locked. Unlock it to change it.' in page.inner_text('#app-toast-host')
+
+
+def test_a_locked_screen_keeps_its_modules_and_marks_and_says_why(page):
+    """The Modules fields and both clears go past a locked screen, name it
+    in the one error, and still take on the unlocked ones."""
+    reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    set_layout(page, 'IdmB', 2, 2)
+    click_module(page, 'IdmA', 0, 0, 0, 0)
+    click_module(page, 'IdmB', 0, 0, 0, 0)
+    page.evaluate("""() => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.name === 'IdmB');
+        l.locked = true;
+        app.updateLayers([l], true, 'Lock');
+    }""")
+    settled(page, lambda: served_layer(page, 'IdmB')['locked'], lambda v: v is True)
+    said = 'IdmB is locked. Unlock it to change it.'
+
+    page.evaluate("""() => { const a = window.app;
+        a.selectLayer(a.project.layers.find(x => x.name === 'IdmB')); }""")
+    page.wait_for_timeout(200)
+    page.fill('#idm-modules-x', '4')
+    page.press('#idm-modules-x', 'Enter')
+    assert said in settled(page, lambda: page.inner_text('#app-toast-host'), lambda t: said in t, 3000)
+    assert layer_of(page, 'IdmB')['idm']['modulesX'] == 2
+    assert page.input_value('#idm-modules-x') == '2'
+    assert set(marks_of(layer_of(page, 'IdmB'))) == {'0,0,0,0'}
+
+    page.evaluate("document.getElementById('app-toast-host').innerHTML = ''")
+    page.evaluate("window.confirm = () => true")
+    page.click('#idm-clear-all')
+    assert said in settled(page, lambda: page.inner_text('#app-toast-host'), lambda t: said in t, 3000)
+    page.wait_for_timeout(300)
+    assert marks_of(layer_of(page, 'IdmA')) == {}
+    assert set(marks_of(layer_of(page, 'IdmB'))) == {'0,0,0,0'}
 
 
 def test_the_locator_list_names_the_cabinet_ids_and_finds_the_module(page):

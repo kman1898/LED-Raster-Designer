@@ -175,7 +175,7 @@ class _Wiring {
         return false;
     }
 
-    // The seven view tabs: switch the renderer, swap the sidebar panels,
+    // The eight view tabs: switch the renderer, swap the sidebar panels,
     // and refresh whichever panel the new view owns.
     _wireViewTabs() {
         // View tabs - the top strip's only. The Preferences dialog's tab

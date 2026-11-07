@@ -300,8 +300,8 @@ class _IdmLocator {
                 this._idmBlurButton(btn);
             });
         });
-        document.querySelectorAll('input[data-idm-colour]').forEach(input => {
-            const key = input.dataset.idmColour;
+        document.querySelectorAll('input[data-idm-color]').forEach(input => {
+            const key = input.dataset.idmColor;
             input.addEventListener('input', () => this._idmSetField({ [key]: input.value }, { soon: true }));
             input.addEventListener('change', () => this._idmSetField({ [key]: input.value }));
         });
@@ -582,7 +582,7 @@ class _IdmLocator {
                 btn.classList.toggle('active', !row.set);
                 btn.setAttribute('aria-pressed', row.set ? 'false' : 'true');
             }
-            const input = document.querySelector(`input[data-idm-colour="${k}"]`);
+            const input = document.querySelector(`input[data-idm-color="${k}"]`);
             if (input) {
                 if (input.value.toLowerCase() !== row.value) input.value = row.value;
                 const wrap = input.closest('.idm-swatch-custom');

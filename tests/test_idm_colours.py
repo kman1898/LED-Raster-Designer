@@ -151,7 +151,7 @@ def set_colour(pg, key, hex_):
     """A colour through a row's swatch, the way the app's colour picker
     writes it (the value, then input and change)."""
     pg.evaluate("""([key, hex]) => {
-        const c = document.querySelector(`input[data-idm-colour="${key}"]`);
+        const c = document.querySelector(`input[data-idm-color="${key}"]`);
         c.value = hex;
         c.dispatchEvent(new Event('input', {bubbles: true}));
         c.dispatchEvent(new Event('change', {bubbles: true}));
@@ -193,12 +193,12 @@ def test_an_old_show_draws_on_auto_with_the_default_presets(page):
     assert notes_shown(page) == {k: False for k in ROWS}
     assert page.input_value('#idm-shade-percent') == ''
     # each swatch shows what Auto draws in on the white field
-    assert page.input_value('#idm-label-colour') == '#808080'
-    assert page.input_value('#idm-module-edge-colour') == '#b3b3b3'
-    assert page.input_value('#idm-cabinet-edge-colour') == '#a6a6a6'   # the shade ring, 65%
-    assert page.input_value('#idm-shade-colour') == '#d9d9d9'
+    assert page.input_value('#idm-label-color') == '#808080'
+    assert page.input_value('#idm-module-edge-color') == '#b3b3b3'
+    assert page.input_value('#idm-cabinet-edge-color') == '#a6a6a6'   # the shade ring, 65%
+    assert page.input_value('#idm-shade-color') == '#d9d9d9'
     click_field(page, None, 'lines')
-    assert page.input_value('#idm-cabinet-edge-colour') == '#808080'   # lines: 50%
+    assert page.input_value('#idm-cabinet-edge-color') == '#808080'   # lines: 50%
     assert presets(page) == DEFAULT_PRESETS
     # setting the field writes no Colours keys
     want = {'color': '#ffffff', 'border': 'lines', 'moduleIds': False}
@@ -223,7 +223,7 @@ def test_the_shade_level_as_a_percent_or_a_colour_and_auto_puts_it_back(page):
         wait_pixel(out, 0, 32, (166, 166, 166), tol=0)     # the ring is the cabinet edge's
         assert page.input_value('#idm-shade-percent') == '50'
         assert auto_pressed(page)['shade'] is False
-        assert page.input_value('#idm-shade-colour') == '#808080'
+        assert page.input_value('#idm-shade-color') == '#808080'
         # ... of a colour field too
         click_field(page, '#ff0000')
         wait_pixel(out, 96, 32, (128, 0, 0), tol=0)
@@ -239,7 +239,7 @@ def test_the_shade_level_as_a_percent_or_a_colour_and_auto_puts_it_back(page):
         wait_pixel(out, 96, 32, (0, 255, 0), tol=0)
         wait_pixel(out, 32, 32, (255, 255, 255), tol=0)
         assert page.input_value('#idm-shade-percent') == ''
-        assert page.evaluate("() => document.querySelector('#idm-shade-colour')"
+        assert page.evaluate("() => document.querySelector('#idm-shade-color')"
                              ".closest('.idm-swatch-custom').classList.contains('active')")
         # Auto: exactly the previous levels
         set_auto(page, 'shade')
@@ -332,7 +332,7 @@ def test_the_label_colour_and_auto_puts_it_back(page):
                     ink_rgb=(128, 13, 13), field=(255, 26, 26))
         settled_ink(out, (64 + 16, 16, 32, 32), lambda v: v['hit'] > 20 and v['dark'] == 0)
         # the swatch on Auto shows the auto ink of the field
-        assert page.input_value('#idm-label-colour') == '#808080'
+        assert page.input_value('#idm-label-color') == '#808080'
     finally:
         out.close()
     assert not page._errors, page._errors
@@ -399,9 +399,9 @@ def test_the_colours_reach_a_second_client_survive_save_and_load_and_are_never_u
         assert got == want, got
         open_tab(other)
         assert auto_pressed(other) == {k: False for k in ROWS}
-        assert other.input_value('#idm-label-colour') == '#112233'
-        assert other.input_value('#idm-module-edge-colour') == '#445566'
-        assert other.input_value('#idm-cabinet-edge-colour') == '#778899'
+        assert other.input_value('#idm-label-color') == '#112233'
+        assert other.input_value('#idm-module-edge-color') == '#445566'
+        assert other.input_value('#idm-cabinet-edge-color') == '#778899'
         assert other.input_value('#idm-shade-percent') == '70'
         # and back the other way: Auto from the other client
         other.click('[data-idm-auto="labelColor"]')
@@ -447,7 +447,7 @@ def test_the_colours_reach_a_second_client_survive_save_and_load_and_are_never_u
     assert page.evaluate("() => window.app.project.idmField") == want
     open_tab(page)
     assert auto_pressed(page) == {k: False for k in ROWS}
-    assert page.input_value('#idm-label-colour') == '#112233'
+    assert page.input_value('#idm-label-color') == '#112233'
     assert page.input_value('#idm-shade-percent') == '70'
     assert not page._errors, page._errors
 
@@ -550,7 +550,7 @@ def test_screenshot(page):
     page.evaluate("""() => { const r = window.canvasRenderer;
         r.zoom = Math.min((r.canvas.clientWidth - 40) / 920, (r.canvas.clientHeight - 40) / 320);
         r.panX = 20; r.panY = 20; r.render();
-        const s = document.querySelector('.idm-colours'); if (s) s.scrollIntoView({block: 'center'}); }""")
+        const s = document.querySelector('.idm-colors'); if (s) s.scrollIntoView({block: 'center'}); }""")
     page.mouse.move(5, 5)
     page.wait_for_timeout(400)
     page.screenshot(path=SHOT)

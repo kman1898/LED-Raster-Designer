@@ -7087,14 +7087,14 @@
                 return idmField().moduleIds === true ? 'Every module carries its label; the list names marks the same way.' : null;
             }
         },
-        idmColours: {
+        idmColors: {
             since: '1.7.0',
-            target: '.idm-colours', place: 'right', title: 'Your own colors',
-            avoid: ['#idm-label-colour', '[data-idm-auto="labelColor"]'],
+            target: '.idm-colors', place: 'right', title: 'Your own colors',
+            avoid: ['#idm-label-color', '[data-idm-auto="labelColor"]'],
             body: 'Each label and edge color can be set by hand. Auto goes back to the field&rsquo;s own color at a lower level.',
             before: openIdm,
             act: function (t) {
-                return t.select('#idm-label-colour', '#ffff00').then(function () {
+                return t.select('#idm-label-color', '#ffff00').then(function () {
                     t.mem.set = idmField().labelColor;
                     return t.pause(PACE.acted);
                 }).then(function () {
@@ -7167,6 +7167,9 @@
             target: '#notes-panel', place: 'left', title: 'A checklist in the Notes',
             avoid: ['#notes-checklist-add'],
             body: 'Under the notes, + Add item starts a to-do and its box ticks it off. The list saves with the show.',
+            // The panel folds again, so the steps after it find the Screens
+            // list the height they know.
+            after: function () { setNotesCollapsed(true); },
             act: function (t) {
                 var open = notesCollapsed() ? t.click('#notes-toggle') : Promise.resolve();
                 return open.then(function () {
@@ -7257,7 +7260,7 @@
                     's3dOpen', 's3dSelect', 's3dCurve', 's3dYaw', 's3dCamera', 's3dJoint',
                     'outputOpen', 'outputChoices',
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
-                    'idmColours', 'idmHighlight', 'idmList', 'notesChecklist',
+                    'idmColors', 'idmHighlight', 'idmList', 'notesChecklist',
                     'groupScreens', 'groupNames',
                     'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',

@@ -574,6 +574,153 @@ def test_reset_puts_the_screen_back_at_its_show_look_place(page):
     assert not s['stored']
 
 
+def set_locked(page, layer_id, locked=True):
+    page.evaluate("""([id, on]) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === id);
+        l.locked = on;
+        app.updateLayers([l], true, on ? 'Lock' : 'Unlock');
+    }""", [layer_id, locked])
+    page.wait_for_timeout(300)
+
+
+def toast_says(page, text):
+    return settled(page, lambda: page.inner_text('#app-toast-host'), lambda t: text in t, 3000)
+
+
+def clear_toasts(page):
+    page.evaluate("document.getElementById('app-toast-host').innerHTML = ''")
+
+
+def group_two(page, ids):
+    # Matching processing settings, so grouping needs no settings dialog.
+    page.evaluate("""(ids) => window.app.project.layers.filter(l => ids.includes(l.id))
+        .forEach(l => { l.processorType = 'brompton'; l.bitDepth = 10; l.frameRate = 60; })""", ids)
+    page.evaluate(f"window.app.setSelectedLayersByIds({ids}, {ids[0]})")
+    page.evaluate("() => { window.app.groupSelectedLayers(); }")
+    assert settled(page, lambda: page.evaluate(
+        f"window.app.project.layers.find(l => l.id === {ids[1]}).group_id"), bool)
+    page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {ids[0]}))")
+
+
+def test_a_locked_screen_stays_put_on_the_stage_and_says_why(page):
+    """The lock guards everything (the owner, 2026-10-16): a typed figure,
+    a step button, a curve, Reset and a drag all leave a locked screen as it
+    is, name it in the one red error and leave no undo step. Unlocked, the
+    same gestures take again."""
+    ids = reset(page)
+    page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {ids[0]}))")
+    open_3d(page, 2)
+    type_field(page, 's3d-z', '5')
+    placed = stored(page, ids[0])
+    set_locked(page, ids[0])
+    start = history_len(page)
+    said = 'Upper is locked. Unlock it to change it.'
+
+    type_field(page, 's3d-z', '9')
+    assert said in toast_says(page, said)
+    assert stored(page, ids[0]) == placed
+    assert float(page.input_value('#s3d-z')) == pytest.approx(5), 'the field kept the refused figure'
+    clear_toasts(page)
+
+    type_field(page, 's3d-curve-col', '6')
+    assert said in toast_says(page, said)
+    clear_toasts(page)
+
+    page.click('[data-s3d-axis="yaw"] [data-s3d-step="15"]')
+    assert said in toast_says(page, said)
+    clear_toasts(page)
+
+    page.click('#s3d-reset')
+    assert said in toast_says(page, said)
+    assert stored(page, ids[0]) == placed
+    clear_toasts(page)
+
+    page.click('[data-s3d-view="top"]')
+    page.wait_for_timeout(500)
+    at = screen(page, ids[0])['at']
+    camera = dbg(page)['camera']
+    page.mouse.move(at[0], at[1])
+    page.mouse.down()
+    for step in range(1, 9):
+        page.mouse.move(at[0] + step * 10, at[1])
+        page.wait_for_timeout(20)
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    assert said in toast_says(page, said)
+    assert stored(page, ids[0]) == placed
+    assert screen(page, ids[0])['placement']['x'] == pytest.approx(placed['x'])
+    assert dbg(page)['camera'] == camera, 'the refused press turned the camera'
+    assert served(page, ids[0]) == placed
+    assert history_len(page) == start
+
+    set_locked(page, ids[0], False)
+    page.click('[data-s3d-axis="yaw"] [data-s3d-step="15"]')
+    page.wait_for_timeout(400)
+    assert stored(page, ids[0])['yaw'] == 15
+
+
+def test_a_click_on_a_locked_screen_only_selects_it(page):
+    ids = reset(page)
+    set_locked(page, ids[1])
+    open_3d(page, 2)
+    page.click('[data-s3d-view="front"]')
+    page.wait_for_timeout(500)
+    clear_toasts(page)
+    at = screen(page, ids[1])['at']
+    page.mouse.click(at[0], at[1])
+    page.wait_for_timeout(300)
+    page.mouse.click(at[0], at[1])
+    page.wait_for_timeout(400)
+    assert page.evaluate("window.app.currentLayer.id") == ids[1]
+    assert page.inner_text('#app-toast-host').strip() == ''
+
+
+def test_a_group_with_a_locked_member_refuses_as_a_whole(page):
+    """A half-locked group is locked (the owner's ruling, round 6): every
+    edit on an unlocked member is refused and the error names the locked
+    one, on the 3D tab as on the others."""
+    ids = reset(page, [
+        {'name': 'Left', 'columns': 2, 'rows': 2, 'offset_x': 0, 'offset_y': 0},
+        {'name': 'Right', 'columns': 2, 'rows': 2, 'offset_x': 256, 'offset_y': 0},
+    ])
+    group_two(page, ids)
+    open_3d(page, 2)
+    type_field(page, 's3d-z', '1')
+    mine, peer = stored(page, ids[0]), stored(page, ids[1])
+    set_locked(page, ids[1])
+    start = history_len(page)
+    said = 'Right is locked. Unlock it to change it.'
+    clear_toasts(page)
+
+    type_field(page, 's3d-z', '5')
+    assert said in toast_says(page, said)
+    clear_toasts(page)
+
+    type_field(page, 's3d-curve-col', '6')
+    assert said in toast_says(page, said)
+    clear_toasts(page)
+
+    page.click('#s3d-reset')
+    assert said in toast_says(page, said)
+    clear_toasts(page)
+
+    page.click('[data-s3d-view="top"]')
+    page.wait_for_timeout(500)
+    at = screen(page, ids[0])['at']
+    page.mouse.move(at[0], at[1])
+    page.mouse.down()
+    for step in range(1, 9):
+        page.mouse.move(at[0] + step * 10, at[1])
+        page.wait_for_timeout(20)
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    assert said in toast_says(page, said)
+
+    assert stored(page, ids[0]) == mine and stored(page, ids[1]) == peer
+    assert history_len(page) == start
+
+
 def test_an_old_project_without_3d_data_loads(page):
     ids = reset(page)
     page.evaluate("""async () => {
