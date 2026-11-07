@@ -118,9 +118,12 @@ def test_add_route_and_restore_funnel_hold_the_shape(client):
 def test_view_state_route(client):
     resp = client.put('/api/project/stage3d', json={
         'camera': {'mode': 'perspective', 'position': [0, 1000, 9000], 'target': [0, 1000, 0]},
-        'units': 'm', 'grid': False})
+        'units': 'm', 'grid': False, 'bars': False})
     body = resp.get_json()
     assert body['stage3dUnits'] == 'm' and body['stage3dGrid'] is False
+    assert body['stage3dBars'] is False
+    # only a true or false is taken for the bars
+    assert client.put('/api/project/stage3d', json={'bars': 'yes'}).get_json()['stage3dBars'] is False
     assert body['stage3dCamera']['position'] == [0, 1000, 9000]
     assert app_module.current_project['stage3dCamera']['target'] == [0, 1000, 0]
     # a camera that does not hold its shape is refused; the old one stays
@@ -173,6 +176,10 @@ RESET_JS = """async (specs) => {
     delete project.stage3dCamera;
     delete project.stage3dUnits;
     delete project.stage3dGrid;
+    delete project.stage3dBars;
+    // the bars switch as a fresh show has it (the route test turns it off
+    // on the shared server project)
+    if (app._s3d) app._s3d.bars = true;
     await fetch('/api/project', {
         method: 'PUT', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(project),
@@ -766,6 +773,98 @@ def test_the_camera_is_saved_with_the_project(page):
     assert back['mode'] == 'ortho'
     assert back['position'] == pytest.approx(cam['position'], abs=0.05)
     assert page.evaluate("document.getElementById('s3d-mode-ortho').classList.contains('active')")
+
+
+def set_bars(page, layer_id, header, footer, color=None, text=None):
+    page.evaluate("""([id, h, f, c, t]) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === id);
+        l.riggingBars = h; l.riggingFooterBars = f;
+        if (c) l.riggingColor = c;
+        if (t) l.riggingTextColor = t;
+        app.updateLayers([l], true, 'Bars');
+    }""", [layer_id, header, footer, color, text])
+    page.wait_for_timeout(300)
+
+
+def bars_of(page, layer_id):
+    return {r['row']: r for r in screen(page, layer_id)['bars']}
+
+
+def test_header_and_footer_bars_stand_on_the_stage_at_their_true_width(page):
+    """The owner, 2026-11-07: the Header/Footer tab's bars show in 3D.
+    A row that adds up to the wall spans it; a short one stops short and a
+    long one runs past, never stretched to fit; each in the screen's own
+    bar and text colors."""
+    ids = reset(page)          # Upper 4 x 2, Lower 2 x 2
+    set_bars(page, ids[0], [2, 2], [3], '#1b3a8c', '#ffd200')
+    set_bars(page, ids[1], [3], [])
+    d = open_3d(page, 2)
+    assert d['bars'] is True
+    up, low = bars_of(page, ids[0]), bars_of(page, ids[1])
+    width_up = screen(page, ids[0])['widthMm']
+    width_low = screen(page, ids[1])['widthMm']
+    assert up['header']['bars'] == [2, 2] and up['header']['fits']
+    assert up['header']['lengthMm'] == pytest.approx(width_up)
+    assert not up['footer']['fits'] and up['footer']['lengthMm'] == pytest.approx(width_up * 3 / 4)
+    assert set(low) == {'header'}
+    assert not low['header']['fits'] and low['header']['lengthMm'] == pytest.approx(width_low * 3 / 2)
+    assert all(r['shown'] and r['tex'] for r in list(up.values()) + list(low.values()))
+    assert screen(page, ids[0])['barColors'] == {'fill': '#1b3a8c', 'ink': '#ffd200'}
+    assert screen(page, ids[1])['barColors'] == {'fill': '#000000', 'ink': '#ffffff'}
+    # above and below the wall, in its own frame (Y up, origin at its
+    # centre): `first` is a row's top-left corner, so the header's sits a
+    # bar's height over the wall's top and the footer's just under its foot
+    half, h = screen(page, ids[0])['heightMm'] / 2, up['header']['heightMm']
+    assert up['header']['first'][1] > half + h
+    assert -half - h < up['footer']['first'][1] < -half
+
+
+def test_the_bars_follow_the_curve_and_a_change_on_the_tab(page):
+    ids = reset(page)
+    set_bars(page, ids[0], [4], [])
+    page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {ids[0]}))")
+    open_3d(page, 2)
+    flat = bars_of(page, ids[0])['header']
+    type_field(page, 's3d-curve-col', '10')
+    page.wait_for_timeout(400)
+    bent = bars_of(page, ids[0])['header']
+    # the ends come forward with the wall's ends, and the bar keeps its length
+    assert bent['first'][2] > flat['first'][2] + 10 and bent['last'][2] > flat['last'][2] + 10
+    assert bent['lengthMm'] == pytest.approx(flat['lengthMm'])
+    # a change on the Header/Footer tab redraws them
+    set_bars(page, ids[0], [1, 3], [4])
+    now = bars_of(page, ids[0])
+    assert now['header']['bars'] == [1, 3] and now['footer']['fits']
+
+
+def test_the_bars_switch_hides_them_and_is_kept_with_the_show(page):
+    ids = reset(page)
+    set_bars(page, ids[0], [2, 2], [])
+    open_3d(page, 2)
+    start = history_len(page)
+    page.click('#s3d-bars')
+    page.wait_for_timeout(400)
+    d = dbg(page)
+    assert d['bars'] is False and not bars_of(page, ids[0])['header']['shown']
+    assert not page.evaluate("document.getElementById('s3d-bars').classList.contains('active')")
+    assert settled(page, lambda: page.evaluate(
+        "() => fetch('/api/project').then(r => r.json()).then(p => p.stage3dBars)"), lambda v: v is False) is False
+    assert history_len(page) == start, 'the switch is view state, not an undo step'
+    page.click('#s3d-bars')
+    page.wait_for_timeout(400)
+    assert dbg(page)['bars'] is True and bars_of(page, ids[0])['header']['shown']
+
+
+def test_a_hidden_screen_shows_no_bars(page):
+    ids = reset(page)
+    set_bars(page, ids[1], [2], [2])
+    open_3d(page, 2)
+    assert bars_of(page, ids[1])
+    page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {ids[1]});
+        l.visible = false; a.updateLayers([l]); a.renderLayers(); }}""")
+    got = settled(page, lambda: [s['id'] for s in dbg(page)['screens']], lambda v: ids[1] not in v)
+    assert ids[1] not in got
 
 
 def test_a_pending_camera_save_can_be_flushed_or_dropped(page):

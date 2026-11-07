@@ -760,8 +760,9 @@ def strip_copied_feeds(layer):
 # Every bend is held to +/-STAGE3D_JOINT_LIMIT degrees. A layer without the
 # key is placed by the client from its Show Look position, so older files
 # load unchanged. The project keeps the last camera (`stage3dCamera`), the
-# length units the panel shows (`stage3dUnits`) and the floor grid switch
-# (`stage3dGrid`); those three are view state and are written by their own
+# length units the panel shows (`stage3dUnits`), the floor grid switch
+# (`stage3dGrid`) and the header and footer bars switch (`stage3dBars`);
+# those are view state and are written by their own
 # route (routes_project.py), never by the layer PUT.
 STAGE3D_JOINT_LIMIT = 15.0
 STAGE3D_UNITS = ('ft', 'm')

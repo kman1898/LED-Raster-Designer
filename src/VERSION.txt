@@ -59,6 +59,11 @@ orthographic, has Front, Back, Left, Right, Top and Iso views, and the
 grid can be hidden. Placement saves with the show and undoes like any
 other edit.
 
+- NEW: The bars from the Header/Footer tab stand above and below each
+  wall in 3D, in the bar and text colors you set, each with its size, and
+  follow the wall's curve. Bars that no longer fit show at their true
+  width. The Bars button hides them, and the show remembers it.
+
 A CANVAS ON A SECOND DISPLAY
 
 View > Output to Display opens one canvas in its own window, Pixel Map,

@@ -277,6 +277,56 @@ function s3dBuild(layer, placement) {
     };
 }
 
+// The Header/Footer tab's bars (layer.riggingBars above the wall,
+// layer.riggingFooterBars below it, sizes in panels left to right) as flat
+// quads in the screen's own frame, one per panel slot they cover, built
+// on the same column chain as the cabinets: a bar follows the screen's
+// curve and every joint, and leans with the top (or bottom) row. A panel
+// of bar is a panel of wall: bars that no longer add up to the wall stop
+// short of it or run past its last column at the wall's average column
+// width, at their true width and never stretched, as the tab draws them.
+// The bar's height is a picture, not a measured part: a fifth of the
+// wall's height, held between 150 and 600 mm, so the sizes read.
+const BAR_GAP_MM = 40;
+function s3dBarHeight(built) {
+    return Math.max(150, Math.min(600, (built.heightMm || 0) * 0.18));
+}
+function s3dBarRows(layer, built) {
+    const out = [];
+    const n = built.colLen.length, last = built.rowLen.length - 1;
+    if (!n || last < 0) return out;
+    const avg = built.widthMm / n;
+    const h = s3dBarHeight(built);
+    const below = built.rowLen[last] + BAR_GAP_MM;
+    const defs = [
+        ['header', layer.riggingBars, 0, -(BAR_GAP_MM + h), -BAR_GAP_MM],
+        ['footer', layer.riggingFooterBars, last, below, below + h],
+    ];
+    for (const [row, raw, k, wTop, wBot] of defs) {
+        const bars = (Array.isArray(raw) ? raw : []).map(Number).filter(v => Number.isInteger(v) && v > 0);
+        const slots = bars.reduce((a, b) => a + b, 0);
+        if (!slots) continue;
+        const quads = [];
+        let lengthMm = 0;
+        for (let s = 0; s < slots; s++) {
+            let i = s, ua = 0, ub = built.colLen[s];
+            if (s >= n) {
+                i = n - 1;
+                ua = built.colLen[n - 1] + (s - n) * avg;
+                ub = ua + avg;
+            }
+            lengthMm += ub - ua;
+            quads.push({
+                slot: s,
+                tl: built.point(i, ua, k, wTop), tr: built.point(i, ub, k, wTop),
+                br: built.point(i, ub, k, wBot), bl: built.point(i, ua, k, wBot),
+            });
+        }
+        out.push({ row, bars, slots, wallSlots: n, fits: slots === n, heightMm: h, lengthMm, quads });
+    }
+    return out;
+}
+
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -292,7 +342,7 @@ class _Stage3D {
                 renderer: null, webgl: false, scene: null, root: null, gridGroup: null,
                 persp: null, ortho: null, camera: null, controls: null, raycaster: null,
                 entries: new Map(), joint: null, epoch: null, cam: null,
-                units: 'ft', grid: true, timer: null, frame: 0, gridKey: '',
+                units: 'ft', grid: true, bars: true, timer: null, frame: 0, gridKey: '',
                 wired: false, drag: null, down: null, needsFit: false, saveTimer: null,
                 orthoHalf: 5000,
             };
@@ -698,6 +748,7 @@ class _Stage3D {
         });
         on('s3d-fit', 'click', () => this._s3dFit(true));
         on('s3d-grid', 'click', () => this._s3dSetGrid(!this._s3dState().grid));
+        on('s3d-bars', 'click', () => this._s3dSetBars(!this._s3dState().bars));
     }
 
     // Values only - the fields are never rebuilt, and the one being typed in
@@ -716,6 +767,8 @@ class _Stage3D {
         if (persp) persp.classList.toggle('active', !isOrtho);
         if (ortho) ortho.classList.toggle('active', !!isOrtho);
         if (grid) grid.classList.toggle('active', st.grid !== false);
+        const bars = byId('s3d-bars');
+        if (bars) bars.classList.toggle('active', st.bars !== false);
         const none = byId('s3d-none'), fields = byId('s3d-fields');
         if (none) none.hidden = !!layer;
         if (fields) fields.hidden = !layer;
@@ -797,6 +850,7 @@ class _Stage3D {
             st.epoch = epoch;
             st.units = p.stage3dUnits === 'm' ? 'm' : 'ft';
             st.grid = p.stage3dGrid !== false;
+            st.bars = p.stage3dBars !== false;
             st.joint = null;
             st.cam = (p.stage3dCamera && Array.isArray(p.stage3dCamera.position)
                 && Array.isArray(p.stage3dCamera.target)) ? JSON.parse(JSON.stringify(p.stage3dCamera)) : null;
@@ -810,6 +864,7 @@ class _Stage3D {
         }
         if (p.stage3dUnits !== undefined && p.stage3dUnits !== st.units) p.stage3dUnits = st.units;
         if (p.stage3dGrid !== undefined && p.stage3dGrid !== st.grid) p.stage3dGrid = st.grid;
+        if (p.stage3dBars !== undefined && p.stage3dBars !== st.bars) p.stage3dBars = st.bars;
     }
 
     _s3dPutView(body) {
@@ -841,6 +896,19 @@ class _Stage3D {
         st.gridKey = '';
         this._s3dRefreshPanel();
         this._s3dSchedule();
+    }
+
+    // The header and footer bars shown or hidden on the stage: view state,
+    // saved with the show beside the grid switch, never an undo step.
+    _s3dSetBars(on) {
+        const st = this._s3dState();
+        this._s3dAdoptViewState();
+        st.bars = !!on;
+        if (this.project) this.project.stage3dBars = st.bars;
+        this._s3dPutView({ bars: st.bars });
+        for (const e of st.entries.values()) if (e.barGroup) e.barGroup.visible = st.bars;
+        this._s3dRefreshPanel();
+        this._s3dRequestRender();
     }
 
     _s3dCameraState() {
@@ -1077,6 +1145,7 @@ class _Stage3D {
         if (e.lineGeo) e.lineGeo.dispose();
         if (e.tex) e.tex.dispose();
         if (e.seam) { e.seam.geometry.dispose(); e.seam.material.dispose(); }
+        this._s3dDropBars(e);
         [e.frontMat, e.backMat, e.lineMat].forEach(m => { if (m) m.dispose(); });
         st.entries.delete(id);
     }
@@ -1103,6 +1172,13 @@ class _Stage3D {
             e.geoKey = geoKey;
             this._s3dBuildMesh(e, layer, placement);
         }
+        const barsKey = JSON.stringify([geoKey, layer.riggingBars, layer.riggingFooterBars,
+            layer.riggingColor, layer.riggingTextColor]);
+        if (e.barsKey !== barsKey) {
+            e.barsKey = barsKey;
+            this._s3dBuildBars(e, layer);
+        }
+        if (e.barGroup) e.barGroup.visible = st.bars !== false;
         const texKey = this._s3dTexKey(layer);
         if (e.texKey !== texKey) {
             e.texKey = texKey;
@@ -1174,6 +1250,94 @@ class _Stage3D {
             e.lines.geometry = e.lineGeo;
         }
         e.seamKey = '';
+    }
+
+    // The screen's header and footer bars (s3dBarRows): one mesh per row,
+    // its own drawing in the screen's bar and text colors with each bar's
+    // size on it, the back the cabinets' dark grey. Children of the
+    // screen's group, so they move, turn and curve with it; never picked,
+    // so a click on a bar does not land on a cabinet or a seam.
+    _s3dBuildBars(e, layer) {
+        const st = this._s3dState();
+        const T = st.T;
+        this._s3dDropBars(e);
+        e.barRows = e.built ? s3dBarRows(layer, e.built) : [];
+        if (!e.barRows.length) return;
+        const hex = /^#[0-9a-f]{6}$/i;
+        const fill = hex.test(layer.riggingColor || '') ? layer.riggingColor : '#000000';
+        const ink = hex.test(layer.riggingTextColor || '') ? layer.riggingTextColor : '#ffffff';
+        e.barColors = { fill, ink };
+        e.barGroup = new T.Group();
+        e.barGroup.userData.bars = true;
+        for (const row of e.barRows) {
+            const n = row.quads.length;
+            const pos = new Float32Array(n * 12), uv = new Float32Array(n * 8), idx = new Uint32Array(n * 6);
+            row.quads.forEach((q, i) => {
+                [q.tl, q.tr, q.br, q.bl].forEach((c, k) => pos.set(c, i * 12 + k * 3));
+                const u0 = q.slot / row.slots, u1 = (q.slot + 1) / row.slots;
+                uv.set([u0, 1, u1, 1, u1, 0, u0, 0], i * 8);
+                const base = i * 4;
+                idx.set([base + 3, base + 2, base + 1, base + 3, base + 1, base], i * 6);
+            });
+            const geo = new T.BufferGeometry();
+            geo.setAttribute('position', new T.BufferAttribute(pos, 3));
+            geo.setAttribute('uv', new T.BufferAttribute(uv, 2));
+            geo.setIndex(new T.BufferAttribute(idx, 1));
+            geo.computeBoundingSphere();
+            const canvas = this._s3dPaintBars(row, fill, ink);
+            const tex = new T.CanvasTexture(canvas);
+            tex.colorSpace = T.SRGBColorSpace;
+            if (st.renderer) tex.anisotropy = st.renderer.capabilities.getMaxAnisotropy();
+            const front = new T.Mesh(geo, new T.MeshBasicMaterial({ map: tex, side: T.FrontSide }));
+            const back = new T.Mesh(geo, e.backMat);
+            front.userData.barRow = row.row;
+            e.barGroup.add(front, back);
+            row.canvas = canvas;
+        }
+        e.obj.add(e.barGroup);
+    }
+
+    // One row of bars drawn the way the Header/Footer tab draws it: each
+    // bar filled, outlined in the text color, its size in the middle.
+    _s3dPaintBars(row, fill, ink) {
+        const texH = 128;
+        const avg = row.lengthMm / row.slots;
+        const slotPx = Math.max(8, Math.min(Math.round(texH * avg / row.heightMm), Math.floor(4096 / row.slots)));
+        const canvas = document.createElement('canvas');
+        canvas.width = slotPx * row.slots;
+        canvas.height = texH;
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const line = Math.max(2, Math.round(texH * 0.04));
+        let x = 0;
+        for (const span of row.bars) {
+            const w = span * slotPx;
+            ctx.fillStyle = fill;
+            ctx.fillRect(x, 0, w, texH);
+            ctx.strokeStyle = ink;
+            ctx.lineWidth = line;
+            ctx.strokeRect(x + line / 2, line / 2, w - line, texH - line);
+            const fontPx = Math.max(10, Math.min(texH * 0.6, w * 0.5));
+            ctx.fillStyle = ink;
+            ctx.font = `bold ${fontPx}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(String(span), x + w / 2, texH / 2);
+            x += w;
+        }
+        return canvas;
+    }
+
+    _s3dDropBars(e) {
+        if (!e.barGroup) return;
+        e.barGroup.children.forEach(m => {
+            if (m.userData.barRow) {
+                if (m.material.map) m.material.map.dispose();
+                m.material.dispose();
+                m.geometry.dispose();
+            }
+        });
+        if (e.obj) e.obj.remove(e.barGroup);
+        e.barGroup = null;
     }
 
     // What the screen's Pixel Map drawing depends on: the layer itself (not
@@ -1639,6 +1803,14 @@ class _Stage3D {
                 cols: e.built ? e.built.colLen.length : 0, rows: e.built ? e.built.rowLen.length : 0,
                 widthMm: e.built ? round(e.built.widthMm, 3) : 0, heightMm: e.built ? round(e.built.heightMm, 3) : 0,
                 placement: e.placement, stored: e.stored, tex: e.texSize || null, at,
+                bars: (e.barRows || []).map(r => ({
+                    row: r.row, bars: r.bars.slice(), slots: r.slots, wallSlots: r.wallSlots, fits: r.fits,
+                    heightMm: round(r.heightMm, 3), lengthMm: round(r.lengthMm, 3),
+                    first: r.quads[0].tl.map(v => round(v, 3)), last: r.quads[r.quads.length - 1].tr.map(v => round(v, 3)),
+                    tex: r.canvas ? [r.canvas.width, r.canvas.height] : null,
+                    shown: !!(e.barGroup && e.barGroup.visible),
+                })),
+                barColors: e.barColors || null,
                 world: world ? { min: world.min.toArray().map(v => round(v, 2)), max: world.max.toArray().map(v => round(v, 2)) } : null,
             });
         }
@@ -1646,7 +1818,7 @@ class _Stage3D {
             loaded: !!st.T, webgl: st.webgl, active: st.active, failed: st.failed,
             message: (document.getElementById('s3d-message') || {}).hidden === false
                 ? document.getElementById('s3d-message').textContent : '',
-            units: this._s3dUnits(), grid: st.grid,
+            units: this._s3dUnits(), grid: st.grid, bars: st.bars,
             joint: st.joint ? { ...st.joint } : null,
             camera: this._s3dCameraState(),
             gridLines: st.gridGroup ? st.gridGroup.children.length : 0,

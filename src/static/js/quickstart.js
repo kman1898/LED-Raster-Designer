@@ -6902,6 +6902,37 @@
                 return iso ? 'Top, then Iso: the stage seen from above and to one side.' : null;
             }
         },
+        // The Header/Footer tab's bars stand over DEMO WALL on the stage
+        // (its header bars came from the Auto step); Bars hides and shows
+        // them. The switch is set on first, so a Go to finds them up.
+        s3dBars: {
+            since: '1.7.0',
+            target: '#s3d-bars', place: 'bottom', title: 'Header and footer bars',
+            avoid: ['#s3d-bars', function () { return stagePoint(wall()); }],
+            body: 'The bars from the Header/Footer tab stand over each wall here too, in its colors, each with its size. Bars hides them and shows them again.',
+            before: function () {
+                return open3d().then(function () {
+                    var a = A();
+                    if (a._s3dState().bars === false) a._s3dSetBars(true);
+                });
+            },
+            act: function (t) {
+                return t.click('#s3d-bars', { rest: PACE.acted }).then(function () {
+                    t.mem.hid = A()._s3dState().bars === false;
+                    return t.click('#s3d-bars', { rest: PACE.acted });
+                }).then(function () {
+                    return t.wait(function () { return A()._s3dState().bars === true; });
+                });
+            },
+            check: function (mem) {
+                var d = s3dDebug(), w = wall();
+                var me = d && w ? d.screens.find(function (s) { return s.id === w.id; }) : null;
+                var head = me ? me.bars.find(function (r) { return r.row === 'header'; }) : null;
+                if (!mem.hid || !head || !head.shown || !d.bars) return null;
+                return 'DEMO WALL carries ' + head.bars.length + ' header bars on the stage, ' + head.bars.join(' + ')
+                    + ' panels. Bars hid them and brought them back.';
+            }
+        },
         s3dJoint: {
             since: '1.7.0',
             target: '#s3d-joint-angle', ring: ['#s3d-joint-label', '#s3d-joint-angle'], place: 'right', title: 'Bend one joint',
@@ -7258,7 +7289,7 @@
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingTotals',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
-                    's3dOpen', 's3dSelect', 's3dCurve', 's3dYaw', 's3dCamera', 's3dJoint',
+                    's3dOpen', 's3dSelect', 's3dCurve', 's3dYaw', 's3dCamera', 's3dBars', 's3dJoint',
                     'outputOpen', 'outputChoices',
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
                     'idmColors', 'idmHighlight', 'idmList', 'notesChecklist',

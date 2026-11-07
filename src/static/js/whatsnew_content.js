@@ -28,7 +28,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Header and footer bars',
               d: 'The new Header/Footer tab, right of Power, builds the bars above and below each wall. Light the sizes you stock and Auto fits the fewest bars across it, then drag a bar or the edge between two. The counts go on the pull sheet, and the binder prints a sheet for each screen or group with bars.' },
             { h: 'Screens on a stage in 3D',
-              d: 'The 3D tab builds every Show Look screen from its cabinets with its Pixel Map on the front. Place and turn each screen, and bend any column or row joint up to 15 degrees.' },
+              d: 'The 3D tab builds every Show Look screen from its cabinets with its Pixel Map on the front. Place and turn each screen, and bend any column or row joint up to 15 degrees. The header and footer bars stand above and below each wall in their own colors, and Bars hides them.' },
             { h: 'A canvas on a second display',
               d: 'View > Output to Display opens a canvas in its own window, fit to the display or pixel for pixel, and follows every edit live.' },
             { h: 'The IDM Locator',

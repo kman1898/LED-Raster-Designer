@@ -447,7 +447,8 @@ def restore_project():
 @project_bp.route('/api/project/stage3d', methods=['PUT'])
 def save_stage3d_view():
     """The 3D view's own state on the project: the last camera, the length
-    units its panel shows and the floor grid switch. View state, not an
+    units its panel shows, the floor grid switch and the header and footer
+    bars switch. View state, not an
     edit - nothing is broadcast, no undo entry is made on the client, and
     the pristine startup project stays pristine (an orbit is not a change
     to the show). Each key is optional; a camera that does not hold its
@@ -464,10 +465,13 @@ def save_stage3d_view():
         proj['stage3dUnits'] = data['units']
     if isinstance(data.get('grid'), bool):
         proj['stage3dGrid'] = data['grid']
+    if isinstance(data.get('bars'), bool):
+        proj['stage3dBars'] = data['bars']
     return jsonify({
         'stage3dCamera': proj.get('stage3dCamera'),
         'stage3dUnits': proj.get('stage3dUnits'),
         'stage3dGrid': proj.get('stage3dGrid'),
+        'stage3dBars': proj.get('stage3dBars'),
     })
 
 
