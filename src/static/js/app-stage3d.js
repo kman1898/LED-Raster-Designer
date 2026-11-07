@@ -516,8 +516,17 @@ class _Stage3D {
     // edited screen's centre (a peer with no 3D place yet starts from its
     // Show Look one). Curves stay each screen's own. One updateLayers call,
     // one undo step.
+    //
+    // A locked screen stays where it is (app-cross-layer-paths.js): an edit
+    // on it is refused and the panel goes back to its figures; a locked
+    // peer stays behind and is named, and the unlocked ones still move, as
+    // a group's drag does on the 2D tabs.
     _s3dCommit(layer, next, action) {
         if (!layer) return;
+        if (this._lockedRefused(layer)) {
+            this._s3dRefreshPanel(true);
+            return;
+        }
         const layout = this._s3dLayout();
         const prev = this._s3dPlacementOf(layer, layout);
         const placed = s3dSanitize(next);
@@ -525,8 +534,11 @@ class _Stage3D {
         ['pitch', 'yaw', 'roll'].forEach(k => { placed[k] = round(wrap180(placed[k]), 6); });
         const changed = [layer];
         const turned = placed.pitch !== prev.pitch || placed.yaw !== prev.yaw || placed.roll !== prev.roll;
+        const shifted = placed.x !== prev.x || placed.y !== prev.y || placed.z !== prev.z;
         const dq = turned ? quatMul(quatFromPlacement(placed), quatInv(quatFromPlacement(prev))) : null;
-        for (const peer of this._s3dGroupPeers(layer)) {
+        // A curve moves no peer, so a locked one has nothing to say.
+        const peers = this._s3dGroupPeers(layer);
+        for (const peer of (turned || shifted) ? this._writableLayers(peers) : peers.filter(p => !this._layerLocked(p))) {
             const mp = this._s3dPlacementOf(peer, layout);
             const rel = [mp.x - prev.x, mp.y - prev.y, mp.z - prev.z];
             const moved = dq ? quatRotate(dq, rel) : rel;
@@ -642,7 +654,7 @@ class _Stage3D {
     _s3dReset() {
         const layer = this._s3dCurrentScreen();
         if (!layer) return;
-        const all = [layer, ...this._s3dGroupPeers(layer)].filter(l => l.stage3d);
+        const all = this._writableLayers([layer, ...this._s3dGroupPeers(layer)].filter(l => l.stage3d));
         if (!all.length) return;
         all.forEach(l => { l.stage3d = null; });
         this._s3dState().joint = null;
@@ -1491,7 +1503,11 @@ class _Stage3D {
         // This press moves the screen, not the camera.
         st.controls.enabled = false;
         const layout = this._s3dLayout();
-        const movers = this._s3dMoveSet(sel.size ? [...sel] : [hit.layerId]);
+        // A locked screen stays put. It is named once the press becomes a
+        // drag, not on a click that only selects; the unlocked ones move.
+        const moveSet = this._s3dMoveSet(sel.size ? [...sel] : [hit.layerId]);
+        const movers = moveSet.filter(l => !this._layerLocked(l));
+        const held = moveSet.filter(l => this._layerLocked(l));
         const starts = new Map(movers.map(l => [l.id, this._s3dPlacementOf(l, layout)]));
         const vertical = ev.shiftKey;
         let normal;
@@ -1505,7 +1521,7 @@ class _Stage3D {
         }
         st.drag = {
             plane: new T.Plane().setFromNormalAndCoplanarPoint(normal, hit.point),
-            from: hit.point.clone(), vertical, movers, starts, active: false, delta: [0, 0, 0],
+            from: hit.point.clone(), vertical, movers, held, starts, active: false, delta: [0, 0, 0],
         };
         const view = document.getElementById('s3d-view');
         if (view) view.classList.add('s3d-grab');
@@ -1520,6 +1536,7 @@ class _Stage3D {
         const d = st.drag;
         if (!d || !st.down) return;
         if (!d.active && !st.down.moved) return;
+        if (!d.active && d.held.length) this._showLockedError(d.held);
         d.active = true;
         const rect = st.renderer.domElement.getBoundingClientRect();
         const ndc = new st.T.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1,

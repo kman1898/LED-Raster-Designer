@@ -19,7 +19,7 @@ What this file pins:
   fractional pixel), a half cabinet keeps the modules inside it laid from
   the side that meets the wall, a blanked cabinet has none - the browser
   and the server agree cell for cell.
-* The tab: it is the seventh, draws the Pixel Map raster, the module
+* The tab: it is the eighth and last, draws the Pixel Map raster, the module
   fields edit the selection (mixed shows '-'), a click toggles a mark, a
   drag paints or clears (the first module decides) as one undo step,
   colour and X marks survive the server, a reload, a load and undo/redo,
@@ -392,12 +392,12 @@ def wait_served_marks(page, name, keys):
     assert got == want, (got, want)
 
 
-def test_the_seventh_tab_opens_with_its_panel_and_tools(page):
+def test_the_eighth_tab_opens_with_its_panel_and_tools(page):
     reset_project(page)
     tabs = page.locator('.view-tab[data-mode]')
-    assert tabs.count() == 7
-    assert tabs.nth(6).get_attribute('data-mode') == 'idm'
-    assert tabs.nth(6).inner_text().strip() == 'IDM Locator'
+    assert tabs.count() == 8
+    assert tabs.nth(7).get_attribute('data-mode') == 'idm'
+    assert tabs.nth(7).inner_text().strip() == 'IDM Locator'
     assert page.is_visible('#idm-toolbar')
     assert page.is_visible('.tab-panel[data-tab="idm"]')
     # the Pixel Map's raster: the processor raster the output feeds

@@ -86,6 +86,7 @@ ADVANCED_RUNS = [
      'distroPreset', 'distroRows'],                          # gear:distro
     ['jumperNames', 'pullPanels'],                           # export:pull-sheet
     ['cableStock', 'cableStockPerKind'],                     # prefs:stock
+    ['outputOpen', 'outputChoices'],                         # output
     ['exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet',
      'fiberPage', 'titleBlock'],                             # export:binder
 ]
@@ -97,13 +98,16 @@ QUICK_RUNS = []
 # is not new and A list for each kind of cable runs alone.
 WHATS_NEW_RUNS = {
     '1.5.0': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
-              ['cableStock', 'cableStockPerKind'], ['riggingSheet', 'fiberPage']],
-    '1.5.1': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
-              ['cableStock', 'cableStockPerKind'], ['riggingSheet', 'fiberPage']],
-    '1.5.2': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
-              ['cableStock', 'cableStockPerKind'], ['riggingSheet', 'fiberPage']],
-    '1.5.3': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+              ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
               ['riggingSheet', 'fiberPage']],
+    '1.5.1': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+              ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
+              ['riggingSheet', 'fiberPage']],
+    '1.5.2': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+              ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
+              ['riggingSheet', 'fiberPage']],
+    '1.5.3': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+              ['outputOpen', 'outputChoices'], ['riggingSheet', 'fiberPage']],
 }
 
 # Each step's declared windows as a token the page can compare without
@@ -183,7 +187,8 @@ WATCH_JS = """(keys) => {
         : k.startsWith('prefs:') ? 'preferences-modal'
         : k === 'pull-sheet' ? 'pull-sheet-modal'
         : k.startsWith('gear:') ? 'hw-gear-popover'
-        : k.startsWith('picker:') ? 'preset-picker-modal' : null;
+        : k.startsWith('picker:') ? 'preset-picker-modal'
+        : k === 'output' ? 'output-display-modal' : null;
     const isOpen = (k, el) => {
         if (!el || !el.isConnected || el.style.display !== 'block') return false;
         if (k.startsWith('gear:')) return !!(a._hwPopover && 'gear:' + a._hwPopover.id === k);
@@ -233,7 +238,8 @@ UNWATCH_JS = """() => {
     w.obs.disconnect();
     window.__qsWatch = null;
     const ids = {'export': 'export-modal', 'prefs': 'preferences-modal', 'pull-sheet': 'pull-sheet-modal',
-                 'gear': 'hw-gear-popover', 'picker': 'preset-picker-modal'};
+                 'gear': 'hw-gear-popover', 'picker': 'preset-picker-modal',
+                 'output': 'output-display-modal'};
     const same = {};
     w.keys.forEach(k => {
         const el = document.getElementById(ids[k.split(':')[0]]);

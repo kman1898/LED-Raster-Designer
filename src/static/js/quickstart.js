@@ -373,7 +373,8 @@
     // the id of the hardware the guide put in). 'export:<format>' is the
     // Export dialog on that format, 'prefs:<tab>' Preferences on that tab,
     // 'pull-sheet' the pull sheet editor, 'gear:<id>' the ⚙ popover of the
-    // header whose data-hwpop is <id>, 'picker:<mode>' the panel library.
+    // header whose data-hwpop is <id>, 'picker:<mode>' the panel library,
+    // 'output' the Output to Display dialog.
     // On Next and Back, a window both steps name stays up (S.keep, which
     // every close below reads): the step left does not close it, the step
     // entered does not open it again, and a restore between the two
@@ -3157,6 +3158,7 @@
     function outputModal() { return $('#output-display-modal'); }
     function outputOpen() { var m = outputModal(); return !!m && m.style.display !== 'none'; }
     function closeOutput() {
+        if (held('output')) return;
         var a = A();
         if (outputOpen() && a && typeof a.closeOutputDisplayDialog === 'function') a.closeOutputDisplayDialog();
     }
@@ -6811,7 +6813,7 @@
         s3dOpen: {
             since: '1.7.0',
             target: '[data-mode="3d"]', place: 'bottom', title: 'The 3D tab',
-            body: 'The new 3D tab stands every Show Look screen on a stage, built from its cabinets with its Pixel Map on the front.',
+            body: 'The 3D tab stands every Show Look screen on a stage, built from its cabinets with its Pixel Map on the front.',
             before: function () { switchView('pixel-map'); },
             act: function (t) {
                 return t.click('[data-mode="3d"]').then(function () {
@@ -6932,20 +6934,22 @@
         },
         outputOpen: {
             since: '1.7.0',
-            outputStep: true,
+            window: 'output',
             target: '[data-menu="view"]', place: 'bottom', title: 'Output to Display',
             avoid: ['[data-menu="view"]', '#menu-view [data-action="output-to-display"]'],
             body: 'View &rsaquo; Output to Display sends one canvas full screen to a second display, and it follows every edit live.',
             before: function () { closeOutput(); },
             act: function (t) {
-                return t.click('[data-menu="view"]').then(function () {
+                // Up already on a Back from the next step, which shares it.
+                var open = outputOpen() ? Promise.resolve() : t.click('[data-menu="view"]').then(function () {
                     return t.wait(function () { var m = $('#menu-view'); return m && m.style.display === 'block' ? m : null; });
                 }).then(function (m) {
                     if (!m) throw new Error('the View menu did not open');
                     return t.click('#menu-view [data-action="output-to-display"]', { hover: PACE.menuHover });
                 }).then(function () {
                     return t.wait(outputOpen);
-                }).then(function () {
+                });
+                return open.then(function () {
                     return t.spot($('#output-display-modal .modal-content')).then(function () { return t.pause(PACE.opened); });
                 });
             },
@@ -6954,15 +6958,15 @@
                 var note = $('#output-display-note');
                 return 'Pick the canvas, the view and the scale, then Open output.' + (note && note.textContent ? ' ' + note.textContent : '');
             },
-            after: function (next) { if (!next || !next.outputStep) closeOutput(); }
+            after: closeOutput
         },
         outputChoices: {
             since: '1.7.0',
-            outputStep: true,
+            window: 'output',
             target: '#output-display-view', ring: ['#output-display-view', 'input[name="output-display-scale"][value="1to1"]'],
             place: 'right', title: 'The view and the scale',
             avoid: ['#output-display-view', 'input[name="output-display-scale"][value="1to1"]'],
-            body: 'Any tab can go out, the IDM Locator included. Fit to display fills the display; 1:1 pixel puts one raster pixel on each display pixel.',
+            body: 'Every tab but 3D can go out, the IDM Locator included. Fit to display fills the display; 1:1 pixel puts one raster pixel on each display pixel.',
             before: function () {
                 var a = A();
                 if (!outputOpen() && a && typeof a.openOutputDisplayDialog === 'function') a.openOutputDisplayDialog();
@@ -6980,7 +6984,7 @@
                 var note = $('#output-display-note');
                 return 'IDM Locator at 1:1 pixel.' + (note && note.textContent ? ' ' + note.textContent : '');
             },
-            after: function () { closeOutput(); }
+            after: closeOutput
         },
         idmOpen: {
             since: '1.7.0',

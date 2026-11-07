@@ -26,6 +26,7 @@ const OUTPUT_VIEWS = [
     ['show-look', 'Show Look'],
     ['data-flow', 'Data'],
     ['power', 'Power'],
+    ['rigging', 'Header/Footer'],
     // The Pixel Map with every cabinet's modules and the marked ones
     // (app-idm-locator.js), so the crew can find a bad module on the wall.
     ['idm', 'IDM Locator'],
@@ -184,7 +185,7 @@ class _OutputDisplay {
     }
 
     _outputDisplayRasterSize(canvasId, view) {
-        const show = view === 'show-look' || view === 'data-flow' || view === 'power';
+        const show = view === 'show-look' || view === 'data-flow' || view === 'power' || view === 'rigging';
         const list = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
         if (!list.length) {
             const r = window.canvasRenderer;
@@ -557,7 +558,7 @@ class _OutputDisplay {
         }
         if (idm) return this._outputDisplayCompose(entry, page);
         try {
-            page.present(off, { title: `${this._outputDisplayLabel(entry)} - Output` });
+            page.present(off, { title: `${this._outputDisplayLabel(entry)} · Output` });
         } catch (err) {
             sendClientLog('output_display_present_failed', { message: String(err && err.message || err) });
             return false;
@@ -593,7 +594,7 @@ class _OutputDisplay {
             r.viewMode = savedView;
         }
         try {
-            page.present(off, { title: `${this._outputDisplayLabel(entry)} - Output` });
+            page.present(off, { title: `${this._outputDisplayLabel(entry)} · Output` });
         } catch (err) {
             sendClientLog('output_display_present_failed', { message: String(err && err.message || err) });
             return false;

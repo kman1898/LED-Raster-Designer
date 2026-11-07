@@ -921,8 +921,8 @@ class _IdmLocator {
             return false;
         }
         const layer = t.layer;
-        if (layer.locked) {
-            this._toast(`${layer.name || 'This screen'} is locked. Unlock it to mark its modules.`);
+        if (this._layerLocked(layer)) {
+            this._showLockedError([layer]);
             return true;
         }
         const st = this._idmState();
@@ -1078,8 +1078,8 @@ class _IdmLocator {
         }
         const layer = hit.layer;
         if (!this.currentLayer || this.currentLayer.id !== layer.id) r._selectLayerFromCanvas(layer);
-        if (layer.locked) {
-            this._toast(`${layer.name || 'This screen'} is locked. Unlock it to mark its modules.`);
+        if (this._layerLocked(layer)) {
+            this._showLockedError([layer]);
             return true;
         }
         if (!hit.cell) {
@@ -1181,15 +1181,17 @@ class _IdmLocator {
             return;
         }
         const screens = this._idmSelectedScreens();
-        const locked = screens.filter(l => l.locked);
+        const held = [];
         const changes = [];
-        screens.filter(l => !l.locked).forEach(layer => {
+        screens.forEach(layer => {
             const cur = r.idmCounts(layer);
             const nx = ax.keep ? cur.x : ax.value;
             const ny = ay.keep ? cur.y : ay.value;
-            if (nx !== cur.x || ny !== cur.y) changes.push({ layer, nx, ny });
+            if (nx === cur.x && ny === cur.y) return;
+            if (this._layerLocked(layer)) held.push(layer);
+            else changes.push({ layer, nx, ny });
         });
-        if (locked.length) this._toast(`${plural(locked.length, 'locked screen')} kept ${locked.length === 1 ? 'its' : 'their'} modules.`);
+        this._showLockedError(held);
         if (!changes.length) {
             this._idmRevertFields();
             return;
@@ -1215,9 +1217,7 @@ class _IdmLocator {
     }
 
     _idmClearLayers(layers, action) {
-        const open = layers.filter(l => !l.locked && markCount(l) > 0);
-        const locked = layers.filter(l => l.locked && markCount(l) > 0);
-        if (locked.length) this._toast(`${plural(locked.length, 'locked screen')} kept ${locked.length === 1 ? 'its' : 'their'} marks.`);
+        const open = this._writableLayers(layers.filter(l => markCount(l) > 0));
         if (!open.length) return 0;
         open.forEach(layer => {
             this._idmEnsureBlock(layer);
