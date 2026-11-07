@@ -83,7 +83,8 @@ def test_shortcuts_icon_and_uninstall_entry():
                for l in icons), icons
     assert any(l.startswith('Name: "desktopicon"') for l in _section(_iss(), "Tasks"))
     assert _setup_value("SetupIconFile") == r"..\src\icon.ico"
-    assert (ISS.parent / _setup_value("SetupIconFile")).resolve().is_file()
+    # an Inno path uses backslashes; read it the same way on every OS
+    assert (ISS.parent / _setup_value("SetupIconFile").replace("\\", "/")).resolve().is_file()
     assert _setup_value("UninstallDisplayIcon") == r"{app}\{#AppExeName}"
 
 
