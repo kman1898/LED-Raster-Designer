@@ -86,7 +86,7 @@ ACRONYMS = {"SVG", "PSD", "PNG", "PDF", "XML", "CSV", "LED", "USB", "CAT", "L21-
             "CVT", "SCR"}
 # Product spellings a sentence-cased heading keeps as they are written -
 # "TRUE1 AND POWERCON" is "True1 and powerCON", never "True1 and powercon".
-PRESERVED = {"powerCON", "True1", "Edison", "Multi", "NovaStar", "Brompton"}
+PRESERVED = {"powerCON", "True1", "Edison", "Multi", "NovaStar", "Brompton", "Windows"}
 _PRESERVED_BY_LOWER = {w.lower(): w for w in PRESERVED}
 # A figure with its unit keeps the unit's capital: 110V, 30A, 200W.
 UNIT_TOKEN = re.compile(r"^\d+[VAW]$", re.I)
@@ -238,10 +238,17 @@ INSTALL = """## Install
 **macOS:** download the `.dmg` and drag the app to Applications. The first time you open
 it, go to System Settings > Privacy & Security and click Open Anyway.
 
-**Windows:** download the `.zip`, extract it, then run `LED Raster Designer.exe`. If
-Windows shows "Windows protected your PC", click More info, then Run anyway.
+**Windows:** download the file ending in `_windows_setup.exe` and run it. If Windows
+shows "Windows protected your PC", click More info, then Run anyway. It installs for you
+alone, so it does not ask for an administrator password, and adds LED Raster Designer to
+the Start menu and to Settings > Apps. A new version installs over the old one and keeps
+your presets and settings.
 
-SHA-256 checksums for both files are attached as `checksums.txt`.
+If you ran the app from the `.zip` before, you can delete that folder once setup is done.
+Your presets and settings are kept. The `.zip` is still attached to this release if you
+would rather run the app without installing it.
+
+SHA-256 checksums for every file are attached as `checksums.txt`.
 """
 
 

@@ -51,13 +51,17 @@ has to get a wall from a design to a truck pack to a working screen.
 > If you ever need them, logs live in **`~/Library/Logs/LED Raster Designer/`** (also reachable via the app's **Show Logs → Open Folder** button).
 
 ### Windows
-1. **[Download the latest Windows release](../../releases/latest)**
-2. Unzip the file
-3. Double-click **LED Raster Designer.exe**
-   - **The first time**, Windows may show "Windows protected your PC". Click
-     **More info**, then **Run anyway**. You only have to do this once.
+1. **[Download the latest Windows release](../../releases/latest)** (the file ending in `_windows_setup.exe`)
+2. Double-click it to install
+   - Windows may show "Windows protected your PC". Click **More info**, then
+     **Run anyway**.
+   - It installs for you alone, so it doesn't ask for an administrator password.
+     A new version installs over the old one and keeps your presets and settings.
+3. Open **LED Raster Designer** from the Start menu
 4. Your browser opens on the app, and you can start
 5. Look for the lightbulb in your system tray (bottom-right) to reopen the browser or quit
+
+To remove it, use **Settings > Apps**. Your presets and settings stay on the computer.
 
 ### Using it from another computer
 

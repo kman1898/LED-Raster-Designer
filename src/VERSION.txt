@@ -40,6 +40,13 @@ view. Thanks to kcikcreative33 for this one.
   pull sheet, the binder and the exports say they no longer fit, and Auto
   fits them again.
 
+A SETUP FILE FOR WINDOWS
+
+- NEW: Windows gets a setup file. Run it and LED Raster Designer is in your
+  Start menu and in Settings > Apps, with an uninstaller. It installs for you
+  alone, so it does not ask for an administrator password, and the next
+  version installs over this one with your presets and settings kept.
+
 v1.6.0 - November 6, 2026
 ----------------------------
 

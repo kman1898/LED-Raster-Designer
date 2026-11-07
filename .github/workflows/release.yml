@@ -360,11 +360,192 @@ jobs:
           Compress-Archive -Path "LED Raster Designer App" `
             -DestinationPath "led_raster_designer_v${version}_windows.zip"
 
+      # ── Windows installer (Inno Setup, free) ──
+      #
+      # Inno Setup 6 ships on the windows-2022 and windows-2025 runner images
+      # (6.7.1 as of image 20261101), so nothing is installed here. If an image
+      # ever drops it, this step fails loudly instead of shipping a release with
+      # no installer. The installer is unsigned, like the .exe and the .zip.
+      #
+      # Built from the same folder as the .zip (signed, when a certificate is
+      # configured). The .iss leaves out the files the smoke tests above wrote
+      # into that folder at run time.
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $label = "${{ github.ref_name }}".TrimStart('v')
+          if (-not $label -or $label -eq "${{ github.ref_name }}") {
+            $label = "${{ github.event.inputs.version }}"
+          }
+          $m = Select-String -Path src\VERSION.txt -Pattern '^v(\d+\.\d+\.\d+)\b' | Select-Object -First 1
+          if (-not $m) { Write-Error "no version entry at the top of src/VERSION.txt"; exit 1 }
+          $numeric = $m.Matches[0].Groups[1].Value
+          if ($label.Split('-')[0] -ne $numeric) {
+            Write-Error "Building $label but src/VERSION.txt's top entry is v$numeric."
+            exit 1
+          }
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            $cmd = Get-Command iscc.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc = $cmd.Source }
+          }
+          if (-not (Test-Path $iscc)) {
+            Write-Error "Inno Setup 6 (ISCC.exe) is not on this runner image. Add a pinned install step."
+            exit 1
+          }
+          Write-Host "ISCC: $iscc ($((Get-Item $iscc).VersionInfo.ProductVersion))"
+          $bundle = (Resolve-Path "LED Raster Designer App").Path
+          $out = Join-Path $PWD "installer-out"
+          & $iscc "/DAppVersion=$label" "/DAppNumericVersion=$numeric" "/DBundleDir=$bundle" "/O$out" build\led_raster_designer.iss
+          if ($LASTEXITCODE -ne 0) { Write-Error "ISCC failed ($LASTEXITCODE)"; exit 1 }
+          # An older build of the same app, for the upgrade test below.
+          $old = Join-Path $env:RUNNER_TEMP "installer-old"
+          & $iscc "/DAppVersion=0.0.1" "/DAppNumericVersion=0.0.1" "/DBundleDir=$bundle" "/DSmokeFastBuild" "/O$old" build\led_raster_designer.iss
+          if ($LASTEXITCODE -ne 0) { Write-Error "ISCC (upgrade test build) failed ($LASTEXITCODE)"; exit 1 }
+          $setup = "led_raster_designer_v${label}_windows_setup.exe"
+          Move-Item (Join-Path $out $setup) $setup
+          $mb = [math]::Round((Get-Item $setup).Length / 1MB, 1)
+          Write-Host "Built $setup ($mb MB)"
+          "LRD_SETUP=$((Resolve-Path $setup).Path)" >> $env:GITHUB_ENV
+          "LRD_SETUP_OLD=$(Join-Path $old 'led_raster_designer_v0.0.1_windows_setup.exe')" >> $env:GITHUB_ENV
+          "LRD_SETUP_LABEL=$label" >> $env:GITHUB_ENV
+
+      # Install the way a user does, prove the installed app runs, upgrade
+      # over an older install WHILE it runs, then uninstall, and check the
+      # user's data outlived all of it. Any failed check fails the build.
+      - name: Smoke test the installer (install, upgrade, run, uninstall)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $appName = 'LED Raster Designer'
+          $appId = '{7D7BC445-209D-4629-A5D7-1C0B7EDC0C94}'
+          $uninstKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\${appId}_is1"
+          $installDir = Join-Path $env:LOCALAPPDATA "Programs\$appName"
+          $exe = Join-Path $installDir "$appName.exe"
+          $startLnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\$appName.lnk"
+          $desktopLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) "$appName.lnk"
+          $dataDir = Join-Path $env:LOCALAPPDATA $appName
+          $configDir = Join-Path $env:APPDATA $appName
+          $port = 18760
+          $base = "http://127.0.0.1:$port"
+          $script:failed = $false
+
+          function Check($ok, $what) {
+            if ($ok) { Write-Host "  ok: $what" }
+            else { Write-Host "::error::FAILED: $what"; $script:failed = $true }
+          }
+          function Stop-IfFailed {
+            if ($script:failed) { Get-Process -Name $appName -ErrorAction SilentlyContinue | Stop-Process -Force; exit 1 }
+          }
+          function Run-Setup($file, [string[]]$extra) {
+            $log = Join-Path $env:RUNNER_TEMP ("setup-" + [IO.Path]::GetFileNameWithoutExtension($file) + ".log")
+            $setupArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', "/LOG=$log") + $extra
+            $p = Start-Process -FilePath $file -ArgumentList $setupArgs -Wait -PassThru
+            Write-Host "  setup exit code: $($p.ExitCode)"
+            if ($p.ExitCode -ne 0) { Get-Content $log -Tail 40 | Out-Host }
+            return $p.ExitCode
+          }
+          function Start-App {
+            $env:LRD_NO_WINDOW = '1'
+            $env:LRD_SMOKE_PORT = "$port"
+            $p = Start-Process -FilePath $exe -PassThru
+            foreach ($i in 1..60) {
+              Start-Sleep -Seconds 1
+              try {
+                if ((Invoke-WebRequest -UseBasicParsing -Uri "$base/api/version" -TimeoutSec 2).StatusCode -eq 200) { return $p }
+              } catch { }
+              if ($p.HasExited) { break }
+            }
+            Write-Host "::error::the installed app never answered on $base"
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+            exit 1
+          }
+          function Answers {
+            try { return (Invoke-WebRequest -UseBasicParsing -Uri "$base/api/version" -TimeoutSec 2).StatusCode -eq 200 } catch { return $false }
+          }
+
+          Write-Host "--- 1. install an older version ---"
+          Check ((Run-Setup $env:LRD_SETUP_OLD @()) -eq 0) 'older setup ran'
+          Check (Test-Path $exe) "installed to $installDir"
+          Check ((Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).DisplayVersion -eq '0.0.1') 'Settings > Apps lists 0.0.1'
+          Stop-IfFailed
+
+          Write-Host "--- 2. run it and give it some user data ---"
+          $old = Start-App
+          Check $true "installed app answers ($((Invoke-WebRequest -UseBasicParsing -Uri "$base/api/version").Content))"
+          $body = @{ data = @{ columns = 2; rows = 2 } } | ConvertTo-Json
+          Invoke-RestMethod -Method Put -Uri "$base/api/presets/installer-smoke" -Body $body -ContentType 'application/json' | Out-Null
+          New-Item -ItemType Directory -Force $configDir | Out-Null
+          $settingsFile = Join-Path $configDir 'settings.json'
+          $settings = @{}
+          if (Test-Path $settingsFile) {
+            (Get-Content $settingsFile -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $settings[$_.Name] = $_.Value }
+          }
+          $settings['installer_smoke'] = $true
+          $settings | ConvertTo-Json | Set-Content $settingsFile -Encoding utf8
+          $presetFile = Join-Path $dataDir 'presets\installer-smoke.json'
+          Check (Test-Path $presetFile) 'the app saved a preset to the user data folder'
+          Check (-not (Test-Path (Join-Path $installDir 'presets'))) 'nothing written into the install folder'
+          Stop-IfFailed
+
+          Write-Host "--- 3. upgrade over it while it is running ---"
+          Check ((Run-Setup $env:LRD_SETUP @('/MERGETASKS=desktopicon')) -eq 0) 'new setup ran over the running copy'
+          Start-Sleep -Seconds 2
+          $old.Refresh()
+          Check $old.HasExited 'setup closed the running copy'
+          Check (-not (Answers)) 'the old server is gone'
+          Check ((Get-ItemProperty $uninstKey).DisplayVersion -eq $env:LRD_SETUP_LABEL) "Settings > Apps now lists $env:LRD_SETUP_LABEL"
+          $entries = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+            Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq $appName })
+          Check ($entries.Count -eq 1) "exactly one Settings > Apps entry (found $($entries.Count))"
+          $u = Get-ItemProperty $uninstKey
+          Check ($u.UninstallString -and (Test-Path ($u.UninstallString.Trim('"')))) "uninstaller exists: $($u.UninstallString)"
+          Check ($u.DisplayIcon -like "*$appName.exe*") "entry has the app icon: $($u.DisplayIcon)"
+          $shell = New-Object -ComObject WScript.Shell
+          Check ((Test-Path $startLnk) -and $shell.CreateShortcut($startLnk).TargetPath -eq $exe) "Start menu shortcut opens $exe"
+          Check ((Test-Path $desktopLnk) -and $shell.CreateShortcut($desktopLnk).TargetPath -eq $exe) 'desktop shortcut opens the app'
+          Stop-IfFailed
+
+          Write-Host "--- 4. the upgraded app runs and still has the user's data ---"
+          $new = Start-App
+          $presets = (Invoke-RestMethod -Uri "$base/api/presets").presets
+          Check ($presets -contains 'installer-smoke') 'the preset saved before the upgrade is still there'
+          Check (((Invoke-WebRequest -UseBasicParsing -Uri "$base/").StatusCode) -eq 200) 'the app page loads'
+          Stop-IfFailed
+
+          Write-Host "--- 5. uninstall while it is running ---"
+          $un = $u.UninstallString.Trim('"')
+          $p = Start-Process -FilePath $un -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          Write-Host "  uninstaller exit code: $($p.ExitCode)"
+          # The uninstaller hands off to a copy of itself in TEMP; wait for it.
+          foreach ($i in 1..60) {
+            if (-not (Test-Path $uninstKey) -and -not (Test-Path $exe)) { break }
+            Start-Sleep -Seconds 1
+          }
+          $new.Refresh()
+          Check $new.HasExited 'uninstall closed the running copy'
+          Check (-not (Test-Path $uninstKey)) 'Settings > Apps entry removed'
+          Check (-not (Test-Path $exe)) 'app removed'
+          Check (-not (Test-Path $installDir)) 'install folder removed'
+          Check (-not (Test-Path $startLnk)) 'Start menu shortcut removed'
+          Check (-not (Test-Path $desktopLnk)) 'desktop shortcut removed'
+
+          Write-Host "--- 6. the user's data is still there ---"
+          Check (Test-Path $presetFile) "preset kept: $presetFile"
+          Check ((Get-Content $settingsFile -Raw) -match 'installer_smoke') "settings kept: $settingsFile"
+          Check (Test-Path (Join-Path $dataDir 'logs\led_raster_designer.log')) 'logs kept'
+          Stop-IfFailed
+          Write-Host "Installer smoke test passed."
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v7
         with:
           name: windows-build
-          path: led_raster_designer_v*_windows.zip
+          # The .zip ships beside the installer for one release (1.7.0) so
+          # anyone mid-show can still run it unzipped; drop it after that.
+          path: |
+            led_raster_designer_v*_windows.zip
+            led_raster_designer_v*_windows_setup.exe
 
   # ──────────────────────────────────────────────
   # Create GitHub Release & Upload Assets
@@ -387,7 +568,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          sha256sum macos-build/*.dmg windows-build/*.zip > checksums.txt
+          sha256sum macos-build/*.dmg windows-build/*.zip windows-build/*_windows_setup.exe > checksums.txt
           cat checksums.txt
 
       # The release body is BUILT from src/VERSION.txt, never hand-maintained.
@@ -427,5 +608,6 @@ jobs:
           files: |
             artifacts/macos-build/*.dmg
             artifacts/windows-build/*.zip
+            artifacts/windows-build/*_windows_setup.exe
             artifacts/checksums.txt
 
