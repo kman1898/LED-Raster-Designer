@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, make_response, send_from_directory
 from flask_socketio import SocketIO, emit
+import itertools
 import json
 import math
 import re
@@ -536,6 +537,23 @@ def _build_initial_project():
 
 current_project = _build_initial_project()
 
+# THE ORDER OF THE PROCESSOR TREE'S ANSWERS. Every reply that carries the
+# tree takes the next number BEFORE it reads the tree, so a reply with a
+# higher number was read from a tree at least as new. The page keeps the
+# newest it has applied and drops an older answer that arrives after it -
+# a read sent before a rename and answered after the rename's own reply put
+# the old name back on the page (2026-10-30). `boot` changes with the
+# server, so a restarted server's numbers starting over are not taken for
+# stale ones.
+_PROCESSOR_STAMP_BOOT = uuid.uuid4().hex[:12]
+# itertools.count's next() is one atomic step, so two request threads never
+# take the same number.
+_processor_stamps = itertools.count(1)
+
+
+def processor_state_stamp():
+    return {'boot': _PROCESSOR_STAMP_BOOT, 'n': next(_processor_stamps)}
+
 # Add a default layer on startup
 def initialize_default_layer():
     """Add a default layer when the app starts"""
@@ -723,6 +741,11 @@ def strip_copied_feeds(layer):
         return []
     if (layer.get('type') or 'screen') != 'screen':
         return []
+    # A copy is never a mirror either (mirror a screen, 2026-10-30): the
+    # source's copy outputs carry ONE mirror, and the copy would claim the
+    # same sockets. Not a feed key - it is the screen's data setting - so
+    # it goes without being reported among them.
+    layer.pop('dataMirrorOf', None)
     return [k for k in COPIED_SCREEN_FEED_KEYS if layer.pop(k, None) is not None]
 
 
@@ -1604,8 +1627,16 @@ def create_text_layer(name, text_content='', offset_x=0, offset_y=0, text_width=
 
 @app.route('/')
 def index():
-    # Initialize default layer if project is empty
-    initialize_default_layer()
+    # A launch's fresh project gets its startup screen here, for the start
+    # page and the picker to stand over. Only that project: one somebody
+    # left empty and went on working on (named it, added a canvas or a beach,
+    # undid the only screen) stays empty. A reload is a page load too, and
+    # this put an 8x5 Screen1 in such a project (owner, 2026-11-05: a project
+    # you left empty stays empty, after a reload too). The pristine project
+    # the start page's X emptied still gets one, and a reload of that tab
+    # takes it out again (app-start-page.js resumeOrLaunch).
+    if current_project.get('is_pristine') is True:
+        initialize_default_layer()
     log_event('page_load', {'path': '/'})
     # Expose the host OS so the client can show the custom (Apple-style) color
     # picker on Windows while leaving the native picker in place on macOS.
@@ -1765,7 +1796,34 @@ def _next_duplicate_canvas_name(src_name):
 # The settings every member of a group must agree on. A group is one screen,
 # so a port that crosses a member boundary needs one rule set to be checked
 # against - two members on different processors have no single answer.
-GROUP_SHARED_SETTINGS = ('processorType', 'bitDepth', 'frameRate')
+# The client's copy (app-screen-groups.js GROUP_SHARED_SETTINGS) is the one
+# the grouping dialog reads; this one is kept in step with it, the same
+# normalisation included (_group_setting_value).
+GROUP_SHARED_SETTINGS = ('processorType', 'bitDepth', 'frameRate',
+                         'lowLatency', 'powerVoltage', 'powerAmperage')
+
+
+def _group_setting_value(layer, field):
+    """One member's value for a shared setting, read as the client reads
+    it (_groupSettingValueOf): an absent Low Latency is off, an absent or
+    unreadable voltage is 110 and breaker 15 (what create_layer writes), and
+    '20' from a file is 20. Every other field is the raw value, None when
+    missing."""
+    if field == 'lowLatency':
+        return bool(layer.get('lowLatency'))
+    if field in ('powerVoltage', 'powerAmperage'):
+        default = 110 if field == 'powerVoltage' else 15
+        raw = layer.get(field)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+            return default
+        try:
+            value = float(raw)
+        except ValueError:
+            return default
+        if not math.isfinite(value) or value <= 0:
+            return default
+        return int(value) if value.is_integer() else value
+    return layer.get(field)
 
 
 def _highest_group_seq(project):
@@ -1862,6 +1920,9 @@ def _create_group(project, layer_ids, name=None):
         'id': _next_group_id(project),
         'name': name or f'Group {len(project["groups"]) + 1}',
         'layer_ids': members,
+        # A group made now walks its circuits as one wall, across processor
+        # canvases too (decidePowerPerMemberOnOpen, app-screen-groups.js).
+        'powerPerMember': False,
     }
     project['groups'].append(group)
     for lid in members:
@@ -2062,6 +2123,78 @@ def _normalize_beaches(project):
     return project
 
 
+# ---- services (house power) -------------------------------------------------
+#
+# A SERVICE is the house power several distros are fed from (owner rulings,
+# 2026-10-20: "in situations where I choose 600A service and 400A and 200A
+# distros i then need to be able to use both on the same 600A"). The client
+# owns the model (app-services.js); it rides the distros' project POST:
+#     project['services']  -> [{id: 's1', name, ratingA, system, voltage,
+#                               phase, main100?}]   in tray order
+#     distro['serviceId']  -> 's1' | absent
+# A distro goes only on a service of its own system. A show with no services
+# carries no key for them, and this pass writes none.
+def _normalize_services(project):
+    """Repair the service model in place, idempotently.
+
+    Runs on the funnel _normalize_beaches does (file load, undo, redo, every
+    project POST):
+
+      1. ``services``, when present, is a list of dicts each carrying a
+         string id; anything else is dropped, and a second service with an
+         id already seen is dropped too.
+      2. a distro's ``serviceId`` that names no service, or names a service
+         of another system, is removed.
+      3. a distro's ``feeder`` that is not a dict is dropped, and its
+         ``from`` cleared where it names no other distro.
+
+    A project without a ``services`` key keeps not having one, so a file
+    saved before services round-trips unchanged.
+    """
+    if not isinstance(project, dict):
+        return project
+    by_id = {}
+    if 'services' in project:
+        raw = project.get('services')
+        kept = []
+        for svc in (raw if isinstance(raw, list) else []):
+            if not isinstance(svc, dict):
+                continue
+            sid = svc.get('id')
+            if not isinstance(sid, str) or not sid or sid in by_id:
+                continue
+            by_id[sid] = svc
+            kept.append(svc)
+        project['services'] = kept
+    distros = project.get('distros')
+    distro_list = distros if isinstance(distros, list) else []
+    distro_ids = {d.get('id') for d in distro_list if isinstance(d, dict) and _is_hashable(d.get('id'))}
+    for d in distro_list:
+        if not isinstance(d, dict):
+            continue
+        # A distro's FEEDER (2026-10-21, app-services.js): {ft?, from?},
+        # `from` another distro's id. Not a dict: dropped. A `from` naming
+        # no distro, or the distro itself, is cleared (the service feeds
+        # it); a feeder left empty is dropped, as one never set.
+        if 'feeder' in d:
+            feeder = d.get('feeder')
+            if not isinstance(feeder, dict):
+                d.pop('feeder', None)
+            else:
+                src = feeder.get('from')
+                if 'from' in feeder and (not _is_hashable(src) or src not in distro_ids or src == d.get('id')):
+                    feeder.pop('from', None)
+                if not feeder:
+                    d.pop('feeder', None)
+        if 'serviceId' not in d:
+            continue
+        sid = d.get('serviceId')
+        svc = by_id.get(sid) if _is_hashable(sid) else None
+        if svc is None or not d.get('system') or svc.get('system') != d.get('system'):
+            d.pop('serviceId', None)
+    return project
+
+
 def _is_hashable(value):
     """Can ``value`` be put in a set or used as a dict key?
 
@@ -2090,36 +2223,73 @@ def _hashable_id_set(values):
 
 # The tabs the NAMES switch (Screens / Group / Both) keeps a value for - the
 # canvas's view modes. app-core.js NAME_DISPLAY_VIEWS is the client's copy.
-NAME_DISPLAY_VIEWS = ('pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look')
+NAME_DISPLAY_VIEWS = ('pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look', 'rigging')
 NAME_DISPLAY_VALUES = ('screens', 'group', 'both')
 
 
-def _migrate_group_name_display(project):
-    """The NAMES switch went per tab (owner, 2026-10-01: "Yes, per tab").
+def _show_name_display(project, view):
+    """A tab's show-wide NAMES value: ``groupNameDisplayByView`` where it
+    has one, else the single ``groupNameDisplay``, else 'group'. What a
+    group with no value of its own reads (app-core.js groupNameDisplayFor).
+    """
+    by = project.get('groupNameDisplayByView')
+    if isinstance(by, dict) and by.get(view) in NAME_DISPLAY_VALUES:
+        return by[view]
+    old = project.get('groupNameDisplay')
+    return old if old in NAME_DISPLAY_VALUES else 'group'
 
-    Before, one project field - ``groupNameDisplay`` - named every tab's
+
+def _migrate_group_name_display(project):
+    """The NAMES switch went per tab (owner, 2026-10-01: "Yes, per tab"),
+    then per GROUP, per tab (2026-11-04: "individually change screens,
+    group or both per group").
+
+    First, one project field - ``groupNameDisplay`` - named every tab's
     convention. A file that carries it gets ``groupNameDisplayByView`` with
-    every tab that has no valid value of its own set to that value, so an
-    old show opens with each tab where the one switch was. The old field is
-    left in place (the client reads it as the fallback, and an older build
-    still reads it). A project without the old field is untouched - a new
-    project pins neither field. Idempotent. Returns True when it wrote.
+    every tab that has no valid value of its own set to that value. Then,
+    when the show has a show-wide value at all (either field), every group
+    is given ``nameDisplayByView`` with each tab that has no valid value of
+    its own set to the tab's show-wide value, so an old show opens with
+    every wall named the way it was. The old fields are left in place (the
+    client reads them as the fallback, and an older build still reads
+    them). A project with neither field is untouched - a new project pins
+    nothing, and its groups read 'group', the default, either way.
+    Idempotent. Returns True when it wrote. app-core.js
+    migrateGroupNameDisplay is the client's copy.
     """
     if not isinstance(project, dict):
         return False
-    old = project.get('groupNameDisplay')
-    if old not in NAME_DISPLAY_VALUES:
-        return False
-    by = project.get('groupNameDisplayByView')
-    if not isinstance(by, dict):
-        by = {}
     changed = False
-    for view in NAME_DISPLAY_VIEWS:
-        if by.get(view) not in NAME_DISPLAY_VALUES:
-            by[view] = old
-            changed = True
-    if changed or project.get('groupNameDisplayByView') is not by:
-        project['groupNameDisplayByView'] = by
+    old = project.get('groupNameDisplay')
+    by = project.get('groupNameDisplayByView')
+    if old in NAME_DISPLAY_VALUES:
+        if not isinstance(by, dict):
+            by = {}
+        for view in NAME_DISPLAY_VIEWS:
+            if by.get(view) not in NAME_DISPLAY_VALUES:
+                by[view] = old
+                changed = True
+        if changed or project.get('groupNameDisplayByView') is not by:
+            project['groupNameDisplayByView'] = by
+    show_wide = old in NAME_DISPLAY_VALUES or (
+        isinstance(by, dict)
+        and any(by.get(view) in NAME_DISPLAY_VALUES for view in NAME_DISPLAY_VIEWS))
+    groups = project.get('groups')
+    if not show_wide or not isinstance(groups, list):
+        return changed
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        own = group.get('nameDisplayByView')
+        if not isinstance(own, dict):
+            own = {}
+        missing = [v for v in NAME_DISPLAY_VIEWS if own.get(v) not in NAME_DISPLAY_VALUES]
+        if not missing:
+            continue
+        for view in missing:
+            own[view] = _show_name_display(project, view)
+        group['nameDisplayByView'] = own
+        changed = True
     return changed
 
 
@@ -2351,7 +2521,7 @@ def validate_group_settings(layers):
         if not isinstance(layer, dict):
             continue
         for field in GROUP_SHARED_SETTINGS:
-            value = layer.get(field)
+            value = _group_setting_value(layer, field)
             if value not in seen[field]:
                 seen[field].append(value)
     conflicts = {f: v for f, v in seen.items() if len(v) > 1}
@@ -2430,6 +2600,7 @@ from routes_dialog import dialog_bp  # noqa: E402
 from routes_presets import presets_bp  # noqa: E402
 from routes_layouts import layouts_bp  # noqa: E402
 from routes_distro_presets import distro_presets_bp  # noqa: E402
+from routes_cable_stock import cable_stock_bp  # noqa: E402
 from routes_version import version_bp  # noqa: E402
 from routes_logs import logs_bp  # noqa: E402
 from routes_panel_catalog import panel_catalog_bp  # noqa: E402
@@ -2445,6 +2616,7 @@ app.register_blueprint(dialog_bp)
 app.register_blueprint(presets_bp)
 app.register_blueprint(layouts_bp)
 app.register_blueprint(distro_presets_bp)
+app.register_blueprint(cable_stock_bp)
 app.register_blueprint(version_bp)
 app.register_blueprint(logs_bp)
 app.register_blueprint(panel_catalog_bp)

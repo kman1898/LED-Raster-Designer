@@ -41,13 +41,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, 'src')
 FIXTURE = os.path.join(SRC, 'static', 'data', 'tour_snapshots.json')
 
-TOURS = ('quick', 'whatsNew', 'advanced')
+TOURS = ('quick', 'advanced')
 VIEWPORT = {'width': 1600, 'height': 950}
 # The pace the steps are driven at while collecting (QuickStart.setSpeed):
 # the shipped gestures, six times faster. Zero-pace application would be
 # quicker, but every step's note is read here, so a step that stopped
 # taking is named rather than buried under the shade.
 DRIVE_SPEED = 6
+# How long a fresh page may take to boot (new_page).
+BOOT_TIMEOUT_MS = 120000
 
 STATE_JS = """() => {
     const c = document.getElementById('qs-callout');
@@ -198,9 +200,22 @@ def new_page(browser, url):
     context.add_init_script(
         "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
     page = context.new_page()
-    page.goto(url, wait_until='domcontentloaded')
+    # The boot is the app's modules, the server session and the first
+    # project load, and under load it is slow: eight pages opened at once
+    # beside a CPU burner took up to 40 s to finish it (2026-11-04), against
+    # the 30 s a wait_for_function gives by default. So the wait is for the
+    # app's own signal (_initialLoadComplete) with room to spare, and a page
+    # whose app never started says what failed to load.
+    trouble = []
+    page.on('requestfailed', lambda r: trouble.append(f'{r.url} failed: {r.failure}'))
+    page.on('response', lambda r: r.status >= 400 and trouble.append(f'{r.url} answered {r.status}'))
+    page.on('pageerror', lambda e: trouble.append(f'page error: {e}'))
+    page.goto(url, wait_until='domcontentloaded', timeout=BOOT_TIMEOUT_MS)
+    if not page.evaluate("() => !!(window.app && typeof window.app.dedupeProjectLayers === 'function')"):
+        raise RuntimeError('the app never started: ' + '; '.join(trouble or ['nothing reported']))
     page.wait_for_function(
-        "() => !!(window.app && window.app.project && window.canvasRenderer && window.QuickStart)")
+        "() => window.app._initialLoadComplete === true && !!window.canvasRenderer && !!window.QuickStart",
+        timeout=BOOT_TIMEOUT_MS)
     page.wait_for_timeout(1500)
     return context, page
 

@@ -197,8 +197,11 @@ class _HardwareDock {
         // before a single height is read.
         let slot = 0;
         const plan = cells.map(cell => {
-            const span = cell.classList.contains('hw-dock-span2') ? 2 : 1;
-            if (slot + span > n) slot = 0;
+            // A full-width row (the Power view's services strip) takes
+            // every track and starts the deal again under it.
+            const all = cell.classList.contains('hw-dock-span-all');
+            const span = all ? n : (cell.classList.contains('hw-dock-span2') ? 2 : 1);
+            if (all || slot + span > n) slot = 0;
             const col = slot;
             slot = (slot + span) % n;
             const gc = `${col + 1} / span ${span}`;
@@ -386,6 +389,11 @@ class _HardwareDock {
             this.addDistro();
             this._restateNaming();
         });
+        const addService = document.getElementById('power-service-add');
+        if (addService) addService.addEventListener('click', () => {
+            this.addService();
+            this.renderHardwareDock();
+        });
         // The gear popover's teardown gestures, the menu idiom: click-away
         // and Escape, bound once at the document. A press on the popover's
         // own anchor is the toggle's business, not a dismissal.
@@ -436,6 +444,9 @@ class _HardwareDock {
         const focused = document.activeElement
             && document.activeElement.dataset
             && document.activeElement.dataset.hwdock;
+        // An open strand pick is a chip swapped in place, so nothing in the
+        // model says it is open: the wipe would put the chip back.
+        this._fiberPickOpen = this._fiberPickOpenKey();
         const before = dock.offsetHeight;
         // The rebuild must not move the tray under the reader (2026-09-09:
         // "when i try and open the cable sheet it jumps the whole screen
@@ -485,10 +496,20 @@ class _HardwareDock {
         // the anchor that keeps the clicked unit under the pointer reads
         // its final place, and nothing is painted in a transient one.
         this._dockMasonry(body);
+        this._fiberPickOpen = null;
         // The snake brackets ride under their chips by measurement, so
         // they are placed once the grids have laid out - after the fold
         // state above, which decides what is visible to measure.
-        if (mode === 'data-flow') this._dockPlaceSnakeBrackets(body);
+        if (mode === 'data-flow') {
+            this._dockPlaceSnakeBrackets(body);
+            // A bracket makes its unit taller, and the stack above read the
+            // unit without it. Left to the observer's next frame, every
+            // rebuild drew the column 30 px short for a frame, a reveal
+            // measured in that frame put the box past the tray's edge, and
+            // the anchor below read the short column as drift and walked
+            // the scroll back 30 px a rebuild.
+            if (body.querySelector('.hw-dock-grid-snaked')) this._dockMasonry(body);
+        }
         // Put the scroll back the way it was, then - if a unit anchored
         // this rebuild - slide it so that unit's top sits where it sat.
         body.scrollTop = scrollTop;
@@ -760,7 +781,7 @@ class _HardwareDock {
             chips.appendChild(chip);
         });
         row.appendChild(chips);
-        row.title = `${scr.name} - ${scr.numbers.length} of ${scr.total} `
+        row.title = `${scr.name}: ${scr.numbers.length} of ${scr.total} `
             + `${unit} not attached. Click to center the canvas on it.`;
         row.addEventListener('click', () => {
             this.centerCanvasOnLayer(scr.layerId);
@@ -811,7 +832,7 @@ class _HardwareDock {
         this._hwPopoverRender(anchor);
     }
 
-    _hwPopoverRender(anchor) {
+    _hwPopoverRender(anchor, hold = false) {
         let pop = document.getElementById('hw-gear-popover');
         if (!pop) {
             pop = document.createElement('div');
@@ -857,7 +878,7 @@ class _HardwareDock {
         pop.appendChild(frame);
         content.addEventListener('scroll', () => this._hwPopoverFade());
         pop.style.display = 'block';
-        this._hwPopoverPlace(anchor);
+        this._hwPopoverPlace(anchor, hold);
         content.scrollTop = keepScroll;
         this._hwPopoverFade();
     }
@@ -962,10 +983,17 @@ class _HardwareDock {
     // (the fields wrap, never clip) when the window is narrower than that.
     // Re-run on resize and dock drags: a popover placed for one window
     // must not end up half off another.
-    _hwPopoverPlace(anchor) {
+    //
+    // `hold`: a refresh of the panel's own content (a mode picked, a
+    // field committed) keeps its top-left corner where it already is
+    // (`at`, the last spot placed), so a body that grows or shrinks under
+    // a click never moves the panel out from under the pointer; only a
+    // fresh open, a resize or a dock drag places it off the gear again.
+    _hwPopoverPlace(anchor, hold = false) {
         const pop = document.getElementById('hw-gear-popover');
         const frame = pop && pop.querySelector('.hw-pop-frame');
-        const pos = this._hwPopover && this._hwPopover.pos;
+        const rec = this._hwPopover;
+        const pos = (rec && rec.pos) || (hold && rec && rec.at) || null;
         if (!pop || !frame || (!anchor && !pos)) return;
         const margin = 8, gap = 6;
         const vw = Math.min(window.innerWidth,
@@ -1003,7 +1031,8 @@ class _HardwareDock {
         y = Math.max(margin, Math.min(y, vh - pr.height - margin));
         // A dragged spot is kept as placed, so a window that grows again
         // leaves the panel where the reader last saw it.
-        if (pos) { pos.x = x; pos.y = y; }
+        if (rec && rec.pos) { rec.pos.x = x; rec.pos.y = y; }
+        if (rec) rec.at = { x, y };
         pop.style.left = `${Math.round(x)}px`;
         pop.style.top = `${Math.round(y)}px`;
         pop.style.visibility = 'visible';
@@ -1055,7 +1084,7 @@ class _HardwareDock {
             this._hwPopoverClose();
             return;
         }
-        this._hwPopoverRender(anchor);
+        this._hwPopoverRender(anchor, true);
     }
 
     _dockNote(host, text) {
@@ -1129,7 +1158,7 @@ class _HardwareDock {
                 placeholder: 'unnamed',
                 key: `processor-name-${proc.id}`,
                 title: oneBox
-                    ? 'Name this processor. Its ports read the name - name '
+                    ? 'Name this processor. Its ports read the name: name '
                         + 'it SR and they read SR-1, SR-2.'
                     : `Name this processor. A ${this.unitWordFor(proc)}'s ports take the `
                         + 'nearest name above them.',
@@ -1141,11 +1170,17 @@ class _HardwareDock {
             const procPills = [this._dockRedundancyPill(proc, null),
                                this._dockBackupProcPill(proc),
                                this._dockAddUnitButton(proc)].filter(Boolean);
+            // The processor's ≡: one cable list of every box on it, and its
+            // own ports, folded or open (_dockProcSheetSections).
+            const sheetSections = this._dockProcSheetSections(proc);
+            if (sheetSections.length) {
+                procPills.push(this._dockBuildProcCableSheetButton(proc));
+            }
             this._dockHeadAugment(title, {
                 controls: procPills,
                 gear: {
                     id: `proc-${proc.id}`,
-                    title: 'Configure this processor - redundancy, slots, '
+                    title: 'Configure this processor: redundancy, slots, '
                         + 'remove.',
                     build: () => {
                         const p = (this._processorsResolved || [])
@@ -1182,6 +1217,12 @@ class _HardwareDock {
                 warn.style.margin = '2px 6px 4px';
                 warn.textContent = span.message;
                 wrap.appendChild(warn);
+            }
+            // ...open, it stands under the processor's strip, above its
+            // cards, outside every fold
+            if (sheetSections.length
+                    && this._dataCableSheetOpen({ kind: 'proc', id: proc.id })) {
+                wrap.appendChild(this._dockBuildProcCableSheet(proc, sheetSections));
             }
             (proc.slots || []).forEach(slot => {
                 if (!slot.card) return;
@@ -1233,14 +1274,24 @@ class _HardwareDock {
         });
     }
 
+    // Whether every socket a box delivers copies a primary socket (the
+    // resolved port's mirrorOf): a box set to Mirror, or a box on a copy
+    // OPT of a card in Copy mode. Its drop makes a mirror screen.
+    _dockBoxIsMirror(card, cvt) {
+        const mine = ((card && card.ports) || []).filter(p => p.cvtId === cvt.id);
+        return mine.length > 0 && mine.every(p => p.mirrorOf);
+    }
+
     _dockBuildCard(proc, card) {
         const unit = document.createElement('div');
         unit.className = 'hw-dock-unit';
 
-        // Every socket taken, primary or return, over the sockets there
-        // (socketsTaken - owner, 2026-09-24: "11 primary and 11 redundant
-        // ... it's 22/40").
-        const count = this.socketsTaken(card.id);
+        // Primaries placed over the sockets that can carry a primary: the
+        // backups that ride along on their own are left out (owner,
+        // 2026-11-04: "the backups are automatic, so we don't need to
+        // count the backups" - an SX40 looped A to B, C to D reads 18/20,
+        // not 36/40). trayPrimaryCount; the binder keeps socketsTaken.
+        const count = this.trayPrimaryCount(card);
         // A unit consumed as a 1:1 backup wears the tag its box-level
         // cousin wears - dragging it is pointless (every port is refused as
         // a return end) but hiding it would hide where the returns land.
@@ -1256,25 +1307,44 @@ class _HardwareDock {
         const Word = this.unitWordTitle(word);
         // A card that is a unit of its own leads with its title - "QD 1"
         // for the QD-S on OUT 1 (owner, 2026-09-28) - the name its boxes
-        // wear ("QD 1 A").
-        const model = card.unitTitle
-            ? `${card.unitTitle} · ${card.deviceName}` : card.deviceName;
+        // wear ("QD 1 A"). A card on a card-based processor reads by its
+        // slot, "Card 2" (owner, 2026-10-29: "Card 1, 2, 3 etc instead of
+        // H_16"); the model is in its ⚙ and on the binder's Cards table,
+        // and the name typed on it is in the field beside.
+        // ONE NAME PER CARD (beta.4 QA): a card somebody named goes by that
+        // name everywhere, so its header reads the slot it sits in - "Slot
+        // 2", the gear rows' word - never "Card 2" beside a field reading
+        // "Card 3".
+        const slotTitle = this.cardTypedName(proc, card)
+            ? (this.cardSlotTitle(proc, card)
+                .replace(/^Card /, 'Slot ') || '')
+            : this.cardSlotTitle(proc, card);
+        const model = slotTitle || (card.unitTitle
+            ? `${card.unitTitle} · ${card.deviceName}` : card.deviceName);
         const head = this._dockBuildHandle(
             {
                 type: 'card', cardId: card.id,
-                title: (this.cardTypedName(proc, card) || card.unitTitle
+                title: (this.cardShortName(proc, card)
+                        || this.cardTypedName(proc, card) || card.unitTitle
                         || card.deviceName)
                     + cardTag,
             },
             `card-${card.id}`,
             model + cardTag,
             '',
-            this.procIsCardBased(proc)
+            (this.procIsCardBased(proc)
                 ? 'Drag the whole card onto a screen: its unplaced ports fill in '
                     + 'order up to the port under your cursor. Cards keep their slot '
-                    + 'order - drag the processor’s line to reorder.'
+                    + 'order. Drag the processor’s line to reorder.'
                 : `Drag the whole ${word} onto a screen: its unplaced ports fill in `
-                    + 'order up to the port under your cursor.',
+                    + 'order up to the port under your cursor.')
+                // In a copy mode, the second drag makes a mirror screen
+                // (owner, 2026-11-01 - app-mirror-screens.js).
+                + (card.copyTrunks === 'mirror' || card.copyTrunks === 'per-box'
+                    ? ' Then drag it onto a matching second screen to make '
+                        + 'that screen a copy of the first, fed from the copy '
+                        + 'outputs.'
+                    : ''),
             // The header's glance: how full the card is, the retired
             // panel's per-card usage foot worn as n/N and a fill line - so
             // a card folded away because it is done reads as done (a
@@ -1283,7 +1353,8 @@ class _HardwareDock {
             count && count.of
                 ? { frac: count.taken / count.of,
                     over: count.taken > count.of,
-                    text: `${count.taken}/${count.of}` }
+                    text: `${count.taken}/${count.of}`,
+                    title: this.trayCountTitle(count) }
                 : null);
         // The card's NAME edits inline where it reads; everything else the
         // panel's card block carried lives behind the ⚙. The redundancy
@@ -1298,11 +1369,9 @@ class _HardwareDock {
         // box removed its trunk simply draws empty, and the card's ⚙ is
         // where a box goes back on.
         const cvts = card.cvts || [];
-        const covered = new Set();
-        cvts.forEach(cvt => {
-            (cvt.ports || []).forEach(p => covered.add(p.number));
-        });
-        const loose = (card.ports || []).filter(p => !covered.has(p.number));
+        // The ports no box DELIVERS (cvtId): a backup box on a copy OPT
+        // carrying the unit's own port again does not take it off the card.
+        const loose = (card.ports || []).filter(p => !p.cvtId);
         // The fact the tray's two-track span is decided by: the size of
         // the LARGEST block of chips this card draws - each breakout box
         // is one block (its own span of ports, below), and the loose ports
@@ -1350,7 +1419,7 @@ class _HardwareDock {
                 value: card.name,
                 placeholder: proc.name || 'unnamed',
                 key: `processor-card-name-${card.id}`,
-                title: `Name this ${word}. Its ports read the name - name it `
+                title: `Name this ${word}. Its ports read the name: name it `
                     + 'SR and they read SR-1, SR-2.',
                 onCommit: (val) => this._processorRequest(
                     `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
@@ -1358,7 +1427,7 @@ class _HardwareDock {
             },
             gear: {
                 id: `card-${card.id}`,
-                title: `Configure this ${word} - templates, mode, breakout `
+                title: `Configure this ${word}: templates, mode, breakout `
                     + 'boxes, remove. Redundancy is set behind the '
                     + 'processor\'s \u2699.',
                 build: () => {
@@ -1376,9 +1445,32 @@ class _HardwareDock {
         // for it. The loose grid the sheet stands in for stays inside the
         // fold.
         const cardSheetUp = !!loose.length && this._dataCableSheetOpen(cardOwner);
+        // The unit's own ports backed up on a copy OPT (drawn below as loop
+        // rows): which row of each backup box carries its ≡ is settled
+        // here, before the sheet, since a folded card's sheet lists those
+        // backup rows too (_dockSheetPorts) - folded, the card's ≡ is the
+        // only way to them.
+        const layout = this._dockCardLayout(card);
+        const ownRows = layout.own;
+        let cardFolded = false;
+        try {
+            cardFolded = localStorage.getItem(
+                `ledRasterPanelCollapsed_hwdock-card-${card.id}`) === '1';
+        } catch (_) { /* no storage */ }
+        const ownSheetOut = cardSheetUp && cardFolded
+            && ownRows.some(s => !s.cont);
         if (cardSheetUp) {
             unit.classList.add('hw-dock-sheet-up');
-            unit.appendChild(this._dockBuildDataCableSheet(cardOwner, loose));
+            unit.appendChild(this._dockBuildDataCableSheet(cardOwner, ownSheetOut
+                ? this._dockSheetPorts(proc, card, null, ownRows, loose) : loose));
+            // a flip of the fold redraws, so the backup rows come and go
+            if (ownRows.some(s => !s.cont)) {
+                new MutationObserver((_, obs) => {
+                    if (unit.classList.contains('lrd-sec-collapsed') === cardFolded) return;
+                    obs.disconnect();
+                    if (unit.isConnected) this.renderHardwareDock();
+                }).observe(unit, { attributes: true, attributeFilter: ['class'] });
+            }
         } else if (card.linkHost && this._dataCableSheetOpen(cardOwner)) {
             // A link-host card's sheet: its Fiber section alone, above
             // its boxes (which keep drawing - the sheet names no port).
@@ -1403,6 +1495,63 @@ class _HardwareDock {
             unitBody.appendChild(
                 this._dockBuildPortGrid(proc, card, loose, '', cardOwner));
         }
+        // THE UNIT'S OWN PORTS BACKED UP ON A COPY OPT (owner, 2026-11-02:
+        // "you could use 16 ports on processor and then opt 3/4 for 16
+        // ports of backup/copy"): the backup box's sockets behind them are
+        // their loop end, drawn as loop rows right under the unit's own
+        // ports, each socket numbered with the port it backs up.
+        // (Their rows' `cont` was settled above, in _dockCardLayout.)
+        if (ownRows.length) {
+            const own = document.createElement('div');
+            own.className = 'hw-dock-loop-own';
+            own.dataset.lrdLoopOwn = card.id;
+            ownRows.forEach(s => {
+                own.appendChild(this._dockBuildBox(proc, card, s.box,
+                    { far: true, ports: s.ports, cont: s.cont ? card.id : null,
+                      sheetOut: ownSheetOut }));
+            });
+            unitBody.appendChild(own);
+        }
+        // The loop strips and the lone boxes, in the card's order
+        // (_dockCardLayout: which box draws where).
+        layout.strips.forEach(({ box: cvt, slices }) => {
+            unitBody.appendChild(slices.length
+                ? this._dockBuildLoopPair(proc, card, cvt, slices)
+                : this._dockBuildBox(proc, card, cvt));
+        });
+        // EVERY BOX IS ON THE TRAY. A box none of the strips above drew -
+        // one delivering no socket, a backup bound to a box that is itself
+        // a backup (a file saved before beta.5, beta.4 QA) - draws on its
+        // own, so it can be seen and its ⚙ can remove it.
+        layout.strays.forEach(cvt => {
+            unitBody.appendChild(this._dockBuildBox(proc, card, cvt));
+        });
+        // ...and the empty slot after the last box: where the next one goes
+        if (boxFits.length) unitBody.appendChild(this._dockAddBoxSlot(proc, card, boxFits));
+        return unit;
+    }
+
+    // WHICH BOX DRAWS WHERE on a card, in the tray's order - the one
+    // reading the card's strips (_dockBuildCard) and the processor's cable
+    // list (_dockProcSheetSections) both take, so the two never disagree:
+    //   `loose`: the ports no box delivers (cvtId);
+    //   `own`: the loop rows backing those up on a copy OPT [{ box, ports,
+    //     cont }] (only where the card has loose ports);
+    //   `strips`: [{ box, slices }] - a loop strip where `slices` has rows,
+    //     else a lone box;
+    //   `strays`: the boxes none of those draws with a ⚙ of its own.
+    // A slice's `cont`: the same backup box's row after its first, its
+    // name only (its ≡, ⚙ and sheet are on the first).
+    _dockCardLayout(card) {
+        const cvts = card.cvts || [];
+        const loose = (card.ports || []).filter(p => !p.cvtId);
+        const shared = new Set();
+        const own = !loose.length ? [] : this.boxLoopSlices(null, cvts).map(s => {
+            // a straddling box has its own row: here it is its name only
+            const cont = shared.has(s.box.id) || this.boxStraddles(s.box);
+            shared.add(s.box.id);
+            return { ...s, cont };
+        });
         // A LOOP pair - an SX40's XD on trunk B (or D), the far end of the
         // A-to-B (C-to-D) loop, or a NovaStar same-card `backupOf` box -
         // draws as ONE strip holding both boxes (owner, 2026-09-25, "option
@@ -1420,15 +1569,38 @@ class _HardwareDock {
             }
         });
         const fars = new Set([...farOf.values()].map(c => c.id));
+        // A BACKUP BOUND PORT BY PORT (owner, 2026-11-02) - a CVT4K-S on
+        // OPT 5-6 behind two CVT10s, two CVT10s behind one CVT4K-S - is
+        // a loop end too, split by the primary it backs up: each primary's
+        // strip ends in a row per backup box holding the sockets that back
+        // ITS ports, numbered with the ports they back up. A backup box
+        // behind two primaries rows in both strips; its name, ≡ and ⚙
+        // ride the first, the second reads its name only (`cont`).
+        // A box STRADDLING a main OPT and its copy OPT (a CVT4K-S on OPT
+        // 1-2 of a VX1000, owner 2026-11-02) is a primary with a loop of
+        // its own: its strip's far row is its own sockets 9-16, backing up
+        // its 1-8 - or, across a UHD Jr's OPT 2-3, the box on OPT 1.
+        const mixed = cvts.filter(c => !fars.has(c.id) && c.copyRole === 'backup'
+            && this.boxLoopMixed(c));
+        const backers = cvts.filter(c => mixed.includes(c) || this.boxStraddles(c));
+        const strips = [];
         cvts.forEach(cvt => {
-            if (!(cvt.ports || []).length || fars.has(cvt.id)) return;
-            unitBody.appendChild(farOf.has(cvt.id)
-                ? this._dockBuildLoopPair(proc, card, cvt, farOf.get(cvt.id))
-                : this._dockBuildBox(proc, card, cvt));
+            if (!(cvt.ports || []).length || fars.has(cvt.id)
+                    || mixed.includes(cvt)) return;
+            const slices = (farOf.has(cvt.id)
+                ? [{ box: farOf.get(cvt.id), ports: this.boxLoopPorts(farOf.get(cvt.id), cvt.id) }] : [])
+                .concat(this.boxLoopSlices(cvt, backers).map(s => {
+                    const cont = shared.has(s.box.id) || this.boxStraddles(s.box);
+                    shared.add(s.box.id);
+                    return { ...s, mixed: true, cont };
+                }));
+            strips.push({ box: cvt, slices });
         });
-        // ...and the empty slot after the last box: where the next one goes
-        if (boxFits.length) unitBody.appendChild(this._dockAddBoxSlot(proc, card, boxFits));
-        return unit;
+        const drawn = new Set(strips.map(s => s.box.id));
+        own.concat(...strips.map(s => s.slices)).forEach(s => {
+            if (!s.cont) drawn.add(s.box.id);
+        });
+        return { loose, own, strips, strays: cvts.filter(c => !drawn.has(c.id)) };
     }
 
     // The card row's "+ Box": a click lists the boxes that fit, and a pick
@@ -1508,7 +1680,7 @@ class _HardwareDock {
             : `Add a breakout box to this ${word}.`;
         slot.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (fits.length === 1) {
+            if (fits.length === 1 && !this._dockCopyPlacements(card, fits).length) {
                 this._dockAddBox(card.id, fits[0].id, fits[0].addInputs);
                 return;
             }
@@ -1544,22 +1716,80 @@ class _HardwareDock {
                 () => this._dockAddBox(cardId, d.id, d.addInputs));
             wrap.appendChild(item);
         });
+        // ...and each straight onto a free copy OPT (copyTrunksOpen), its
+        // primary OPT left to the unit's own ports (owner, 2026-11-02: "you
+        // could use 16 ports on processor and then opt 3/4 for 16 ports of
+        // backup/copy").
+        this._dockCopyPlacements(found.card, fits).forEach(c => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'btn hw-dock-addbox-item';
+            item.textContent = `${c.fit.name} on ${c.title}`;
+            item.title = `Put a ${c.fit.name} on ${c.title}, the copy of `
+                + `${c.copies}: it backs up or mirrors what ${c.copies} `
+                + 'carries, the unit\'s own ports where no box is on it.';
+            item.dataset.lrdField = `dock-addbox-${cardId}-${c.fit.pickKey || c.fit.id}-opt${c.trunk}`;
+            item.addEventListener('click',
+                () => this._dockAddBox(cardId, c.fit.id, c.inputs, c.trunk));
+            wrap.appendChild(item);
+        });
         return wrap;
+    }
+
+    // Where each fitting box may go straight onto a free copy OPT: the
+    // first run of free copy OPTs it takes in full, else - a box with one
+    // documented input - one of them on its own: [{ fit, trunk, inputs,
+    // title, copies }]. None on a card offering no copy OPT.
+    _dockCopyPlacements(card, fits) {
+        const open = (card && card.copyTrunksOpen) || [];
+        if (!open.length) return [];
+        const titles = card.trunkTitles || [];
+        const span = (t, n) => {
+            const a = titles[t] || `${t + 1}`;
+            const m = /^(.*?)(\d+)$/.exec(titles[t + n - 1] || '');
+            return n > 1 && m && a.startsWith(m[1]) ? `${a}-${m[2]}` : a;
+        };
+        const copies = (t) => {
+            const hit = (card.copyTrunkList || []).find(c => c.trunkIndex === t);
+            return hit ? hit.copiesTitle : 'its primary';
+        };
+        const out = [];
+        const seen = new Set();
+        (fits || []).forEach(fit => {
+            if (seen.has(fit.id)) return;
+            const full = fit.addInputs || fit.trunksIn || 1;
+            const t = open.find(s => [...Array(full).keys()].every(k => open.includes(s + k)));
+            if (t !== undefined) {
+                seen.add(fit.id);
+                out.push({ fit, trunk: t, inputs: fit.addInputs || null,
+                           title: span(t, full), copies: copies(t) });
+            } else if (fit.singleInput && full > 1) {
+                seen.add(fit.id);
+                out.push({ fit: Object.assign({}, fit, {
+                               name: `${fit.name.replace(/ \(1 .*\)$/, '')} (1 ${this._boxInputWord(fit)})` }),
+                           trunk: open[0], inputs: 1, title: span(open[0], 1),
+                           copies: copies(open[0]) });
+            }
+        });
+        return out;
     }
 
     // `inputs` rides a fit that goes on short of its nameplate - a CVT4K-S
     // on the one OPT left (_cardBoxFits' addInputs); absent is all of them.
-    _dockAddBox(cardId, deviceId, inputs) {
+    // `trunk`: the copy OPT the box goes straight onto (_dockCopyPlacements).
+    _dockAddBox(cardId, deviceId, inputs, trunk = null) {
         const found = this._dockFindCard(cardId);
         if (!found) return;
         if (typeof this._hwPopoverClose === 'function') this._hwPopoverClose();
         // the ⚙'s picker keeps the last pick per card; this is the same pick
         (this._procCvtPick = this._procCvtPick || {})[cardId] =
             inputs ? `${deviceId}:${inputs}` : deviceId;
-        this._processorRequest(
-            `/api/processors/${found.proc.id}/cards/${cardId}/cvts`, 'POST',
-            this._boxFitBody({ id: deviceId, addInputs: inputs }),
-            'Add Breakout Box');
+        const body = this._boxFitBody({ id: deviceId, addInputs: inputs });
+        if (trunk != null) body.trunk = trunk;
+        // A box landing on a copy OPT of a card that picks per box asks
+        // Mirror or Backup first (app-mirror-screens.js addBoxWithRole).
+        this.addBoxWithRole(found.proc, found.card, body,
+            'Add Breakout Box', trunk != null);
     }
 
     // AN ADD THAT BRINGS A CARD WITH NO PORTS OPENS ITS BOX PICKER (owner,
@@ -1637,8 +1867,14 @@ class _HardwareDock {
     // no fold of its own (the strip folds the pair), `row.far` adds the
     // "· loop end" beside its name. Everything else - the drag, the
     // counts, the sheet, the gear, the keys - is the same box either way.
+    // `row.ports`: the sockets the row holds where it is not the whole box
+    // (a port-by-port backup's sockets behind one primary, numbered with
+    // the ports they back up - boxLoopPorts); `row.cont`: the same backup
+    // box's row in a second primary's strip, its name with no field, ≡,
+    // ⚙ or sheet of its own (they are on its first row).
     _dockBuildBox(proc, card, cvt, row = null) {
-        const nums = (cvt.ports || []).map(p => p.number);
+        const shown = (row && row.ports) || this.boxMainPorts(cvt);
+        const nums = shown.map(p => p.number);
         const box = document.createElement('div');
         box.className = 'hw-dock-box';
         if (row) {
@@ -1651,13 +1887,25 @@ class _HardwareDock {
         // and D is 1-10"). The card-wide first/last ride the payload
         // below untouched; they are the server's window keys, not a
         // number anyone reads off metal.
-        const locals = (cvt.ports || []).map(
-            p => p.localNumber || p.number);
-        const span = `${Math.min(...locals)}-${Math.max(...locals)}`;
+        // ...except a port-by-port backup's row, whose sockets read their
+        // silkscreen on the chips: its header names the ports they back
+        // up by the PRIMARY box's own numbers (loopOf.local) - the strip's
+        // box, the row sits in - never the card-wide key no face prints
+        // (a CVT10 behind a CVT4K-S's 9-14: chips 1-6, "ports 9-14").
+        const locals = shown.map(
+            p => (p.loopOf ? (p.loopOf.local || p.number) : (p.localNumber || p.number)));
+        // "ports 1-10", "port 1" for one, nothing for a box delivering none
+        const spanText = locals.length ? this._dockPortSpanText(locals) : '';
         // "(backup)" is the backup PROCESSOR's word now (2026-09-25): a
         // loop's far box says what it is on its row ("· loop end"), and
         // only a copy box still wears a tag.
-        const tag = cvt.duplicateOf ? ' (copy)' : '';
+        // ...and a box on a copy OPT feeding a mirror screen says so: its
+        // sockets carry the mirror's runs, not the primary's again. A box
+        // bound as another's backup (backupOf - a NovaStar Backup-mode
+        // OPT 3-4) is a loop's far end, which its strip already says.
+        const tag = cvt.copyRole === 'mirror' ? ' (mirror)'
+            : (cvt.duplicateOf && !cvt.backupOf && !this.boxLoopMixed(cvt)
+                ? ' (copy)' : '');
         // Four boxes all reading "XD" are four sections nobody
         // can tell apart, so an unnamed box on a trunked card wears its
         // trunk letter - "XD A" - the letters the pairing rule
@@ -1670,34 +1918,49 @@ class _HardwareDock {
             || cvt.name || cvt.deviceName) + tag;
         // The folded box's glance is occupancy in sockets - "8/10" and
         // a fill line - because "this box is done" is a count of taken
-        // sockets: its primaries AND the returns landing on it (box B
-        // of an SX40 pair counts the returns of A's mains), the same
-        // server count the card's glance reads (socketsTaken).
-        const boxCount = this.socketsTaken(card.id, cvt.id);
+        // sockets: its primaries over the sockets that can carry one, the
+        // count the card's glance reads (trayPrimaryCount, owner
+        // 2026-11-04). A box that only carries backups that ride along on
+        // their own (an SX40's XD B, a copy OPT box set to Backup) has no
+        // primary socket and draws no count; its loop strip's header and
+        // its primary's row say how full the loop is. A far row backing
+        // up one primary box counts the sockets it holds (`row.ports`).
+        const boxCount = this.trayPrimaryCount(card, cvt,
+            row && row.far && row.ports ? row.ports : undefined);
+        const boxWhere = row && !row.far ? row.where : '';
         const boxHead = this._dockBuildHandle(
             {
-                type: 'box', cardId: card.id,
+                type: 'box', cardId: card.id, boxId: cvt.id,
                 first: Math.min(...nums), last: Math.max(...nums),
                 title: boxTitle,
                 beyondTrunks: !!cvt.beyondTrunks,
             },
-            `box-${cvt.id}`,
-            // a loop row's strip header already prints the model
-            row ? '' : cvt.deviceName + tag,
-            `ports ${span}`,
-            'Drag the whole box onto a screen: the screen\'s ports fill '
-            + 'onto this box\'s sockets in order from the first '
-            + 'unassigned.',
-            boxCount
+            row && row.cont ? `box-${cvt.id}-${row.cont}` : `box-${cvt.id}`,
+            // a loop row's strip header already prints the model; a
+            // continued row prints the box's name, having no field for it
+            row ? (row.cont ? this._dockBoxLabel(cvt) : '') : cvt.deviceName + tag,
+            spanText,
+            // A box whose sockets all copy a primary's (a box set to
+            // Mirror, or on a copy OPT of a card in Copy mode) makes a
+            // mirror when dropped (app-mirror-screens _mirrorBoxDropPlan).
+            this._dockBoxIsMirror(card, cvt)
+                ? 'Drag this box onto the screen that should copy the screen '
+                    + 'on the box it copies. That screen becomes the mirror, '
+                    + 'and its run lands on this box.'
+                : 'Drag the whole box onto a screen: the screen\'s ports fill '
+                    + 'onto this box\'s sockets in order from the first '
+                    + 'unassigned.',
+            boxCount && boxCount.of
                 ? { frac: boxCount.taken / boxCount.of, over: false,
-                    text: `${boxCount.taken}/${boxCount.of}` }
+                    text: `${boxCount.taken}/${boxCount.of}`,
+                    title: this.trayCountTitle(boxCount, boxWhere) }
                 : null);
         // The box's name edits inline; unnamed, the placeholder speaks
         // the RESOLVED title (trunk letter included), so "XD A"
         // still reads on the header the server's refusals name.
         const boxOwner = { kind: 'cvt', id: cvt.id, procId: proc.id,
                            cardId: card.id, rec: cvt };
-        this._dockHeadAugment(boxHead, {
+        if (!(row && row.cont)) this._dockHeadAugment(boxHead, {
             // The box's ≡: its cable sheet, for the sockets it
             // delivers (2026-09-06).
             controls: [this._dockBuildDataCableSheetButton(boxOwner)],
@@ -1713,7 +1976,7 @@ class _HardwareDock {
             },
             gear: {
                 id: `box-${cvt.id}`,
-                title: 'Configure this box - templates, facts, remove.',
+                title: 'Configure this box: templates, facts, remove.',
                 build: () => {
                     const found = this._dockFindCvt(cvt.id);
                     return found ? this._buildBoxGearContent(
@@ -1721,30 +1984,101 @@ class _HardwareDock {
                 },
             },
         });
+        // Its fiber's mode, where the catalog states one (owner,
+        // 2026-11-04: "it should show Multi mode or single mode depending
+        // on which is selected"): "Single mode" / "Multimode" beside the
+        // model, on every row of the box but a continued one.
+        if (!(row && row.cont)) this._dockPlaceBoxModeTag(boxHead, cvt);
+        // The box's ports no backup covers (owner, 2026-11-03): said on
+        // its header, where its ports are (boxUnbackedText).
+        const unbacked = !(row && (row.far || row.cont))
+            ? this.boxUnbackedText(cvt) : '';
+        if (unbacked) {
+            const note = document.createElement('span');
+            note.className = 'hw-dock-unbacked';
+            note.dataset.lrdField = `box-unbacked-${cvt.id}`;
+            note.style.color = '#c8a04a';
+            note.textContent = unbacked;
+            note.title = `This box has more ports than its backup carries: ${unbacked}.`;
+            boxHead.appendChild(note);
+        }
         if (row && row.far) {
             const end = document.createElement('span');
             end.className = 'hw-dock-loop-end';
             end.textContent = '· loop end';
-            const field = boxHead.querySelector('.hw-dock-name');
+            const field = boxHead.querySelector('.hw-dock-name, .hw-dock-unit-name');
             if (field) field.after(end);
         }
         box.appendChild(boxHead);
         // The box's sheet sits outside its fold too (same rule). A loop
         // row has no fold of its own: its sheet stands where its chips
         // would, inside the strip, beside the ≡ that opened it.
-        const boxSheetUp = this._dataCableSheetOpen(boxOwner);
-        if (boxSheetUp) {
+        // `row.sheetOut`: the folded strip draws this sheet under its own
+        // header instead (_dockBuildLoopPair), so it shows while folded.
+        // A port-by-port backup's sheet lists all its sockets, each by the
+        // port it backs up (boxLoopPorts).
+        const boxSheetUp = !(row && row.cont) && this._dataCableSheetOpen(boxOwner);
+        if (boxSheetUp && !(row && row.sheetOut)) {
             box.classList.add('hw-dock-sheet-up');
             box.appendChild(this._dockBuildDataCableSheet(
-                boxOwner, cvt.ports || []));
+                boxOwner, this.boxSheetPorts(cvt)));
         }
         const boxBody = row ? box
             : this._dockSectionBody(box, boxHead, `hwdock-box-${cvt.id}`);
         if (!boxSheetUp) {
             boxBody.appendChild(this._dockBuildPortGrid(
-                proc, card, cvt.ports || [], boxTitle, boxOwner));
+                proc, card, shown, boxTitle, boxOwner));
         }
+        if (row && row.far) box.dataset.lrdLoopFar = cvt.id;
         return box;
+    }
+
+    // A box's fiber mode as a header tag - "Single mode" or "Multimode"
+    // (app-fiber.js fiberModeWord) - set right after the model text, or
+    // after the name where a row prints no model; nothing for a box whose
+    // catalog entry states no mode (none is inferred). A loop's strip passes
+    // all its boxes: where they differ the tag says each box's own, as the
+    // sheet under it does.
+    _dockPlaceBoxModeTag(head, box, loop = [box]) {
+        const mode = typeof this.boxFiberMode === 'function' ? this.boxFiberMode(box) : null;
+        const words = typeof this.fiberModesText === 'function'
+            ? this.fiberModesText(loop, b => this._dockBoxLabel(b)) : '';
+        if (!words) return null;
+        const tag = document.createElement('span');
+        tag.className = 'hw-dock-fiber-mode';
+        tag.dataset.lrdField = `box-fiber-mode-${box.id}`;
+        tag.textContent = words;
+        if (mode && words === this.fiberModeWord(mode)) {
+            tag.dataset.fiberMode = mode;
+            tag.title = `${box.deviceName || 'This box'} is a ${this.fiberModeWord(mode, true)} box: `
+                + `its fiber is ${this.fiberModeWord(mode, true)}. Single mode and multimode `
+                + 'never share a fiber cable.';
+        } else {
+            tag.dataset.fiberMode = 'mixed';
+            tag.title = 'Each box of this loop takes its own fiber. Single mode and multimode '
+                + 'never share a fiber cable.';
+        }
+        const after = head.querySelector('.hw-dock-unit-name, .hw-dock-name');
+        if (after) after.after(tag);
+        else head.insertBefore(tag, head.querySelector(
+            '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info') || null);
+        return tag;
+    }
+
+    // A port-by-port backup socket's hover: the port it backs up
+    // (boxLoopPorts' `loopOf`), by that box's own number - "the backup of
+    // port 1 on CVT10 B" - or the unit's own port.
+    _dockLoopSocketText(card, port) {
+        return `, the backup of ${this._dockLoopBackedName(card, port)}`;
+    }
+
+    // The port a port-by-port backup socket backs up, as words: "port 1 on
+    // CVT10 B", "own port 17".
+    _dockLoopBackedName(card, port) {
+        const lo = port.loopOf;
+        const main = lo.boxId ? ((card && card.cvts) || []).find(b => b.id === lo.boxId) : null;
+        return `${lo.boxId ? '' : 'own '}port ${lo.local}`
+            + (main ? ` on ${this._dockBoxLabel(main)}` : '');
     }
 
     // A loop pair as ONE strip (owner, 2026-09-25, "option 2"). The header
@@ -1756,52 +2090,275 @@ class _HardwareDock {
     // own box - its own drag handle, name, count, ≡ and ⚙. The strip
     // folds as one, under the near box's fold key; its header drags the
     // near box, the way grabbing the old near header did.
-    _dockBuildLoopPair(proc, card, near, far) {
+    // `slices`: the far rows, [{ box, ports, mixed, cont }] - one for a
+    // one-to-one pair, and a row per backup box behind a primary backed
+    // up port by port, holding just the sockets that back this primary.
+    _dockBuildLoopPair(proc, card, near, slices) {
         const strip = document.createElement('div');
         strip.className = 'hw-dock-loop';
-        const nums = (near.ports || []).map(p => p.number);
-        const a = this._dockBoxLabel(near, true);
-        const b = this._dockBoxLabel(far, true);
-        const counts = [near, far].map(c => this.socketsTaken(card.id, c.id))
-            .filter(Boolean);
+        const nums = this.boxMainPorts(near).map(p => p.number);
+        const range = (ports) => this.fiberStrandRangeText(ports.map(p => p.localNumber));
+        const farNames = slices.map(s => (s.box === near ? `its own sockets ${range(s.ports)}`
+            : this._dockBoxLabel(s.box))).join(' and ');
+        // The strip counts PRIMARIES over the sockets that can carry one,
+        // one box's worth (owner, 2026-11-04: "we're drawing in the
+        // primaries and the backups are automatic, so we don't need to
+        // count the backups"): nine primaries on a looped XD pair read
+        // 9/10, never 18/20. The near box counts whole; each far row
+        // counts only the sockets it holds that are not automatic backups
+        // (none, on every loop the app draws today) - a box's own back
+        // sockets (`self`) are the near box's already.
+        // The strip's model: the near box's, else the first far box's (a
+        // box with no device name of its own), else just "Box".
+        const farBox = (slices.find(s => s.box && s.box !== near) || {}).box;
+        const model = near.deviceName || (farBox && farBox.deviceName) || 'Box';
+        const counts = [this.trayPrimaryCount(card, near)]
+            .concat(slices.filter(s => s.box !== near)
+                .map(s => this.trayPrimaryCount(card, s.box, s.ports)))
+            .filter(c => c && c.of != null);
         const taken = counts.reduce((t, c) => t + c.taken, 0);
         const of = counts.reduce((t, c) => t + c.of, 0);
         const head = this._dockBuildHandle(
             {
-                type: 'box', cardId: card.id,
+                type: 'box', cardId: card.id, boxId: near.id,
                 first: Math.min(...nums), last: Math.max(...nums),
                 title: near.displayTitle || near.name || near.deviceName,
                 beyondTrunks: !!near.beyondTrunks,
             },
             `loop-${near.id}`,
-            near.deviceName || far.deviceName || 'Box',
+            model,
             '',
-            `${this._dockBoxLabel(near)} and ${this._dockBoxLabel(far)} `
+            `${this._dockBoxLabel(near)} and ${farNames} `
             + 'are one loop. Drag this header onto a screen to fill '
             + `${this._dockBoxLabel(near)}; its returns come home on `
-            + `${this._dockBoxLabel(far)}.`,
-            of ? { frac: taken / of, over: false, text: `${taken}/${of}` }
+            + `${farNames}.`,
+            of ? { frac: taken / of, over: false, text: `${taken}/${of}`,
+                   title: this.trayCountTitle({ taken, of }, farNames) }
                 : null);
         const names = document.createElement('span');
         names.className = 'hw-dock-loop-names';
-        names.textContent = `${a} ↔ ${b}`;
+        names.textContent = this._dockLoopNames(near, slices);
         const tag = document.createElement('span');
         tag.className = 'hw-dock-redpill hw-dock-looptag';
         tag.textContent = 'loop';
-        tag.title = `${this._dockBoxLabel(far)} is the far end of `
-            + `${this._dockBoxLabel(near)}'s loop: each of its sockets `
-            + 'carries the return of the same socket on '
-            + `${this._dockBoxLabel(near)}.`;
+        tag.title = slices.some(s => s.mixed)
+            ? `${farNames} ${slices.length > 1 ? 'are' : 'is'} the far end of `
+                + `${this._dockBoxLabel(near)}'s loop: each socket in `
+                + 'its row carries the return of the port it is numbered '
+                + `with on ${this._dockBoxLabel(near)}.`
+            : `${farNames} is the far end of `
+                + `${this._dockBoxLabel(near)}'s loop: each of its sockets `
+                + 'carries the return of the same socket on '
+                + `${this._dockBoxLabel(near)}.`;
         const before = head.querySelector(
             '.hw-dock-unit-use, .hw-dock-headbar, .hw-dock-unit-info');
         head.insertBefore(names, before || null);
         head.insertBefore(tag, before || null);
+        // the strip prints the near box's model, so the mode stands there:
+        // the loop's one mode, or each box's where they differ, since the
+        // folded strip is all that shows
+        this._dockPlaceBoxModeTag(head, near, [near, ...slices.map(s => s.box)
+            .filter(b => b && b !== near)]);
+        // Folded, the rows' ≡ and ⚙ are out of reach, so the header
+        // carries them (owner, 2026-11-02): ONE pair, the near box's, since
+        // a loop is one thing ("if backups then just the primary since
+        // they are grouped"). CSS shows them only while folded, so an open
+        // strip never doubles them.
+        const nearOwner = { kind: 'cvt', id: near.id, procId: proc.id,
+                            cardId: card.id, rec: near };
+        head.appendChild(this._dockFoldedBoxControls(nearOwner));
         strip.appendChild(head);
+        // The near box's sheet, asked for while folded, stands under the
+        // strip's header (outside the fold), the way a lone box's sheet
+        // does; open, it stands in its row as before. A flip of the fold
+        // redraws so the sheet moves with it.
+        const foldKey = `ledRasterPanelCollapsed_hwdock-box-${near.id}`;
+        let folded = false;
+        try { folded = localStorage.getItem(foldKey) === '1'; } catch (_) { /* no storage */ }
+        // Folded, that one ≡ is the only way to the backup rows too, so its
+        // sheet lists them under the primary's (owner, 2026-11-04: "it only
+        // shows the primary"): the same rows the open strip's own ≡ list.
+        const sheetOut = folded && this._dataCableSheetOpen(nearOwner);
+        if (sheetOut) {
+            strip.appendChild(this._dockBuildDataCableSheet(
+                nearOwner, this._dockSheetPorts(proc, card, near, slices,
+                                                this.boxSheetPorts(near))));
+        }
+        if (this._dataCableSheetOpen(nearOwner)) {
+            new MutationObserver((_, obs) => {
+                if (strip.classList.contains('lrd-sec-collapsed') === folded) return;
+                obs.disconnect();
+                if (strip.isConnected) this.renderHardwareDock();
+            }).observe(strip, { attributes: true, attributeFilter: ['class'] });
+        }
         const body = this._dockSectionBody(strip, head,
                                            `hwdock-box-${near.id}`);
-        body.appendChild(this._dockBuildBox(proc, card, near, { far: false }));
-        body.appendChild(this._dockBuildBox(proc, card, far, { far: true }));
+        body.appendChild(this._dockBuildBox(proc, card, near,
+                                            { far: false, sheetOut, where: farNames }));
+        // ...where the folded sheet carries their rows, the hidden rows draw
+        // no second sheet of their own
+        slices.forEach(s => body.appendChild(this._dockBuildBox(proc, card, s.box,
+            { far: true, ports: s.ports, cont: s.cont ? near.id : null, sheetOut })));
         return strip;
+    }
+
+    // A loop strip's two ends as its header names them: "A ↔ B", the
+    // model left to the header. A box looping onto its OWN sockets (a
+    // straddling box - its inputs across a main OPT and its copy) is
+    // named once, by its sockets: "A-B 1-8 ↔ 9-16", never "A-B ↔ A-B".
+    _dockLoopNames(near, slices) {
+        const range = (ports) => this.fiberStrandRangeText(ports.map(p => p.localNumber));
+        const self = slices.some(s => s.box === near);
+        const a = this._dockBoxLabel(near, true)
+            + (self ? ` ${range(this.boxMainPorts(near))}` : '');
+        const b = slices.map(s => (s.box === near ? range(s.ports)
+            : this._dockBoxLabel(s.box, true))).join(', ');
+        return `${a} ↔ ${b}`;
+    }
+
+    // THE ROWS A FOLDED SECTION'S ONE ≡ LISTS: its primary's (`primary`:
+    // boxSheetPorts of the strip's near box, or a card's loose ports),
+    // then, for each backup row in it that has a ≡ of its own when open
+    // (a loop's far box, a port-by-port backup's first row - never a
+    // `cont` row, whose ≡ is elsewhere, nor the near box's own loop,
+    // already in boxSheetPorts), that box's own sheet rows, under its
+    // name. A row of another box carries `sheetOwner`, so its keys, ticks
+    // and stored entry are that box's, exactly as on its own sheet.
+    _dockSheetPorts(proc, card, near, slices, primary) {
+        const out = [...(primary || [])];
+        const seen = new Set(near ? [near.id] : []);
+        (slices || []).forEach(s => {
+            if (s.cont || seen.has(s.box.id)) return;
+            seen.add(s.box.id);
+            const owner = { kind: 'cvt', id: s.box.id, procId: proc.id,
+                            cardId: card.id, rec: s.box };
+            const caption = `${this._dockBoxLabel(s.box)} · loop end`;
+            this.boxSheetPorts(s.box).forEach((p, i) => out.push({
+                ...p, sheetOwner: owner, sheetCaption: i ? null : caption }));
+        });
+        return out;
+    }
+
+    // THE PROCESSOR'S CABLE LIST (owner, 2026-11-04: "when the whole
+    // processor is collapsed we should have an extension drop down that
+    // opens all boxes connected in the same way"). Its sections, in the
+    // tray's order (_dockCardLayout): each card's own ports, each loop
+    // strip, each lone box - [{ owner, heading, ports }], `ports` being
+    // what that section's own ≡ lists with the section folded
+    // (_dockSheetPorts), primaries and backups both, and `heading` the
+    // section as the tray names it ("XD A ↔ B").
+    _dockProcSheetSections(proc) {
+        const out = [];
+        (proc.slots || []).forEach(slot => {
+            const card = slot.card;
+            if (!card) return;
+            const layout = this._dockCardLayout(card);
+            const at = (kind, rec) => ({ kind, id: rec.id, procId: proc.id,
+                                         cardId: card.id, rec });
+            if (layout.loose.length) {
+                out.push({
+                    owner: at('card', card),
+                    heading: this._dockCardSheetHeading(proc, card),
+                    ports: this._dockSheetPorts(proc, card, null, layout.own,
+                                                layout.loose),
+                });
+            }
+            layout.strips.forEach(({ box, slices }) => out.push({
+                owner: at('cvt', box),
+                heading: slices.length
+                    ? `${box.deviceName} ${this._dockLoopNames(box, slices)}`
+                    : this._dockBoxLabel(box),
+                ports: this._dockSheetPorts(proc, card, box, slices,
+                                            this.boxSheetPorts(box)),
+            }));
+            layout.strays.forEach(box => out.push({
+                owner: at('cvt', box),
+                heading: this._dockBoxLabel(box),
+                ports: this.boxSheetPorts(box),
+            }));
+        });
+        return out;
+    }
+
+    // A card's section in the processor's list, named as its tray header
+    // reads: its slot or model ("Card 2", "VX1000"), then its typed name.
+    _dockCardSheetHeading(proc, card) {
+        const typed = this.cardTypedName(proc, card);
+        const slot = typed
+            ? (this.cardSlotTitle(proc, card).replace(/^Card /, 'Slot ') || '')
+            : this.cardSlotTitle(proc, card);
+        const model = slot || (card.unitTitle
+            ? `${card.unitTitle} · ${card.deviceName}` : card.deviceName);
+        const tag = card.backupFor ? ` (backs up ${card.backupFor.title})` : '';
+        return [model + tag, typed].filter(Boolean).join(' ');
+    }
+
+    // The processor's ≡: the box ≡'s own button (same look, same flip,
+    // remembered per processor the same way), under a class of its own so
+    // nothing reading "the first box or card ≡" in the tray finds it.
+    _dockBuildProcCableSheetButton(proc) {
+        const btn = this._dockBuildDataCableSheetButton({ kind: 'proc', id: proc.id });
+        btn.classList.replace('hw-dock-cablebtn-data', 'hw-dock-cablebtn-proc');
+        btn.title = btn.classList.contains('hw-dock-cablebtn-on')
+            ? 'Cable list of every box on this processor. Click to close it.'
+            : 'Cable list of every box on this processor, primaries and '
+                + 'backups, folded or open. Click to open it.';
+        return btn;
+    }
+
+    // The list itself: each section under its heading, built by the box
+    // sheet's own builder (_dockBuildDataCableSheet) from the same rows,
+    // so the two cannot drift; a length typed here is the same stored
+    // entry the box's own sheet types. Every data-lrd-* key in it is
+    // prefixed with the processor's, so a field has ONE key on the page
+    // while the box's own sheet is open too (focus restore and the guides
+    // find a field by its key).
+    _dockBuildProcCableSheet(proc, sections) {
+        const wrap = document.createElement('div');
+        wrap.className = 'hw-dock-proc-sheet';
+        wrap.dataset.lrdProcSheet = proc.id;
+        const ns = `proclist-${proc.id}-`;
+        sections.forEach(s => {
+            const sec = document.createElement('div');
+            sec.className = 'hw-dock-proc-sheet-sec';
+            const head = document.createElement('div');
+            head.className = 'hw-dock-proc-sheet-head';
+            head.textContent = s.heading;
+            sec.appendChild(head);
+            const sheet = this._dockBuildDataCableSheet(s.owner, s.ports);
+            [sheet, ...sheet.querySelectorAll('*')].forEach(el => {
+                Object.keys(el.dataset || {}).forEach(k => {
+                    if (/^lrd[A-Z]/.test(k)) el.dataset[k] = ns + el.dataset[k];
+                });
+            });
+            sec.dataset.lrdProcSheetSec = `${s.owner.kind}:${s.owner.id}`;
+            sec.appendChild(sheet);
+            wrap.appendChild(sec);
+        });
+        return wrap;
+    }
+
+    // A folded strip's header controls: the box's own ≡ and ⚙, the same
+    // handlers as on its row, under ids of their own so the popover and
+    // the focus restore never find the row's hidden twins.
+    _dockFoldedBoxControls(owner) {
+        const wrap = document.createElement('span');
+        wrap.className = 'hw-dock-foldctl';
+        const sheet = this._dockBuildDataCableSheetButton(owner);
+        sheet.dataset.lrdField = `data-cable-sheet-fold-${owner.id}`;
+        this._dockHeadAugment(wrap, {
+            controls: [sheet],
+            gear: {
+                id: `boxfold-${owner.id}`,
+                title: 'Configure this box: templates, facts, remove.',
+                build: () => {
+                    const found = this._dockFindCvt(owner.id);
+                    return found ? this._buildBoxGearContent(
+                        found.proc, found.card, found.cvt) : null;
+                },
+            },
+        });
+        return wrap;
     }
 
     // Turn a dock unit into one of the app's foldable sections: the header
@@ -1959,7 +2516,7 @@ class _HardwareDock {
             tile.classList.add('lrd-tile-gold');
             who.style.color = '#c8a04a';
             who.textContent =
-                `${occupants[0].name} p${occupants[0].number} return`;
+                `${occupants[0].name} P${occupants[0].number} return`;
         } else {
             who.style.color = 'var(--ps-dim, #c0c0c0)';
             who.textContent = occupants[0].name;
@@ -1978,8 +2535,8 @@ class _HardwareDock {
         // keeps the plain line.
         const own = owner ? this._dataPortCableOn(owner, port.number) : null;
         const cornerText = !own ? null
-            : own.kind === 'cable' ? this.cableText(own.ft, '')
-            : own.ext != null ? `+${this.cableText(own.ext, '')}` : null;
+            : own.kind === 'cable' ? this.cableText(own.ft, '', 'data')
+            : own.ext != null ? `+${this.cableText(own.ext, '', 'data')}` : null;
         if (cornerText) {
             const text = document.createElement('span');
             text.className = 'lrd-tile-text';
@@ -1996,25 +2553,26 @@ class _HardwareDock {
         tile.appendChild(face);
 
         face.title = `Port ${spoken}`
-            + (port.label ? ` - ${port.label}` : '')
+            + (port.label ? `, ${port.label}` : '')
             + (occupants.length
-                ? ` - ${occupants.map(o => `${o.name} p${o.number}`
+                ? `: ${occupants.map(o => `${o.name} P${o.number}`
                     + (o.role === 'return' ? ' return' : '')).join(', ')}`
                 : (idleLoopEnd
-                    ? ` - free: the loop end of ${bu.label
+                    ? `: free, the loop end of ${bu.label
                         || `port ${bu.localPort || bu.port} on `
                             + `${bu.boxTitle || bu.cardTitle}`}, which `
                         + 'carries nothing yet'
                 : port.backsUp
-                    ? ` - backs up ${port.backsUp.label
+                    ? `: backs up ${port.backsUp.label
                         || `port ${port.backsUp.localPort
                             || port.backsUp.port} on ${port.backsUp.boxTitle
                             || port.backsUp.cardTitle}`}`
-                    : ' - free'))
-            + (port.beyondCeiling ? ` - beyond this ${this.unitWordFor(proc, card)}’s ceiling` : '')
+                    : ': free'))
+            + (port.loopOf ? this._dockLoopSocketText(card, port) : '')
+            + (port.beyondCeiling ? `, beyond this ${this.unitWordFor(proc, card)}’s ceiling` : '')
             + '. Click to edit'
             + (port.backsUp
-                ? '. A backup port is that port\'s return end - nothing '
+                ? '. A backup port is that port\'s return end, so nothing '
                     + 'else can land on it.'
                 : '; drag onto a port run to place it there'
                     + (occupants.some(o => !o.role)
@@ -2031,7 +2589,7 @@ class _HardwareDock {
         this._dockWireDraggable(face, {
             type: 'port', cardId: card.id, port: port.number,
             title: port.label
-                || `${boxTitle || card.name || card.deviceName} `
+                || `${boxTitle || this.cardShortName(proc, card) || card.name || card.deviceName} `
                 + `port ${spoken}`,
         }, `port-${card.id}-${port.number}`);
 
@@ -2174,24 +2732,42 @@ class _HardwareDock {
             who.textContent = 'free';
             who.title = 'No screen is on this port.';
         } else {
-            const parts = occupants.map(o => `${o.name} p${o.number}`
+            const parts = occupants.map(o => `${o.name} P${o.number}`
                 + (o.role === 'return' ? ' return' : ''));
             const derived = occupants.length === 1
                 && occupants[0].role === 'return';
             who.style.color = occupants.length > 1 ? '#d05a52'
                 : (derived ? '#c8a04a' : 'var(--ps-dim, #c0c0c0)');
             who.textContent = parts.join(', ')
-                + (occupants.length > 1 ? ' - clash' : '');
+                + (occupants.length > 1 ? ' (clash)' : '');
             who.title = occupants.length > 1
                 ? `${parts.join(' and ')} both claim this port. Nothing has `
-                  + 'been renumbered - see Port Numbering.'
+                  + 'been renumbered. See Port Numbering.'
                 : (derived
                     ? `${occupants[0].name} port ${occupants[0].number}'s `
-                      + 'return end - it follows the main and clears with it.'
+                      + 'return end. It follows the main and clears with it.'
                     : `${occupants[0].name}, its port ${occupants[0].number}`);
         }
         row.appendChild(who);
         wrap.appendChild(names);
+        // Where the port plugs in, where it has a choice (the MX40 Pro and
+        // the H_16xRJ45+2xfiber: the card's own RJ45 or the box on the OPT
+        // that carries it - app-mirror-screens.js).
+        const plug = typeof this._buildPortPlugStrip === 'function'
+            ? this._buildPortPlugStrip(proc, card, port) : null;
+        if (plug) wrap.appendChild(plug);
+        // A mirror socket says which primary it copies.
+        if (port.mirrorOf) {
+            const copy = document.createElement('div');
+            copy.style.fontSize = '11px';
+            copy.style.color = '#c8a04a';
+            copy.style.margin = '0 0 4px 0';
+            const primary = (card.ports || []).find(p => p.number === port.mirrorOf);
+            copy.textContent = `Copies ${primary && primary.label
+                ? primary.label : `port ${primary ? primary.localNumber : port.mirrorOf}`}`
+                + ' for a mirror screen.';
+            wrap.appendChild(copy);
+        }
 
         // The port's place in the redundancy mapping, stated where its
         // labels are edited. A consumed port says whose return it carries; a
@@ -2205,7 +2781,7 @@ class _HardwareDock {
             role.textContent = `Backs up ${port.backsUp.label
                 || `port ${port.backsUp.localPort || port.backsUp.port} `
                     + `on ${port.backsUp.boxTitle || port.backsUp.cardTitle}`}`
-                + ' - this socket carries its return.';
+                + '. This socket carries its return.';
             wrap.appendChild(role);
         } else if (port.backedBy) {
             const back = document.createElement('div');
@@ -2244,12 +2820,15 @@ class _HardwareDock {
             cardSel.style.minWidth = '0';
             const own = document.createElement('option');
             own.value = card.id;
-            own.textContent = card.name || proc.name || card.deviceName;
+            // a card on a card-based processor by its name, else "Card 2"
+            own.textContent = this.cardShortName(proc, card)
+                || card.name || proc.name || card.deviceName;
             cardSel.appendChild(own);
             this._otherCards(card.id).forEach(({ proc: p, card: c }) => {
                 const opt = document.createElement('option');
                 opt.value = c.id;
-                opt.textContent = c.name || p.name || c.deviceName;
+                opt.textContent = this.cardShortName(p, c)
+                    || c.name || p.name || c.deviceName;
                 if (picked && picked.cardId === c.id) opt.selected = true;
                 cardSel.appendChild(opt);
             });
@@ -2286,6 +2865,8 @@ class _HardwareDock {
     }
 
     _dockRenderPower(host) {
+        // A gone distro's sheets and folds go with it (_forgetDistroViews).
+        if (typeof this._forgetDistroViews === 'function') this._forgetDistroViews();
         // The strip's warnings are collected DURING this render, from the
         // exact figures the chips and headers draw - a second derivation
         // could disagree with the surfaces it warns about.
@@ -2304,9 +2885,15 @@ class _HardwareDock {
             const why = this._socaPlanEmptyReason(cur);
             if (why) {
                 this._dockPowerWarnings.push({
-                    text: `No circuits on ${cur.name} — ${why}`,
+                    text: `No circuits on ${cur.name}: ${why}`,
                 });
             }
+        }
+        // The services (app-services.js) lead the tray as one full-width
+        // row of cards, above the distro columns; nothing for a show with
+        // none.
+        if (typeof this._dockRenderServices === 'function') {
+            this._dockRenderServices(host);
         }
         const distros = this.getDistros ? this.getDistros() : [];
         if (!distros.length) {
@@ -2368,13 +2955,19 @@ class _HardwareDock {
                 this._dockPowerWarnings.push({
                     mild: true,
                     text: `${rec.name} names two multis on `
-                        + `${d ? d.name : 'one distro'} — ${l.name} at `
+                        + `${d ? this.distroLabel(d) : 'one distro'}: ${l.name} at `
                         + `No. ${rec.number}, ${collisions.map(c =>
                             `${c.layerName} at No. ${c.number}`).join(', ')}. `
                         + `Same ${d ? this.distroBoxType(d, rec.number).type.name : 'one'}? `
                         + `Pin both to No. ${minNo}.`,
                 });
             }
+        }
+        // One TYPED name on boxes of two or more distros (owner,
+        // 2026-10-22: "Warn instead"): amber, asking for a rename. The
+        // box's name field in the tray wears the same words.
+        for (const dup of this._typedMultiNameDuplicates()) {
+            this._dockPowerWarnings.push({ mild: true, text: this._typedMultiNameText(dup) });
         }
     }
 
@@ -2388,13 +2981,18 @@ class _HardwareDock {
         // The supply as the system names it (1.5): "120/208V·3φ",
         // "230V·1φ"; an old record its old "208V·1φ".
         const head = this._dockBuildHandle(
-            { type: 'distro', distroId: d.id, title: d.name || d.id },
+            { type: 'distro', distroId: d.id, title: this.distroLabel(d) },
             `distro-${d.id}`,
             '',
             this.distroSupplyText(d),
-            'Drag onto a screen to assign its ports; drag along the tray to '
-            + 'reorder.',
+            'Drag onto a screen: its unassigned multis land on this distro. '
+            + 'Drag along the tray to reorder.',
             load && load.ratingA > 0 ? this._dockDistroGlance(d, load) : null);
+        // The whole header bar is the distro's handle (owner pick C,
+        // 2026-10-20): shaded, a bigger grip than the multi strips' own,
+        // and a hint in its empty stretch while hovered. The controls on
+        // it stay controls - the drag pickup skips them.
+        head.classList.add('hw-dock-distro-head');
         // An over-loaded service is a strip question, not just a red bar.
         // The figure is the WORST LEG against the main's continuous limit
         // (1.5, bug fix 2; the limit 2026-10-18 - 80% of the rating on a
@@ -2406,19 +3004,19 @@ class _HardwareDock {
                 ? ` worst leg ${this.distroLegLabel(d, load.worstLeg)}` : '';
             const rule = this.distroMainLimit(d);
             const note = this.distroMainLimitNote(rule);
-            const fig = `${d.name || d.id} —${leg} ${load.amps.toFixed(1)} A / `
+            const fig = `${this.distroLabel(d)}${leg ? `,${leg}` : ''} ${load.amps.toFixed(1)} A / `
                 + `${+load.limitA.toFixed(1)} A`
                 + (note ? ` (${note}, continuous)` : ` (${Math.round(load.pct)}%)`);
             if (load.overloadAccepted) {
                 this._dockPowerWarnings.push({
-                    mild: true, text: `${fig} — over, accepted`,
+                    mild: true, text: `${fig}: over, accepted`,
                 });
             } else {
                 this._dockPowerWarnings.push({
-                    text: `${fig} — OVER`,
+                    text: `${fig}: OVER`,
                     offer: {
                         label: 'Accept overload',
-                        title: `Accept ${d.name || d.id}'s overload: the error turns `
+                        title: `Accept ${this.distroLabel(d)}'s overload: the error turns `
                             + 'amber and reads accepted, the figures stay. Untick it '
                             + 'behind the distro\'s ⚙. One undoable step.'
                             + (rule.us && !rule.main100
@@ -2466,7 +3064,7 @@ class _HardwareDock {
                 placeholder: 'distro',
                 key: `distro-name-${d.id}`,
                 title: 'Name this power source. Multis on it follow the '
-                    + 'name - a distro named SL feeds SL1, SL2.',
+                    + 'name: a distro named SL feeds SL1, SL2.',
                 onCommit: (val) => {
                     this.updateDistro(d.id, { name: val });
                     this._restateNaming();
@@ -2474,7 +3072,7 @@ class _HardwareDock {
             },
             gear: {
                 id: `distro-${d.id}`,
-                title: 'Configure this distro - rating, voltage, phase, '
+                title: 'Configure this distro: rating, voltage, phase, '
                     + 'phasing, location, remove.',
                 build: () => {
                     const raw = this.getDistros().find(x => x.id === d.id);
@@ -2482,6 +3080,23 @@ class _HardwareDock {
                 },
             },
         });
+        // Two distros of one name read "-1", "-2" everywhere (distroLabel,
+        // 2026-10-22): the name field keeps the name as typed, and the
+        // suffix this distro reads by rides beside it.
+        const label = this.distroLabel(d);
+        const typed = String(d.name || '').trim();
+        const nameField = head.querySelector(`[data-lrd-field="distro-name-${d.id}"]`);
+        if (nameField && typed && label !== typed && label.startsWith(typed)) {
+            const tag = document.createElement('span');
+            tag.className = 'hw-dock-distro-suffix';
+            tag.dataset.lrdDistroSuffix = d.id;
+            tag.textContent = label.slice(typed.length);
+            tag.style.color = 'var(--ps-faint, #969696)';
+            tag.title = `Another distro is also named ${typed}: this one reads ${label} on the `
+                + 'map, the pull sheet and the binder, and its boxes and circuits follow it. '
+                + 'Rename one to drop the suffix.';
+            nameField.insertAdjacentElement('afterend', tag);
+        }
         // The voltage tag, Balance and the gear ride as ONE group at the
         // header's end: in a narrow tray the header wraps and the group
         // drops to a second line whole, right-aligned, so Balance is never
@@ -2491,6 +3106,16 @@ class _HardwareDock {
         const info = head.querySelector(':scope > .hw-dock-unit-info');
         const gearBtn = head.querySelector(':scope > .hw-dock-gear');
         [info, bal, gearBtn].forEach(el => { if (el) acts.appendChild(el); });
+        // The hint fills the free stretch before the group and shows only
+        // where it fits whole (style.css); its words ride an attribute, so
+        // the header's own text stays the name and the figures.
+        const cue = document.createElement('span');
+        cue.className = 'hw-dock-dragcue';
+        cue.setAttribute('aria-hidden', 'true');
+        const cueText = document.createElement('i');
+        cueText.dataset.cue = 'Drag onto a screen';
+        cue.appendChild(cueText);
+        head.appendChild(cue);
         head.appendChild(acts);
         unit.appendChild(head);
         // The LEGS line rides between the header and the foldable body, so
@@ -2498,10 +3123,17 @@ class _HardwareDock {
         // sidebar's folded-glance bars generalized to an always-on line.
         const legs = this._dockDistroLegsLine(load);
         if (legs) unit.appendChild(legs);
-        // The OUTPUTS row rides under LEGS, outside the fold too: the
-        // connectors a folded distro offers are still what you reach for.
+        // The OUTPUTS row rides under LEGS, but it FOLDS with the card
+        // (owner, 2026-10-30: "When you minimize distro, we do not need to
+        // see the multi and l2130 stuff that you can drag since it is
+        // minimized"). It stays where it sits, between LEGS and the body,
+        // and .lrd-sec-folds hides it with the body (style.css), so a
+        // folded card offers no plug chip to drag or tab to.
         const outs = this._dockDistroOutputsRow(d);
-        if (outs) unit.appendChild(outs);
+        if (outs) {
+            outs.classList.add('lrd-sec-folds');
+            unit.appendChild(outs);
+        }
         const body = this._dockSectionBody(unit, head,
                                            `hwdock-distro-${d.id}`);
 
@@ -2547,7 +3179,7 @@ class _HardwareDock {
         const sec = document.createElement('div');
         sec.className = 'hw-dock-box hw-dock-multi hw-dock-direct';
         const type = this.faceBoxType(d, info.boxes[0]);
-        const name = d.name || d.id;
+        const name = this.distroLabel(d);
         let used = 0;
         let amps = 0;
         const perBox = info.boxes.map(box => {
@@ -2556,7 +3188,7 @@ class _HardwareDock {
                 const l = (this.project.layers || []).find(x => x.id === m.layerId);
                 const s = l ? this.getSocaPlan(l).find(x => x.soca === m.soca) : null;
                 if (!s) continue;
-                const capA = parseFloat(l.powerAmperage) || 0;
+                const capA = this.circuitCapacity(l).amps;
                 s.legs.forEach(leg => holders.push({
                     who: l.name, layerId: l.id, circuit: leg.circuit, label: leg.label,
                     amps: leg.amps, capA, soca: m.soca, length: s.length || null,
@@ -2567,7 +3199,7 @@ class _HardwareDock {
             return { box, holders };
         });
         const paired = info.row.pairedWith
-            ? ` · paired with ${this._faceRowSummary(d, info.row.pairedWith)} - the same circuits` : '';
+            ? ` · paired with ${this._faceRowSummary(d, info.row.pairedWith)}, the same circuits` : '';
         const tip = `${info.row.count} × ${type.name} on ${name}, one circuit each with its own `
             + `cable to the screen${paired}. Drag the row onto a screen: its first free output `
             + 'takes the screen\'s next unassigned circuit. Drag one chip onto a circuit to '
@@ -2601,34 +3233,45 @@ class _HardwareDock {
 
     // One direct output as a chip: the circuit chip's grammar with the
     // OUTPUT's number on its face (the number its circuit is named by) and
-    // the cable's length in its corner; its editor carries the circuit's
-    // label and the cable length (the output's home run, in the show's
-    // unit).
+    // the cable in its corner the way the map, the pull sheet and the
+    // binder say it - its type outlet to panel ("Edison → powerCON",
+    // directCableType) and its length from the direct-output stock; its
+    // editor carries the circuit's label and the cable length (the
+    // output's home run, in the show's unit).
     _dockBuildDirectChip(d, box, type, holders) {
         const tile = this._dockBuildCircuitChip(d, box.number, 1, holders);
         const num = tile.querySelector('.lrd-tile-line span');
         if (num) num.textContent = String(box.number);
         const face = tile.querySelector('.lrd-tile-face');
         const top = tile.querySelector('.lrd-tile-line');
-        const lengths = holders.map(h => this.parseCableLength(h.length)).filter(n => n !== null);
-        if (lengths.length && top && !top.querySelector('.hw-dock-chip-cable')) {
+        const layerOf = (h) => (this.project.layers || []).find(x => x.id === h.layerId) || null;
+        const cables = holders.map(h => {
+            const l = layerOf(h);
+            const one = l ? this.directCircuitCable(l, h.circuit) : null;
+            if (one) return one.text;
+            const v = this.parseCableLength(h.length);
+            return v === null ? null : this.cableText(v, this.directCableType(type.cable, l), 'direct');
+        }).filter(Boolean);
+        if (cables.length && top && !top.querySelector('.hw-dock-chip-cable')) {
             top.classList.add('lrd-tile-line-cable');
             const corner = document.createElement('span');
             corner.className = 'hw-dock-chip-cable';
-            corner.textContent = lengths.map(v => this.cableText(v, type.cable)).join(' / ');
+            corner.textContent = cables.join(' / ');
             top.appendChild(corner);
         }
         if (face) {
-            face.title = `${d.name || d.id} ${box.number} - ${type.name}, one circuit. `
+            face.title = `${this.distroBoxName(d, box.number)}: ${type.name}, one circuit. `
                 + face.title;
         }
         const editor = tile.querySelector('.lrd-tile-body');
         if (editor) {
             holders.forEach(h => {
-                const l = (this.project.layers || []).find(x => x.id === h.layerId);
+                const l = layerOf(h);
                 if (!l) return;
-                const tip = `The cable from ${d.name || d.id} ${box.number} to ${l.name}, in `
-                    + `${this.cableUnitWord()} - it goes on the pull sheet as a ${type.name} run.`;
+                const tip = `The cable from ${this.distroBoxName(d, box.number)} to ${l.name}, in `
+                    + `${this.cableUnitWord()}. It goes on the pull sheet as `
+                    + `${this.directCableType(type.cable, l)}.`
+                    + this.cableStockHint((l.powerSocaLengths || {})[h.soca], 'direct');
                 const cell = this._buildPortNameField(
                     `Cable (${this.cableUnitAbbr()})`, `direct-length-${l.id}-${h.soca}`,
                     (l.powerSocaLengths || {})[h.soca] || '',
@@ -2658,7 +3301,7 @@ class _HardwareDock {
         if (load.over) {
             extra.push(load.overloadAccepted
                 ? { cls: 'hw-dock-unit-flag hw-dock-unit-flag-ok', text: 'OVER · accepted',
-                    title: 'Overload accepted - untick it behind the ⚙.' }
+                    title: 'Overload accepted. Untick it behind the ⚙.' }
                 : { cls: 'hw-dock-unit-flag', text: 'OVER',
                     title: 'The busiest leg is past the limit.' });
         }
@@ -2671,10 +3314,10 @@ class _HardwareDock {
                 : '',
             text: `${load.amps.toFixed(1)}/${+limit.toFixed(1)} A`,
             title: `Busiest leg ${load.amps.toFixed(1)} A of a ${+limit.toFixed(1)} A limit`
-                + (note ? ` - ${note}: a show load is continuous, and a standard main `
+                + (note ? `, ${note}: a show load is continuous, and a standard main `
                     + 'carries 80% of its rating continuously. Tick Main 100% rated '
                     + 'behind the ⚙ if it is.'
-                    : (rule.main100 ? ' - the main is 100% rated.' : ' - the rating.')),
+                    : (rule.main100 ? ', the main is 100% rated.' : ', the rating.')),
             extra,
         };
     }
@@ -2687,7 +3330,7 @@ class _HardwareDock {
         if (!load || !load.legs) return null;
         const row = document.createElement('div');
         row.className = 'hw-dock-legs';
-        row.title = 'Leg loading. Per-leg current is a phasor sum - '
+        row.title = 'Leg loading. Per-leg current is a phasor sum: '
             + 'line-to-line circuits sit 30 degrees off each leg\'s '
             + 'line-to-neutral reference, so they are not simply added. '
             + 'Imbalance is NEMA-style: max deviation from the average.';
@@ -2736,58 +3379,81 @@ class _HardwareDock {
         if (face) return this._dockFaceOutputsRow(d, face);
         const types = this.distroOutputs(d);
         if (!types.length) return null;
-        const row = document.createElement('div');
-        row.className = 'hw-dock-outputs';
-        const cap = document.createElement('span');
-        cap.className = 'hw-dock-outputs-cap';
-        cap.textContent = 'OUTPUTS';
-        row.appendChild(cap);
-        const name = d.name || d.id;
+        const { row, chips } = this._dockOutputsShell();
+        const name = this.distroLabel(d);
         types.forEach(t => {
             const chip = this._plugChip(t);
             chip.title = `${t.name} from ${name}. Drag onto a screen: the `
                 + `next free multi on ${name} lands on the screen's next `
-                + `unassigned circuits as a ${t.name} - the circuits it `
+                + `unassigned circuits as ${this._aAn(t.name)} ${t.name}. The circuits it `
                 + `would feed light up under the cursor, and the ${t.name} `
                 + 'that lands wears its type chip. Refused, with the reason, when '
-                + `the screen\'s breakout does not take a ${t.name}.`;
+                + `the screen\'s breakout does not take ${this._aAn(t.name)} ${t.name}.`;
             this._dockWireDraggable(chip, {
                 type: 'plug', distroId: d.id, output: t.id,
                 title: `${name} · ${t.name}`,
             }, `plug-${d.id}-${t.id}`);
-            row.appendChild(chip);
+            chips.appendChild(chip);
         });
         return row;
     }
 
-    // The OUTPUTS line of a distro with a face (1.5): one plug chip per
-    // row - its connector, its name and how many - each a drag handle for
-    // "the next free one of these". A paired row's chip says so.
-    _dockFaceOutputsRow(d, face) {
+    // The OUTPUTS row's frame: the caption, then the chips in a column of
+    // their own beside it (owner pick A, 2026-10-20: "one chip per type"),
+    // so a second line of chips wraps under the first chip, never under
+    // the caption.
+    _dockOutputsShell() {
         const row = document.createElement('div');
         row.className = 'hw-dock-outputs';
         const cap = document.createElement('span');
         cap.className = 'hw-dock-outputs-cap';
         cap.textContent = 'OUTPUTS';
         row.appendChild(cap);
-        const name = d.name || d.id;
+        const chips = document.createElement('div');
+        chips.className = 'hw-dock-outputs-chips';
+        row.appendChild(chips);
+        return { row, chips };
+    }
+
+    // The OUTPUTS line of a distro with a face (1.5): one plug chip per
+    // connector TYPE - its connector, its name and how many the face has
+    // of it, every row of that type summed (owner pick A, 2026-10-20: three
+    // one-Socapex rows read "Socapex 208V × 3", not three chips of "× 1").
+    // Each chip is a drag handle for "the next free one of these", on
+    // whichever row it sits (_plugGate reads the chip's `group`). Paired
+    // rows keep a chip of their own that says so: their outputs are the
+    // same circuits as another row's, not more of them.
+    _dockFaceOutputsRow(d, face) {
+        const { row, chips } = this._dockOutputsShell();
+        const name = this.distroLabel(d);
+        const groups = new Map();
         for (const r of face.rows) {
             const info = face.rowInfo.get(r.id);
             const t = this.faceBoxType(d, info.boxes[0]);
+            const key = `${t.name}|${r.pairedWith ? 'paired' : ''}`;
+            if (!groups.has(key)) groups.set(key, { t, infos: [] });
+            groups.get(key).infos.push(info);
+        }
+        for (const { t, infos } of groups.values()) {
+            const count = infos.reduce((n, info) => n + info.row.count, 0);
+            const free = infos.reduce((n, info) => n + this.faceRowFreeBoxes(d, info).length, 0);
+            const paired = infos.filter(info => info.row.pairedWith)
+                .map(info => this._faceRowSummary(d, info.row.pairedWith));
             const chip = this._plugChip(Object.assign({}, t, {
-                sub: `× ${r.count}${r.pairedWith ? ' · paired' : ''}`,
+                sub: `× ${count}${paired.length ? ' · paired' : ''}`,
             }));
-            chip.title = `${r.count} × ${t.name} on ${name}`
-                + (r.pairedWith ? `, paired with ${this._faceRowSummary(d, r.pairedWith)} `
+            chip.title = `${count} × ${t.name} on ${name}, ${free} free`
+                + (paired.length ? `, paired with ${[...new Set(paired)].join(' and ')} `
                     + '(the same circuits)' : '')
                 + `. Drag onto a screen: the next free ${t.name} takes the screen's next `
                 + (t.kind === 'direct' ? 'unassigned circuit.' : 'unassigned multi.')
                 + ' Refused, with the reason, when the screen cannot run on it.';
+            const group = infos.map(info => `face:${info.row.id}`);
             this._dockWireDraggable(chip, {
-                type: 'plug', distroId: d.id, output: t.id,
+                type: 'plug', distroId: d.id, output: t.id, group,
                 title: `${name} · ${t.name}`,
             }, `plug-${d.id}-${t.id}`);
-            row.appendChild(chip);
+            chips.appendChild(chip);
         }
         return row;
     }
@@ -2826,7 +3492,8 @@ class _HardwareDock {
         // (report table, breaker stickers and brackets all read it), so the
         // chips can never disagree with the paperwork. Circuit capacity is
         // the owner screen's amps-per-circuit figure - the same
-        // powerAmperage the plan's own circuits were sized against.
+        // circuitCapacity the plan's own circuits were sized against (80%
+        // of the breaker on a US screen).
         const byTail = new Map();   // tail 1..size -> [{who, label, amps, capA}]
         const memberRecs = [];      // {layer, m, s} - the header's inline fields
         let legs = 0;
@@ -2850,7 +3517,7 @@ class _HardwareDock {
             const s = this.getSocaPlan(l).find(x => x.soca === m.soca);
             memberRecs.push({ layer: l, m, s });
             if (s) {
-                const a = parseFloat(l.powerAmperage) || 0;
+                const a = this.circuitCapacity(l).amps;
                 if (a > 0) capA = capA > 0 ? Math.min(capA, a) : a;
                 s.legs.forEach(leg => {
                     const list = byTail.get(leg.leg) || [];
@@ -2870,12 +3537,21 @@ class _HardwareDock {
         if (overflow || tailClash) sec.classList.add('hw-dock-multi-clash');
         // The box's problems are strip questions too - the same states the
         // chips wear, said where a glance lands first.
-        const boxName = `${d.name || d.id} ${n}`;
+        const boxName = this.distroBoxName(d, n);
+        // Said in the distro checks' words (_boxOverflowText), naming a
+        // hidden screen that still holds the box (round 7), and once: the
+        // distro's checks, read first, already say it for a box a showing
+        // screen is on. A box only hidden screens fill is on no paper, so
+        // the strip leaves it out too (the chip still reddens).
         if (overflow) {
-            this._dockPowerWarnings.push({
-                text: `${boxName} — more circuits than the `
-                    + `${boxSize === 1 ? 'one' : boxSize === 3 ? 'three' : 'six'} a ${boxType.name} holds.`,
-            });
+            const recs = memberRecs.map(r => ({ layer: r.layer, legs: r.m.legs,
+                                                hidden: r.layer.visible === false }));
+            const text = this._boxOverflowText({ where: boxName, size: boxSize,
+                                                 type: boxType, members: recs });
+            if (recs.some(r => !r.hidden)
+                    && !this._dockPowerWarnings.some(w => w.text === text)) {
+                this._dockPowerWarnings.push({ text });
+            }
         }
         // A stored type that contradicts what is on the box - the screen's
         // breakout changed under a typed box, or the numbers shifted - is
@@ -2903,7 +3579,7 @@ class _HardwareDock {
         // held to the main's continuous rule (2026-10-18): 80% of 30 A -
         // 24 A - on a US system unless the distro's main is 100% rated
         // (distroFeedLimit), and the strip says the limit the way the
-        // main's does: "29.98 A / 24 A (80% of 30 A)". Over is a strip
+        // main's does: "30.0 A / 24 A (80% of 30 A)". Over is a strip
         // question and reddens the box like any other clash.
         let feedOver = false;
         const feedRule = feedLegA > 0 && typeof this.distroFeedLimit === 'function'
@@ -2920,7 +3596,11 @@ class _HardwareDock {
                 feedOver = true;
                 sec.classList.add('hw-dock-multi-clash');
                 this._dockPowerWarnings.push({
-                    text: `${boxName} — feed leg at ${worst.toFixed(2)} A / ${feedLimitText} — OVER`,
+                    // "L21-30 leg", never "feed leg": the cable is named by
+                    // its plug, and "feed" is retired display language
+                    // (owner, 2026-11-02); one decimal, as every other
+                    // line of the strip.
+                    text: `${boxName}: L21-30 leg at ${worst.toFixed(1)} A / ${feedLimitText}, OVER`,
                 });
             }
         }
@@ -2934,7 +3614,7 @@ class _HardwareDock {
             }
         });
 
-        const tip = `${d.name || d.id} multi ${n} - `
+        const tip = `${this.distroLabel(d)} multi ${n}: `
             + (members.length
                 ? `${members.map(m => m.layerName).join(' and ')}, `
                     + (free.length
@@ -2943,12 +3623,12 @@ class _HardwareDock {
                 : 'free')
             + (feedLegA > 0
                 ? `. L21-30 feed, ${feedLimitText} per leg` : '')
-            + (overflow ? `. OVERFLOW - more circuits than the `
-                + `${boxSize === 1 ? 'one' : boxSize === 3 ? 'three' : 'six'} a ${boxType.name} holds` : '')
+            + (overflow ? `. OVERFLOW: more circuits than the `
+                + `${boxSize === 1 ? 'one' : boxSize === 3 ? 'three' : 'six'} ${this._aAn(boxType.name)} ${boxType.name} holds` : '')
             + (typeInfo.faceBox && typeInfo.faceBox.paired
-                ? `. Paired with ${this._faceRowSummary(d, typeInfo.faceBox.primaryRowId)} - `
+                ? `. Paired with ${this._faceRowSummary(d, typeInfo.faceBox.primaryRowId)}, `
                     + 'the same circuits; patch a circuit to one connector or the other' : '')
-            + '. Drag onto a circuit to land that circuit\'s multi here - '
+            + '. Drag onto a circuit to land that circuit\'s multi here: '
             + 'the first circuit takes the whole multi, a later circuit '
             + `splits it there and this ${boxType.name} takes the rest`
             + (members.length
@@ -2962,13 +3642,13 @@ class _HardwareDock {
         // its payload: its drop is the join/move it always was.
         const payload = {
             type: 'slot', distroId: d.id, number: n,
-            title: `${d.name || d.id} ${n}`,
+            title: this.distroBoxName(d, n),
         };
         if (!members.length) payload.output = boxType.id;
         const head = this._dockBuildHandle(
             payload,
             `slot-${d.id}-${n}`,
-            memberRecs.length ? '' : `${d.name || d.id} ${n}`,
+            memberRecs.length ? '' : this.distroBoxName(d, n),
             memberRecs.length
                 ? `${legs} circuit${legs === 1 ? '' : 's'} · `
                     + `${boxAmps.toFixed(1)} A`
@@ -3015,26 +3695,39 @@ class _HardwareDock {
             const namesRow = document.createElement('span');
             namesRow.className = 'hw-dock-names';
             const first = memberRecs[0];
+            // A setter that refuses on every member (a typed length that is
+            // no length, a locked screen) returns false and writes nothing,
+            // so no entry is made for it.
             const writeThrough = (setter, action, val) => {
-                memberRecs.forEach(({ layer, m }) => {
-                    setter.call(this, layer, m.soca, val, false);
-                });
+                const took = memberRecs.map(({ layer, m }) =>
+                    setter.call(this, layer, m.soca, val, false));
+                if (took.length && took.every(t => t === false)) return;
                 this.updateLayers(memberRecs.map(r => r.layer), true, action);
             };
             const nameField = this._dockHeadName({
                 value: (first.layer.powerSocaNames || {})[first.m.soca],
                 placeholder: (first.s && first.s.name)
-                    || `${d.name || d.id} ${n}`,
+                    || this.distroBoxName(d, n),
                 key: `power-soca-name-${first.layer.id}-${first.m.soca}`,
-                title: 'Name this multi by hand - all screens sharing it '
-                    + 'follow. Left blank it follows its distro - '
-                    + 'multis on a distro named SL are SL1, SL2 - so '
+                title: 'Name this multi by hand, and all screens sharing it '
+                    + 'follow. Left blank it follows its distro '
+                    + '(multis on a distro named SL are SL1, SL2), so '
                     + 'renaming the distro renames them all.',
                 onCommit: (val) => {
                     writeThrough(this.setSocaName, 'Rename Multi', val);
                     this._restateNaming();
                 },
             });
+            // A typed name another distro's box also wears: flagged amber
+            // on the field, its title saying where (the strip says it too).
+            const dup = this._typedMultiNameDuplicates().find(x =>
+                x.boxes.some(b => b.distroId === d.id && b.number === Number(n)));
+            if (dup) {
+                nameField.dataset.lrdDupName = dup.name;
+                nameField.style.color = '#ffb84d';
+                nameField.style.boxShadow = 'inset 0 -2px 0 #e0a030';
+                nameField.title = `${this._typedMultiNameText(dup)} ${nameField.title}`;
+            }
             namesRow.appendChild(nameField);
             namesRow.appendChild(typeChip);
             const len = this._dockHeadName({
@@ -3042,9 +3735,11 @@ class _HardwareDock {
                     || (first.s && first.s.length) || '',
                 placeholder: this.cableUnit() === 'm' ? '30m' : '100ft',
                 key: `power-soca-length-${first.layer.id}-${first.m.soca}`,
-                title: `The home-run length of this ${boxType.name} - one run `
+                title: `The home-run length of this ${boxType.name}, one run `
                     + 'for every screen sharing it. It flows into the gear checklist '
-                    + 'and report.',
+                    + 'and report.'
+                    + this.cableStockHint((first.layer.powerSocaLengths || {})[first.m.soca]
+                        || (first.s && first.s.length), this.pullHomeRunKind(boxType)),
                 onCommit: (val) => {
                     writeThrough(this.setSocaLength,
                                  'Set Multi Home Run', val);
@@ -3109,13 +3804,13 @@ class _HardwareDock {
         const name = document.createElement('b');
         name.textContent = t.name;
         el.appendChild(name);
-        const boxName = `${d.name || d.id} ${n}`;
+        const boxName = this.distroBoxName(d, n);
         if (editable) {
             const offered = this.distroOutputs(d);
             const list = offered.length ? offered : this.getDistroOutputTypes();
-            el.title = `${boxName} is a ${t.name}. Click to cycle - `
+            el.title = `${boxName} is ${this._aAn(t.name)} ${t.name}. Click to cycle: `
                 + `${list.map(x => x.name).join(' → ')}. Drag it onto `
-                + `a circuit and it lands as a ${t.name}; refused, with the `
+                + `a circuit and it lands as ${this._aAn(t.name)} ${t.name}; refused, with the `
                 + 'reason, when the screen\'s breakout does not take one.';
             el.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -3127,9 +3822,9 @@ class _HardwareDock {
         } else {
             el.title = info.clash
                 ? `${boxName} is typed ${t.name} but holds `
-                    + `${info.implied.name} circuits - the strip offers the `
+                    + `${info.implied.name} circuits. The strip offers the `
                     + 'fix.'
-                : `${boxName} is a ${t.name} - the type follows what `
+                : `${boxName} is ${this._aAn(t.name)} ${t.name}. The type follows what `
                     + 'is on it. Clear its circuits to change it.';
         }
         return el;
@@ -3182,9 +3877,12 @@ class _HardwareDock {
         // read): the line turns flex, the label ellipsizes, the length
         // never shortens (style.css .lrd-tile-line-cable); the bar row
         // under the chip stays clear. Nothing on a chip with none.
+        // A circuit alone on a DIRECT output: its cable is the output's
+        // one cable, written from the direct-output stock as the map and
+        // the pull sheet write it (directCircuitCable).
         const cables = holders.map(h => {
             const l = (this.project.layers || []).find(x => x.id === h.layerId);
-            return l ? this.powerCircuitCable(l, h.circuit) : null;
+            return l ? (this.directCircuitCable(l, h.circuit) || this.powerCircuitCable(l, h.circuit)) : null;
         }).filter(Boolean);
         if (cables.length) {
             top.classList.add('lrd-tile-line-cable');
@@ -3197,7 +3895,7 @@ class _HardwareDock {
         }
         tile.appendChild(face);
 
-        face.title = `Circuit ${t} - ` + (holders.length
+        face.title = `Circuit ${t}: ` + (holders.length
             ? holders.map(h => `${h.who} ${h.label}`).join(', ')
                 + (holders.length > 1 ? ' (claimed twice)' : '')
             : 'free')
@@ -3246,7 +3944,7 @@ class _HardwareDock {
 
         this._dockWireDraggable(face, {
             type: 'tail', distroId: d.id, number: n, tail: t,
-            title: `${d.name || d.id} ${n} circuit ${t}`,
+            title: `${this.distroBoxName(d, n)} circuit ${t}`,
         }, `tail-${d.id}-${n}-${t}`);
         return tile;
     }
@@ -3314,7 +4012,7 @@ class _HardwareDock {
     _dockChipFill(face, info) {
         if (!info) return;
         if (info.unknown) {
-            face.title += ' · load not scored - no capacity figure to '
+            face.title += ' · load not scored, no capacity figure to '
                 + 'measure against';
             return;
         }
@@ -3405,7 +4103,7 @@ class _HardwareDock {
                     const n = parseInt(numStr, 10);
                     // each step on the screen it names (group peers too)
                     byPort.set(n, this.getResolvedPathPanels(
-                        layer, layer.customPortPaths[numStr] || [])
+                        layer, layer.customPortPaths[numStr] || [], 'data')
                         .map(r => r.panel));
                 });
             } else {
@@ -3422,6 +4120,13 @@ class _HardwareDock {
             this._dockRunPanelsCache.set(layer, byPort);
         }
         return byPort.get(num) || [];
+    }
+
+    // A box row's ports as its header says them: "ports 1-10", and one
+    // socket "port 1", never "ports 1-1" (QA round 3, 2026-11-03).
+    _dockPortSpanText(numbers) {
+        const lo = Math.min(...numbers), hi = Math.max(...numbers);
+        return lo === hi ? `port ${lo}` : `ports ${lo}-${hi}`;
     }
 
     // A unit's title strip, which is also the unit's drag handle. The grip
@@ -3519,7 +4224,8 @@ class _HardwareDock {
     // "a read-only state pill on each header that opens the ⚙ to the
     // redundancy section, so the tray reports the state without growing
     // a second editing surface." It states the shape in force - on a
-    // processor `R → H9 BACKUP` (whole unit), `R per card`, `R per port`;
+    // processor `R → H9 BACKUP` (whole unit), `R per card`, `R per port`,
+    // `R mixed` (each card its own, read on the card rows);
     // on a card `R 1:1 → SL in H9 BACKUP`, `R seq`, `R halves`, `R
     // manual`, `R 1:1 — no partner` - and a click opens the PROCESSOR's
     // gear, where the bar that sets it lives (a card's pill too: the
@@ -3561,7 +4267,7 @@ class _HardwareDock {
                     : null;
                 text = found
                     ? `R 1:1 → ${this._backupUnitTitle(found.proc, found.card)}`
-                    : 'R 1:1 — no partner';
+                    : 'R 1:1, no partner';
             } else {
                 // The pill says what the card's own face says, in the pill's
                 // own register - the split reads "OPT split" on a
@@ -3587,11 +4293,15 @@ class _HardwareDock {
                     : null;
                 text = found
                     ? `R → ${this._backupUnitTitle(found.proc, found.card)}`
-                    : 'R 1:1 — no partner';
+                    : 'R 1:1, no partner';
             } else if (level === 'fixed') {
                 // The card row states the loops (above); the header
                 // carries only the backup processor's pill.
                 return null;
+            } else if (level === 'mixed') {
+                // Each card says its own on its row (above); the header
+                // says only that they differ.
+                text = 'R mixed';
             } else {
                 text = `R per ${level}`;
             }
@@ -3675,7 +4385,7 @@ class _HardwareDock {
             btn.className = 'hw-dock-gear';
             btn.textContent = '⚙';
             btn.title = opts.gear.title
-                || 'Configure - templates, mode, redundancy, remove.';
+                || 'Configure: templates, mode, redundancy, remove.';
             btn.dataset.hwpop = opts.gear.id;
             btn.dataset.lrdField = `hwgear-${opts.gear.id}`;
             btn.addEventListener('click', (e) => {
@@ -3703,7 +4413,7 @@ class _HardwareDock {
         const lockedMet = [];
         const going = (pins || []).filter(p => {
             const l = layerOf(p);
-            if (l && l.locked) {
+            if (l && this._layerLocked(l)) {
                 if (!lockedMet.includes(l)) lockedMet.push(l);
                 return false;
             }
@@ -3730,16 +4440,19 @@ class _HardwareDock {
     // distro, number, the stored tail set and breaker offset, the typed
     // name and home-run length, the circuits' label overrides, and the
     // manual share/split entries covering those circuits - see
-    // _wipeSocaProgramming. The cuts at the cleared multis' edges go too,
-    // and with them every cut left between two multis nobody is feeding
-    // on the touched layers (user ruling, 2026-09-04, extending the
-    // above: after a clear the one-circuit multis a run of pip drops left
-    // behind still read S1[1-6] S2[7] S3[8] ..., "the numbering is all
-    // wrong"), so the cleared circuits AND the unassigned leftovers fall
-    // back onto the natural box grid - _socaClearSplitPoints decides
-    // which points, _resegmentSocaStores re-keys every multi that was NOT
-    // cleared so it keeps its name, distro, number and length under its
-    // new index. Still ONE history entry.
+    // _wipeSocaProgramming. Every cut left between two multis nobody is
+    // feeding on the touched layers goes too, the cleared multis' own
+    // edges included (user ruling, 2026-09-04, extending the above: after
+    // a clear the one-circuit multis a run of pip drops left behind still
+    // read S1[1-6] S2[7] S3[8] ..., "the numbering is all wrong"), so the
+    // cleared circuits AND the unassigned leftovers fall back onto the
+    // natural box grid. A cut beside a multi that is still fed stays
+    // (owner, 2026-11-02: "it should just clear the ports"): the clear
+    // never grows another feed over the freed circuits.
+    // _socaClearSplitPoints decides which points, _resegmentSocaStores
+    // re-keys every multi that was NOT cleared so it keeps its name,
+    // distro, number, length and tails under its new index. Still ONE
+    // history entry.
     _clearMultis(members, action) {
         sendClientLog('dock_clear', { kind: 'multis', action,
                                       count: members.length });
@@ -3748,13 +4461,18 @@ class _HardwareDock {
         // be reading.
         // A locked screen keeps its multis (the owner's ruling, 2026-10-16):
         // it is skipped and named, and the unlocked members still clear.
+        // An unlocked member of a half-locked group is LOCKED (round 6,
+        // _layerLocked) and behaves exactly as a locked member does, as in
+        // a group locked as one (round 7): skipped, its group's locked
+        // members named, and the other screens still clear. A clear that
+        // would REPACK a locked screen is still refused whole below.
         const jobs = [];
         const lockedMet = [];
         members.forEach(m => {
             const layer = (this.project.layers || [])
                 .find(l => l.id === m.layerId);
             if (!layer) return;
-            if (layer.locked) {
+            if (this._layerLocked(layer)) {
                 if (!lockedMet.includes(layer)) lockedMet.push(layer);
                 return;
             }
@@ -3763,27 +4481,46 @@ class _HardwareDock {
         });
         this._showLockedError(lockedMet);
         if (!jobs.length) return;
+        const strip = () => {
+            jobs.forEach(j =>
+                this._wipeSocaProgramming(j.layer, j.soca, j.targets));
+            // The wipe deleted the cleared multis' entries under their OLD
+            // indexes; now the cuts go and the survivors move to their new
+            // ones - per layer, every cleared multi of that layer at once.
+            const byLayer = new Map();
+            jobs.forEach(j => {
+                const arr = byLayer.get(j.layer) || [];
+                arr.push(j.soca);
+                byLayer.set(j.layer, arr);
+            });
+            for (const [layer, socas] of byLayer) {
+                this._resegmentSocaStores(
+                    layer, this._socaClearSplitPoints(layer, socas));
+            }
+            // A cable left under a circuit number nothing feeds now goes
+            // too, not only the cleared circuits' own (2026-11-04).
+            for (const layer of byLayer.keys()) {
+                this._forgetUnfedCircuitCables(layer);
+            }
+        };
+        // A locked screen the clear would REPACK - one grouped with a
+        // screen it clears, whose packing % the group shares - stays
+        // unchanged (owner, 2026-10-22): the clear is tried and put back,
+        // and refused whole when it moves a locked screen's %.
+        if (this._repackRefused(strip, [...new Set(jobs.map(j => j.layer))])) return;
         // The pull-sheet rows as they print now, so an edit on a row this
         // clear takes away goes with it (_dropPullEditsGoneWith).
         const pullBefore = this._pullLiveRowKeys();
-        jobs.forEach(j =>
-            this._wipeSocaProgramming(j.layer, j.soca, j.targets));
-        // The wipe deleted the cleared multis' entries under their OLD
-        // indexes; now the cuts go and the survivors move to their new
-        // ones - per layer, every cleared multi of that layer at once.
-        const byLayer = new Map();
-        jobs.forEach(j => {
-            const arr = byLayer.get(j.layer) || [];
-            arr.push(j.soca);
-            byLayer.set(j.layer, arr);
-        });
-        for (const [layer, socas] of byLayer) {
-            this._resegmentSocaStores(
-                layer, this._socaClearSplitPoints(layer, socas));
-        }
+        // Nor does a locked screen sharing a box with a multi it clears:
+        // the clear frees tails, and a locked member dealt after it would
+        // slide onto them. Refused whole then, the screen named
+        // (_lockedPowerTrial); otherwise the locked screen is not written.
+        const shared = this._lockedPowerTrial();
+        strip();
         // The clear renumbers both buckets it touches, so every label
         // on the show can move - same cache drop the setters make.
         this._circuitTailCache = null;
+        if (shared()) return;
         this._dropPullEditsGoneWith(pullBefore);
         this.updateLayers([...new Set(jobs.map(j => j.layer))], true,
                           action);
@@ -3799,11 +4536,13 @@ class _HardwareDock {
     // multi's own clear forgets those).
     //
     // Where the holder is a multi of ONE circuit (the pip drop's product)
-    // the multi IS the circuit: the two cuts the pip drop made around it
-    // go with it, and so does every cut between the unassigned leftovers
-    // its neighbours were chopped into (user ruling, 2026-09-04), so the
-    // whole run falls back into the natural box - _socaClearSplitPoints,
-    // the same rule the multi clear runs. Where the holder has MORE
+    // the multi IS the circuit: each cut the pip drop made around it goes
+    // with it when the multi on the other side is unassigned too, and so
+    // does every cut between the unassigned leftovers its neighbours were
+    // chopped into (user ruling, 2026-09-04), so the run falls back into
+    // the natural box; a cut against a multi that is still fed stays, so
+    // that multi keeps its circuits and tails (owner, 2026-11-02) -
+    // _socaClearSplitPoints, the same rule the multi clear runs. Where the holder has MORE
     // circuits (user, 2026-09-05: "delete the 6th circuit from the
     // distro"), the circuit is cut out on its own and the rest of the
     // multi stays put - head and tail parts on the same box, holding the
@@ -3819,13 +4558,32 @@ class _HardwareDock {
         sendClientLog('dock_clear', { kind: 'circuit', layerId: layer.id,
                                       soca: socaIndex, circuit: circuitNum });
         const idx = Number(socaIndex);
-        const runIds = [];
-        this.screenCircuits(layer).forEach(c => {
-            if (c.num !== circuitNum) return;
-            (c.runIds || [c.num]).forEach(id => runIds.push(id));
-        });
+        // Never a taken-over circuit's number read as a run ordinal
+        // (_shareRunSegments, as _socaClearTargets).
+        const runIds = this._shareRunSegments(layer, [circuitNum]).flat();
         const rec = this._powerNaming(layer).socas.get(idx);
+        // A locked screen taking this circuit off would REPACK - one
+        // grouped with this screen - stays unchanged (owner, 2026-10-22):
+        // the release is tried and put back, refused whole when it moves
+        // the locked screen's %.
+        if (this._repackRefused(() => {
+            if (rec && rec.circuits.length > 1) {
+                this._socaReleaseCircuit(layer, idx, circuitNum);
+                return;
+            }
+            for (const field of ['powerSocaNumber', 'powerSocaDistro',
+                                 'powerSocaPhasePos', 'powerSocaPhaseOffset']) {
+                if (layer[field]) delete layer[field][idx];
+            }
+            this._resegmentSocaStores(
+                layer, this._socaClearSplitPoints(layer, [idx]));
+        }, [layer])) return;
         const pullBefore = this._pullLiveRowKeys();
+        // A locked screen sharing the box keeps its tails: the circuit
+        // coming off frees one, and a locked member dealt after it would
+        // slide onto it. Refused whole then, the screen named
+        // (_lockedPowerTrial); otherwise the locked screen is not written.
+        const shared = this._lockedPowerTrial();
         if (rec && rec.circuits.length > 1) {
             const r = this._socaReleaseCircuit(layer, idx, circuitNum);
             if (!r) return;
@@ -3837,11 +4595,15 @@ class _HardwareDock {
             }
             this._wipeSplitterManualFor(layer, runIds);
             this._circuitTailCache = null;
+            if (shared()) return;
             this._dropPullEditsGoneWith(pullBefore);
-            this.updateLayers(r.touched, true, 'Clear Circuit');
+            this.updateLayers(r.touched, true, 'Unplug Circuit');
             this._restateNaming();
             return;
         }
+        // Another part of this multi still on the box keeps the home run
+        // (_passHomeRunOn), read before the box is let go.
+        this._passHomeRunOn(layer, idx);
         for (const field of ['powerSocaNumber', 'powerSocaDistro',
                              'powerSocaPhasePos', 'powerSocaPhaseOffset']) {
             if (layer[field]) delete layer[field][idx];
@@ -3859,9 +4621,36 @@ class _HardwareDock {
         this._resegmentSocaStores(
             layer, this._socaClearSplitPoints(layer, [idx]));
         this._circuitTailCache = null;
+        if (shared()) return;
         this._dropPullEditsGoneWith(pullBefore);
-        this.updateLayers([layer], true, 'Clear Circuit');
+        this.updateLayers([layer], true, 'Unplug Circuit');
         this._restateNaming();
+    }
+
+    // The home run belongs to the BOX, not to the part of the multi that
+    // happens to carry it. Unplug circuit leaves a multi in parts on one
+    // box (1-2 and 4-5 with 3 taken off) and the home run rides the first
+    // part alone - one cable, counted once (_socaReleaseCircuit). When
+    // that part leaves the box while another part of this screen's multi
+    // stays on it, the length moves to the part that stays, so it is
+    // forgotten only when nothing of the multi is left on the box (the
+    // feed-lengths rule, 2026-10-17). A part that already has a length
+    // keeps its own. No history entry: the caller's carries it.
+    _passHomeRunOn(layer, socaIndex) {
+        const idx = Number(socaIndex);
+        const len = ((layer && layer.powerSocaLengths) || {})[idx];
+        if (len === undefined || len === null || len === '') return false;
+        const nm = this._powerNaming(layer);
+        const rec = nm.socas.get(idx);
+        if (!rec || !rec.distroId) return false;
+        const heir = [...nm.socas.values()].find(r => r.index !== idx
+            && r.distroId === rec.distroId
+            && Number(r.number) === Number(rec.number));
+        if (!heir) return false;
+        const cur = layer.powerSocaLengths[heir.index];
+        if (cur !== undefined && cur !== null && cur !== '') return false;
+        layer.powerSocaLengths[heir.index] = len;
+        return true;
     }
 
     // One resolved card (with its processor, for the routes that key on
@@ -3920,7 +4709,7 @@ class _HardwareDock {
                     + `${main.localPort || main.port}`
                 : 'its main port');
         return `${payload.title} carries ${occupant.name} `
-            + `p${occupant.number}'s return - it follows ${mainName}; `
+            + `P${occupant.number}'s return. It follows ${mainName}; `
             + 'clear that port to clear both ends.';
     }
 
@@ -3930,10 +4719,25 @@ class _HardwareDock {
         const el = document.getElementById('status-message');
         if (!el) return;
         el.textContent = text;
+        this._dockSaid = text;
         clearTimeout(this._dockSayTimer);
         this._dockSayTimer = setTimeout(() => {
             el.textContent = 'Ready';
         }, 6000);
+    }
+
+    // The next drop starts with the strip clear: a refusal said before it
+    // is not about this drop, and it stood over a drop that went through
+    // until its timer ran out (QA 1.6.0). Only the dock's own sentence
+    // goes; anything else the strip says since is left.
+    _dockSayClear() {
+        const el = document.getElementById('status-message');
+        if (!el || !this._dockSaid) return;
+        if (el.textContent === this._dockSaid) {
+            clearTimeout(this._dockSayTimer);
+            el.textContent = 'Ready';
+        }
+        this._dockSaid = null;
     }
 }
 

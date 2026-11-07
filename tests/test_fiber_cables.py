@@ -159,7 +159,7 @@ def test_the_refusals_say_why_and_store_nothing(client):
     tac = _new_tac(client, 6, link={'boxId': a, 'key': 'p1'})
     # a strand another link holds
     why = _refused(_link(client, pid, b, 'p1', {'cable': tac['id'], 'strands': [2, 3]}))
-    assert 'strand 2 Orange is already used by CVT10 A OPT 1' in why, why
+    assert 'strand 2 Orange is already used by CVT10-S A OPT 1' in why, why
     # a count the link does not take
     assert 'needs 2 strands' in _refused(_link(client, pid, b, 'p1', {'cable': tac['id'], 'strands': [3]}))
     assert 'needs 2 strands' in _refused(_link(client, pid, b, 'p1', {'cable': tac['id'], 'strands': [3, 4, 5]}))
@@ -188,7 +188,7 @@ def test_the_refusals_say_why_and_store_nothing(client):
     _ok(_link(client, pid, c, 'p1', {'cable': tac['id']}))
     assert _links(client, c)['p1']['strands'] == [3, 4]
     d = _add_box(client, pid, cid)[-1]
-    assert 'no 2 free strands' in _refused(_link(client, pid, d, 'p1', {'cable': tac['id']}))
+    assert 'TAC A is full' in _refused(_link(client, pid, d, 'p1', {'cable': tac['id']}))
 
 
 def test_a_refused_first_link_leaves_no_cable_behind(client):
@@ -505,7 +505,7 @@ SECTION_JS = """(boxId) => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -561,7 +561,7 @@ def test_the_fiber_section_builds_a_tac_through_new_tac(page):
     a = ids['boxes'][0]
     sec = _section(pg, a)
     assert sec['first'], sec
-    assert sec['caption'] == 'Fiber · CVT10 A', sec
+    assert sec['caption'] == 'Fiber · CVT10-S A', sec
     assert [(r['role'], r['backup']) for r in sec['rows']] == [('OPT 1', False)]
     opts = sec['rows'][0]['options']
     assert opts == ['New TAC…', 'New MTP…', 'New opticalCON DUO…', 'New opticalCON QUAD…', '──────────', 'None'], opts
@@ -591,7 +591,7 @@ def test_the_fiber_section_builds_a_tac_through_new_tac(page):
     assert sec['rows'][0]['value'] == tac['id']
     # strands 1-2, a TAC pair read as it plugs in at the box
     assert sec['rows'][0]['chips'] == ['2 Orange', '1 Blue'], sec
-    assert "TAC A · 24 · 1000' · ST" in sec['rows'][0]['options']
+    assert "TAC A · 24 · 1000' · ST · Single mode" in sec['rows'][0]['options']
     assert ids['errors'] == []
 
 
@@ -612,16 +612,16 @@ def test_picking_the_tac_on_other_boxes_fills_the_next_free_strands(page):
         assert _box_links(st, box) == {'p1': {'cable': tac['id'], 'strands': want}}, box
     e, f = ids['e'], ids['f']
     sec = _section(pg, e)
-    assert sec['caption'] == 'Fiber · BK1 ↔ CVT10 C (loop)', sec
+    assert sec['caption'] == 'Fiber · BK1 ↔ CVT10-S C (loop)', sec
     assert [(r['role'], r['backup']) for r in sec['rows']] == \
-        [('BK1 · OPT 1', False), ('CVT10 C · OPT 1', False)], sec
+        [('BK1 · OPT 1', False), ('CVT10-S C · OPT 1', False)], sec
     assert sec['rows'][1]['value'] == '' and sec['rows'][1]['options'][0].startswith('TAC A'), sec
     pg.locator(f'[data-lrd-field="fiber-link-cable-{f}-p1"]').select_option(tac['id'])
     st = _wait(pg, lambda s: _box_links(s, f))
     assert _box_links(st, f) == {'p1': {'cable': tac['id'], 'strands': [11, 12]}}
     # the far box's own sheet, with BK1's open too: the pair is drawn once
     sec = _section(pg, f)
-    assert sec['caption'] == 'Fiber · BK1 ↔ CVT10 C (loop)', sec
+    assert sec['caption'] == 'Fiber · BK1 ↔ CVT10-S C (loop)', sec
     assert sec['bound'] == 'Set with BK1 on its sheet.', sec
     assert sec['rows'] == [], sec
     sec = _section(pg, b)
@@ -639,6 +639,59 @@ def test_picking_the_tac_on_other_boxes_fills_the_next_free_strands(page):
     sec = _section(pg, b)
     assert sec['rows'][0]['chips'] == ['4 Brown', '13 Blue/Black'], sec
     assert ids['errors'] == []
+
+
+def test_an_open_strand_pick_rides_a_tray_rebuild(page):
+    """The pick is a chip swapped for a select in place, so nothing in the
+    model says it is open: a rebuild nobody asked for (a save's late echo)
+    put the chip back under the person. It stays open with the focus in it
+    through any number of rebuilds, shows what is stored, closes when the
+    person leaves it, and a choice closes it with its own save."""
+    pg, ids = page
+    box = ids['boxes'][2]
+    chip = f'[data-lrd-field="fiber-strand-{box}-p1-0"]'
+    field = f'fiber-strand-pick-{box}-p1-0'
+    pick = f'[data-lrd-field="{field}"]'
+    was = _box_links(_served(pg), box)['p1']['strands']
+    _section(pg, box)
+    pg.locator(chip).click()
+    assert pg.evaluate(f"""async () => {{
+        for (let n = 0; n < 3; n++) {{
+            window.app.renderHardwareDock();
+            await Promise.resolve();
+        }}
+        return document.activeElement.dataset.lrdField;
+    }}""") == field
+    assert pg.locator(pick).count() == 1 and pg.locator(chip).count() == 0
+    assert pg.locator(pick).input_value() == str(was[0])
+    # leaving it puts the chip back, and a rebuild does not bring it back
+    pg.evaluate("() => document.activeElement.blur()")
+    assert pg.locator(pick).count() == 0 and pg.locator(chip).count() == 1
+    pg.evaluate("() => window.app.renderHardwareDock()")
+    assert pg.locator(pick).count() == 0 and pg.locator(chip).count() == 1
+    # the rebuilt pick is a working one; its save closes it, and a rebuild
+    # landing before the answer does not hold it open
+    pg.locator(chip).click()
+    pg.evaluate("() => window.app.renderHardwareDock()")
+    free = next(n for n in range(12, 0, -1) if pg.locator(pick).evaluate(
+        "(s, v) => !s.querySelector(`option[value=\"${v}\"]`).disabled", n)
+        and n not in was)
+    pg.evaluate("""([sel, v]) => {
+        const s = document.querySelector(sel);
+        s.value = String(v);
+        s.dispatchEvent(new Event('change', {bubbles: true}));
+        window.app.renderHardwareDock();
+    }""", [pick, free])
+    assert pg.locator(pick).count() == 0
+    st = _wait(pg, lambda s: _box_links(s, box)['p1']['strands'][0] == free)
+    assert _box_links(st, box)['p1']['strands'][0] == free
+    _section(pg, box)
+    assert pg.locator(pick).count() == 0 and pg.locator(chip).count() == 1
+    assert ids['errors'] == []
+    # back as the tests after this one found it
+    pg.locator(chip).click()
+    pg.locator(pick).select_option(str(was[0]))
+    _wait(pg, lambda s: _box_links(s, box)['p1']['strands'] == was)
 
 
 def test_the_bidi_switch_shows_only_for_novastar_and_megapixel(page):
@@ -671,10 +724,13 @@ FIT_JS = """(titles) => {
                    scope: {kind: 'show'}, cover: false, pull: true, hardware: true, titleBlock: true };
     const plan = app.planBinder(opts);
     const out = {};
+    // every sheet the title starts (a processor's Snakes & home runs
+    // listing its no-length runs, 2026-10-22, can move a processor onto a
+    // sheet of its own)
     for (const t of titles) {
-        const i = plan.findIndex(p => p.title.startsWith(t));
-        if (i < 0) { out[t] = null; continue; }
-        out[t] = app.renderBinderPage(opts, i).textInfo;
+        const at = plan.map((p, i) => (p.title.startsWith(t)
+            || (t === 'Processors -' && p.title.startsWith('Processor -')) ? i : -1)).filter(i => i >= 0);
+        out[t] = at.length ? at.flatMap(i => app.renderBinderPage(opts, i).textInfo) : null;
     }
     return out;
 }"""
@@ -709,32 +765,33 @@ def test_the_binder_maps_every_strand_and_summarises_each_box(page):
                  sx: maps(ids.sxId).length };
     }""", ids)
     bands, fiber = out['bands'], out['fiber']
-    assert bands[0] == 'CVT10 A · OPT 1 · 8 ports · OPT 1 TAC A (TAC 24) 1-2', bands
-    assert fiber[1] == 'OPT 1 TAC A (TAC 24) 4, 13', fiber
-    assert fiber[4] == 'OPT 1 TAC A (TAC 24) 9-10', fiber
-    assert fiber[5] == 'OPT 1 TAC B (TAC 6) 1-2', fiber
-    assert bands[5].endswith(' · OPT 1 TAC B (TAC 6) 1-2'), bands
+    # the short band brackets the mode as SM (owner, 2026-11-04)
+    assert bands[0] == 'CVT10-S A · OPT 1 · 8 ports · OPT 1 TAC A (TAC 24 SM) 1-2', bands
+    assert fiber[1] == 'OPT 1 TAC A (TAC 24 SM) 4, 13', fiber
+    assert fiber[4] == 'OPT 1 TAC A (TAC 24 SM) 9-10', fiber
+    assert fiber[5] == 'OPT 1 TAC B (TAC 6 SM) 1-2', fiber
+    assert bands[5].endswith(' · OPT 1 TAC B (TAC 6 SM) 1-2'), bands
     assert len(out['maps']) == 1 and out['sx'] == 0
     m = out['maps'][0]
-    assert m['title'] == "Strand map · TAC A · TAC 24 · ST · 1000'", m['title']
+    assert m['title'] == "Strand map · TAC A · TAC 24 · ST · Single mode · 1000'", m['title']
     assert m['note'] == 'Also on BK RACK', m
     rows = m['rows']
     assert len(rows) == 24
     # each link's box ports beside it (2026-10-17): a CVT10 behind an
     # 8-a-fiber card delivers its 1-8
-    assert rows[0] == ['1 Blue', 'CVT10 A · OPT 1', '1-8']
+    assert rows[0] == ['1 Blue', 'CVT10-S A · OPT 1', '1-8']
     assert rows[2] == ['3 Green', 'spare', '']
-    assert rows[3] == ['4 Brown', 'CVT10 B · OPT 1', '1-8']
-    assert rows[8] == ['9 Yellow', 'CVT10 BK1 · OPT 1', '1-8']
+    assert rows[3] == ['4 Brown', 'CVT10-S B · OPT 1', '1-8']
+    assert rows[8] == ['9 Yellow', 'CVT10-S BK1 · OPT 1', '1-8']
     assert rows[10] == ['11 Rose', 'spare', '']
-    assert rows[12] == ['13 Blue/Black', 'CVT10 B · OPT 1', '1-8']
+    assert rows[12] == ['13 Blue/Black', 'CVT10-S B · OPT 1', '1-8']
     assert rows[23] == ['24 Aqua/Black', 'spare', '']
     assert m['swatch'] == {'base': '#1F5FA8', 'tracer': None}
     assert m['sw13'] == {'base': '#1F5FA8', 'tracer': '#1A1A1A'}
     assert [(x['title'], x['note']) for x in out['bk']] == \
-        [("Strand map · TAC B · TAC 6 · LC duplex · 1000'", '')], out['bk']
-    assert out['bk'][0]['rows'][:3] == [['1 Blue', 'CVT10 C · OPT 1', '1-8'],
-                                        ['2 Orange', 'CVT10 C · OPT 1', '1-8'],
+        [("Strand map · TAC B · TAC 6 · LC duplex · Single mode · 1000'", '')], out['bk']
+    assert out['bk'][0]['rows'][:3] == [['1 Blue', 'CVT10-S C · OPT 1', '1-8'],
+                                        ['2 Orange', 'CVT10-S C · OPT 1', '1-8'],
                                         ['3 Green', 'spare', '']]
     # the fit, on the painted sheets: every fiber text whole, at the cell's
     # own size (never shrunk), nothing on the sheets cut to an ellipsis
@@ -746,26 +803,26 @@ def test_the_binder_maps_every_strand_and_summarises_each_box(page):
     size = {t['text']: t['size'] for t in procs}
     # the Breakout boxes table's FIBER: the input, then each strand a line,
     # swatched (2026-10-17) - logged as the one cell it drew
-    for text in ('OPT 1 TAC A (TAC 24) 1 Blue 2 Orange', 'OPT 1 TAC A (TAC 24) 4 Brown 13 Blue/Black',
-                 'OPT 1 TAC B (TAC 6) 1 Blue 2 Orange', 'Also on BK RACK'):
-        assert size.get(text) == 24, (text, sorted(k for k in size if 'TAC' in k or 'BK' in k))
+    for text in ('OPT 1 TAC A (TAC 24 SM) 1 Blue 2 Orange', 'OPT 1 TAC A (TAC 24 SM) 4 Brown 13 Blue/Black',
+                 'OPT 1 TAC B (TAC 6 SM) 1 Blue 2 Orange', 'Also on BK RACK'):
+        assert size.get(text) == 24, (text, sorted((k, size[k]) for k in size if 'TAC' in k or 'Blue' in k or 'OPT' in k))
     # the loop's far box wraps at its " · ", each line whole at the cell's
     # size (a list cell is logged as the one text it drew)
-    assert size.get('CVT10 C · loop of CVT10 BK1') == 24, sorted(k for k in size if 'CVT10' in k)
+    assert size.get('CVT10-S C · loop of CVT10-S BK1') == 24, sorted(k for k in size if 'CVT10-S' in k)
     lines = pg.evaluate("""() => {
         const app = window.app;
         const book = { measureCtx: document.createElement('canvas').getContext('2d') };
         return app._bCellLines(book, 'X1 TAC A (TAC 24) 9-10 · X2 TAC B (TAC 6) 1-2', 24, 400, 200, 2);
     }""")
     assert all(not t.endswith('…') and 'more' not in t for t in lines), lines
-    assert size.get("STRAND MAP · TAC A · TAC 24 · ST · 1000'") == 25, sorted(k for k in size if 'STRAND' in k)
-    assert size.get("STRAND MAP · TAC B · TAC 6 · LC DUPLEX · 1000'") == 25
+    assert size.get("STRAND MAP · TAC A · TAC 24 · ST · SINGLE MODE · 1000'") == 25, sorted(k for k in size if 'STRAND' in k)
+    assert size.get("STRAND MAP · TAC B · TAC 6 · LC DUPLEX · SINGLE MODE · 1000'") == 25
     # the data sheet's band: the box on its line, then the input as a
     # group - the input over its cable, centred beside its strands, a
     # strand a line (2026-10-17) - every piece whole at the cell's size
     texts = [t['text'] for t in data]
-    at = texts.index('CVT10 A · OPT 1 · 8 ports')
-    assert texts[at:at + 5] == ['CVT10 A · OPT 1 · 8 ports', 'OPT 1', 'TAC A (TAC 24)', '1 Blue', '2 Orange'], \
+    at = texts.index('CVT10-S A · OPT 1 · 8 ports')
+    assert texts[at:at + 5] == ['CVT10-S A · OPT 1 · 8 ports', 'OPT 1', 'TAC A (TAC 24 SM)', '1 Blue', '2 Orange'], \
         texts[at:at + 6]
     assert {t['size'] for t in data[at:at + 5]} == {24}, data[at:at + 5]
     assert ids['errors'] == []
@@ -799,23 +856,23 @@ def test_the_pull_sheet_counts_a_shared_tac_once_and_the_loops_far_box_as_a_box(
     pg.wait_for_timeout(300)
     out = pg.evaluate(LIST_JS)
     tacs = [r for r in out['totals'] if r[0].startswith('TAC 24')]
-    assert tacs == [['TAC 24 · ST', "1000'", 1, 'TAC A', '']], out['totals']
-    assert sum(r[2] for r in out['totals'] if r[0] == 'CVT10') == 6, out['totals']
+    assert tacs == [['TAC 24 · ST · Single mode', "1000'", 1, 'TAC A', '']], out['totals']
+    assert sum(r[2] for r in out['totals'] if r[0] == 'CVT10-S') == 6, out['totals']
     assert not [r for r in out['totals'] if r[0] in ('12 Tac Fiber', 'OLD')], out['totals']
     hw = dict(out['hardware'])[pid]
-    assert ['TAC 24 · ST', "1000'", 1, 'TAC A', ''] in hw, hw
+    assert ['TAC 24 · ST · Single mode', "1000'", 1, 'TAC A', ''] in hw, hw
     # TAC B, taken ONLY by the loop's far box - a box no screen's port
     # comes out of - is still one row, on BK RACK's list and in the totals
-    assert [r for r in out['totals'] if r[0] == 'TAC 6 · LC duplex'] == \
-        [['TAC 6 · LC duplex', "1000'", 1, 'TAC B', '']], out['totals']
+    assert [r for r in out['totals'] if r[0] == 'TAC 6 · LC duplex · Single mode'] == \
+        [['TAC 6 · LC duplex · Single mode', "1000'", 1, 'TAC B', '']], out['totals']
     bk = dict(out['hardware'])[ids['bkId']]
-    assert ['TAC 6 · LC duplex', "1000'", 1, 'TAC B', ''] in bk, bk
+    assert ['TAC 6 · LC duplex · Single mode', "1000'", 1, 'TAC B', ''] in bk, bk
     assert not [r for r in hw if r[0].startswith('TAC 6')], hw
     # D lets go of its link: its typed note prints again
     pg.evaluate(PUT_JS, [f'/api/processors/{pid}/cvts/{d}/fiber-links/p1', {'cable': None}])
     pg.wait_for_timeout(300)
     out = pg.evaluate(LIST_JS)
-    assert ['OLD', "90'", 1, 'CVT10 D', ''] in out['totals'], out['totals']
+    assert ['OLD', "90'", 1, 'CVT10-S D', ''] in out['totals'], out['totals']
     assert not [r for r in out['totals'] if r[0] == '12 Tac Fiber'], out['totals']
     # an MTP 12, shared by B and C by strand
     made = pg.evaluate(PUT_JS, ['/api/fiber-cables', {'kind': 'mtp', 'strands': 12, 'ft': 300,
@@ -828,8 +885,8 @@ def test_the_pull_sheet_counts_a_shared_tac_once_and_the_loops_far_box_as_a_box(
     assert _box_links(st, b)['p1'] == {'cable': mtp['id'], 'strands': [1, 2]}
     assert _box_links(st, c)['p1'] == {'cable': mtp['id'], 'strands': [5, 6]}
     out = pg.evaluate(LIST_JS)
-    assert [r for r in out['totals'] if r[0].startswith('MTP')] == [['MTP 12', "300'", 1, 'MTP A', '']], out['totals']
-    assert [r for r in out['totals'] if r[0].startswith('TAC 24')] == [['TAC 24 · ST', "1000'", 1, 'TAC A', '']]
+    assert [r for r in out['totals'] if r[0].startswith('MTP')] == [['MTP 12 · Single mode', "300'", 1, 'MTP A', '']], out['totals']
+    assert [r for r in out['totals'] if r[0].startswith('TAC 24')] == [['TAC 24 · ST · Single mode', "1000'", 1, 'TAC A', '']]
     assert ids['errors'] == []
 
 

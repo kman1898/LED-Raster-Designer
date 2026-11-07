@@ -40,7 +40,7 @@ DELAY_PROJECT_DATA = """(() => {
 
 def _open(e2e_server, pw_browser, delay_ms):
     ctx = pw_browser.new_context()
-    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     ctx.add_init_script(DELAY_PROJECT_DATA % delay_ms)
     pg = ctx.new_page()
     errors = []
@@ -88,6 +88,50 @@ def test_a_reconnect_still_takes_the_servers_project(e2e_server, pw_browser):
         }""")
         pg.wait_for_function("() => window.app.project.layers[0].name === 'CHANGED ON THE SERVER'",
                              timeout=10000)
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+# New Project's raster sync is a POST the page sends on its own. File >
+# Open's PUT and an undo's restore wait on _layerSavesSettled before they
+# write; the sync was not among the saves it waits on, so landing late it
+# put the new show's default raster on the opened one. Held here until the
+# check has run.
+HELD_NEW_PROJECT_SYNC_JS = """async () => {
+    const app = window.app, orig = window.fetch;
+    let letGo, held = false;
+    const gate = new Promise(r => { letGo = r; });
+    window.fetch = (url, opts) => {
+        if (url === '/api/project' && opts && opts.method === 'POST' && !held
+                && String(opts.body || '').includes('keep_pristine')) {
+            held = true;
+            return gate.then(() => orig(url, opts));
+        }
+        return orig(url, opts);
+    };
+    try {
+        app.createNewProject();
+        for (let i = 0; i < 200 && !held; i++) await new Promise(r => setTimeout(r, 10));
+        let settled = false;
+        app._layerSavesSettled().then(() => { settled = true; });
+        await new Promise(r => setTimeout(r, 200));
+        const waitedWhileHeld = held && !settled;
+        letGo();
+        await app._layerSavesSettled();
+        return { held, waitedWhileHeld };
+    } finally {
+        window.fetch = orig;
+    }
+}"""
+
+
+def test_open_and_undo_wait_for_the_new_project_sync(e2e_server, pw_browser):
+    ctx, pg, errors = _open(e2e_server, pw_browser, 0)
+    try:
+        pg.evaluate("() => { window.confirm = () => true; }")
+        out = pg.evaluate(HELD_NEW_PROJECT_SYNC_JS)
+        assert out == {'held': True, 'waitedWhileHeld': True}, out
         assert errors == []
     finally:
         ctx.close()

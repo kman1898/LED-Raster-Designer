@@ -31,7 +31,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -79,7 +79,7 @@ def ev(pg, body, arg=None):
 
 # ── 1 & 2: direct outputs ──────────────────────────────────────────────────
 
-# True1 x5 + Socapex x2 on 120/208: outputs 1-5 are True1, 6-7 Socapex.
+# TRUE1 x5 + Socapex x2 on 120/208: outputs 1-5 are TRUE1, 6-7 Socapex.
 FACE = {'id': 'd1', 'name': 'PD', 'ratingA': 200, 'system': '120/208',
         'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 5, 'coupling': 'll',
                         'breakerA': 20},
@@ -91,7 +91,8 @@ SETUP_JS = """(o) => {
     const app = window.app;
     for (const l of app.project.layers) {
         const key = l.name === 'WALL A' ? 'a' : 'b';
-        Object.assign(l, { powerVoltage: 208, powerAmperage: 10, panelWatts: 200,
+        // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+        Object.assign(l, { powerVoltage: 208, powerAmperage: 12.5, panelWatts: 200,
                            powerSocaDistro: {}, powerSocaNumber: {}, powerSocaPhasePos: {},
                            powerSocaLengths: {}, powerSocaSplits: [], powerSocaNames: {},
                            powerLabelOverrides: {}, powerCircuitCables: {},
@@ -111,9 +112,9 @@ SETUP_JS = """(o) => {
     return out;
 }"""
 
-# The pull sheet's rows, jumpers / breakouts / distros left out.
+# The pull sheet's rows, jumpers / breakouts / distros and their feeders left out.
 ROWS_JS = """() => window.app.buildPullList().positions.flatMap(p => p.rows)
-    .filter(r => !/Jump|Breakout|Distro/.test(r.type))
+    .filter(r => r.side !== 'panel' && !/Jump|Breakout|Distro|Power in/.test(r.type))
     .map(r => [r.type, r.length, r.qty, r.label, r.notes])"""
 
 
@@ -128,7 +129,7 @@ def walls(page):
     return pg, errors
 
 
-# WALL A's six-circuit multi on output 4 (a True1), home run 100'.
+# WALL A's six-circuit multi on output 4 (a TRUE1), home run 100'.
 CROWDED = {'a': {'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 4},
                  'powerSocaLengths': {'1': '100'}}}
 
@@ -149,7 +150,7 @@ def _crowd(pg, cables):
 
 
 def test_the_crowded_output_is_the_flagged_error_state(walls):
-    """The repro's footing: six circuits on PD4, a True1, flagged by the
+    """The repro's footing: six circuits on PD4, a TRUE1, flagged by the
     strip's own check and labelled PD4-1..PD4-6."""
     pg, _ = walls
     _crowd(pg, [10, 15, 20, 25, 30, 35])
@@ -158,12 +159,12 @@ def test_the_crowded_output_is_the_flagged_error_state(walls):
         return { labels: s.legs.map(g => g.label),
                  checks: app.distroChecks(app.getDistros()[0]).map(w => w.text) };""")
     assert out['labels'] == [f'PD4-{i}' for i in range(1, 7)], out
-    assert ("WALL A's 6 circuits are on PD4, a True1 — one circuit only. "
+    assert ("WALL A's 6 circuits are on PD4, a TRUE1 that takes one circuit only. "
             'Move it to a multi output.') in out['checks'], out['checks']
 
 
 def test_a_crowded_direct_output_lists_every_cable(walls):
-    """The pull sheet used to print one row - `Tru-1 35' PD 4` - each
+    """The pull sheet used to print one row - `TRUE1 35' PD 4` - each
     circuit's cable overwriting the output's one cable. Now all seven
     cables are listed: the six circuit cables under their circuits and the
     100' home run under the output, flagged in Notes."""
@@ -176,7 +177,7 @@ def test_a_crowded_direct_output_lists_every_cable(walls):
     for i, ft in enumerate([10, 15, 20, 25, 30, 35], start=1):
         assert labels[f"{ft}'"] == f'PD4-{i}', rows
     home = [r for r in rows if r[1] == "100'"]
-    assert len(home) == 1 and home[0][3] == 'PD 4', rows
+    assert len(home) == 1 and home[0][3] == 'PD4', rows
     assert '6 circuits on a one-circuit output' in home[0][4], home
     assert sum(r[2] for r in rows) == 7, 'nothing undercounted'
     # The box the binder's captions read keeps the output's home run.
@@ -192,7 +193,7 @@ def test_a_crowded_output_with_no_circuit_cables_lists_its_home_run(walls):
     pg, _ = walls
     _crowd(pg, [None] * 6)
     rows = pg.evaluate(ROWS_JS)
-    home = [r for r in rows if r[3] == 'PD 4']
+    home = [r for r in rows if r[3] == 'PD4']
     assert len(home) == 1 and home[0][1] == "100'", rows
     assert '6 circuits on a one-circuit output' in home[0][4], home
 
@@ -220,23 +221,23 @@ def test_the_map_tag_never_hangs_a_crowded_home_run_on_a_circuit(walls):
     _crowd(pg, [10, 15, 20, 25, 30, None])
     tags = pg.evaluate(TAGS_JS)
     assert sorted(t for t in tags if "'" in t) == sorted(
-        f"{ft}' True1" for ft in (10, 15, 20, 25, 30)), tags
+        f"{ft}' TRUE1" for ft in (10, 15, 20, 25, 30)), tags
     assert not [t for t in tags if t.startswith("100'")], tags
     assert errors == [], errors
 
 
 def test_a_lone_direct_circuit_keeps_its_one_cable(walls):
     """The legal case is unchanged: WALL B's one circuit on PD 5, home run
-    25', circuit cable 10' - one `Tru-1 10'` row, the tag 10' True1."""
+    25', circuit cable 10' - one `TRUE1 10'` row, the tag 10' TRUE1."""
     pg, _ = walls
     nums = pg.evaluate(SETUP_JS, {'distros': [FACE], 'walls': {'b': {
         'powerSocaSplits': [1], 'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 5},
         'powerSocaLengths': {'1': '25'}, 'powerCircuitCables': {}}}})['WALL B']
     ev(pg, "B.powerCircuitCables = { [arg]: { ft: 10, connector: null } }; return null;", nums[0])
-    rows = [r for r in pg.evaluate(ROWS_JS) if r[0] == 'Tru-1']
-    assert rows == [['Tru-1', "10'", 1, 'PD 5', '']], rows
+    rows = [r for r in pg.evaluate(ROWS_JS) if r[0] == 'TRUE1']
+    assert rows == [['TRUE1', "10'", 1, 'PD5', '']], rows
     one = ev(pg, "const c = app.directCircuitCable(B, arg); return c && c.text;", nums[0])
-    assert one == "10' True1"
+    assert one == "10' TRUE1"
 
 
 # The Distro page's rows: each box's cells, caught as the page builds them.
@@ -266,14 +267,14 @@ def test_the_distro_page_home_run_is_the_direct_outputs_one_cable(walls):
         'powerSocaLengths': {'1': '25'}}}})['WALL B']
     ev(pg, "B.powerCircuitCables = { [arg]: { ft: 10, connector: null } }; return null;", nums[0])
     cells = pg.evaluate(DISTRO_ROWS_JS)
-    pd5 = [c for c in cells if c[0] == 'PD 5']
+    pd5 = [c for c in cells if c[0] == 'PD5']
     assert len(pd5) == 1, cells
     assert pd5[0][2] == "10'", pd5
-    pull = [r for r in pg.evaluate(ROWS_JS) if r[3] == 'PD 5']
+    pull = [r for r in pg.evaluate(ROWS_JS) if r[3] == 'PD5']
     assert [r[1] for r in pull] == ["10'"], pull
     # No circuit cable: the output's home run, as the tag and the sheet say.
     ev(pg, "B.powerCircuitCables = {}; return null;")
-    pd5 = [c for c in pg.evaluate(DISTRO_ROWS_JS) if c[0] == 'PD 5']
+    pd5 = [c for c in pg.evaluate(DISTRO_ROWS_JS) if c[0] == 'PD5']
     assert pd5[0][2] == "25'", pd5
     assert errors == [], errors
 
@@ -317,11 +318,13 @@ def test_the_captions_say_the_one_cable_or_the_crowd(walls):
         'powerSocaLengths': {'1': '25'}}}})['WALL B']
     ev(pg, "B.powerCircuitCables = { [arg]: { ft: 10, connector: null } }; return null;", nums[0])
     caps = pg.evaluate(CAPTIONS_JS, 'WALL B')
-    assert caps[0] == "PD5 · True1 208V · 10'", caps
+    # the type is the cable's, outlet to panel: TRUE1 at both ends is
+    # just "TRUE1" (2026-10-21)
+    assert caps[0] == "PD5 · TRUE1 · 10'", caps
     assert "10'" in pg.evaluate(BRACKETS_JS)
     _crowd(pg, [10, 15, 20, 25, 30, 35])
     caps = pg.evaluate(CAPTIONS_JS, 'WALL A')
-    assert caps == ["PD4 · True1 208V · 100' · 6 circuits on a one-circuit output"], caps
+    assert caps == ["PD4 · TRUE1 · 100' · 6 circuits on a one-circuit output"], caps
     assert errors == [], errors
 
 
@@ -329,7 +332,7 @@ def test_the_distro_page_keeps_a_crowded_outputs_home_run(walls):
     """A crowded output has no one cable: its row reads the home run."""
     pg, _ = walls
     _crowd(pg, [10, 15, 20, 25, 30, 35])
-    pd4 = [c for c in pg.evaluate(DISTRO_ROWS_JS) if c[0] == 'PD 4']
+    pd4 = [c for c in pg.evaluate(DISTRO_ROWS_JS) if c[0] == 'PD4']
     assert len(pd4) == 1 and pd4[0][2] == "100'" and pd4[0][4] == '6', pd4
 
 

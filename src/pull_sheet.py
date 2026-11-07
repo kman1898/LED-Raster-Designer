@@ -5,14 +5,15 @@ scrubbed, as static/templates/pull-sheet-template.xlsx). Its shape is the
 contract this module writes to, nothing is invented here:
 
   Pull Sheet   positions SIDE BY SIDE in 6-column blocks from column A
-               (Cable Type | Length | Qty | Label | Notes | spacer): blocks
+               (Gear | Length | Qty | Label | Notes | spacer): blocks
                at A, G, M, S, Y, AE. Row 5 holds the position name (the
                first two cells merged), row 6 the headers, rows 7-36 the
                data (30 rows). The fourth block (S) is the tan "NEW
                POSITION" copy-me block. B2 show, B3 engineer, E2 date, E3
                rev.
   GEAR LIST    A4:A… cable types, B4:B… lengths ("6'", "25'", "EA") - the
-               source of both dropdowns on the Pull Sheet.
+               source of both dropdowns on the Pull Sheet. The copy lists
+               only the connectors the show uses (GEAR_CONNECTORS).
   Spares, TOTALS, calc (hidden)
                formula-built: calc scans the six blocks × rows 7-66 through
                INDIRECT() string literals, so SIX positions of SIXTY rows is
@@ -41,6 +42,7 @@ import datetime
 import decimal
 import io
 import os
+import re
 import sys
 
 BASE_DIR = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -54,7 +56,7 @@ OVERFLOW = 'Overflow'
 
 # The six blocks' first columns (1-based): A, G, M, S, Y, AE.
 BLOCK_COLS = [1, 7, 13, 19, 25, 31]
-BLOCK_WIDTH = 5            # Cable Type, Length, Qty, Label, Notes
+BLOCK_WIDTH = 5            # Gear, Length, Qty, Label, Notes
 BLOCK_STRIDE = 6           # plus the spacer column
 TITLE_ROW = 5
 HEADER_ROW = 6
@@ -65,7 +67,7 @@ MAX_POSITIONS = len(BLOCK_COLS)
 TEMPLATE_BLOCK = 3         # index of the tan NEW POSITION block (S)
 TEMPLATE_TITLE = 'NEW POSITION'
 TEMPLATE_NOTE = '< copy to add a position >'
-HEADERS = ['Cable Type', 'Length', 'Qty', 'Label', 'Notes']
+HEADERS = ['Gear', 'Length', 'Qty', 'Label', 'Notes']
 
 GEAR_TYPE_COL, GEAR_LENGTH_COL, GEAR_FIRST_ROW = 1, 2, 4
 GEAR_TYPE_LAST_ROW, GEAR_LENGTH_LAST_ROW = 200, 60   # the validations' ranges
@@ -172,12 +174,17 @@ def _positions(pull_list):
                 qty = 0
             if qty <= 0:
                 continue
+            rtype = str(r.get('type')).strip()
+            notes = str(r.get('notes') or '')
+            if r.get('added'):
+                rtype = free_row_spelling(rtype)
+                notes = free_row_notes_spelling(notes)
             rows.append({
-                'type': str(r.get('type')).strip(),
+                'type': rtype,
                 'length': str(r.get('length') or '').strip(),
                 'qty': qty,
                 'label': str(r.get('label') or ''),
-                'notes': str(r.get('notes') or ''),
+                'notes': notes,
             })
         out.append({'name': str(p.get('name') or '').strip() or 'Position', 'rows': rows})
     return out
@@ -247,6 +254,269 @@ def _metric_gear_lengths(ws):
             cell.value = wanted[i]
         elif cell.value is not None:
             cell.value = None
+
+
+# The template is the user's own sheet, which spells TRUE1 "Tru-1" (and
+# once "TRU-1"). The app writes TRUE1 on every surface (2026-10-21), so the
+# GEAR LIST and the READ ME read the same word in the copy it hands out.
+_OLD_TRUE1 = re.compile(r'\bTRU-1\b|\bTru-1\b')
+
+
+def true1_spelling(text):
+    """`text` with the template's old TRUE1 spelling replaced."""
+    return _OLD_TRUE1.sub('TRUE1', text) if isinstance(text, str) else text
+
+
+# The same sheet spells etherCON "Ether-con" ("Ether-con", "Ether-con
+# Snake", "Ether-con Barrel"). The app writes the connector in use the way
+# its maker does (2026-10-21), so the copy it hands out reads etherCON too.
+_OLD_ETHERCON = re.compile(r'\bEther-con\b')
+
+
+def connector_spelling(text):
+    """`text` with the template's old TRUE1 and etherCON spellings
+    replaced: "Tru-1 2fer" reads "TRUE1 2fer", "Ether-con Snake" reads
+    "etherCON Snake"."""
+    if not isinstance(text, str):
+        return text
+    return _OLD_ETHERCON.sub('etherCON', true1_spelling(text))
+
+
+# A FREE ROW (one somebody typed on the pull sheet, `added`) from 1.5.2 or
+# 1.5.3 may say "Tru-1", "TRU-1" or "True1", "Ether-con", or "... tail".
+# The app reads it as TRUE1, etherCON and "... cable" (owner, 2026-10-22:
+# "Rewrite to TRUE1 / etherCON"), and so does the copy: the new word counts
+# as a connector in use and the old one never prints.
+# (an old word glued to a plural "s" or a "-" is still the old word:
+# "Tru-1s", "Ether-con-50" - 2026-10-23; a capital plural "TRU-1S", a
+# plural then a "-" "Tru-1s-50", and a word after a "-" "Tru-1-to-Ether-
+# con" too - 2026-10-23, round 6)
+# Compiled with re.ASCII and JS's own whitespace so a word reads exactly as
+# the app's _pullFreeRowWords reads it: \w in JS is ASCII-only, so
+# "éTru-1" is rewritten on both (as "éTRUE1").
+_JS_SPACE = '\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
+_S = '[' + _JS_SPACE + ']'
+_NS = '[^' + _JS_SPACE + ']'
+# a plural "s" is the connector's own and always lower case, whatever the
+# row typed: "TRU-1S" reads "TRUE1s", as the maker spells the plural
+_FREE_WORD_END = r'(?:([sS])(?!\w)|(?![\w-])|(?=-))'
+_OLD_FREE_TRUE1 = re.compile(r'(?<!\w)(?:Tru-1|TRU-1|tru-1|True1|true1)' + _FREE_WORD_END, re.ASCII)
+_OLD_FREE_ETHERCON = re.compile(r'(?<!\w)(?:Ether-con|ether-con|Ether-Con|ETHER-CON)' + _FREE_WORD_END,
+                                re.ASCII)
+# a "tail" and its plural ("Edison tails" reads "Edison cables")
+_TAIL = r'(tail|Tail|TAIL)([sS]?)(?![\w-])'
+_OLD_FREE_TAIL = re.compile(r'(?<![\w-])' + _TAIL, re.ASCII)
+# "tail" is "cable" only on an ADAPTER (owner, 2026-10-22): a type with
+# "→" in it, or "Edison tail" / "L6-20 tail". "Tail rope" stays as typed.
+_OLD_FREE_ADAPTER = re.compile(r'→|->')
+_OLD_FREE_PLUG_TAIL = re.compile(
+    r'(?<![\w-])((?:Edison|EDISON|edison|L6-20|l6-20)' + _S + '+)' + _TAIL, re.ASCII)
+# In NOTES, an arrow says nothing about the rest of the sentence: only the
+# "tail" right after "→ <word>" is the adapter's (2026-10-23: "Tail rope
+# for the Edison → TRUE1 tail" keeps its "Tail rope"), or right after the
+# arrow itself ("Edison → tail", round 6) - tried first, so "-> Tail
+# TAILS" reads "-> Cable TAILS", the word after the arrow its own (round 7).
+_OLD_FREE_ARROW_TAIL = re.compile(
+    r'((?:→|->)' + _S + '*(?:' + _NS + '+' + _S + '+)??)' + _TAIL, re.ASCII)
+_FREE_NOTES_SPLIT = re.compile(r'( · |; |, )')
+
+
+def _cable_word(tail, plural=''):
+    word = {'TAIL': 'CABLE', 'Tail': 'Cable'}.get(tail, 'cable')
+    return word + ('S' if plural == 'S' else 's' if plural else '')
+
+
+def _connector_words(text):
+    """The old TRUE1 and etherCON words in `text` rewritten, a plural "s"
+    kept (lower case)."""
+    text = _OLD_FREE_TRUE1.sub(lambda m: 'TRUE1' + ('s' if m.group(1) else ''), text)
+    return _OLD_FREE_ETHERCON.sub(lambda m: 'etherCON' + ('s' if m.group(1) else ''), text)
+
+
+def free_row_spelling(text):
+    """A free row's type in the app's spelling: "Tru-1 Breakout" reads
+    "TRUE1 Breakout", "Ether-con 50" reads "etherCON 50", "Edison → TRUE1
+    tail" reads "Edison → TRUE1 cable"; "Tail rope" stays."""
+    if not isinstance(text, str):
+        return text
+    text = _connector_words(text)
+    if _OLD_FREE_ADAPTER.search(text):
+        return _OLD_FREE_TAIL.sub(lambda m: _cable_word(m.group(1), m.group(2)), text)
+    return _OLD_FREE_PLUG_TAIL.sub(lambda m: m.group(1) + _cable_word(m.group(2), m.group(3)), text)
+
+
+def _free_note_piece(text):
+    """One thing a free row's notes say, in the app's spelling: the old
+    connector words, and "tail" (or "tails") only right after "→ <word>",
+    right after the arrow itself, or after Edison / L6-20."""
+    text = _connector_words(text)
+    text = _OLD_FREE_ARROW_TAIL.sub(lambda m: m.group(1) + _cable_word(m.group(2), m.group(3)), text)
+    return _OLD_FREE_PLUG_TAIL.sub(lambda m: m.group(1) + _cable_word(m.group(2), m.group(3)), text)
+
+
+def free_row_notes_spelling(text):
+    """A free row's notes in the app's spelling too (owner, 2026-10-22):
+    each thing they say, between " · ", "; " and ", ", read the way a type
+    is - except that an arrow turns only its own "tail" into "cable"."""
+    if not isinstance(text, str):
+        return text
+    parts = _FREE_NOTES_SPLIT.split(text)
+    return ''.join(p if i % 2 else _free_note_piece(p) for i, p in enumerate(parts))
+
+
+# The connectors whose families the GEAR LIST lists only when the show uses
+# them (owner, 2026-10-21): a powerCON / Cat6 show has no TRUE1 or etherCON
+# entries, a show with both lists both. A template entry that names one of
+# these connectors (the bare cable, its Breakout, 2fer, 3fer, Power Jump,
+# Snake, Barrel, Extension, Coupler) is dropped from the copy unless every
+# connector it names is one a written row names; an entry that names none
+# (Multi, a processor, Shackle) always stays.
+GEAR_CONNECTORS = ('TRUE1', 'powerCON', 'etherCON', 'Cat6')
+_GEAR_CONNECTOR_RES = {c: re.compile(r'(?<![A-Za-z0-9])' + re.escape(c) + r'(?![A-Za-z0-9])', re.I)
+                       for c in GEAR_CONNECTORS}
+
+
+def gear_connectors(text):
+    """The GEAR_CONNECTORS `text` names, whole words, case aside ("TRUE1
+    2fer" names TRUE1; "Cat6A" names none)."""
+    if not isinstance(text, str):
+        return set()
+    return {c for c, rx in _GEAR_CONNECTOR_RES.items() if rx.search(text)}
+
+
+def _drop_unused_connectors(ws, used):
+    """The GEAR LIST cable types without the template entries of connectors
+    the show does not use (GEAR_CONNECTORS), the rest closed up in order so
+    the dropdown has no gaps. The cells keep their styling."""
+    have, _ = _gear_column(ws, GEAR_TYPE_COL, GEAR_TYPE_LAST_ROW)
+    keep = [v for v in have if gear_connectors(v) <= used]
+    if keep == have:
+        return
+    for i, r in enumerate(range(GEAR_FIRST_ROW, GEAR_TYPE_LAST_ROW + 1)):
+        cell = ws.cell(r, GEAR_TYPE_COL)
+        cell.value = keep[i] if i < len(keep) else None
+
+
+# The template's own words use " - " as a dash (TOTALS' title, three READ
+# ME lines). The app writes no dash that way (owner, 2026-10-23), so the
+# copy it hands out reads them rewritten; the shipped template is left as
+# it is. Only these exact phrases are rewritten, wherever one appears in a
+# READ ME or TOTALS cell (a READ ME line ends with one, so the match is a
+# substring, not the whole cell); any other " - " in a cell is the user's
+# and stays.
+TEMPLATE_DASH_TEXTS = {
+    'TOTALS  -  SHOP PULL': 'TOTALS · SHOP PULL',
+    'LED CABLE PULL SHEET  -  how it works': 'LED CABLE PULL SHEET: how it works',
+    'Or use the one-click button - see APPS SCRIPT.': 'Or use the one-click button (see APPS SCRIPT).',
+    'automatically - no button needed there.': 'automatically, no button needed there.',
+}
+TOTALS = 'TOTALS'
+SPARES = 'Spares'
+
+# Words in the template that are its author's note to himself, not the
+# app's (QA round 3, 2026-11-03: the TOTALS reconciliation note ended
+# "Tell me and I'll extend it."). The copy drops them; the shipped
+# template is left as it is, as with the dashes above.
+TEMPLATE_NOTE_TEXTS = {
+    " Tell me and I'll extend it.": '',
+}
+
+
+def note_spelling(text):
+    """`text` with each TEMPLATE_NOTE_TEXTS phrase in it rewritten."""
+    if not isinstance(text, str):
+        return text
+    for old, new in TEMPLATE_NOTE_TEXTS.items():
+        text = text.replace(old, new)
+    return text
+
+# A pull list holds every piece of gear: cables, distros, boxes and cards
+# (owner, 2026-11-02). The template names its first column "Cable Type"
+# and itself a "CABLE PULL SHEET"; the copy the app hands out says Gear
+# instead, and the shipped template is left as it is. No formula, name or
+# validation finds a column by its header text (calc, TOTALS and Spares
+# read fixed cells through INDIRECT() literals), so renaming a header
+# moves nothing.
+#   TEMPLATE_GEAR_HEADERS   whole header cells: the Pull Sheet's header
+#                           row, Spares' and TOTALS' header rows, the GEAR
+#                           LIST's column A head
+#   TEMPLATE_GEAR_TEXTS     phrases inside a READ ME, TOTALS or GEAR LIST
+#                           cell (after dash_spelling)
+TEMPLATE_GEAR_HEADERS = {'Cable Type': 'Gear', 'Cable Types': 'Gear'}
+TEMPLATE_GEAR_TEXTS = {
+    'LED CABLE PULL SHEET': 'LED GEAR PULL SHEET',
+    "type a new cable under 'Cable Types'": "type new gear under 'Gear'",
+    'Type a new cable in column A': 'Type new gear in column A',
+    'Only lists cables you actually have.': 'Only lists gear you actually have.',
+}
+SPARES_HEADER_ROW, TOTALS_HEADER_ROW, GEAR_HEADER_ROW = 5, 4, 3
+
+
+def gear_spelling(text):
+    """`text` with each TEMPLATE_GEAR_TEXTS phrase in it rewritten,
+    wherever it appears in the text; anything else is left alone."""
+    if not isinstance(text, str):
+        return text
+    for old, new in TEMPLATE_GEAR_TEXTS.items():
+        text = text.replace(old, new)
+    return text
+
+
+def _gear_header(cell):
+    if isinstance(cell.value, str) and cell.value in TEMPLATE_GEAR_HEADERS:
+        cell.value = TEMPLATE_GEAR_HEADERS[cell.value]
+
+
+def _gear_workbook(wb):
+    """The copy's headers and the READ ME, TOTALS and GEAR LIST text say
+    Gear where the template says Cable Type (TEMPLATE_GEAR_HEADERS,
+    gear_spelling). Runs after _true1_workbook."""
+    ws = wb[SHEET]
+    for col in BLOCK_COLS:
+        _gear_header(ws.cell(HEADER_ROW, col))
+    for name, row in ((SPARES, SPARES_HEADER_ROW), (TOTALS, TOTALS_HEADER_ROW),
+                      (GEAR, GEAR_HEADER_ROW)):
+        if name in wb.sheetnames:
+            for cell in wb[name][row]:
+                _gear_header(cell)
+    for name in (README, TOTALS, GEAR):
+        if name not in wb.sheetnames:
+            continue
+        # the GEAR LIST's own words sit above its vocabulary, never in it
+        last = GEAR_FIRST_ROW - 1 if name == GEAR else None
+        for row in wb[name].iter_rows(max_row=last):
+            for cell in row:
+                if isinstance(cell.value, str) and not cell.value.startswith('='):
+                    cell.value = gear_spelling(cell.value)
+
+
+def dash_spelling(text):
+    """`text` with each TEMPLATE_DASH_TEXTS phrase in it rewritten,
+    wherever it appears in the text; any other " - " is left alone."""
+    if not isinstance(text, str) or ' - ' not in text:
+        return text
+    for old, new in TEMPLATE_DASH_TEXTS.items():
+        text = text.replace(old, new)
+    return text
+
+
+def _true1_workbook(wb):
+    """The GEAR LIST cable types and the READ ME in the app's spelling
+    (connector_spelling), and the READ ME's and TOTALS' text without the
+    template's " - " dashes (dash_spelling)."""
+    gear = wb[GEAR]
+    for r in range(GEAR_FIRST_ROW, GEAR_TYPE_LAST_ROW + 1):
+        cell = gear.cell(r, GEAR_TYPE_COL)
+        cell.value = connector_spelling(cell.value)
+    if README in wb.sheetnames:
+        for row in wb[README].iter_rows():
+            for cell in row:
+                cell.value = dash_spelling(connector_spelling(cell.value))
+    if TOTALS in wb.sheetnames:
+        for row in wb[TOTALS].iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and not cell.value.startswith('='):
+                    cell.value = note_spelling(dash_spelling(cell.value))
 
 
 def _sort_keys(row):
@@ -457,14 +727,24 @@ def build_workbook(pull_list, meta=None, template_path=TEMPLATE_PATH):
     # GEAR LIST lacks, so the dropdowns accept what was written.
     if meta.get('cable_unit') == 'm':
         _metric_workbook(wb)
-    _add_gear(gear, GEAR_TYPE_COL, GEAR_TYPE_LAST_ROW, list(dict.fromkeys(types)), warnings, 'Cable Type')
+    _true1_workbook(wb)
+    _gear_workbook(wb)
+    used = set()
+    for pos in positions:
+        for r in pos['rows']:
+            used |= gear_connectors(r['type'])
+    _drop_unused_connectors(gear, used)
+    _add_gear(gear, GEAR_TYPE_COL, GEAR_TYPE_LAST_ROW, list(dict.fromkeys(types)), warnings, 'Gear')
     _add_gear(gear, GEAR_LENGTH_COL, GEAR_LENGTH_LAST_ROW, list(dict.fromkeys(lengths)), warnings, 'Length')
 
     if overflow_positions:
         names = ', '.join(p['name'] for p in overflow_positions)
+        # one position "is", two or more "are" (QA beta.5: "WALL went to
+        # the Overflow tab and are not in TOTALS")
+        verb = 'is' if len(overflow_positions) == 1 else 'are'
         warnings.append(
             f'The sheet holds {MAX_POSITIONS} positions; {names} went to the Overflow tab '
-            f'and are not in TOTALS or Spares.')
+            f'and {verb} not in TOTALS or Spares.')
     if any(i >= room for p in placed for i in range(len(p['rows']))):
         warnings.append(
             f'A position has more than {room} rows; the rest went to the Overflow tab '
@@ -495,7 +775,7 @@ def gear_list(template_path=TEMPLATE_PATH):
     for r in range(GEAR_FIRST_ROW, GEAR_TYPE_LAST_ROW + 1):
         v = ws.cell(r, GEAR_TYPE_COL).value
         if v is not None and str(v).strip():
-            types.append(str(v).strip())
+            types.append(connector_spelling(str(v).strip()))
         if r <= GEAR_LENGTH_LAST_ROW:
             v = ws.cell(r, GEAR_LENGTH_COL).value
             if v is not None and str(v).strip():

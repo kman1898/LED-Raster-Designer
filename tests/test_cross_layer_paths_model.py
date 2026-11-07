@@ -50,7 +50,7 @@ def page(e2e_server, pw_browser):
     """One long-lived page; each test resets to a known project first."""
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -448,7 +448,7 @@ def test_cabinet_claimed_by_a_peers_port_reads_as_taken(page):
     assert paths_of(page, ids[0]).get('1') == [], paths_of(page, ids[0])
     toast = last_toast(page)
     assert toast, 'no toast raised for a cross-member conflict'
-    assert 'port 1' in toast, toast
+    assert 'P1' in toast, toast
     assert 'PathB' in toast, (
         'the toast does not name the screen the conflicting port lives on: %r'
         % (toast,))
@@ -468,8 +468,8 @@ def test_conflict_within_one_screen_still_names_only_the_port(page):
     page.wait_for_timeout(400)
 
     toast = last_toast(page)
-    assert toast == ('Panel R1C1 is already wired to port 1. '
-                     'Clear it from port 1 first.'), toast
+    assert toast == ('Cabinet R1C1 is already wired to P1. '
+                     'Clear it from P1 first.'), toast
 
 
 # ── arrow-key handoff ─────────────────────────────────────────────────────

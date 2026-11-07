@@ -14,6 +14,7 @@ import pytest
 
 import app as app_module
 import routes_distro_presets as rdp
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
@@ -44,7 +45,7 @@ def page(e2e_server, pw_browser, presets_file):
     app_module.current_project['distros'] = [json.loads(json.dumps(DISTRO))]
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -104,15 +105,15 @@ def test_a_saved_preset_is_deleted_from_the_gear_after_saying_yes(page, presets_
 
     # No: nothing changes
     asked = []
-    pg.once('dialog', lambda d: (asked.append(d.message), d.dismiss()))
     pg.select_option(DELETE, 'Our rack')
+    asked.append(answer_app_dialog(pg, accept=False))
     assert asked and 'Our rack' in asked[0], asked
     assert _stored_names(presets_file) == ['Our rack']
     assert pg.eval_on_selector(DELETE, 'el => el.value') == ''
 
     # Yes: it is gone from the file and from both lists
-    pg.once('dialog', lambda d: d.accept())
     pg.select_option(DELETE, 'Our rack')
+    answer_app_dialog(pg)
     _status_is(pg, 'Deleted preset "Our rack".')
     assert _stored_names(presets_file) == []
     after = pg.evaluate(f"""() => {{
@@ -149,9 +150,9 @@ def test_a_refused_save_says_why_in_plain_words(page, presets_file):
 
     pg.route('**/api/distro-presets', fail_put)
     try:
-        pg.once('dialog', lambda d: d.accept('Rack X'))
         pg.click('#hw-gear-popover [data-lrd-field="distro-preset-save-d1"]')
-        _status_is(pg, 'Preset not saved - the server said 500.')
+        answer_app_dialog(pg, text='Rack X')
+        _status_is(pg, 'Preset not saved: the server said 500.')
     finally:
         pg.unroute('**/api/distro-presets', fail_put)
     assert not os.path.exists(presets_file) or _stored_names(presets_file) == []
@@ -159,9 +160,9 @@ def test_a_refused_save_says_why_in_plain_words(page, presets_file):
     # the server's own reason, when it gives one
     said = pg.evaluate("""() => window.app.saveDistroPreset('d1', 'x'.repeat(80))
                                    .then(() => 'saved', e => e.message)""")
-    assert said == 'Preset not saved - a preset needs a name of 1 to 60 characters.', said
+    assert said == 'Preset not saved: a preset needs a name of 1 to 60 characters.', said
     said = pg.evaluate("""() => window.app.deleteDistroPreset('Nobody')
                                    .then(() => 'deleted', e => e.message)""")
-    assert said == 'Preset not deleted - no preset by that name.', said
+    assert said == 'Preset not deleted: no preset by that name.', said
     pg.evaluate("() => window.app._hwPopoverClose()")
     assert not errors, errors

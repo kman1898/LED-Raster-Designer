@@ -1,4 +1,4 @@
-"""The Preferences dialog: seven tabs, every field once, Save / Cancel /
+"""The Preferences dialog: nine tabs, every field once, Save / Cancel /
 Reset Defaults at the foot - and every new default honoured only where the
 app CREATES something (a distro, a binder block on a project with no
 values of its own, a snake, a loose port cable, a power cable).
@@ -9,6 +9,7 @@ other):
 """
 
 import pytest
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -17,18 +18,22 @@ def _guard(server_project_guard):
     module found them."""
 
 
-# The seven tabs, in the order the strip shows them, with the field ids
+# The nine tabs, in the order the strip shows them, with the field ids
 # each holds. Every id today's dialog had keeps its id; the new ones are
 # the mock's (mocks/preferences-mock.html?layout=tabs).
 TABS = {
+    # The panel size and weight rows went in 1.6.0 (a new project picks its
+    # panel from the library, RETIRED_PANEL_IDS); the weight unit stays.
     'wall': ['pref-raster-width', 'pref-raster-height', 'pref-columns', 'pref-rows',
-             'pref-panel-width', 'pref-panel-height', 'pref-panel-width-mm',
-             'pref-panel-height-mm', 'pref-panel-weight', 'pref-weight-unit',
-             'pref-canvas-gap'],
+             'pref-weight-unit', 'pref-canvas-gap'],
     'look': ['pref-color1', 'pref-color2', 'pref-border-color', 'pref-screen-name-color',
              'pref-cabinet-id-color', 'pref-font',
              'pref-cabinet-font-size', 'pref-label-font-size', 'pref-data-label-size',
              'pref-power-label-size'],
+    # the Pixel Map tab's Quick Palettes: where they come from and the
+    # user's own eight Color 1 / Color 2 pairs
+    'palettes': ['pref-quick-palette-source']
+                + [f'pref-quick-palette-{n}{c}' for n in range(1, 9) for c in 'ab'],
     'data': ['pref-processor-type', 'pref-low-latency', 'pref-bit-depth', 'pref-frame-rate',
              'pref-data-flow-pattern-grid', 'pref-data-line-width',
              'pref-data-line-color', 'pref-data-arrow-color',
@@ -50,10 +55,11 @@ TABS = {
     'binder': ['pref-binder-sheet', 'pref-binder-screen-order', 'pref-binder-colour',
                'pref-binder-printer', 'pref-binder-side-power', 'pref-binder-side-data',
                'pref-binder-side-both', 'pref-binder-cover', 'pref-binder-pull',
-               'pref-binder-hardware', 'pref-binder-wiring', 'pref-binder-title-block',
+               'pref-binder-hardware', 'pref-binder-wiring', 'pref-binder-fiber', 'pref-binder-rigging', 'pref-binder-title-block',
                'pref-binder-designer', 'pref-binder-pm-name', 'pref-binder-pm-phone',
                'pref-binder-pm-email', 'pref-binder-drafter', 'pref-binder-logo'],
-    'pull': ['pref-pull-engineer', 'pref-pull-rev', 'pref-pull-power-jump-name',
+    'pull': ['pref-pull-engineer', 'pref-pull-rev', 'pref-pull-power-jump-name-true1',
+             'pref-pull-power-jump-name-powercon',
              'pref-pull-power-jump-length', 'pref-pull-power-jump-length-h',
              'pref-pull-data-jump-name', 'pref-pull-data-jump-length',
              'pref-pull-data-jump-length-h', 'pref-snake-home-run-length',
@@ -65,10 +71,19 @@ TABS = {
              'pref-pull-data-jump-length-h-m', 'pref-snake-home-run-length-m',
              'pref-loose-port-cable-length-m', 'pref-power-cable-length-m',
              'pref-jumper-stock-ft', 'pref-jumper-stock-m'],
+    # the show's cable stock and its presets (2026-10-20, app-cable-stock.js)
+    'stock': ['pref-cable-stock-per-kind', 'pref-cable-stock-all-ft', 'pref-cable-stock-all-m',
+              'pref-cable-stock-multi-ft', 'pref-cable-stock-multi-m',
+              'pref-cable-stock-data-ft', 'pref-cable-stock-data-m',
+              'pref-cable-stock-circuit-ft', 'pref-cable-stock-circuit-m',
+              'pref-cable-stock-preset', 'pref-cable-stock-load', 'pref-cable-stock-save-preset',
+              'pref-cable-stock-delete', 'pref-cable-stock-default'],
 }
 ALL_IDS = [i for ids in TABS.values() for i in ids]
 # 1.5 audit: the distro voltage + phase pair became one system picker.
-assert len(ALL_IDS) == 94
+# Quick palettes: the source and sixteen pickers (105 + 17), and the
+# binder's Header/Footer default.
+assert len(ALL_IDS) == 123
 
 # Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
 # the dialog is given, the preference key, the layer property it lands on).
@@ -90,11 +105,13 @@ COLOR_FIELDS = [
 ]
 CIRCUIT_COLORS = ['#a10001', '#a20002', '#a30003', '#a40004', '#a50005', '#a60006']
 
-# What today's dialog had (36 ids, the three buttons and the modal among
-# them) - every one of them stays.
+# What the dialog had before the tabs (36 ids, the three buttons and the
+# modal among them) - every one stays but the five panel rows 1.6.0 took
+# out (RETIRED_PANEL_IDS).
+RETIRED_PANEL_IDS = ['pref-panel-width', 'pref-panel-height', 'pref-panel-width-mm',
+                     'pref-panel-height-mm', 'pref-panel-weight']
 TODAY = ['preferences-modal', 'pref-raster-width', 'pref-raster-height', 'pref-columns',
-         'pref-rows', 'pref-panel-width', 'pref-panel-height', 'pref-panel-width-mm',
-         'pref-panel-height-mm', 'pref-panel-weight', 'pref-weight-unit',
+         'pref-rows', 'pref-weight-unit',
          'pref-cabinet-font-size', 'pref-label-font-size', 'pref-color1', 'pref-color2',
          'pref-border-color', 'pref-font', 'pref-data-flow-pattern-grid',
          'pref-power-flow-pattern-grid', 'pref-data-line-width', 'pref-power-line-width',
@@ -220,6 +237,8 @@ NEW_FIELDS = [
     ('pref-binder-pull', True, 'binderPull', True),
     ('pref-binder-hardware', False, 'binderHardware', False),
     ('pref-binder-wiring', True, 'binderWiring', True),
+    ('pref-binder-fiber', False, 'binderFiber', False),
+    ('pref-binder-rigging', False, 'binderRigging', False),
     ('pref-binder-title-block', False, 'binderTitleBlock', False),
     ('pref-binder-designer', 'Dee Signer', 'binderDesigner', 'Dee Signer'),
     ('pref-binder-pm-name', 'Pam Manager', 'binderPmName', 'Pam Manager'),
@@ -228,7 +247,8 @@ NEW_FIELDS = [
     ('pref-binder-drafter', 'Dan Drafter', 'binderDrafter', 'Dan Drafter'),
     ('pref-pull-engineer', 'Ed Engineer', 'engineerName', 'Ed Engineer'),
     ('pref-pull-rev', '2.0', 'pullRev', '2.0'),
-    ('pref-pull-power-jump-name', 'Power Jump X', 'powerJumpName', 'Power Jump X'),
+    ('pref-pull-power-jump-name-true1', 'Power Jump X', 'powerJumpNameTrue1', 'Power Jump X'),
+    ('pref-pull-power-jump-name-powercon', 'Power Jump Y', 'powerJumpNamePowercon', 'Power Jump Y'),
     ('pref-pull-power-jump-length', '8', 'powerJumpLength', 8),
     ('pref-pull-power-jump-length-h', '7', 'powerJumpLengthH', 7),
     ('pref-pull-data-jump-name', 'Data Jump X', 'dataJumpName', 'Data Jump X'),
@@ -254,7 +274,7 @@ NEW_FIELDS = [
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1440, 'height': 900})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e) + '\n' + str(getattr(e, 'stack', ''))))
@@ -310,18 +330,25 @@ def _served(pg):
 def _save(pg):
     pg.locator('#preferences-save').click()
     pg.wait_for_timeout(600)
+    # A changed cable unit offers the open show the same unit (the app's
+    # own dialog since 1.6.0): No, as the browser's dialog left it.
+    if pg.locator('#cable-unit-offer-modal').count():
+        answer_app_dialog(pg, accept=False)
 
 
 # ── the dialog ────────────────────────────────────────────────────────────
 
 def test_every_field_is_there_once_and_one_tab_shows_at_a_time(page):
-    """All 65 field ids, no id twice, today's 36 among them; seven tabs in
+    """All 65 field ids, no id twice, today's 36 among them; nine tabs in
     the mock's order, one section up at a time, the strip switching them;
     Reset Defaults / Cancel / Save at the foot."""
     pg, ids = page
     _open(pg)
     present = pg.evaluate("(ids) => ids.filter(i => !document.getElementById(i))", ALL_IDS + TODAY)
     assert present == [], f'missing: {present}'
+    # the panel rows 1.6.0 took out stay out
+    back = pg.evaluate("(ids) => ids.filter(i => document.getElementById(i))", RETIRED_PANEL_IDS)
+    assert back == [], f'retired panel rows are back: {back}'
     dup = pg.evaluate("""() => {
         const all = [...document.querySelectorAll('#preferences-modal [id]')].map(e => e.id);
         return all.filter((x, i) => all.indexOf(x) !== i);
@@ -329,9 +356,9 @@ def test_every_field_is_there_once_and_one_tab_shows_at_a_time(page):
     assert dup == [], f'duplicate ids: {dup}'
     strip = pg.evaluate("""() => [...document.querySelectorAll(
         '#preferences-modal .pm-tabstrip .view-tab')].map(t => [t.dataset.key, t.textContent.trim()])""")
-    assert strip == [['wall', 'Wall'], ['look', 'Look'], ['data', 'Data'], ['power', 'Power'],
+    assert strip == [['wall', 'Wall'], ['look', 'Look'], ['palettes', 'Palettes'], ['data', 'Data'], ['power', 'Power'],
                      ['distros', 'Distros & multis'], ['binder', 'Binder'],
-                     ['pull', 'Pull sheet & cables']], strip
+                     ['pull', 'Pull sheet & cables'], ['stock', 'Cable stock']], strip
     for key, fields in TABS.items():
         _tab(pg, key)
         d = pg.evaluate(DIALOG_JS)
@@ -375,6 +402,42 @@ def test_the_dialog_fits_1440_by_900_with_nothing_clipped(page):
         assert d['clipped'] == [], (key, d['clipped'])
         heights.add(round(d['body']['height']))
     assert len(heights) == 1, f'the body must keep one height across the tabs: {heights}'
+    # Cable stock with a list for each kind: seven rows instead of one, and
+    # "New shows start with" still inside the body (2026-10-22).
+    _tab(pg, 'stock')
+    was = _read(pg, 'pref-cable-stock-per-kind')
+    pg.locator('#pref-cable-stock-per-kind').check()
+    try:
+        d = pg.evaluate(DIALOG_JS)
+        assert d['body']['sh'] <= d['body']['ch'] + 1, ('stock, a list each', d['body'])
+        assert d['clipped'] == [], ('stock, a list each', d['clipped'])
+        assert pg.locator('#pref-cable-stock-default').is_visible()
+        assert pg.locator('#pref-cable-stock-feeder-ft').is_visible()
+    finally:
+        if not was:
+            pg.locator('#pref-cable-stock-per-kind').uncheck()
+    pg.locator('#preferences-cancel').click()
+
+
+def test_the_power_jumper_names_have_a_row_of_their_own(page):
+    """Pull sheet & cables: the TRUE1 and powerCON jumper names sit on
+    their own labelled row, each with its caption, wide enough to read a
+    name ("TRUE1 Power Jump"), not squeezed in beside the lengths."""
+    pg, ids = page
+    _open(pg)
+    _tab(pg, 'pull')
+    rows = pg.evaluate("""() => ['pref-pull-power-jump-name-true1', 'pref-pull-power-jump-name-powercon',
+                                  'pref-pull-power-jump-length'].map(id => {
+        const el = document.getElementById(id);
+        const row = el.closest('.pm-row');
+        const prev = el.previousElementSibling;
+        return { row: row.querySelector('label').textContent.trim(),
+                 caption: prev && prev.tagName === 'SPAN' ? prev.textContent.trim() : null,
+                 width: Math.round(el.getBoundingClientRect().width) };
+    })""")
+    assert [r['row'] for r in rows] == ['Power jumper names', 'Power jumper names', 'Power jumper'], rows
+    assert [r['caption'] for r in rows[:2]] == ['TRUE1', 'powerCON'], rows
+    assert all(r['width'] >= 150 for r in rows[:2]), rows
     pg.locator('#preferences-cancel').click()
 
 
@@ -671,7 +734,7 @@ def test_the_breakout_preference_is_gated_by_the_voltage_preference(page):
         st = pg.evaluate(read)
         assert st['visible'] and st['underVoltage'], st
         assert st['value'] == 'l2130-true1', st
-        assert st['opts']['soca-edison'] == [True, 'Not available at 208V — Edison is for screens up to 120V.'], st
+        assert st['opts']['soca-edison'] == [True, 'Not available at 208V: Edison is for screens up to 120V.'], st
         assert st['opts']['l2130-powercon'][0] is False and st['opts']['soca-l620'][0] is False, st
         # 110 V: the L21-30 pick snaps to Edison, the class default
         _set(pg, 'pref-power-voltage-select', '110')
@@ -679,9 +742,9 @@ def test_the_breakout_preference_is_gated_by_the_voltage_preference(page):
         assert st['value'] == 'soca-edison', st
         for gone in ('soca-l620', 'l2130-true1', 'l2130-powercon'):
             assert st['opts'][gone][0] is True, (gone, st)
-        assert st['opts']['l2130-true1'][1] == 'Not available at 110V — L21-30 is 208V only.', st
+        assert st['opts']['l2130-true1'][1] == 'Not available at 110V: L21-30 is 208V only.', st
         assert st['opts']['soca-l620'][1] == \
-            'Not available at 110V — a screen up to 120V runs Multi → True1, powerCON or Edison.', st
+            'Not available at 110V: a screen up to 120V runs Multi → TRUE1, powerCON or Edison.', st
         for ok in ('soca-true1', 'soca-powercon', 'soca-edison'):
             assert st['opts'][ok] == [False, ''], (ok, st)
         # a custom 121 V (committed on change, never per keystroke - see
@@ -746,7 +809,8 @@ def test_the_export_dialog_binder_block_opens_with_the_preferences(page):
     info = pg.evaluate("() => window.app.getBinderInfo()")
     assert info['designer'] == 'Dee Signer' and info['screenOrder'] == 'power', info
     assert pg.evaluate("() => window.app.getPullSheetSettings()") == {
-        'dataJumpName': 'Data Jump X', 'powerJumpName': 'Power Jump X', 'rev': '2.0'}
+        'dataJumpName': 'Data Jump X', 'powerJumpNameTrue1': 'Power Jump X',
+        'powerJumpNamePowercon': 'Power Jump Y', 'rev': '2.0'}
     # the jumper LENGTHS are per screen: the preferences are what a new
     # screen starts with (vertical / horizontal, data and power)
     assert pg.evaluate("() => window.app.jumperDefaults()") == {
@@ -897,22 +961,20 @@ def test_reset_defaults_asks_first_and_lands_on_save(page):
     _tab(pg, 'wall')
     _set(pg, 'pref-columns', '11')
 
-    def say_no(dialog):
-        asked.append(dialog.message)
-        dialog.dismiss()
-    pg.once('dialog', say_no)
+    def say_no():
+        asked.append(answer_app_dialog(pg, accept=False))
     pg.locator('#preferences-reset').click()
+    say_no()
     pg.wait_for_timeout(300)
     assert asked == ['Put every preference back to its default?'], asked
     assert _read(pg, 'pref-columns') == '11'
     _tab(pg, 'distros')
     assert _read(pg, 'pref-distro-rating') == '200'
 
-    def say_yes(dialog):
-        asked.append(dialog.message)
-        dialog.accept()
-    pg.once('dialog', say_yes)
+    def say_yes():
+        asked.append(answer_app_dialog(pg))
     pg.locator('#preferences-reset').click()
+    say_yes()
     pg.wait_for_timeout(300)
     assert len(asked) == 2
     assert _read(pg, 'pref-distro-rating') == '400'
@@ -929,8 +991,8 @@ def test_reset_defaults_asks_first_and_lands_on_save(page):
     pg.wait_for_timeout(300)
     assert _served(pg)['distroRatingA'] == 200, 'Cancel after a Yes keeps the stored values'
     _open(pg)
-    pg.once('dialog', say_yes)
     pg.locator('#preferences-reset').click()
+    say_yes()
     pg.wait_for_timeout(300)
     _save(pg)
     served = _served(pg)
@@ -1058,7 +1120,7 @@ def test_the_dialog_s_tabs_leave_the_workspace_alone(page):
     pg.locator('#preferences-cancel').click()
     pg.wait_for_timeout(200)
     assert pg.evaluate(WORKSPACE_JS) == before
-    assert pg.evaluate("() => window.app._prefsTab") == 'pull'
+    assert pg.evaluate("() => window.app._prefsTab") == list(TABS)[-1]
     assert ids['errors'] == [], ids['errors']
 
 

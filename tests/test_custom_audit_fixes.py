@@ -12,7 +12,7 @@ partial group fill gives.
 2. A PATTERN TILE ON SOME SCREENS OF A CUSTOM GROUP still redoes every run
    touching the selection as a whole (the owner's ruling, 2026-10-16:
    "Warn and do it"), and now names the screens it unwired: "Runs that
-   crossed into Lower were redone - Lower's cabinets on them are now
+   crossed into Lower were redone, so Lower's cabinets on them are now
    unwired." Power says circuits.
 
 Run locally:
@@ -39,7 +39,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -334,7 +334,7 @@ def test_partial_group_tile_names_the_screen_it_unwired(page, kind, view):
     # The ruling's behaviour stays: the crossing run was redone as a whole.
     assert out['lower'] == 0, out
     assert out['upper'] == 20, out
-    assert (f"{noun} that crossed into Lower were redone — "
+    assert (f"{noun} that crossed into Lower were redone, so "
             "Lower's cabinets on them are now unwired.") in out['toasts'], out
 
 
@@ -344,7 +344,7 @@ def test_partial_group_tile_lists_every_screen_it_unwired(page, kind, view):
     out = _run(page, GROUP_JS, {'kind': kind, 'view': view, 'side': True})
     noun = 'Circuits' if kind == 'power' else 'Runs'
     assert out['lower'] == 0 and out['side'] == 0, out
-    assert (f"{noun} that crossed into Lower and Side were redone — "
+    assert (f"{noun} that crossed into Lower and Side were redone, so "
             "those screens' cabinets on them are now unwired.") in out['toasts'], out
 
 

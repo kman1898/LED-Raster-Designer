@@ -55,7 +55,7 @@ def _restore_server_project(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -249,6 +249,11 @@ def test_cabinets_freed_from_an_override_reflow_into_the_walk(page):
         const l = window.__ovr.layer(id);
         return l.customPortPaths[num].pop();
     }""", [lid, target])
+    # while the redraw is open the port still holds it, free to draw again
+    # (QA, 1.6.0); the walk takes it once the redraw ends
+    held = data_map(page, lid)
+    assert (dropped['row'], dropped['col']) not in {(r['row'], r['col']) for r in held}
+    page.evaluate("() => window.app.endOverrideEdit()")
     after = data_map(page, lid)
     # nothing fed twice, nothing dropped: the union still covers exactly the
     # baseline's cabinets, the freed one included
@@ -365,6 +370,9 @@ def test_automatic_circuits_skip_the_overridden_number(page):
         const l = window.__ovr.layer(id);
         window.app.overrideRun(l, 'power', num);
         l.powerCustomPaths[num] = l.powerCustomPaths[num].slice(0, 1);
+        // the redraw ends: the cabinets it held go back to the walk
+        // (while it is open they stay with it, _powerHoldLive)
+        window.app.endOverrideEdit();
     }""", [lid, target])
     after = power_map(page, lid)
     nums = [c['num'] for c in after['circuits']]

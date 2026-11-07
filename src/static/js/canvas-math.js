@@ -39,18 +39,24 @@ Object.assign(CanvasRenderer.prototype, {
             return visible.reduce((sum, p) => sum + app.getPanelPixelArea(p), 0);
         }
 
+        // Never less than the cabinets' own pixels: grouped screens that
+        // overlap in Pixel Map put cabinets on the same pixels, and the rect
+        // alone charged the overlap once (QA, 1.6.0). The walk reads its
+        // ports the same way (calculatePortAssignments rectArea).
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        let own = 0;
         visible.forEach(p => {
             const x1 = Number(p.x) || 0;
             const y1 = Number(p.y) || 0;
             const x2 = x1 + (Number(p.width) || 0);
             const y2 = y1 + (Number(p.height) || 0);
+            own += (x2 - x1) * (y2 - y1);
             if (x1 < minX) minX = x1;
             if (y1 < minY) minY = y1;
             if (x2 > maxX) maxX = x2;
             if (y2 > maxY) maxY = y2;
         });
-        return (maxX - minX) * (maxY - minY);
+        return Math.max((maxX - minX) * (maxY - minY), own);
     },
 
     // v0.11.0: capacity of ONE port, so a percentage is always measured against

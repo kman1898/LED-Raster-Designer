@@ -41,6 +41,7 @@ sys.path.insert(0, HERE)
 import app as app_module  # noqa: E402
 
 from test_pull_list import SEED_JS, LIST_JS, _rows  # noqa: E402
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -282,11 +283,12 @@ MORE_JS = """async () => {
     await j('PUT', '/api/project', p0);
     const add = (body) => j('POST', '/api/layer/add', body);
     await add({name: 'LEFT', columns: 2, rows: 2, cabinet_width: 200, cabinet_height: 200,
-               powerVoltage: 208, powerAmperage: 10, panelWatts: 200,
+               // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+               powerVoltage: 208, powerAmperage: 12.5, panelWatts: 200,
                powerFlowPattern: 'tl-h', powerOrganized: true, flowPattern: 'tl-h',
                processorType: 'novastar-armor', offset_x: 2000});
     await add({name: 'SPARE', columns: 2, rows: 2, cabinet_width: 200, cabinet_height: 200,
-               powerVoltage: 208, powerAmperage: 10, panelWatts: 200,
+               powerVoltage: 208, powerAmperage: 12.5, panelWatts: 200,
                powerFlowPattern: 'tl-h', powerOrganized: true, flowPattern: 'tl-h',
                processorType: 'novastar-armor', offset_x: 2600});
     app.project = await j('GET', '/api/project');
@@ -323,7 +325,7 @@ PANEL_JS = """() => ({
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -355,7 +357,7 @@ def test_the_panel_and_the_picker_start_empty_and_list_what_is_made(page):
     pg, ids = page
     st = pg.evaluate(PANEL_JS)
     assert st['rows'] == [] and st['beaches'] == []
-    assert st['picker'] == [['', '— no beach —'], ['__new_beach__', '+ New beach…']]
+    assert st['picker'] == [['', 'No beach'], ['__new_beach__', '+ New beach…']]
     assert pg.locator('#beaches-panel .beaches-empty').count() == 1
     # made in the app (the same route the panel's + Add beach uses)
     pg.evaluate("async () => { await window.app.createBeach('SR'); await window.app.createBeach('SL'); }")
@@ -363,7 +365,7 @@ def test_the_panel_and_the_picker_start_empty_and_list_what_is_made(page):
     st = pg.evaluate(PANEL_JS)
     assert st['beaches'] == [{'id': 'b1', 'name': 'SR'}, {'id': 'b2', 'name': 'SL'}]
     assert st['rows'] == [['b1', 'SR', ''], ['b2', 'SL', '']]
-    assert st['picker'] == [['', '— no beach —'], ['b1', 'SR'], ['b2', 'SL'], ['__new_beach__', '+ New beach…']]
+    assert st['picker'] == [['', 'No beach'], ['b1', 'SR'], ['b2', 'SL'], ['__new_beach__', '+ New beach…']]
     # a duplicate is the same beach, and the history took one entry per make
     assert pg.evaluate("async () => (await window.app.createBeach('sr')).id") == 'b1'
     assert _history(pg)['action'] == 'Add Beach'
@@ -412,8 +414,8 @@ def test_new_beach_from_the_picker_creates_and_selects_in_one_step(page):
     pg.wait_for_timeout(400)
     _select_layer(pg, ids['names']['LEFT'])
     before = _history(pg)
-    pg.once('dialog', lambda d: d.accept('  Dimmer Beach '))
     pg.select_option('#layer-beach', '__new_beach__')
+    answer_app_dialog(pg, text='  Dimmer Beach ')
     pg.wait_for_timeout(900)
     st = pg.evaluate(PANEL_JS)
     assert st['beaches'] == [{'id': 'b1', 'name': 'SR'}, {'id': 'b2', 'name': 'SL'}, {'id': 'b3', 'name': 'Dimmer Beach'}]
@@ -422,8 +424,8 @@ def test_new_beach_from_the_picker_creates_and_selects_in_one_step(page):
     after = _history(pg)
     assert after['action'] == 'Set Beach' and after['index'] == before['index'] + 1
     # a cancelled prompt makes nothing and puts the select back
-    pg.once('dialog', lambda d: d.dismiss())
     pg.select_option('#layer-beach', '__new_beach__')
+    answer_app_dialog(pg, accept=False)
     pg.wait_for_timeout(500)
     assert pg.evaluate("() => document.getElementById('layer-beach').value") == 'b3'
     assert len(pg.evaluate(PANEL_JS)['beaches']) == 3
@@ -459,7 +461,7 @@ def test_positions_are_the_beaches_in_order_then_the_loose_screens(page):
     assert pos[2]['memberIds'] == [ids['names']['SPARE']]
     # the SR rows are WALL-A's and WALL-B's, at SR - the group's old key g1
     # is not a position any more
-    assert ('Multi', "125'", 1, 'SR 1', '') in _rows(pos[0]['rows'])
+    assert ('Multi', "125'", 1, 'SR1', '') in _rows(pos[0]['rows'])
     assert pos[0]['layerIds'] == [ids['a'], ids['b']]
     assert pg.evaluate("() => window.app.pullKnownLocations()") == ['SR', 'SL']
     # reorder: SL first
@@ -498,7 +500,7 @@ def test_a_group_named_like_a_beach_folds_into_it(page):
     assert [(p['name'], p['key']) for p in pos] == [
         ('sr beach', 'beach:b1'), ('SL', 'beach:b2'), ('SPARE', f"layer:{ids['names']['SPARE']}")]
     assert pos[0]['memberIds'] == [ids['a'], ids['b']]
-    assert ('Multi', "125'", 1, 'SR 1', '') in _rows(pos[0]['rows'])
+    assert ('Multi', "125'", 1, 'SR1', '') in _rows(pos[0]['rows'])
     pg.evaluate("async () => { await window.app.renameBeach('b1', 'SR'); }")
     pg.wait_for_timeout(500)
     pos = pg.evaluate(POS_JS)
@@ -541,7 +543,7 @@ def test_the_distro_picker_pulls_the_power_rows_to_its_beach(page):
                  typed: !!document.querySelector(`[data-lrd-field="distro-location-${id}"]`) };
     }""", ids['distroId'])
     assert out['inPop'] and out['tag'] == 'SELECT' and out['value'] == '', out
-    assert out['options'] == ['— no beach —', 'SR', 'SL', '+ New beach…'], out
+    assert out['options'] == ['No beach', 'SR', 'SL', '+ New beach…'], out
     assert 'Beach' in out['labels'] and 'Location' not in out['labels'] and not out['typed'], out
     h0 = _history(pg)
     pg.select_option(f'[data-lrd-field="distro-beach-{ids["distroId"]}"]', 'b2')
@@ -556,8 +558,8 @@ def test_the_distro_picker_pulls_the_power_rows_to_its_beach(page):
     pos = {p['name']: p for p in out['positions']}
     assert [p['name'] for p in out['positions']] == ['SR', 'SL', 'SPARE']
     sl_rows = _rows(pos['SL']['rows'])
-    for row in [('Distro', 'EA', 1, 'SR', ''), ('Multi', "100'", 1, 'SR 2', ''), ('Multi', "125'", 1, 'SR 1', ''),
-                ('Tru-1 Breakout', 'EA', 2, 'SR 1-2', '')]:
+    for row in [('Distro', 'EA', 1, 'SR', ''), ('Multi', "100'", 1, 'SR2', ''), ('Multi', "125'", 1, 'SR1', ''),
+                ('TRUE1 Breakout', 'EA', 2, 'SR1, SR2', '')]:
         assert row in sl_rows, (row, sl_rows)
     # the walls' power jumpers beside CENTER's and LEFT's own, at SL - one
     # row per length (2026-09-25): WALL-A's 1' / 2', CENTER's 3', LEFT's
@@ -565,14 +567,14 @@ def test_the_distro_picker_pulls_the_power_rows_to_its_beach(page):
     # GROUP, so their jumpers are said per member, each under the screen it
     # sits on (2026-10-01: "the jumpers should go on the beach they are on")
     # - WALL-B's ten 6' its own row, no longer folded into LEFT's
-    jumps = [r for r in sl_rows if r[0] == 'Tru-1 Power Jump']
-    assert jumps == [('Tru-1 Power Jump', "1'", 9, 'WALL-A', ''),
-                     ('Tru-1 Power Jump', "2'", 1, 'WALL-A', ''),
-                     ('Tru-1 Power Jump', "3'", 12, 'CENTER', ''),
-                     ('Tru-1 Power Jump', "6'", 10, 'WALL-B', ''),
-                     ('Tru-1 Power Jump', "6'", 3, 'LEFT', '')], sl_rows
-    assert not [r for r in _rows(pos['SR']['rows']) if r[0] in ('Distro', 'Multi', 'Tru-1 Breakout')]
-    assert ('Ether-con Snake', "100'", 1, 'SNAKE A', '2 channel') in _rows(pos['SR']['rows'])
+    jumps = [r for r in sl_rows if r[0] == 'TRUE1 Power Jump']
+    assert jumps == [('TRUE1 Power Jump', "1'", 9, 'WALL-A', ''),
+                     ('TRUE1 Power Jump', "2'", 1, 'WALL-A', ''),
+                     ('TRUE1 Power Jump', "3'", 12, 'CENTER', ''),
+                     ('TRUE1 Power Jump', "6'", 10, 'WALL-B', ''),
+                     ('TRUE1 Power Jump', "6'", 3, 'LEFT', '')], sl_rows
+    assert not [r for r in _rows(pos['SR']['rows']) if r[0] in ('Distro', 'Multi', 'TRUE1 Breakout')]
+    assert ('Cat6 Snake', "100'", 1, 'SR-1, SR-2', 'SNAKE A · 2 channel') in _rows(pos['SR']['rows'])
     assert set(pos['SL']['layerIds']) >= {ids['a'], ids['b'], ids['c']}
     counts = lambda rows: sorted((t, l, q) for t, l, q, _, _ in _rows(rows))
     assert counts(out['totals']) == counts(before['totals'])
@@ -622,7 +624,7 @@ def test_the_box_picker_pulls_its_rows_to_its_beach(page):
                  typed: !!document.querySelector(`[data-lrd-field="processor-cvt-location-${bid}"]`) };
     }""", box)
     assert out['inPop'] and out['tag'] == 'SELECT' and out['value'] == '', out
-    assert out['options'] == ['— no beach —', 'SR', 'SL', '+ New beach…'], out
+    assert out['options'] == ['No beach', 'SR', 'SL', '+ New beach…'], out
     # the box's fiber moved to its ≡ cable sheet (2026-09-25); the gear
     # keeps the Beach picker
     assert 'Beach' in out['labels'] and 'Fiber' not in out['labels'] and 'Location' not in out['labels'], out
@@ -635,8 +637,8 @@ def test_the_box_picker_pulls_its_rows_to_its_beach(page):
     assert pg.evaluate("(bid) => window.app._dockFindCvt(bid).cvt.beachId", box) == 'b1'
     assert pg.evaluate("(bid) => document.querySelector(`[data-lrd-field=\"processor-cvt-beach-${bid}\"]`).value", box) == 'b1'
     # "+ New beach..." from the gear: prompt, create, select - one entry
-    pg.once('dialog', lambda d: d.accept('Video Village'))
     pg.select_option(f'[data-lrd-field="processor-cvt-beach-{box}"]', '__new_beach__')
+    answer_app_dialog(pg, text='Video Village')
     pg.wait_for_timeout(1200)
     h2 = _history(pg)
     assert h2['action'] == 'Set Box Beach' and h2['index'] == h1['index'] + 1
@@ -649,7 +651,7 @@ def test_the_box_picker_pulls_its_rows_to_its_beach(page):
     out = pg.evaluate(LIST_JS)
     pos = {p['name']: p for p in out['positions']}
     assert [p['name'] for p in out['positions']] == ['SR', 'SL', 'Video Village', 'SPARE']
-    assert ('CVT10', 'EA', 1, 'A', '') in _rows(pos['Video Village']['rows'])
+    assert ('CVT10-S', 'EA', 1, 'A', '') in _rows(pos['Video Village']['rows'])
     assert pos['Video Village']['key'] == f'beach:{vv}' and pos['Video Village']['memberIds'] == []
     # undo the pick: the box is back on SR (the resolved tree follows a round-trip)
     pg.evaluate('() => window.app.undo()')
@@ -711,7 +713,7 @@ def test_the_beaches_line_renames_and_removes(page):
     assert cleared == [None, None, None]
     pos = pg.evaluate(POS_JS)
     assert [p['name'] for p in pos] == ['SR', 'CENTER', 'LEFT', 'SPARE']
-    assert ('Multi', "125'", 1, 'SR 1', '') in _rows(pos[0]['rows'])
+    assert ('Multi', "125'", 1, 'SR1', '') in _rows(pos[0]['rows'])
     # undo brings the beach and its pointers back
     pg.evaluate('() => window.app.undo()')
     pg.wait_for_timeout(900)
@@ -920,8 +922,8 @@ def test_new_beach_from_the_menu_creates_and_puts_in_one_undo(page):
     before = _history(pg)
     st = _right_click_screen(pg, left)
     assert st['shown'], st
-    pg.once('dialog', lambda d: d.accept('Stage Right'))
     _pick_beach_row(pg, 'beach-new')
+    answer_app_dialog(pg, text='Stage Right')
     pg.wait_for_timeout(500)
     st = pg.evaluate(PANEL_JS)
     # the id comes off the counter (an earlier test made and removed one)
@@ -951,8 +953,8 @@ def test_new_beach_from_the_menu_creates_and_puts_in_one_undo(page):
     at = _history(pg)
     st = _right_click_screen(pg, left)
     assert st['rows'][2] == ['beach-2', 'Stage Right', True], st
-    pg.once('dialog', lambda d: d.dismiss())
     _pick_beach_row(pg, 'beach-new')
+    answer_app_dialog(pg, accept=False)
     assert _history(pg) == at
     assert len(pg.evaluate(PANEL_JS)['beaches']) == 3
     assert ids['errors'] == []

@@ -4,7 +4,7 @@
    packer and the canvas Power label leave them out (both the `blank` flag
    and `hidden`), so circuits, distro loads and labels match the totals.
 2. Connector rating defaults with a per-row override: classic powerCON on
-   an EU distro is 16 A like True1; a direct row's small "A" field
+   an EU distro is 16 A like TRUE1; a direct row's small "A" field
    overrides its connector's rating (blank is the default), the connector
    check reads it, and it is saved with the show and in presets.
 3. A distro TYPE: a text field behind the gear, filled by a preset with the
@@ -15,7 +15,7 @@
    it off and apply" or "Cancel"; a locked screen gets Cancel only. A pin
    or a carried pin onto one is refused. A show already in that state
    keeps its flag, opens unchanged, and says the output's load against its
-   breaker and connector rating - "PD4 True1 at 57.7 A of 20 A - over
+   breaker and connector rating - "PD4 TRUE1 at 57.7 A of 20 A - over
    capacity".
 
 The figures, by hand:
@@ -24,8 +24,8 @@ The figures, by hand:
     Five cabinets of row 1 blank: 55 x 200 = 11000 W. The first circuits
     take whole rows of what is left: 5 + 10 + 10 + ... - row 1's five live
     cabinets (1000 W, 4.81 A), then rows 2-6 (2000 W each).
-  * Over capacity: WALL A's six circuits on one True1 = 6 x 9.615 =
-    57.7 A against min(20 A breaker, 20 A True1) = 20 A; with the row's
+  * Over capacity: WALL A's six circuits on one TRUE1 = 6 x 9.615 =
+    57.7 A against min(20 A breaker, 20 A TRUE1) = 20 A; with the row's
     connector rated 15 A, against 15 A.
   * EU powerCON: 3600 W / 230 V = 15.65 A on a powerCON 20A is under 16 A;
     3800 W = 16.52 A is over it.
@@ -49,7 +49,7 @@ def _guard(server_project_guard):
 def _open(pw_browser, url):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -94,7 +94,8 @@ SETUP_JS = """(o) => {
     document.getElementById('crowd-modal')?.remove();
     for (const l of app.project.layers) {
         const key = l.name === 'WALL A' ? 'a' : 'b';
-        Object.assign(l, { powerVoltage: 208, powerAmperage: 10, panelWatts: 200,
+        // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+        Object.assign(l, { powerVoltage: 208, powerAmperage: 12.5, panelWatts: 200,
                            powerSocaDistro: {}, powerSocaNumber: {}, powerSocaPhasePos: {},
                            powerSocaLengths: {}, powerSocaSplits: [], powerSocaNames: {},
                            powerCircuitCables: {}, powerLabelOverrides: {},
@@ -384,14 +385,14 @@ OLD_SHOW = {
 
 
 def test_an_old_crowded_show_prints_distro_and_opens_unchanged(e2e_server, pw_browser, seeded):
-    """No Type, a six-circuit multi already on a True1 (output 2), no
+    """No Type, a six-circuit multi already on a TRUE1 (output 2), no
     connectorA on its rows: it prints "Distro", keeps its flag, says its
     over capacity, and opening it writes nothing."""
     pg, _ = seeded
     pg.evaluate("""async (d) => {
         const proj = await (await fetch('/api/project')).json();
         const a = proj.layers.find(l => l.name === 'WALL A');
-        Object.assign(a, { powerVoltage: 208, powerAmperage: 10, panelWatts: 200,
+        Object.assign(a, { powerVoltage: 208, powerAmperage: 12.5, panelWatts: 200,
                            powerSocaDistro: { 1: 'd1' }, powerSocaNumber: { 1: 2 },
                            powerSocaPhasePos: {}, powerSocaSplits: [], powerSocaLengths: { 1: '50' },
                            locked: false });
@@ -419,7 +420,7 @@ def test_an_old_crowded_show_prints_distro_and_opens_unchanged(e2e_server, pw_br
             const caught = [];
             const orig = app._bKvLines;
             app._bKvLines = function (book, title, pairs) {
-                if (title === 'Service') caught.push(pairs.map(p => p.slice()));
+                if (title === 'Distro') caught.push(pairs.map(p => p.slice()));
                 return orig.apply(this, arguments);
             };
             try {
@@ -435,9 +436,9 @@ def test_an_old_crowded_show_prints_distro_and_opens_unchanged(e2e_server, pw_br
             };
         }""")
         pg2.wait_for_timeout(800)
-        move = ("WALL A's 6 circuits are on OLD2, a True1 — one circuit only. "
+        move = ("WALL A's 6 circuits are on OLD2, a TRUE1 that takes one circuit only. "
                 'Move it to a multi output.')
-        cap = 'OLD2 True1 at 57.7 A of 20 A — over capacity'
+        cap = 'OLD2 TRUE1 at 57.7 A of 20 A: over capacity'
         assert move in out['checks'] and cap in out['checks'], out['checks']
         assert move in out['strip'] and cap in out['strip'], out['strip']
         assert out['binder'] == [['Over capacity', cap + ' · a multi on a one-circuit output, '
@@ -501,14 +502,14 @@ def test_a_row_edit_that_would_crowd_asks_and_cancel_changes_nothing(seeded):
     pg.evaluate("() => window.app.saveState('Setup')")
     before = _state(pg)
     assert before['rows'] == [['true1', 3], ['soca', 2]] and before['crowded'] == []
-    # True1 x3 -> x4: output 4 becomes a True1 under WALL A's six circuits
+    # TRUE1 x3 -> x4: output 4 becomes a TRUE1 under WALL A's six circuits
     assert ev(pg, RAISE_TRUE1) is None, 'nothing applied while it asks'
     modal = pg.evaluate(MODAL_JS)
     assert modal, 'the dialog opened'
-    assert ("WALL A's 6-circuit multi is on PD4. PD4 would become a True1, "
+    assert ("WALL A's 6-circuit multi is on PD4. PD4 would become a TRUE1, "
             "which carries one circuit.") in modal['text'], modal['text']
     # the load it would put there, said while it asks: 6 x 9.615 = 57.7 A
-    assert modal['cap'] == 'PD4 True1 at 57.7 A of 20 A — over capacity', modal
+    assert modal['cap'] == 'PD4 TRUE1 at 57.7 A of 20 A: over capacity', modal
     assert modal['buttons'] == ['Cancel the change',
                                 "Take WALL A's 6-circuit multi off PD4 and apply the change"]
     assert _state(pg) == before, 'nothing changes while it asks'
@@ -562,8 +563,8 @@ def test_a_connector_change_a_preset_and_a_removed_row_all_ask(seeded):
         'connector': """const rows = app.getDistros()[0].outputRows.map(r => ({ ...r }));
                         rows[1].connector = 'true1';
                         return app.updateDistro('d1', { outputRows: rows });""",
-        # a saved preset of six True1s: output 4 is a True1
-        'preset': """const six = { name: 'Six True1', distro: { system: '120/208', ratingA: 200,
+        # a saved preset of six TRUE1s: output 4 is a TRUE1
+        'preset': """const six = { name: 'Six TRUE1', distro: { system: '120/208', ratingA: 200,
                         rows: [{ id: 'r1', connector: 'true1', count: 6, coupling: 'll', breakerA: 20 }] } };
                      return app.applyDistroPreset('d1', six);""",
     }
@@ -572,12 +573,12 @@ def test_a_connector_change_a_preset_and_a_removed_row_all_ask(seeded):
         before = _state(pg)
         assert ev(pg, cases[name]) is None, name
         modal = pg.evaluate(MODAL_JS)
-        assert modal and 'would become a True1' in modal['text'], (name, modal)
+        assert modal and 'would become a TRUE1' in modal['text'], (name, modal)
         pg.locator('#crowd-modal .crowd-cancel').click()
         pg.wait_for_timeout(200)
         assert _state(pg) == before, name
-    # removing a row: Socapex x2 + True1 x3 (WALL A's multi on output 1, a
-    # Socapex); remove the Socapex row and output 1 is a True1
+    # removing a row: Socapex x2 + TRUE1 x3 (WALL A's multi on output 1, a
+    # Socapex); remove the Socapex row and output 1 is a TRUE1
     setup(pg, distros=[dict(FACE, outputRows=[FACE['outputRows'][1], FACE['outputRows'][0]])],
           walls={'a': dict(WALLS['a'], powerSocaNumber={'1': 1})})
     pg.evaluate("() => window.app.renderHardwareDock()")
@@ -586,7 +587,7 @@ def test_a_connector_change_a_preset_and_a_removed_row_all_ask(seeded):
     pg.locator('[data-lrd-field="distro-row-del-d1-r2"]').click()
     pg.wait_for_timeout(200)
     modal = pg.evaluate(MODAL_JS)
-    assert modal and "WALL A's 6-circuit multi is on PD1. PD1 would become a True1" in modal['text'], modal
+    assert modal and "WALL A's 6-circuit multi is on PD1. PD1 would become a TRUE1" in modal['text'], modal
     pg.locator('#crowd-modal .crowd-cancel').click()
     pg.wait_for_timeout(300)
     assert ev(pg, "return app.distroRows(app.getDistros()[0]).length;") == 2
@@ -603,9 +604,9 @@ def test_a_pin_onto_a_direct_output_is_refused(seeded):
         return { touched: touched.length, pin: A.powerSocaNumber[1], same: app.historyIndex === n,
                  status };""")
     assert out['touched'] == 0 and out['pin'] == 4 and out['same'], out
-    assert out['status'] == ("WALL A's 6-circuit multi cannot go on PD 2 — a True1 carries "
+    assert out['status'] == ("WALL A's 6-circuit multi cannot go on PD2: a TRUE1 carries "
                              'one circuit. Use a multi output.'), out
-    # one circuit on True1 output 3 is fine; a second one-circuit multi
+    # one circuit on TRUE1 output 3 is fine; a second one-circuit multi
     # onto it is refused
     out = ev(pg, """
         B.powerSocaSplits = [1, 2];
@@ -619,7 +620,7 @@ def test_a_pin_onto_a_direct_output_is_refused(seeded):
         return { first, touched: t.length, pin: B.powerSocaNumber[plan[2].soca] ?? null,
                  status: document.getElementById('status-message').textContent };""")
     assert out['first'] == 1 and out['touched'] == 0 and out['pin'] is None, out
-    assert out['status'] == 'PD 3 already carries its one circuit — a True1 takes no more.', out
+    assert out['status'] == 'PD3 already carries its one circuit, and a TRUE1 takes no more.', out
     # carried pin: a multi pinned to 2 on another distro, moved onto this one
     out = ev(pg, """
         app.project.distros.push({ id: 'd2', name: 'XX', ratingA: 200, system: '120/208' });
@@ -638,4 +639,4 @@ def test_the_override_counts_in_the_over_capacity_check(seeded):
           walls={'a': WALLS['a']})
     out = ev(pg, "return app.distroChecks(app.getDistros()[0]).map(w => w.text);")
     # 57.7 A against min(20 A breaker, 15 A override)
-    assert 'PD4 True1 at 57.7 A of 15 A — over capacity' in out, out
+    assert 'PD4 TRUE1 at 57.7 A of 15 A: over capacity' in out, out

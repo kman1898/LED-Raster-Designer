@@ -20,7 +20,7 @@ the summaries. Now:
   them a box's; with box B removed it has thirty, and 11-20 are nowhere.
 * REMOVING A BOX TAKES ITS SOCKETS AND ITS PINS. The pins that pointed
   into the box come off (port_assignment.prune_pins_off_sockets), the
-  reply carries a note naming them - "Removed box XD B - 3 ports
+  reply carries a note naming them - "Removed box XD B: 3 ports
   of LEFT are unplaced again" - and the pruned pin state, and the tray
   toasts the note. The other boxes hold their trunks (hold_box_trunks):
   C stays 21-30, it does not slide down onto B's trunk.
@@ -206,7 +206,7 @@ def test_removing_box_b_takes_its_ten_sockets_and_the_pins_on_them(client):
     assert resp.status_code == 200, resp.get_data(as_text=True)
     body = resp.get_json()
     assert body['note'] == \
-        'Removed box XD B - 3 ports of LEFT are unplaced again'
+        'Removed box XD B: 3 ports of LEFT are unplaced again'
     assert sorted((p['layerId'], p['port'])
                   for p in body['portAssignments']['pins']) == \
         [(center, 21), (center, 22)]
@@ -293,7 +293,7 @@ def test_the_helios_8k_the_same(client):
     assert resp.status_code == 200, resp.get_data(as_text=True)
     body = resp.get_json()
     assert body['note'].startswith('Removed box ')
-    assert body['note'].endswith(' - 6 ports of WALL are unplaced again'), body
+    assert body['note'].endswith(': 6 ports of WALL are unplaced again'), body
     assert body['portAssignments']['pins'] == []
     assert socket_numbers(body['resolved'][0]['slots'][0]['card']) == []
     res = resolve(client, sc)
@@ -476,7 +476,7 @@ ADD_BOX_JS = """(cardId) => {
 def sx_page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)
@@ -522,7 +522,7 @@ def test_the_tray_after_remove_box_shows_the_trunk_empty_and_toasts(sx_page):
     page.wait_for_timeout(1200)
 
     toasts = page.evaluate(TOASTS_JS)
-    assert 'Removed box XD B - 3 ports of WALL are unplaced again' \
+    assert 'Removed box XD B: 3 ports of WALL are unplaced again' \
         in toasts, toasts
     after = page.evaluate(TRAY_JS, card)
     assert after['loose'] == [], (
@@ -575,3 +575,32 @@ def test_the_tray_after_remove_box_shows_the_trunk_empty_and_toasts(sx_page):
     assert wall_pins(page, wall) == [(0, 11), (1, 12), (2, 13)], (
         page.evaluate(PINS_JS))
     assert wall_pins(page, wall, from_server=True) == [(0, 11), (1, 12), (2, 13)]
+
+
+# ── a shrunk screen's pins light no socket ────────────────────────────────
+
+def test_a_pin_past_a_shrunk_screens_ports_takes_no_socket(client):
+    """Beta.4 QA: a show with 8 ports on XD A read "XD A 10/10" while tiles
+    9 and 10 were free - the screen had shrunk from 10 ports, and its two
+    stored pins past the 8th still counted. A pin on a port the screen no
+    longer has takes no socket: the box's n/N, the card's and the free
+    count read what the tiles show. The resolve itself releases nothing
+    (since beta.5 the client lets such pins go when the screen shrinks,
+    tests/test_shrink_trims_ports.py); one an older file carries is read
+    as it is."""
+    wall = add_layer(client, 'WALL')
+    state = add_processor(client, SX40)
+    _proc, card, boxes = unit(state)
+    cid, box_a = card['id'], boxes[0]['id']
+    attach(client, wall, cid, screens((wall, 'WALL', 10, 'brompton')),
+           first=1, last=10)
+    assert len(pins(client)) == 10
+    res = resolve(client, screens((wall, 'WALL', 8, 'brompton')))
+    summ = summary(res, cid)
+    assert summ['boxes'][box_a] == {'taken': 8, 'sockets': 10}, summ['boxes']
+    assert (summ['taken'], summ['used'], summ['free']) == (8, 8, 32), summ
+    assert ports_of(res, wall) == (list(range(1, 9)), [])
+    # the pins stay: the screen grown back takes its sockets again
+    assert len(pins(client)) == 10
+    res = resolve(client, screens((wall, 'WALL', 10, 'brompton')))
+    assert summary(res, cid)['boxes'][box_a] == {'taken': 10, 'sockets': 10}

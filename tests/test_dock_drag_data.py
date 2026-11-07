@@ -174,7 +174,7 @@ STATUS_JS = "() => document.getElementById('status-message').textContent"
 def dock_page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)  # socket connect + app init
@@ -387,7 +387,7 @@ def test_a_card_short_of_sockets_caps_the_take_and_says_so(dock_page):
     assert wall_pins(page, wall) == [(0, 15), (1, 16)], page.evaluate(PINS_JS)
     assert unplaced(page, wall) == [2, 3, 4, 5]
     note = page.evaluate("() => window.app._assignmentNote")
-    assert note == 'H9 slot 1 took 2 of 6 ports. 4 still have nowhere to go.', (
+    assert note == 'H9 Card 1 took 2 of 6 ports. 4 still have nowhere to go.', (
         note)
 
     # the card is full now: the drag lights nothing and the drop is refused
@@ -424,10 +424,10 @@ def test_a_fully_placed_screen_lights_nothing_and_refuses_the_drop(dock_page):
     assert mid['target']['nums'] == [], mid
     assert mid['lit'] == [], f'a fully placed screen lit under the drag: {mid}'
     assert mid['pill'] == {
-        'text': 'Every port of WALL is already on a processor - clear it first',
+        'text': 'Every port of WALL is already on a processor. Clear it first.',
         'bad': True}, mid
     assert page.evaluate(STATUS_JS) == (
-        'Every port of WALL is already on a processor - clear it first')
+        'Every port of WALL is already on a processor. Clear it first.')
     assert wall_pins(page, wall) == placed, 'the refusal moved something'
     assert wall_pins(page, wall, from_server=True) == placed
     assert page.evaluate(HIST_LEN_JS) == before, (
@@ -592,7 +592,7 @@ def test_the_platform_refusal_is_the_servers_sentence_unchanged(dock_page):
     assert mid['pill'] is None, mid
     err = page.evaluate("() => window.app._assignmentError")
     assert err == ('BROMP is programmed Brompton; '
-                   'H9 slot 1 is NovaStar legacy gear.'), err
+                   'H9 Card 1 is NovaStar legacy gear.'), err
     assert page.evaluate(PINS_JS) == [], 'the refused drop pinned something'
     assert page.evaluate(SERVER_PINS_JS) == []
     assert page.evaluate(HIST_LEN_JS) == before

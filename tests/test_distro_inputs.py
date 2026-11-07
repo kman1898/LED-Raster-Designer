@@ -25,7 +25,7 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 DISTRO = {'id': 'd1', 'name': 'IN', 'system': '120/208', 'voltage': 208, 'phase': 3,
           'ratingA': 400}
 
-CAMS = ['Cam 100 A', 'Cam 200 A', 'Cam 400 A', 'Cam 600 A', 'Cam 800 A']
+CAMS = ['100 A', '200 A', '400 A', '600 A', '800 A']
 POWERLOCKS = ['Powerlock 400 A', 'Powerlock 630 A']
 EXPECTED = {
     '120/208': CAMS + ['L21-30'],
@@ -48,7 +48,7 @@ def page(e2e_server, pw_browser):
     app_module.current_project['distros'] = [json.loads(json.dumps(DISTRO))]
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 900})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -90,7 +90,7 @@ def test_the_input_list_shows_only_what_fits_the_system(page, system):
     pg, errors = page
     _set(pg, {'system': system, 'input': None})
     shown = _shown(pg)
-    assert shown == {'options': ['—'] + EXPECTED[system], 'value': ''}, shown
+    assert shown == {'options': [''] + EXPECTED[system], 'value': ''}, shown
     pg.evaluate("() => window.app._hwPopoverClose()")
     assert not errors, errors
 
@@ -120,7 +120,7 @@ def test_an_input_that_no_longer_fits_stays_shown_and_nothing_changes_by_itself(
     _set(pg, {'system': '120/208', 'input': 'cee63', 'ratingA': 63})
     shown = _shown(pg)
     assert shown['value'] == 'cee63', shown
-    assert shown['options'] == ['—'] + CAMS + ['L21-30', 'CEE 63 A red'], shown
+    assert shown['options'] == [''] + CAMS + ['L21-30', 'CEE 63 A red'], shown
     # the system changes after the pick: the input and the rating stay
     _set(pg, {'system': '230', 'input': 'cam400', 'ratingA': 400})
     _set(pg, {'system': '120'})
@@ -128,11 +128,11 @@ def test_an_input_that_no_longer_fits_stays_shown_and_nothing_changes_by_itself(
                       " return {system: d.system, input: d.input, ratingA: d.ratingA}; }")
     assert got == {'system': '120', 'input': 'cam400', 'ratingA': 400}, got
     shown = _shown(pg)
-    assert shown == {'options': ['—'] + CAMS, 'value': 'cam400'}, shown
+    assert shown == {'options': [''] + CAMS, 'value': 'cam400'}, shown
     _set(pg, {'system': '230'})
     shown = _shown(pg)
     assert shown['value'] == 'cam400', shown
-    assert 'Cam 400 A' in shown['options'] and 'Cam 200 A' not in shown['options'], shown
+    assert '400 A' in shown['options'] and '200 A' not in shown['options'], shown
     pg.evaluate("() => window.app._hwPopoverClose()")
     assert not errors, errors
 

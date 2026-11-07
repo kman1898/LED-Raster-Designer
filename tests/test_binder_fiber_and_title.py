@@ -112,7 +112,7 @@ FIBER_HEXES = {'#1f5fa8', '#f28020', '#1a9a48', '#7a4a2e', '#777777', '#f5f5f5',
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 1000})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -157,18 +157,6 @@ def _swatch_before(sheet, text_op):
             and 0 < text_op['x'] - r['x'] <= 34 * sheet['scale']
             and r['y'] <= text_op['y'] <= r['y'] + r['h'] + 6 * sheet['scale']]
     return hits[0] if hits else None
-
-
-def _line_centre(pg, sheet, text_op):
-    """The middle of a swatched strand's line - its swatch, the gap the
-    swatch keeps, then its name - where a centred cell stands it."""
-    sw = _swatch_before(sheet, text_op)
-    assert sw, text_op
-    w = pg.evaluate("""([t, size, weight]) => {
-        const ctx = document.createElement('canvas').getContext('2d');
-        ctx.font = window.app._bFont(size, weight);
-        return ctx.measureText(t).width; }""", [text_op['text'], text_op['size'], text_op['weight']])
-    return (sw['x'] + text_op['x'] + w) / 2
 
 
 def _tint(hex_colour, k=0.24):
@@ -263,21 +251,31 @@ def test_the_processor_sheet_stacks_and_swatches_every_strand(page):
     assert _outline_round(sheet, sheet['texts'][at + 4:at + 8]), 'X2 is not outlined'
     # FIBER CONNECTIONS: at the processor 1 Blue over 2 Orange; at the
     # breakout the TAC pair flipped, 2 Orange over 1 Blue - never side by
-    # side, and no " ·" trailing a strand that has a line of its own. Each
-    # line - its swatch and its name - stands on the cell's middle
-    # (2026-10-18), so the two lines share a centre, not a left edge.
+    # side, and no " ·" trailing a strand that has a line of its own. The
+    # column's strands stand as one block on its middle with one left edge
+    # (owner, 2026-10-20: "centered but the color/number to all match in
+    # the X coordinate"), so the two lines share a left edge.
     pairs = [(a, b) for a, b in zip(sheet['texts'], sheet['texts'][1:])
              if (a['text'], b['text']) in (('1 Blue', '2 Orange'), ('2 Orange', '1 Blue'),
                                            ('13 Blue/Black', '14 Orange/Black'),
                                            ('14 Orange/Black', '13 Blue/Black'))]
     assert len(pairs) >= 5, words                      # B's pair and Fiber connections' four
     for a, b in pairs:
-        # an outlined input group (Breakout boxes) keeps its strands in one
-        # column inside the outline; a strand list cell centres each line
-        grouped = abs(a['x'] - b['x']) < 0.5 and _outline_round(sheet, [a, b])
-        assert grouped or abs(_line_centre(pg, sheet, a) - _line_centre(pg, sheet, b)) < 0.6, (a, b)
+        # one left edge, in an outlined input group (Breakout boxes) and in
+        # a strand list cell alike
+        assert abs(a['x'] - b['x']) < 0.5, (a, b)
         assert abs((b['y'] - a['y']) - 30 * s) < 0.6, (a, b)
     assert not [w for w in words if w.endswith(' ·') and w.split(' ')[0].isdigit()], words
+    # ... and down the WHOLE column, not only inside one cell: every strand
+    # of FIBER CONNECTIONS' two strand columns starts at one of two x's, and
+    # every strand of the STRAND MAP at one
+    names = {'1 Blue', '2 Orange', '3 Green', '4 Brown', '13 Blue/Black', '14 Orange/Black'}
+    listed = [t for t in sheet['texts'] if t['text'] in names and t['weight'] != 700
+              and not _outline_round(sheet, [t])]
+    assert len({round(t['x']) for t in listed}) <= 2, sorted({round(t['x']) for t in listed})
+    mapped = [t for t in sheet['texts'] if t['weight'] == 700 and t['text'][:1].isdigit()]
+    assert len(mapped) >= 4 and len({round(t['x']) for t in mapped}) == 1, \
+        sorted({(t['text'], round(t['x'])) for t in mapped})
     # STRAND MAP: the names bold, the cell tinted, the swatch 24 px
     bold = {t['text']: t for t in sheet['texts'] if t['weight'] == 700}
     for name, colour in (('1 Blue', BLUE), ('2 Orange', ORANGE), ('6 White', WHITE), ('13 Blue/Black', BLUE)):

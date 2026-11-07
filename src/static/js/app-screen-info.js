@@ -1,10 +1,42 @@
 // app-screen-info: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { evaluateMathExpression, sendClientLog, refreshAllColorSwatches } from './helpers.js';
+import { evaluateMathExpression, sendClientLog, refreshAllColorSwatches,
+    FLOW_AUTO_PATTERNS, isZFlowPattern } from './helpers.js';
+
+// The automatic flow patterns a screen can be walked in (the sixteen tiles
+// under Data Flow: eight snakes and their eight Z twins), in the order the
+// tiles sit. getAutoPortsMinimum tries each one.
+const AUTO_FLOW_PATTERNS = FLOW_AUTO_PATTERNS;
 
 class _ScreenInfo {
+    // A cabinet's share of the screen's per-cabinet WATTS: 1 for a full
+    // cabinet; a half tile draws half (owner, 2026-10-20: "we can change it
+    // to 50% unless stated otherwise by the panel type in panel library") -
+    // or, where the library has the model's matching half-size variant with
+    // watts on both, that half's share of the full model's watts
+    // (catalogHalfWattsRatio). Any other part-cabinet draws by its area.
+    // It used to be area x 1.3 (0.65 a half), which read a wall with a half
+    // row about 3% heavy.
     getPanelLoadFactor(layer, panel) {
+        const fullPixels = this.getFullPanelPixels(layer);
+        const panelPixels = this.getPanelPixelArea(panel);
+        if (fullPixels <= 0 || panelPixels <= 0) return 0;
+        const areaRatio = panelPixels / fullPixels;
+        if (areaRatio >= 0.999) return 1;
+        const axis = panel && panel.halfTile;
+        if ((axis === 'height' || axis === 'width') && typeof this.catalogHalfWattsRatio === 'function') {
+            const ratio = this.catalogHalfWattsRatio(layer, axis);
+            if (ratio > 0) return Math.min(1, ratio);
+        }
+        return Math.min(1, areaRatio);
+    }
+
+    // A part-cabinet's share of the full cabinet's WEIGHT where the library
+    // names no half: 0.65 a half tile (area x 1.3), as it always was - the
+    // frame and electronics weigh more than half. Power reads
+    // getPanelLoadFactor; weight keeps this.
+    _panelWeightFactor(layer, panel) {
         const fullPixels = this.getFullPanelPixels(layer);
         const panelPixels = this.getPanelPixelArea(panel);
         if (fullPixels <= 0 || panelPixels <= 0) return 0;
@@ -17,13 +49,15 @@ class _ScreenInfo {
     // the screen's own figure; a HALF TILE is the panel library's weight
     // for the model's matching half-size variant where the library has
     // one that matches perfectly (catalogHalfWeightKg: same manufacturer
-    // and series, exactly half on the halved axis, the same pitch), else
-    // 0.65 of the full cabinet's - the load factor (getPanelLoadFactor),
-    // as it always was. Power keeps the load factor either way.
+    // and series, exactly half on the halved axis, the same pitch; a
+    // weight typed over the saved model's scales it by the library's
+    // half/full ratio), else 0.65 of the full cabinet's
+    // (_panelWeightFactor), as it always was.
+    // Power reads its own factor (getPanelLoadFactor).
     getPanelWeightKg(layer, panel) {
         const w = Number(layer && layer.panel_weight) || 20;
         const fullKg = ((layer && layer.weight_unit) || 'kg') === 'lb' ? w / 2.20462 : w;
-        const factor = this.getPanelLoadFactor(layer, panel);
+        const factor = this._panelWeightFactor(layer, panel);
         const axis = panel && panel.halfTile;
         if (factor > 0 && factor < 1 && (axis === 'height' || axis === 'width')
                 && typeof this.catalogHalfWeightKg === 'function') {
@@ -176,6 +210,10 @@ class _ScreenInfo {
     // numbers at the user. `assignments` lets a caller that has already run
     // calculatePortAssignments (for the Low Latency derate note) pass it in
     // rather than paying for the walk twice.
+    //
+    // v1.6.0: on a custom data path this is the ports DRAWN (what the cards,
+    // the port labels and the canvas count). Screen Info's "Ports required"
+    // reads getLayerPortsMinimum below instead: the fewest the screen needs.
     getLayerPortsRequired(layer, assignments = null) {
         if (!layer || (layer.type || 'screen') !== 'screen') return 0;
         const a = assignments || this.calculatePortAssignments(layer) || [];
@@ -231,10 +269,127 @@ class _ScreenInfo {
         return auto;
     }
 
-    // Circuits required for ONE member. Mirrors getLayerPortsRequired exactly:
-    // the automatic assignment's circuit count, overridden by the highest
-    // circuit the user drew in custom mode, and zero for a member whose
-    // cabinets are fed by a peer's crossing circuit.
+    // The FEWEST ports this screen's cabinets need under its current Port
+    // Mapping setting (Organized or Max Capacity), under ideal circumstances:
+    // the lowest count any automatic flow pattern gets, each walked by
+    // calculatePortAssignments with every rule it holds (the Armor / 1G
+    // rectangle, Low Latency, bit depth and frame rate, half tiles, blank and
+    // hidden cabinets, the 5G / Brompton / HELIOS capacity figures). The
+    // screen is walked on its own (`solo`): no group crossing and no per-run
+    // overrides. A pattern that cannot map the screen at all (a capacity
+    // error) is left out; `error` is set only when none of them can.
+    //
+    // The walk writes its bookkeeping onto the layer (_autoPortsRequired,
+    // _capacityError, _lowLatencyDerate), so those are put back afterwards:
+    // the screen's own walk is the one every other reader means.
+    getAutoPortsMinimum(layer) {
+        const out = { ports: 0, error: null, pattern: null };
+        if (!layer || (layer.type || 'screen') !== 'screen') return out;
+        const kept = {
+            _autoPortsRequired: layer._autoPortsRequired,
+            _capacityError: layer._capacityError,
+            _lowLatencyDerate: layer._lowLatencyDerate,
+        };
+        let firstError = null;
+        try {
+            AUTO_FLOW_PATTERNS.forEach(pattern => {
+                this.calculatePortAssignments(layer, { pattern, solo: true });
+                if (layer._capacityError) {
+                    if (!firstError) firstError = layer._capacityError;
+                    return;
+                }
+                const n = Number(layer._autoPortsRequired) || 0;
+                if (n > 0 && (out.ports === 0 || n < out.ports)) {
+                    out.ports = n;
+                    out.pattern = pattern;
+                }
+            });
+        } finally {
+            Object.assign(layer, kept);
+        }
+        if (out.ports === 0) out.error = firstError;
+        return out;
+    }
+
+    // What Screen Info's "Ports required" reads (the owner's ruling,
+    // 2026-11-01: "ports required should be in the current setting as in
+    // organized or max this is the minimum amount of ports needed under
+    // ideal circumstances"). For a screen on a custom data path that is
+    // getAutoPortsMinimum, whatever has been drawn so far; the drawn ports
+    // themselves stay getLayerPortsRequired, which is what the processor
+    // cards, the port labels and the canvas count. A custom member every one
+    // of whose cabinets is on a peer's drawn port still reads 0, as it does
+    // there. An automatic screen reads its own walk, unchanged.
+    //
+    // Returns { ports, error }: `error` is the capacity error the readout
+    // shows as ERROR (the screen's own walk's, or for a custom screen the
+    // one no automatic pattern could get past).
+    getLayerPortsMinimumDetail(layer, assignments = null) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return { ports: 0, error: null };
+        if (!this.isCustomFlow(layer)) {
+            const ports = this.getLayerPortsRequired(layer, assignments);
+            return { ports, error: layer._capacityError || null };
+        }
+        if (this._layerFullyServedByPeerPath(layer, 'customPortPaths')) {
+            return { ports: 0, error: null };
+        }
+        const best = this.getAutoPortsMinimum(layer);
+        return { ports: best.ports, error: best.error };
+    }
+
+    getLayerPortsMinimum(layer, assignments = null) {
+        return this.getLayerPortsMinimumDetail(layer, assignments).ports;
+    }
+
+    // Does the Port numbers switch change anything on this screen? Only in
+    // Organized, outside Low Latency (which walks cabinet by cabinet in both
+    // modes), and only where a row or column is cut into more than one port.
+    // An automatic screen is asked in its own pattern; a custom one in a
+    // horizontal and a vertical pattern, because Apply Pattern can be either.
+    // The walk's bookkeeping is put back afterwards (see getAutoPortsMinimum).
+    portNumberOrderMatters(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return false;
+        if ((layer.portMappingMode || 'organized') !== 'organized') return false;
+        if (this.getLowLatencyGeometry(layer)) return false;
+        const patterns = this.isCustomFlow(layer)
+            ? ['tl-h', 'tl-v'] : [layer.flowPattern || 'tl-h'];
+        const kept = {
+            _autoPortsRequired: layer._autoPortsRequired,
+            _capacityError: layer._capacityError,
+            _lowLatencyDerate: layer._lowLatencyDerate,
+        };
+        try {
+            return patterns.some(pattern => {
+                const stats = {};
+                this.calculatePortAssignments(layer, { pattern, solo: true, stats });
+                return !!stats.split;
+            });
+        } finally {
+            Object.assign(layer, kept);
+        }
+    }
+
+    // The Port numbers row under Port Mapping: shown only where it matters,
+    // its highlight from the shown screen's portNumberOrder.
+    updatePortNumberOrderControl() {
+        const row = document.getElementById('port-number-order-row');
+        if (!row) return;
+        const layer = this.currentLayer;
+        const show = !!layer && this.portNumberOrderMatters(layer);
+        row.style.display = show ? '' : 'none';
+        const order = this.portNumberOrderOf(layer);
+        const across = document.getElementById('port-number-across');
+        const down = document.getElementById('port-number-down');
+        if (across) across.classList.toggle('active', order === 'across');
+        if (down) down.classList.toggle('active', order === 'down');
+    }
+
+    // Circuits required for ONE member. Mirrors getLayerPortsRequired, but
+    // in custom mode counts the circuits the user drew rather than the
+    // highest number (a hole in the numbers is no circuit): the automatic
+    // assignment's circuit count, overridden by the drawn circuits in
+    // custom mode, and zero for a member whose cabinets are fed by a peer's
+    // crossing circuit.
     //
     // `autoCircuits` defaults to the cached _powerCircuitsRequired because the
     // two callers that want this figure (the power label editor and the canvas
@@ -251,17 +406,19 @@ class _ScreenInfo {
                 .map(c => parseInt(c, 10))
                 .filter(c => (paths[c] || []).length > 0);
             if (customCircuits.length > 0) {
-                // Splitter merges collapse drawn circuits into shared ones:
-                // each merge group of the drawn set is ONE circuit, so the
-                // highest-number convention gives back (group size - 1) per
-                // group. Routed through the same validated-read helper the
-                // engine and screenCircuits use; with no merges this is
-                // exactly the old Math.max figure.
-                const max = Math.max(...customCircuits);
+                // The circuits DRAWN, not the highest number: a hole a
+                // removed circuit leaves (Clear Circuit, or a wall that
+                // shrank under it - app-power _trimCircuitsOffWall) is no
+                // circuit, and the owner's ruling (2026-11-02) is that it
+                // does not count. Splitter merges collapse drawn circuits
+                // into shared ones: each merge group of the drawn set is
+                // ONE circuit, so it gives back (group size - 1). Routed
+                // through the same validated-read helper the engine and
+                // screenCircuits use, so this is screenCircuits' length.
                 const groups = (typeof this.appliedSplitterGroups === 'function')
                     ? this.appliedSplitterGroups(layer, customCircuits).merge : [];
                 const reduction = groups.reduce((t, g) => t + (g.length - 1), 0);
-                return Math.max(1, max - reduction);
+                return Math.max(1, customCircuits.length - reduction);
             }
             // Same rule as the ports twin above, and the same reasoning for
             // partial coverage: only a member whose every cabinet is on a
@@ -568,8 +725,31 @@ class _ScreenInfo {
         // share a show canvas while sitting on different rasters have no honest
         // combined port load and no honest H. Same refusal _crossMemberLoadPanels
         // makes for a hand-drawn crossing port's load badge.
+        //
+        // DATA ONLY. A circuit is a power cable: its load is watts and
+        // nothing in it is measured down a processor's raster, so a wall
+        // whose sections sit on three processors is still one wall to
+        // power. With power held to one raster too, such a group walked
+        // its circuits per member (each member S1-1 again), the last
+        // column of one member could never pair with the first of the
+        // next, and a redraw that ran onto the next member found every
+        // cabinet there wired to that member's own circuits and was
+        // refused (the owner, 1.6.0-beta.5: "I can't do drawings across
+        // grouped screens"). Grouped screens "are one screen when they
+        // are grouped"; a custom group already drew as one across
+        // processors (_customPowerWall), and now the automatic walk does.
+        //
+        // Except a group stored `powerPerMember: true`: an older show's wall
+        // across processors whose members had their own circuits wired up
+        // (feeds, labels, cables, redraws) or that was locked, decided once
+        // as the show opened (decidePowerPerMemberOnOpen, app-screen-groups).
+        // It keeps the per-member circuits it was saved with.
         const raster = scope[0].canvas_id || null;
-        if (!scope.every(l => (l.canvas_id || null) === raster)) return null;
+        const ownGroup = kind === 'power' && typeof this.getGroupOfLayer === 'function'
+            ? this.getGroupOfLayer(layer) : null;
+        const perMember = !!(ownGroup && ownGroup.powerPerMember === true);
+        if ((kind !== 'power' || perMember)
+                && !scope.every(l => (l.canvas_id || null) === raster)) return null;
 
         // Compare the panel SPEC, never the half-tile flags.
         const w = Number(scope[0].cabinet_width) || 0;
@@ -680,10 +860,15 @@ class _ScreenInfo {
     // position lattice: same serpentine, ranked slots instead of panel indices.
     // Null - every ungrouped screen - reads the panels' own row/col and this is
     // expression for expression what it always was.
+    //
+    // A Z pattern (tl-h-z ...) never turns back: every row (or column) of the
+    // port runs from the pattern's start side, so `bounce` is 0 for it and
+    // the parity tests below read the first line's direction every time.
     getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, orderedUnitIndices, includeHidden = false, plan = null) {
         if (!layer || !Array.isArray(layer.panels) || !Array.isArray(orderedUnitIndices)) return [];
         const startsTop = pattern.startsWith('t');
         const startsLeft = pattern.includes('l-');
+        const bounce = isZFlowPattern(pattern) ? 0 : 1;
         const source = plan ? plan.ordered.map(c => c.panel) : layer.panels;
         const rowOfPanel = plan ? (p => plan.rowOf.get(p)) : (p => p.row);
         const colOfPanel = plan ? (p => plan.colOf.get(p)) : (p => p.col);
@@ -695,7 +880,8 @@ class _ScreenInfo {
         });
 
         const ordered = [];
-        orderedUnitIndices.forEach((unitIdx, unitPos) => {
+        orderedUnitIndices.forEach((unitIdx, at) => {
+            const unitPos = at * bounce;
             if (isHorizontalFirst) {
                 const leftToRight = startsLeft ? (unitPos % 2 === 0) : (unitPos % 2 !== 0);
                 if (leftToRight) {
@@ -771,11 +957,13 @@ class _ScreenInfo {
         }
 
         const isVerticalFirst = direction === 'v';
+        // A Z pattern starts every line from the start side (no reverse).
+        const bounce = isZFlowPattern(pattern) ? 0 : 1;
         const ordered = [];
 
         if (isVerticalFirst) {
             for (let c = startCol; c >= 0 && c < cols; c += colDir) {
-                const colOffset = Math.abs(c - startCol);
+                const colOffset = Math.abs(c - startCol) * bounce;
                 const reverse = colOffset % 2 === 1;
                 if (reverse) {
                     for (let r = startRow + (rows - 1) * rowDir; r >= 0 && r < rows; r -= rowDir) {
@@ -791,7 +979,7 @@ class _ScreenInfo {
             }
         } else {
             for (let r = startRow; r >= 0 && r < rows; r += rowDir) {
-                const rowOffset = Math.abs(r - startRow);
+                const rowOffset = Math.abs(r - startRow) * bounce;
                 const reverse = rowOffset % 2 === 1;
                 if (reverse) {
                     for (let c = startCol + (cols - 1) * colDir; c >= 0 && c < cols; c -= colDir) {
@@ -1160,7 +1348,7 @@ class _ScreenInfo {
             if (ids.length === 0) return;
         }
         if (this.project.layers.length === 1) {
-            alert('Cannot delete the last layer');
+            this._toast('The last screen cannot be deleted.', true);
             return;
         }
         
@@ -1245,6 +1433,12 @@ class _ScreenInfo {
     toggleLayerVisibility(layerId) {
         const layer = this.project.layers.find(l => l.id === layerId);
         if (!layer) return;
+        // Visibility is not a change: a locked screen shows and hides, and
+        // so does any member of a half-locked group (the owner's ruling,
+        // round 7). No lock guard on the screen itself; but a hide or show
+        // that would re-plan ANOTHER locked screen is refused, naming it
+        // (_visibilityRepacksLocked, round 8).
+        if (this._visibilityRepacksLocked([layer], !layer.visible)) return;
         layer.visible = !layer.visible;
         // Undo audit: the eye toggle recorded history but never told the
         // server, so any server-sourced adoption (a canvas edit's response,
@@ -1311,8 +1505,62 @@ class _ScreenInfo {
         this.saveState(layer.visible ? 'Show Layer' : 'Hide Layer');
     }
 
+    // HIDING NEVER RE-PLANS A LOCKED SCREEN (the owner's ruling, round 8):
+    // a hidden screen leaves its group's wall walk and packing, so hiding
+    // or showing one member can re-plan the others (a locked member that
+    // rode the wall's circuits gets its own multi). When the show or hide
+    // of `toggled` (set to `visible`) would change any OTHER locked
+    // screen's circuits (their number, cabinets or multi) or its packing
+    // %, the toggle is refused whole, the locked screens named, and
+    // nothing changes: no write, no history entry. A hide that changes
+    // nothing locked still works, on a locked or half-locked group too.
+    //
+    // Tried on the live records: the flags are set, every locked screen
+    // read, and the flags put back before this returns. The toggled
+    // screens themselves are not compared: a hidden screen prints nowhere,
+    // and showing it brings back what it had. True when refused.
+    _visibilityRepacksLocked(toggled, visible) {
+        const list = (toggled || []).filter(Boolean);
+        if (!list.some(l => (l.type || 'screen') === 'screen')) return false;
+        if (typeof this.circuitCapacity !== 'function' || typeof this.screenCircuits !== 'function') return false;
+        const skip = new Set(list);
+        const locked = ((this.project && this.project.layers) || []).filter(l => l
+            && !skip.has(l) && (l.type || 'screen') === 'screen' && this._layerLocked(l));
+        if (!locked.length) return false;
+        const sig = (l) => {
+            const circuits = this.screenCircuits(l).map(c => [c.num, (c.panels || []).map((p, i) => {
+                const on = c.layers && c.layers[i] ? c.layers[i].id : l.id;
+                return `${on}:${p.row}:${p.col}`;
+            })]);
+            const multis = (typeof this.getSocaPlan === 'function' ? this.getSocaPlan(l) : [])
+                .map(s => [s.soca, s.number, s.name, (s.legs || []).map(g => `${g.leg}:${g.label}`)]);
+            return JSON.stringify([this.circuitCapacity(l).pct, circuits, multis]);
+        };
+        this._circuitTailCache = null;
+        const before = new Map(locked.map(l => [l, sig(l)]));
+        const held = list.map(l => [l, Object.prototype.hasOwnProperty.call(l, 'visible'), l.visible]);
+        let after;
+        try {
+            list.forEach(l => { l.visible = visible; });
+            this._circuitTailCache = null;
+            after = new Map(locked.map(l => [l, sig(l)]));
+        } finally {
+            held.forEach(([l, had, v]) => {
+                if (had) l.visible = v;
+                else delete l.visible;
+            });
+            this._circuitTailCache = null;
+        }
+        const repacked = locked.filter(l => before.get(l) !== after.get(l));
+        if (!repacked.length) return false;
+        this._showLockedError(repacked, 'repack');
+        return true;
+    }
+
+    // A lock is the whole group's (app-screen-groups.js, "one lock per
+    // group"): a selected member brings every screen of its group.
     setLockOnSelected(locked) {
-        const layers = this.getSelectedLayers();
+        const layers = this._withWholeGroups(this.getSelectedLayers());
         if (layers.length === 0) return;
         layers.forEach(layer => {
             layer.locked = locked;
@@ -1320,6 +1568,13 @@ class _ScreenInfo {
             // marker rides the PUT).
             this._putLayer(layer.id, { locked });
         });
+        // A screen locked when its show was opened missed the open's port
+        // repair (app-merge-runs.js trimPortsOffWall); unlocked, it gets it
+        // now, inside this step and its PUT.
+        if (!locked && typeof this.portRepairPending === 'function'
+                && this.portRepairPending(layers)) {
+            this.updateLayers(layers);
+        }
         if (typeof sendClientLog === 'function') {
             sendClientLog('layer_lock_batch', { locked, layerIds: layers.map(l => l.id) });
         }
@@ -1327,9 +1582,19 @@ class _ScreenInfo {
         this.saveState(locked ? 'Lock Layers' : 'Unlock Layers');
     }
 
-    toggleLockOnSelected() {
-        const layers = this.getSelectedLayers();
+    // A group an old file left half locked asks which way first; Cancel
+    // leaves every screen as it was.
+    async toggleLockOnSelected() {
+        const layers = this._withWholeGroups(this.getSelectedLayers());
         if (layers.length === 0) return;
+        const mixed = layers.filter(l => l.group_id && this.groupMembersOf(l)
+            .some(m => !!m.locked !== !!l.locked));
+        if (mixed.length) {
+            const pick = await this.askGroupLock(layers);
+            if (!pick) return;
+            this.setLockOnSelected(pick === 'lock');
+            return;
+        }
         const anyUnlocked = layers.some(l => !l.locked);
         this.setLockOnSelected(anyUnlocked);
     }
@@ -1404,7 +1669,9 @@ class _ScreenInfo {
         // _canvasGuardEdit): an edit that would take its screens past it is
         // put back here, before the PUT and before the undo step.
         if (typeof this._canvasGuardEdit === 'function' && !this._canvasGuardEdit()) return;
-        
+        // Kept 2fers this edit repacked go (app-power pruneStaleKeptShares).
+        if (typeof this.pruneStaleKeptShares === 'function') this.pruneStaleKeptShares();
+
         // Save state before update if requested
         if (saveHistory) {
             this.saveState(historyAction);
@@ -1431,6 +1698,7 @@ class _ScreenInfo {
         .then(res => res.json())
         .then(layer => {
             if (this.project !== sentProject) return;  // stale echo
+            if (this._layerHasNewerPut(layer.id)) return;  // a newer edit is on its way
             const index = this.project.layers.findIndex(l => l.id === layer.id);
             if (index >= 0) {
                 // Preserve client-side only properties that server might not return
@@ -1445,6 +1713,8 @@ class _ScreenInfo {
                     screenNameOffsetYDataFlow: this.currentLayer.screenNameOffsetYDataFlow,
                     screenNameOffsetXPower: this.currentLayer.screenNameOffsetXPower,
                     screenNameOffsetYPower: this.currentLayer.screenNameOffsetYPower,
+                    screenNameOffsetXRigging: this.currentLayer.screenNameOffsetXRigging,
+                    screenNameOffsetYRigging: this.currentLayer.screenNameOffsetYRigging,
                     screenNameOffsetXShowLook: this.currentLayer.screenNameOffsetXShowLook,
                     screenNameOffsetYShowLook: this.currentLayer.screenNameOffsetYShowLook,
                     gradientEnabled: this.currentLayer.gradientEnabled,
@@ -1485,6 +1755,7 @@ class _ScreenInfo {
                     bitDepth: this.currentLayer.bitDepth,
                     frameRate: this.currentLayer.frameRate,
                     portMappingMode: this.currentLayer.portMappingMode,
+                    portNumberOrder: this.currentLayer.portNumberOrder,
                     powerVoltage: this.currentLayer.powerVoltage,
                     powerVoltageCustom: this.currentLayer.powerVoltageCustom,
                     powerAmperage: this.currentLayer.powerAmperage,
@@ -1492,6 +1763,7 @@ class _ScreenInfo {
                     panelWatts: this.currentLayer.panelWatts,
                     powerMaximize: this.currentLayer.powerMaximize,
                     powerOrganized: this.currentLayer.powerOrganized,
+                    powerNumberOrder: this.currentLayer.powerNumberOrder,
                     powerCustomPath: this.currentLayer.powerCustomPath,
                     powerFlowPattern: this.currentLayer.powerFlowPattern,
                     powerLineWidth: this.currentLayer.powerLineWidth,
@@ -1519,6 +1791,7 @@ class _ScreenInfo {
                     powerSocaSplits: this.currentLayer.powerSocaSplits,
                     powerSocaKeying: this.currentLayer.powerSocaKeying,
                     powerBreakoutType: this.currentLayer.powerBreakoutType,
+                    powerPanelInput: this.currentLayer.powerPanelInput,
                     showSocaBrackets: this.currentLayer.showSocaBrackets,
                     powerSplitters: this.currentLayer.powerSplitters,
                     powerCustomPaths: this.currentLayer.powerCustomPaths,
@@ -1586,6 +1859,39 @@ class _ScreenInfo {
         // _canvasGuardEdit). Every layer commit funnels through here.
         if (typeof this._canvasGuardEdit === 'function' && !this._canvasGuardEdit()) return;
 
+        // Bars the edit left short or long say so; they stay as they are
+        // until the person presses Auto (app-rigging.js).
+        if (typeof this.riggingFitCheck === 'function') this.riggingFitCheck(layers);
+
+        // An older show's kept 2fers that this edit repacked go (app-power
+        // pruneStaleKeptShares), and a screen that loses one rides along.
+        if (typeof this.pruneStaleKeptShares === 'function') {
+            const pruned = this.pruneStaleKeptShares().filter(l => !layers.includes(l));
+            if (pruned.length) layers = layers.concat(pruned);
+        }
+
+        // A wall that shrank: its drawn data ports drop the cabinets that
+        // fell off, a port left with none goes and the ports after it close
+        // up (app-merge-runs.js trimPortsOffWall). A screen whose paths that
+        // touches rides along in this PUT and this undo step.
+        if (typeof this.trimPortsOffWall === 'function') {
+            const trimmed = this.trimPortsOffWall().filter(l => !layers.includes(l));
+            if (trimmed.length) layers = layers.concat(trimmed);
+        }
+
+        // A screen an older show opened locked follows the stacked leftovers
+        // now it is unlocked, in this undo step and ahead of the release
+        // below (app-merge-runs.js followDueLeftovers).
+        if (typeof this.followDueLeftovers === 'function') {
+            const followed = this.followDueLeftovers().filter(l => !layers.includes(l));
+            if (followed.length) layers = layers.concat(followed);
+        }
+
+        // A screen whose ports dropped (it shrank) lets go of the card pins
+        // past its last port, in this undo step (app-merge-runs.js
+        // _releasePinsOffPorts), after the trim's own close-ups.
+        if (typeof this._releasePinsOffPorts === 'function') this._releasePinsOffPorts(layers);
+
         if (saveHistory) {
             this.saveState(historyAction);
         }
@@ -1632,7 +1938,8 @@ class _ScreenInfo {
                 'screenNameOffsetYCabinet',
                 'screenNameOffsetXDataFlow',
                 'screenNameOffsetYDataFlow', 'screenNameOffsetXPower',
-                'screenNameOffsetYPower', 'screenNameOffsetXShowLook',
+                'screenNameOffsetYPower', 'screenNameOffsetXRigging',
+                'screenNameOffsetYRigging', 'screenNameOffsetXShowLook',
                 'screenNameOffsetYShowLook', 'gradientEnabled',
                 'transparentFill', 'rotation', 'gradientType',
                 'gradientScope', 'gradientPanelAlternate',
@@ -1650,10 +1957,11 @@ class _ScreenInfo {
                 'portLabelOverridesReturn', 'customPortPaths',
                 'customPortIndex', 'customPortOverrides',
                 'processorType', 'lowLatency',
-                'bitDepth', 'frameRate', 'portMappingMode',
+                'bitDepth', 'frameRate', 'portMappingMode', 'portNumberOrder',
+                'leftoverFollowDue',
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage',
                 'powerAmperageCustom', 'panelWatts', 'powerMaximize',
-                'powerOrganized', 'powerCustomPath',
+                'powerOrganized', 'powerNumberOrder', 'powerCustomPath',
                 'powerFlowPattern', 'powerLineWidth',
                 'powerLineColor', 'powerArrowColor',
                 'powerRandomColors', 'powerColorCodedView',
@@ -1686,7 +1994,7 @@ class _ScreenInfo {
                 // or the power map loses its home runs.
                 'powerSocaLengths', 'powerSocaPhaseOffset',
                 'powerSocaPhasePos', 'powerSocaDistro', 'powerBreakoutType',
-                'showSocaBrackets', 'powerSplitters',
+                'powerPanelInput', 'showSocaBrackets', 'powerSplitters',
                 // The names typed onto multis, the numbers pinned onto them
                 // (the shared-box key), the circuit boundaries a multi was
                 // split at, and the stamp saying the stores above are keyed
@@ -1713,6 +2021,9 @@ class _ScreenInfo {
                 // moved offsets over the state Ctrl+Z just restored. Same
                 // identity guard updateLayer() takes.
                 if (this.project !== sentProject) return;
+                // A newer edit of this screen is still on its way; its own
+                // reply carries the screen as it now is (_layerHasNewerPut).
+                if (this._layerHasNewerPut(updated.id)) return;
                 const index = this.project.layers.findIndex(l => l.id === updated.id);
                 // Deleted while this request was in flight - there is nothing
                 // to merge into, and stamping a copy we then drop would just
@@ -1848,6 +2159,10 @@ class _ScreenInfo {
         const panelWidthMMVal = readNumber('panel-width-mm').value;
         const panelHeightMMVal = readNumber('panel-height-mm').value;
         const panelWeightVal = readNumber('panel-weight-kg').value;
+        // The panel's name (2026-10-22): what was typed, trimmed - '' clears
+        // the saved panel - or null where the field was not touched.
+        const panelModelNameEl = pick('panel-model-name');
+        const panelModelNameVal = panelModelNameEl ? String(panelModelNameEl.value || '').trim() : null;
         const panelWeightUnitEl = pick('panel-weight-unit');
         const panelWeightUnitVal = panelWeightUnitEl ? panelWeightUnitEl.value : null;
         const imageScaleEl = pick('image-scale');
@@ -1953,7 +2268,7 @@ class _ScreenInfo {
         if (groupMoves) {
             groupMoves.forEach(move => {
                 move.members.forEach(member => {
-                    if (member.locked) {
+                    if (this._layerLocked(member)) {
                         // A locked member stays where it is, and is named.
                         if ((move.dx || move.dy || move.sdx || move.sdy)
                                 && !lockedRefused.includes(member)) {
@@ -1982,7 +2297,7 @@ class _ScreenInfo {
             if (movedByGroup.has(layer.id)) {
                 // its position was set with its group above; the rest of the
                 // fields apply below as for any screen
-            } else if (!layer.locked) {
+            } else if (!this._layerLocked(layer)) {
                 // (a locked screen is put back by the hold anyway; skipping
                 // its offset here keeps the footprint math off it)
                 // Capture whether the show offset is currently linked to the
@@ -2011,6 +2326,30 @@ class _ScreenInfo {
                     layer.imageScale = Math.max(0.01, imageScaleVal);
                 }
             } else {
+                // A hand change of the cabinet's pixels or millimetres means
+                // another panel: the saved one (its library model, name and
+                // halves) is forgotten, so it never names the wrong panel.
+                // Weight and watts edits keep it.
+                const figuresMoved = [['cabinet_width', cabinetWidthVal], ['cabinet_height', cabinetHeightVal],
+                                      ['panel_width_mm', panelWidthMMVal], ['panel_height_mm', panelHeightMMVal]]
+                    .some(([k, v]) => v !== null && Number(layer[k]) !== Number(v));
+                if (figuresMoved && typeof this.hasSavedPanelModel === 'function' && this.hasSavedPanelModel(layer)) {
+                    layer.panelModelId = null;
+                    layer.panelModelName = null;
+                    layer.panelModelHalves = null;
+                }
+                // A typed name names the panel; a library model keeps its
+                // id (its halves' weight and watts still read the library).
+                // Cleared, the screen saves no panel at all.
+                if (panelModelNameVal !== null && panelModelNameVal !== String(layer.panelModelName || '')) {
+                    if (panelModelNameVal) {
+                        layer.panelModelName = panelModelNameVal;
+                    } else {
+                        layer.panelModelId = null;
+                        layer.panelModelName = null;
+                        layer.panelModelHalves = null;
+                    }
+                }
                 if (cabinetWidthVal !== null) layer.cabinet_width = cabinetWidthVal;
                 if (cabinetHeightVal !== null) layer.cabinet_height = cabinetHeightVal;
                 if (columnsVal !== null) layer.columns = Math.round(columnsVal);
@@ -2092,6 +2431,7 @@ class _ScreenInfo {
         if (panelWidthMMVal !== null && document.getElementById('panel-width-mm')) document.getElementById('panel-width-mm').value = panelWidthMMVal;
         if (panelHeightMMVal !== null && document.getElementById('panel-height-mm')) document.getElementById('panel-height-mm').value = panelHeightMMVal;
         if (panelWeightVal !== null && document.getElementById('panel-weight-kg')) document.getElementById('panel-weight-kg').value = panelWeightVal;
+        this._showPanelModelName(targetLayers);
         this._captureScreenInfoBaseline();
         
         // Update port capacity display when panel size changes (screen layers only)
@@ -2181,9 +2521,47 @@ class _ScreenInfo {
             `${ft(wM)} &times; ${ft(hM)} ft &nbsp;&middot;&nbsp; ${wPx} &times; ${hPx} px`;
     }
 
+    // Screen Info with no screen behind it (a project left empty by the
+    // start-up picker's Cancel, or a selection toggled down to nothing):
+    // its fields read blank and take no typing, rather than show the last
+    // screen's figures and drop whatever is typed into them. Only the
+    // controls this switch turned off are turned back on, so a field
+    // disabled for its own reason stays as it was.
+    _screenInfoNoScreen(on) {
+        const panel = document.querySelector('#left-sidebar .tab-panel[data-tab="pixel-map"]');
+        const content = panel && panel.querySelector('.panel-content');
+        if (!content) return;
+        if (!on && !panel.classList.contains('lrd-no-screen')) return;
+        panel.classList.toggle('lrd-no-screen', !!on);
+        content.querySelectorAll('input, select, textarea, button').forEach(el => {
+            if (on) {
+                if (el.disabled) return;
+                el.disabled = true;
+                el.dataset.lrdNoScreen = '1';
+                const type = String(el.type || '').toLowerCase();
+                if (el.tagName === 'INPUT' && (type === 'text' || type === 'number')) {
+                    el.value = '';
+                    el.placeholder = '';
+                }
+            } else if (el.dataset.lrdNoScreen) {
+                delete el.dataset.lrdNoScreen;
+                el.disabled = false;
+            }
+        });
+    }
+
     loadLayerToInputs() {
+        if (typeof this.refreshRiggingPanel === 'function') this.refreshRiggingPanel();
         const layers = this.getSelectedLayers();
-        if (layers.length === 0) return;
+        this._screenInfoNoScreen(layers.length === 0);
+        if (layers.length === 0) {
+            // What follows the selection hides with it: Cmd/Ctrl on the last
+            // selected row or group header left the Names switch up with no
+            // group selected. This pass runs ahead of its own early returns
+            // for that (app-power updatePortCapacityDisplay).
+            if (typeof this.updatePortCapacityDisplay === 'function') this.updatePortCapacityDisplay();
+            return;
+        }
         const primary = this.currentLayer || layers[0];
         // Every read below goes through `primary`, never this.currentLayer:
         // a restore can hand this function a selection with no current
@@ -2373,6 +2751,7 @@ class _ScreenInfo {
         setTextInput('panel-width-mm', getCommon(l => l.panel_width_mm || 500));
         setTextInput('panel-height-mm', getCommon(l => l.panel_height_mm || 500));
         setTextInput('panel-weight-kg', getCommon(l => l.panel_weight || 20));
+        this._showPanelModelName(layers);
         const weightUnitEl = document.getElementById('panel-weight-unit');
         if (weightUnitEl) {
             const unitCommon = getCommon(l => l.weight_unit || 'kg');
@@ -2476,6 +2855,9 @@ class _ScreenInfo {
         }
         if (document.getElementById('show-label-name-power')) {
             setCheckbox('show-label-name-power', getCommon(l => _tabLabel(l, 'showLabelNamePower')));
+        }
+        if (document.getElementById('show-label-name-rigging')) {
+            setCheckbox('show-label-name-rigging', getCommon(l => _tabLabel(l, 'showLabelNameRigging')));
         }
         
         // Load Data Flow settings - with hex fields
@@ -2595,7 +2977,42 @@ class _ScreenInfo {
         const powerRandomColorsCheckbox = document.getElementById('power-random-colors');
         const powerColorCodedViewCheckbox = document.getElementById('power-color-coded-view');
 
-        if (powerVoltageSelect && powerVoltageCustomInput) {
+        // Screens selected together that disagree on a figure read "-" in
+        // its box, as every other Screen Info field does (getCommon) -
+        // never the current screen's figure as if it were everyone's (QA
+        // 1.6.0-beta.4: 20 A and 15 A screens read 20 A). A select shows it
+        // on a disabled "-" option that exists only while the figure is
+        // mixed; picking a real option writes every selected screen.
+        const markMixedSelect = (select, mixed) => {
+            if (!select) return;
+            let opt = select.querySelector('option[data-mixed]');
+            if (!mixed) {
+                if (opt) opt.remove();
+                return;
+            }
+            if (!opt) {
+                opt = document.createElement('option');
+                opt.dataset.mixed = '1';
+                opt.value = '';
+                opt.disabled = true;
+                opt.textContent = '-';
+                select.insertBefore(opt, select.firstChild);
+                // A pick answers it: every selected screen now agrees.
+                select.addEventListener('change', () => opt.remove(), { once: true });
+            }
+            select.value = '';
+        };
+        const voltageCommon = getCommon(l => String(l.powerVoltage ?? 110));
+        const amperageCommon = getCommon(l => String(l.powerAmperage ?? 15));
+        markMixedSelect(powerVoltageSelect, voltageCommon.mixed);
+        markMixedSelect(powerAmperageSelect, amperageCommon.mixed);
+        if (voltageCommon.mixed && powerVoltageCustomInput) {
+            powerVoltageCustomInput.style.display = 'none';
+        }
+        if (amperageCommon.mixed && powerAmperageCustomInput) {
+            powerAmperageCustomInput.style.display = 'none';
+        }
+        if (powerVoltageSelect && powerVoltageCustomInput && !voltageCommon.mixed) {
             const presets = ['110', '208', '220', '230', '240'];
             const currentVoltage = String(primary.powerVoltage ?? 110);
             if (presets.includes(currentVoltage)) {
@@ -2612,8 +3029,8 @@ class _ScreenInfo {
                 powerVoltageCustomInput.value = primary.powerVoltage ?? primary.powerVoltageCustom ?? 110;
             }
         }
-        if (powerAmperageSelect && powerAmperageCustomInput) {
-            const presets = ['15', '20'];
+        if (powerAmperageSelect && powerAmperageCustomInput && !amperageCommon.mixed) {
+            const presets = ['15', '16', '20'];
             const currentAmp = String(primary.powerAmperage ?? 15);
             if (presets.includes(currentAmp)) {
                 powerAmperageSelect.value = currentAmp;
@@ -2625,7 +3042,7 @@ class _ScreenInfo {
             powerAmperageCustomInput.value = primary.powerAmperageCustom ?? primary.powerAmperage ?? 15;
         }
         if (powerPanelWattsInput) {
-            powerPanelWattsInput.value = primary.panelWatts ?? 200;
+            setTextInput('power-panel-watts', getCommon(l => l.panelWatts ?? 200));
         }
         if (powerLineWidthInput) {
             powerLineWidthInput.value = primary.powerLineWidth ?? 8;
@@ -2645,6 +3062,7 @@ class _ScreenInfo {
         if (powerCustomToggle) {
             powerCustomToggle.checked = primary.powerFlowPattern === 'custom';
         }
+        this.syncPowerNumberOrder(primary);
         if (powerRandomColorsCheckbox) {
             powerRandomColorsCheckbox.checked = !!primary.powerRandomColors;
         }
@@ -2744,6 +3162,9 @@ class _ScreenInfo {
         if (document.getElementById('screen-name-size-power')) {
             document.getElementById('screen-name-size-power').value = primary.screenNameSizePower || 30;
         }
+        if (document.getElementById('screen-name-size-rigging')) {
+            document.getElementById('screen-name-size-rigging').value = primary.screenNameSizeRigging || 30;
+        }
         
         const normalizeColorObject = (value, fallbackHex) => {
             const fallback = this.hexToRgb(fallbackHex);
@@ -2790,12 +3211,26 @@ class _ScreenInfo {
         // v0.8.7.8: sync the gradient editor to the (now current) layer.
         if (typeof this.loadGradientEditor === 'function') this.loadGradientEditor();
         if (typeof this.loadPaletteEditor === 'function') this.loadPaletteEditor();
+        if (typeof this.loadQuickPalettes === 'function') this.loadQuickPalettes();
         this._captureScreenInfoBaseline();
     }
 
     // What Screen Info shows right now, input by input: the baseline that
     // updateLayerFromInputs compares against to tell an edited field from one
     // merely on display. Taken after every fill and every applied edit.
+    // The Panel field (2026-10-22): the saved panel's name, blank on a
+    // mixed selection and with none saved: the pull sheet then prints no
+    // panel row, so no name stands in for it.
+    _showPanelModelName(layers) {
+        const el = document.getElementById('panel-model-name');
+        if (!el) return;
+        const screens = (layers || []).filter(l => l && (l.type || 'screen') === 'screen');
+        const names = [...new Set(screens.map(l => String(l.panelModelName || '')))];
+        if (names.length > 1) { el.value = ''; el.placeholder = '-'; return; }
+        el.value = names[0] || '';
+        el.placeholder = '';
+    }
+
     _captureScreenInfoBaseline() {
         const shown = new Map();
         document.querySelectorAll('input[id], select[id], textarea[id]').forEach(el => {

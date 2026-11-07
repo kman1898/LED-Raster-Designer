@@ -132,9 +132,7 @@ def own_ports(device, mode_id=None):
     40-port mode: 20 RJ45s, and 21-40 only through boxes on OPT 3/4. None
     where every port of the mode is the device's own (every other device).
     Read off the catalog mode's `ownPorts` and nothing else."""
-    modes = ((device or {}).get('ports') or {}).get('modes') or []
-    chosen = mode_id or ((device or {}).get('ports') or {}).get('defaultMode')
-    mode = next((m for m in modes if m.get('id') == chosen), None)
+    mode = mode_entry(device, mode_id)
     n = (mode or {}).get('ownPorts')
     return n if isinstance(n, int) and n > 0 else None
 
@@ -160,16 +158,38 @@ def card_is_unit_face(card, proc):
     return bool((card or {}).get('fixed'))
 
 
+def card_slot_title(card, proc):
+    """What an unnamed card on a card-based processor is called: "Card 3"
+    for the card in slot 3, counted by the slot it sits in, so the slots
+    before it may be empty (owner, 2026-10-29: "we should show it as Card
+    1, 2, 3 etc instead of H_16 which gets confusing"). '' on every other
+    processor - an SX40, an S8, an SQ200's QD-S never say card - and for a
+    card in no slot. Works on raw and resolved trees alike. The client's
+    cardShortName, mirrored."""
+    if not card or not is_card_based(get_device((proc or {}).get('deviceId'))):
+        return ''
+    for slot in (proc or {}).get('slots') or []:
+        held = (slot or {}).get('card')
+        if held is card or (held and held.get('id') == card.get('id')):
+            try:
+                return f'Card {int(slot.get("index") or 0) + 1}'
+            except (TypeError, ValueError):
+                return ''
+    return ''
+
+
 def card_display_name(card, proc):
     """The name a card goes by in a message or a tag: its own typed name on
     a chassis, the unit's name for a one-box's fixed card, else its unit
-    title where the catalog words one (a QD-S is "QD 1" on OUT 1), else the
+    title where the catalog words one (a QD-S is "QD 1" on OUT 1), else
+    "Card N" on a card-based processor (card_slot_title), else the
     model."""
     if card_is_unit_face(card, proc):
         typed = ((proc or {}).get('name') or '').strip()
     else:
         typed = ((card or {}).get('name') or '').strip()
     return typed or card_unit_title(card, proc) \
+        or card_slot_title(card, proc) \
         or (card or {}).get('deviceName') \
         or (get_device((card or {}).get('deviceId')) or {}).get('name') \
         or (card or {}).get('id') or ''
@@ -222,6 +242,114 @@ def cards_for(chassis_device):
 
 # ── Port counts ───────────────────────────────────────────────────────────
 
+def mode_entry(device, mode_id=None):
+    """The catalog mode a stored mode id names - by its id, or by one of
+    the ids it replaced (`aliases`) - else None. `mode_id` None is the
+    device's default mode.
+
+    An alias is how a mode that was split or renamed keeps old files
+    opening as they behaved: the H_4xfiber's combined "copy-backup" mode
+    became NovaStar's separate Copy and Backup modes on 2026-10-30, and a
+    card saved as copy-backup ran as Backup (OPT 3/4 backing up OPT 1/2), so
+    "copy-backup" is an alias of "backup". The enhanced card's single
+    "default" mode is an alias of its Backup mode the same way."""
+    ports = (device or {}).get('ports') or {}
+    modes = ports.get('modes') or []
+    chosen_id = mode_id or ports.get('defaultMode')
+    hit = next((m for m in modes if m.get('id') == chosen_id), None)
+    if hit is None and chosen_id:
+        hit = next((m for m in modes
+                    if chosen_id in (m.get('aliases') or [])), None)
+    return hit
+
+
+def canonical_mode(device, mode_id):
+    """`mode_id` as the catalog's current id for it - an alias read as the
+    mode it names - or the id unchanged where the catalog has no mode of
+    that id or alias (nothing is guessed for an unknown mode)."""
+    hit = mode_entry(device, mode_id) if mode_id else None
+    return hit['id'] if hit else mode_id
+
+
+def copy_trunks(device, mode_id=None):
+    """What the copy trunks of one device's chosen mode carry, where the
+    catalog's mode says: 'mirror' (the copies feed a mirror screen - the
+    H_4xfiber and its enhanced card in Copy mode, a VX Pro or the VX1000
+    in Copy, the MX30 and MX20, whose sheets say "copy channel" only),
+    'backup' (they back up the primaries - both cards, the VX Pros and the
+    VX1000 in Backup mode, the MCTRL660 Pro), 'per-box' (each box on one
+    is set Mirror or Backup - the MX40 Pro in 20-port mode, owner 2026-10-30: "Either, you pick"; the
+    NovaPro UHD and UHD Jr, the MCTRL R5 and MCTRL4K, whose own documents
+    say both), else None. Every entry quotes its source in modesNote or
+    copyTrunksNote. A copy trunk is a trunk past the mode's blocks of
+    ports: OPT 3/4 of a 16-port H_4xfiber, OPT 5-8 of an enhanced one,
+    OPT 3/4 of a 20-port MX40 Pro or a NovaPro UHD, OPT 2 of a VX1000 Pro.
+    Read off the catalog mode's `copyTrunks` and nothing else, so no other
+    product gains a mirror by resemblance."""
+    kind = (mode_entry(device, mode_id) or {}).get('copyTrunks')
+    return kind if kind in ('mirror', 'backup', 'per-box') else None
+
+
+def plug_choice_ports(device):
+    """How many of a device's own RJ45 ports its OPTs also carry, where the
+    catalog documents that BOTH places get used and each port plugs in at
+    one of them (`plugChoice`) - 20 on the MX40 Pro, 16 on the
+    H_16xRJ45+2xfiber - else None. Only those two: the MX40 Pro manual
+    states it ("You can use the optical port alongside the physical
+    Ethernet port") and the owner has done it on the H card."""
+    n = ((device or {}).get('plugChoice') or {}).get('ports')
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 \
+        else None
+
+
+def ethernet_ports(card, device=None):
+    """The ports of one card stored as plugged in at the card's (or the
+    unit's) own RJ45 rather than at the breakout box on the OPT that
+    carries them - card['ethernetPorts'], a sorted list of card-wide
+    numbers. Absent is none: every covered port plugs in at its box, which
+    is what the app always drew, so no saved show moves. Only numbers
+    within the device's plugChoice count; on any other device it is
+    empty."""
+    if device is None:
+        device = get_device((card or {}).get('deviceId')) or {}
+    limit = plug_choice_ports(device)
+    if not limit:
+        return []
+    out = set()
+    for raw in (card or {}).get('ethernetPorts') or []:
+        if isinstance(raw, bool):
+            continue
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= n <= limit:
+            out.add(n)
+    return sorted(out)
+
+
+def migrate_card_modes(project):
+    """Rewrite every card mode stored under an alias to the mode it names
+    (mode_entry) - an H_4xfiber saved as "copy-backup" becomes "backup", an
+    enhanced H_4xfiber's "default" becomes "backup" - so a saved file opens
+    behaving as it did and saves back in the current words. Runs where a
+    whole project enters server state (the routes_project funnels), never
+    on a read. Idempotent. Returns one record per card it touched."""
+    moved = []
+    for proc in (project or {}).get('processors') or []:
+        for slot in (proc or {}).get('slots') or []:
+            card = (slot or {}).get('card')
+            if not card or not card.get('mode'):
+                continue
+            device = get_device(card.get('deviceId'))
+            new = canonical_mode(device, card['mode'])
+            if new and new != card['mode']:
+                moved.append({'cardId': card.get('id'),
+                              'from': card['mode'], 'to': new})
+                card['mode'] = new
+    return moved
+
+
 def port_capacity(device_id, mode=None, redundancy=False):
     """Resolve one device's port ceiling.
 
@@ -236,9 +364,8 @@ def port_capacity(device_id, mode=None, redundancy=False):
         return {'count': None, 'known': False, 'mode': None,
                 'reason': f'unknown device: {device_id}'}
     ports = device.get('ports') or {}
-    modes = ports.get('modes') or []
-    chosen_id = mode or ports.get('defaultMode')
-    chosen = next((m for m in modes if m.get('id') == chosen_id), None)
+    chosen = mode_entry(device, mode)
+    chosen_id = chosen['id'] if chosen else (mode or ports.get('defaultMode'))
 
     if ports.get('unknown'):
         return {'count': None, 'known': False, 'mode': chosen_id,
@@ -344,18 +471,39 @@ def canvas_limit_text(spec, ull=False):
             f'{spec["maxH"]:,} px tall.')
 
 
-def canvas_fit(device, width, height, ull=False, title=None, present=False):
+def canvas_span_screens(screens):
+    """The screens that make up a span, said: "A and B", or, where they sit
+    on more than one canvas, "A (Canvas 2) and B (Canvas 1)" - the span is
+    measured across canvases (one processor input takes them all), and the
+    canvases are what make that surprising (owner, 2026-11-04). `screens`
+    is [(name, canvas name or None), ...] in screen order. Returns (text,
+    plural); ('its screens', True) where none are known."""
+    pairs = [(str(n), c) for n, c in (screens or []) if n not in (None, '')]
+    if not pairs:
+        return 'its screens', True
+    canvases = {c for _n, c in pairs if c}
+    named = [f'{n} ({c})' if len(canvases) > 1 and c else n for n, c in pairs]
+    text = named[0] if len(named) == 1 \
+        else ', '.join(named[:-1]) + ' and ' + named[-1]
+    return text, len(named) > 1
+
+
+def canvas_fit(device, width, height, ull=False, title=None, present=False,
+               screens=None):
     """None where a span of width x height px fits the device's canvas, else
-    the sentence that refuses it: "SX40 S1 can't take this: its
-    screens would span 4352 × 2160 px. An SX40's canvas is ...". `present`
-    words it for a show already past the canvas ("its screens span").
-    `ull` is the processor's Ultra Low Latency (any screen it drives)."""
+    the sentence that refuses it: "SX40 S1 can't take this: A and B would
+    span 4352 × 2160 px. An SX40's canvas is ...". `screens` names the
+    screens that make up the span (canvas_span_screens; "its screens" where
+    none are given). `present` words it for a show already past the canvas
+    ("A and B span"). `ull` is the processor's Ultra Low Latency (any
+    screen it drives)."""
     spec = canvas_spec(device)
     if not spec or canvas_fits(spec, width, height, ull):
         return None
     who = title or (device or {}).get('name') or 'This processor'
-    verb = 'span' if present else 'would span'
-    return (f'{who} can\'t take this: its screens {verb} '
+    what, plural = canvas_span_screens(screens)
+    verb = ('span' if plural else 'spans') if present else 'would span'
+    return (f'{who} can\'t take this: {what} {verb} '
             f'{canvas_extent(width)} × {canvas_extent(height)} px. '
             f'{canvas_limit_text(spec, ull)}')
 
@@ -558,6 +706,35 @@ def across_partner(card, proc):
     return None
 
 
+def mixed_redundancy_refusal(proc):
+    """Why `proc` cannot hold the bar's MIXED level, or None where it can.
+
+    The owner (2026-10-29): "sometimes on say H series i have 3 16 port
+    cards. and i want card 1 and 2 to be primary and backup but then card 3
+    i want port level backup." Mixed lets each card of ONE chassis pick its
+    own kind - 1:1 onto a partner card, or a port shape of its own - so it
+    is offered only where there is more than one slot to mix. A standalone
+    unit is its one card, and a unit whose vendor fixes the pairing (an
+    SQ200's loops, Brompton's adjacent pairs) has no kind to pick at all.
+    """
+    device = get_device((proc or {}).get('deviceId')) or {}
+    name = device.get('name', 'This processor')
+    if not is_chassis(device) or len((proc or {}).get('slots') or []) < 2:
+        return (f'{name} is one unit - Mixed is for a chassis with more '
+                f'than one slot.')
+    if ((device.get('redundancy') or {}).get('pairing')) == 'adjacent':
+        return (f'{name} pairs its outputs itself - there is nothing to '
+                f'mix.')
+    for slot in (proc or {}).get('slots') or []:
+        card = (slot or {}).get('card')
+        cdev = get_device((card or {}).get('deviceId')) or {}
+        if ((cdev.get('redundancy') or {}).get('pairing')) == 'adjacent':
+            return (f'Slot {(slot.get("index") or 0) + 1}: '
+                    f'{cdev.get("name", "this card")} pairs its outputs '
+                    f'itself - there is nothing to mix.')
+    return None
+
+
 def across_pairing(proc, device, cards):
     """The SQ200's loop statement, from how many QD-S are fitted (`cards`,
     resolved, in slot order), or None with redundancy off or on a device
@@ -725,6 +902,18 @@ def default_backup_pair(card):
     if device.get('trunkDelivery') == 'copy':
         # The trunks copy the card's own copper: a box there is another place
         # to plug into ports the card already delivers, not a backup unit.
+        # The NovaPro UHDs' OPT 3/4 are copy/hot backup channels a box there
+        # may be set to (copyTrunks 'per-box'), and the VX Pros, VX1000,
+        # MCTRL660 Pro, R5 and 4K back up the same way, but a box on a
+        # primary OPT still comes alone: no ruling makes it bring a second
+        # box.
+        return False
+    # IN COPY MODE THE COPY TRUNKS ARE NOT BACKUPS (NovaStar, 2026-10-30:
+    # "OPT 3 copies the output on OPT 1") - they feed a mirror screen, so a
+    # box there is a box of its own, added when somebody wants the mirror.
+    # A per-box mode (the MX40 Pro's 20-port) still pairs; the add asks
+    # whether the pair's second box is a Mirror or a Backup.
+    if copy_trunks(device, card.get('mode')) == 'mirror':
         return False
     ceiling = port_capacity(card.get('deviceId'), card.get('mode'))['count']
     per_trunk = device.get('portsPerTrunk')
@@ -812,7 +1001,8 @@ def can_add_cvt(card, device_id, inputs=None):
     free = trunks - trunks_used(card)
     if need > free:
         if free <= 0:
-            return False, (f'All {trunks} trunks on {name} are used. Remove a '
+            every = 'Both' if trunks == 2 else f'All {trunks}'
+            return False, (f'{every} trunks on {name} are used. Remove a '
                            f'box before adding another.')
         return False, (f'{box.get("name", device_id)} takes {need} trunks and '
                        f'{name} has {free} left.')
@@ -831,6 +1021,11 @@ def _fills_the_card(card_device, ceiling):
     trunks = card_device.get('trunks') or 0
     if not trunks or not ceiling:
         return []
+    # Only the primary OPTs carry ports of their own: an enhanced
+    # H_4xfiber's OPT 5-8 copy OPT 1-4, so a box is judged on four.
+    per = card_device.get('portsPerTrunk')
+    if per and ceiling >= per:
+        trunks = min(trunks, (ceiling + per - 1) // per)
     out = []
     for box in devices('cvt'):
         if vendor_mismatch(card_device, box) or box.get('legacy'):
@@ -891,6 +1086,114 @@ def _cvt_port_count(cvt_device, card_device, takes=None):
 
 
 # ── The project model ─────────────────────────────────────────────────────
+
+def box_input_numbers(cvt_device, index, takes, block_count, per_trunk,
+                      ceiling, mirrored=False):
+    """The card ports a box on `takes` OPTs from `index` delivers, socket
+    by socket: each input fans out the first ports of ITS OPT, as many as
+    the box gives an input (single_input's documented share - the
+    CVT4K-S's 8 - else its nameplate over its inputs).
+
+    Owner, 2026-11-02: "If you use a CVT 10 with a 16 port card or
+    processor, you only get eight ports" and "Much the same if you use a
+    CVT 4K with a VX1000, which does 10 ports, you can only use eight of
+    them". So a CVT4K-S on two 10-port OPTs gives 1-8 and 11-18, never
+    1-16: OPT 1's ports 9-10 do not reach it. On 8-port OPTs (an
+    H_4xfiber, a NovaPro UHD) that is 1-8 and 9-16, as it always read.
+    Those are CARD ports. The box's own outputs are locked to its inputs
+    (owner, 2026-11-03: "the cvt 1-8 is locked to opt 1 always" -
+    input_outputs): input 2 starts at output 9 even where input 1's OPT
+    fills only 1-4 (a VX400 Pro) or 1-6 (a VX600 Pro, an MX20).
+
+    A box STRADDLING a mode's main OPTs and its copy OPTs (a CVT4K-S on
+    OPT 1-2 of a VX1000, whose OPT 2 copies OPT 1) takes its ports from the
+    inputs on its first one's side only; each input across the split
+    carries a copy of the ports its OPT copies (owner, 2026-11-02: input 2
+    "carries the BACKUP of those same ports on outputs 9-16", or a mirror
+    where the mode or the box says Mirror). Returned apart, as
+    (ports, across): `across` the copied ports, on the sockets after
+    `ports`. `mirrored`: the box feeds a mirror screen, numbered past the
+    mode's count as resolve_card does; `across_mirrored` the same for the
+    inputs across the split.
+
+    WHICH OUTPUTS each input feeds is box_input_layout's: on a box whose
+    outputs are locked to its inputs (input_outputs - the CVT4K-S) an
+    input on an OPT carrying fewer ports leaves the rest of its outputs
+    empty, and the next input still starts where its outputs start."""
+    return _box_input_numbers(cvt_device, index, takes, block_count,
+                              per_trunk, ceiling, mirrored)[0]
+
+
+def box_input_split(cvt_device, index, takes, block_count, per_trunk,
+                    ceiling, mirrored=False, across_mirrored=False):
+    """box_input_numbers' ports and the ports its inputs across the main /
+    copy split carry copies of, (ports, across)."""
+    return _box_input_numbers(cvt_device, index, takes, block_count,
+                              per_trunk, ceiling, mirrored,
+                              across_mirrored)[:2]
+
+
+def box_input_layout(cvt_device, index, takes, block_count, per_trunk,
+                     ceiling, mirrored=False, across_mirrored=False):
+    """box_input_split's (ports, across) and, beside each, where it sits on
+    the box: (input, place) - the box's input it comes in on (0 first) and
+    its place among that input's outputs (0 first). input_sockets turns
+    those into the numbers on the box's face."""
+    return _box_input_numbers(cvt_device, index, takes, block_count,
+                              per_trunk, ceiling, mirrored, across_mirrored)
+
+
+def input_outputs(cvt_device):
+    """How many of a box's outputs are LOCKED to each of its inputs, or
+    None where its outputs simply follow on from one input to the next.
+
+    Owner, 2026-11-03: "the cvt 1-8 is locked to opt 1 always" - a
+    CVT4K-S's outputs 1-8 belong to input 1 and input 2 always starts at
+    output 9, whatever feeds it. So on 4-port OPTs (a VX400 Pro) the main
+    OPT is outputs 1-4 and the copy or backup OPT 9-12, 5-8 empty; on
+    6-port OPTs (a VX600 Pro, an MCTRL660 Pro, an MX20) 1-6 and 9-14; on
+    8- or 10-port OPTs 1-8 and 9-16 as it always read. A rule of that box
+    alone: only a catalog entry stating it (inputOutputs) has it."""
+    n = (cvt_device or {}).get('inputOutputs')
+    if isinstance(n, bool) or not isinstance(n, int) or n <= 0:
+        return None
+    return n
+
+
+def input_sockets(cvt_device, places, start=1):
+    """The box's own output numbers for ports at `places` ((input, place)
+    pairs, box_input_layout): locked to their input where the box says so
+    (input_outputs), else one after another from `start`."""
+    lock = input_outputs(cvt_device)
+    if lock:
+        return [k * lock + j + 1 for k, j in places]
+    return list(range(start, start + len(places)))
+
+
+def _box_input_numbers(cvt_device, index, takes, block_count, per_trunk,
+                       ceiling, mirrored=False, across_mirrored=False):
+    full = trunks_in(cvt_device) or 1
+    single = single_input(cvt_device) or {}
+    count = port_capacity(cvt_device.get('id'))['count'] or 0
+    per_input = single.get('ports') or (count // full)
+    copy_side = index >= block_count
+    out, across = [], []
+    out_at, across_at = [], []
+    for t in range(index, index + takes):
+        mine = (t >= block_count) == copy_side
+        block = t % block_count
+        lo = block * per_trunk + 1
+        hi = (block + 1) * per_trunk
+        if ceiling:
+            hi = min(hi, ceiling)
+        shifted = mirrored if mine else across_mirrored
+        offset = ceiling * (t // block_count) if shifted and ceiling else 0
+        n = max(0, min(per_input, hi - lo + 1))
+        (out if mine else across).extend(range(lo + offset, lo + offset + n))
+        (out_at if mine else across_at).extend(
+            (t - index, j) for j in range(n))
+    return out, across, out_at, across_at
+
 
 def new_processor(device_id, seq, name=''):
     """Build a processor node. A chassis gets one empty slot per documented
@@ -1053,6 +1356,14 @@ def sync_next_processor_seq(project):
 #
 #   node['portCables'] = {str(socket): {ft?, connector?}}
 #
+# A box backing up its OWN outputs (a CVT4K-S straddling a VX1000's OPT 1
+# and its copy, ports 1-8 out on 1-8 and their backup on 9-16) carries
+# each port twice: the backup output is a cable of its own, with its own
+# length - "of course it will have its own extension" (owner, 2026-11-03).
+# Both ends share the card-wide number, so the backup output's cable is
+# keyed 'r<socket>' ('r1' is the backup of port 1) in the same store
+# (port_cable_socket reads either key).
+#
 # A SNAKE is no longer one of those stores. "Any sockets, any device"
 # (user, 2026-09-09): one snake carries A-1..A-4 and B-1..B-4 together, so
 # it belongs to the SHOW and names its members (project['snakes'] - see the
@@ -1071,10 +1382,12 @@ def sync_next_processor_seq(project):
 # need an extension" (2026-09-07) - the same shape as power's per-circuit
 # cable under a multi. ``connector`` null means "follows the port" - the
 # connector the catalog documents for the device the port comes out of
-# (data_port_connector), and NOTHING where the catalog is silent: a
-# reading that guessed copper for an undocumented box would be a hardware
-# assumption, so it prints the length alone instead. A snake's way count
-# is whatever was put in it - no 4/6/12-way shapes are assumed.
+# (data_port_connector): "etherCON" where that device's outputs are
+# etherCON, "Cat6" where they are plain RJ45 or nobody documented them
+# (owner, 2026-10-21: one word for a data home run on every surface). A
+# box answers for itself alone - it never borrows its card's or its
+# processor's connector. A snake's way count is whatever was put in it -
+# no 4/6/12-way shapes are assumed.
 #
 # Fiber is NOT a port's or a snake's connector: "panels dont take fiber.
 # what would take fiber is processor to breakout box" (2026-09-07). The
@@ -1085,14 +1398,19 @@ def sync_next_processor_seq(project):
 # resolved_show_snakes).
 
 DATA_CABLE_CONNECTORS = (
-    {'id': 'cat', 'name': 'CAT'},
+    {'id': 'cat', 'name': 'Cat6'},
+    {'id': 'ethercon', 'name': 'etherCON'},
 )
 
+# The cable a port takes where its device documents nothing: plain Cat6.
+DEFAULT_DATA_CABLE_CONNECTOR = 'cat'
+
 # The catalog's connector words, mapped to the cable connector they imply.
-# Only documented copper maps: 'rj45' is CAT. A fiber-kind card's loose
-# ports follow nothing - the plug on a panel lead off a fiber card is not
-# documented, so no plug is guessed.
-_PORT_KIND_CONNECTOR = {'rj45': 'cat'}
+# A device states its outputs with ``connector`` in processor_catalog.json:
+# 'ethercon' for etherCON outputs, 'rj45' for plain RJ45. Anything else
+# (a fiber card's 'fiber', or no key at all) maps to nothing here and the
+# port reads the default, Cat6.
+_PORT_KIND_CONNECTOR = {'rj45': 'cat', 'ethercon': 'ethercon'}
 
 SNAKE_NAME_PREFIX = 'SNAKE '
 
@@ -1105,19 +1423,22 @@ def data_cable_connector_ids():
     return [c['id'] for c in DATA_CABLE_CONNECTORS]
 
 
-def data_port_connector(cvt_device, card_device, proc_device):
+def data_port_connector(cvt_device, card_device, proc_device, box=False):
     """The cable connector a port FOLLOWS, from the catalog alone.
 
-    The nearest device downstream that documents a ``connector`` answers:
-    the breakout box the port comes out of, else the card, else the
-    processor. None where none of them says - the reading then carries no
-    connector name rather than an invented one.
+    A port a breakout box delivers (``box`` true) follows the BOX alone:
+    a CVT4K-S under an RJ45 card does not take the card's plug, so a box
+    that documents nothing reads the default. A port on the card's own
+    face follows the card, else the processor. Where nothing documented
+    answers, the default - Cat6 (owner, 2026-10-21: "Cat6" when it's
+    plain RJ45 or unknown).
     """
-    for device in (cvt_device, card_device, proc_device):
+    chain = (cvt_device,) if box else (card_device, proc_device)
+    for device in chain:
         kind = (device or {}).get('connector')
         if kind in _PORT_KIND_CONNECTOR:
             return _PORT_KIND_CONNECTOR[kind]
-    return None
+    return DEFAULT_DATA_CABLE_CONNECTOR
 
 
 def _snake_letter_name(taken, prefix=SNAKE_NAME_PREFIX):
@@ -1137,6 +1458,25 @@ def _snake_letter_name(taken, prefix=SNAKE_NAME_PREFIX):
         if name not in taken:
             return name
         n += 1
+
+
+def port_cable_socket(key):
+    """The card-wide socket a ``portCables`` key names, or None: '3' is
+    socket 3, 'r3' the backup output of socket 3 on a box that backs up its
+    own outputs (the module comment above)."""
+    text = str(key).strip()
+    if text[:1] == 'r':
+        text = text[1:]
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _port_cable_key(key):
+    """A ``portCables`` key as stored: '3', or 'r3' for a backup output."""
+    n = port_cable_socket(key)
+    return f'r{n}' if str(key).strip()[:1] == 'r' else str(n)
 
 
 def _cable_ft(value):
@@ -1224,9 +1564,8 @@ def check_cable_store(data, port_numbers, what='card', unit='ft'):
         if not isinstance(cables, dict):
             return 'portCables must be an object keyed by socket number.'
         for key, rec in cables.items():
-            try:
-                n = int(key)
-            except (TypeError, ValueError):
+            n = port_cable_socket(key)
+            if n is None:
                 return f'portCables: {key!r} is not a socket number.'
             if n not in allowed:
                 return (f'portCables: there is no socket {n} on this {what}'
@@ -1292,7 +1631,7 @@ def apply_cable_store(node, data, port_numbers, next_seq):
                 cable['ft'] = ft
             if conn is not None:
                 cable['connector'] = conn
-            out[str(int(key))] = cable
+            out[_port_cable_key(key)] = cable
         if out:
             node['portCables'] = out
         else:
@@ -1311,13 +1650,10 @@ def prune_cable_store(node, port_numbers):
     allowed = set(int(n) for n in port_numbers)
     cables = {}
     for key, rec in (node.get('portCables') or {}).items():
-        try:
-            n = int(key)
-        except (TypeError, ValueError):
+        n = port_cable_socket(key)
+        if n is None or n not in allowed or not rec:
             continue
-        if n not in allowed or not rec:
-            continue
-        cables[str(n)] = rec
+        cables[_port_cable_key(key)] = rec
     if cables:
         node['portCables'] = cables
     else:
@@ -1354,10 +1690,14 @@ def forget_port_cables(processors, sockets):
     for card_id, n in sorted(wanted):
         node = raw.get(delivers.get((card_id, n)) or card_id)
         cables = (node or {}).get('portCables')
-        if not isinstance(cables, dict) or str(n) not in cables:
+        if not isinstance(cables, dict):
             continue
-        cables.pop(str(n))
-        dropped += 1
+        # the socket's own cable, and its backup output's on a box that
+        # backs up its own outputs
+        for key in (str(n), f'r{n}'):
+            if key in cables:
+                cables.pop(key)
+                dropped += 1
         if not cables:
             node.pop('portCables', None)
     return dropped
@@ -1421,8 +1761,9 @@ def snake_device_index(processors):
     Returns (devices, delivers):
       devices  {(kind, id): {'sockets', 'title', 'cardId', 'procId', 'order'}}
       delivers {(cardId, socket): boxId} - the box a reader is routed to
-               for that socket (the FIRST box carrying it, resolve_card's
-               own order, which is what _dataPortOwner picks).
+               for that socket (the box DELIVERING it, the port's cvtId -
+               never a backup box carrying it again - which is what
+               _dataPortOwner picks).
     """
     devices = {}
     delivers = {}
@@ -1450,8 +1791,9 @@ def snake_device_index(processors):
                     'order': order,
                 }
                 order += 1
-                for n in nums:
-                    delivers.setdefault((card['id'], n), box['id'])
+            for p in card.get('ports') or []:
+                if p.get('cvtId'):
+                    delivers.setdefault((card['id'], p['number']), p['cvtId'])
     return devices, delivers
 
 
@@ -1636,6 +1978,12 @@ def prune_show_snakes(project, processors=None):
                     continue
                 box = delivers.get((device['cardId'], socket))
                 home = ('cvt', box) if box else ('card', device['cardId'])
+                # A box that carries the socket keeps it: a loop box on a
+                # copy OPT set to Backup carries its main's card-wide
+                # numbers, and its own snake is the backup's loom, never
+                # the main box's.
+                if member['kind'] == 'cvt':
+                    home = ('cvt', member['id'])
                 at_home = (member['kind'], member['id']) == home
                 if at_home != (pas == 0):
                     continue
@@ -1652,6 +2000,13 @@ def prune_show_snakes(project, processors=None):
         if not members:
             continue
         snake['members'] = members
+        # ONE STORED SHAPE: an unset length or connector is no key at
+        # all (store_show_snake), never a null a file carried in - so a
+        # show saves the same whatever order it was opened in.
+        if snake.get('ft') is None:
+            snake.pop('ft', None)
+        if _stored_connector(snake) is None:
+            snake.pop('connector', None)
         out.append(snake)
     if out:
         project['snakes'] = out
@@ -1798,6 +2153,77 @@ BIDI_VENDORS = ('NovaStar', 'Megapixel')
 _FIBER_NAME_PREFIX = {'tac': 'TAC ', 'mtp': 'MTP ',
                       'opticalcon-duo': 'DUO ', 'opticalcon-quad': 'QUAD '}
 
+# SINGLE MODE AND MULTIMODE (owner, 2026-11-04: "We need to add single mode
+# and multi mode for the fiber. so 10-s and 10-m same with the pro models
+# and 4k ones. if the M variants are selected then the fiber will be
+# multimode yes"). A box's mode is its catalog entry's `fiberMode`, set only
+# on the NovaStar models whose sheets name both versions (CVT10-S / -M,
+# CVT10 Pro-S / -M, CVT4K-S / -M); every other box states none and none is
+# inferred. The words are the owner's: "Single mode" and "Multimode". The
+# JS twin is app-fiber.js FIBER_MODE_WORDS.
+FIBER_MODES = {'single': 'Single mode', 'multi': 'Multimode'}
+
+
+def box_fiber_mode(cvt_device):
+    """'single' or 'multi' where the box's catalog entry says which, else
+    None."""
+    mode = (cvt_device or {}).get('fiberMode')
+    return mode if mode in FIBER_MODES else None
+
+
+def fiber_mode_word(mode, lower=False):
+    """'Single mode' / 'Multimode' ('single mode' / 'multimode' mid
+    sentence); '' for a mode nobody stated."""
+    word = FIBER_MODES.get(mode, '')
+    return word.lower() if lower else word
+
+
+def fiber_mode_refusal(cable_name, title, mode, other_title, other_mode):
+    """Why a box of one mode cannot take a cable a box of the other mode is
+    on, said plainly. The JS twin is app-fiber.js fiberModeRefusalText; a
+    test pins that the two read the same."""
+    return (f'{cable_name} carries {fiber_mode_word(other_mode, True)} fiber '
+            f'to {other_title}, and {title} is a '
+            f'{fiber_mode_word(mode, True)} box. Single mode and multimode '
+            f'never share a fiber cable.')
+
+
+def fiber_cable_mode_clash(boxes, box_id, cable_id):
+    """The first box (in tree order) whose link is on `cable_id` and whose
+    mode is the other one from `box_id`'s - (entry, mode) - else None. A
+    box with no stated mode clashes with nothing, and nothing clashes with
+    it: no mode is inferred."""
+    entry = boxes.get(box_id)
+    if entry is None:
+        return None
+    mine = box_fiber_mode(get_device(entry['res'].get('deviceId')))
+    if not mine:
+        return None
+    for bid, other in sorted(boxes.items(), key=lambda kv: kv[1]['order']):
+        if bid == box_id:
+            continue
+        theirs = box_fiber_mode(get_device(other['res'].get('deviceId')))
+        if not theirs or theirs == mine:
+            continue
+        if any(link.get('cable') == cable_id
+               for link in resolved_fiber_links(other['raw']).values()):
+            return other, theirs
+    return None
+
+
+def fiber_cable_mode(boxes, cable_id):
+    """The mode of the fiber a cable carries: the stated mode of the boxes
+    whose links take it, else None (no box with a mode on it). Boxes of
+    both modes never share a cable (check_fiber_link refuses it), so the
+    first stated mode in tree order is the cable's."""
+    for _bid, entry in sorted(boxes.items(), key=lambda kv: kv[1]['order']):
+        mode = box_fiber_mode(get_device(entry['res'].get('deviceId')))
+        if mode and any(link.get('cable') == cable_id
+                        for link in resolved_fiber_links(entry['raw'])
+                        .values()):
+            return mode
+    return None
+
 
 def fiber_bidi_allowed(cvt_device):
     """Whether this box can run BiDi: its vendor is one BiDi is offered for,
@@ -1926,24 +2352,117 @@ def fiber_cable_strand_count(cable):
         else 0
 
 
-def fiber_cable_type_text(cable):
+def fiber_cable_type_text(cable, mode=None):
     """The pull sheet's words for a cable: "TAC 12 · ST", "MTP 24",
-    "opticalCON QUAD"."""
+    "opticalCON QUAD" - and the mode of the fiber where the boxes on it
+    state one (fiber_cable_mode): "TAC 12 · ST · Single mode"."""
     kind = (cable or {}).get('kind')
+    word = fiber_mode_word(mode)
+    tail = f' · {word}' if word else ''
     if kind == 'opticalcon-duo':
-        return 'opticalCON DUO'
+        return 'opticalCON DUO' + tail
     if kind == 'opticalcon-quad':
-        return 'opticalCON QUAD'
+        return 'opticalCON QUAD' + tail
     word = 'MTP' if kind == 'mtp' else 'TAC'
     text = f'{word} {fiber_cable_strand_count(cable)}'
     conn = ((cable or {}).get('connector') or '').strip() \
         if kind == 'tac' else ''
-    return f'{text} · {conn}' if conn else text
+    return (f'{text} · {conn}' if conn else text) + tail
+
+
+# A FIBER EXTENSION (owner, 2026-11-02: "MTP cant run direct to X1 for
+# example it would need an extension beyond that ... same goes for Tac
+# cable"): the cable between a TAC's or an MTP's end and the box's own
+# port, at the BOX end only, set per link - each box's link off a shared
+# trunk has its own or none, a backup link the same:
+#
+#   link['extension'] = {kind: 'fanout' | 'patch', trunkEnd?, boxEnd?, ft?}
+#
+# `kind` is a fan-out (breakout harness) or a plain duplex patch; the two
+# ends are free text (app-fiber.js offers ST, LC duplex, opticalCON DUO,
+# opticalCON QUAD, MTP / MPO); a trunkEnd left out reads the trunk's own
+# connector; `ft` is in the show's unit, absent when none. Nothing here
+# says which connector a box's port takes - the app records what the user
+# picks. A link on an opticalCON or on copper has no extension; one with
+# none stores no key, so a link without reads exactly as it always did.
+FIBER_EXTENSION_KINDS = ('fanout', 'patch')
+_FIBER_EXTENSION_ENDS = ('trunkEnd', 'boxEnd')
+
+
+def _fiber_extension(raw):
+    """One stored extension, shaped - else None (an unreadable one is
+    dropped, never the link it rides on)."""
+    if not isinstance(raw, dict) or raw.get('kind') not in FIBER_EXTENSION_KINDS:
+        return None
+    ext = {'kind': raw['kind']}
+    for key in _FIBER_EXTENSION_ENDS:
+        text = raw.get(key)
+        if isinstance(text, str) and text.strip():
+            ext[key] = text.strip()
+    ft = _cable_ft(raw.get('ft'))
+    if ft is not None:
+        ext['ft'] = ft
+    return ext
+
+
+def check_fiber_extension(body, unit='ft'):
+    """Why an extension body ({kind?, trunkEnd?, boxEnd?, ft?} - each key
+    sent is changed, the rest kept) cannot be stored, or None."""
+    if not isinstance(body, dict):
+        return 'extension must be {kind, trunkEnd, boxEnd, ft}, or null to remove it.'
+    if 'kind' in body and body['kind'] not in FIBER_EXTENSION_KINDS:
+        return 'An extension’s kind must be fanout or patch.'
+    for key in _FIBER_EXTENSION_ENDS:
+        if body.get(key) is not None and not isinstance(body[key], str):
+            return f'{key} must be text.'
+    if body.get('ft') not in (None, ''):
+        words = cable_unit_words(unit)
+        if isinstance(body['ft'], bool):
+            return f'ft must be a number of {words}.'
+        try:
+            ft = float(body['ft'])
+        except (TypeError, ValueError):
+            return f'ft must be a number of {words}.'
+        if not math.isfinite(ft) or ft < 0:
+            return f'ft must be a number of {words}, 0 or more.'
+    return None
+
+
+def merge_fiber_extension(old, body, cable):
+    """The extension a checked body leaves: the keys it sends over `old`.
+    A new one starts as a fan-out to LC duplex off a TAC and a duplex
+    patch off an MTP (owner, 2026-11-02: "For tac fan out should be
+    default and for mtp patch should default"; a TAC's fan-out lands on LC
+    duplex, "two LC duplex" off an LC TAC and "ST to LC ... at minimum"
+    off an ST one) - a first pick the user changes freely - with its trunk
+    end left to read the trunk's own connector."""
+    if isinstance(old, dict):
+        ext = dict(old)
+    elif (cable or {}).get('kind') == 'mtp':
+        ext = {'kind': 'patch'}
+    else:
+        ext = {'kind': 'fanout', 'boxEnd': 'LC duplex'}
+    for key, value in body.items():
+        if key == 'kind':
+            ext['kind'] = value
+        elif key in _FIBER_EXTENSION_ENDS:
+            text = (value or '').strip()
+            if text:
+                ext[key] = text
+            else:
+                ext.pop(key, None)
+        elif key == 'ft':
+            ft = _cable_ft(value)
+            if ft is None:
+                ext.pop('ft', None)
+            else:
+                ext['ft'] = ft
+    return _fiber_extension(ext)
 
 
 def _fiber_link(raw):
-    """One stored link, shaped: {cable, strands: [int, ...]} - or a copper
-    link, {copper: 'Cat6A', ft?} - else None."""
+    """One stored link, shaped: {cable, strands: [int, ...], extension?} -
+    or a copper link, {copper: 'Cat6A', ft?} - else None."""
     if not isinstance(raw, dict):
         return None
     if 'copper' in raw:
@@ -1964,7 +2483,11 @@ def _fiber_link(raw):
         if isinstance(s, bool) or not isinstance(s, int):
             return None
         out.append(s)
-    return {'cable': cable, 'strands': out}
+    link = {'cable': cable, 'strands': out}
+    ext = _fiber_extension(raw.get('extension'))
+    if ext:
+        link['extension'] = ext
+    return link
 
 
 def resolved_fiber_links(cvt):
@@ -2192,6 +2715,17 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
     if cable is None:
         return 'That fiber cable is not in this project.'
     name = cable.get('name') or 'That cable'
+    # SINGLE MODE AND MULTIMODE NEVER SHARE ONE CABLE: a multimode box (a
+    # CVT10-M) and a single mode box (a CVT10-S) cannot both take strands
+    # of one TAC, MTP or opticalCON, whichever is the backup. Refused, the
+    # way a rate that does not match is (can_add_cvt), and only where both
+    # boxes state a mode - none is inferred.
+    clash = fiber_cable_mode_clash(boxes, box_id, cable_id)
+    if clash:
+        other, other_mode = clash
+        return fiber_mode_refusal(
+            name, title, box_fiber_mode(device), fiber_box_title(other),
+            other_mode)
     if strands is None:
         return None
     if need is None:
@@ -2305,6 +2839,10 @@ def settle_fiber(project, used_before=None):
                     or any((link['cable'], s) in taken for s in strands):
                 continue
             taken.update((link['cable'], s) for s in strands)
+            # an extension rides a TAC or an MTP only
+            if 'extension' in link \
+                    and cable.get('kind') not in FIBER_STRANDED_KINDS:
+                link.pop('extension')
             kept[key] = link
         if kept != links:
             changed = True
@@ -2836,6 +3374,29 @@ def reslot_chassis_units(project):
     return out
 
 
+def settle_redundancy_mixed(project):
+    """Hold each processor's `redundancyMixed` to its one shape.
+
+    The flag is the bar's Mixed segment, remembered where the cards happen
+    to agree (owner, 2026-10-29: "i want to leave the bar. so i think
+    adding mixed makes the most sense"). It is stored only as `True`, only
+    with redundancy on, and only on a unit that can mix
+    (mixed_redundancy_refusal); anything else - a hand-edited file, a
+    payload from a build that never had it - is dropped, so a file with no
+    Mixed pick carries no key. Runs where a whole project ENTERS server
+    state (file load, undo/redo, every project POST), never on a read.
+    Idempotent. Cards are never touched: a chassis whose cards disagree
+    reads as Mixed whatever this flag says.
+    """
+    for proc in (project or {}).get('processors') or []:
+        if not isinstance(proc, dict) or 'redundancyMixed' not in proc:
+            continue
+        if proc.get('redundancyMixed') is not True \
+                or not proc.get('redundancy') \
+                or mixed_redundancy_refusal(proc):
+            proc.pop('redundancyMixed', None)
+
+
 def adopt_fixed_card_names(project):
     """Move a name typed on a one-box unit's fixed card up to the unit.
 
@@ -3112,6 +3673,47 @@ def _usable_ports(shape, ceiling, device):
     return ceiling - ceiling // 2
 
 
+def _copy_trunk_list(device, unit, cvts, copy_kind, block_count, trunks):
+    """Each copy trunk of a card whose mode says what its copies carry, as
+    {trunkIndex, trunkTitle, copiesTrunk, copiesTitle, boxId, boxTitle,
+    role} - the box on it (a box taking two trunks covers both) and that
+    box's copyRole, or None for an empty trunk. [] where the mode has no
+    copy trunks (copy_trunks None) or no block model applies."""
+    if not copy_kind or not block_count or trunks <= block_count:
+        return []
+    out = []
+    for index in range(block_count, trunks):
+        box = next((c for c in cvts if not c['beyondTrunks']
+                    and c['trunkIndex'] <= index
+                    < c['trunkIndex'] + (c['trunksIn'] or 1)), None)
+        copies = index % block_count
+        out.append({
+            'trunkIndex': index,
+            'trunkTitle': _trunk_title(device, unit, index),
+            'copiesTrunk': copies,
+            'copiesTitle': _trunk_title(device, unit, copies),
+            'boxId': box['id'] if box else None,
+            'boxTitle': box.get('displayTitle') if box else None,
+            'role': ((box['copyRole'] or box.get('copyInputRole'))
+                     if box else None),
+        })
+    return out
+
+
+def _next_box_on_copy(card, taken, trunks, block_count):
+    """Whether one more box added to this card lands on a copy trunk, or
+    brings a default pair whose second box does (default_backup_pair):
+    the lowest free trunk is past the primaries, or the pair is on."""
+    if not block_count or trunks <= block_count:
+        return False
+    free = [t for t in range(trunks) if t not in taken]
+    if not free:
+        return False
+    if free[0] >= block_count:
+        return True
+    return default_backup_pair(card)
+
+
 def resolve_card(card, proc):
     """Expand one card into its ports, with the label each port carries."""
     device = get_device(card.get('deviceId')) or {}
@@ -3178,8 +3780,33 @@ def resolve_card(card, proc):
     # (paired_backs_up) and wired port-to-port in _apply_backup_mapping.
     paired = bool(shape and shape['forced'] and shape['level'] == 'trunk')
 
+    # A COPY THAT FEEDS A MIRROR SCREEN IS A SOCKET OF ITS OWN. In NovaStar's
+    # Copy mode "OPT 3 copies the output on OPT 1, while OPT 4 copies the
+    # output on OPT 2" (H15 Specifications V1.15.0 p.36; the enhanced card's
+    # OPT 5-8 copy OPT 1-4, p.37), and the copy is cabled to a second screen
+    # (owner, 2026-10-30) - so the box on a copy trunk carries a run of its
+    # own, and two screens on "port 1" would read as a clash if the copy's
+    # sockets kept the primary's numbers. A box on a copy trunk set to
+    # MIRROR (copy_trunks: the whole mode, or the box's own copyRole on a
+    # per-box mode) therefore numbers its sockets past the mode's count -
+    # the copy of OPT 1's port n is card socket n + ceiling - and each says
+    # which primary it copies (`mirrorOf`). Its face still reads 1..N
+    # (localNumber, the silkscreen ruling). A BACKUP copy keeps the
+    # primary's numbers, the delivery-again shape it has always had.
+    copy_kind = copy_trunks(device, cap['mode'])
+    mirror_numbers = bool(copy_kind in ('mirror', 'per-box') and block_count
+                          and ceiling and trunks > block_count)
+    mirror_end = (ceiling * ((trunks + block_count - 1) // block_count)
+                  if mirror_numbers else 0)
+    # Which ports plug in at the card's own RJ45 rather than at the box on
+    # the OPT that carries them (plugChoice - the MX40 Pro, the
+    # H_16xRJ45+2xfiber): a port is never in both places.
+    plug_limit = plug_choice_ports(device)
+    at_ethernet = set(ethernet_ports(card, device))
+
     cvts = []
     claimed = 0
+    mirror_claimed = 0
     # Boxes past the last trunk have nothing to hang off, and can_add_cvt now
     # refuses to create one - but a PROJECT can still arrive carrying one, from
     # a file saved before that rule or edited by hand. This branch is the read
@@ -3188,7 +3815,7 @@ def resolve_card(card, proc):
     # and it is the only way a card's defined count can exceed its ceiling.
     # Where the block model does not apply at all, boxes simply take
     # consecutive ports from 1 as they always did.
-    beyond = 1 if not block_count else (ceiling or 0) + 1
+    beyond = 1 if not block_count else max(ceiling or 0, mirror_end) + 1
     # A BOX CONSUMES TRUNKS, NOT JUST PORTS. A CVT4K-S takes two trunks, so
     # two of them fill a four-trunk card and a third has nothing left to plug
     # into. Counting boxes instead of trunks would let three of them read as
@@ -3225,6 +3852,18 @@ def resolve_card(card, proc):
         takes = box_trunks_in(cvt, cvt_device)
         size = _cvt_port_count(cvt_device, device, takes)
         used_trunks += takes
+        # a straddling box's copy input (below): what it carries, and on
+        # which card ports - a mirror's past the count, a backup's the
+        # ports it backs up
+        across_role = None
+        mirror_across = []
+        back_numbers = []
+        # ...and the box's own output number for each of them, socket by
+        # socket (input_sockets): one after another, except on a box
+        # whose outputs are locked to its inputs (the CVT4K-S)
+        sockets = None
+        mirror_sockets = []
+        back_sockets = []
         # A box created as another box's BACKUP sits on the trunk that
         # duplicates its primary's - OPT 3 for a primary on OPT 1 - rather
         # than the next one along, or the "pair" would be two boxes carrying
@@ -3232,7 +3871,10 @@ def resolve_card(card, proc):
         # trunks, which is exactly the old first-come order whenever no
         # backup has jumped the queue.
         index = held.get(cvt.get('id'))
-        primary = placed_by_id.get(cvt.get('backupOf'))
+        # ...and a box added as a primary's MIRROR (copyOf - the MX40 Pro's
+        # 20-port pair set to Mirror) sits on that same copy trunk.
+        primary = placed_by_id.get(cvt.get('backupOf')) \
+            or placed_by_id.get(cvt.get('copyOf'))
         if index is None and primary is not None and block_count:
             want = primary['trunkIndex'] + block_count
             if (want + takes <= trunks
@@ -3243,6 +3885,7 @@ def resolve_card(card, proc):
             while any(t in taken for t in range(index, index + takes)):
                 index += 1
         taken.update(range(index, index + takes))
+        copy_role = None
         if block_count and index + takes <= trunks:
             block = index % block_count
             first = block * per_trunk + 1
@@ -3252,11 +3895,55 @@ def resolve_card(card, proc):
             # wall ends up looking like it has ports that are not there.
             if ceiling and size:
                 size = min(size, ceiling - first + 1)
+            # On a copy trunk of a mode that says what copies carry, the
+            # box is a Mirror or a Backup (copy_trunks): the whole mode's
+            # word, or - per box - its record's copyRole, absent reading
+            # Backup so a box saved before the choice keeps its shape.
+            if copy_kind and index >= block_count:
+                if copy_kind == 'per-box':
+                    copy_role = ('mirror' if cvt.get('copyRole') == 'mirror'
+                                 else 'backup')
+                else:
+                    copy_role = copy_kind
+            if copy_role == 'mirror' and mirror_numbers:
+                first += ceiling * (index // block_count)
+            numbers = list(range(first, first + (size or 0)))
+            # A box STRADDLING the mode's main OPTs and its copy OPTs (a
+            # CVT4K-S on OPT 1-2 of a VX1000): its inputs across the split
+            # carry the backup - or, by the mode or the box's own pick,
+            # the mirror - of the ports their OPT copies (box_input_split).
+            spans = bool(copy_kind and index < block_count < index + takes)
+            if spans:
+                across_role = (('mirror' if cvt.get('copyRole') == 'mirror'
+                                else 'backup') if copy_kind == 'per-box'
+                               else copy_kind)
+            # A box on more than one OPT takes each OPT's ports through its
+            # own input (box_input_numbers): a CVT4K-S is 8 outputs an
+            # input, so on 10-port OPTs it gives 1-8 and 11-18.
+            if takes > 1 and size:
+                numbers, across, at, across_at = box_input_layout(
+                    cvt_device, index, takes, block_count, per_trunk,
+                    ceiling, bool(copy_role == 'mirror' and mirror_numbers),
+                    bool(across_role == 'mirror' and mirror_numbers))
+                numbers = numbers[:size]
+                at = at[:size]
+                first = numbers[0] if numbers else first
+                size = len(numbers)
+                sockets = input_sockets(cvt_device, at)
+                if across_role == 'mirror' and mirror_numbers:
+                    mirror_across = across
+                    mirror_sockets = input_sockets(
+                        cvt_device, across_at, len(numbers) + 1)
+                elif across_role == 'backup':
+                    back_numbers = across
+                    back_sockets = input_sockets(
+                        cvt_device, across_at, len(numbers) + 1)
         else:
             first = beyond
             block = None
             over_trunk = True
             beyond += size or 0
+            numbers = list(range(first, first + (size or 0)))
         earlier = next((c for c in cvts if c['firstPort'] == first), None)
         resolved = {
             'id': cvt.get('id'),
@@ -3272,6 +3959,22 @@ def resolve_card(card, proc):
             'returnLabelTemplate': cvt.get('returnLabelTemplate') or '',
             'portCount': size,
             'firstPort': first,
+            # The card ports the box delivers, socket by socket (socket 1
+            # first): a run from firstPort, except where an input of the
+            # box takes fewer ports than its OPT carries (box_input_numbers).
+            'portNumbers': numbers + mirror_across,
+            # A straddling box's sockets after those, each the backup of
+            # one card port (its input on a copy OPT, set to Backup).
+            'backNumbers': back_numbers,
+            # The number on the box's face for each of those, in the same
+            # order: portNumbers' (socketNumbers) and backNumbers'
+            # (backSockets). One after another from 1 on most boxes; on a
+            # CVT4K-S each input's outputs are its own, so input 2 starts
+            # at 9 whatever input 1 fills (input_outputs).
+            'socketNumbers': ((sockets if sockets is not None
+                               else list(range(1, len(numbers) + 1)))
+                              + mirror_sockets),
+            'backSockets': back_sockets,
             'trunkIndex': index,
             'trunksIn': takes,
             # The box's input switch (update_cvt's `inputs`): offered only
@@ -3284,10 +3987,37 @@ def resolve_card(card, proc):
             # A second delivery of ports an earlier box already carries: OPT 3
             # backing up OPT 1, or a copy OPT mirroring the card's own copper.
             'duplicateOf': earlier['id'] if earlier else None,
+            # On a copy trunk (copy_trunks): 'mirror' - its sockets carry a
+            # mirror screen's runs, numbered past the mode's count - or
+            # 'backup'; None on a primary trunk and on every card whose
+            # mode says nothing about its copies. `copyRoleChoice` is
+            # whether the box itself picks (the MX40 Pro's 20-port mode),
+            # and `copiesTrunk` the 0-based primary trunk it copies.
+            'copyRole': copy_role,
+            'copyRoleChoice': bool((copy_role or across_role)
+                                   and copy_kind == 'per-box'),
+            # What a straddling box's input on a copy OPT carries:
+            # 'backup' or 'mirror'; None on every other box.
+            'copyInputRole': across_role,
+            'copiesTrunk': block if copy_role else None,
+            # The box on the primary trunk this mirror box copies, filled
+            # in once every box is placed.
+            'mirrorOf': None,
             # The NovaStar pair link, carried through so the panel can say
             # "backs up X" about the box somebody may want to delete.
             'backupOf': cvt.get('backupOf') or None,
+            # PORT BY PORT (filled in once every port is enumerated): on a
+            # box on a copy OPT set to Backup, each primary port it backs
+            # up, [{number, socket, boxId, local}] - the card-wide number,
+            # this box's own socket for it, and the primary box carrying
+            # it with that box's own number; on a primary box, the backup
+            # boxes behind any of its ports, in card order.
+            'backsUpPorts': [],
+            'backedUpBy': [],
             'beyondTrunks': over_trunk,
+            # Whether the box straddles the mode's main OPTs and its copy
+            # OPTs, its own backup loop or mirror (copyInputRole).
+            'spansCopy': bool(across_role),
             # The box's fiber trunk, as typed on it (update_cvt): what the
             # fiber is and how long its home run is. '' / None when unset -
             # the pull list lists no fiber for a box without a length, and
@@ -3322,6 +4052,11 @@ def resolve_card(card, proc):
             'copperLinks': bool(cvt_device.get('copperLinks')),
             'bidi': bool(cvt.get('bidi')),
             'bidiAllowed': fiber_bidi_allowed(cvt_device),
+            # 'single' or 'multi' where the catalog says which fiber the
+            # box takes (a CVT10-S, a CVT10-M), else None: the tray, its
+            # sheet, the pull list and the binder say it, and a cable never
+            # carries both (check_fiber_link).
+            'fiberMode': box_fiber_mode(cvt_device),
             # Whether the main's backup unit feeds this box on its backup
             # input (_apply_backup_unit) - the rows X2, OPT 2, OPT 3-4.
             'backupInputs': False,
@@ -3337,16 +4072,65 @@ def resolve_card(card, proc):
             'ports': [],
         }
         # The box's port cables ride the resolved box, with the connector
-        # its sockets FOLLOW (the catalog's word for the box, else the
-        # card's, else nothing - see data_port_connector). Snakes are the
-        # show's now (project['snakes']) and ride no device.
+        # its sockets FOLLOW (the catalog's word for the box itself, never
+        # its card's - see data_port_connector). Snakes are the show's now
+        # (project['snakes']) and ride no device.
         resolved['portCables'] = resolved_port_cables(cvt)
         resolved['portConnector'] = data_port_connector(
-            cvt_device, device, get_device(proc.get('deviceId')))
+            cvt_device, None, None, box=True)
         cvts.append(resolved)
         placed_by_id[resolved['id']] = resolved
-        if size:
-            claimed = max(claimed, first + size - 1)
+        if size and copy_role == 'mirror' and mirror_numbers:
+            mirror_claimed = max(mirror_claimed, max(numbers))
+        elif size:
+            claimed = max(claimed, max(numbers))
+        if mirror_across:
+            mirror_claimed = max(mirror_claimed, max(mirror_across))
+
+    # Each mirror box names the box it copies: the one on its primary trunk.
+    for box in cvts:
+        if box['copyRole'] == 'mirror':
+            mate = next((c for c in cvts if not c['beyondTrunks']
+                         and c['trunkIndex'] == box['copiesTrunk']), None)
+            box['mirrorOf'] = mate['id'] if mate else None
+
+    # A COPY OPT THAT BACKS UP BINDS ITS BOX. NovaStar documents the
+    # H_4xfiber's Backup mode as "OPT 3 serves as the backup of OPT 1,
+    # while OPT 4 serves as the backup of OPT 2" (copyTrunks 'backup'; the
+    # enhanced card's OPT 5-8 back up OPT 1-4 the same way), and the
+    # 2026-09-25 ruling binds a same-processor NovaStar backup to its
+    # primary AUTOMATICALLY. So the box on a copy OPT backs up the box on
+    # the OPT it copies, whichever came first - the boxes or the mode (a
+    # card starts in Independent, where a box comes alone, so boxes put on
+    # before Backup carried no link and drew as a "(copy)" box of free
+    # sockets). The VX Pros and the VX1000 in Backup and the MCTRL660 Pro
+    # bind the same way. On a per-box mode (copyTrunks 'per-box': the MX40
+    # Pro's 20-port, the NovaPro UHD and UHD Jr, the MCTRL R5 and MCTRL4K, each
+    # catalog entry quoting its own sources in copyTrunksNote) the box set
+    # to Backup - the default - binds the same way, and one set to Mirror
+    # feeds a mirror instead. Only where the primary box takes exactly the same
+    # OPTs: a CVT4K-S on OPT 3-4 copies two CVT10s, not one box.
+    # Derived every resolve and stored nowhere, like the fixed pairing
+    # below. On a card whose catalog documents copy OPTs, a box that is
+    # NOT on a backup copy OPT in the current mode backs nothing up - an
+    # Independent card's OPT 3-4 box carries ports 17-32 of its own, a
+    # Copy card's feeds a mirror - so a link stored when the pair was made
+    # in Backup waits on the record and reads nowhere until Backup is back.
+    if any(copy_trunks(device, m.get('id'))
+           for m in (device.get('ports') or {}).get('modes') or []):
+        for box in cvts:
+            if box['copyRole'] != 'backup':
+                box['backupOf'] = None
+    if copy_kind in ('backup', 'per-box'):
+        for box in cvts:
+            if box['copyRole'] != 'backup' or box['backupOf']:
+                continue
+            mate = next((c for c in cvts
+                         if not c['beyondTrunks'] and not c['copyRole']
+                         and c['trunkIndex'] == box['copiesTrunk']
+                         and c['trunksIn'] == box['trunksIn']), None)
+            if mate is not None:
+                box['backupOf'] = mate['id']
 
     # The fixed pairing pairs WHOLE BOXES: the box on the second trunk of an
     # adjacent pair is the first one's backup - B carries A's returns, D
@@ -3427,6 +4211,8 @@ def resolve_card(card, proc):
     # A card that is not flagged keeps its own ports exactly as before.
     box_fed = is_box_fed(device)
     top = claimed if box_fed else max(ceiling or 0, claimed)
+    # The mirror boxes' sockets enumerate past the mode's count (above).
+    top = max(top, mirror_claimed)
     # THE SAME RULE PAST A DEVICE'S OWN PORTS. An MX40 Pro in 40-port mode
     # has 20 RJ45s of its own; ports 21-40 come out only through breakout
     # boxes on OPT 3/4 (owner, 2026-09-30: "40 port's o mx40 only works with
@@ -3442,12 +4228,47 @@ def resolve_card(card, proc):
         # come out of both boxes - but the FIRST one names it, since the backup
         # is not what anyone patches to or reads a number off.
         covering = [c for c in cvts
-                    if c['portCount']
-                    and c['firstPort'] <= number < c['firstPort'] + c['portCount']]
-        cvt = covering[0] if covering else None
-        if cvt is None and (box_fed or (own and number > own)):
+                    if c['portCount'] and number in c['portNumbers']]
+        # A BACKUP BOX DELIVERS NO PORT OF ITS OWN (owner, 2026-11-02: "A
+        # backup port never adds to the card's or processor's port
+        # count"). A box on a copy OPT set to Backup copies what its
+        # primary OPT carries, so it backs up a number only where the port
+        # exists without it: on a box on a primary OPT, or on the unit's
+        # own Ethernet port where the unit has one (owner, 2026-11-02:
+        # "you could use 16 ports on processor and then opt 3/4 for 16
+        # ports of backup/copy"). A CVT10 on OPT 6 of an enhanced
+        # H_4xfiber behind a CVT4K-S on OPT 1-2 backs up 11-16, and its
+        # sockets for 17-20, which no primary box has and the box-fed card
+        # has no Ethernet for, are not ports. The backups are set aside
+        # here and join the port once it is known to exist (below).
+        backing = []
+        if copy_kind in ('backup', 'per-box'):
+            backing = [c for c in covering if c['copyRole'] == 'backup']
+            covering = [c for c in covering if c['copyRole'] != 'backup']
+            # ...and a straddling box's input on a copy OPT, set to Backup
+            backing += [c for c in cvts if number in c['backNumbers']]
+        # A MIRROR SOCKET EXISTS ONLY ON ITS BOX: past the mode's count and
+        # inside the copies' range, a number no mirror box covers is not a
+        # socket of the card's face - nothing is there to plug into.
+        mirror_slot = bool(mirror_numbers and ceiling < number <= mirror_end)
+        if mirror_slot and not covering:
             continue
-        local = number - cvt['firstPort'] + 1 if cvt else number
+        # PER PORT, CARD ETHERNET OR BOX (plugChoice): a port stored as
+        # plugged in at the card's own RJ45 comes off every box that would
+        # deliver it - "never connect the same-numbered port both ways"
+        # (MX40 Pro User Manual V1.5.0 p.9) - and sits on the card's face.
+        reachable_on_box = bool(covering) and not mirror_slot
+        plug_offered = bool(plug_limit and number <= plug_limit
+                            and reachable_on_box)
+        at_card = plug_offered and number in at_ethernet
+        if at_card:
+            covering = []
+        cvt = covering[0] if covering else None
+        if cvt is None and not at_card \
+                and (box_fed or (own and number > own)):
+            continue
+        local = (cvt['socketNumbers'][cvt['portNumbers'].index(number)]
+                 if cvt else number)
         owner, owner_source = _label_owner(cvt, card, proc)
         source = owner_source
         # A BOX'S SOCKETS ARE NUMBERED BY ITS OWN SILKSCREEN, whoever names
@@ -3542,18 +4363,76 @@ def resolve_card(card, proc):
             # primary was hand-named.
             'returnDerived': not manual_return and not return_template,
             'cvtId': cvt['id'] if cvt else None,
-            'beyondCeiling': bool(ceiling is not None and number > ceiling),
+            # A mirror socket is past the count on purpose and is no more
+            # beyond the card than the primary it copies.
+            'beyondCeiling': bool(ceiling is not None and number > ceiling
+                                  and not mirror_slot),
+            # The primary socket this one copies for a mirror screen, by
+            # card-wide number; None on every other socket.
+            'mirrorOf': ((number - 1) % ceiling) + 1 if mirror_slot else None,
+            # Where the port plugs in where both places exist
+            # (plugChoice): 'card' at the card's own RJ45, 'box' at the
+            # box's socket; None where there is no choice to make.
+            'plug': ('card' if at_card else 'box') if plug_offered else None,
         }
         ports.append(port)
-        for box in covering:
-            box['ports'].append(port)
+        for box in covering + backing:
+            if not any(p is port for p in box['ports']):
+                box['ports'].append(port)
+
+    # EACH BACKUP SOCKET, PORT BY PORT (owner, 2026-11-02: "pair port by
+    # port"). A box on a copy OPT set to Backup backs up the same port
+    # numbers on whichever primary boxes carry them, so a CVT4K-S on OPT
+    # 5-6 behind two CVT10s backs up ports 1-10 on the first and 11-16 on
+    # the second, and a CVT4K-S on OPT 1-2 is backed up by the CVT10s on
+    # OPT 5 and 6 together. `backupOf` above stays the one-to-one pair
+    # (the two boxes take the same OPTs); this is the whole map, the
+    # one-to-one pair included. Derived every resolve and stored nowhere.
+    # The unit's own ports backed up this way name their backup boxes on
+    # the card (`ownBackedUpBy`).
+    own_backed_by = []
+    if copy_kind in ('backup', 'per-box'):
+        by_id = {c['id']: c for c in cvts}
+        for box in cvts:
+            straddle = bool(box['backNumbers'])
+            if box['copyRole'] != 'backup' and not straddle:
+                continue
+            for port in box['ports']:
+                if straddle and port['number'] not in box['backNumbers']:
+                    continue
+                # boxId None: the unit's own Ethernet port is the primary;
+                # a straddling box may back up its own (its own loop)
+                main = by_id.get(port['cvtId'])
+                if (main is box and not straddle) \
+                        or (main is not None and main['copyRole']):
+                    continue
+                socket = (box['backSockets'][
+                    box['backNumbers'].index(port['number'])]
+                    if straddle
+                    else box['socketNumbers'][
+                        box['portNumbers'].index(port['number'])])
+                box['backsUpPorts'].append({
+                    'number': port['number'],
+                    'socket': socket,
+                    'boxId': main['id'] if main is not None else None,
+                    'local': port['localNumber'],
+                })
+                backed = (main['backedUpBy'] if main is not None
+                          else own_backed_by)
+                if box['id'] not in backed:
+                    backed.append(box['id'])
 
     # What the card DEFINES is a count - the panel prints it as "n / N
     # ports". Everywhere but a box-fed card the enumeration is 1..top, so
     # the count is top; on a box-fed card the enumeration has gaps (A, C
     # and D with B removed is thirty sockets numbered up to 40), so the
     # count is the sockets actually listed.
-    defined = len(ports) if (box_fed or own) else top
+    # Mirror sockets are a second screen's copies of the primaries, never
+    # more of the card's own ports: no count of what the card defines,
+    # reaches or delivers includes them.
+    primaries = [p for p in ports if not p['mirrorOf']]
+    defined = (len(primaries) if (box_fed or own)
+               else max(ceiling or 0, claimed))
     # The count such a card REACHES: its own ports, or as far as its boxes
     # deliver past them - 20 on a bare MX40 Pro, 40 with boxes on OPT 3/4.
     # It is the ceiling the card reports, so the free-socket count and the
@@ -3563,7 +4442,7 @@ def resolve_card(card, proc):
     # above, which is what lays the boxes on their OPTs.
     reach = ceiling
     if own and ceiling:
-        reach = min(ceiling, max([own] + [p['number'] for p in ports
+        reach = min(ceiling, max([own] + [p['number'] for p in primaries
                                           if not p['beyondCeiling']]))
     # ON A BOX-FED CARD THE REACH IS WHAT THE BOXES GIVE. Owner, 2026-10-04:
     # "Follow the boxes" - the capacity row, the processor's sum, the usable
@@ -3577,7 +4456,7 @@ def resolve_card(card, proc):
     # whose outputs are still being confirmed on a real unit) is left
     # reading exactly as it did.
     if box_fed and ceiling is not None and trunks:
-        reach = sum(1 for p in ports if not p['beyondCeiling'])
+        reach = sum(1 for p in primaries if not p['beyondCeiling'])
 
     # A BOX MISSING BETWEEN BOXES IS AN ERROR (owner, 2026-10-04: "we should
     # throw an error but only do real ports beyond that"). On a box-fed card
@@ -3594,7 +4473,10 @@ def resolve_card(card, proc):
         fitted = {t for c in cvts if not c['beyondTrunks']
                   for t in range(c['trunkIndex'],
                                  c['trunkIndex'] + (c['trunksIn'] or 1))}
-        for index in range(max(fitted) if fitted else 0):
+        # A hole is between PRIMARY boxes: a box on a copy trunk (OPT 3
+        # backing up or copying OPT 1) says nothing about OPT 2 being done.
+        primary_fitted = {t for t in fitted if t < block_count}
+        for index in range(max(primary_fitted) if primary_fitted else 0):
             if index in fitted:
                 continue
             block = index % block_count
@@ -3628,11 +4510,21 @@ def resolve_card(card, proc):
     # Left as a bare "32", someone who knows the card is a 40 assumes the app
     # is wrong. Told why, they change the box. Nothing is clamped or swapped
     # here: it is reported, and the choice stays theirs.
-    delivered = sum(1 for p in ports
-                    if p['cvtId'] and not p['beyondCeiling'])
+    # A port plugged in at the card's own RJ45 by choice (plug 'card') is
+    # still delivered - the box could carry it and somebody chose the card.
+    delivered = sum(1 for p in primaries
+                    if (p['cvtId'] or p['plug'] == 'card')
+                    and not p['beyondCeiling'])
     shortfall = None
+    # Every PRIMARY OPT spoken for: on a card whose later OPTs are copies
+    # (the enhanced H_4xfiber's OPT 5-8) a box there adds no port, so the
+    # card is done once its primaries are - the copies are not owed a box.
+    primary_trunks = (block_count if block_count and block_count < trunks
+                      else trunks)
+    primaries_full = (sum(1 for t in taken if t < primary_trunks)
+                      >= primary_trunks)
     if (cvts and ceiling and trunks
-            and used_trunks >= trunks
+            and primaries_full
             and delivered < ceiling
             # Only where the boxes are how the ports get out at all. On a card
             # whose OPTs copy its own RJ45s there is nothing short - the ports
@@ -3742,8 +4634,45 @@ def resolve_card(card, proc):
         # rather than re-derive: mains and backs as runs ('1-10, 21-25' /
         # '26-40'). Box-fed cards only - every other card's ports run
         # 1..ceiling and the tip's own arithmetic says the same thing.
-        'halvesSpans': _halves_spans(ports) if box_fed else None,
+        'halvesSpans': _halves_spans(primaries) if box_fed else None,
         'defined': defined,
+        # COPY TRUNKS (copy_trunks): what this mode's copies carry -
+        # 'mirror', 'backup', 'per-box' - or None. `copyTrunkList` names
+        # each copy trunk, the primary it copies and the box on it (with
+        # the box's role) or None, so a mirror screen that needs one can
+        # say exactly what is missing. `mirrorSockets` maps a primary
+        # socket to the mirror socket that copies it, where a mirror box
+        # delivers one ({'3': 19}).
+        'copyTrunks': copy_kind,
+        'copyTrunkList': _copy_trunk_list(device, unit, cvts, copy_kind,
+                                          block_count, trunks),
+        'mirrorSockets': {str(p['mirrorOf']): p['number'] for p in ports
+                          if p['mirrorOf']},
+        # Whether the next box goes on a copy trunk (or brings a paired
+        # box there) on a card whose copy boxes each choose Mirror or
+        # Backup - the add then asks which (the MX40 Pro, 20-port mode).
+        'nextBoxOnCopy': bool(copy_kind == 'per-box'
+                              and _next_box_on_copy(card, taken, trunks,
+                                                    block_count)),
+        # The backup boxes behind the unit's own Ethernet ports (each
+        # box's backsUpPorts entries with boxId None), in card order.
+        'ownBackedUpBy': own_backed_by,
+        # THE COPY OPTS A BOX MAY GO ON WITH ITS PRIMARY OPT EMPTY (owner,
+        # 2026-11-02: "you could use 16 ports on processor and then opt
+        # 3/4 for 16 ports of backup/copy"): the free copy trunks of a
+        # mode whose copies the catalog documents (copy_trunks), on a unit
+        # with Ethernet ports of its own - a box there backs up or mirrors
+        # those ports. Never on a box-fed card, which has none. 0-based;
+        # the add takes one as `trunk`.
+        'copyTrunksOpen': ([t for t in range(block_count, trunks)
+                            if t not in taken]
+                           if copy_kind and block_count and not box_fed
+                           else []),
+        # PER PORT, CARD ETHERNET OR BOX (plugChoice): how many of the
+        # card's own RJ45s its OPTs also carry, and the ones stored as
+        # plugged in at the RJ45 (each port's `plug` says where it is).
+        'plugChoicePorts': plug_limit,
+        'ethernetPorts': sorted(at_ethernet),
         # Whether every socket of this card is a box's (is_box_fed): the
         # assignment reads it to bound fills and hand placements to the
         # sockets the boxes deliver, and the box delete reads it to drop
@@ -3759,7 +4688,7 @@ def resolve_card(card, proc):
     }
     # The card's own port cables, for the ports on its face; the connector
     # those sockets follow is the card's documented kind, else the
-    # processor's, else nothing. Snakes belong to the show, not the card.
+    # processor's, else Cat6. Snakes belong to the show, not the card.
     out['portCables'] = resolved_port_cables(card)
     out['portConnector'] = data_port_connector(
         None, device, get_device(proc.get('deviceId')))
@@ -3872,6 +4801,11 @@ def resolve_processor(proc):
         'redundancyPairs': proc_redundancy_pairs(proc, device)
         if proc.get('redundancy') else [],
         'redundancyPairMarks': trunk_pair_marks(device),
+        # The bar's Mixed segment, remembered (settle_redundancy_mixed):
+        # each card picks its own kind. Read only with redundancy on; the
+        # bar ALSO reads Mixed wherever the cards disagree, flag or not.
+        'redundancyMixed': bool(proc.get('redundancy')
+                                and proc.get('redundancyMixed') is True),
         # The BACKUP PROCESSOR (2026-09-25): an option ON this unit - "when
         # we add backup processor it's just an option on the primary and
         # then we are capable of naming but everything else is automatic".
@@ -3923,7 +4857,9 @@ def _apply_backup_mapping(processors, resolved):
     trunk-level pairing (SX40) maps here too, a block at a time: trunk pairs
     carry box pairs, so main n in an even block returns on n + portsPerTrunk
     in the odd block beside it - socket 1 returns on 11, 21 on 31 - and the
-    backing box's sockets keep their own numbers on the drawing.
+    backing box's sockets keep their own numbers on the drawing. A loop
+    box on a copy OPT set to Backup maps here too (`backedBy` with the
+    box's `cvtId`), ahead of every shape.
     """
     raw_cards = {}
     res_cards = {}
@@ -3984,8 +4920,10 @@ def _apply_backup_mapping(processors, resolved):
         # says the local number, because that is the number a hand can find.
         mport['backedBy'] = {
             'processorId': tproc['id'], 'cardId': tcard['id'],
-            'cardTitle': tcard['name'] or tcard['deviceName'],
+            'cardTitle': (tcard['name'] or card_slot_title(tcard, tproc)
+                          or tcard['deviceName']),
             'boxTitle': box_title(target_id, tport),
+            'cvtId': tport.get('cvtId'),
             'port': t, 'localPort': tport['localNumber'],
             'label': tport['label'],
         }
@@ -3997,6 +4935,45 @@ def _apply_backup_mapping(processors, resolved):
     def shape_of(cid):
         rcard, _rproc = res_cards[cid]
         return rcard.get('redundancyShape')
+
+    # LOOP BOXES BEFORE ANY SHAPE. A box on a copy OPT set to Backup (an
+    # H_4xfiber in Backup mode, a NovaPro UHD's box set to Backup -
+    # resolve_card's backsUpPorts) carries the returns of the ports it
+    # backs up, by the vendor's own wiring, whatever the redundancy bar
+    # says. Its sockets are the SAME card-wide numbers as the ports they
+    # back up - the same port objects, on a second box - so the main port
+    # gains a `backedBy` naming the box (`cvtId`) and that box's own socket
+    # (`localPort`), and no port gains `backsUp`: the socket number is the
+    # main's, never a return of its own. Every reader of the backup end -
+    # pull list, binder, tags - then reads a loop box the way it reads a
+    # 1:1 partner or an OPT split. A straddling box's loop onto its OWN
+    # outputs (a CVT4K-S on a VX1000's OPT 1-2: ports 1-8 on outputs 1-8,
+    # their backup on 9-16 - owner, 2026-11-02) links the same way, marked
+    # `self`: the backup output is a cable of its own (owner, 2026-11-03),
+    # its length kept under the 'r' key of the box's port cables.
+    for cid in order:
+        rcard, rproc = res_cards[cid]
+        for box in rcard.get('cvts') or []:
+            for m in box.get('backsUpPorts') or []:
+                own = m.get('boxId') == box['id']
+                mport = ports_of[cid].get(m['number'])
+                if not mport or mport.get('backedBy'):
+                    continue
+                mport['backedBy'] = {
+                    'processorId': rproc['id'], 'cardId': cid,
+                    'cardTitle': (rcard['name']
+                                  or card_slot_title(rcard, rproc)
+                                  or rcard['deviceName']),
+                    'boxTitle': box.get('displayTitle'),
+                    'cvtId': box['id'],
+                    'port': m['number'], 'localPort': m['socket'],
+                    'label': None,
+                    # a loop box's socket, not a mapped port: the return
+                    # label keeps its derived rung (port_assignment)
+                    'loop': True,
+                }
+                if own:
+                    mport['backedBy']['self'] = True
 
     # 1to1 first: it consumes whole units, and a consumed unit's own choices
     # go quiet - a backup card is its main's return end, not a main itself.
@@ -4027,10 +5004,15 @@ def _apply_backup_mapping(processors, resolved):
         shape = shape_of(cid)
         if not shape or cid in consumed:
             continue
+        # The in-card shapes pair the card's own ports. A mirror socket
+        # (mirrorOf) is a second screen's copy of a primary and pairs only
+        # with the same socket of a 1:1 partner card, above.
+        mine = {n: p for n, p in ports_of[cid].items()
+                if not p.get('mirrorOf')}
         if shape['mode'] == 'sequential' and shape['level'] == 'port':
-            numbers = sorted(ports_of[cid])
+            numbers = sorted(mine)
             for n in numbers:
-                if n % 2 == 1 and (n + 1) in ports_of[cid]:
+                if n % 2 == 1 and (n + 1) in mine:
                     link(cid, n, cid, n + 1)
         elif shape['mode'] == 'sequential' and shape['level'] == 'trunk':
             # The SX40's box-level pairing, in socket numbers: trunk pairs
@@ -4044,10 +5026,10 @@ def _apply_backup_mapping(processors, resolved):
             per_trunk = res_cards[cid][0].get('portsPerTrunk')
             loops = set(shape.get('pairs') or [])
             if per_trunk:
-                for n in sorted(ports_of[cid]):
+                for n in sorted(mine):
                     block = (n - 1) // per_trunk
                     if block % 2 == 0 and block in loops \
-                            and (n + per_trunk) in ports_of[cid]:
+                            and (n + per_trunk) in mine:
                         link(cid, n, cid, n + per_trunk)
         elif shape['mode'] == 'across' and shape.get('role') == 'near':
             # TWO QD-S ON ONE SQ200 (provisional, owner 2026-09-28: "with
@@ -4093,13 +5075,13 @@ def _apply_backup_mapping(processors, resolved):
             ceiling = rcard.get('ceiling')
             if rcard.get('boxFed'):
                 for n, t in halves_split(
-                        n for n, p in ports_of[cid].items()
+                        n for n, p in mine.items()
                         if not p.get('beyondCeiling')):
                     link(cid, n, cid, t)
             elif ceiling:
                 half = ceiling - ceiling // 2
-                for n in sorted(ports_of[cid]):
-                    if n <= ceiling // 2 and (n + half) in ports_of[cid]:
+                for n in sorted(mine):
+                    if n <= ceiling // 2 and (n + half) in mine:
                         link(cid, n, cid, n + half)
         elif shape['mode'] == 'manual' and not shape['forced']:
             raw, _proc = raw_cards[cid]
@@ -4120,4 +5102,78 @@ def resolve_all(processors):
     resolved = [resolve_processor(p) for p in (processors or [])]
     _apply_backup_mapping(processors, resolved)
     _apply_backup_unit(processors, resolved)
+    _count_backup_ports(resolved)
+    _note_unbacked_ports(resolved)
     return resolved
+
+
+def _note_unbacked_ports(resolved):
+    """The ports of a backed-up box that no backup covers. In place:
+    `unbackedPorts` (the box's own numbers) on every resolved box, `[]`
+    where every port has a return or the box is backed by nothing.
+
+    Owner, 2026-11-03: a CVT4K-S backing up two CVT10s carries 8 ports per
+    input, so ports 9-10 of each CVT10 have no backup - and nothing said
+    so. Read off the actual coverage, never a number: a box some backup
+    covers (`backedUpBy`, or any of its ports `backedBy`) lists every
+    primary port of its own that has no `backedBy`, so any box with more
+    ports than its backup carries reads right. The tray's box header and
+    the processor's gear both say it."""
+    for rproc in resolved:
+        for slot in rproc.get('slots') or []:
+            rcard = slot.get('card')
+            for box in (rcard or {}).get('cvts') or []:
+                own = [p for p in box.get('ports') or []
+                       if p.get('cvtId') == box.get('id')
+                       and not p.get('backsUp') and not p.get('mirrorOf')]
+                backed = bool(box.get('backedUpBy')) \
+                    or any(p.get('backedBy') for p in own)
+                box['unbackedPorts'] = sorted(
+                    p.get('localNumber') or p['number'] for p in own
+                    if not p.get('backedBy')) if backed else []
+
+
+def _count_backup_ports(resolved):
+    """How many of each card's and each processor's ports are consumed as
+    returns (`backsUp`, set by _apply_backup_mapping for every shape: a 1:1
+    backup card, a port shape's back half or evens, a loop or backup box).
+    In place: `backupCount` on every resolved card and processor.
+
+    The owner's ruling (2026-11-03): the processor's capacity reads usable
+    ports with the backups beside them - "40 / 40 ports · 40 backup" for
+    two 40-port cards paired 1:1, never "80 / 80 ports". `defined` and
+    `ceiling` stay the socket counts the rest of the tree is built on.
+
+    A backup socket counts however the resolver marks it, and once: a
+    card port with `backsUp` (keyed by its box and box number, or its card
+    number), and a backup box's socket in `backsUpPorts` (a box on a
+    backup OPT of a card in Backup mode - its sockets are not card ports,
+    so `defined` never held them). `backupInPorts` is how many of them ARE
+    card ports, the part the readout takes off `defined` and the ceiling:
+    an enhanced card in Backup with two CVT10s and a CVT4K-S as primaries
+    and a CVT4K-S backup reads "36 / 36 ports · 16 backup"."""
+    for rproc in resolved:
+        total = inside_total = 0
+        for slot in rproc.get('slots') or []:
+            rcard = slot.get('card')
+            if not rcard:
+                continue
+            sockets = set()
+            inside = 0
+            for p in rcard.get('ports') or []:
+                if not p.get('backsUp'):
+                    continue
+                key = ((p['cvtId'], p.get('localNumber') or p['number'])
+                       if p.get('cvtId') else (None, p['number']))
+                if key not in sockets:
+                    sockets.add(key)
+                    inside += 1
+            for box in rcard.get('cvts') or []:
+                for entry in box.get('backsUpPorts') or []:
+                    sockets.add((box.get('id'), entry.get('socket')))
+            rcard['backupCount'] = len(sockets)
+            rcard['backupInPorts'] = inside
+            total += len(sockets)
+            inside_total += inside
+        rproc['backupCount'] = total
+        rproc['backupInPorts'] = inside_total

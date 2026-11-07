@@ -30,6 +30,8 @@ presets/
 /src/layouts/
 # Saved distro presets, kept beside the presets the same way
 /src/distro_presets/
+# Saved cable stock presets, the same way
+/src/cable_stock_presets/
 
 # Claude Code local config
 .claude/
@@ -59,3 +61,6 @@ tests/fixtures-local/
 
 # Design mocks / prototypes (local only, never shipped: PyInstaller copies src/static wholesale)
 mocks/
+
+# Written by release.yml for beta builds only
+src/BUILD_TAG.txt

@@ -565,7 +565,7 @@ def e2e_server():
 def sweep(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     page = context.new_page()
     page.goto(e2e_server, wait_until='domcontentloaded')
     page.wait_for_timeout(2000)   # socket connect + app init
@@ -634,6 +634,23 @@ _PREPARE_JS = {
         if (v && v.value !== '208') {
             v.value = '208';
             v.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        window.app.refreshSocaRuns();
+    }""",
+    # power-panel-input shows (and writes) only on a screen whose breakout
+    # leaves the panel input to it - Edison or L6-20 (2026-10-21): the
+    # screen goes to 110V and Multi → Edison first, through the sidebar.
+    'power-panel-input': """() => {
+        const v = document.getElementById('power-voltage-select');
+        if (v && v.value !== '110') {
+            v.value = '110';
+            v.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        window.app.refreshSocaRuns();
+        const b = document.getElementById('power-breakout-type');
+        if (b && b.value !== 'soca-edison') {
+            b.value = 'soca-edison';
+            b.dispatchEvent(new Event('change', { bubbles: true }));
         }
         window.app.refreshSocaRuns();
     }""",

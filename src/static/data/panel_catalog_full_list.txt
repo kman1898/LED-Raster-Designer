@@ -1964,10 +1964,14 @@ ROE	Emerald 8.9-H (With Frame)
 ROE	Emerald 8.9-V (Tile Only)
 ROE	Emerald 8.9-V (With Frame  Ladder)
 ROE	Emerald 8.9-V (With Frame)
-ROE	Graphite 2.6 (4 in 1) Full Tile
-ROE	Graphite 2.6 (4 in 1) Half Tile
+ROE	Graphite GP1.9 (4 in 1) Full Tile
+ROE	Graphite GP1.9 (4 in 1) Half Tile
+ROE	Graphite GP2.6 (4 in 1) Full Tile
+ROE	Graphite GP2.6 (4 in 1) Half Tile
 ROE	Graphite GP2.6 Full Tile
 ROE	Graphite GP2.6 Half Tile
+ROE	Graphite GP2.6 Right Angle
+ROE	Graphite GP2.6 Right Angle (4 in 1)
 ROE	Graphite GP3.1 Full Tile
 ROE	Graphite GP3.1 Half Tile
 ROE	Graphite GP3.9 Full Tile

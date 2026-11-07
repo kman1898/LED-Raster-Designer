@@ -59,6 +59,12 @@ jobs:
           pip install -r src/requirements.txt
           pip install pyinstaller rumps
 
+      - name: Stamp a beta build with its tag
+        if: contains(github.ref_name, '-')
+        # The app reads BUILD_TAG.txt (updater.get_current_version) so a beta
+        # names itself "1.5.3-beta.1" and is offered the full 1.5.3.
+        run: echo "${GITHUB_REF_NAME#v}" > src/BUILD_TAG.txt
+
       - name: Build app
         run: |
           source .venv/bin/activate
@@ -205,6 +211,10 @@ jobs:
           .venv\Scripts\Activate.ps1
           pip install -r src/requirements.txt
           pip install pyinstaller pystray
+
+      - name: Stamp a beta build with its tag
+        if: contains(github.ref_name, '-')
+        run: Set-Content -Path src\BUILD_TAG.txt -Value ("$env:GITHUB_REF_NAME" -replace '^v','') -NoNewline -Encoding utf8
 
       - name: Build executable
         run: |

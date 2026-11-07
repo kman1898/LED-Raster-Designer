@@ -50,7 +50,7 @@ def page(e2e_server, pw_browser):
     """A fresh screen: nothing saved, guides off, on the Data view so the
     tray is in layout."""
     ctx = pw_browser.new_context(viewport=VIEWPORT)
-    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+    ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = ctx.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -174,7 +174,7 @@ def test_a_damaged_saved_arrangement_falls_back_to_the_default(e2e_server, pw_br
     raw = BAD_SAVES[case]
     raw = raw if isinstance(raw, str) else json.dumps(raw)
     ctx = pw_browser.new_context(viewport=VIEWPORT)
-    ctx.add_init_script("(() => { try { localStorage.setItem('lrd_quickstart_disabled', '1'); "
+    ctx.add_init_script("(() => { try { localStorage.setItem('lrd_quickstart_first_run_done', '1'); "
                         "localStorage.setItem('lrd_layout', %s); } catch (e) {} })();" % json.dumps(raw))
     pg = ctx.new_page()
     errors = []
@@ -328,7 +328,13 @@ def test_a_tab_follows_its_panel_while_a_neighbour_folds(page):
         return { pinnedAt: window.innerWidth - pin, panelLeft: p.left, hardwareWidth: hw };
     }""")
     assert 0 < mid['hardwareWidth'] < 460, f'not mid-fold: {mid}'
-    assert abs(mid['pinnedAt'] - mid['panelLeft']) <= 3, f'the Screens tab was not re-pinned mid-fold: {mid}'
+    # The pin is written once a frame, rounded to a whole pixel, and the
+    # panel keeps sliding between frames (~140 px/s on this 3 s fold), so a
+    # read taken between two frames trails by the rounding plus one frame's
+    # travel: 3.02 px came out of a full parallel suite on 2026-10-20 (a
+    # ~20 ms frame), and 63 isolated and loaded reruns stayed under 3. The
+    # bug this guards left the tab hundreds of pixels behind.
+    assert abs(mid['pinnedAt'] - mid['panelLeft']) <= 6, f'the Screens tab was not re-pinned mid-fold: {mid}'
     _settle(pg)
     pg.evaluate("() => { document.getElementById('hardware-dock').style.transition = ''; }")
     assert errors == [], errors

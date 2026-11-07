@@ -47,7 +47,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -297,7 +297,7 @@ def test_chip_drag_to_tray_is_one_entry(page):
     }""", ids)
     assert out['grew'] == 1, (
         f'the tray drop is not ONE history entry: {out}')
-    assert out['last'] == 'Clear Multi', out
+    assert out['last'] == 'Unplug Multi', out
     assert page.evaluate(_multi_state_read(), ids) == '[{},{}]'
     page.evaluate("() => window.app.undo()")
     page.wait_for_timeout(400)

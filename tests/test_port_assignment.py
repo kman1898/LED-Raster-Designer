@@ -360,7 +360,7 @@ def test_a_card_whose_boxes_cannot_reach_its_ceiling_says_so_here_too(client):
     assert by_name(res, 'Main')['unplaced'] == list(range(32, 40))
     short = issue(res, 'card-short-of-its-ceiling')
     assert short['delivered'] == 32 and short['capacity'] == 40
-    assert 'CVT10' in short['message']
+    assert 'CVT10-S' in short['message']
 
 
 def test_a_half_patched_card_is_not_flagged_on_the_dock_strip(client):
@@ -697,6 +697,12 @@ def test_two_screens_on_one_port_are_reported_and_neither_is_moved(one_card):
     assert clash['port'] == 5 and clash['cardId'] == card
     assert sorted(clash['layerIds']) == ['Main', 'Side']
     assert 'Main' in clash['message'] and 'Side' in clash['message']
+    # Two sentences, no spaced hyphen standing in for a dash (QA, 1.6.0
+    # beta 5).
+    assert clash['message'].endswith('Nothing has been renumbered. Move one '
+                                     'of them if the clash is wrong.'), (
+        clash['message'])
+    assert ' - ' not in clash['message'], clash['message']
 
     # Neither was renumbered out of the way, and both draw as clashing.
     assert numbers(res, 'Main')[0] == 5
@@ -920,7 +926,7 @@ def test_placing_one_port_leaves_the_screens_other_ports_where_they_were(one_car
     assert 'held' not in resp.get_json()['moved'], (
         'the placement reports holding ports - nothing needs holding now')
     assert resp.get_json()['moved']['note'] == (
-        'Main port 3 is now on H9 slot 1 port 12.')
+        'Main port 3 is now on H9 Card 1 port 12.')
     assert resp.get_json()['resolution']['occupancy'][card].get('3') is None
 
 
@@ -1212,7 +1218,7 @@ def test_the_fill_stops_at_the_port_under_the_cursor(one_card):
                              'lastIndex': 5})
     assert resp.status_code == 409
     assert resp.get_json()['error'] == (
-        'Every port of Main is already on a processor - clear it first.')
+        'Every port of Main is already on a processor. Clear it first.')
     assert spots(resolve(client, ('Main', 6)), 'Main') == \
         [(card, n) for n in range(1, 7)]
 
@@ -1233,7 +1239,7 @@ def test_the_bounded_fill_says_how_many_it_took(one_card):
     moved = resp.get_json()['moved']
     assert [m['port'] for m in moved['moved']] == [13, 14, 15, 16]
     assert moved['note'] == (
-        'H9 slot 1 took 4 of 6 ports. 2 still have nowhere to go.')
+        'H9 Card 1 took 4 of 6 ports. 2 still have nowhere to go.')
     res = resp.get_json()['resolution']
     assert by_name(res, 'Main')['unplaced'] == [4, 5, 6, 7]
 
@@ -1421,23 +1427,42 @@ def test_releasing_a_whole_screen_releases_every_one_of_its_pins(one_card):
     assert resp.get_json()['state']['pins'] == []
 
 
-def test_a_pin_to_a_card_that_is_gone_is_reported_not_dropped(one_card):
-    """Pulling a card out from under a pin is a real edit someone makes. The
-    pin is kept and reported rather than deleted, because the alternative is
-    the app throwing away a decision it was told to hold."""
+def test_a_pin_goes_with_the_card_pulled_out_from_under_it(one_card):
+    """Pulling a card out from under a pin is a real edit someone makes, and
+    the pins on it go with it (owner, beta.3: a removed H9 left 48 pins,
+    each one waiting on a Release pin). The reply says which screen ports
+    are unplaced again; undo puts card and pins back together
+    (test_processor_remove_pins)."""
     client, pid, card = one_card
     client.post('/api/port-assignments/pin', json={
         'layerId': 'Main', 'index': 0, 'cardId': card, 'port': 4,
         'screens': screens(('Main', 2))})
     resp = client.put(f'/api/processors/{pid}/slots/0', json={'deviceId': None})
     assert resp.status_code == 200
+    assert resp.get_json()['note'] == \
+        'Removed Card 1: 1 port of Screen Main is unplaced again'
+
+    res = resolve(client, ('Main', 2))
+    assert 'pin-card-gone' not in kinds(res)
+    assert stored_state(client)['pins'] == []
+
+
+def test_a_pin_to_a_card_that_is_not_in_the_file_is_reported_not_dropped(
+        one_card):
+    """A pin can still name a card the project does not have - a hand-edited
+    file, one put together from two shows. That pin is kept and reported
+    rather than deleted, because the alternative is the app throwing away a
+    decision it was told to hold."""
+    client, _pid, _card = one_card
+    import app as app_module
+    app_module.current_project[assignment.STATE_KEY]['pins'].append(
+        {'layerId': 'Main', 'index': 0, 'cardId': 'cardNope', 'port': 4})
 
     res = resolve(client, ('Main', 2))
     gone = issue(res, 'pin-card-gone')
     assert gone['layerId'] == 'Main' and gone['port'] == 4
     assert gone['offers'][0]['action'] == 'release'
-    stored = client.get('/api/project').get_json()[assignment.STATE_KEY]
-    assert stored['pins'], 'the pin was silently discarded'
+    assert stored_state(client)['pins'], 'the pin was silently discarded'
 
 
 def test_a_pin_is_refused_onto_a_card_that_is_not_in_the_project(one_card):
@@ -1726,11 +1751,19 @@ def test_both_surfaces_place_a_port_through_the_one_request():
 
 def test_a_placement_asks_before_it_lands_on_somebody():
     """The refusal is a question, not a failure. Retrying it automatically
-    would put the app back to rearranging things nobody agreed to."""
+    would put the app back to rearranging things nobody agreed to.
+
+    Since QA round 3 (2026-11-03) the question is the app's own dialog
+    (app-dialogs appConfirm), never the browser's confirm(). The dialog
+    showing and a No clearing the panel's note are driven for real in
+    test_port_tiles (test_a_conflicting_placement_asks_in_the_apps_dialog)."""
     body = function_body(js('app-port-assignment.js'),
                          '_placePort(spot, confirmed) {')
     assert 'if (confirmed || !data.conflict) return false;' in body
-    assert 'window.confirm(' in body
+    assert 'this.appConfirm(' in body
+    assert "id: 'port-place-conflict-modal'" in body
+    assert 'confirm(' not in body.replace('this.appConfirm(', ''), (
+        'a native confirm() is back in _placePort')
     assert 'this._placePort(spot, true);' in body
 
 
@@ -2186,6 +2219,7 @@ def test_the_matrix_covers_every_ported_device():
         'novastar-mctrl': {'novastar-armor'},
         'novastar-novapro': {'novastar-armor'},
         'novastar-h': {'novastar-armor'},
+        'novastar-prime': {'novastar-armor'},
         'brompton': {'brompton'},
         'megapixel': {'megapixel-1g', 'megapixel-2.5g'},
     }
@@ -2204,6 +2238,36 @@ def test_the_matrix_covers_every_ported_device():
                              by_family.get(device.get('family')))
         assert got == want, (
             f'{device["id"]}: accepts {got}, the matrix says {want}')
+
+
+def test_the_4k_prime_takes_legacy_screens_and_only_legacy_screens(client):
+    """The 4K-Prime is a NovaStar sender for the legacy receiving cards,
+    run from V-Can (4K-Prime All-in-One Controller Specifications V1.0.0):
+    not a NovaPro and not COEX. Its own family sits in the Legacy row with
+    the UHD Jr's, so a NovaStar (Legacy) screen lands on it and every other
+    setting is refused with both sides named, the way the UHD Jr refuses."""
+    assert assignment.accepted_platforms('novastar-4k-prime') ==         {'novastar-armor'}
+    assert assignment.accepted_platforms('novastar-4k-prime') ==         assignment.accepted_platforms('novastar-novapro-uhd-jr')
+    state = add_processor(client, 'novastar-4k-prime')
+    card = card_ids(state)[0]
+    sc = pscreens(('LEG', 2, 'novastar-armor'),
+                  ('CX1', 2, 'novastar-coex-1g'),
+                  ('CX5', 2, 'novastar-5g'),
+                  ('BR', 2, 'brompton'),
+                  ('MP', 2, 'megapixel-1g'))
+    for name, setting, gear in (
+            ('CX1', 'NovaStar COEX A10s/A8s (1G)', 'NovaStar legacy gear'),
+            ('CX5', 'NovaStar COEX CX40 (5G)', 'NovaStar legacy gear'),
+            ('BR', 'Brompton', 'NovaStar legacy gear'),
+            ('MP', 'Megapixel HELIOS (1G)', 'NovaStar legacy gear')):
+        resp = client.post('/api/port-assignments/place-overflow',
+                           json={'layerId': name, 'cardId': card,
+                                 'screens': sc})
+        assert resp.status_code == 409, resp.get_data(as_text=True)
+        assert resp.get_json()['error'] == (
+            f'{name} is programmed {setting}; 4K-Prime is {gear}.')
+    res = attach(client, 'LEG', card, sc)
+    assert spots(res, 'LEG') == [(card, 1), (card, 2)]
 
 
 def test_a_card_drop_lands_only_on_its_own_lines_gear(mixed_lines):
@@ -2423,3 +2487,82 @@ def test_the_card_summary_carries_the_servers_word(mixed_lines):
     by_card = {c['cardId']: c for c in res['cards']}
     assert by_card[mx_card]['platforms'] == ['novastar-coex-1g']
     assert by_card[h_card]['platforms'] == ['novastar-armor']
+
+
+# ── No phantom ports (QA, 1.6.0) ──────────────────────────────────────────
+
+def test_a_fill_skips_a_port_with_no_cabinets(one_card):
+    """A screen port the client says has no cabinet on it (a number held
+    empty by an open redraw) is never unplaced, so a fill lands round it:
+    a card socket never drives a number with nothing on it."""
+    client, _pid, card = one_card
+    sc = [{'layerId': 'Main', 'name': 'Main', 'ports': 6, 'emptyPorts': [2]}]
+    resp = client.post('/api/port-assignments/resolve', json={'screens': sc})
+    assert by_name(resp.get_json()['resolution'], 'Main')['unplaced'] == [0, 1, 3, 4, 5]
+    res = attach(client, 'Main', card, sc)
+    ports = by_name(res, 'Main')['ports']
+    assert [p['port'] for p in ports] == [1, 2, None, 3, 4, 5]
+    assert by_name(res, 'Main')['unplaced'] == []
+    assert 'overflow' not in kinds(res)
+
+
+def test_remap_pins_follows_the_moves_and_releases_the_gone():
+    pin = lambda layer, index, port: {'layerId': layer, 'index': index,
+                                      'cardId': 'c1', 'port': port}
+    state = {'pins': [pin('1', 0, 1), pin('1', 1, 2), pin('1', 2, 3),
+                      pin('1', 3, 4), pin('2', 1, 9)]}
+    assignment.remap_pins(state, 1, {1: 2, 2: 1, 3: None})
+    assert [(p['layerId'], p['index'], p['port']) for p in state['pins']] == [
+        ('1', 0, 1), ('1', 1, 3), ('1', 2, 2), ('2', 1, 9)]
+    # a move onto a pin that stays is refused: the one already there keeps it
+    state = {'pins': [pin('1', 0, 1), pin('1', 1, 2)]}
+    assignment.remap_pins(state, 1, {1: 0})
+    assert [(p['index'], p['port']) for p in state['pins']] == [(0, 1)]
+
+
+def test_the_remap_route_moves_the_pins(one_card):
+    client, _pid, card = one_card
+    sc = screens(('Main', 4))
+    attach(client, 'Main', card, sc)
+    resp = client.post('/api/port-assignments/remap',
+                       json={'layerId': 'Main', 'moves': [[1, 2], [2, 1], [3, None]],
+                             'screens': sc})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    ports = by_name(resp.get_json()['resolution'], 'Main')['ports']
+    assert [p['port'] for p in ports] == [1, 3, 2, None]
+    bad = client.post('/api/port-assignments/remap',
+                      json={'layerId': 'Main', 'moves': [['x', 1]]})
+    assert bad.status_code == 400
+
+
+def test_every_reply_with_a_resolution_is_numbered_in_order(one_card):
+    """The order of the assignment's answers (owner, 2026-11-04): every
+    reply that carries a resolution - a read, an edit, a release with
+    nothing pinned - carries the server's number for it, taken before the
+    pins are read, and a later reply's number is higher. The page drops an
+    older reply that lands after a newer one (app-port-assignment
+    _assignmentReplyFresh; tests/test_attach_flag_after_release.py has the
+    released ports it kept on the not all attached list)."""
+    client, _pid, card = one_card
+    sc = screens(('Main', 3))
+    got = [client.post('/api/port-assignments/resolve', json={'screens': sc})]
+    got.append(client.post('/api/port-assignments/place-overflow', json={
+        'layerId': 'Main', 'cardId': card, 'screens': sc}))
+    got.append(client.post('/api/port-assignments/unpin', json={
+        'layerId': 'Main', 'index': 0, 'screens': sc}))
+    got.append(client.post('/api/port-assignments/unpin', json={
+        'layerId': 'Main', 'screens': sc}))
+    # nothing pinned now: the release answers without an edit, numbered too
+    got.append(client.post('/api/port-assignments/unpin', json={
+        'layerId': 'Main', 'screens': sc}))
+    stamps = []
+    for resp in got:
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        body = resp.get_json()
+        assert 'resolution' in body
+        stamps.append(body['assignmentStamp'])
+    assert len({s['boot'] for s in stamps}) == 1, stamps
+    ns = [s['n'] for s in stamps]
+    assert ns == sorted(set(ns)), stamps
+    # the number is the reply's, never the project's
+    assert 'assignmentStamp' not in client.get('/api/project').get_json()

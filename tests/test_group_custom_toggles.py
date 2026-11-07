@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-SIZES_DIFFER = 'Cabinet sizes differ - runs stay per screen. Use Custom to run across.'
+SIZES_DIFFER = 'Cabinet sizes differ, so runs stay per screen. Use Custom to run across.'
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -48,7 +48,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -93,7 +93,8 @@ window.__gc = {
             flowPattern: o.custom ? 'custom' : 'tl-v', lastFlowPattern: 'tl-v',
             powerFlowPattern: o.custom ? 'custom' : 'tl-v', lastPowerFlowPattern: 'tl-v',
             powerCustomPath: !!o.custom, powerOrganized: true, powerMaximize: false,
-            powerVoltage: 208, powerAmperage: 20, panelWatts: 200,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            powerVoltage: 208, powerAmperage: 25, panelWatts: 200,
             customPortPaths: {}, customPortIndex: 1, customPortOverrides: [],
             powerCustomPaths: {}, powerCustomIndex: 1, powerCustomOverrides: [],
             group_id: 'g2',
@@ -274,7 +275,10 @@ def test_tile_with_the_group_selected_fills_the_whole_group(page, kind, view):
         app.loadLayerToInputs();
         gc.tile(arg.kind, 'tl-v');
         await gc.settle(200);
-        const L = gc.layer(ids.low);
+        // A port is one output on the selected screen's processor; a power
+        // circuit on a custom group is the WALL's, held by its first member
+        // whichever member is selected (the owner's ruling, 2026-10-19).
+        const L = gc.layer(arg.kind === 'power' ? ids.up : ids.low);
         return { after: gc.state(ids), runs: gc.runs(L, arg.kind),
                  toasts: gc.toasts.slice(),
                  cap: app.calculatePortCapacity(8, 60, 'novastar-armor', false) };
@@ -284,7 +288,9 @@ def test_tile_with_the_group_selected_fills_the_whole_group(page, kind, view):
     assert after['power'] == ['custom', 'custom'], out
     assert after['dataBox'] is True and after['powerBox'] is True, out
     assert out['runs']['cabinets'] == 100, out
-    assert out['runs']['onPeer'] == 80, out
+    # the 80 upper cabinets are the peer's for the data owner (Lower), the
+    # 20 lower ones for the wall's power owner (Upper)
+    assert out['runs']['onPeer'] == (20 if kind == 'power' else 80), out
     assert out['runs']['runs'] > 1, out
     if kind == 'data':
         # A selection of two cabinet sizes names the pixel cap the cut used.
@@ -292,7 +298,7 @@ def test_tile_with_the_group_selected_fills_the_whole_group(page, kind, view):
         assert after['action'] == 'Custom Pattern Apply', out
     else:
         # Both members draw 200 W: one wattage keeps the cabinet count.
-        assert any('up to 20 panels each at 208V/20A' in t for t in out['toasts']), out
+        assert any('up to 20 panels each at 208V/25A at 80%' in t for t in out['toasts']), out
         assert after['action'] == 'Power Custom Pattern Apply', out
 
 
@@ -308,7 +314,8 @@ def test_power_fill_over_two_wattages_names_the_watts(page):
         app.loadLayerToInputs();
         gc.tile('power', 'tl-v');
         await gc.settle(200);
-        return { runs: gc.runs(gc.layer(ids.low), 'power'), toasts: gc.toasts.slice() };
+        // The wall's first member holds a custom group's circuits.
+        return { runs: gc.runs(gc.layer(ids.up), 'power'), toasts: gc.toasts.slice() };
     """)
     assert out['runs']['cabinets'] == 100, out
     assert any('up to 4,160 W each' in t for t in out['toasts']), out
@@ -518,12 +525,14 @@ def test_mixed_watt_circuit_reads_watts_and_one_wattage_reads_cabinets(page):
     out = _run(page, r"""
         const ids = await gc.fresh({ custom: true, view: 'power', lowerWatts: 115 });
         const app = window.app, r = window.canvasRenderer;
-        const L = gc.layer(ids.low);
+        // Lower is the screen shown; the circuit is the wall's, held by its
+        // first member, Upper (the owner's ruling, 2026-10-19).
+        const L = gc.layer(ids.low), U = gc.layer(ids.up);
         app.currentLayer = L;
         app.selectedLayerIds = new Set([ids.low]);
         const read = (path) => {
-            L.powerCustomPaths = { 1: path };
-            L.powerCustomIndex = 1;
+            U.powerCustomPaths = { 1: path };
+            U.powerCustomIndex = 1;
             app.updateCustomPowerUI();
             r.render();
             return {
@@ -531,18 +540,18 @@ def test_mixed_watt_circuit_reads_watts_and_one_wattage_reads_cabinets(page):
                 line: document.getElementById('power-custom-fill-readout').textContent,
             };
         };
-        const own = [0, 1, 2, 3].map(c => ({ row: 0, col: c }));
-        const peer = [0, 1, 2, 3, 4, 5].map(c => ({ row: 3, col: c, layerId: ids.up }));
+        const own = [0, 1, 2, 3].map(c => ({ row: 0, col: c, layerId: ids.low }));
+        const peer = [0, 1, 2, 3, 4, 5].map(c => ({ row: 3, col: c }));
         const mixed = read(own.concat(peer));
         const lowerOnly = read(own);
         const upperOnly = read(peer.slice(0, 3));
-        L.powerCustomPaths = { 1: own };
-        app.powerCustomSelection.add(app.getScopedPanelKey(ids.up, gc.layer(ids.up).panels[0]));
+        U.powerCustomPaths = { 1: own };
+        app.powerCustomSelection.add(app.getScopedPanelKey(ids.up, U.panels[0]));
         app.updateCustomPowerUI();
         r.render();
         const withSelection = r._lastActiveBadge ? r._lastActiveBadge.pill : null;
         app.powerCustomSelection.clear();
-        L.powerCustomPaths = {};
+        U.powerCustomPaths = {};
         return { mixed, lowerOnly, upperOnly, withSelection };
     """)
     limit = 208 * 20

@@ -36,10 +36,30 @@ export const FIBER_COLORS = [
     ['Violet', '#7A3F9E'], ['Rose', '#E09BA8'], ['Aqua', '#5EBFC2'],
 ];
 
+// SINGLE MODE AND MULTIMODE (owner, 2026-11-04: "if the M variants are
+// selected then the fiber will be multimode yes"): a box's mode is its
+// catalog entry's fiberMode (the resolved box's `fiberMode`), stated only on
+// the NovaStar models whose sheets name both versions (CVT10-S / -M, CVT10
+// Pro-S / -M, CVT4K-S / -M). A cable's mode is its boxes'. The words are the
+// owner's; the server's twin is processor_catalog.FIBER_MODES.
+export const FIBER_MODE_WORDS = { single: 'Single mode', multi: 'Multimode' };
+// The same in short, where the binder's band brackets a cable's kind.
+export const FIBER_MODE_SHORT = { single: 'SM', multi: 'MM' };
+
 // What the New TAC / New MTP step offers; any count may be typed.
 export const FIBER_STRAND_SUGGESTIONS = [4, 6, 8, 12, 24, 48];
 // A TAC's ends, offered; free text is taken too. An MTP names none.
 export const TAC_CONNECTORS = ['ST', 'LC duplex'];
+
+// A FIBER EXTENSION (owner, 2026-11-02: "MTP cant run direct to X1 for
+// example it would need an extension beyond that"): the cable between a
+// TAC's or an MTP's end and the box's own port, at the box end only, per
+// link - link.extension = { kind, trunkEnd?, boxEnd?, ft? } (the server's
+// processor_catalog.FIBER_EXTENSION_KINDS has the rules). Its ends are
+// offered from the fiber connector list of the 2026-09-25 ruling, and any
+// other may be typed; a trunk end left blank reads the trunk's own.
+export const FIBER_EXTENSION_KINDS = [['fanout', 'Fan-out'], ['patch', 'Duplex patch']];
+export const FIBER_EXTENSION_CONNECTORS = ['ST', 'LC duplex', 'opticalCON DUO', 'opticalCON QUAD', 'MTP / MPO'];
 
 // Copper on an XD link, each kind with its 10G maximum in feet: Cat6A 60 m
 // and Cat5e 30 m are Brompton's, Cat6 100 ft the owner's. The meter
@@ -117,27 +137,203 @@ class _Fiber {
                  'opticalcon-quad': 'opticalCON QUAD' }[kind] || 'Fiber';
     }
 
+    // ---- single mode and multimode ------------------------------------------
+
+    // 'Single mode' / 'Multimode' ('single mode' / 'multimode' mid
+    // sentence); '' for a mode nobody stated.
+    fiberModeWord(mode, lower = false) {
+        const word = FIBER_MODE_WORDS[mode] || '';
+        return lower ? word.toLowerCase() : word;
+    }
+
+    // A box's mode as the catalog states it: 'single', 'multi' or null.
+    boxFiberMode(box) {
+        const mode = box && box.fiberMode;
+        return FIBER_MODE_WORDS[mode] ? mode : null;
+    }
+
+    // The mode of a loop's or a pair's boxes in one line: the one word where
+    // they agree, each box's own where they differ ("CVT10-S A Single mode,
+    // CVT10-M B Multimode"), '' where none states one.
+    fiberModesText(boxes, titleOf) {
+        const modes = boxes.map(b => this.boxFiberMode(b));
+        if (!modes.some(Boolean)) return '';
+        if (modes.every(m => m === modes[0])) return this.fiberModeWord(modes[0]);
+        return boxes.map((b, i) => (modes[i] ? `${titleOf(b)} ${this.fiberModeWord(modes[i])}` : ''))
+            .filter(Boolean).join(', ');
+    }
+
+    // The mode of the fiber a cable carries: its boxes' stated mode, else
+    // null. A cable never carries both (the server refuses it), so the
+    // first box in tray order with a mode says it - processor_catalog
+    // fiber_cable_mode.
+    fiberCableMode(cable) {
+        const id = cable && cable.id;
+        if (!id) return null;
+        for (const { box } of this._fiberAllBoxes()) {
+            const mode = this.boxFiberMode(box);
+            if (mode && Object.values(box.fiberLinks || {}).some(l => l && l.cable === id)) return mode;
+        }
+        return null;
+    }
+
+    // The first other box on `cable` whose stated mode is not `box`'s:
+    // { box, mode }, else null. A box with no mode clashes with nothing
+    // (processor_catalog fiber_cable_mode_clash).
+    fiberModeClash(box, cable) {
+        const mine = this.boxFiberMode(box);
+        const id = cable && cable.id;
+        if (!mine || !id) return null;
+        for (const { box: other } of this._fiberAllBoxes()) {
+            if (other.id === box.id) continue;
+            const theirs = this.boxFiberMode(other);
+            if (!theirs || theirs === mine) continue;
+            if (Object.values(other.fiberLinks || {}).some(l => l && l.cable === id)) {
+                return { box: other, mode: theirs };
+            }
+        }
+        return null;
+    }
+
+    // The refusal, word for word the server's (processor_catalog
+    // fiber_mode_refusal; a test pins the two together).
+    fiberModeRefusalText(cableName, title, mode, otherTitle, otherMode) {
+        return `${cableName} carries ${this.fiberModeWord(otherMode, true)} fiber to ${otherTitle}, `
+            + `and ${title} is a ${this.fiberModeWord(mode, true)} box. Single mode and multimode `
+            + 'never share a fiber cable.';
+    }
+
+    // Why `box` cannot take a link on `cable` for its mode, '' where it can.
+    fiberLinkModeRefusal(box, cable) {
+        const clash = this.fiberModeClash(box, cable);
+        if (!clash) return '';
+        const titleOf = (b) => b.displayTitle || b.name || b.deviceName || 'a box';
+        return this.fiberModeRefusalText(cable.name || 'That cable', titleOf(box),
+            this.boxFiberMode(box), titleOf(clash.box), clash.mode);
+    }
+
+    // The same for a link request's body (setFiberLink): the cable it
+    // names - or, for a backup link sent with no cable, its primary's,
+    // the cable the server would follow. '' for copper, an extension, a
+    // clear, or a cable no box of the other mode is on.
+    fiberLinkBodyModeRefusal(box, key, body) {
+        const b = body || {};
+        if ('copper' in b || ('extension' in b && !('cable' in b))) return '';
+        let id = b.cable;
+        if (!('cable' in b) && String(key || '').startsWith('b')) {
+            id = (((box && box.fiberLinks) || {})[`p${key.slice(1)}`] || {}).cable;
+        }
+        if (!id || typeof id !== 'string') return '';
+        const cable = this.getFiberCable(id);
+        return cable ? this.fiberLinkModeRefusal(box, cable) : '';
+    }
+
     // The pull sheet's words, and the binder's: "TAC 12 · ST", "MTP 24",
-    // "opticalCON QUAD" - the kind and its strand count, a TAC's ends.
+    // "opticalCON QUAD" - the kind and its strand count, a TAC's ends - and
+    // the mode of its fiber where its boxes state one: "TAC 12 · ST ·
+    // Single mode" (processor_catalog fiber_cable_type_text).
     fiberCableTypeText(cable) {
         if (!cable) return '';
-        if (!this.fiberCableIsStranded(cable)) return this.fiberKindWord(cable.kind);
+        const word = this.fiberModeWord(this.fiberCableMode(cable));
+        const tail = word ? ` · ${word}` : '';
+        if (!this.fiberCableIsStranded(cable)) return this.fiberKindWord(cable.kind) + tail;
         const conn = cable.kind === 'tac' ? String(cable.connector || '').trim() : '';
-        return `${this.fiberKindWord(cable.kind)} ${cable.strands}` + (conn ? ` · ${conn}` : '');
+        return `${this.fiberKindWord(cable.kind)} ${cable.strands}` + (conn ? ` · ${conn}` : '') + tail;
     }
 
     // The cable as a picker lists it: "TAC A · 12 · 1000' · ST", "MTP A ·
-    // 12 · 300'", "QUAD 1 · 50'".
+    // 12 · 300'", "QUAD 1 · 50'" - and its mode where its boxes state one,
+    // "TAC A · 12 · 1000' · ST · Single mode".
     fiberCableOptionText(cable) {
         if (!cable) return '';
         const parts = [cable.name || this.fiberKindWord(cable.kind)];
         if (this.fiberCableIsStranded(cable)) parts.push(String(cable.strands));
         const ft = this.parseCableLength(cable.ft);
-        if (ft !== null) parts.push(this.pullLengthText(ft));
+        if (ft !== null) parts.push(this.pullLengthText(ft, this.fiberStockKind(cable)));
         if (cable.kind === 'tac' && String(cable.connector || '').trim()) {
             parts.push(String(cable.connector).trim());
         }
+        const word = this.fiberModeWord(this.fiberCableMode(cable));
+        if (word) parts.push(word);
         return parts.join(' · ');
+    }
+
+    // A cable's kind as the binder's short band brackets it after the
+    // cable's name: "TAC 24", "opticalCON QUAD" - and its mode in short
+    // where its boxes state one (owner, 2026-11-04: "(TAC 24 SM)" /
+    // "(TAC 24 MM)"), joined with a space as the band joins its words.
+    fiberCableShortKind(cable) {
+        if (!cable) return '';
+        const kind = this.fiberCableIsStranded(cable)
+            ? `${this.fiberKindWord(cable.kind)} ${cable.strands}`
+            : this.fiberKindWord(cable.kind);
+        const mode = this.fiberCableMode(cable);
+        return mode ? `${kind} ${FIBER_MODE_SHORT[mode]}` : kind;
+    }
+
+    // Which list of the show's cable stock a fiber cable is pulled from:
+    // 'fiber', one list for both modes (owner, 2026-11-05), null where its
+    // boxes state no mode (it is written as typed, as before).
+    fiberStockKind(cable) {
+        return this.fiberCableMode(cable) ? 'fiber' : null;
+    }
+
+    // ---- extensions at the box end ----------------------------------------
+
+    // The connector a trunk ends in, as an extension's trunk end reads it
+    // when none is typed: a TAC's own ends ('' where it names none), an
+    // MTP's MTP / MPO, an opticalCON its own.
+    fiberCableEndText(cable) {
+        if (!cable) return '';
+        if (cable.kind === 'tac') return String(cable.connector || '').trim();
+        return { mtp: 'MTP / MPO', 'opticalcon-duo': 'opticalCON DUO',
+                 'opticalcon-quad': 'opticalCON QUAD' }[cable.kind] || '';
+    }
+
+    fiberExtensionKindWord(kind) {
+        const hit = FIBER_EXTENSION_KINDS.find(([k]) => k === kind);
+        return hit ? hit[1] : 'Extension';
+    }
+
+    // A link's extension, or null: one rides a TAC or an MTP only.
+    fiberLinkExtension(l) {
+        const ext = l && l.link && l.link.extension;
+        return ext && l.cable && this.fiberCableIsStranded(l.cable) ? ext : null;
+    }
+
+    // Its two ends as they read: the trunk end typed, else the trunk's own.
+    fiberExtensionEnds(ext, cable) {
+        const typed = String((ext && ext.trunkEnd) || '').trim();
+        return { trunk: typed || this.fiberCableEndText(cable),
+                 box: String((ext && ext.boxEnd) || '').trim() };
+    }
+
+    // "MTP / MPO to LC duplex" - '' where neither end is named.
+    fiberExtensionPathText(ext, cable) {
+        const { trunk, box } = this.fiberExtensionEnds(ext, cable);
+        if (trunk && box) return `${trunk} to ${box}`;
+        if (trunk) return `from ${trunk}`;
+        return box ? `to ${box}` : '';
+    }
+
+    // The pull sheet's type for it: "Fan-out · MTP / MPO to LC duplex", and
+    // the mode of the trunk's fiber where its boxes state one, as a trunk's
+    // own row says it: "Fan-out · ST to LC duplex · Single mode". Two
+    // extensions of one kind, ends, mode and length are one row, counted;
+    // a single mode piece and a multimode piece never are.
+    fiberExtensionType(ext, cable) {
+        return [this.fiberExtensionKindWord(ext && ext.kind),
+                this.fiberExtensionPathText(ext, cable),
+                this.fiberModeWord(this.fiberCableMode(cable))]
+            .filter(Boolean).join(' · ');
+    }
+
+    // The whole of it in one line, the length or "no length" last: "Fan-out ·
+    // MTP / MPO to LC duplex · 10'".
+    fiberExtensionText(ext, cable) {
+        const ft = this.parseCableLength(ext && ext.ft);
+        return `${this.fiberExtensionType(ext, cable)} · `
+            + (Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : 'no length');
     }
 
     // A link by the box's own port name - "X1", "OPT 3" - off the
@@ -245,6 +441,159 @@ class _Fiber {
         return far ? { near: box, far } : null;
     }
 
+    // A BACKUP BOUND PORT BY PORT (owner, 2026-11-02: "pair port by
+    // port"). A box on a copy OPT set to Backup whose OPTs are not its
+    // primary's - a CVT4K-S on OPT 5-6 behind two CVT10s, two CVT10s on
+    // OPT 5 and 6 behind one CVT4K-S - backs up the same port numbers on
+    // whichever primary boxes carry them. The server says which, socket by
+    // socket: `backsUpPorts` on the backup box ({ number, socket, boxId,
+    // local }), `backedUpBy` on each primary. A port with no box on its
+    // primary OPT is the unit's own Ethernet port (boxId null - owner,
+    // 2026-11-02: "you could use 16 ports on processor and then opt 3/4
+    // for 16 ports of backup/copy"), and the card lists those backups as
+    // `ownBackedUpBy`. A one-to-one pair keeps `backupOf` and reads as
+    // before; this is true only past it.
+    boxLoopMixed(box) {
+        return !!(box && !box.backupOf && (box.backsUpPorts || []).length);
+    }
+
+    // A backup box's sockets as the tray and its sheet show them. Port by
+    // port, each reads the box's own silkscreen number (the standing
+    // silkscreen rule wins, owner 2026-11-02: a CVT10 behind ports 11-16
+    // shows 1-6), `loopOf` saying which primary box (null: the unit's own
+    // port) and that box's own number for the port it backs up. `mainId` keeps the sockets backing
+    // one primary box (null: the unit's own ports); left out, all of them.
+    // A one-to-one pair keeps its sockets as they are. Any other box: its
+    // ports.
+    boxLoopPorts(box, mainId) {
+        const map = (box && box.backsUpPorts) || [];
+        if (!map.length) return (box && box.ports) || [];
+        const mixed = this.boxLoopMixed(box);
+        const byNumber = new Map((box.ports || []).map(p => [p.number, p]));
+        const out = [];
+        for (const m of map) {
+            if (mainId !== undefined && (m.boxId || null) !== mainId) continue;
+            const port = byNumber.get(m.number);
+            if (!port) continue;
+            out.push(!mixed ? port : { ...port, localNumber: m.socket,
+                loopOf: { boxId: m.boxId || null, local: m.local, socket: m.socket } });
+        }
+        return out;
+    }
+
+    // The port-by-port backups behind one primary box (`near` null: the
+    // unit's own ports), each with the sockets backing it, in the card's
+    // order: [{ box, ports }] - the box's own loop first where it
+    // straddles a main OPT and its copy (boxStraddles). A one-to-one
+    // partner is not one of them.
+    boxLoopSlices(near, cvts) {
+        const id = near ? near.id : null;
+        const self = near && (near.backsUpPorts || []).some(m => m.boxId === near.id)
+            ? [{ box: near, ports: this.boxLoopPorts(near, near.id) }] : [];
+        return self.concat((cvts || []).filter(b => b !== near && (b.backsUpPorts || []).length
+                && (this.boxLoopMixed(b) || !near)
+                && b.backsUpPorts.some(m => (m.boxId || null) === id))
+            .map(b => ({ box: b, ports: this.boxLoopPorts(b, id) })));
+    }
+
+    // A box STRADDLING a mode's main OPTs and its copy OPTs set to Backup
+    // (owner, 2026-11-02: a CVT4K-S on OPT 1-2 of a VX1000 carries ports
+    // 1-8 on outputs 1-8 and their backup on 9-16): its sockets after its
+    // own ports back up card ports (`backNumbers`).
+    boxStraddles(box) {
+        return !!(box && (box.backNumbers || []).length);
+    }
+
+    // The ports a box itself DELIVERS (its portNumbers), without the ones
+    // a straddling box only backs up.
+    boxMainPorts(box) {
+        const ports = (box && box.ports) || [];
+        if (!this.boxStraddles(box)) return ports;
+        const mine = new Set(box.portNumbers || []);
+        return ports.filter(p => mine.has(p.number));
+    }
+
+    // A box's sockets for its cable sheet: its ports, and a straddling
+    // box's backup sockets too - each by its silkscreen and the port it
+    // backs up. Where it backs up its OWN port the backup output is a
+    // cable of its own with its own length (owner, 2026-11-03: "of course
+    // it will have its own extension"): its row carries `cableKey`, the
+    // 'r<socket>' entry it is kept under (backupCableKey).
+    boxSheetPorts(box) {
+        if (!this.boxStraddles(box)) return this.boxLoopPorts(box);
+        return this.boxMainPorts(box).concat(this.boxLoopPorts(box).map(p => (
+            p.loopOf && p.loopOf.boxId === box.id ? { ...p, cableKey: `r${p.number}` } : p)));
+    }
+
+    // What a port-by-port backup backs up, per primary box: "loop of CVT10
+    // A 1-10, CVT10 B 1-6 on sockets 11-16" - the primary's own numbers,
+    // and this box's own sockets for them where they differ. A box backing
+    // up its OWN outputs says so in those words (boxSelfBackupText), never
+    // its own name as its primary. '' on any other box. `titleOf` names a
+    // box the way the reader's sheet does.
+    boxLoopText(box, cvts, titleOf) {
+        const own = (box && box.backsUpPorts || []).some(m => !m.boxId);
+        if (!this.boxLoopMixed(box) && !own) return '';
+        const self = this.boxSelfBackupText(box);
+        const groups = new Map();
+        for (const m of box.backsUpPorts) {
+            if (box.backupOf && m.boxId) continue;
+            if (m.boxId && m.boxId === box.id) continue;
+            if (!groups.has(m.boxId)) groups.set(m.boxId, { locals: [], numbers: [] });
+            groups.get(m.boxId).locals.push(m.local);
+            groups.get(m.boxId).numbers.push(m.socket);
+        }
+        const parts = [...groups].map(([id, g]) => {
+            const main = (cvts || []).find(b => b.id === id);
+            const mine = this.fiberStrandRangeText(g.locals);
+            const shown = this.fiberStrandRangeText(g.numbers);
+            return `${id ? (main ? titleOf(main) : 'its primary') : 'own ports'} ${mine}`
+                + (shown !== mine ? ` on sockets ${shown}` : '');
+        });
+        return [parts.length ? `loop of ${parts.join(', ')}` : '', self ? `backs up ${self}` : '']
+            .filter(Boolean).join('; ');
+    }
+
+    // A box backing up its OWN outputs (a CVT4K-S straddling a VX1000's
+    // OPT 1 and its copy): "its own outputs 1-8 on 9-16", both ranges by
+    // the box's own silkscreen (each backsUpPorts entry's `local`, the
+    // output backed up, and `socket`, the output carrying its backup).
+    // '' for a box that does not.
+    boxSelfBackupText(box) {
+        const mine = ((box && box.backsUpPorts) || []).filter(m => m.boxId && m.boxId === box.id);
+        if (!mine.length) return '';
+        return `its own outputs ${this.fiberStrandRangeText(mine.map(m => m.local))}`
+            + ` on ${this.fiberStrandRangeText(mine.map(m => m.socket))}`;
+    }
+
+    // Every box looped with `box`, one-to-one or port by port, on its own
+    // card: the primaries (`nears`) and their backups (`fars`), each in the
+    // card's order. A CVT4K-S on OPT 5-6 behind CVT10s on OPT 1 and 2 is
+    // one group of three. null where the box is in no loop.
+    fiberLoopGroup(box) {
+        if (!box) return null;
+        const hit = this._fiberAllBoxes().find(b => b.box.id === box.id);
+        const cvts = (hit && hit.card && hit.card.cvts) || [];
+        const backs = (b) => [b.backupOf, ...(b.backsUpPorts || []).map(m => m.boxId)]
+            .filter(Boolean);
+        const seen = new Set([box.id]);
+        const queue = [box];
+        while (queue.length) {
+            const b = queue.shift();
+            for (const o of cvts) {
+                if (seen.has(o.id)) continue;
+                if (backs(b).includes(o.id) || backs(o).includes(b.id)) {
+                    seen.add(o.id);
+                    queue.push(o);
+                }
+            }
+        }
+        if (seen.size < 2) return null;
+        const members = cvts.filter(b => seen.has(b.id));
+        return { nears: members.filter(b => !backs(b).length),
+                 fars: members.filter(b => backs(b).length) };
+    }
+
     // Every strand of one cable some link holds: Map strand -> { box, key }.
     fiberStrandUsers(cableId) {
         const used = new Map();
@@ -324,12 +673,7 @@ class _Fiber {
                     .filter(Boolean).join(' ') + (over ? ` (${over})` : '') };
             }
             let what = cable.name || this.fiberCableTypeText(cable);
-            if (cable.name && !typed.has(cable.id)) {
-                const kind = this.fiberCableIsStranded(cable)
-                    ? `${this.fiberKindWord(cable.kind)} ${cable.strands}`
-                    : this.fiberKindWord(cable.kind);
-                what += ` (${kind})`;
-            }
+            if (cable.name && !typed.has(cable.id)) what += ` (${this.fiberCableShortKind(cable)})`;
             typed.add(cable.id);
             const head = `${this.fiberPortRunText(titles)} ${what}`;
             const list = [...new Set(strands.map(Number))].filter(Number.isFinite).sort((a, b) => a - b);
@@ -370,7 +714,22 @@ class _Fiber {
     setFiberLink(box, key, body, action = 'Set Fiber Link') {
         const url = this._fiberBoxUrl(box);
         if (!url) return Promise.resolve();
+        // A cable of the other mode is refused here, in the server's words
+        // (check_fiber_link), and never sent: the reason reads where a
+        // refusal reads and the picker snaps back to what is stored.
+        const why = this.fiberLinkBodyModeRefusal(box, key, body);
+        if (why) {
+            if (typeof this._toast === 'function') this._toast(why, true, 6000);
+            if (typeof this.renderProcessorPanel === 'function') this.renderProcessorPanel();
+            return Promise.resolve();
+        }
         return this._processorRequest(`${url}/fiber-links/${key}`, 'PUT', body, action);
+    }
+
+    // A link's extension: {} adds one, the keys sent change it, null
+    // removes it - one request, one history entry.
+    setFiberExtension(box, key, body, action = 'Set Fiber Extension') {
+        return this.setFiberLink(box, key, { extension: body }, action);
     }
 
     setBoxFiber(box, body, action = 'Set Box Fiber') {

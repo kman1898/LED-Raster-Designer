@@ -43,7 +43,7 @@ def _restore_server_project(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -242,4 +242,4 @@ def test_clear_run_with_the_owner_locked_removes_nothing_and_says_so(page, kind)
     layer_puts = [u for u in puts if '/api/layer/' in u or u.endswith('/api/project')]
     assert layer_puts == [], puts
     owner = page.evaluate("(id) => window.__q.layer(id).name", ids[1])
-    assert toasts == ['%s is locked - unlock it to change it.' % owner], toasts
+    assert toasts == ['%s is locked. Unlock it to change it.' % owner], toasts

@@ -47,7 +47,7 @@ def page(flows_server, flows_browser):
     """One long-lived page; tests assert deltas rather than absolute state."""
     context = flows_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(flows_server, wait_until='domcontentloaded')
@@ -283,19 +283,24 @@ def test_advanced_guide_switches_views(page):
     settled = ("() => ['done', 'failed', 'idle'].includes("
                "document.getElementById('qs-callout').getAttribute('data-qs-state'))")
     reached_data = False
-    for _ in range(14):
-        page.wait_for_function(settled, timeout=20000)
-        title = page.locator('#qs-callout h3').text_content() or ''
-        if 'Data view' in title:
-            reached_data = True
-            break
-        page.locator('#qs-next').click()
-        page.wait_for_timeout(200)
-    assert reached_data, "never reached the Data view step"
-    active = page.evaluate(
-        "document.querySelector('[data-mode=\"data-flow\"]').classList.contains('active')")
-    assert active, "Data view step did not switch the app to the Data view"
-    page.evaluate("window.QuickStart.end()")
+    try:
+        for _ in range(20):
+            page.wait_for_function(settled, timeout=20000)
+            title = page.locator('#qs-callout h3').text_content() or ''
+            if 'Data view' in title:
+                reached_data = True
+                break
+            page.locator('#qs-next').click()
+            page.wait_for_timeout(200)
+        assert reached_data, "never reached the Data view step"
+        active = page.evaluate(
+            "document.querySelector('[data-mode=\"data-flow\"]').classList.contains('active')")
+        assert active, "Data view step did not switch the app to the Data view"
+    finally:
+        # A failure here must not leave the guide's click catcher over the
+        # page for every later test in this module (8162ef7: one failure
+        # read as sixteen).
+        page.evaluate("window.QuickStart.end()")
     page.wait_for_function(
         "() => !window.QuickStart.state().visible && !window.QuickStart.state().running",
         timeout=20000)
@@ -655,9 +660,15 @@ def test_armor_max_capacity_is_selectable(page):
     mx = port_map(page, rows=2, columns=20,
                   processorType='novastar-armor', mode='max-capacity')
     # A 20-wide row reserves 4000x200 = 800,000 px against a 659,722 px port,
-    # so Organized cannot fit a whole row and reports a capacity error.
-    assert org['error'], "expected Organized to fail on an over-wide row"
-    assert org['ports'] == []
+    # so Organized cannot fit a whole row. Since v1.5.4 it cuts the row into
+    # ports of whole cabinets (16 fit: 3200x200 = 640,000 px) and the last
+    # takes the remainder; no port snakes on from mid-row. Since the owner's
+    # ruling of 2026-11-04 the two rows' remainders of 4 stack into one port
+    # (800x400 = 320,000 px), numbered after row 0's run.
+    assert not org['error'], f"Organized errored on an over-wide row: {org['errorInfo']}"
+    assert [p['panels'] for p in org['ports']] == [16, 8, 16]
+    assert [p['rectArea'] for p in org['ports']] == [640000, 320000, 640000]
+    assert_rect_fits(org, 'armor 2x20 organized')
     # Max Capacity splits mid-row and succeeds.
     assert not mx['error'], f"max-capacity unexpectedly errored: {mx['errorInfo']}"
     assert len(mx['ports']) == 3, [p['panels'] for p in mx['ports']]
@@ -2452,7 +2463,14 @@ def test_low_latency_survives_localstorage_and_duplicate(page):
             l => (l.type || 'screen') === 'screen' && l.lowLatency === true);
         app.duplicateLayer(layer);
     }""")
-    page.wait_for_timeout(900)
+    # The copy arrives with the server's answer to POST /api/layer/add. A
+    # fixed 900 ms missed it once on a loaded run (the add answered about
+    # a second after the call; the app's log shows it landed whole).
+    try:
+        page.wait_for_function(f"() => window.app.project.layers.length === {before + 1}",
+                               timeout=10000)
+    except pw.TimeoutError:
+        pass
     assert layer_count(page) == before + 1, 'duplicate did not add a layer'
     assert page.evaluate(
         "!!window.app.currentLayer.lowLatency") is True, (
@@ -2646,7 +2664,9 @@ def test_slider_accent_fill_is_painted(page):
     """theme.js writes the slider fill inline; theme.css must not eat it.
     A filled track and a bare track have to compute differently."""
     res = page.evaluate(SNAP_JS + """() => {
-        const rs = [...document.querySelectorAll('input[type=range]:not(.lrd-cw-range)')];
+        // the Quick Palettes Hue slider paints its own hue ramp and opts
+        // out of the accent fill (data-ps-slider="own")
+        const rs = [...document.querySelectorAll('input[type=range]:not(.lrd-cw-range):not([data-ps-slider="own"])')];
         const r = rs.find(x => x.offsetParent !== null) || rs[0];
         if (!r) return null;
         const keep = r.getAttribute('style');

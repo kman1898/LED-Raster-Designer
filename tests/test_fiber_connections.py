@@ -184,7 +184,7 @@ ROWS_JS = """(pid) => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 1000})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -223,7 +223,8 @@ def test_an_sx40_lists_its_backup_output_by_output(page):
         ['WALL SR BU · trunk A', 'TAC B (TAC 12 · ST)', '1 Blue · 2 Orange', 'X2 on XD A', '2 Orange · 1 Blue'],
         ['WALL SR · trunk B', 'TAC A', '3 Green · 4 Brown', 'X1 on XD B', '4 Brown · 3 Green'],
         ['WALL SR BU · trunk B', "Cat6 150' (Cat6 runs 100 ft max at 10G)", 'copper', 'X2 on XD B', 'copper'],
-        ['WALL SR · trunk C', f'{duo} (opticalCON DUO)', '1 Blue · 2 Orange', 'X1 on XD C',
+        # the DUO has no length: flagged here as on every surface (2026-10-21)
+        ['WALL SR · trunk C', f'{duo} (opticalCON DUO) · no length', '1 Blue · 2 Orange', 'X1 on XD C',
          '1 Blue · 2 Orange · crosses inside'],
         ['WALL SR BU · trunk C', 'no fiber picked', '', 'X2 on XD C', ''],
         ['trunk D', 'not used', '', '', ''],
@@ -286,8 +287,8 @@ def test_a_bidi_box_keeps_its_one_strand_and_an_mtp_is_not_flipped(page):
     cells = [r['cells'] for r in rows]
     box = pg.evaluate("(id) => window.app._bBoxTitle(window.app._dockFindCvt(id).cvt)", ids['cvt4k'])
     assert cells == [
-        ['OPT 1', 'TAC C (TAC 12)', '1', 'OPT 1 on CVT10 A', '1'],
-        ['OPT 2', 'MTP A (MTP 12)', '1 Blue · Rack A', f'OPT1 on {box}', '1 Blue · Rack A · crosses inside'],
+        ['OPT 1', 'TAC C (TAC 12 · Single mode)', '1', 'OPT 1 on CVT10-S A', '1'],
+        ['OPT 2', 'MTP A (MTP 12 · Single mode)', '1 Blue · Rack A', f'OPT1 on {box}', '1 Blue · Rack A · crosses inside'],
         ['OPT 3', 'MTP A', '3 Green · 4 Brown', f'OPT2 on {box}', '3 Green · 4 Brown · crosses inside'],
         ['OPT 4', 'not used', '', '', ''],
     ], cells
@@ -338,19 +339,19 @@ def test_an_sq200_lists_its_outs_and_the_qd_s_outputs(page):
 
 def test_each_card_of_a_chassis_names_its_own_outputs(page):
     """DUAL: two cards, each with its own OPT 1 - the output is named with
-    its card as the Breakout boxes table names it (SR, else its slot), and
-    an input with no cable says so."""
+    its card as the Breakout boxes table names it (SR, else Card N by its
+    slot), and an input with no cable says so."""
     pg, ids = page
     cells = [r['cells'] for r in _rows(pg, ids['dual'])]
     assert cells == [
-        ['SR · OPT 1', 'no fiber picked', '', 'OPT 1 on CVT10 A', ''],
+        ['SR · OPT 1', 'no fiber picked', '', 'OPT 1 on CVT10-S A', ''],
         ['SR · OPT 2', 'not used', '', '', ''],
         ['SR · OPT 3', 'not used', '', '', ''],
         ['SR · OPT 4', 'not used', '', '', ''],
-        ['slot 2 · OPT 1', 'no fiber picked', '', 'OPT 1 on CVT10 A', ''],
-        ['slot 2 · OPT 2', 'not used', '', '', ''],
-        ['slot 2 · OPT 3', 'not used', '', '', ''],
-        ['slot 2 · OPT 4', 'not used', '', '', ''],
+        ['Card 2 · OPT 1', 'no fiber picked', '', 'OPT 1 on CVT10-S A', ''],
+        ['Card 2 · OPT 2', 'not used', '', '', ''],
+        ['Card 2 · OPT 3', 'not used', '', '', ''],
+        ['Card 2 · OPT 4', 'not used', '', '', ''],
     ], cells
 
 

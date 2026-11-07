@@ -1,4 +1,22 @@
-# LED Raster Designer v1.6.0
+<h1 align="center"><img src="src/icon.png" width="112" alt=""><br>LED Raster Designer v1.7.0</h1>
+
+<p align="center"><strong>Plan LED video walls, from pixel map to binder.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/kman1898/LED-Raster-Designer/releases/latest"><img alt="Download for Mac" src="https://img.shields.io/badge/Download-Mac-2f81f7?style=for-the-badge&logo=apple&logoColor=white"></a>
+  <a href="https://github.com/kman1898/LED-Raster-Designer/releases/latest"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows-2f81f7?style=for-the-badge&logo=windows&logoColor=white"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/kman1898/LED-Raster-Designer/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/kman1898/LED-Raster-Designer?label=release&color=2f81f7"></a>
+  <a href="https://github.com/kman1898/LED-Raster-Designer/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/kman1898/LED-Raster-Designer/total?color=2f81f7"></a>
+  <a href="https://github.com/kman1898/LED-Raster-Designer/actions/workflows/ci.yml?query=branch%3Amain"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/kman1898/LED-Raster-Designer/ci.yml?branch=main&label=CI"></a>
+  <a href="LICENSE"><img alt="License: free to use" src="https://img.shields.io/badge/license-free%20to%20use-2f81f7"></a>
+</p>
+
+<p align="center">
+  <img src=".github/media/demo.gif" width="900" alt="A demo show in LED Raster Designer, moving through the Pixel Map, Show Look, Data and Power views">
+</p>
 
 LED Raster Designer is a free app for planning LED video walls for live
 events, concerts, broadcast and installs. You lay out the cabinets, wire
@@ -71,6 +89,20 @@ when you're done.
 
 ### Five views
 
+<table>
+  <tr>
+    <td colspan="2"><img src=".github/media/pixel-map.png" alt="Pixel Map view of a demo show"><br><sub><b>Pixel Map</b>: the layout your processor expects</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src=".github/media/cabinet-id.png" alt="Cabinet ID view"><br><sub><b>Cabinet ID</b>: every cabinet numbered</sub></td>
+    <td width="50%"><img src=".github/media/show-look.png" alt="Show Look view"><br><sub><b>Show Look</b>: the screens as they sit on stage</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src=".github/media/data.png" alt="Data view with ports wired across the wall"><br><sub><b>Data</b>: ports run across the wall to the processor</sub></td>
+    <td width="50%"><img src=".github/media/power.png" alt="Power view with circuits and amps per leg"><br><sub><b>Power</b>: circuits, multis and the amps on every leg</sub></td>
+  </tr>
+</table>
+
 | Tab | What it does |
 |-----|-------------|
 | **Pixel Map** | The layout your processor expects. Checkerboard and circle test patterns, cabinet borders, screen labels, blanks and half-tiles for non-rectangular walls. |
@@ -84,6 +116,9 @@ when you're done.
 - A catalog of over 2,600 cabinets from 180 manufacturers, plus your own
   presets. The catalog updates itself from GitHub, and if a figure is wrong
   the app opens a pre-filled issue so it can be fixed.
+- The screen keeps the panel you pick by name, and its half tiles and the
+  pull sheet's panel count read from it. Type your own name for a custom
+  panel.
 - Put screens on as many **canvases** as you need, each with its own raster.
 - **Group** screens built from different cabinet sizes and they act as one
   wall: one name, one set of totals, and runs that cross the seam.
@@ -106,11 +141,13 @@ when you're done.
 
 ### Power
 
-- Build a distro from the outputs it really has: Socapex, L21-30, True1,
+- Build a distro from the outputs it really has: Socapex, L21-30, TRUE1,
   powerCON, Edison and CEE, on US or EU power. Start from a preset or build
   your own.
-- Every circuit is checked against its breaker, and US distros follow the
-  80% rule. Balance spreads the multis across the legs for you.
+- Every circuit is checked against its breaker, and on US power the
+  circuits are filled to 80% of it. You type the breaker size in a
+  screen's Amperage box, and the amps you can use show beside it. Balance
+  spreads the multis across the legs for you.
 - Drag a multi onto the wall and the circuits it will feed light up with
   the amps they add before you let go. Share circuits through a 2fer or 3fer.
 
@@ -121,6 +158,9 @@ when you're done.
   circuit or port. Snake data ports under one home run.
 - Jumper lengths for every screen, with long jumpers measured and rounded up
   to stock lengths.
+- Tell a show the cable lengths you stock and a long run reads as the pieces
+  you'll pull, like 100'+25'.
+- Every distro gets a power in cable, with its length and where it's powered from.
 
 ### Paperwork
 
@@ -132,7 +172,7 @@ Everything saves straight to a file, with no print dialogs.
 | **PNG / PDF / PSD** | Any of the five views, per canvas. One PNG per view, one PDF with a page per view, one PSD with a layer per screen, or with each screen's panels, borders, cabinet ids, data, power and name as separate layers in a group per screen. |
 | **SVG** | Any view as vector artwork: labels as real text, cabinets and runs as shapes, grouped per screen and per element. Opens in Illustrator with everything editable, and in Photoshop as a smart object. |
 | **Resolume XML** | Advanced Output screens, one per canvas, sized to its raster. |
-| **Pull Sheet** | A filled copy of the shop's pull-sheet workbook: one block per beach, multis with their home runs, True1 by length, 2fers and 3fers, breakouts, snakes, extensions, barrels and jumpers. File > Pull Sheet edits the list in the app first. |
+| **Pull Sheet** | A filled copy of the shop's pull-sheet workbook: one block per beach, multis with their home runs, TRUE1 or powerCON cables by length, Cat6 or etherCON data, feeders, 2fers and 3fers, breakouts, snakes, extensions, barrels, jumpers and a count of your panels. File > Pull Sheet edits the list in the app first. |
 | **Binder** | One PDF as numbered sheets: overview, a Power and a Data sheet per screen with the wall, its circuits, ports, cables and facts, pull sheets, hardware. Tabloid by default, or Letter, ARCH C, ARCH D, A4, A3. Every sheet carries a border and a title block with your logo and a revision log. Tick Wiring and each map gets a wiring sheet behind it, every run drawn port to socket. Real text in the PDF, so it is sharp and searchable. Right-click a screen for Export this screen. |
 
 ### Preferences

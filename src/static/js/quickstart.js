@@ -8,13 +8,12 @@
  * result note under the body confirms it. The user's own project is
  * snapshotted when a tour starts and put back when it ends.
  *
- *   - Quick Start: short first-run tour, auto-shows once, skippable, with a
- *     "Don't show on startup" checkbox. Reopen from Help -> Quick Start Guide.
- *   - What's New in 1.6: every feature the release added, one step each
- *     (the 3D tab, Output to Display, the IDM Locator, the Notes
- *     checklist). Help -> What's New in 1.6, and the splash's walkthrough
- *     button. Every feature release replaces this tour with its own.
+ *   - Quick Start: short first-run tour, auto-shows on the first run only,
+ *     skippable. Reopen from Help -> Quick Start Guide.
  *   - Advanced Guide: the whole show, built step by step in front of you.
+ *   - What's New: only the Advanced Guide steps added since a version (each
+ *     step's `since`), each started from its own entry snapshot. The What's
+ *     New window's Show me runs it (whatsnew.js, also Help -> What's New).
  *
  * Fully self-contained and offline (no CDN).
  *
@@ -22,14 +21,16 @@
  * check? }. `act(t)` is the demonstration and `t` the toolkit (moveTo, hover,
  * click, type, select, drag, rightClick, pickMenu, cabinetPoint, wait, pause,
  * say, spot; `t.pace` is the timing table). `check(mem)` returns the result note when the action took, or null
- * when it did not. The three tours are composed from ONE step library (STEPS)
+ * when it did not. The tours are composed from ONE step library (STEPS)
  * so copy lives once; tests/test_tour_anchors.py drives every tour and proves
  * each step's anchor resolves AND its check returns a note.
  */
 (function () {
     'use strict';
 
-    var LS_KEY = 'lrd_quickstart_disabled'; // '1' = don't auto-show on launch
+    // '1' once the first-run guide has had its launch, '0' before
+    // (maybeAutoShow).
+    var FIRST_RUN_KEY = 'lrd_quickstart_first_run_done';
 
     // ── small helpers ────────────────────────────────────────────────────
     function A() { return window.app; }
@@ -56,11 +57,22 @@
     var speed = 1;
     // While Go to applies the steps between here and the target, every
     // pace is zero: the hand does not travel, rest or type a character at
-    // a time, it just does the thing. Polls for the app to respond (T.wait)
-    // keep their real limit - see real() - or a jump would fail on a slow
-    // save where a played step would have waited.
+    // a time, it just does the thing.
+    // Polls for the app to respond (T.wait, a step's check) are never
+    // scaled: they are how long a slow machine may take, not a pace. A
+    // limit halved by the speed timed out on a CPU-starved run and the
+    // step "did not take" a quarter second before it would have (1.6.0
+    // QA, Clear the whole processor).
     function ms(n) { return S.jumping ? 0 : Math.max(0, Math.round(n / speed)); }
-    function real(n) { return S.jumping ? n : ms(n); }
+
+    // How long the engine waits on the app, in real milliseconds whatever
+    // the speed. A step reports "did not take" only once its check has
+    // been asked again and again for CHECK_LIMIT after the app settled
+    // (Matt, 2026-11-03: every guide step passes first time, every time).
+    var CHECK_LIMIT = 10000;   // a step's check, asked every CHECK_EVERY ms
+    var CHECK_EVERY = 100;
+    var SETTLE_LIMIT = 15000;  // the app's queued saves, PUTs and their echoes
+    var ACT_LIMIT = 120000;    // an act that never ends fails, so the guide cannot hang
 
     // The pace of the ghost hand at speed 1: the pace a person works at,
     // not a script's (Matt, 2026-09-15: "make sure all the animations are
@@ -102,7 +114,25 @@
         var ls = screens();
         return ls.find(function (l) { return l.name === 'DEMO WALL 2'; }) || null;
     }
+    // A screen the guide puts in for a step. initializeLayerDefaults gives
+    // it the person's Preferences, and their bit depth, frame rate and Low
+    // Latency change how many cabinets a port carries: a 10-bit, 50 Hz or
+    // Low Latency preference cut the practice screens into other ports and
+    // the steps that count them did not take (1.6.0 QA). The guide's
+    // screens are always 8-bit, 60 Hz, Low Latency off. (The guide runs
+    // on the shipped Preferences - guidePreferences - so this holds even
+    // where that switch could not be made.)
+    var PRACTICE_PROCESSING = { bitDepth: 8, frameRate: 60, lowLatency: false };
+    function practiceScreen(layer) {
+        A().initializeLayerDefaults(layer);
+        Object.keys(PRACTICE_PROCESSING).forEach(function (k) { layer[k] = PRACTICE_PROCESSING[k]; });
+        return layer;
+    }
     function proc() { return ((A() && A()._processorsResolved) || [])[0] || null; }
+    // The H9 the Mixed redundancy step puts beside the guide's own unit.
+    function chassis() {
+        return ((A() && A()._processorsResolved) || []).find(function (p) { return p.deviceId === 'novastar-h9'; }) || null;
+    }
     function card() {
         var p = proc();
         var s = ((p && p.slots) || []).find(function (x) { return x && x.card; });
@@ -129,6 +159,7 @@
         return (a && typeof a.getShowSnakes === 'function' ? a.getShowSnakes() : [])[0] || null;
     }
     function beach() { var a = A(); return (a && a.getBeaches ? a.getBeaches() : [])[0] || null; }
+    function service() { var a = A(); return (a && a.getServices ? a.getServices() : [])[0] || null; }
     // A screen's row in the Screens panel (app-layers-panel.js renderLayers).
     function layerRow(l) { return '#layers-list .layer-item[data-layer-id="' + l.id + '"]'; }
     // The add-to-selection key: ⌘ on a Mac, Ctrl elsewhere (index.html
@@ -139,12 +170,57 @@
     // The first breakout box on the card (the resolved tree's `cvts`).
     function box() { var c = card(); return ((c && c.cvts) || [])[0] || null; }
     // What the distro's tray header prints: the load against the rating
-    // ("0.0/400 A"), the supply ("208V·3φ"), and the OUTPUTS row's plugs.
+    // ("0.0/400 A"), the supply ("208V·3φ").
     function distroUnit(d) { return d ? $('[data-lrd-distro="' + d.id + '"]') : null; }
     function distroUse(d) { var u = distroUnit(d); var e = u && u.querySelector('.hw-dock-unit-use'); return e ? e.textContent.trim() : ''; }
     function distroInfo(d) { var u = distroUnit(d); var e = u && u.querySelector('.hw-dock-unit-info'); return e ? e.textContent.trim() : ''; }
     function distroLegs(d) { var u = distroUnit(d); return !!(u && u.querySelector('.hw-dock-legs')); }
-    function distroPlugs(d) { var u = distroUnit(d); return u ? $$('.hw-dock-outputs .hw-dock-plug', u) : []; }
+    // Where the header says the limit came from ("· 80% of 200 A"), empty
+    // where the limit is the rating itself (app-dock.js _dockDistroGlance).
+    function distroLim(d) { var u = distroUnit(d); var e = u && u.querySelector('.hw-dock-unit-lim'); return e ? e.textContent.trim() : ''; }
+    // The circuits a screen shares through a 2fer or 3fer, as the wall
+    // draws them (the canvas's own registry, the one the bracket and the
+    // pill read): [{ num, ways, over, runIds }].
+    function sharedCircuits(l) {
+        var r = R();
+        if (!l || !r || !r._nferGangs) return [];
+        A()._circuitTailCache = null;
+        return r._nferGangs(l).filter(function (s) { return (s.runIds || []).length > 1; });
+    }
+    // The connectors a distro's output rows put on its face (1.5), or 0
+    // for a distro with no rows.
+    function faceCount(d) { var f = d && A().distroFace ? A().distroFace(d) : null; return f ? f.boxes.length : 0; }
+    // The distro's first Socapex output row, or null.
+    function socaRow(d) {
+        return (d && A().distroRows ? A().distroRows(d) : []).find(function (r) { return r.connector === 'soca' && !r.pairedWith; }) || null;
+    }
+    // The ⚙ popovers as a step's window (windowsOf): the guide's own
+    // processor's, and its distro's.
+    function procGearWindow() { var p = proc(); return p ? 'gear:proc-' + p.id : null; }
+    function distroGearWindow() { var d = distro(); return d ? 'gear:distro-' + d.id : null; }
+    // Open the distro's gear popover and ring it: the opening every gear
+    // step makes before its one change (the press skipped when the step
+    // before left it up for this one).
+    function openDistroGear(t, d) {
+        return openGear(t, 'distro-' + d.id).then(function (pop) {
+            if (!pop) throw new Error('the distro\'s gear popover did not open');
+            return t.spot(pop).then(function () { return t.pause(900); });
+        });
+    }
+    // The Pixel Map's selected cabinets counted per screen, by layer id
+    // (app-pixel-select.js _pixelMapSelectionHits).
+    function pickedByScreen() {
+        var a = A(), out = {};
+        var hits = a && a._pixelMapSelectionHits ? a._pixelMapSelectionHits() : [];
+        hits.forEach(function (h) { out[h.layer.id] = (out[h.layer.id] || 0) + 1; });
+        return out;
+    }
+    // The index of a wall's cabinet at (row, col), counted from 0.
+    function cabinetIndex(l, row, col) {
+        var ps = (l && l.panels) || [];
+        var i = ps.findIndex(function (p) { return Number(p.row) === row && Number(p.col) === col; });
+        return i >= 0 ? i : row * (Number(l.columns) || 1) + col;
+    }
     // The open gear popover, or null.
     function popover() { var pop = $('#hw-gear-popover'); return pop && pop.style.display === 'block' ? pop : null; }
     function mode() { var t = $('.view-tab.active[data-mode]'); return t ? t.dataset.mode : null; }
@@ -152,6 +228,18 @@
         if (mode() === m) return;
         var t = $('[data-mode="' + m + '"]');
         if (t) t.click();
+    }
+    // The client point (and panels-to-pixels scale) of the wall's n-th
+    // header bar, read from the renderer's hit list - the same place the
+    // mouse is tested against - or null when none is drawn.
+    function barPoint(n) {
+        var r = R();
+        var w = wall();
+        if (!r || !w || !r._riggingHits) return null;
+        var hit = r._riggingHits.find(function (h) { return h.layerId === w.id && h.index === n; });
+        if (!hit) return null;
+        var box = r.canvas.getBoundingClientRect();
+        return { x: box.left + (hit.x0 + hit.x1) / 2, y: box.top + (hit.y0 + hit.y1) / 2, unitPx: hit.unitPx };
     }
     function portsNeeded() {
         var w = wall();
@@ -250,6 +338,22 @@
         A()._setDataCableSheetOpen(o, false);
         if (mode() === 'data-flow') A().renderHardwareDock();
     }
+    // The processor's own ≡ (app-dock.js _dockBuildProcCableSheetButton):
+    // a class of its own, hw-dock-cablebtn-proc, so sheetButton() and the
+    // box and card steps (hw-dock-cablebtn-data) never find it, and its
+    // list (data-lrd-proc-sheet) carries every field key prefixed, so the
+    // box sheet's [data-lrd-...="..."] selectors never match inside it.
+    function procListButton() {
+        var p = proc();
+        return p ? $('#hardware-dock-body .hw-dock-cablebtn-proc[data-lrd-field="data-cable-sheet-' + p.id + '"]') : null;
+    }
+    function procList() { var p = proc(); return p ? $('[data-lrd-proc-sheet="' + p.id + '"]') : null; }
+    function closeProcList() {
+        var p = proc();
+        if (!p || !A()._setDataCableSheetOpen) return;
+        A()._setDataCableSheetOpen({ kind: 'proc', id: p.id }, false);
+        if (mode() === 'data-flow') A().renderHardwareDock();
+    }
     // The box's Primary 1 link and its cable, or null.
     function boxLink() {
         var b = box(), a = A();
@@ -263,6 +367,68 @@
         var a = A();
         return bl.link.strands.map(function (n) { return a.fiberStrandName(n, bl.cable); }).join(' and ');
     }
+    // ── a window shared from one step to the next ────────────────────────
+    // A step's `window` names the windows it works in: a key, a list of
+    // keys, or a function returning either (read live, so a key can carry
+    // the id of the hardware the guide put in). 'export:<format>' is the
+    // Export dialog on that format, 'prefs:<tab>' Preferences on that tab,
+    // 'pull-sheet' the pull sheet editor, 'gear:<id>' the ⚙ popover of the
+    // header whose data-hwpop is <id>, 'picker:<mode>' the panel library.
+    // On Next and Back, a window both steps name stays up (S.keep, which
+    // every close below reads): the step left does not close it, the step
+    // entered does not open it again, and a restore between the two
+    // refills it in place (refreshHeld). Matt, 2026-11-04, What's New
+    // steps 11 to 15: each step "collapses the window and then reopens the
+    // exact same window". A step jumped to, replayed or run on its own
+    // keeps nothing and sets its window up from scratch, as before.
+    function windowsOf(step) {
+        var w = step && step.window;
+        if (typeof w === 'function') { try { w = w(); } catch (e) { w = null; } }
+        if (!w) return [];
+        return (Array.isArray(w) ? w : [w]).filter(function (k) { return typeof k === 'string' && !!k; });
+    }
+    // The windows both steps name, in the order the step left names them.
+    function sharedWindows(from, to) {
+        var b = windowsOf(to);
+        return windowsOf(from).filter(function (k) { return b.indexOf(k) >= 0; });
+    }
+    // Whether a window of this kind ('export', 'prefs', 'gear:proc-1') is
+    // held open through the step change under way.
+    function held(kind) {
+        var keep = S.keep;
+        if (!keep || !keep.length) return false;
+        return keep.some(function (k) { return k === kind || k.indexOf(kind + ':') === 0; });
+    }
+    function prefsOpen() { var m = $('#preferences-modal'); return !!m && m.style.display === 'block'; }
+    // A held window after the show under it was restored (Back, or the
+    // entry snapshot a What's New step starts from): its fields read the
+    // restored show, the way they would on a fresh open, without the
+    // window ever leaving the screen. Each refill is the app's own open,
+    // run on a window already up: it sets display to what it already is.
+    function refreshHeld() {
+        var a = A();
+        (S.keep || []).forEach(function (k) {
+            try {
+                if (k.indexOf('export:') === 0) {
+                    if (exportOpen()) a.openExportModal(k.slice('export:'.length));
+                } else if (k.indexOf('prefs:') === 0) {
+                    if (prefsOpen()) { a.openPreferencesModal(); a.showPreferencesTab(k.slice('prefs:'.length)); }
+                } else if (k === 'pull-sheet') {
+                    if (pullSheetOpen() && a.renderPullSheetEditor) a.renderPullSheetEditor();
+                } else if (k.indexOf('gear:') === 0) {
+                    if (a._hwPopoverRefresh) a._hwPopoverRefresh();
+                }
+            } catch (e) { console.warn('QuickStart: a shared window was not refilled', e); }
+        });
+    }
+    // The ⚙ popover of header `id` open, the gear pressed only when it is
+    // not up already: on a step that shares it with the one before, the
+    // popover is there and a press would toggle it shut.
+    function openGear(t, id) {
+        var a = A();
+        if (a && a._hwPopover && a._hwPopover.id === id && popover()) return Promise.resolve(popover());
+        return t.click('[data-hwpop="' + id + '"]').then(function () { return t.wait(popover); });
+    }
     function exportOpen() { var m = $('#export-modal'); return !!m && m.style.display === 'block'; }
     function openExport() {
         var a = A();
@@ -271,15 +437,72 @@
             a.openExportModal('binder');
         }
     }
-    function closeExport() { var m = $('#export-modal'); if (m) m.style.display = 'none'; }
-    function closeExportUnless(next) { if (!next || !next.exportStep) closeExport(); }
+    function closeExport() {
+        if (held('export')) return;
+        var m = $('#export-modal'); if (m) m.style.display = 'none';
+    }
+    // The screen chooser (app-presets.js openPresetPicker), closed with its
+    // library search cleared so the next person to open it sees every panel.
+    // AVG_ROW is the library row the average power step reads: a panel
+    // whose sheet gives both a max and an average.
+    var AVG_ROW = '#panel-catalog-list .panel-catalog-row[data-name="Black Pearl BP2V2"]';
+    function pickerOpen() { var m = $('#preset-picker-modal'); return !!m && m.style.display === 'block'; }
+    // The library up as Add Screen opens it (not File > New's chooser).
+    function addPickerOpen() { var a = A(); return pickerOpen() && !!a && (a._pickerMode || 'add') === 'add'; }
+    // Add Screen pressed, the library opened: skipped when the step
+    // before left it up for this one (window 'picker:add').
+    function openAddPicker(t) {
+        if (addPickerOpen()) return Promise.resolve();
+        return t.hover('#layers-list .canvas-add-btn').then(function (p) {
+            press(true); ripple(p.x, p.y);
+            return t.pause(200);
+        }).then(function () {
+            press(false);
+            A().openPresetPicker();
+        });
+    }
+    // The start page a launch opens on (app-start-page.js).
+    function startPageUp() { var m = $('#start-page-modal'); return !!m && m.style.display === 'block'; }
+    function closePicker() {
+        var s = $('#panel-catalog-search'), a = A();
+        if (s && s.value) { s.value = ''; s.dispatchEvent(new Event('input', { bubbles: true })); }
+        // Held for the next step: the search is cleared, the window stays.
+        if (held('picker')) return;
+        if (a && typeof a.closePresetPicker === 'function') a.closePresetPicker();
+        else { var m = $('#preset-picker-modal'); if (m) m.style.display = 'none'; }
+    }
+    // The pull sheet editor (app-pull-sheet-editor.js), opened from the
+    // Export dialog's Edit rows; closed here without the editor's own trip
+    // back to the Export dialog.
+    var PANEL_ROW = '#pull-sheet-board tr.pull-row[data-side="panel"]';
+    function pullSheetOpen() { var m = $('#pull-sheet-modal'); return !!m && m.style.display === 'block'; }
+    function closePullSheet() {
+        if (held('pull-sheet')) return;
+        var a = A(), m = $('#pull-sheet-modal');
+        if (a) a._pullSheetReturnToExport = false;
+        if (m) m.style.display = 'none';
+    }
     function hideMenus() {
+        // Leaving a guide takes every menu down at once (end). One up while
+        // the world goes back is the person's own.
+        if (S.exiting) return;
         $$('.menu-dropdown').forEach(function (m) { m.style.display = 'none'; });
         $$('#menu-bar .menu-item.active').forEach(function (i) { i.classList.remove('active'); });
     }
     function closePrefs() {
+        if (held('prefs')) return;
         var m = $('#preferences-modal');
         if (m) m.style.display = 'none';
+    }
+    // Preferences on `tab`, opened only when it is not up on that tab
+    // already: on a step that shares it with the one before (S.keep), the
+    // window stays exactly as the earlier step left it.
+    function openPrefsTab(tab) {
+        var a = A();
+        if (!a) return;
+        if (held('prefs:' + tab) && prefsOpen() && a._prefsTab === tab) return;
+        a.openPreferencesModal();
+        a.showPreferencesTab(tab);
     }
     function closeFlag() {
         var a = A();
@@ -288,7 +511,12 @@
         if (typeof a._renderDockFlag === 'function') a._renderDockFlag(mode() || '');
         if (typeof a.settleLayout === 'function') a.settleLayout();
     }
-    function closePopover() { var a = A(); if (a && a._hwPopoverClose) a._hwPopoverClose(); }
+    function closePopover() {
+        var a = A();
+        if (!a || !a._hwPopoverClose) return;
+        if (a._hwPopover && held('gear:' + a._hwPopover.id)) return;
+        a._hwPopoverClose();
+    }
     function dockDropPoint() {
         // Anywhere inside the tray is the release (app-dock.js _dockHitTest
         // tests the tray's rectangle, not the element): the header bar's
@@ -358,6 +586,19 @@
         if (app) app.classList.remove('lrd-resizing');
         if (a && a.remeasureCanvas) a.remeasureCanvas();
     }
+    // The node a gesture aims at, alive: the app restates a panel whenever
+    // its model moves - the tray rebuilds on the page's own late
+    // layer_updated echo, between any two of a step's moves - and the node
+    // found before is then a detached copy. Its successor is found by the
+    // stable key the app itself restores focus by: a chip's data-hwdock, a
+    // field's data-lrd-field, else its id.
+    function live(el) {
+        if (!el || el.isConnected || !el.dataset) return el;
+        var key = el.dataset.hwdock ? '[data-hwdock="' + CSS.escape(el.dataset.hwdock) + '"]'
+            : (el.dataset.lrdField ? '[data-lrd-field="' + CSS.escape(el.dataset.lrdField) + '"]'
+                : (el.id ? '#' + CSS.escape(el.id) : null));
+        return (key && $(key)) || el;
+    }
     function trayName(el) {
         if (!el) return 'nothing';
         if (el.dataset && el.dataset.hwdock) return el.dataset.hwdock;
@@ -376,14 +617,13 @@
         var a = A(), d = dock();
         if (!a || !d || !el || !d.contains(el)) return Promise.resolve(el);
         var name = trayName(el);
-        var key = el.dataset && el.dataset.hwdock;
         if (dockCollapsed()) setDockCollapsed(false);
         if (dockHeightNow() < TOUR_DOCK_H) setDockHeight(TOUR_DOCK_H);
         return sleep(0).then(function () {
             // A rebuild between the query and now (the flip settles the
-            // layout) replaces every node in the tray; the chip's stable
-            // key finds its successor.
-            if (!el.isConnected && key) el = $('[data-hwdock="' + key + '"]');
+            // layout, or a late echo restates the tray) replaces every node
+            // in the tray; the element's stable key finds its successor.
+            el = live(el);
             if (!el || !el.isConnected) throw new Error(name + ' is not in the tray');
             if (typeof a._dockRevealSections === 'function') a._dockRevealSections(el);
             var r = el.getBoundingClientRect();
@@ -681,8 +921,6 @@
             + 'border:1px solid #555;border-radius:7px;padding:8px;font:600 12.5px inherit;cursor:pointer;}'
             + '#qs-callout .qs-cta:hover{background:#474747;}'
             + '#qs-callout .qs-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 10px;}'
-            + '#qs-callout .qs-chk{display:flex;align-items:center;gap:7px;font-size:11.5px;color:#b6b6b6;cursor:pointer;user-select:none;white-space:nowrap;}'
-            + '#qs-callout .qs-chk input{width:14px;height:14px;accent-color:#e22330;cursor:pointer;}'
             + '#qs-callout .qs-btns{display:flex;gap:6px;margin-left:auto;}'
             + '#qs-callout button{font:600 12.5px -apple-system,"Segoe UI",sans-serif;border-radius:7px;padding:7px 11px;cursor:pointer;border:1px solid #4a4a4a;}'
             + '#qs-callout .qs-skip{background:transparent;color:#9a9a9a;border-color:transparent;padding:7px 6px;}'
@@ -721,6 +959,13 @@
         document.body.appendChild(cursor);
         document.body.appendChild(call);
         c.addEventListener('click', function (e) { e.stopPropagation(); });
+        // A press on the callout (Next, Back, the Go to box) is the
+        // guide's, never the app's click-away: the gear popover closes on
+        // any document mousedown outside it, and Next would shut the
+        // popover the next step shares.
+        ['mousedown', 'pointerdown', 'touchstart'].forEach(function (type) {
+            call.addEventListener(type, function (e) { e.stopPropagation(); });
+        });
         var fast = document.createElement('div'); fast.id = 'qs-fast';
         document.body.appendChild(fast);
         els = { catch: c, spot: spot, callout: call, cursor: cursor, fast: fast };
@@ -730,8 +975,6 @@
         document.addEventListener('keydown', onKey, true);
     }
 
-    function disabled() { try { return localStorage.getItem(LS_KEY) === '1'; } catch (e) { return false; } }
-    function setDisabled(v) { try { v ? localStorage.setItem(LS_KEY, '1') : localStorage.removeItem(LS_KEY); } catch (e) {} }
 
     function setCursor(x, y) {
         cur.x = x; cur.y = y;
@@ -785,15 +1028,71 @@
         });
     }
 
+    // ── the input shield ─────────────────────────────────────────────────
+    // While a step runs (its act, the wait on the app, its check) the
+    // person's own mouse and keys never reach the app. The overlay passes
+    // through during an act, so without this a hand resting on the mouse
+    // moved the tray's drag (it follows every document mousemove) off its
+    // target, and a second click on Next fell through the callout and shut
+    // the popover or dialog the act had opened (1.6.0 QA: a dozen drag
+    // steps and a dozen popover steps). Only real input is swallowed: the
+    // guide's own gestures are dispatched events (isTrusted false) and go
+    // through. Back, Next and the replay button do nothing while a step
+    // runs; Skip and Escape end the guide once the step settles.
+    // Registered on the window, capturing, when this file loads - before
+    // the app's own window listeners - so nothing of the app's sees the
+    // event first.
+    var SHIELD_EVENTS = [
+        'pointerdown', 'pointerup', 'pointermove', 'pointerover', 'pointerout',
+        'pointerenter', 'pointerleave', 'pointercancel',
+        'mousedown', 'mouseup', 'mousemove', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave',
+        'click', 'dblclick', 'auxclick', 'contextmenu', 'wheel',
+        'touchstart', 'touchmove', 'touchend', 'touchcancel', 'dragstart',
+        'keydown', 'keyup', 'keypress'
+    ];
+    function shielding() { return !!(S && S.visible && S.running); }
+    function hitsEl(el, x, y) {
+        if (!el) return false;
+        var r = el.getBoundingClientRect();
+        return r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    }
+    var SHIELD_KEYS = { keydown: 1, keyup: 1, keypress: 1 };
+    function onShield(e) {
+        if (!e.isTrusted || !S || !S.visible) return;
+        if (!S.running) {
+            // A settled step: the callout is the person's (its buttons, the
+            // Go to box), and Enter and Escape go to onKey. Nothing else
+            // reaches the app: the overlay is only the click's target, and
+            // a key went straight to the app (Delete on the selected demo
+            // wall broke the next step).
+            if (els && e.target && e.target.nodeType === 1 && els.callout.contains(e.target)) return;
+            if (SHIELD_KEYS[e.type] && (e.key === 'Enter' || e.key === 'Escape')) return;
+            e.stopImmediatePropagation();
+            if (e.cancelable) e.preventDefault();
+            return;
+        }
+        if (e.type === 'keydown' && e.key === 'Escape' && !e.repeat) end();
+        else if (e.type === 'click' && els && hitsEl(els.callout.querySelector('#qs-skip'), e.clientX, e.clientY)) end();
+        e.stopImmediatePropagation();
+        if (e.cancelable) e.preventDefault();
+    }
+    SHIELD_EVENTS.forEach(function (type) {
+        window.addEventListener(type, onShield, { capture: true, passive: false });
+    });
+
     // ── placement ────────────────────────────────────────────────────────
     var spotRect = null;   // the rectangle the spotlight rings right now
 
-    function rectOf(el) {
+    function rectNow(el) {
         if (!el) return null;
-        try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
         var r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0) return null;
         return r;
+    }
+    function rectOf(el) {
+        if (!el) return null;
+        try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+        return rectNow(el);
     }
     function stepTargetEl(step) {
         if (!step) return null;
@@ -803,22 +1102,24 @@
     }
     // The ring for a step: its target's rectangle, or - when the step names
     // several controls in `ring` (the two fields of a size, the columns and
-    // the rows) - the one rectangle that holds them all.
-    function stepRect(step, el) {
+    // the rows) - the one rectangle that holds them all. `measure` is how
+    // each is read: rectOf, which scrolls it into view, unless told.
+    function stepRect(step, el, measure) {
         if (!step) return null;
+        var read = measure || rectOf;
         var list = (step.ring || []).map(function (q) {
             if (typeof q === 'function') { try { q = q(); } catch (e) { q = null; } }
             return typeof q === 'string' ? $(q) : q;
         }).filter(Boolean);
-        if (!list.length) return rectOf(el);
+        if (!list.length) return read(el);
         var u = null;
         list.forEach(function (e) {
-            var r = rectOf(e);
+            var r = read(e);
             if (!r) return;
             u = u ? { left: Math.min(u.left, r.left), top: Math.min(u.top, r.top),
                       right: Math.max(u.right, r.right), bottom: Math.max(u.bottom, r.bottom) } : { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
         });
-        if (!u) return rectOf(el);
+        if (!u) return read(el);
         return { left: u.left, top: u.top, right: u.right, bottom: u.bottom, width: u.right - u.left, height: u.bottom - u.top };
     }
     function setSpot(r) {
@@ -992,6 +1293,18 @@
         var corner = function (ax, ay) {
             return { x: ax < vw / 2 ? vw - cw - 12 : 12, y: ay < vh / 2 ? vh - ch - 12 : 12, p: null };
         };
+        // The locked spot is measured once, for the box of its first step;
+        // a taller step held there ran off the bottom of a short window
+        // and took Next with it (1.6.0: the start page step on a 720 px
+        // window). The box keeps the spot's column and rises only as far
+        // as the window needs.
+        var inWindow = function (b) {
+            var y = Math.max(12, Math.min(b.y, vh - ch - 12));
+            if (y === b.y) return b;
+            var moved = { x: b.x, y: y, p: b.p };
+            moved.clear = clear(moved) && !(r && hits(moved, cw, ch, r, 8));
+            return moved;
+        };
         var box;
         if (!r || step.center) {
             // The intro sits in the middle of the window; the first Next
@@ -999,6 +1312,7 @@
             // later step with nothing to ring yet (a control that appears
             // after its first click, the outro) uses the locked spot too.
             box = S.idx > 0 ? lockedBox(cw, ch, null, keep) : null;
+            if (box) box = inWindow(box);
             if (!box || !clear(box)) box = { x: (vw - cw) / 2, y: (vh - ch) / 2, p: null };
             if (!clear(box)) {
                 var c0 = keep[0];
@@ -1013,6 +1327,7 @@
             // hold the box at all.
             var locked = lockedBox(cw, ch, r, keep);
             if (locked) {
+                locked = inWindow(locked);
                 if (dry) return locked;
                 call.style.left = locked.x + 'px';
                 call.style.top = locked.y + 'px';
@@ -1127,7 +1442,60 @@
         // one overlap for another, and a nudge of a few pixels is not worth
         // the slide.
         var better = place(step, null, true);
-        if (better.clear && (Math.abs(better.x - c.left) > 40 || Math.abs(better.y - c.top) > 40)) place(step);
+        // A box past the window's edge always moves (its Next may be out of
+        // reach); a box over the ring moves only to a clear spot, and only
+        // for a real move.
+        var inside = better.x + c.width <= window.innerWidth - 12 + 0.5 && better.y + c.height <= window.innerHeight - 12 + 0.5;
+        if (off ? inside && (better.x !== c.left || better.y !== c.top)
+                : better.clear && (Math.abs(better.x - c.left) > 40 || Math.abs(better.y - c.top) > 40)) place(step);
+    }
+    // The ring through an act. It used to be measured when the act began
+    // and again when it ended, and an act changes what is under it: "Mirror
+    // a screen" puts its hardware in and names the box only once the act
+    // runs, so the ring sat for the whole drag where it landed before there
+    // was a box, over whatever the tray then scrolled there (1.6.0 QA,
+    // every run). Each look puts the ring where settle() would. A target
+    // that is another element now is settled for, which brings it into
+    // view and moves the callout off it if it must; the same one that only
+    // moved is followed without scrolling anything, because the act owns
+    // the scroll and its gestures reveal what they reach for. No target to
+    // point at, or one the tray has scrolled out of sight, leaves the ring
+    // where it is.
+    var FOLLOW_EVERY = 50;     // ms between looks
+    function followRing() {
+        var named = null, seen = 0;
+        function look() {
+            var step = S.list[S.idx];
+            if (!step || step.center || !els) return;
+            var keep = S.spotEl && S.spotEl.isConnected && rectNow(S.spotEl) ? S.spotEl : null;
+            var el = keep || stepTargetEl(step);
+            if (!el) return;
+            var name = keep ? null : trayName(el);
+            if (name !== null && named !== null && name !== named) {
+                named = name;
+                settle();
+                return;
+            }
+            if (name !== null) named = name;
+            var r = keep ? rectNow(keep) : stepRect(step, el, rectNow);
+            if (!r) return;
+            var body = $('#hardware-dock-body');
+            var tray = body && body.contains(el) ? body.getBoundingClientRect() : null;
+            if (tray && (r.bottom <= tray.top || r.top >= tray.bottom)) return;
+            var s = spotRect;
+            if (s && Math.abs(s.left - r.left) < 1 && Math.abs(s.top - r.top) < 1
+                  && Math.abs(s.width - r.width) < 1 && Math.abs(s.height - r.height) < 1) return;
+            setSpot(r);
+        }
+        var token = S.token;
+        requestAnimationFrame(function frame(now) {
+            if (token !== S.token || S.phase !== 'act') return;
+            if (now - seen >= FOLLOW_EVERY) {
+                seen = now;
+                try { look(); } catch (e) { /* the next look measures again */ }
+            }
+            requestAnimationFrame(frame);
+        });
     }
     // A window resize (the app fires one after a view switch re-lays the
     // canvas out) re-measures the ring but moves the callout only if it
@@ -1184,7 +1552,7 @@
             // drag begun from the wrong element is worse than no drag.
             var rr = target.getBoundingClientRect();
             var c = centerOf(target);
-            return { el: target, x: c.x, y: c.y, empty: rr.width === 0 && rr.height === 0 };
+            return { el: target, x: c.x, y: c.y, aimed: true, empty: rr.width === 0 && rr.height === 0 };
         }
         if (typeof target.x === 'number' && typeof target.y === 'number') {
             return { el: target.el || null, x: target.x, y: target.y, worldX: target.worldX, worldY: target.worldY };
@@ -1198,23 +1566,83 @@
     // What every gesture does before it aims: a tray element is revealed
     // (revealInTray), a canvas point is guarded (guardCanvasPoint), and a
     // point that knows how to re-measure itself (`again`) is measured now.
+    // A target that is not on the page yet, or not laid out yet, is waited
+    // for (up to 2.5 s) before the gesture gives up: on a slow machine the
+    // tray or a sheet is still being drawn when the step reaches for it.
+    // Behind the shade (What's New's fallback, Go to) every pace is zero,
+    // and CI's slower runners failed "<input> has no size" and "moveTo:
+    // nothing at [data-lrd-field^=power-soca-length-1-]" there - the steps
+    // after it then found no distro (2026-10-21).
+    // An element the tray rebuilt away under the step (a save restates the
+    // tray) is found again by the name it was drawn with - its field, its
+    // tray tile, its popover, its id: a detached copy never gains a size,
+    // so the gesture would wait on it for nothing. ("The snake's home run"
+    // hovered its length field, and "Add a breakout box" moved to the new
+    // box's header, just after a save redrew the tray.)
+    var RELIVE_ATTRS = ['data-lrd-field', 'data-hwdock', 'data-hwpop', 'data-lrd-distro', 'data-lrd-service'];
+    function relive(el) {
+        if (!el || el.nodeType !== 1 || el.isConnected) return el;
+        var esc = function (v) { return window.CSS && CSS.escape ? CSS.escape(v) : String(v).replace(/"/g, '\\"'); };
+        for (var i = 0; i < RELIVE_ATTRS.length; i++) {
+            var v = el.getAttribute(RELIVE_ATTRS[i]);
+            if (v) return $('[' + RELIVE_ATTRS[i] + '="' + esc(v) + '"]') || el;
+        }
+        if (el.id) return document.getElementById(el.id) || el;
+        return el;
+    }
     function prepare(target) {
         if (!target) return Promise.resolve(null);
         if (typeof target.again === 'function') target = target.again();
-        var el = typeof target === 'string' ? $(target) : (target.nodeType === 1 ? target : null);
-        var chain;
-        if (el && dock() && dock().contains(el)) chain = revealInTray(el);
-        else {
-            // A sidebar element: the panel opened and every fold above it
-            // undone now - a fold the person made while watching cannot
-            // send the hand to a field that has no size.
-            if (el) revealInSidebar(el);
-            chain = Promise.resolve();
-        }
-        return chain.then(function () {
+        target = relive(target);
+        var find = function () {
+            return typeof target === 'string' ? $(target) : (target.nodeType === 1 ? target : null);
+        };
+        var appear = (typeof target === 'string' && !$(target)) ? T.wait(find, 2500) : Promise.resolve(find());
+        return appear.then(function (el) {
+            var chain;
+            if (el && dock() && dock().contains(el)) chain = revealInTray(el);
+            else {
+                // A sidebar element: the panel opened and every fold above it
+                // undone now - a fold the person made while watching cannot
+                // send the hand to a field that has no size.
+                if (el) revealInSidebar(el);
+                chain = Promise.resolve();
+            }
+            return chain;
+        }).then(function () {
             var p = resolve(target);
-            if (p && p.el && p.empty) throw new Error(describe(target) + ' has no size');
+            if (p && p.el && p.empty) {
+                return T.wait(function () {
+                    target = relive(target);
+                    var q = resolve(target);
+                    return q && !q.empty ? q : null;
+                }, 2500).then(function (q) {
+                    if (!q) throw new Error(describe(target) + ' has no size');
+                    return guardCanvasPoint(q);
+                });
+            }
             return guardCanvasPoint(p);
+        });
+    }
+
+    // The hand has arrived: the element it set off for may not be where it
+    // was then. A save's echo restates the tray while the hand travels, the
+    // scroll or a column moves, and the press landed on the old spot with
+    // the ring on the new one. One short hop puts the hand on the element.
+    function reaim(p, o) {
+        if (!p || !p.aimed) return Promise.resolve(p);
+        var el = live(p.el);
+        if (!el || !el.isConnected) return Promise.resolve(p);
+        var reveal = dock() && dock().contains(el) ? revealInTray(el).catch(function () { return el; })
+            : Promise.resolve(el);
+        return reveal.then(function (now) {
+            var e = live(now) || el;
+            var r = e.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) return p;
+            var c = centerOf(e);
+            if (Math.hypot(c.x - p.x, c.y - p.y) < 2) return p;
+            p.el = e; p.x = c.x; p.y = c.y;
+            return animateTo(p.x, p.y, null, o && o.speed).then(function () { return p; });
         });
     }
 
@@ -1222,9 +1650,11 @@
     var T = {
         pause: function (n) { return sleep(ms(n)); },
         // Poll a predicate until it returns something truthy (that value is
-        // resolved) or the timeout passes (null).
+        // resolved) or the timeout passes (null). The timeout is real time
+        // at every speed. A wait that runs out is not the step's verdict:
+        // the step's check is polled after the act (pollCheck).
         wait: function (fn, timeout) {
-            var limit = real(timeout == null ? 4000 : timeout);
+            var limit = timeout == null ? 4000 : timeout;
             var t0 = Date.now();
             return new Promise(function (res) {
                 (function poll() {
@@ -1275,7 +1705,7 @@
                 keepClear(p);
                 showCursor();
                 badge(o.badge || '');
-                return animateTo(p.x, p.y, null, o.speed).then(function () { return p; });
+                return animateTo(p.x, p.y, null, o.speed).then(function () { return reaim(p, o); });
             });
         },
         // Open the tray around an element before a gesture on it: the tray
@@ -1303,11 +1733,15 @@
         click: function (target, o) {
             o = o || {};
             return T.hover(target, o).then(function (p) {
-                var el = p.el || document.elementFromPoint(p.x, p.y);
+                var el = live(p.el) || document.elementFromPoint(p.x, p.y);
                 if (!el) throw new Error('click: nothing at ' + describe(target));
                 press(true);
                 mouse('mousedown', el, p.x, p.y, o.init);
                 return T.pause(70).then(function () {
+                    // The press lasts long enough for the tray to rebuild
+                    // under it, and a click on the copy it took out does
+                    // nothing: the release lands on what is there now.
+                    el = live(el);
                     mouse('mouseup', el, p.x, p.y, Object.assign({}, o.init || {}, { buttons: 0 }));
                     ripple(p.x, p.y);
                     press(false);
@@ -1329,7 +1763,7 @@
         type: function (target, text, o) {
             o = o || {};
             return T.hover(target).then(function (p) {
-                var el = p.el;
+                var el = live(p.el);
                 if (!el) throw new Error('type: nothing at ' + describe(target));
                 ripple(p.x, p.y);
                 el.focus();
@@ -1337,15 +1771,23 @@
                 setValue(el, '');
                 var chars = String(text).split('');
                 var i = 0;
+                var typed = '';
+                // Each key lands in the live field, carrying everything typed
+                // so far: a rebuild between keys hands the field to its
+                // successor (app-naming.js _preserveEditorFocus carries the
+                // draft and the focus across), and the hand follows it.
                 return new Promise(function (res) {
                     (function next() {
                         if (i >= chars.length) return res();
-                        setValue(el, el.value + chars[i++]);
+                        el = live(el);
+                        typed += chars[i++];
+                        setValue(el, typed);
                         setTimeout(next, ms(PACE.key));
                     })();
                 }).then(function () {
                     return T.pause(PACE.typed);
                 }).then(function () {
+                    el = live(el);
                     if (o.enter) {
                         keyEvent('keydown', el, 'Enter');
                         keyEvent('keyup', el, 'Enter');
@@ -1357,7 +1799,7 @@
         },
         select: function (target, value) {
             return T.hover(target).then(function (p) {
-                var el = p.el;
+                var el = live(p.el);
                 if (!el) throw new Error('select: nothing at ' + describe(target));
                 ripple(p.x, p.y);
                 el.focus();
@@ -1375,7 +1817,7 @@
             if (!to) return Promise.reject(new Error('drag: no destination'));
             var dest = null;
             return T.hover(from, o).then(function (p) {
-                var el = p.el;
+                var el = live(p.el);
                 if (!el) throw new Error('drag: nothing at ' + describe(from));
                 // The destination is measured AFTER the source is revealed:
                 // opening the tray for the chip moves the canvas (and the
@@ -1386,7 +1828,7 @@
                     return p;
                 });
             }).then(function (p) {
-                var el = p.el;
+                var el = live(p.el);
                 press(true);
                 mouse('mousedown', el, p.x, p.y, { buttons: 1 });
                 return T.pause(PACE.dragPress).then(function () {
@@ -1499,6 +1941,15 @@
         return n ? n - 1 : 0;
     }
 
+    // The id of the box on a card's copy OPT that copies its first OPT
+    // (the resolved copyTrunkList), or null: the box a mirror drop drags.
+    function mirrorCopyBox(card) {
+        var entry = ((card && card.copyTrunkList) || []).find(function (t) {
+            return t && t.copiesTrunk === 0 && t.boxId && t.role === 'mirror';
+        });
+        return entry ? entry.boxId : null;
+    }
+
     function cabinetPointRaw(layer, which) {
         var a = A(), r = R();
         if (!layer || !r) return null;
@@ -1575,14 +2026,43 @@
     // ── the engine ───────────────────────────────────────────────────────
     var S = {
         name: null, list: [], idx: -1,
-        running: false, pendingNext: false, pendingEnd: null,
+        running: false, pendingEnd: null,
+        // The restore a guide's end is making, until it lands (show waits).
+        ending: null,
+        // The window keys held open through the step change under way
+        // (sharedWindows), or null: set as Next or Back leaves a step,
+        // cleared once the step entered has set itself up.
+        keep: null,
+        // Where the step on screen is: 'enter' (leaving the last, its
+        // restore, its before), 'act', or 'settled'. The tests read it to
+        // tell a window the act closed from one the change closed.
+        phase: null,
+        // Each step's UI at its entry (the view tab), beside S.snaps: Back
+        // and the replay button put it back with the project.
+        ui: [],
         snaps: [], saved: null, token: 0, visible: false, spotEl: null,
         // How the last Go to ahead landed: 'snapshot' (one restore of the
         // shipped entry snapshot) or 'apply' (the steps between were run).
-        jumpedVia: null
+        // On What's New, how the step on screen got its entry state.
+        jumpedVia: null,
+        // The step keys on screen, in order.
+        keys: [],
+        // What's New only: for each step, its index in the Advanced Guide
+        // (whose entry snapshot it starts from), and the Advanced step
+        // whose entry state the show holds right now (null: unknown).
+        entries: null, entryAt: null
     };
 
-    function setState(v) { if (els) els.callout.setAttribute('data-qs-state', v); }
+    // Next, Back and the replay button are disabled while the step runs;
+    // the input shield swallows the click anyway (onShield).
+    function setState(v) {
+        if (!els) return;
+        els.callout.setAttribute('data-qs-state', v);
+        ['#qs-next', '#qs-back', '#qs-replay'].forEach(function (sel) {
+            var b = els.callout.querySelector(sel);
+            if (b) b.disabled = v === 'running';
+        });
+    }
     function showResult(note, err, kind) {
         if (!els) return;
         var box = els.callout.querySelector('.qs-result');
@@ -1611,7 +2091,6 @@
             + '" inputmode="numeric" title="Type a step number and press Enter"></label></div>'
             + (offerFull ? '<button class="qs-cta" id="qs-full">Take the full walkthrough &rsaquo;</button>' : '')
             + '<div class="qs-row">'
-            + '  <label class="qs-chk"><input type="checkbox" id="qs-nolaunch"' + (disabled() ? ' checked' : '') + '> Don&rsquo;t show on startup</label>'
             + '  <div class="qs-btns">'
             + '    <button class="qs-skip" id="qs-skip">Skip</button>'
             + (S.idx > 0 ? '    <button class="qs-back" id="qs-back">Back</button>' : '')
@@ -1621,14 +2100,15 @@
             + '</div>';
         els.callout.querySelector('#qs-skip').onclick = function () { end(); };
         els.callout.querySelector('#qs-next').onclick = function () {
-            if (S.running) { S.pendingNext = true; return; }
-            last ? end() : go(S.idx + 1);
+            // A step that is still running takes no Next: a second click
+            // waits for nothing and skips nothing.
+            if (S.running) return;
+            last ? end() : go(S.idx + 1, { carry: true });
         };
         var back = els.callout.querySelector('#qs-back');
         if (back) back.onclick = function () { if (!S.running) goBack(); };
         var rep = els.callout.querySelector('#qs-replay');
         if (rep) rep.onclick = function () { if (!S.running) replay(); };
-        els.callout.querySelector('#qs-nolaunch').onchange = function () { setDisabled(this.checked); };
         var full = els.callout.querySelector('#qs-full');
         if (full) full.onclick = function () { end().then(function () { show('advanced'); }); };
         var jump = els.callout.querySelector('#qs-jump');
@@ -1726,6 +2206,8 @@
         if (!(n >= 1 && n <= S.list.length) || n === S.idx + 1) return Promise.resolve();
         var i = n - 1;
         if (i < S.idx) return go(i, { restore: S.snaps[i] });
+        // A What's New step enters from its own entry state (enterStep).
+        if (S.entries) return go(i);
         if (opts.apply) { S.jumpedVia = 'apply'; return applyAhead(n, i); }
         var name = S.name, tokenAt = S.token;
         S.running = true;   // Next, Back, Enter and a second Go to wait for the file
@@ -1789,9 +2271,234 @@
         els.fast.style.display = text ? 'flex' : 'none';
     }
 
+    // ── What's New: Advanced Guide steps on their own ────────────────────
+    // A What's New step runs WITHOUT the steps before it, so it starts from
+    // the Advanced Guide's entry snapshot of that step in the shipped file:
+    // the show exactly as the guide hands it to the step, restored the way
+    // Go to restores one. Without a matching file (a changed guide, a build
+    // whose file was not regenerated, no network) the Advanced steps before
+    // it are applied behind the shade instead (applyEntry), as Go to does.
+    function enterStep(i) {
+        var k = S.entries[i];
+        return shippedSnapshots('advanced', k).catch(function () { return null; }).then(function (snaps) {
+            if (snaps) {
+                S.jumpedVia = 'snapshot';
+                return restoreProject(snaps[k], 'Tutorial Step').then(function () { S.entryAt = k; });
+            }
+            S.jumpedVia = 'apply';
+            return applyEntry(k);
+        }).catch(function (e) {
+            // The step still plays; if its entry state is not there its
+            // check says so. The show's state is unknown from here on.
+            S.entryAt = null;
+            console.warn('QuickStart: entry state failed', e);
+        });
+    }
+    // The Advanced Guide applied up to step k's entry: from where the show
+    // already is when that is at or before k (the step before took), else
+    // from a fresh scratch show. Every pace is zero and only the app's own
+    // responses are waited for, as in applyAhead.
+    function applyEntry(k) {
+        var adv = TOURS.advanced.steps;
+        var from = S.entryAt != null && S.entryAt <= k ? S.entryAt : null;
+        // The steps applied behind the shade open and close their own
+        // windows: nothing is held through them.
+        S.keep = null;
+        S.jumping = true;
+        S.fast = true;
+        document.body.classList.add('qs-jumping');
+        hideCursor();
+        var done = function () {
+            S.jumping = false;
+            S.fast = false;
+            document.body.classList.remove('qs-jumping');
+            fastBanner('');
+        };
+        var start = from == null
+            ? buildScratch(TOURS.advanced.seed).then(function () { return 0; })
+            : Promise.resolve(from);
+        return start.then(function (j0) {
+            var chain = Promise.resolve();
+            for (var j = j0; j < k; j++) {
+                (function (j) {
+                    chain = chain.then(function () {
+                        if (!S.visible) throw new Error('the guide was closed');
+                        fastBanner('Getting the step ready', 'applying Advanced Guide step ' + (j + 1) + ' of ' + adv.length,
+                                   (j - j0) / Math.max(1, k - j0));
+                        return applyStep(STEPS[adv[j]]);
+                    });
+                })(j);
+            }
+            return chain;
+        }).then(function () { done(); S.entryAt = k; },
+                function (e) { done(); S.entryAt = null; throw e; });
+    }
+    // One step applied, unseen: before, the act, its check, after. A step
+    // whose check returns no note stops the apply.
+    function applyStep(step) {
+        var leave = function () {
+            passthrough(false);
+            if (step.after) { try { step.after(null); } catch (e) { console.warn('QuickStart after()', e); } }
+        };
+        // From a known state and to a polled verdict, as a played step.
+        resetModes();
+        return appSettled().then(function () {
+            if (step.before) return step.before();
+        }).then(function () {
+            ensureCalloutHome();
+            revealStep(step);
+            if (!step.act) return 'idle';
+            T.mem = {};
+            passthrough(true);
+            var failed = null;
+            return appSettled().then(function () { return actOf(step); }).catch(function (e) {
+                failed = e;
+            }).then(function () {
+                return appSettled();
+            }).then(function () {
+                return pollCheck(step, T.mem, null);
+            }).then(function (note) {
+                if (!note && failed) throw failed;
+                return note;
+            });
+        }).then(function (note) {
+            leave();
+            if (!note) throw new Error('"' + step.title + '" did not take');
+        }, function (e) { leave(); throw e; });
+    }
+
+    // "1.5.2" / "v1.5" -> [1, 5, 2] / [1, 5]; null when unparseable.
+    function versionParts(v) {
+        var m = /^v?(\d+(?:\.\d+)*)/.exec(String(v == null ? '' : v).trim());
+        return m ? m[1].split('.').map(Number) : null;
+    }
+    // Like a sort comparator; a missing part reads as 0 (1.5 = 1.5.0).
+    function versionCmp(a, b) {
+        var n = Math.max(a.length, b.length);
+        for (var i = 0; i < n; i++) {
+            var d = (a[i] || 0) - (b[i] || 0);
+            if (d) return d;
+        }
+        return 0;
+    }
+    // The Advanced Guide's step keys, in guide order, whose `since` is
+    // newer than `after` and not newer than `upTo` (null: no bound there).
+    function newSteps(after, upTo) {
+        var lo = after == null ? null : versionParts(after);
+        var hi = upTo == null ? null : versionParts(upTo);
+        if ((after != null && !lo) || (upTo != null && !hi)) return [];
+        return TOURS.advanced.steps.filter(function (k, i, all) {
+            var s = versionParts(STEPS[k] && STEPS[k].since);
+            return !!s && all.indexOf(k) === i
+                && (!lo || versionCmp(s, lo) > 0) && (!hi || versionCmp(s, hi) <= 0);
+        });
+    }
+    // Run Advanced Guide steps on their own, in guide order: What's New.
+    function startSteps(keys) {
+        var adv = TOURS.advanced.steps;
+        keys = keys || [];
+        var picked = adv.filter(function (k, i) { return adv.indexOf(k) === i && keys.indexOf(k) >= 0; });
+        if (!picked.length) return Promise.resolve();
+        // Headed by the newest feature version among them: What's New in 1.6.
+        var newest = picked.reduce(function (m, k) {
+            var p = versionParts(STEPS[k].since);
+            return p && (!m || versionCmp(p, m) > 0) ? p : m;
+        }, null);
+        return show('whatsNew', {
+            title: 'What&rsquo;s New' + (newest && newest.length >= 2 ? ' in ' + newest[0] + '.' + newest[1] : ''),
+            seed: TOURS.advanced.seed, steps: picked,
+            entries: picked.map(function (k) { return adv.indexOf(k); })
+        });
+    }
+
     function leaveCurrent(next) {
         var step = S.idx >= 0 && S.idx < S.list.length ? S.list[S.idx] : null;
         if (step && step.after) { try { step.after(next); } catch (e) { console.warn('QuickStart after()', e); } }
+    }
+
+    // ── waiting on the app ───────────────────────────────────────────────
+    // `p`, or `onLimit` (a value, or an Error to reject with) once `limit`
+    // real milliseconds have passed.
+    function withLimit(p, limit, onLimit) {
+        var timer = null;
+        var cap = new Promise(function (res, rej) {
+            timer = setTimeout(function () { onLimit instanceof Error ? rej(onLimit) : res(onLimit); }, limit);
+        });
+        return Promise.race([Promise.resolve(p), cap]).then(function (v) { clearTimeout(timer); return v; },
+                                                            function (e) { clearTimeout(timer); throw e; });
+    }
+    // Two frames, so what the app just drew is on the page - or 100 ms,
+    // where frames are not running (a hidden window).
+    function painted() {
+        return withLimit(new Promise(function (res) {
+            requestAnimationFrame(function () { requestAnimationFrame(function () { res(); }); });
+        }), 100, null);
+    }
+    // Until the app has done what the step asked of it: a debounced undo
+    // step landed, every screen PUT and restore PUT answered (their socket
+    // echoes follow them), the pull sheet's queue drained, and a frame
+    // drawn. Never longer than SETTLE_LIMIT.
+    function appSettled() {
+        var a = A();
+        if (!a) return Promise.resolve();
+        try { if (a._flushPendingSaveState) a._flushPendingSaveState(); } catch (e) {}
+        var p = null;
+        try { p = a._layerSavesSettled ? a._layerSavesSettled() : null; } catch (e) { p = null; }
+        return withLimit(Promise.resolve(p).catch(function () {}), SETTLE_LIMIT, null).then(painted);
+    }
+    // The step's act, held to ACT_LIMIT: an act that never ends is a step
+    // that failed, never a guide that hangs with the input shield up.
+    function actOf(step) {
+        return withLimit(Promise.resolve().then(function () { return step.act(T); }), ACT_LIMIT,
+                         new Error('the step did not finish'));
+    }
+    // A step's check asked every CHECK_EVERY ms until it returns its note
+    // or CHECK_LIMIT passes (null: the step did not take). Asked once was
+    // asked too soon on a busy machine: the check that failed at the end
+    // of the act passed a quarter second later (1.6.0 QA). Stops early when
+    // the guide is ending (Skip or Escape while the step ran).
+    function pollCheck(step, mem, token) {
+        if (!step.check) return Promise.resolve('Done.');
+        var t0 = Date.now();
+        return new Promise(function (res) {
+            (function poll() {
+                var note = null, err = null;
+                try { note = step.check(mem); } catch (e) { err = e; }
+                if (note) return res(note);
+                var over = Date.now() - t0 >= CHECK_LIMIT;
+                if (over || S.pendingEnd || !S.visible || (token != null && token !== S.token)) {
+                    if (err) console.warn('QuickStart check()', err);
+                    return res(null);
+                }
+                setTimeout(poll, CHECK_EVERY);
+            })();
+        });
+    }
+
+    // Whatever a step can leave ARMED, put down: the right-click menu and
+    // the menu bar's menus, the hardware gear popover, a tray sweep, port
+    // picks and an unfinished redraw as one, an override edit, the canvas
+    // add and menu pop-ups. Dialogs, sheets and the export window are the
+    // steps' own business (their before and after hooks), so a step that
+    // follows on in the same dialog finds it still up.
+    function resetModes() {
+        var a = A(), r = R();
+        if (!a) return;
+        try { a.hideContextMenu(); } catch (e) {}
+        hideMenus();
+        closePopover();
+        try { if (a._traySweepClear) a._traySweepClear(false); } catch (e) {}
+        a._sweepSelection = null;
+        if (r) { r._sweepPending = null; if (r._removeSweepHud) { try { r._removeSweepHud(); } catch (e) {} } }
+        // Ports picked for a redraw as one, and an unfinished one: the
+        // step's own snapshot (or the state the step before it handed on)
+        // is what stands, so they are just dropped.
+        a._portPicks = null;
+        a._mergeRedraw = null;
+        if (r) r._portPickPending = null;
+        if (a._overrideEditing && a.endOverrideEdit) { try { a.endOverrideEdit(); } catch (e) {} }
+        if (a.updateOverrideHover) { try { a.updateOverrideHover(false, 0, 0); } catch (e) {} }
+        $$('.canvas-add-popup, .canvas-menu-popup').forEach(function (el) { el.remove(); });
     }
 
     // Enter step i: before(), the callout, the entry snapshot (Back and
@@ -1800,83 +2507,132 @@
         opts = opts || {};
         if (i < 0 || i >= S.list.length || S.running) return Promise.resolve();
         var step = S.list[i];
+        // Next and Back (opts.carry) hold the windows the step left and
+        // the step entered both work in: nothing below closes them, and
+        // the step's own before() finds them up (windowsOf).
+        var from = S.idx >= 0 && S.idx < S.list.length ? S.list[S.idx] : null;
+        S.keep = opts.carry && from && from !== step ? sharedWindows(from, step) : null;
+        if (S.keep && !S.keep.length) S.keep = null;
+        S.phase = 'enter';
         leaveCurrent(step);
         S.idx = i;
         S.spotEl = null;
         S.running = true;
         setState('running');
+        // Every step starts from a known state: nothing armed that a step
+        // before it (or this step's own first try) left behind - a redraw
+        // or a port pick, an override edit, a sweep - and no menu or
+        // popover up. A redraw left armed by a step that failed made the
+        // next two steps fail, and the replay button never got it back
+        // (1.6.0 QA).
+        resetModes();
+        var ui = opts.restore ? S.ui[i] : null;
         var chain = Promise.resolve();
-        if (opts.restore) chain = chain.then(function () { return restoreProject(opts.restore, 'Tutorial Back'); });
+        var entered = false;
+        if (opts.restore) {
+            chain = chain.then(function () { return restoreProject(opts.restore, 'Tutorial Back'); }).then(function () {
+                if (S.entries) S.entryAt = S.entries[i];
+            });
+        } else if (S.entries) {
+            entered = true;
+            chain = chain.then(function () { return enterStep(i); });
+        }
         return chain.then(function () {
+            return appSettled();
+        }).then(function () {
+            // A held window reads the show the restore put back.
+            if (S.keep && (opts.restore || entered)) refreshHeld();
+            // Back and the replay button put the step's view tab back with
+            // its project; before() then sets what the step itself needs.
+            if (ui && ui.mode && ui.mode !== mode()) switchView(ui.mode);
             if (step.before) { try { return step.before(); } catch (e) { console.warn('QuickStart before()', e); } }
         }).then(function () {
             return step.before ? sleep(ms(260)) : null;
         }).then(function () {
+            // The step is set up: from here its act, and the next change,
+            // close what they close.
+            S.keep = null;
             // A show restored from the shipped file is framed the way the
             // steps before this one would have left it: the walls in the
             // view the step just switched to (buildScratch frames the same
             // way at the start; a Back keeps the framing the person had).
-            if (opts.frame) { try { frameWalls(); } catch (e) {} }
+            if (opts.frame || entered) { try { frameWalls(); } catch (e) {} }
             // What this step shows is on screen before it is rung: the
             // panel its target lives in open, every fold above it undone,
             // and the right sidebar open so the callout has its spot.
             ensureCalloutHome();
             revealStep(step);
-            S.running = false;
             render();
             S.snaps[i] = snapshot();
-            if (!step.act) { hideCursor(); return afterStep(); }
+            S.ui[i] = { mode: mode() };
+            if (!step.act) { S.running = false; S.phase = 'settled'; setState('idle'); hideCursor(); return afterStep(); }
             return runAct(step);
         });
     }
 
     function runAct(step) {
         S.running = true;
-        S.pendingNext = false;
         T.mem = {};
         setState('running');
         passthrough(true);
         showCursor();
         var token = ++S.token;
         var err = null;
-        return sleep(ms(500)).then(function () {
+        return appSettled().then(function () {
+            return sleep(ms(500));
+        }).then(function () {
             // The canvas may have re-framed a beat after the callout was
             // placed (a view switch resizes it); ring the target where it is
             // now and move the box only if it has come to cover it - once,
             // before the cursor starts, so the act itself never shoves it.
             settle();
-            return Promise.resolve().then(function () { return step.act(T); });
+            S.phase = 'act';
+            followRing();
+            return actOf(step);
         }).catch(function (e) {
             err = e;
             console.warn('QuickStart: step "' + step.title + '" failed:', e);
         }).then(function () {
+            if (token !== S.token) return null;   // the tour ended under us
+            badge('');
+            press(false);
+            // The verdict waits for the app (its saves, their echoes, a
+            // frame) and then asks the check until it answers or
+            // CHECK_LIMIT passes: never once, at the instant the act ends.
+            return appSettled().then(function () { return pollCheck(step, T.mem, token); });
+        }).then(function (note) {
             if (token !== S.token) return;   // the tour ended under us
-            var note = null;
-            try { note = step.check ? step.check(T.mem) : 'Done.'; }
-            catch (e) { console.warn('QuickStart check()', e); }
             S.running = false;
             passthrough(false);
             badge('');
             press(false);
             showResult(note, err);
             settle();
+            S.phase = 'settled';
             setState(note ? 'done' : 'failed');
+            // The step took on its own entry state: the show holds the next
+            // Advanced step's entry. A step that took on an entry that was
+            // NOT reached (applyEntry stopped on the way, the step played
+            // anyway) proves nothing about the show: the next What's New
+            // step must not carry on from it. It did, and "Put the distro
+            // on the service" then found no distro (1.6.0 QA: the apply
+            // fallback failed 3 runs in 4).
+            if (S.entries) {
+                var k = S.entries[S.idx];
+                S.entryAt = note && S.entryAt === k ? k + 1 : null;
+            }
             return afterStep();
         });
     }
 
     function afterStep() {
         if (S.pendingEnd) { var e = S.pendingEnd; S.pendingEnd = null; return end().then(e.resolve); }
-        if (S.pendingNext) {
-            S.pendingNext = false;
-            return S.idx === S.list.length - 1 ? end() : go(S.idx + 1);
-        }
     }
 
     function goBack() {
         if (S.idx <= 0) return;
         var i = S.idx - 1;
-        return go(i, { restore: S.snaps[i] });
+        return go(i, { restore: S.snaps[i], carry: true });
     }
     function replay() {
         return go(S.idx, { restore: S.snaps[S.idx] });
@@ -1900,7 +2656,7 @@
                 else jump.blur();
                 return;
             }
-            S.idx === S.list.length - 1 ? end() : go(S.idx + 1);
+            S.idx === S.list.length - 1 ? end() : go(S.idx + 1, { carry: true });
             return;
         }
         if (e.key !== 'Escape') return;
@@ -1960,6 +2716,28 @@
             a._serverPreferences = JSON.parse(JSON.stringify(p.server));
         });
     }
+    // The guide runs on the SHIPPED Preferences, never the person's. A new
+    // screen (initializeLayerDefaults), service (addService), distro
+    // (addDistro), a screen's breakout on the server and a new show's
+    // cable stock all start from Preferences, and the guide's walls,
+    // service and distros are new: a 10-bit, 50 Hz, 30 Hz or Low Latency
+    // preference cut the practice screens into other ports, and a 230/400
+    // distro system gave the guide's service a system its 120/208 distro
+    // could not join (1.6.0 QA). One switch covers every object the guide
+    // makes, by hand or through the app's own buttons. The person's own
+    // were captured with the world (capturePrefs) and go back first thing
+    // when the guide ends (restoreWorld) or after a reload (recoverStash).
+    function guidePreferences() {
+        var a = A();
+        // Only what can be put back is switched: no captured copy, no switch.
+        var held = S.saved && S.saved.prefs;
+        if (!held || !held.server || typeof held.server !== 'object') return Promise.resolve();
+        var shipped = a.getPreferencesDefaults();
+        a._serverPreferences = JSON.parse(JSON.stringify(shipped));
+        return j('PUT', '/api/preferences', shipped).catch(function (e) {
+            console.warn('QuickStart: the shipped preferences were not set', e);
+        });
+    }
 
     function captureWorld() {
         var a = A(), r = R();
@@ -1978,6 +2756,9 @@
             notes: notesCollapsed(),
             idm: captureIdm(),
             output: outputChoice(),
+            // the Preferences tab the person had: the guide's steps open
+            // other tabs, and the window reopened on the guide's last one
+            prefsTab: a._prefsTab || null,
             prefs: null
         };
         return capturePrefs().then(function (p) {
@@ -2010,8 +2791,11 @@
         var w = readStash();
         if (!w) return Promise.resolve(false);
         var a = A();
-        return restoreProject(w.project, 'Tour Recovery').then(function () {
-            return restorePrefs(w.prefs);
+        // The person's Preferences first: the guide ran on the shipped
+        // ones (guidePreferences), and their project comes back under
+        // their own.
+        return restorePrefs(w.prefs).then(function () {
+            return restoreProject(w.project, 'Tour Recovery');
         }).then(function () {
             try {
                 SHEET_PREFIXES.forEach(function (p) { lsKeys(p).forEach(function (e) { localStorage.removeItem(e.k); }); });
@@ -2043,23 +2827,19 @@
         });
     }
 
-    // Everything transient a step may have left standing.
+    // Everything transient a step may have left standing: its armed modes
+    // (resetModes) and every dialog, sheet and window.
     function closeTransients() {
-        var a = A(), r = R();
+        var a = A();
         if (!a) return;
-        try { a.hideContextMenu(); } catch (e) {}
-        closePopover();
-        if (a._traySweepClear) a._traySweepClear(false);
-        a._sweepSelection = null;
-        if (r) { r._sweepPending = null; if (r._removeSweepHud) r._removeSweepHud(); }
-        if (a._overrideEditing && a.endOverrideEdit) { try { a.endOverrideEdit(); } catch (e) {} }
-        if (a.updateOverrideHover) { try { a.updateOverrideHover(false, 0, 0); } catch (e) {} }
+        resetModes();
         a._dockFlagOpen = false;
         var bal = $('#balance-modal'); if (bal) bal.remove();
-        $$('.canvas-add-popup, .canvas-menu-popup').forEach(function (el) { el.remove(); });
         closePrefs();
         var pp = $('#preset-picker-modal'); if (pp) pp.style.display = 'none';
+        if (typeof a.closeStartPage === 'function') a.closeStartPage();
         hideMenus();
+        closePullSheet();
         closeExport();
         closeOutput();
         if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -2075,6 +2855,8 @@
         a.dedupeProjectLayers('tutorial_restore');
         // The restored world's multi numbers are the ones in force again.
         try { if (a._resetMultiBaseline) a._resetMultiBaseline(); } catch (e) {}
+        // The Hue slider is measured from the colors being replaced.
+        try { if (a._qpProjectChanged) a._qpProjectChanged(); } catch (e) {}
         var cur = a.currentLayer ? a.project.layers.find(function (l) { return l.id === a.currentLayer.id; }) : null;
         a.currentLayer = cur || a.project.layers[0] || null;
         a.selectedLayerIds = new Set(a.currentLayer ? [a.currentLayer.id] : []);
@@ -2105,11 +2887,17 @@
     function restoreWorld(w) {
         var a = A(), r = R();
         closeTransients();
-        return restoreProject(w.project, 'Tutorial Exit').then(function () {
-            return restorePrefs(w.prefs);
+        // The person's Preferences first: the guide ran on the shipped
+        // ones (guidePreferences), and their project comes back under
+        // their own.
+        return restorePrefs(w.prefs).then(function () {
+            return restoreProject(w.project, 'Tutorial Exit');
         }).then(function () {
             a.history = w.history;
             a.historyIndex = w.historyIndex;
+            a._prefsTab = w.prefsTab || null;
+            // The person's own "unsaved" again, on the server too.
+            if (typeof a._noteUnsavedState === 'function') a._noteUnsavedState();
             try {
                 SHEET_PREFIXES.forEach(function (p) { lsKeys(p).forEach(function (e) { localStorage.removeItem(e.k); }); });
                 w.sheets.forEach(function (e) { localStorage.setItem(e.k, e.v); });
@@ -2158,6 +2946,7 @@
             proj.cableUnit = 'ft';
             proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
             proj.beaches = []; proj.snakes = [];
+            delete proj.services;
             delete proj.fiberCables;
             delete proj.port_assignments;
             delete proj.binder;
@@ -2167,21 +2956,29 @@
             // raster wider than 1080p; a 5K raster holds the whole show.
             proj.raster_width = 5120; proj.raster_height = 2880;
             proj.show_raster_width = 5120; proj.show_raster_height = 2880;
-            (proj.canvases || []).forEach(function (c) {
-                c.raster_width = 5120; c.raster_height = 2880;
-                c.show_raster_width = 5120; c.show_raster_height = 2880;
-            });
+            // ONE canvas, the scratch show's own. The person's canvases
+            // stayed in the scratch show until 1.6.0 QA: on a show with
+            // four, the demo walls sat inside canvases stacked over each
+            // other and "Cabinets across screens" dragged on one of the
+            // person's canvases instead of the walls.
+            var c1 = (proj.canvases || [])[0] || {};
+            proj.canvases = [{
+                id: c1.id || 'c1', name: 'Canvas 1', color: c1.color || '#4A90E2',
+                workspace_x: 0, workspace_y: 0,
+                raster_width: 5120, raster_height: 2880,
+                show_raster_width: 5120, show_raster_height: 2880,
+                data_flow_perspective: 'front', power_perspective: 'front',
+                visible: true
+            }];
+            proj.active_canvas_id = proj.canvases[0].id;
+            proj.data_flow_perspective = 'front';
+            proj.power_perspective = 'front';
             return j('PUT', '/api/project', proj);
         }).then(function () {
             return j('POST', '/api/layer/add', Object.assign({
                 name: 'DEMO WALL', offset_x: 0, offset_y: 0,
                 columns: 8, rows: 5, cabinet_width: 128, cabinet_height: 128
             }, seed.wall || {}));
-        }).then(function () {
-            // A tour that shows two screens from its first step (What's
-            // New: pick one in 3D, step the highlight between them) has
-            // the second one standing beside the wall from the start.
-            return seed.second ? j('POST', '/api/layer/add', seed.second) : null;
         }).then(function () {
             return j('GET', '/api/project');
         }).then(function (p) {
@@ -2190,16 +2987,15 @@
             a.selectLayer(a.project.layers[0]);
             // The tour's prerequisites, stamped AFTER selectLayer (which
             // fills what is unset from the preferences) and written through
-            // so the server holds the same screens.
-            var fields = Object.assign({ powerVoltage: 208, powerAmperage: 20, panelWatts: 200 }, seed.layer || {});
-            var ls = a.project.layers;
-            ls.forEach(function (l, i) {
-                if (i > 0 && typeof a.initializeLayerDefaults === 'function') a.initializeLayerDefaults(l);
-                Object.keys(fields).forEach(function (k) { l[k] = fields[k]; });
-                // A screen always carries a breakout its voltage allows.
-                if (typeof a.normalizePowerBreakout === 'function') a.normalizePowerBreakout(l);
-            });
-            a.updateLayers(ls.slice());
+            // so the server holds the same screen. Its processing is the
+            // practice screens' (PRACTICE_PROCESSING), not the preferences'.
+            var fields = Object.assign({ powerVoltage: 208, powerAmperage: 20, panelWatts: 200 },
+                                       PRACTICE_PROCESSING, seed.layer || {});
+            var l = a.project.layers[0];
+            Object.keys(fields).forEach(function (k) { l[k] = fields[k]; });
+            // A screen always carries a breakout its voltage allows.
+            if (typeof a.normalizePowerBreakout === 'function') a.normalizePowerBreakout(l);
+            a.updateLayers([l]);
             return a.refreshProcessors();
         }).then(function () {
             return a.refreshPortAssignment();
@@ -2224,9 +3020,16 @@
     }
 
     // ── show / end ───────────────────────────────────────────────────────
-    function show(name) {
-        var tour = TOURS[name];
+    // `custom` is a tour built on the fly ({ title, seed, steps, entries }):
+    // What's New (startSteps).
+    function show(name, custom) {
+        var tour = custom || TOURS[name];
         if (!tour) return Promise.resolve();
+        // A guide started while the last one is still putting the person's
+        // world back waits for it: started at once, its scratch show was
+        // overwritten by that restore, and it captured the scratch show as
+        // the world to put back, so leaving it lost the person's project.
+        if (S.ending) return S.ending.then(function () { return show(name, custom); });
         if (!els) build();
         // The ghost cursor starts from the middle of the window, not from
         // the corner it is born in, so the first act's travel reads as a
@@ -2240,9 +3043,13 @@
             return s;
         });
         S.snaps = [];
+        S.ui = [];
         S.idx = -1;
         S.home = null;
         S.jumpedVia = null;
+        S.keys = tour.steps.slice();
+        S.entries = tour.entries ? tour.entries.slice() : null;
+        S.entryAt = null;
         S.visible = true;
         els.catch.style.display = 'block';
         els.spot.style.display = 'block';
@@ -2254,6 +3061,8 @@
         S.running = true;
         var seeded = (S.saved ? Promise.resolve(S.saved) : captureWorld()).then(function (w) {
             S.saved = w;
+            return guidePreferences();
+        }).then(function () {
             return buildScratch(tour.seed || {});
         });
         return seeded.catch(function (e) {
@@ -2274,6 +3083,8 @@
             return p.promise;
         }
         S.token++;
+        S.keep = null;
+        S.phase = null;
         leaveCurrent(null);
         S.visible = false;
         S.running = true;   // no re-entry while the world goes back
@@ -2282,15 +3093,30 @@
         els.spot.style.display = 'none';
         els.callout.style.display = 'none';
         passthrough(false);
+        // The menus go now, not when the world goes back: that lands a beat
+        // later and again after the restore, and shut the menu a person
+        // had just opened (Skip, then Help straight away).
+        hideMenus();
+        S.exiting = true;
         var saved = S.saved;
         S.saved = null;
         S.idx = -1;
         S.list = [];
         S.snaps = [];
+        S.ui = [];
+        S.keys = [];
+        S.entries = null;
+        S.entryAt = null;
         var chain = saved ? sleep(ms(300)).then(function () { return restoreWorld(saved); }) : Promise.resolve();
-        return chain.catch(function (e) {
+        var ending = chain.catch(function (e) {
             console.warn('QuickStart: restore failed', e);
-        }).then(function () { S.running = false; });
+        }).then(function () {
+            S.running = false;
+            S.exiting = false;
+            if (S.ending === ending) S.ending = null;
+        });
+        S.ending = ending;
+        return ending;
     }
 
     // ── 1.6: the 3D tab, Output to Display, the IDM Locator, the checklist ──
@@ -2452,15 +3278,12 @@
     // ONE action per step. `target` is the selector the spotlight rings (a
     // function when it names hardware minted during the tour); `place` the
     // callout's side; `body` one or two sentences in the user's terms.
+    // `since` names the app version that brought the feature a step shows
+    // ('1.5.0', '1.5.2'); steps older than 1.5 carry none.
     var STEPS = {
         introAdvanced: {
             title: 'The full guide', center: true,
             body: 'This guide builds a small show in front of you on a scratch project. Your own project is put back when you leave.',
-            before: function () { switchView('pixel-map'); }
-        },
-        introWhatsNew: {
-            title: 'What&rsquo;s new in 1.6', center: true,
-            body: 'The 3D tab, Output to Display, the IDM Locator and the Notes checklist, each shown live on a scratch show. Your own project is put back when you leave.',
             before: function () { switchView('pixel-map'); }
         },
         introQuick: {
@@ -2496,6 +3319,159 @@
                 return w && Number(w.cabinet_width) === 200 && Number(w.cabinet_height) === 200
                     ? 'Each cabinet is 200 × 200 px.' : null;
             }
+        },
+        // The panel saved on the screen (1.6.0, app-screen-info.js
+        // updateLayerFromInputs, app-presets.js catalogPanelModelFields): a
+        // pick from the panel library fills Screen Info's Panel field, and
+        // a typed name names a panel of your own. The cabinet step just
+        // typed its pixels by hand, which forgets any saved panel, so the
+        // demo wall names its own here; the pull sheet's panel rows print it.
+        panelName: {
+            since: '1.6.0',
+            target: '#panel-model-name', place: 'right', title: 'Name the panel',
+            avoid: ['#panel-model-name'],
+            body: 'Panel is the cabinet as the pull sheet names it. A pick from the panel library fills it in; for a panel of your own, type its name.',
+            before: function () { switchView('pixel-map'); },
+            act: function (t) {
+                return t.type('#panel-model-name', 'Demo Panel', { enter: true }).then(function () {
+                    return t.wait(function () { var w = wall(); return w && w.panelModelName === 'Demo Panel'; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the screen did not take the panel name');
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function () {
+                var w = wall();
+                if (!w || w.panelModelName !== 'Demo Panel') return null;
+                var types = A().pullPanelTypes(w);
+                return (w.name || 'The screen') + ' hangs ' + types.none + ': the pull sheet counts its cabinets by that name, and a half tile as ' + types.height + '.';
+            }
+        },
+        // The start page a launch opens on (1.6.0, app-start-page.js):
+        // New project, Open file… and the Recent Files list. A recent file
+        // with a known path is read from disk again (app-logs-recent.js), so
+        // it opens as last saved. The step opens the page over the scratch
+        // show, points at New project, and closes it with nothing chosen.
+        startPage: {
+            since: '1.6.0',
+            target: function () { return startPageUp() ? '#start-page-modal .start-page-content' : '#btn-open'; },
+            place: 'right', title: 'The start page',
+            body: 'The app opens on a start page: New project, Open file&hellip;, or a show from your recent files. A recent show is read from its file, so it opens as you last saved it.',
+            // Opened before the callout is placed, so the callout sits
+            // beside the page rather than under it.
+            before: function () {
+                switchView('pixel-map');
+                var a = A();
+                if (a && a.openStartPage && !startPageUp()) a.openStartPage('guide');
+            },
+            act: function (t) {
+                return t.wait(function () { return startPageUp() && $('#start-page-new'); }, 4000).then(function (btn) {
+                    if (!btn) throw new Error('the start page did not open');
+                    return null;
+                }).then(function () {
+                    return t.pause(PACE.opened);
+                });
+            },
+            check: function () {
+                var n = $('#start-page-new'), o = $('#start-page-open');
+                return startPageUp() && n && o && n.textContent === 'New project'
+                    ? 'New project opens the panel library, Open file… is File > Open, and Recent lists the shows you saved or opened, newest first.' : null;
+            },
+            after: function () { var a = A(); if (a && a.closeStartPage) a.closeStartPage(); }
+        },
+        // The panel a new project starts with (1.6.0, app-presets.js
+        // maybeOpenStartupPicker): File > New, and New on the start page,
+        // open the panel library first, and the pick makes the first
+        // screen, its name in the Panel field. The step opens the same
+        // chooser over the scratch show to show it, and closes it with
+        // nothing changed.
+        startPanel: {
+            since: '1.6.0',
+            target: '#btn-new', place: 'bottom', title: 'Pick a panel to start',
+            body: 'A new project opens the panel library first. The panel you pick makes the first screen and names it in Panel; Cancel starts with no screens.',
+            before: function () { switchView('pixel-map'); },
+            act: function (t) {
+                return t.hover('#btn-new').then(function (p) {
+                    ripple(p.x, p.y);
+                    A().openPresetPicker({ mode: 'startup' });
+                    return t.wait(function () { return pickerOpen() && $('#panel-catalog-list .panel-catalog-row'); }, 6000);
+                }).then(function (row) {
+                    if (!row) throw new Error('the panel library did not load');
+                    return t.spot($('#preset-picker-modal .modal-content')).then(function () {
+                        return t.pause(PACE.opened);
+                    });
+                });
+            },
+            check: function () {
+                var title = $('#preset-picker-title');
+                return pickerOpen() && A()._pickerMode === 'startup' && title && title.textContent === 'Choose a panel'
+                    ? 'File > New opens this: pick a panel, and Use Panel makes Screen1 of it.' : null;
+            },
+            after: function () { closePicker(); }
+        },
+        // Add Screen with nothing picked (1.6.0, app-presets.js
+        // _lastScreenPanelData): the new screen hangs the last screen's
+        // panel, and the line at the chooser's foot names it. The step
+        // opens Add Screen over the demo wall the Panel step named and
+        // closes it with nothing added.
+        sameAsLast: {
+            since: '1.6.0',
+            target: function () { return pickerOpen() ? '#preset-picker-summary' : '#layers-list .canvas-add-btn'; },
+            place: 'top', title: 'Add Screen copies the last panel',
+            body: 'Add Screen with nothing picked makes a screen of the last screen&rsquo;s panel. The line at the foot says which panel that is.',
+            window: 'picker:add',
+            before: function () { switchView('pixel-map'); },
+            act: function (t) {
+                return openAddPicker(t).then(function () {
+                    return t.wait(function () {
+                        var s = $('#preset-picker-summary');
+                        return pickerOpen() && s && /will use/.test(s.textContent) ? s : null;
+                    }, 6000);
+                }).then(function (s) {
+                    if (!s) throw new Error('Add Screen did not offer the last screen panel');
+                    return t.spot(s).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var s = pickerOpen() ? $('#preset-picker-summary') : null;
+                var m = s && /will use (.+)'s panel \((.+)\)/.exec(s.textContent);
+                return m ? 'With nothing picked, the new screen hangs ' + m[2] + ', the panel on ' + m[1] + '.' : null;
+            },
+            after: function () { closePicker(); }
+        },
+        // Average power in the panel library (1.6.0, app-presets.js
+        // _panelWattsText): the max every power figure is planned on, and
+        // the sheet's average beside it where the sheet gives one. The step
+        // opens the screen chooser, finds a panel whose sheet gives both,
+        // and closes the chooser with nothing added.
+        avgPower: {
+            since: '1.6.0',
+            target: function () { return $(AVG_ROW) ? AVG_ROW : '#layers-list .canvas-add-btn'; },
+            place: 'left', title: 'Average power in the library',
+            avoid: ['#panel-catalog-search'],
+            body: 'The panel library shows a panel&rsquo;s average power beside its max where the spec sheet gives one. Power is still planned on the max.',
+            window: 'picker:add',
+            before: function () { switchView('pixel-map'); },
+            act: function (t) {
+                return openAddPicker(t).then(function () {
+                    return t.wait(function () { return pickerOpen() && $('#panel-catalog-list .panel-catalog-row'); }, 6000);
+                }).then(function (row) {
+                    if (!row) throw new Error('the panel library did not load');
+                    return t.type('#panel-catalog-search', 'BP2V2');
+                }).then(function () {
+                    return t.wait(function () { return $(AVG_ROW); }, 4000);
+                }).then(function (row) {
+                    if (!row) throw new Error('the library has no Black Pearl BP2V2');
+                    return t.spot(row).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var row = pickerOpen() ? $(AVG_ROW) : null;
+                var m = row && /(\d+(?:\.\d+)?)W max · (\d+(?:\.\d+)?)W avg/.exec(row.textContent);
+                return m ? 'The BP2V2 reads ' + m[1] + 'W max · ' + m[2] + 'W avg; a screen of them is planned at '
+                    + m[1] + ' W a panel.' : null;
+            },
+            after: function () { closePicker(); }
         },
         gridSize: {
             target: '#screen-columns', ring: ['#screen-columns', '#screen-rows'], place: 'right', title: 'Columns and rows',
@@ -2553,6 +3529,55 @@
                 var w = wall();
                 var n = w ? w.panels.filter(function (p) { return p.hidden; }).length : 0;
                 return n === 1 ? 'One cabinet is blanked; the wall keeps its numbering around it.' : null;
+            }
+        },
+        // Quick Palettes (1.7.0, app-quick-palettes.js): a pair on the wall,
+        // then a press on the Hue slider. A native slider does not move for
+        // the guide's mouse events, so the press plays the slider's own:
+        // the pointer down, the value as the cursor glides, the release.
+        quickPalettes: {
+            since: '1.7.0',
+            target: '#quick-palettes-panel', place: 'right', title: 'Quick Palettes',
+            avoid: ['#quick-palette-swatches', '#quick-palette-hue'],
+            body: 'Click a pair to color the selected screens, and drag Hue to turn the pairs and the screens together. Preferences &gt; Palettes keeps eight of your own.',
+            before: function () {
+                switchView('pixel-map');
+                var a = A(), w = wall();
+                if (w && (!a.currentLayer || a.currentLayer.id !== w.id)) a.selectLayer(w);
+            },
+            act: function (t) {
+                return t.click('#quick-palette-4').then(function () {
+                    return t.hover('#quick-palette-hue');
+                }).then(function (p) {
+                    var s = $('#quick-palette-hue');
+                    var from = parseInt(s.value, 10) || 0;
+                    var to = t.mem.hue = from + 60;
+                    var box = s.getBoundingClientRect();
+                    var dx = (box.width - 10) * 60 / 360;
+                    var moveTo = function (v) {
+                        if (String(v) === s.value) return;
+                        s.value = String(v);
+                        s.dispatchEvent(new Event('input', { bubbles: true }));
+                    };
+                    press(true);
+                    s.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+                    return t.pause(PACE.dragPress).then(function () {
+                        return animateTo(p.x + dx, p.y, function (x) {
+                            moveTo(from + Math.round((x - p.x) / dx * 60));
+                        }, PACE.dragTravel);
+                    }).then(function () {
+                        moveTo(to);
+                        s.dispatchEvent(new Event('change', { bubbles: true }));
+                        s.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+                        press(false);
+                        return t.pause(PACE.dragRest);
+                    });
+                });
+            },
+            check: function (mem) {
+                var s = $('#quick-palette-hue');
+                return s && Number(s.value) === mem.hue && $('#quick-palette-swatches [aria-pressed="true"]')
+                    ? 'The wall took a pair, and Hue turned it and the eight by ' + mem.hue + '\u00b0.' : null;
             }
         },
         cabinetIdStyle: {
@@ -2624,7 +3649,7 @@
         },
         flowPattern: {
             target: '.flow-pattern-btn[data-pattern="tl-v"]:not(.power-flow-pattern-btn)', place: 'right', title: 'Flow pattern',
-            body: 'The eight patterns pick the serpentine the ports follow. This one starts top-left and runs down each column.',
+            body: 'The top row of patterns are snakes: each row or column runs back the other way. This one starts top-left and runs down each column.',
             before: function () { switchView('data-flow'); },
             act: function (t) {
                 return t.click('.flow-pattern-btn[data-pattern="tl-v"]:not(.power-flow-pattern-btn)').then(function () {
@@ -2634,6 +3659,134 @@
             check: function () {
                 var w = wall();
                 return w && w.flowPattern === 'tl-v' ? 'Ports now run top-left, vertical first.' : null;
+            }
+        },
+        // The Z patterns (tl-h-z ...), the row under the snakes. The step
+        // picks the Z twin of the wall's top-left vertical snake, reads the
+        // walk (every column a port moves into starts again at the top),
+        // and puts the wall back on the snake so the rest of the guide runs
+        // on the map it always has.
+        zPattern: {
+            since: '1.6.0',
+            target: '.flow-pattern-btn[data-pattern="tl-v-z"]:not(.power-flow-pattern-btn)', place: 'right', title: 'Z patterns',
+            body: 'The row under the snakes holds the Z patterns: every row or column starts again from the same side, the way a cable goes back to the start. This one starts top-left and reads every column from the top.',
+            before: function () { switchView('data-flow'); },
+            act: function (t) {
+                var sel = function (p) { return '.flow-pattern-btn[data-pattern="' + p + '"]:not(.power-flow-pattern-btn)'; };
+                return t.click(sel('tl-v-z')).then(function () {
+                    return t.wait(function () { var w = wall(); return w && w.flowPattern === 'tl-v-z'; });
+                }).then(function () {
+                    // Every cabinet that opens a new column inside a port is
+                    // on the top row: no column ran back up.
+                    var w = wall();
+                    var a = (A().calculatePortAssignments(w) || []);
+                    t.mem.zTop = a.every(function (x, i) {
+                        var prev = a[i - 1];
+                        return !prev || prev.port !== x.port || prev.panel.col === x.panel.col || x.panel.row === 0;
+                    });
+                    return t.click(sel('tl-v'));
+                }).then(function () {
+                    return t.wait(function () { var w = wall(); return w && w.flowPattern === 'tl-v'; });
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                if (!mem.zTop || !w || w.flowPattern !== 'tl-v') return null;
+                return 'On the Z pattern every column started at the top. The wall is back on top-left, vertical first.';
+            }
+        },
+        // Port numbers (layer.portNumberOrder): shown only where Organized
+        // cuts a row into more than one port, so the step adds a screen
+        // whose rows are 8 cabinets of 512 x 256 on NovaStar Armor, 5 to a
+        // port: each row is a port of 5 and a port of 3.
+        portNumbers: {
+            since: '1.6.0',
+            target: '#port-number-order-row', place: 'right', title: 'Port numbers',
+            avoid: ['#port-number-down'],
+            body: 'A row too long for one port is cut into ports of whole cabinets. Port numbers sets their order: Across goes along each row, Down goes down the stacks and starts each new stack back at the first row.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                var bottom = screens().reduce(function (m, l) {
+                    return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+                }, 0);
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                return j('POST', '/api/layer/add', {
+                    name: 'LONG ROWS', columns: 8, rows: 2,
+                    cabinet_width: 512, cabinet_height: 256,
+                    offset_x: (w && Number(w.offset_x)) || 0, offset_y: bottom + 200
+                }).then(function (layer) {
+                    practiceScreen(layer);
+                    layer.processorType = 'novastar-armor';
+                    layer.flowPattern = 'tl-h';
+                    layer.portMappingMode = 'organized';
+                    a.upsertProjectLayer(layer);
+                    a.updateLayers([layer]);
+                    t.mem.layer = layer.id;
+                    var l = find();
+                    a.selectLayer(l);
+                    frameLayers([l]);
+                    a.saveState('Add Layer');
+                    a.updatePortCapacityDisplay();
+                    return t.wait(function () {
+                        var row = $('#port-number-order-row');
+                        return row && row.style.display !== 'none' ? row : null;
+                    });
+                }).then(function (row) {
+                    if (!row) throw new Error('Port numbers is not shown for LONG ROWS');
+                    return t.click('#port-number-down');
+                }).then(function () {
+                    return t.wait(function () { var l = find(); return l && l.portNumberOrder === 'down'; });
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || l.portNumberOrder !== 'down') return null;
+                var start = (a.calculatePortAssignments(l) || []).find(function (x) { return x.port === 2 && x.isPortStart; });
+                return start ? 'Port 2 now starts row ' + (start.panel.row + 1) + ' of LONG ROWS, under port 1.' : null;
+            }
+        },
+        // Ports required is the minimum (1.6.0, app-screen-info.js
+        // getLayerPortsMinimum): on a custom data path it reads the fewest
+        // ports the screen needs in its Organized or Max Capacity setting,
+        // never the ports drawn so far. LONG ROWS goes into custom mode,
+        // which starts it empty, and the readout holds.
+        portsMinimum: {
+            since: '1.6.0',
+            target: '#ports-required', place: 'right', title: 'Ports required is the minimum',
+            avoid: ['#custom-flow-toggle'],
+            body: 'Ports required is the fewest ports the screen needs in its Organized or Max Capacity setting. In custom mode it still reads that, however many ports you&rsquo;ve drawn.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.name === 'LONG ROWS'; });
+                if (!l) throw new Error('LONG ROWS is missing');
+                t.mem.layer = l.id;
+                if (!a.currentLayer || a.currentLayer.id !== l.id) a.selectLayer(l);
+                a.updatePortCapacityDisplay();
+                t.mem.before = $('#ports-required') ? $('#ports-required').textContent.trim() : '';
+                return t.click('#custom-flow-toggle').then(function () {
+                    return t.wait(function () {
+                        var x = (a.project.layers || []).find(function (y) { return y.id === t.mem.layer; });
+                        return x && a.isCustomFlow(x);
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('LONG ROWS did not go into custom mode');
+                    return t.spot($('#ports-required')).then(function () { return t.pause(PACE.rest); });
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || !a.isCustomFlow(l)) return null;
+                var paths = l.customPortPaths || {};
+                var drawn = Object.keys(paths).filter(function (k) { return (paths[k] || []).length; }).length;
+                var req = $('#ports-required') ? $('#ports-required').textContent.trim() : '';
+                if (drawn || !req || req !== mem.before || !(Number(req) > 0)) return null;
+                return 'LONG ROWS is in custom mode with no ports drawn, and Ports required still reads ' + req + '.';
             }
         },
         addProcessor: {
@@ -2690,8 +3843,8 @@
                 var socks = ps.map(function (p) { return Number(p.port); }).sort(function (a, b) { return a - b; });
                 var name = proc() && proc().name ? proc().name : '';
                 var odd = proc() && proc().redundancy && socks.every(function (s) { return s % 2 === 1; });
-                return ps.length + ' ports on ' + (odd ? 'the odd sockets ' : 'sockets ') + socks[0] + '–' + socks[socks.length - 1]
-                    + (name ? ', labelled ' + name + '-' + socks[0] + ' …' : '')
+                return ps.length + ' ports on ' + (odd ? 'the odd sockets ' : 'sockets ') + socks[0] + ' to ' + socks[socks.length - 1]
+                    + (name ? ', labeled ' + name + '-' + socks[0] + ' …' : '')
                     + (odd ? ' Their returns ride the even sockets.' : '.');
             }
         },
@@ -2857,7 +4010,7 @@
                 var s = snake();
                 if (!s || !s.members || s.members.length !== 4) return null;
                 var tag = A().snakeTagText ? A().snakeTagText(s, false) : (s.name || 'SNAKE A');
-                return tag + ' — one home run for four ports.';
+                return tag + ' carries four ports on one home run.';
             }
         },
         cableSheet: {
@@ -2940,12 +4093,11 @@
             target: function () { var p = proc(); return p ? '[data-hwpop="proc-' + p.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'Redundancy, one bar',
             body: 'Behind the processor&rsquo;s &#9881; one bar under REDUNDANCY sets it. Per port pairs the sockets, 1 backed by 2, and the header wears a gold pill that reads the shape.',
+            window: procGearWindow,
             before: function () { switchView('data-flow'); },
             act: function (t) {
                 var p = proc();
-                return t.click('[data-hwpop="proc-' + p.id + '"]').then(function () {
-                    return t.wait(function () { var pop = $('#hw-gear-popover'); return pop && pop.style.display === 'block' ? pop : null; });
-                }).then(function (pop) {
+                return openGear(t, 'proc-' + p.id).then(function (pop) {
                     if (!pop) throw new Error('the gear popover did not open');
                     // The bar as it stands, read before anything moves.
                     return t.spot(pop).then(function () { return t.pause(1000); });
@@ -2976,12 +4128,11 @@
             target: function () { var p = proc(); return p ? '[data-hwpop="proc-' + p.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'A backup processor',
             body: 'Under REDUNDANCY, switch BACKUP PROCESSOR on: a second unit of this model mirrors this one on the boxes&rsquo; backup inputs. Name it here; everything else follows the main.',
+            window: procGearWindow,
             before: function () { switchView('data-flow'); },
             act: function (t) {
                 var p = proc();
-                return t.click('[data-hwpop="proc-' + p.id + '"]').then(function () {
-                    return t.wait(function () { var pop = $('#hw-gear-popover'); return pop && pop.style.display === 'block' ? pop : null; });
-                }).then(function (pop) {
+                return openGear(t, 'proc-' + p.id).then(function (pop) {
                     if (!pop) throw new Error('the gear popover did not open');
                     var seg = $('[data-lrd-field="processor-backup-' + p.id + '"] [data-level="on"]');
                     if (!seg) throw new Error('no backup processor switch on this unit');
@@ -2997,14 +4148,145 @@
             },
             after: function () { closePopover(); }
         },
+        // Mixed (owner, 2026-10-29: "on say H series i have 3 16 port
+        // cards. and i want card 1 and 2 to be primary and backup but then
+        // card 3 i want port level backup"). The guide's own processor is a
+        // one-box unit, which has nothing to mix, so an H9 with three
+        // 16-port cards goes in the tray beside it (the Add button pressed,
+        // the chassis and its cards put in for you, the way the second
+        // screen is), then the bar's Mixed, card 1's partner and card 3's
+        // split are each pressed for real.
+        mixedRedundancy: {
+            since: '1.6.0',
+            target: function () { var h = chassis(); return h ? '[data-hwpop="proc-' + h.id + '"]' : '#hw-dock-data-controls'; },
+            place: 'top', title: 'Mixed redundancy on a chassis',
+            avoid: ['#processor-add-btn'],
+            body: 'On a chassis like an H9 the bar adds Mixed, and each card picks its own. Here card 1 is backed up 1:1 by card 2, and card 3 splits its own ports.',
+            before: function () { switchView('data-flow'); closePopover(); },
+            act: function (t) {
+                var a = A(), pid = null;
+                var bar = function () { return '[data-lrd-field="processor-redundancy-' + pid + '"]'; };
+                var cards = function () { var h = chassis(); return h ? h.slots.filter(function (s) { return s.card; }).map(function (s) { return s.card; }) : []; };
+                return t.hover('#processor-add-btn').then(function (p) {
+                    press(true); ripple(p.x, p.y);
+                    return t.pause(200);
+                }).then(function () {
+                    press(false);
+                    return j('POST', '/api/processors', { deviceId: 'novastar-h9' });
+                }).then(function (st) {
+                    pid = st.resolved[st.resolved.length - 1].id;
+                    return [0, 1, 2].reduce(function (chain, i) {
+                        return chain.then(function () {
+                            return j('PUT', '/api/processors/' + pid + '/slots/' + i, { deviceId: 'novastar-card-h-16xrj45-2xfiber' });
+                        });
+                    }, Promise.resolve());
+                }).then(function () {
+                    return a.refreshProcessors();
+                }).then(function () {
+                    a.saveState('Add Processor');
+                    return t.wait(function () { return $('[data-hwpop="proc-' + pid + '"]'); });
+                }).then(function (gear) {
+                    if (!gear) throw new Error('the H9 did not land in the tray');
+                    return t.click('[data-hwpop="proc-' + pid + '"]');
+                }).then(function () {
+                    return t.wait(function () { var pop = $('#hw-gear-popover'); return pop && pop.style.display === 'block' && $(bar() + ' [data-level="mixed"]'); });
+                }).then(function (seg) {
+                    if (!seg) throw new Error('no Mixed on the H9 bar');
+                    return t.click(bar() + ' [data-level="mixed"]', { hover: 400, rest: 600 });
+                }).then(function () {
+                    return t.wait(function () { var h = chassis(); return h && h.redundancyMixed && $('[data-lrd-field="processor-card-backup-' + cards()[0].id + '"]'); });
+                }).then(function (pick) {
+                    if (!pick) throw new Error('the Mixed rows did not come up');
+                    var cs = cards();
+                    t.mem.cards = cs.map(function (c) { return c.id; });
+                    return t.select('[data-lrd-field="processor-card-backup-' + cs[0].id + '"]', cs[1].id);
+                }).then(function () {
+                    return t.wait(function () { var cs = cards(); return cs[1] && cs[1].backupFor ? cs : null; });
+                }).then(function (cs) {
+                    if (!cs) throw new Error('card 2 did not take card 1');
+                    // The chip the card's face calls OPT Split.
+                    var split = $$('[data-lrd-field="processor-card-shape-' + cs[2].id + '"] [data-mode]')
+                        .filter(function (c) { return /Split$/.test(c.textContent); })[0];
+                    if (!split) throw new Error('no Split chip on card 3');
+                    t.mem.split = split.dataset.mode;
+                    return t.click(split, { hover: 400, rest: 1200 });
+                }).then(function () {
+                    return t.wait(function () { var cs = cards(); return cs[2] && cs[2].redundancyShape && cs[2].redundancyShape.mode === t.mem.split; });
+                });
+            },
+            check: function () {
+                var h = chassis();
+                if (!h || !h.redundancyMixed) return null;
+                var cs = h.slots.filter(function (s) { return s.card; }).map(function (s) { return s.card; });
+                // card 3 at the split: a port shape that is neither of the others
+                var mode = cs[2] && cs[2].redundancyShape ? cs[2].redundancyShape.mode : null;
+                if (cs.length < 3 || cs[0].backupCardId !== cs[1].id || !cs[1].backupFor
+                        || !mode || ['1to1', 'sequential', 'manual'].indexOf(mode) >= 0) return null;
+                return (h.name || h.deviceName) + ' runs Mixed: card 2 backs up card 1 port for port, and card 3 brings its own returns back on ports 9 to 16.';
+            },
+            after: function () { closePopover(); }
+        },
+        // Card N (1.6.0): a card nobody named, in an H series, MX2000 or
+        // MX6000, reads Card 1, Card 2, Card 3 by its slot everywhere, and
+        // its model stays where gear is pulled and in its own settings. The
+        // H9 the step before put in has three unnamed cards.
+        cardNames: {
+            since: '1.6.0',
+            target: function () {
+                var h = chassis();
+                var s = h && (h.slots || []).find(function (x) { return x && x.card; });
+                return s ? '[data-hwdock="card-' + s.card.id + '"] .hw-dock-unit-name' : '#hw-dock-data-controls';
+            },
+            place: 'top', title: 'Cards by slot',
+            body: 'A card you haven&rsquo;t named reads Card 1, Card 2, Card 3 by its slot, in the tray, its settings and the binder. Its &#9881; still shows the model under the name.',
+            before: function () { switchView('data-flow'); closePopover(); },
+            act: function (t) {
+                var h = chassis();
+                var s = h && (h.slots || []).find(function (x) { return x && x.card; });
+                if (!s) throw new Error('there is no chassis card to read');
+                t.mem.card = s.card.id;
+                return t.click('[data-hwpop="card-' + s.card.id + '"]').then(function () {
+                    return t.wait(popover);
+                }).then(function (pop) {
+                    if (!pop) throw new Error('the card settings did not open');
+                    return t.spot(pop).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function (mem) {
+                var name = $('[data-hwdock="card-' + mem.card + '"] .hw-dock-unit-name');
+                var pop = popover();
+                var found = A()._dockFindCard ? A()._dockFindCard(mem.card) : null;
+                var model = found ? found.card.deviceName : '';
+                if (!name || name.textContent.trim() !== 'Card 1' || !pop || !model
+                        || pop.textContent.indexOf(model) < 0) return null;
+                return 'Slot 1 reads Card 1, and its settings name the model, ' + model + '. A name you type still wins.';
+            },
+            after: function () { closePopover(); }
+        },
         overrideRun: {
             target: '#main-canvas', place: 'top', title: 'Take over one run',
-            body: 'Hold Alt and the run under the cursor lights up. Alt+click takes over just that port: click cabinets to redraw it, Esc when done.',
+            body: 'Hold Alt and the run under the cursor lights up. Alt+click takes that port over: click its first cabinet to start again there, then the rest in a new order, and Esc when done.',
             before: function () { switchView('data-flow'); closePopover(); },
             act: function (t) {
                 var w = wall();
                 var pt = t.cabinetPoint(w, { port: 2 });
-                var others = A().calculatePortAssignments(w).filter(function (i) { return i.port === 3; }).slice(0, 2);
+                // Port 2 redrawn in a new order: a click on its first
+                // cabinet cuts the run back to it, and its other cabinets
+                // are clicked again as a snake row by row (column by column
+                // where the walk already ran it row by row).
+                var seed = A().calculatePortAssignments(w).filter(function (i) { return i.port === 2; })
+                    .map(function (i) { return i.panel; });
+                var snake = function (major, minor) {
+                    return seed.slice(1).sort(function (a, b) {
+                        if (a[major] !== b[major]) return a[major] - b[major];
+                        return (a[major] - seed[0][major]) % 2 ? b[minor] - a[minor] : a[minor] - b[minor];
+                    });
+                };
+                var key = function (p) { return p.row + ',' + p.col; };
+                var rest = snake('row', 'col');
+                if (rest.map(key).join(' ') === seed.slice(1).map(key).join(' ')) rest = snake('col', 'row');
+                var clicks = seed.length ? [seed[0]].concat(rest) : [];
+                t.mem.clicked = clicks.map(key);
                 return t.moveTo(pt, { badge: 'Alt' }).then(function () {
                     A().updateOverrideHover(true, pt.worldX, pt.worldY);
                     return t.pause(PACE.hover + 150);   // the lit run, read
@@ -3021,9 +4303,11 @@
                     badge('');
                     return t.pause(PACE.rest);
                 }).then(function () {
-                    return others.reduce(function (chain, it) {
+                    return clicks.reduce(function (chain, panel) {
                         return chain.then(function () {
-                            var q = t.cabinetPoint(w, { index: w.panels.indexOf(it.panel) });
+                            var live = (A().project.layers || []).find(function (l) { return l.id === w.id; }) || w;
+                            var q = t.cabinetPoint(live, { index: live.panels.findIndex(function (p) {
+                                return p.row === panel.row && p.col === panel.col; }) });
                             if (!q) return;
                             return t.hover(q).then(function () {
                                 press(true);
@@ -3042,12 +4326,16 @@
                     return t.pause(PACE.rest);
                 });
             },
-            check: function () {
+            // Passes only when the clicks landed: port 2 is taken over and
+            // its path is the cabinets clicked, in the order clicked.
+            check: function (mem) {
                 var w = wall();
                 var ov = (w && w.customPortOverrides) || [];
-                if (!ov.includes(2)) return null;
-                var path = (w.customPortPaths || {})[2] || [];
-                return 'Port 2 is hand-drawn (' + path.length + ' cabinets); the rest of the screen re-flows around it.';
+                if (!ov.includes(2) || !mem.clicked || !mem.clicked.length) return null;
+                var path = ((w.customPortPaths || {})[2] || []).map(function (e) { return e.row + ',' + e.col; });
+                if (path.join(' ') !== mem.clicked.join(' ')) return null;
+                return 'Port 2 is redrawn: its ' + path.length + ' cabinets run in the order they were '
+                    + 'clicked, and the rest of the screen keeps its runs.';
             }
         },
         // A breakout box (Matt, 2026-09-15: "show how to set breakout
@@ -3061,7 +4349,7 @@
             place: 'top', title: 'Add a breakout box',
             avoid: [function () { var c = card(); return c ? '[data-lrd-field="processor-cvt-add-' + c.id + '"]' : null; },
                     function () { var c = card(); var p = c && $('[data-lrd-field="processor-cvt-add-' + c.id + '"]'); return p ? p.nextElementSibling : null; }],
-            body: 'Behind the &#9881; over the processor&rsquo;s ports the picker lists only the boxes that fit its trunks. Pick a CVT10 and press +: the box appears in the tray with its ten sockets, numbered as its face reads.',
+            body: 'Behind the &#9881; over the processor&rsquo;s ports the picker lists only the boxes that fit its trunks. Pick a CVT10-S and press +: the box appears in the tray with its ten sockets, numbered as its face reads.',
             before: function () { switchView('data-flow'); closePopover(); },
             act: function (t) {
                 var c = card();
@@ -3105,11 +4393,47 @@
                 if (!b) return null;
                 var n = (b.ports || []).length;
                 var locals = (b.ports || []).map(function (q) { return q.localNumber || q.number; });
-                var span = locals.length ? Math.min.apply(null, locals) + '–' + Math.max.apply(null, locals) : '';
+                var span = locals.length ? Math.min.apply(null, locals) + ' to ' + Math.max.apply(null, locals) : '';
                 return (b.displayTitle || b.deviceName) + ' is on ' + (p && p.name ? p.name : 'the unit') + ' with ' + n + ' sockets'
                     + (span ? ', ' + span + ' on its face' : '') + '; the picker offered ' + mem.offered + ' boxes that fit this unit.';
             },
             after: function () { closePopover(); }
+        },
+        // Single mode or multimode (1.6.0; owner, 2026-11-04: "We need to add
+        // single mode and multi mode for the fiber ... if the M variants are
+        // selected then the fiber will be multimode yes"). The CVT10 the
+        // step above added is the CVT10-S; its tray header says Single mode
+        // (app-dock.js _dockPlaceBoxModeTag). Nothing changes: the hand goes
+        // to the tag, and the check reads the picker's order off the same
+        // list the gear builds (_cardBoxFits).
+        fiberMode: {
+            since: '1.6.0',
+            target: function () { var b = box(); return b ? '[data-lrd-field="box-fiber-mode-' + b.id + '"]' : '#hardware-dock-body .hw-dock-fiber-mode'; },
+            place: 'top', title: 'Single mode or multimode',
+            body: 'NovaStar makes the CVT10, CVT10 Pro and CVT4K in single mode and multimode, and the picker lists the single mode boxes first. Each box says which on its header, and the two never share a fiber cable.',
+            before: function () { switchView('data-flow'); closePopover(); closeSheet(); },
+            act: function (t) {
+                var b = box();
+                if (!b) throw new Error('no breakout box on the processor');
+                var sel = '[data-lrd-field="box-fiber-mode-' + b.id + '"]';
+                return t.wait(function () { return $(sel); }, 6000).then(function (tag) {
+                    if (!tag) throw new Error('the box\'s header shows no fiber mode');
+                    return t.moveTo(tag);
+                }).then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                var b = box(), c = card(), a = A();
+                if (!b || !c || a.boxFiberMode(b) !== 'single') return null;
+                if (!$('[data-lrd-field="box-fiber-mode-' + b.id + '"]')) return null;
+                var fits = a._cardBoxFits(c).filter(function (d) { return d.fiberMode; });
+                var singles = fits.filter(function (d) { return d.fiberMode === 'single'; }).map(function (d) { return d.name; });
+                var multis = fits.filter(function (d) { return d.fiberMode === 'multi'; }).map(function (d) { return d.name; });
+                var order = fits.map(function (d) { return d.fiberMode; }).join(' ');
+                if (!singles.length || !multis.length || order !== singles.map(function () { return 'single'; })
+                        .concat(multis.map(function () { return 'multi'; })).join(' ')) return null;
+                return (b.displayTitle || b.deviceName) + ' takes single mode fiber. The picker lists '
+                    + singles.join(', ') + ', then ' + multis.join(', ') + '.';
+            }
         },
         // Fiber to the box (2026-09-25: "after we get it all working we need
         // to add to advanced guide"): the CVT10 the step above added gets a
@@ -3159,18 +4483,33 @@
             before: function () { switchView('data-flow'); closePopover(); openBoxSheet(); },
             act: function (t) {
                 var b = box();
-                var move = function (i, to) {
+                // A tray rebuild no longer costs the hand anything here:
+                // an open pick rides the rebuild (_fiberPickOpenKey), the
+                // click lands on the chip that is there at the release
+                // (T.click), and the select finds the pick that is there
+                // when it arrives. Rebuilds used to take the pick every
+                // time they beat the hand to it ("the strand pick did not
+                // open", 1.6.0 QA; a steady 500 ms redraw failed every
+                // replay). What is left for another try is a pick really
+                // closed: the window losing focus blurs it.
+                var move = function (i, to, tries) {
+                    tries = tries || 1;
                     var chip = '[data-lrd-field="fiber-strand-' + b.id + '-p1-' + i + '"]';
                     var pick = '[data-lrd-field="fiber-strand-pick-' + b.id + '-p1-' + i + '"]';
-                    return t.wait(function () { return $(chip); }).then(function () {
-                        return t.click(chip);
+                    var moved = function () { var bl = boxLink(); return bl && bl.link.strands[i] === to; };
+                    return t.wait(function () { return $(chip) || $(pick); }).then(function () {
+                        return $(pick) ? null : t.click(chip).catch(function () {});
                     }).then(function () {
-                        return t.wait(function () { return $(pick); });
+                        return t.wait(function () { return $(pick); }, 1500);
                     }).then(function (el) {
-                        if (!el) throw new Error('the strand pick did not open');
-                        return t.select(pick, String(to));
-                    }).then(function () {
-                        return t.wait(function () { var bl = boxLink(); return bl && bl.link.strands[i] === to; }, 6000);
+                        if (!el) return null;
+                        return t.select(pick, String(to)).then(function () {
+                            return t.wait(moved, 3000);
+                        }, function () { return null; });
+                    }).then(function (ok) {
+                        if (ok || moved()) return true;
+                        if (tries >= 3) throw new Error('the strand pick did not open');
+                        return move(i, to, tries + 1);
                     });
                 };
                 return move(0, 3).then(function () { return move(1, 4); })
@@ -3181,7 +4520,87 @@
                 if (!bl || bl.link.strands.join() !== '3,4') return null;
                 return bl.title + ' rides ' + boxStrandsText(bl) + ' of ' + (bl.cable.name || 'TAC A') + '; 1 and 2 are spare for the next box.';
             },
+            after: function (next) { if (!next || !next.fiberStep) closeBoxSheet(); }
+        },
+        // An extension at the box end (2026-11-02: "MTP cant run direct to
+        // X1 for example it would need an extension beyond that ... same
+        // goes for Tac cable"): + Extension on the box's OPT 1 link, which
+        // starts as a fan-out from the TAC's ST to LC duplex (a TAC's first
+        // pick; an MTP's is a duplex patch), then 10 ft typed. The length
+        // is the guide's pick, not a fact about the box.
+        fiberExtension: {
+            fiberStep: true,
+            since: '1.6.0',
+            // the link's row: there before + Extension and after it
+            target: function () { var b = box(); return b ? '[data-lrd-fiber-link="' + b.id + ':p1"]' : '#hardware-dock-body .hw-dock-cable-fiber'; },
+            place: 'top', title: 'Extend a TAC or MTP',
+            body: 'A TAC or MTP doesn&rsquo;t always plug straight into the box. On a link, + Extension adds a fan-out to LC duplex off a TAC or a duplex patch off an MTP; then give its length for the pull sheet and the binder.',
+            before: function () { switchView('data-flow'); closePopover(); openBoxSheet(); },
+            act: function (t) {
+                var b = box();
+                if (!b) throw new Error('no breakout box on the processor');
+                var base = b.id + '-p1';
+                var ext = function () { var bl = boxLink(); return bl && bl.link.extension ? bl.link.extension : null; };
+                var add = '[data-lrd-field="fiber-ext-add-' + base + '"]';
+                return t.wait(function () { return $(add); }).then(function () {
+                    return t.click(add);
+                }).then(function () {
+                    // a TAC's extension starts as a fan-out to LC duplex
+                    return t.wait(function () { var e = ext(); return e && e.boxEnd === 'LC duplex'; }, 6000);
+                }).then(function () {
+                    return t.wait(function () { return $('[data-lrd-field="fiber-ext-ft-' + base + '"]'); });
+                }).then(function () {
+                    return t.type('[data-lrd-field="fiber-ext-ft-' + base + '"]', '10', { enter: true });
+                }).then(function () {
+                    return t.wait(function () { var e = ext(); return e && Number(e.ft) === 10; }, 6000);
+                }).then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                var bl = boxLink(), a = A();
+                var e = bl && bl.link.extension;
+                if (!e || e.boxEnd !== 'LC duplex' || Number(e.ft) !== 10) return null;
+                return bl.title + ' on ' + (bl.cable.name || 'TAC A') + ' now has its extension: ' + a.fiberExtensionText(e, bl.cable) + '.';
+            },
             after: function () { closeBoxSheet(); }
+        },
+        // The processor's ≡ (1.6.0, app-dock.js _dockBuildProcCableSheet):
+        // one cable list of every box on the processor, and the card's own
+        // ports, a section each, folded or open, built by the box sheet's
+        // own builder from the same rows. A length typed in it is the box
+        // sheet's stored entry. It lives in the tray, not in a window the
+        // runner holds, so it names no `window`; the steps around it are
+        // the box sheet's and close their own.
+        procCableList: {
+            since: '1.6.0',
+            target: function () { var p = proc(); return p ? '#hardware-dock-body .hw-dock-cablebtn-proc[data-lrd-field="data-cable-sheet-' + p.id + '"]' : '#hardware-dock-body .hw-dock-cablebtn-proc'; },
+            place: 'top', title: 'Every box in one list',
+            body: 'The &#8801; on the processor&rsquo;s own header opens one cable list of every box on it, a section per box, folded or open. A length typed here is the one the box&rsquo;s own list holds.',
+            before: function () { switchView('data-flow'); closePopover(); closeBoxSheet(); closeProcList(); },
+            act: function (t) {
+                var b = box();
+                if (!b) throw new Error('no breakout box on the processor');
+                return t.wait(procListButton).then(function (btn) {
+                    if (!btn) throw new Error('the processor has no list button');
+                    return t.click(btn);
+                }).then(function () {
+                    return t.wait(function () {
+                        var l = procList();
+                        return l && l.querySelector('[data-lrd-proc-sheet-sec="cvt:' + b.id + '"]') ? l : null;
+                    }, 4000);
+                }).then(function (l) {
+                    if (!l) throw new Error('the list did not open with the box in it');
+                    return t.spot(l).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var p = proc(), b = box(), l = procList();
+                if (!p || !b || !l || !l.querySelector('[data-lrd-proc-sheet-sec="cvt:' + b.id + '"]')) return null;
+                var n = l.querySelectorAll('[data-lrd-proc-sheet-sec^="cvt:"]').length;
+                return 'One list holds every box’s cables on ' + (p.name || 'this processor')
+                    + (n > 1 ? ' (' + n + ' boxes)' : '')
+                    + '; a length typed here is the same one the box’s own list shows.';
+            },
+            after: function () { closeProcList(); }
         },
         // Jumpers, link by link (1.3.4, app-jumpers.js): the screen's own
         // vertical and horizontal lengths on the Data sidebar, and the same
@@ -3222,27 +4641,139 @@
                 return (w.name || 'The screen') + ' takes 2 ft vertical and 3 ft horizontal power jumpers.';
             }
         },
+        // One power jumper name per connector (1.6.0, app-pull-list.js
+        // pullPowerJumpName): the show's names live in the Export dialog's
+        // Pull Sheet section (project.pullSheet, one undo step each); the
+        // Preferences hold the names a new show starts with. The wall is
+        // TRUE1 here, so the TRUE1 name is the one its rows print.
+        jumperNames: {
+            since: '1.6.0',
+            window: 'export:pull-sheet',
+            target: '#export-pull-sheet-power-jump-name-true1', place: 'left', title: 'A name for each jumper',
+            avoid: ['#export-pull-sheet-power-jump-name-true1', '#export-pull-sheet-power-jump-name-powercon'],
+            body: 'The pull sheet names TRUE1 and powerCON jumpers apart. Type what your shop calls them in the Export dialog; Preferences holds the names a new show starts with.',
+            before: function () {
+                switchView('power');
+                var a = A();
+                if (!exportOpen() || ($('#export-format') && $('#export-format').value !== 'pull-sheet')) {
+                    a.openExportModal('pull-sheet');
+                }
+            },
+            act: function (t) {
+                return t.type('#export-pull-sheet-power-jump-name-true1', 'TRUE1 Jumper').then(function () {
+                    return t.wait(function () {
+                        return A().getPullSheetSettings().powerJumpNameTrue1 === 'TRUE1 Jumper';
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the show did not take the jumper name');
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function () {
+                var s = A().getPullSheetSettings();
+                if (s.powerJumpNameTrue1 !== 'TRUE1 Jumper') return null;
+                return 'TRUE1 jumpers print as TRUE1 Jumper, one row per length; a powerCON screen\'s print as '
+                    + s.powerJumpNamePowercon + '.';
+            },
+            after: function () { closeExport(); }
+        },
+        // Panel counts on the pull sheet (1.6.0, app-pull-list.js
+        // pullPanelCounts): the Export dialog's Edit rows opens the pull
+        // sheet editor, and each screen's position has a row per panel type
+        // it hangs, named by the panel saved on it (the Name the panel
+        // step), blank and hidden cabinets left out. A screen with no panel
+        // name has no row.
+        pullPanels: {
+            since: '1.6.0',
+            target: function () { return pullSheetOpen() ? PANEL_ROW : '#export-pull-sheet-edit-rows'; },
+            place: 'left', title: 'Panels on the pull sheet',
+            avoid: ['#export-pull-sheet-edit-rows'],
+            window: ['export:pull-sheet', 'pull-sheet'],
+            body: 'Edit rows opens the pull sheet. Each screen with a named panel gets a row for every panel type it hangs, half tiles on rows of their own, and a blank cabinet isn&rsquo;t counted.',
+            before: function () {
+                closePullSheet();
+                var a = A();
+                if (!exportOpen() || ($('#export-format') && $('#export-format').value !== 'pull-sheet')) {
+                    a.openExportModal('pull-sheet');
+                }
+            },
+            act: function (t) {
+                return t.click('#export-pull-sheet-edit-rows').then(function () {
+                    return t.wait(function () { return pullSheetOpen() && $(PANEL_ROW); }, 6000);
+                }).then(function (row) {
+                    if (!row) throw new Error('the pull sheet did not list the panels');
+                    return t.spot(row).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var w = wall(), row = pullSheetOpen() ? $(PANEL_ROW) : null;
+                if (!w || !row) return null;
+                var counts = A().pullPanelCounts(w);
+                var full = counts[0];
+                var blank = (w.panels || []).filter(function (p) { return p && (p.blank || p.hidden); }).length;
+                if (!full) return null;
+                return 'The pull sheet lists ' + full.qty + ' ' + full.type + ' for ' + (w.name || 'the screen')
+                    + (blank ? ', the ' + (blank === 1 ? 'blank cabinet' : blank + ' blank cabinets') + ' left out' : '')
+                    + ', and TOTALS adds up every screen.';
+            },
+            after: function () { closePullSheet(); closeExport(); }
+        },
         panelWatts: {
             target: '#power-panel-watts', place: 'right', title: 'Power view and the math',
-            avoid: ['[data-mode="power"]', '#power-panel-watts'],
-            body: 'Power plans the electrical. Voltage, amperage and watts per cabinet set the cabinets a circuit carries and the circuits required.',
+            avoid: ['[data-mode="power"]', '#power-panel-watts', '#power-amperage-usable'],
+            body: 'Voltage, amperage and watts per cabinet set the cabinets a circuit carries and the circuits required. Beside Amperage you see the amps you can use, 16 A of a 20 A breaker on US power.',
             act: function (t) {
                 return t.click('[data-mode="power"]').then(function () {
-                    return t.type('#power-panel-watts', '200', { enter: true });
+                    return t.type('#power-panel-watts', '150', { enter: true });
                 }).then(function () {
-                    return t.wait(function () { var w = wall(); return w && Number(w.panelWatts) === 200; });
+                    return t.wait(function () { var w = wall(); return w && Number(w.panelWatts) === 150; });
                 });
             },
             check: function () {
                 var w = wall();
-                if (!w || Number(w.panelWatts) !== 200) return null;
+                if (!w || Number(w.panelWatts) !== 150) return null;
                 var req = $('#power-circuits-required') ? $('#power-circuits-required').textContent.trim() : '?';
-                return '200 W per cabinet at 208 V, 20 A. Circuits required: ' + req + '.';
+                var usable = $('#power-amperage-usable') ? $('#power-amperage-usable').textContent.trim() : '';
+                if (!usable) return null;
+                return '150 W per cabinet at 208 V, ' + usable + '. Circuits required: ' + req + '.';
+            }
+        },
+        // The panel input (1.6.0, app-power.js panelInput): a TRUE1 or
+        // powerCON breakout IS the panels' connector; an Edison or L6-20
+        // one leaves it to the screen. The demo wall is 208V, so the L6-20
+        // breakout is the one that offers the choice. The breakout step
+        // after it puts the wall on Multi to TRUE1 for the rest of the tour.
+        panelInput: {
+            since: '1.6.0',
+            target: '#power-breakout-type', place: 'right', title: 'The panel input',
+            avoid: ['#power-breakout-type', '#power-panel-input'],
+            body: 'Pick Multi to L6-20 and Panel input appears: the connector your panels take. Pick powerCON and the cables, jumpers and splitters all say powerCON.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                return t.select('#power-breakout-type', 'soca-l620').then(function () {
+                    return t.wait(function () {
+                        var w = wall(), row = $('#power-panel-input-row');
+                        return w && w.powerBreakoutType === 'soca-l620' && row && row.style.display !== 'none';
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Panel input did not come up');
+                    return t.select('#power-panel-input', 'powercon');
+                }).then(function () {
+                    return t.wait(function () { var w = wall(); return w && w.powerPanelInput === 'powercon'; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the screen did not take powerCON');
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function () {
+                var w = wall();
+                if (!w || w.powerBreakoutType !== 'soca-l620' || A().panelInput(w).id !== 'powercon') return null;
+                return (w.name || 'The screen') + ' takes powerCON at the panels: each circuit gets an L6-20 → powerCON cable, and its jumpers and splitters are powerCON.';
             }
         },
         breakoutType: {
             target: '#power-breakout-type', place: 'right', title: 'The breakout',
-            body: 'How each multi fans out to the cabinets. Multi to True1 is six circuits a box; the choice drives the gear list.',
+            body: 'How each multi fans out to the cabinets. Multi to TRUE1 is six circuits a box; the choice drives the gear list.',
             before: function () { switchView('power'); },
             act: function (t) {
                 return t.select('#power-breakout-type', 'soca-true1').then(function () {
@@ -3251,7 +4782,7 @@
             },
             check: function () {
                 var w = wall();
-                return w && w.powerBreakoutType === 'soca-true1' ? 'Each multi fans out to True1: six circuits a box.' : null;
+                return w && w.powerBreakoutType === 'soca-true1' ? 'Each multi fans out to TRUE1: six circuits a box.' : null;
             }
         },
         addDistro: {
@@ -3282,54 +4813,122 @@
             check: function () { var d = distro(); return d && d.name === 'SL' ? 'Its multis are SL1, SL2 …' : null; }
         },
         // The distro's gear (Matt, 2026-09-15: "setting the capacity of
-        // the distro and different things like that"): rating, voltage and
-        // phase, OUTPUTS - app-power.js _buildDistroGearContent. Each step
-        // opens the gear again: one action per step.
+        // the distro and different things like that") - app-power.js
+        // _buildDistroGearContent, whose supply rows are 1.5's TYPE, SYSTEM,
+        // INPUT and RATING per leg (app-distro-systems.js
+        // _buildDistroSupplySection). Each step opens the gear again: one
+        // action per step.
+        // Input: only the inputs that can feed the distro's system are
+        // listed, and picking one sets the rating per leg to its figure.
         distroRating: {
+            since: '1.5.0',
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
-            place: 'top', title: 'Set the distro&rsquo;s rating',
-            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-rating-' + d.id + '"]' : null; }],
-            body: 'Behind the distro&rsquo;s &#9881;, Rating is the service in amps. Type 200 and the header&rsquo;s load bar reads against 200 A from now on &mdash; 160 A on a US distro, whose main carries 80% of its rating continuously unless it is 100% rated.',
+            place: 'top', title: 'The distro&rsquo;s input',
+            window: distroGearWindow,
+            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-input-' + d.id + '"]' : null; }],
+            body: 'Behind the distro&rsquo;s &#9881;, Input lists only what can power its System: cams by their amps, L21-30, CEE or Powerlock. Pick 200 A and Rating fills in 200 A per leg.',
             before: function () { switchView('power'); closePopover(); },
             act: function (t) {
                 var d = distro();
                 t.mem.before = distroUse(d);
-                return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
-                    return t.wait(popover);
-                }).then(function (pop) {
-                    if (!pop) throw new Error('the distro\'s gear popover did not open');
-                    return t.spot(pop).then(function () { return t.pause(900); });
+                return openDistroGear(t, d).then(function () {
+                    var sel = $('[data-lrd-field="distro-input-' + d.id + '"]');
+                    if (!sel) throw new Error('the distro has no Input list');
+                    // 200 A cams on a US distro; on a distro whose system no
+                    // cam can feed, the first input its list offers.
+                    var opts = Array.prototype.slice.call(sel.options).filter(function (o) { return o.value; });
+                    var pick = opts.find(function (o) { return o.value === 'cam200'; }) || opts[0];
+                    if (!pick) throw new Error('the Input list offers nothing');
+                    t.mem.pick = pick.value;
+                    t.mem.name = pick.textContent.trim();
+                    t.mem.rating = Number((/(\d+)\s*A\b/.exec(t.mem.name) || [])[1]) || null;
+                    return t.select(sel, pick.value);
                 }).then(function () {
-                    return t.type('[data-lrd-field="distro-rating-' + d.id + '"]', '200');
-                }).then(function () {
-                    return t.wait(function () { var q = distro(); return q && Number(q.ratingA) === 200 && /\/(?:200|160) A$/.test(distroUse(q)); });
-                }).then(function () { return t.pause(1000); });
+                    return t.wait(function () {
+                        var q = distro();
+                        if (!q || q.input !== t.mem.pick) return false;
+                        if (t.mem.rating && Number(q.ratingA) !== t.mem.rating) return false;
+                        var lim = A().distroMainLimit(q).limitA;
+                        return new RegExp('/' + (+lim.toFixed(1)) + ' A$').test(distroUse(q));
+                    });
+                }).then(function () { return t.pause(PACE.acted); });
             },
             check: function (mem) {
                 var d = distro();
-                if (!d || Number(d.ratingA) !== 200) return null;
+                if (!d || !mem.pick || d.input !== mem.pick) return null;
                 var use = distroUse(d);
-                if (!/\/(?:200|160) A$/.test(use)) return null;
-                return (d.name || 'The distro') + ' is rated 200 A: the header read ' + mem.before + ', now ' + use + '.';
+                var lim = A().distroMainLimit(d).limitA;
+                if (!new RegExp('/' + (+lim.toFixed(1)) + ' A$').test(use)) return null;
+                return (d.name || 'The distro') + ' takes ' + mem.name + ': ' + d.ratingA
+                    + ' A per leg, and the header read ' + mem.before + ', now ' + use + '.';
+            },
+            after: function () { closePopover(); }
+        },
+        // The main's continuous limit (1.5, 2026-10-18): a US distro's
+        // busiest leg is held to 80% of its rating unless Main 100% rated
+        // is ticked. Shown on the setting, not by overloading the demo:
+        // ticked the header reads the full rating, unticked 80% again, so
+        // the steps after find the distro as it was.
+        distroMain: {
+            since: '1.5.0',
+            target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'The 80% limit',
+            window: distroGearWindow,
+            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-main100-' + d.id + '"]' : null; }],
+            body: 'A US distro is held to 80% of its rating, so 200 A reads as 160 A. Main 100% rated lifts that; over the limit the header shows a red OVER, and Accept overload turns it amber.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                var d = distro();
+                var box = '[data-lrd-field="distro-main100-' + d.id + '"]';
+                var reads = function (pct) {
+                    var q = distro();
+                    if (!q) return false;
+                    var lim = (Number(q.ratingA) || 0) * pct;
+                    return new RegExp('/' + (+lim.toFixed(1)) + ' A$').test(distroUse(q));
+                };
+                t.mem.start = distroUse(d);
+                t.mem.note = distroLim(d);
+                return openDistroGear(t, d).then(function () {
+                    var cb = $(box);
+                    if (!cb) throw new Error('Main 100% rated is not on this distro');
+                    if (cb.checked) throw new Error('Main 100% rated is already ticked');
+                    return t.click(cb, { rest: PACE.acted });
+                }).then(function () {
+                    return t.wait(function () { var q = distro(); return q && q.main100 && reads(1); });
+                }).then(function (on) {
+                    if (!on) throw new Error('the header did not read the full rating');
+                    t.mem.full = distroUse(distro());
+                    // The popover was rebuilt with the change; the tick is
+                    // found again by its key.
+                    return t.click(box, { rest: PACE.rest });
+                }).then(function () {
+                    return t.wait(function () { var q = distro(); return q && !q.main100 && reads(0.8); });
+                }).then(function () { return t.pause(PACE.rest); });
+            },
+            check: function (mem) {
+                var d = distro();
+                if (!d || d.main100 || !mem.full) return null;
+                var use = distroUse(d);
+                var lim = (Number(d.ratingA) || 0) * 0.8;
+                if (!new RegExp('/' + (+lim.toFixed(1)) + ' A$').test(use)) return null;
+                return 'Main 100% rated read ' + mem.full + '; unticked, ' + (d.name || 'the distro')
+                    + ' is held to ' + use + (distroLim(d) ? ' ' + distroLim(d) : '') + '.';
             },
             after: function () { closePopover(); }
         },
         distroPhase: {
+            since: '1.5.0',
             target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
             place: 'top', title: 'The distro\'s system',
+            window: distroGearWindow,
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-system-' + d.id + '"]' : null; }],
-            body: 'System is the service - 120/208V, 120/240V, 120V, 230/400V or 230V - and the header wears it. Pick 120V 1&phi; and the LEGS line and Balance leave; back on 120/208V they return, with the phasing row under it.',
+            body: 'System is the service the distro runs on, US or EU, and the header wears it. Pick 120V 1&phi; and the LEGS line and Balance leave; back on 120/208V 3&phi; they return, with the phasing row under it.',
             before: function () { switchView('power'); closePopover(); },
             act: function (t) {
                 var d = distro();
                 var system = '[data-lrd-field="distro-system-' + d.id + '"]';
                 t.mem.start = distroInfo(d);
-                return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
-                    return t.wait(popover);
-                }).then(function (pop) {
-                    if (!pop) throw new Error('the distro\'s gear popover did not open');
-                    return t.spot(pop).then(function () { return t.pause(900); });
-                }).then(function () {
+                return openDistroGear(t, d).then(function () {
                     return t.select(system, '120');
                 }).then(function () {
                     return t.wait(function () { var q = distro(); return q && Number(q.phase) === 1 && /1φ/.test(distroInfo(q)); });
@@ -3355,41 +4954,6 @@
                 if (!/3φ/.test(now)) return null;
                 return 'At 120V 1φ the header read ' + mem.mid + (mem.midLegs ? '' : ' with no LEGS line') + '; back on 120/208V it reads ' + now
                     + (distroLegs(d) ? ' and the legs are metered again.' : '.');
-            },
-            after: function () { closePopover(); }
-        },
-        distroOutputs: {
-            target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
-            place: 'top', title: 'The plugs a distro offers',
-            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-out-l2130-' + d.id + '"]' : null; }],
-            body: 'OUTPUTS ticks the connector types this distro can hand a screen. Untick L21-30 and its plug leaves the OUTPUTS row under the header; nothing else on the distro changes.',
-            before: function () { switchView('power'); closePopover(); },
-            act: function (t) {
-                var d = distro();
-                t.mem.before = distroPlugs(d).length;
-                return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
-                    return t.wait(popover);
-                }).then(function (pop) {
-                    if (!pop) throw new Error('the distro\'s gear popover did not open');
-                    return t.spot(pop).then(function () { return t.pause(900); });
-                }).then(function () {
-                    var cb = $('[data-lrd-field="distro-out-l2130-' + d.id + '"]');
-                    if (!cb || !cb.checked) throw new Error('L21-30 is not ticked on this distro');
-                    return t.click(cb, { rest: PACE.acted });
-                }).then(function () {
-                    return t.wait(function () {
-                        var q = distro();
-                        return q && Array.isArray(q.outputs) && q.outputs.indexOf('l2130') < 0 && distroPlugs(q).length < t.mem.before;
-                    });
-                }).then(function () { return t.pause(400); });
-            },
-            check: function (mem) {
-                var d = distro();
-                if (!d || !Array.isArray(d.outputs) || d.outputs.indexOf('l2130') >= 0) return null;
-                var plugs = distroPlugs(d);
-                if (plugs.length !== mem.before - 1) return null;
-                var names = A().distroOutputs(d).map(function (x) { return x.name; });
-                return (d.name || 'The distro') + ' offers ' + names.join(' and ') + '; the L21-30 plug is off its OUTPUTS row.';
             },
             after: function () { closePopover(); }
         },
@@ -3432,25 +4996,7 @@
                 if (!n && mem.onWall && mem.onWall()) return (d.name || 'SL') + ' multi 1 is on the wall.';
                 if (!n) return null;
                 var size = A().socaBoxSize ? A().socaBoxSize(wall()) : 6;
-                return (d.name || 'SL') + ' multi 1 took ' + n + ' of ' + size + ' circuits' + (n < size ? ' — the wall needs no more.' : '.');
-            }
-        },
-        typeChip: {
-            target: function () { var d = distro(); return d ? '[data-lrd-field="distro-box-type-' + d.id + '-2"]' : '.hw-dock-typechip'; },
-            place: 'top', title: 'The type chip',
-            body: 'Every number wears its connector as a chip. On the spare number the chip is the picker: click it to cycle the types the distro offers.',
-            before: function () { switchView('power'); },
-            act: function (t) {
-                var d = distro();
-                t.mem.before = A().distroBoxType(d, 2).type.id;
-                return t.click('[data-lrd-field="distro-box-type-' + d.id + '-2"]').then(function () {
-                    return t.wait(function () { return A().distroBoxType(distro(), 2).type.id !== t.mem.before; });
-                });
-            },
-            check: function (mem) {
-                var d = distro();
-                var ty = A().distroBoxType(d, 2).type;
-                return ty.id !== mem.before ? (d.name || 'SL') + ' 2 is now a ' + ty.name + '.' : null;
+                return (d.name || 'SL') + ' multi 1 took ' + n + ' of ' + size + ' circuits' + (n < size ? ', all the wall needs.' : '.');
             }
         },
         clearCircuit: {
@@ -3537,6 +5083,189 @@
                 if (d && A()._setCableSheetOpen) { A()._setCableSheetOpen(d.id, 1, false); if (mode() === 'power') A().renderHardwareDock(); }
             }
         },
+        // Feet or meters (1.5, app-cable-units.js): the Unit select beside
+        // the jumper fields sets the show's one cable unit. Its own change
+        // handler asks first when lengths are typed - a native confirm the
+        // guide's hand cannot answer - so the act sets the unit through
+        // setCableUnit(unit, false), the path an answered Yes takes. It goes
+        // to m and back to ft: the steps after are written in feet.
+        cableUnit: {
+            since: '1.5.0',
+            target: '#power-jump-unit', place: 'right', title: 'Feet or meters',
+            avoid: ['#power-jump-unit'],
+            body: 'Unit, under the jumper fields, switches the whole show between ft and m, and every cable length follows. Here it goes to m and back to ft.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                var label = function () {
+                    var v = $('#power-jump-v'), s = v && v.nextElementSibling;
+                    return s && s.hasAttribute('data-cable-unit') ? s.textContent.trim() : '';
+                };
+                var pick = function (unit) {
+                    return t.hover('#power-jump-unit').then(function (p) {
+                        press(true);
+                        ripple(p.x, p.y);
+                        return t.pause(90);
+                    }).then(function () {
+                        press(false);
+                        A().setCableUnit(unit, false);
+                        return t.wait(function () {
+                            var sel = $('#power-jump-unit');
+                            return A().cableUnit() === unit && sel && sel.value === unit && label() === unit;
+                        });
+                    });
+                };
+                return pick('m').then(function (ok) {
+                    if (!ok) throw new Error('the show did not switch to meters');
+                    t.mem.mid = label();
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return pick('ft');
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the show did not switch back to feet');
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                if (mem.mid !== 'm' || A().cableUnit() !== 'ft' || !w) return null;
+                var v = Number(w.powerJumpV), h = Number(w.powerJumpH);
+                return 'In meters the power jumpers read ' + v + ' m and ' + h + ' m; back in feet they read '
+                    + v + ' ft and ' + h + ' ft again.';
+            }
+        },
+        // Cable stock (1.5.3, app-cable-stock.js): the cable lengths the
+        // show has on hand, in Preferences > Cable stock. The lists are the
+        // show's and Save gives them to it. The guide never stores the
+        // person's preferences, so its hand presses Save and the act gives
+        // the lists to the show through applyCableStockPreferences, the
+        // path Save takes for them; the dialog closes on the way out.
+        cableStock: {
+            since: '1.5.3',
+            // Preferences on Cable stock stays up into the next step, A
+            // list for each kind of cable (owner, 2026-11-04).
+            window: 'prefs:stock',
+            target: '#pref-cable-stock-all-ft', place: 'bottom', title: 'Cable stock',
+            avoid: ['#pref-cable-stock-all-ft', '#preferences-save'],
+            body: 'In Preferences, Cable stock, type the lengths this show has on hand: 25, 50, 100. Each run is then written as the stock pieces that make it, and a preset keeps the list for the next show.',
+            before: function () {
+                switchView('power');
+                openPrefsTab('stock');
+            },
+            act: function (t) {
+                return t.type('#pref-cable-stock-all-ft', '25, 50, 100').then(function () {
+                    return t.hover('#preferences-save');
+                }).then(function (p) {
+                    press(true);
+                    ripple(p.x, p.y);
+                    return t.pause(90);
+                }).then(function () {
+                    press(false);
+                    A().applyCableStockPreferences();
+                    return t.wait(function () { return A().cableStockList('multi', 'ft').join(',') === '25,50,100'; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the show did not take the cable stock');
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function () {
+                if (A().cableStockList('multi', 'ft').join(',') !== '25,50,100') return null;
+                return 'This show has 25, 50 and 100 ft cables on hand. A 125 ft run is written ' + A().cableStockText(125, 'multi') + '.';
+            },
+            after: function () { closePrefs(); }
+        },
+        // The breakdown (app-cable-units.js breakCableLength): the least
+        // extra length, then the fewest pieces. The typed 125 stays in the
+        // field; the tags, the pull sheet and the binder write 100'+25',
+        // and the pull sheet counts one of each.
+        cableStockPieces: {
+            since: '1.5.3',
+            target: function () { var w = wall(); return w ? '[data-lrd-field^="power-soca-length-' + w.id + '-"]' : '[data-lrd-field^="power-soca-length-"]'; },
+            place: 'top', title: 'A run made of stock pieces',
+            body: 'Type 125 as the multi&rsquo;s home run. The field keeps 125; the pull sheet and the binder write it as 100&rsquo;+25&rsquo; and count one of each.',
+            before: function () { switchView('power'); closePrefs(); },
+            act: function (t) {
+                var w = wall();
+                var sel = '[data-lrd-field^="power-soca-length-' + w.id + '-"]';
+                return t.type(sel, '125').then(function () {
+                    return t.wait(function () {
+                        var l = wall(); var m = (l && l.powerSocaLengths) || {};
+                        return Object.keys(m).some(function (k) { return Number(m[k]) === 125; });
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the home run did not take');
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function () {
+                var a = A();
+                var multi = (a.buildPullSheet().totals || []).filter(function (r) { return r.type === 'Multi'; });
+                var lengths = multi.map(function (r) { return r.length + ' x' + r.qty; });
+                if (lengths.indexOf("100' x1") < 0 || lengths.indexOf("25' x1") < 0) return null;
+                return 'The 125 ft home run is written ' + a.cableStockText(125, 'multi') + ': the pull sheet lists one 100 ft and one 25 ft multi.';
+            }
+        },
+        // A list per kind (1.6.0, app-cable-stock.js): multis, data, power,
+        // L21-30 and Harting home runs, direct-output cables and feeders.
+        // The kinds' lists are kept apart from the one shared list, so the
+        // multis get theirs again and the feeders a list of their own; the
+        // Feeder step types a length this list makes. Save is pressed the
+        // way the Cable stock step presses it.
+        cableStockPerKind: {
+            since: '1.6.0',
+            // Right after Cable stock, in the Preferences it left up; the
+            // stock pieces step after it types into the tray, so this
+            // step's after() closes Preferences.
+            window: 'prefs:stock',
+            target: '#pref-cable-stock-per-kind', place: 'bottom', title: 'A list for each kind of cable',
+            avoid: ['#pref-cable-stock-per-kind', '#pref-cable-stock-multi-ft', '#pref-cable-stock-feeder-ft', '#preferences-save'],
+            body: 'Tick A list for each kind of cable and each kind gets its own lengths. Here the multis keep 25, 50 and 100, and the power in cables come in 50 and 100.',
+            before: function () {
+                switchView('power');
+                openPrefsTab('stock');
+                // Held up from Cable stock, the dialog was never opened
+                // again, and the Save that step pressed spent the lists it
+                // opened with (applyCableStockPreferences). They are the
+                // fields as they stand, the show's lists since that Save:
+                // what an open of the dialog would read now.
+                var a = A();
+                if (a._prefsCableStockAtOpen === undefined && a.readCableStockUI) {
+                    a._prefsCableStockAtOpen = JSON.stringify(a.readCableStockUI());
+                }
+            },
+            act: function (t) {
+                return t.click('#pref-cable-stock-per-kind').then(function () {
+                    return t.wait(function () {
+                        var c = $('#pref-cable-stock-per-kind'), f = $('#pref-cable-stock-feeder-ft');
+                        return c && c.checked && f && f.offsetParent !== null;
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the lists for each kind did not come up');
+                    return t.type('#pref-cable-stock-multi-ft', '25, 50, 100');
+                }).then(function () {
+                    return t.type('#pref-cable-stock-feeder-ft', '50, 100');
+                }).then(function () {
+                    return t.hover('#preferences-save');
+                }).then(function (p) {
+                    press(true);
+                    ripple(p.x, p.y);
+                    return t.pause(90);
+                }).then(function () {
+                    press(false);
+                    A().applyCableStockPreferences();
+                    return t.wait(function () { return A().cableStockList('feeder', 'ft').join(',') === '50,100'; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the show did not take the lists');
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function () {
+                var a = A();
+                if (a.cableStockList('feeder', 'ft').join(',') !== '50,100'
+                        || a.cableStockList('multi', 'ft').join(',') !== '25,50,100') return null;
+                return 'Multis come in 25, 50 and 100 ft, power in cables in 50 and 100 ft: a 150 ft power in cable is written ' + a.cableStockText(150, 'feeder') + '.';
+            },
+            after: function () { closePrefs(); }
+        },
         powerCableTags: {
             target: '#show-power-cable-tags', place: 'right', title: 'Show Cable Tags (power)',
             body: 'Tick it and each circuit&rsquo;s cable prints as a gold tag beside its label on the wall and in the export.',
@@ -3553,35 +5282,142 @@
                 return has ? 'The 25 ft cable prints as a gold tag beside its circuit.' : 'Each circuit’s cable prints as a gold tag beside its label.';
             }
         },
-        // Custom mode first, two steps of its own (2026-09-15): the amps
-        // rule refuses a share past a circuit's amps in automatic mode, and
-        // on the demo wall two full circuits at 200 W are well past 20 A -
-        // so the share the third step makes is only allowed in custom
-        // mode. Custom mode draws nothing until the person draws, so the
-        // toggle (one click) and the drawing (a drag and a pattern press)
-        // are each a gesture the hand makes, not a silent before() the
-        // body would then have to explain away.
-        customPower: {
-            target: '#power-custom-toggle', place: 'right', title: 'Custom mode for power',
-            body: 'Custom mode hands you the runs: nothing is drawn until you draw it, and a share may go past a circuit&rsquo;s amps. Turn it on here.',
+        // 2fers and 3fers, straight through (the owner's rulings,
+        // 2026-10-19). At 150 W a cabinet a row of the demo wall (1,800 W)
+        // is more than half a circuit, so no two rows ever share; a column
+        // (900 W) is under a third of one (a 208V / 20A circuit packs to
+        // 80%, 3,328 W, 2026-10-22; the owner kept the 3fer story with
+        // lighter demo panels). So the section turns the circuits down the
+        // columns, shares them in automatic mode, takes one 3fer over by
+        // hand (it stays a 3fer), turns custom mode on (it starts empty),
+        // fills the wall as custom runs (the same 3fers as automatic) and
+        // re-deals two of them as 2fers with a sweep.
+        powerColumns: {
+            target: '.power-flow-pattern-btn[data-pattern="tl-v"]', place: 'right', title: 'Circuits down the columns',
+            avoid: ['.power-flow-pattern-btn[data-pattern="tl-v"]'],
+            body: 'Under Flow Pattern, press Top-left, vertical first, so each circuit runs down whole columns. A wall cabled across shares rows the same way; on this wall a row is too much load to share.',
             before: function () { switchView('power'); },
             act: function (t) {
-                return t.click('#power-custom-toggle').then(function () {
-                    return t.wait(function () { var w = wall(); return w && A().isCustomPower(w); });
+                return t.click('.power-flow-pattern-btn[data-pattern="tl-v"]').then(function () {
+                    return t.wait(function () { var w = wall(); return w && w.powerFlowPattern === 'tl-v'; });
                 });
             },
             check: function () {
                 var w = wall();
-                return w && A().isCustomPower(w) ? 'Custom mode is on: the runs are yours to draw, and a share may pass the amps.' : null;
+                if (!w || w.powerFlowPattern !== 'tl-v') return null;
+                var circuits = A().screenCircuits(w);
+                if (!circuits.length) return null;
+                var cols = {};
+                (circuits[0].panels || []).forEach(function (p) { cols[p.col] = true; });
+                return circuits.length + ' circuits now run down the columns, '
+                    + Object.keys(cols).length + ' columns to a circuit.';
+            }
+        },
+        splitters: {
+            target: '#power-splitters-enabled', place: 'right', title: 'Share runs through 3fers',
+            avoid: ['#power-splitters-enabled', '#main-canvas'],
+            body: 'Tick Share circuits via splitters and each column, or each row on a wall cabled across, becomes a run of its own, with neighbors sharing one circuit through a 2fer or 3fer while the load fits.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                return t.click('#power-splitters-enabled').then(function () {
+                    return t.wait(function () { return A().getPowerSplitters(wall()).enabled && sharedCircuits(wall()).length; });
+                });
+            },
+            check: function () {
+                var w = wall();
+                var shared = sharedCircuits(w);
+                if (!w || A().isCustomPower(w) || !shared.length) return null;
+                if (shared.some(function (s) { return s.over; })) return null;
+                var load = A().shareLoad(w, shared[0].runIds);
+                var cap = A().circuitCapacity(w);
+                return shared.length + ' circuits, each a ' + shared[0].ways + 'fer of ' + shared[0].ways + ' column runs: '
+                    + load.amps.toFixed(1) + ' A against ' + (+load.cap.toFixed(1)) + ' A usable on a '
+                    + (+cap.breakerA.toFixed(1)) + ' A breaker.';
+            }
+        },
+        // A take-over in automatic mode (canvas.js Alt+click): the shared
+        // circuit keeps its runs, each run head after the first marked on
+        // the drawn path, so it still draws, tags and counts as a 3fer.
+        takeOver: {
+            since: '1.5.3',
+            target: '#main-canvas', place: 'top', title: 'Take over a 3fer',
+            avoid: [function () { var w = wall(); return w ? T.cabinetPoint(w, { circuit: 1, mid: true, raw: true }) : null; }],
+            body: 'Hold Alt and click a circuit to take it over and redraw it by hand. A 3fer you take over keeps its three runs, so it stays a 3fer.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                var w = wall();
+                var c = A().screenCircuits(w)[1];
+                if (!c || (c.runIds || []).length < 2) throw new Error('the second circuit is not shared');
+                t.mem.num = c.num;
+                var pt = t.cabinetPoint(w, { circuit: 1, mid: true });
+                return t.moveTo(pt, { badge: 'Alt' }).then(function () {
+                    A().updateOverrideHover(true, pt.worldX, pt.worldY);
+                    return t.pause(PACE.hover);   // the lit circuit, read
+                }).then(function () {
+                    press(true);
+                    t.canvasDown(pt, { altKey: true });
+                    t.canvasUp(pt, { altKey: true });
+                    press(false);
+                    ripple(pt.x, pt.y);
+                    return t.wait(function () { return A()._overrideEditing && A().isRunOverridden(wall(), 'power', t.mem.num); });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the circuit was not taken over');
+                    badge('');
+                    // left open for redrawing: a take-over that ends
+                    // unchanged goes back to automatic (2026-11-03), so
+                    // the step reads it while it is open and `after` ends it
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                if (!w || mem.num == null || !A().isRunOverridden(w, 'power', mem.num)) return null;
+                var c = A().screenCircuits(w).find(function (x) { return x.num === mem.num; });
+                var runs = c ? (c.runIds || []).length : 0;
+                var shared = sharedCircuits(w).find(function (s) { return s.num === mem.num; });
+                if (runs < 2 || !shared || shared.ways !== runs) return null;
+                return 'Circuit ' + mem.num + ' is now drawn by hand and is still a ' + runs + 'fer of ' + runs + ' runs.';
+            },
+            after: function () {
+                var a = A();
+                if (a && a._overrideEditing && a.endOverrideEdit) { try { a.endOverrideEdit(); } catch (e) {} }
+            }
+        },
+        // Custom mode ON starts empty (the owner's ruling, 2026-10-19):
+        // every circuit on the screen, take-overs and typed circuit labels
+        // included, is wiped in the toggle's one history entry.
+        customPower: {
+            since: '1.5.3',
+            target: '#power-custom-toggle', place: 'right', title: 'Custom mode for power',
+            body: 'Custom mode hands you the runs: turn it on and the screen starts empty. Every circuit, take-over and typed circuit label is wiped.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                var w = wall();
+                t.mem.taken = !!(w && (w.powerCustomOverrides || []).length);
+                return t.click('#power-custom-toggle').then(function () {
+                    return t.wait(function () { var l = wall(); return l && A().isCustomPower(l); });
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                if (!w || !A().isCustomPower(w)) return null;
+                var paths = w.powerCustomPaths || {};
+                var drawn = Object.keys(paths).filter(function (k) { return (paths[k] || []).length; }).length;
+                if (drawn || (w.powerCustomOverrides || []).length) return null;
+                return mem.taken ? 'Custom mode is on and nothing is drawn: the taken-over 3fer went with the rest.'
+                    : 'Custom mode is on and nothing is drawn yet.';
             }
         },
         // The fill: drag across the wall (custom mode's own drag selects
-        // cabinets), press a pattern button, and _applyPatternFill lays the
-        // selection into circuits each filled to customRunCapacity.
+        // cabinets), press a pattern button. With sharing on the fill cuts
+        // the way automatic mode does (app-custom-runs.js
+        // _chunkPicksIntoShares): a run per column, neighbours on one
+        // circuit while the load fits.
         customDraw: {
-            target: '.power-flow-pattern-btn[data-pattern="tl-h"]', place: 'right', title: 'Draw the circuits',
-            avoid: ['.power-flow-pattern-btn[data-pattern="tl-h"]', '#main-canvas'],
-            body: 'Drag across the cabinets to select them, then press a pattern: the selection is laid into circuits, each filled to its capacity.',
+            since: '1.5.3',
+            target: '.power-flow-pattern-btn[data-pattern="tl-v"]', place: 'right', title: 'Draw the circuits',
+            avoid: ['.power-flow-pattern-btn[data-pattern="tl-v"]', '#main-canvas'],
+            body: 'Drag across the cabinets, then press Top-left, vertical first. With sharing on you get what automatic mode makes: a run per column (or per row on a wall cabled across), neighbors sharing a 3fer while the load fits.',
             before: function () { switchView('power'); },
             act: function (t) {
                 var w = wall();
@@ -3606,17 +5442,19 @@
                     if (!sel) throw new Error('the drag selected no cabinets');
                     return t.pause(PACE.sweepRest);
                 }).then(function () {
-                    return t.click('.power-flow-pattern-btn[data-pattern="tl-h"]');
+                    return t.click('.power-flow-pattern-btn[data-pattern="tl-v"]');
                 }).then(function () {
-                    return t.wait(function () { return A().usesCustomCircuits(wall()); });
+                    return t.wait(function () { return A().usesCustomCircuits(wall()) && sharedCircuits(wall()).length; });
                 });
             },
             check: function () {
                 var w = wall();
                 if (!w || !A().usesCustomCircuits(w)) return null;
-                var circuits = A().screenCircuits(w);
-                var cap = A().customRunCapacity(w, 'power');
-                return circuits.length + ' circuits drawn by hand, ' + (cap.known ? cap.count + ' cabinets a circuit at ' + cap.at : 'each to its capacity') + '.';
+                var shared = sharedCircuits(w);
+                if (!shared.length || shared.some(function (s) { return s.over; })) return null;
+                var runs = A().screenCircuits(w).reduce(function (n, c) { return n + ((c.runIds || []).length || 1); }, 0);
+                return runs + ' column runs drawn by hand, shared as '
+                    + A()._nferSizesLabel(shared.map(function (s) { return s.ways; })) + ', the same as automatic mode.';
             },
             // The fill leaves the selection standing (a person may press
             // another pattern); the app's own Esc drops it. Dropped here on
@@ -3631,68 +5469,62 @@
                 }
             }
         },
-        splitters: {
-            target: '#power-splitters-enabled', place: 'right', title: 'Share two runs through a 2fer',
-            avoid: ['#power-splitters-enabled', '#main-canvas'],
-            body: 'A share past a circuit&rsquo;s amps is refused in automatic mode. In custom mode, where you own the runs, turn sharing on, sweep two runs and 2fer them; the chip flags OVER.',
+        // The batch verb on runs picked by hand (canvas.js Alt+drag arms
+        // the sweep, app-dock-menus.js _prepareBatchMenu deals it): it
+        // works in automatic mode, in custom mode and across a group, and
+        // never deals a circuit past its amps; runs that do not fit
+        // together stay on circuits of their own.
+        sweepShare: {
+            since: '1.5.3',
+            target: '#main-canvas', place: 'top', title: '2fer the runs you pick',
+            avoid: [function () { var w = wall(); return w ? T.cabinetPoint(w, { circuit: 0, mid: true, raw: true }) : null; },
+                    function () { var w = wall(); return w ? T.cabinetPoint(w, { circuit: 1, mid: true, raw: true }) : null; }],
+            body: 'Hold Alt and drag across circuits to pick them, then right-click and pick 2fer them. It works in either mode and across a group, and runs that do not fit together stay plain.',
             before: function () { switchView('power'); },
             act: function (t) {
                 var w = wall();
-                return t.click('#power-splitters-enabled').then(function () {
-                    return t.wait(function () { return A().getPowerSplitters(wall()).enabled; });
+                var circuits = A().screenCircuits(w);
+                if (circuits.length < 2) throw new Error('fewer than two circuits to sweep');
+                var c0 = t.cabinetPoint(w, { circuit: 0, mid: true });
+                var c1 = t.cabinetPoint(w, { circuit: 1, mid: true });
+                return t.hover(c0, { badge: 'Alt' }).then(function () {
+                    press(true);
+                    t.canvasDown(c0, { altKey: true });
+                    return t.pause(PACE.dragPress);
                 }).then(function () {
-                    w = wall();
-                    var circuits = A().screenCircuits(w);
-                    if (circuits.length < 2) throw new Error('fewer than two circuits to sweep');
-                    var c0 = t.cabinetPoint(w, { circuit: 0 });
-                    var c1 = t.cabinetPoint(w, { circuit: 1 });
-                    t.mem.nums = [circuits[0].num, circuits[1].num];
-                    return t.hover(c0, { badge: 'Alt' }).then(function () {
-                        press(true);
-                        t.canvasDown(c0, { altKey: true });
-                        return t.pause(PACE.dragPress);
-                    }).then(function () {
-                        t.canvasMove({ x: c0.x + 6, y: c0.y + 6 }, { altKey: true });
-                        return t.canvasGlide(c1, { altKey: true }, PACE.sweep);
-                    }).then(function () {
-                        t.canvasMove(c1, { altKey: true });
-                        return t.pause(PACE.hover);
-                    }).then(function () {
-                        t.canvasUp(c1, { altKey: true });
-                        press(false);
-                        if (!A()._sweepSelection) {
-                            // The sweep did not arm; the selection is set by
-                            // hand so the deal can still be shown.
-                            t.mem.fallback = true;
-                            A()._sweepSelection = { layerId: w.id, nums: t.mem.nums.slice() };
-                            R().render();
-                        }
-                        return t.pause(PACE.sweepRest);
-                    }).then(function () {
-                        return t.rightClick(c1);
-                    }).then(function () {
-                        return t.pickMenu('hw-batch-n0');
-                    }).then(function () {
-                        return t.wait(function () {
-                            var l = wall(); var sp = l && l.powerSplitters;
-                            return sp && sp.manual && Array.isArray(sp.manual.merge) && sp.manual.merge.length;
-                        });
+                    t.canvasMove({ x: c0.x + 6, y: c0.y + 6 }, { altKey: true });
+                    return t.canvasGlide(c1, { altKey: true }, PACE.sweep);
+                }).then(function () {
+                    t.canvasMove(c1, { altKey: true });
+                    return t.pause(PACE.hover);
+                }).then(function () {
+                    t.canvasUp(c1, { altKey: true });
+                    press(false);
+                    return t.wait(function () { var s = A()._sweepSelection; return s && (s.nums || []).length >= 2; });
+                }).then(function (sel) {
+                    if (!sel) throw new Error('the sweep picked no circuits');
+                    return t.pause(PACE.sweepRest);
+                }).then(function () {
+                    return t.rightClick(c1);
+                }).then(function () {
+                    var item = $('#context-menu [data-action="hw-batch-n0"]');
+                    t.mem.label = item ? item.textContent.trim() : '';
+                    if (!/^2fer them/.test(t.mem.label)) throw new Error('the menu offers no 2fer them');
+                    return t.pickMenu('hw-batch-n0');
+                }).then(function () {
+                    return t.wait(function () {
+                        return !A()._sweepSelection && sharedCircuits(wall()).some(function (s) { return s.ways === 2; });
                     });
                 });
             },
             check: function (mem) {
-                var w = wall(); var sp = w && w.powerSplitters;
-                var merge = sp && sp.manual && sp.manual.merge;
-                if (!merge || !merge.length) return null;
-                if (!A().isCustomPower(w)) return null;
-                // The share the wall reads, and its OVER - the canvas's own
-                // registry, the one the bracket and the pill draw from.
-                var shared = (R()._nferGangs ? R()._nferGangs(w) : [])
-                    .find(function (g) { return g.runIds.length > 1; });
-                if (!shared || !shared.over) return null;
-                var load = A().shareLoad(w, shared.runIds);
-                return 'Runs ' + shared.runIds.join(' and ') + ' share one circuit through a 2fer: '
-                    + load.amps.toFixed(1) + ' A on a ' + (+load.cap.toFixed(1)) + ' A circuit, flagged OVER.';
+                var w = wall();
+                var shared = sharedCircuits(w);
+                var pairs = shared.filter(function (s) { return s.ways === 2; });
+                if (!pairs.length || shared.some(function (s) { return s.over; })) return null;
+                var ids = pairs.reduce(function (all, s) { return all.concat(s.runIds); }, []);
+                return (mem.label || '2fer them') + ': runs ' + Math.min.apply(null, ids) + ' to ' + Math.max.apply(null, ids)
+                    + ' now share in pairs, each within its amps.';
             }
         },
         balance: {
@@ -3721,6 +5553,333 @@
                 return mem.apply ? 'Balance moved the short multi onto evener breakers.' : 'Balance opened; nothing to move on this distro yet, so it closed.';
             },
             after: function () { var m = $('#balance-modal'); if (m) m.remove(); }
+        },
+        // Header/Footer (app-rigging.js): the bars above and below each
+        // wall. Five steps - the tab, the sizes, Auto, dragging a bar, the
+        // totals - and the binder's Header/Footer tick (riggingSheet) with
+        // the exports.
+        riggingTab: {
+            since: '1.7.0',
+            target: '.view-tab[data-mode="rigging"]', place: 'bottom', title: 'The Header/Footer tab',
+            body: 'Header/Footer sits right of Power. Its panel on the left builds the header bars (above the wall) and footer bars (below it) for each screen.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                return t.click('.view-tab[data-mode="rigging"]').then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                return mode() === 'rigging' ? 'Header/Footer: the wall stands in its Show Look place, with no bars yet.' : null;
+            }
+        },
+        riggingSizes: {
+            since: '1.7.0',
+            target: '#rigging-size-picker', place: 'right', title: 'Pick the bar sizes',
+            body: 'Pick Header or Footer, then light the bar sizes you have; single and double show first, and the + opens 3 to 6. Say the truck holds only doubles and 5s: switch the single off, open the + and light the 5.',
+            before: function () {
+                switchView('rigging');
+                var w = wall();
+                // The + is a toggle kept on the app, not in the show: an
+                // earlier run left open would close here and hide the 5.
+                A()._riggingMoreOpen = false;
+                if (w) A().setSelectedLayersByIds([w.id], w.id);
+                A().refreshRiggingPanel();
+            },
+            act: function (t) {
+                var picks = ['1', '#rigging-size-more', '5'];
+                return picks.reduce(function (chain, size) {
+                    return chain.then(function () {
+                        var sel = size.charAt(0) === '#' ? size : '#rigging-size-picker [data-size="' + size + '"]';
+                        return t.click(sel).then(function () { return t.pause(250); });
+                    });
+                }, Promise.resolve());
+            },
+            check: function () {
+                var w = wall();
+                var s = w && w.riggingSizes;
+                return s && s.join(',') === '2,5' ? 'Lit: the double and the 5. Auto will use only these.' : null;
+            }
+        },
+        riggingAuto: {
+            since: '1.7.0',
+            target: '#rigging-auto-btn', place: 'right', title: 'Auto',
+            body: 'Auto fits the fewest bars of the lit sizes across the screen, mirrored when it can be, with no extra singles. Select All Screens above it lines up every screen so one Auto does the lot.',
+            before: function () { switchView('rigging'); },
+            act: function (t) {
+                return t.click('#rigging-auto-btn').then(function () {
+                    return t.wait(function () { var w = wall(); return w && w.riggingBars && w.riggingBars.length; });
+                }).then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                var w = wall();
+                var bars = (w && w.riggingBars) || [];
+                var sum = bars.reduce(function (a, b) { return a + b; }, 0);
+                return bars.length && sum === w.columns
+                    ? 'DEMO WALL: ' + bars.join(' + ') + ' across ' + w.columns + ' panels, the same bars either side of the middle.' : null;
+            }
+        },
+        riggingDrag: {
+            since: '1.7.0',
+            target: '#main-canvas', place: 'top', title: 'Drag a header bar',
+            avoid: [function () { return barPoint(0); }, function () { return barPoint(1); }],
+            body: 'Press on a header bar and drag it left or right; it swaps with its neighbor once its edge crosses the neighbor&rsquo;s middle. The wall stays covered, and undo steps it back.',
+            before: function () { switchView('rigging'); },
+            act: function (t) {
+                var from = barPoint(0);
+                var w = wall();
+                if (!from || !w || !w.riggingBars || w.riggingBars.length < 2) throw new Error('no header bars to drag');
+                t.mem.before = w.riggingBars.join(',');
+                var to = { x: from.x + from.unitPx * 3, y: from.y };
+                return t.hover(from).then(function () {
+                    press(true);
+                    t.canvasDown(from);
+                    return t.pause(PACE.dragPress);
+                }).then(function () {
+                    t.canvasMove({ x: from.x + 6, y: from.y });
+                    return t.canvasGlide(to);
+                }).then(function () {
+                    t.canvasMove(to);
+                    return t.pause(PACE.hover);
+                }).then(function () {
+                    t.canvasUp(to);
+                    press(false);
+                    return t.wait(function () { var q = wall(); return q && q.riggingBars.join(',') !== t.mem.before; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the header bar did not move');
+                    return t.pause(PACE.dragRest);
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                var now = w && w.riggingBars ? w.riggingBars.join(',') : '';
+                return mem.before && now && now !== mem.before
+                    ? 'The bars read ' + now.split(',').join(' + ') + ' now; they were ' + mem.before.split(',').join(' + ') + '.' : null;
+            }
+        },
+        riggingTotals: {
+            since: '1.7.0',
+            target: '#rigging-total-count', place: 'right', title: 'Total header bars',
+            body: 'The box at the foot of the panel counts the header bars on every shown screen by size: single, double, triple, then 4 and up. The same counts go to the pull sheet.',
+            before: function () { switchView('rigging'); },
+            act: function (t) {
+                var box = $('#rigging-total-count');
+                return t.spot((box && box.closest('[data-tooltip]')) || box).then(function () { return t.pause(PACE.opened); });
+            },
+            check: function () {
+                var n = $('#rigging-total-count');
+                var list = $('#rigging-total-breakdown');
+                return n && Number(n.textContent) > 0
+                    ? n.textContent + ' header bars in the show: ' + String((list && list.textContent) || '').replace(/\n/g, ', ') + '.' : null;
+            }
+        },
+        // Services (1.5.3, app-services.js): the house power several
+        // distros are fed from. One step adds the Service card, the next
+        // drags the distro's header bar onto it.
+        addService: {
+            since: '1.5.3',
+            target: '#power-service-add', place: 'top', title: 'Add a service',
+            body: 'Add service puts a Service card above the distros: the house power they draw from. It starts at 400 A per leg, and its rating and system sit behind its &#9881;.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                return t.click('#power-service-add').then(function () {
+                    return t.wait(function () { return service() && $('[data-lrd-service]'); });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('no Service card came up');
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function () {
+                var s = service();
+                return s && $('[data-lrd-service="' + s.id + '"]')
+                    ? A().serviceLabel(s) + ' is in the tray, feeding nothing yet.' : null;
+            }
+        },
+        // The house size: a service starts at 400 A, and the gear's Rating
+        // makes it the 600 A the walkthrough's distros share.
+        serviceRating: {
+            since: '1.5.3',
+            target: function () { var s = service(); return s ? '[data-hwpop="service-' + s.id + '"]' : '#power-service-add'; },
+            place: 'top', title: 'Set the service size',
+            avoid: [function () { var s = service(); return s ? '[data-lrd-field="service-rating-' + s.id + '"]' : null; }],
+            body: 'Open the service&rsquo;s &#9881; and type the house power into Rating, in amps per leg. Make this one 600 A, enough for a 400 A and a 200 A distro to share.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                var s = service();
+                if (!s) throw new Error('there is no service to size');
+                return t.click('[data-hwpop="service-' + s.id + '"]').then(function () {
+                    return t.wait(popover);
+                }).then(function (pop) {
+                    if (!pop) throw new Error('the service\'s gear popover did not open');
+                    return t.spot(pop).then(function () { return t.pause(900); });
+                }).then(function () {
+                    return t.type('[data-lrd-field="service-rating-' + s.id + '"]', '600');
+                }).then(function () {
+                    return t.wait(function () { var q = service(); return q && Number(q.ratingA) === 600; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the service did not take 600 A');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function () {
+                var s = service();
+                return s && Number(s.ratingA) === 600 ? A().serviceLabel(s) + ' is the house power now.' : null;
+            },
+            after: function () { closePopover(); }
+        },
+        serviceDistro: {
+            since: '1.5.3',
+            target: function () { var d = distro(); return d ? '[data-lrd-distro="' + d.id + '"] > .hw-dock-head-row' : '[data-lrd-distro] > .hw-dock-head-row'; },
+            place: 'top', title: 'Put the distro on the service',
+            avoid: [function () { var s = service(); return s ? '[data-lrd-service="' + s.id + '"]' : null; }],
+            body: 'Drag the distro&rsquo;s header bar onto the Service card. The card adds up its distros&rsquo; leg loads against the service, held to 80% of its rating unless it is 100% rated.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                var d = distro(), s = service();
+                if (!d || !s) throw new Error('there is no distro or no service to put it on');
+                return t.drag('[data-lrd-distro="' + d.id + '"] > .hw-dock-head-row', '[data-lrd-service="' + s.id + '"]').then(function () {
+                    return t.wait(function () {
+                        var q = distro();
+                        return q && q.serviceId === s.id && $('[data-lrd-service="' + s.id + '"] [data-lrd-svc-distro="' + d.id + '"]');
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the distro did not go on the service');
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function () {
+                var d = distro(), s = service();
+                if (!d || !s || d.serviceId !== s.id) return null;
+                var u = $('[data-lrd-service="' + s.id + '"] .hw-dock-unit-use');
+                return (d.name || 'The distro') + ' is on ' + (s.name || 'the service')
+                    + (u ? ': its busiest leg reads ' + u.textContent.trim() + '.' : '.');
+            }
+        },
+        // The feeder (1.6.0, app-services.js _buildDistroFeederRow): the
+        // cable that powers the distro, behind its gear. A length, written
+        // from the feeders' stock list, and where it is fed from: the
+        // service, or thru another distro. It is always on the pull sheet,
+        // "no length" until one is typed.
+        feederLength: {
+            since: '1.6.0',
+            target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'The distro&rsquo;s power in',
+            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-feeder-ft-' + d.id + '"]' : null; },
+                    function () { var d = distro(); return d ? '[data-lrd-field="distro-feeder-from-' + d.id + '"]' : null; }],
+            body: 'Open the distro&rsquo;s &#9881; and type its power in length. Beside it you pick where it&rsquo;s powered from: the service, or thru another distro.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                var d = distro();
+                if (!d) throw new Error('there is no distro to power');
+                return t.click('[data-hwpop="distro-' + d.id + '"]').then(function () {
+                    return t.wait(popover);
+                }).then(function (pop) {
+                    if (!pop) throw new Error('the distro\'s gear popover did not open');
+                    return t.spot(pop).then(function () { return t.pause(900); });
+                }).then(function () {
+                    return t.type('[data-lrd-field="distro-feeder-ft-' + d.id + '"]', '150');
+                }).then(function () {
+                    return t.wait(function () { var q = distro(); return q && q.feeder && Number(q.feeder.ft) === 150; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the power in did not take 150');
+                    return t.wait(function () { return $('[data-lrd-field="distro-feeder-from-' + d.id + '"]'); });
+                }).then(function (sel) {
+                    if (!sel) throw new Error('the powered-from choice did not come up');
+                    return t.hover('[data-lrd-field="distro-feeder-from-' + d.id + '"]');
+                }).then(function () {
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function () {
+                var d = distro(), a = A();
+                if (!d || !d.feeder || Number(d.feeder.ft) !== 150) return null;
+                var f = a.distroFeeder(d);
+                var from = f.from ? 'thru ' + (f.from.name || f.from.id)
+                    : 'from ' + (f.service ? f.service.name || 'the service' : 'the service');
+                // said once, lower case mid-sentence: "SL's power in: 150'",
+                // never "SL's power in: Power in 150'" (the binder's rule)
+                var text = String(a.feederText(d)).replace(/^Power in(?:,\s*|\s+)(?=\S)/, '')
+                    .replace(/^(\S.*?) power in(?=,? |$)/, '$1');
+                return (d.name || 'The distro') + '\'s power in: ' + text + ', powered ' + from
+                    + '. The pull sheet lists it where the distro sits.';
+            },
+            after: function () { closePopover(); }
+        },
+        // Distros built from their outputs (1.5, app-distro-systems.js
+        // _buildDistroOutputRows): a preset lays the system, input, rating,
+        // output rows and Type on the distro in one undo step. They run
+        // before the multi steps: the preset's first row is Socapex at 208V,
+        // the multi every power step after drags onto the wall. A distro
+        // with rows IS its face, so its type chips only read the row; the
+        // guide has no type chip step.
+        distroPreset: {
+            since: '1.5.0',
+            target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'Start from a preset',
+            window: distroGearWindow,
+            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-preset-' + d.id + '"]' : null; }],
+            body: 'Start from a preset&hellip; sets System, Input, Rating and the output rows in one step. It fills in Type too, the name the pull sheet lists the distro by.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                var d = distro();
+                var value = 'b:us-200-4soca-3dup';
+                return openDistroGear(t, d).then(function () {
+                    var sel = $('[data-lrd-field="distro-preset-' + d.id + '"]');
+                    var opt = sel && Array.prototype.slice.call(sel.options).find(function (o) { return o.value === value; });
+                    if (!opt) throw new Error('the preset is not on the list');
+                    t.mem.name = opt.textContent.trim();
+                    return t.select(sel, value);
+                }).then(function () {
+                    return t.wait(function () {
+                        var q = distro();
+                        return q && faceCount(q) > 0 && q.typeName === t.mem.name
+                            && $('[data-lrd-field="distro-type-' + q.id + '"]');
+                    });
+                }).then(function (type) {
+                    if (!type) throw new Error('the preset did not take');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var d = distro(), a = A();
+                if (!d || !faceCount(d) || d.typeName !== mem.name) return null;
+                var rows = a.distroRows(d).map(function (r) { return r.count + ' × ' + a.distroConnector(r.connector).short; });
+                return (d.name || 'The distro') + ' now has ' + rows.join(' and ') + ' on its face, and its Type reads ' + d.typeName + '.';
+            },
+            after: function () { closePopover(); }
+        },
+        distroRows: {
+            since: '1.5.0',
+            target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'Output rows',
+            window: distroGearWindow,
+            avoid: [function () {
+                var d = distro(), r = d ? socaRow(d) : null;
+                return r ? '[data-lrd-field="distro-row-count-' + d.id + '-' + r.id + '"]' : null;
+            }],
+            body: 'Each output row is a connector and a count, and rows can mix on one distro. Make the Socapex row 6 and two more multis join the distro in the tray.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                var d = distro();
+                var r = socaRow(d);
+                if (!r) throw new Error('the distro has no Socapex row');
+                t.mem.before = faceCount(d);
+                t.mem.row = r.id;
+                return openDistroGear(t, d).then(function () {
+                    return t.type('[data-lrd-field="distro-row-count-' + d.id + '-' + r.id + '"]', '6');
+                }).then(function () {
+                    return t.wait(function () {
+                        var q = distro(), row = q && A().distroRows(q).find(function (x) { return x.id === t.mem.row; });
+                        return row && Number(row.count) === 6 && faceCount(q) === t.mem.before + (6 - r.count)
+                            && $('[data-hwdock="slot-' + q.id + '-6"]');
+                    });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function (mem) {
+                var d = distro();
+                var row = d && A().distroRows(d).find(function (x) { return x.id === mem.row; });
+                if (!row || Number(row.count) !== 6 || !$('[data-hwdock="slot-' + d.id + '-6"]')) return null;
+                return 'The Socapex row reads 6: ' + (d.name || 'the distro') + ' 5 and 6 are new multis in the tray, '
+                    + faceCount(d) + ' outputs on its face in all.';
+            },
+            after: function () { closePopover(); }
         },
         addBeach: {
             target: '#beaches-panel .beaches-add', place: 'left', title: 'Beaches',
@@ -3774,7 +5933,7 @@
                         offset_y: Number(w.offset_y) || 0
                     });
                 }).then(function (layer) {
-                    a.initializeLayerDefaults(layer);
+                    practiceScreen(layer);
                     ['processorType', 'bitDepth', 'frameRate', 'lowLatency', 'powerVoltage',
                      'powerAmperage', 'panelWatts', 'powerBreakoutType', 'flowPattern'].forEach(function (k) {
                         if (w[k] !== undefined) layer[k] = w[k];
@@ -3858,6 +6017,61 @@
             },
             after: function () { var sub = $('#beach-submenu'); if (sub) sub.style.display = ''; }
         },
+        // Cabinets across screens (1.5, app-pixel-select.js): with several
+        // screens selected, a Pixel Map drag that starts on any of them
+        // picks cabinets on every one. The two screens are selected by the
+        // step before; a Go to that lands here (a restore selects one
+        // screen) selects them the same way first.
+        crossScreens: {
+            since: '1.5.0',
+            target: '#main-canvas', place: 'top', title: 'Cabinets across screens',
+            avoid: [function () { var w = wall(); return w ? T.cabinetPoint(w, { index: cabinetIndex(w, 2, w.columns - 2), raw: true }) : null; },
+                    function () { var w2 = wall2(); return w2 ? T.cabinetPoint(w2, { index: cabinetIndex(w2, 3, 1), raw: true }) : null; }],
+            body: 'With both screens selected, drag across them on the Pixel Map and you pick cabinets on each one. Set Blank or Set Half-tile then changes them all at once.',
+            before: function () { switchView('pixel-map'); frameWalls(); },
+            act: function (t) {
+                var a = A(), w = wall(), w2 = wall2();
+                if (!w || !w2) throw new Error('two screens are needed');
+                var both = function () { return a.selectedLayerIds && a.selectedLayerIds.has(w.id) && a.selectedLayerIds.has(w2.id); };
+                var select = both() ? Promise.resolve(true) : t.click(layerRow(w)).then(function () {
+                    return t.click(layerRow(w2), { init: MOD_INIT, badge: MOD_KEY });
+                }).then(function () {
+                    return t.wait(both, 1500);
+                });
+                return select.then(function (ok) {
+                    if (!ok) throw new Error('the two screens are not both selected');
+                    // From the first wall's third row, two cabinets in from
+                    // its right edge, to the second wall's fourth row, second
+                    // cabinet: two rows of two cabinets on each screen.
+                    var p0 = t.cabinetPoint(wall(), { index: cabinetIndex(wall(), 2, w.columns - 2) });
+                    var p1 = t.cabinetPoint(wall2(), { index: cabinetIndex(wall2(), 3, 1) });
+                    return t.hover(p0).then(function () {
+                        press(true);
+                        t.canvasDown(p0);
+                        return t.pause(PACE.dragPress);
+                    }).then(function () {
+                        t.canvasMove({ x: p0.x + 6, y: p0.y + 6 });
+                        return t.canvasGlide(p1, null, PACE.dragTravel);
+                    }).then(function () {
+                        t.canvasMove(p1);
+                        return t.pause(PACE.hover);
+                    }).then(function () {
+                        t.canvasUp(p1);
+                        press(false);
+                        return t.wait(function () { return Object.keys(pickedByScreen()).length === 2; });
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the drag did not pick cabinets on both screens');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function () {
+                var w = wall(), w2 = wall2(), by = pickedByScreen();
+                if (!w || !w2 || !by[w.id] || !by[w2.id]) return null;
+                return 'One drag picked ' + by[w.id] + ' cabinets on ' + w.name + ' and ' + by[w2.id] + ' on ' + w2.name + '.';
+            },
+            after: function () { var a = A(); if (a && a.clearPixelMapSelection) a.clearPixelMapSelection(); }
+        },
         groupScreens: {
             target: '#layers-list', place: 'left', title: 'Group the screens',
             avoid: ['#layers-list'],
@@ -3884,16 +6098,58 @@
                 return g ? g.name + ': two screens that move and route as one wall.' : null;
             }
         },
+        // The Names switch is per group, per tab (2026-11-04): it acts on
+        // the selected group, so picking one member of the wall shows it,
+        // and Screens on Pixel Map gives this wall its screens' names back
+        // on that tab alone. Other groups and the other tabs keep theirs.
+        groupNames: {
+            since: '1.6.0',
+            target: '#name-display-row-pixel-map', place: 'right', title: 'Name each group',
+            avoid: ['#name-display-row-pixel-map'],
+            body: 'Names sets how the selected group is named on this tab: Screens, Group or Both. Each group keeps its own choice on every tab.',
+            before: function () {
+                closePrefs(); hideMenus(); closePopover(); switchView('pixel-map');
+                var a = A(), w = wall();
+                if (w && a.getGroupOfLayer(w)) a.selectLayer(w);
+                if (a.refreshNameDisplayButtons) a.refreshNameDisplayButtons();
+            },
+            act: function (t) {
+                var a = A();
+                var group = function () { var w = wall(); return w ? a.getGroupOfLayer(w) : null; };
+                return t.wait(function () {
+                    var row = $('#name-display-row-pixel-map');
+                    return group() && row && row.style.display !== 'none' ? row : null;
+                }).then(function (row) {
+                    if (!row) throw new Error('Names is not shown for the group');
+                    t.mem.group = group().id;
+                    return t.click('.name-display-btn[data-name-view="pixel-map"][data-name-display="screens"]');
+                }).then(function () {
+                    return t.wait(function () {
+                        var g = a.resolveGroup(t.mem.group);
+                        return g && a.groupNameDisplayFor('pixel-map', g) === 'screens';
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the group did not take Screens');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var a = A(), g = mem && a.resolveGroup(mem.group);
+                if (!g || a.groupNameDisplayFor('pixel-map', g) !== 'screens') return null;
+                return g.name + ' now names each screen on Pixel Map; the other tabs and groups keep their own.';
+            }
+        },
         exportBinder: {
-            exportStep: true,
+            window: 'export:binder',
             target: '#btn-export', place: 'bottom', title: 'Export the binder',
             avoid: ['#btn-export', '#export-format'],
             body: 'Export saves maps as PNG, PSD, PDF or XML, the pull sheet, or the Binder: a drawing set with a wiring sheet behind every map.',
             before: function () { closeExport(); },
             act: function (t) {
-                return t.click('#btn-export').then(function () {
+                var open = exportOpen() ? Promise.resolve() : t.click('#btn-export').then(function () {
                     return t.wait(exportOpen);
-                }).then(function () {
+                });
+                return open.then(function () {
                     var mc = $('#export-modal .modal-content');
                     return t.spot(mc).then(function () { return t.pause(PACE.opened); })
                         .then(function () { return t.select('#export-format', 'binder'); });
@@ -3905,10 +6161,10 @@
                 return exportOpen() && f && f.value === 'binder' && sec && sec.style.display !== 'none'
                     ? 'Binder (PDF): numbered sheets with a title block, on Tabloid by default.' : null;
             },
-            after: closeExportUnless
+            after: closeExport
         },
         screenOrder: {
-            exportStep: true,
+            window: 'export:binder',
             target: '#export-binder-screen-order', place: 'right', title: 'Screen order',
             body: 'Beaches come first, in the Beaches panel&rsquo;s order; this sorts the screens within one, and the contents follow.',
             before: openExport,
@@ -3928,10 +6184,10 @@
                 var label = sel && sel.selectedOptions[0] ? sel.selectedOptions[0].textContent.trim() : mem.pick;
                 return 'Screens run ' + label.toLowerCase() + ' within each beach; saved with the project.';
             },
-            after: closeExportUnless
+            after: closeExport
         },
         wiringTick: {
-            exportStep: true,
+            window: 'export:binder',
             target: '#export-binder-wiring', place: 'left', title: 'The wiring sheets',
             body: 'One Wiring tick puts a Power Wiring sheet after each Power map and a Data Wiring sheet after each Data map.',
             before: openExport,
@@ -3947,10 +6203,69 @@
                 var box = $('#export-binder-wiring');
                 return box && box.checked && !mem.mid ? 'Wiring is on: every circuit to its breakout, every port to its socket.' : null;
             },
-            after: closeExportUnless
+            after: closeExport
+        },
+        // The Fiber page (1.6.0, app-binder-fiber.js): one sheet right after
+        // the screens, before the pull sheets, for a show that uses fiber -
+        // the guide's breakout box took a TAC in Fiber to the box - every
+        // processor to its breakout
+        // boxes, a row per link, with the strand maps and the fiber cables
+        // to pull. The tick shows only on a show with fiber; it goes off
+        // and on, and the set is planned until the page is in it.
+        fiberPage: {
+            since: '1.6.0',
+            window: 'export:binder',
+            target: '#export-binder-fiber-label', place: 'left', title: 'The Fiber page',
+            body: 'A show with fiber gets a Fiber page right after the screens, before the pull sheets: each processor to its breakout boxes, a row per link with its strands at both ends, then the strand maps and the fiber cables to pull.',
+            before: openExport,
+            act: function (t) {
+                var box = $('#export-binder-fiber');
+                if (!box) return Promise.reject(new Error('no Fiber tick'));
+                return (box.checked ? t.click(box).then(function () { return t.pause(500); }) : Promise.resolve()).then(function () {
+                    t.mem.mid = $('#export-binder-fiber').checked;
+                    return t.click('#export-binder-fiber');
+                }).then(function () {
+                    return t.wait(function () {
+                        var a = A();
+                        if (!$('#export-binder-fiber').checked) return null;
+                        var hit = a.planBinder(a.readBinderOptions()).find(function (p) { return p.kind === 'fiber'; });
+                        if (hit) t.mem.number = hit.number;
+                        return hit || null;
+                    }, 4000);
+                }).then(function (hit) {
+                    if (!hit) throw new Error('the binder planned no Fiber page');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var box = $('#export-binder-fiber');
+                return box && box.checked && !mem.mid && mem.number
+                    ? 'Fiber is on: the Fiber page prints as sheet ' + mem.number + ', right after the screens.' : null;
+            },
+            after: closeExport
+        },
+        riggingSheet: {
+            since: '1.7.0',
+            window: 'export:binder',
+            target: '#export-binder-rigging', place: 'left', title: 'The header/footer sheets',
+            body: 'The Header/Footer tick adds a sheet for each screen or group with bars: the wall with its bars, and a table of what to pull. The PNG, SVG, PSD and PDF exports have a Header/Footer view too.',
+            before: openExport,
+            act: function (t) {
+                var box = $('#export-binder-rigging');
+                t.mem.start = box.checked;
+                return (box.checked ? t.click(box).then(function () { return t.pause(500); }) : Promise.resolve()).then(function () {
+                    t.mem.mid = $('#export-binder-rigging').checked;
+                    return t.click('#export-binder-rigging');
+                }).then(function () { return t.pause(200); });
+            },
+            check: function (mem) {
+                var box = $('#export-binder-rigging');
+                return box && box.checked && !mem.mid ? 'Header/Footer is on: a sheet for DEMO WALL, with its header bars drawn above it.' : null;
+            },
+            after: closeExport
         },
         titleBlock: {
-            exportStep: true,
+            window: 'export:binder',
             target: '#export-binder-title-block', place: 'left', title: 'Border and title block',
             body: 'Off, the drawing takes the whole sheet inside a small margin; on, every sheet wears its border and the title block column.',
             before: openExport,
@@ -3972,12 +6287,46 @@
                     ? 'Border and title block are back on for every sheet; remembered as a preference.'
                     : 'Border and title block are off again: the drawing takes the whole sheet; remembered as a preference.';
             },
-            after: closeExportUnless
+            after: closeExport
+        },
+        // Every export in the File menu (1.5.2, app-menubar.js): Export
+        // SVG, Export PDF and Export Resolume XML open the Export dialog
+        // with that format picked. Opened and cancelled; nothing is saved.
+        fileExports: {
+            since: '1.5.2',
+            target: '[data-menu="file"]', place: 'bottom', title: 'Exports in the File menu',
+            avoid: ['#menu-file [data-action="export-svg"]', '#export-cancel'],
+            body: 'Export SVG, Export PDF and Export Resolume XML sit in the File menu with the other exports. Each opens the Export dialog with that format picked; Cancel closes it.',
+            before: function () { closeExport(); hideMenus(); },
+            act: function (t) {
+                return t.click('[data-menu="file"]').then(function () {
+                    return t.wait(function () { var m = $('#menu-file'); return m && m.style.display === 'block' ? m : null; });
+                }).then(function (m) {
+                    if (!m) throw new Error('the File menu did not open');
+                    return t.spot(m).then(function () { return t.pause(PACE.opened); });
+                }).then(function () {
+                    return t.click('#menu-file [data-action="export-svg"]');
+                }).then(function () {
+                    return t.wait(function () { var f = $('#export-format'); return exportOpen() && f && f.value === 'svg'; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Export dialog did not open on SVG');
+                    t.mem.svg = true;
+                    return t.spot($('#export-modal .modal-content')).then(function () { return t.pause(PACE.opened); });
+                }).then(function () {
+                    return t.click('#export-cancel');
+                }).then(function () {
+                    return t.wait(function () { return !exportOpen(); });
+                });
+            },
+            check: function (mem) {
+                return mem.svg && !exportOpen() ? 'Export SVG opened the Export dialog with SVG picked; Cancel closed it and nothing was saved.' : null;
+            },
+            after: function () { hideMenus(); closeExport(); }
         },
         preferences: {
             target: '#btn-preferences', place: 'bottom', title: 'Preferences',
             avoid: ['#btn-preferences', '#preferences-modal .pm-tabstrip'],
-            body: 'App-wide defaults in seven tabs. The Binder tab holds the sheet size, the logo, the screen order and the title block default.',
+            body: 'App-wide defaults in nine tabs. The Binder tab holds the sheet size, the logo, the screen order and the title block default.',
             before: function () { closeExport(); },
             act: function (t) {
                 return t.click('#btn-preferences').then(function () {
@@ -3997,9 +6346,447 @@
             },
             after: function () { closePrefs(); }
         },
+        // Mirror a screen by dragging its copy box (owner, 2026-11-01:
+        // "Mirroring is driven by the card's existing Copy setting plus
+        // dragging, NOT by a Screen Info picker"; 2026-11-04: "breakout is
+        // the only way mirror works aka copy"). NovaStar's H_4xfiber in
+        // Copy mode: "OPT 3 copies the output on OPT 1, while OPT 4 copies
+        // the output on OPT 2". The guide's own MX40 Pro stays as the steps
+        // before left it, so an H9 with an H_4xfiber in Copy and four
+        // CVT10s, and two matched IMAG screens with IMAG L already on the
+        // box on OPT 1, are put in for you; the drag of the box on OPT 3
+        // onto IMAG R is made for real.
+        mirrorScreen: {
+            since: '1.6.0',
+            target: function () {
+                var a = A();
+                var hit = null;
+                (a._processorsResolved || []).some(function (p) {
+                    return (p.slots || []).some(function (s) {
+                        if (s && s.card && s.card.copyTrunks === 'mirror') { hit = s.card; return true; }
+                        return false;
+                    });
+                });
+                var copy = hit ? mirrorCopyBox(hit) : null;
+                return copy ? '[data-hwdock="box-' + copy + '"]'
+                    : (hit ? '[data-hwdock="card-' + hit.id + '"]' : '[data-hwdock^="card-"]');
+            },
+            place: 'top', title: 'Mirror a screen',
+            body: 'An H_4xfiber in Copy mode sends OPT 1 and 2 out again on OPT 3 and 4, and IMAG L is already on the box on OPT 1. Drag the box on OPT 3 onto IMAG R and IMAG R becomes its copy, with its runs off that box.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A(), w = wall(), pid = null, cid = null, left = null, right = null;
+                var addImag = function (name, dx) {
+                    return j('POST', '/api/layer/add', {
+                        name: name, columns: 4, rows: 3,
+                        cabinet_width: w.cabinet_width, cabinet_height: w.cabinet_height,
+                        offset_x: (Number(w.offset_x) || 0) + dx,
+                        offset_y: (Number(w.offset_y) || 0) + w.rows * w.cabinet_height + 200
+                    }).then(function (layer) {
+                        practiceScreen(layer);
+                        layer.processorType = 'novastar-armor';
+                        a.upsertProjectLayer(layer);
+                        a.updateLayers([layer]);
+                        return layer;
+                    });
+                };
+                return j('POST', '/api/processors', { deviceId: 'novastar-h9' }).then(function (st) {
+                    pid = st.resolved[st.resolved.length - 1].id;
+                    return j('PUT', '/api/processors/' + pid + '/slots/0', { deviceId: 'novastar-card-h-4xfiber' });
+                }).then(function (st) {
+                    var h = st.resolved.find(function (p) { return p.id === pid; });
+                    cid = h.slots[0].card.id;
+                    return j('PUT', '/api/processors/' + pid + '/cards/' + cid, { mode: 'copy' });
+                }).then(function () {
+                    return [0, 1, 2, 3].reduce(function (chain) {
+                        return chain.then(function () {
+                            return j('POST', '/api/processors/' + pid + '/cards/' + cid + '/cvts', { deviceId: 'novastar-cvt10', pair: false });
+                        });
+                    }, Promise.resolve());
+                }).then(function () {
+                    return addImag('IMAG L', 0);
+                }).then(function (l) {
+                    left = l;
+                    return addImag('IMAG R', 4 * w.cabinet_width + 200);
+                }).then(function (r) {
+                    right = r;
+                    t.mem.left = left.id; t.mem.right = right.id; t.mem.card = cid;
+                    return a.refreshProcessors();
+                }).then(function () {
+                    return a._assignmentRequest('/api/port-assignments/place-overflow', 'POST',
+                        { layerId: String(left.id), cardId: cid }, null, 'Place Ports');
+                }).then(function () {
+                    // A request that never got an answer resolves all the
+                    // same, and the drag then read as a refusal of the
+                    // gesture ("Put a screen on CVT10-S A first"). The
+                    // setup not taking is said as what it is.
+                    return t.wait(function () {
+                        var scr = ((a._assignment && a._assignment.screens) || []).find(function (s) { return s.layerId === String(left.id); });
+                        return scr && scr.ports.some(function (p) { return p.cardId === cid; });
+                    });
+                }).then(function (placed) {
+                    if (!placed) throw new Error('IMAG L did not go on the box');
+                    frameLayers([a.project.layers.find(function (l) { return l.id === t.mem.left; }),
+                                 a.project.layers.find(function (l) { return l.id === t.mem.right; })]);
+                    a.saveState('Add Layer');
+                    return t.wait(function () {
+                        var found = a._dockFindCard ? a._dockFindCard(cid) : null;
+                        var copy = found ? mirrorCopyBox(found.card) : null;
+                        return copy ? $('[data-hwdock="box-' + copy + '"] .hw-dock-grip') : null;
+                    });
+                }).then(function (grip) {
+                    if (!grip) throw new Error('the copy box on OPT 3 is not in the tray');
+                    var copy = mirrorCopyBox(a._dockFindCard(cid).card);
+                    t.mem.box = copy;
+                    var r = a.project.layers.find(function (l) { return l.id === t.mem.right; });
+                    return t.drag('[data-hwdock="box-' + copy + '"] .hw-dock-grip', t.cabinetPoint(r, { index: lastCabinet(r) }));
+                }).then(function () {
+                    return t.wait(function () {
+                        var scr = ((a._assignment && a._assignment.screens) || []).find(function (s) { return s.layerId === String(t.mem.right); });
+                        return scr && scr.ports.length && scr.ports.every(function (p) { return p.source === 'mirror'; }) ? scr : null;
+                    });
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var r = (a.project.layers || []).find(function (l) { return l.id === mem.right; });
+                if (!r || String(r.dataMirrorOf) !== String(mem.left)) return null;
+                var scr = ((a._assignment && a._assignment.screens) || []).find(function (s) { return s.layerId === String(mem.right); });
+                if (!scr || !scr.ports.length || !scr.ports.every(function (p) { return p.source === 'mirror'; })) return null;
+                var found = a._dockFindCard ? a._dockFindCard(mem.card) : null;
+                var box = found ? (found.card.cvts || []).find(function (b) {
+                    return (b.ports || []).some(function (p) { return p.number === scr.ports[0].port; });
+                }) : null;
+                if (!box || box.id !== mem.box) return null;
+                return 'IMAG R mirrors IMAG L: its ' + scr.ports.length + (scr.ports.length === 1 ? ' port comes' : ' ports come')
+                    + ' off ' + (box ? (box.displayTitle + ' on ' + box.trunkTitle) : 'the copy box') + '.';
+            },
+            after: function () { closePopover(); }
+        },
+        // Where a port plugs in (1.6.0, app-mirror-screens.js
+        // _buildCardPlugRows): on an MX40 Pro each port an OPT also carries
+        // plugs in at the unit's own RJ45 or at the box, never both. The
+        // CVT10 on OPT 1 is plain RJ45 and the MX40 Pro's own outputs are
+        // etherCON, so a port's run is named by where it plugs in: Cat6 at
+        // the box, etherCON at the unit (runText, as the pull sheet lists it).
+        portPlug: {
+            since: '1.6.0',
+            target: function () { var c = card(); return c ? '[data-hwpop="card-' + c.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'RJ45 or the box',
+            avoid: [function () { var c = card(), b = box(); return c && b ? '[data-lrd-field="processor-card-plug-' + c.id + '-' + b.id + '"]' : null; }],
+            body: 'A port an OPT carries plugs in at one place, the MX40 Pro&rsquo;s own RJ45 or the box. Pick it in the &#9881; and its cable is named for that connector: Cat6 at the CVT10, etherCON at the MX40 Pro.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A(), c = card(), b = box();
+                if (!c || !b) throw new Error('there is no breakout box on the processor');
+                var seg = '[data-lrd-field="processor-card-plug-' + c.id + '-' + b.id + '"] [data-level="card"]';
+                // The first of the box's ports with no length typed and no
+                // snake, at the box or on the unit's own record (the loose
+                // port's 50 ft run sits there), read as the pull sheet
+                // lists it before the move ("Cat6 no length").
+                var own = owner();
+                var kept = (own && own.rec && own.rec.portCables) || {};
+                var socket = null;
+                var nums = b.portNumbers || [];
+                for (var i = 0; i < nums.length && !socket; i++) {
+                    var n = nums[i];
+                    if (!a.dataPortCable(c.id, n) && !kept[String(n)]) socket = n;
+                }
+                if (!socket) throw new Error('every port on ' + (b.displayTitle || 'the box') + ' has a cable');
+                t.mem.socket = socket;
+                t.mem.box = b.displayTitle || 'the box';
+                t.mem.before = a.runText(null, { cardId: c.id, port: socket });
+                return t.click('[data-hwpop="card-' + c.id + '"]').then(function () {
+                    return t.wait(function () { return popover() && $(seg); });
+                }).then(function (el) {
+                    if (!el) throw new Error('the card has no RJ45 or box choice for ' + t.mem.box);
+                    return t.click(seg, { hover: 400, rest: 1200 });
+                }).then(function () {
+                    return t.wait(function () {
+                        var q = card();
+                        var port = q && (q.ports || []).find(function (p) { return p.number === socket; });
+                        return port && port.plug === 'card';
+                    });
+                });
+            },
+            check: function (mem) {
+                var c = card();
+                var port = c && (c.ports || []).find(function (p) { return p.number === mem.socket; });
+                var now = c ? A().runText(A().dataPortCable(c.id, mem.socket), { cardId: c.id, port: mem.socket }) : '';
+                if (!port || port.plug !== 'card' || !/etherCON/.test(now) || !/Cat6/.test(mem.before || '')) return null;
+                return 'The ports ' + mem.box + ' carried plug in at the MX40 Pro now: port ' + mem.socket
+                    + ' reads ' + now + ' on the pull sheet, where it read ' + mem.before + '.';
+            },
+            after: function () { closePopover(); }
+        },
+        // Z flow patterns for power (the owner's ruling, 2026-11-01): the
+        // picker's bottom row, where every row starts again from the same
+        // side. The step adds WIDE WALL under the other screens, 24 x 4 of
+        // the wall's cabinets at 60 W on 208V / 20A: a circuit carries
+        // 3,328 W, so two rows (2,880 W) share one, and with Top-left Z the
+        // second row starts at the left again instead of running back.
+        powerZPattern: {
+            since: '1.6.0',
+            target: '.power-flow-pattern-btn[data-pattern="tl-h-z"]', place: 'right', title: 'Z patterns for power',
+            avoid: ['.power-flow-pattern-btn[data-pattern="tl-h-z"]'],
+            body: 'The bottom row of Flow Pattern holds the Z patterns. Each row starts again from the same side as the first instead of running back, with a diagonal return between rows.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                var bottom = screens().reduce(function (m, l) {
+                    return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+                }, 0);
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                return j('POST', '/api/layer/add', {
+                    name: 'WIDE WALL', columns: 24, rows: 4,
+                    cabinet_width: w.cabinet_width, cabinet_height: w.cabinet_height,
+                    offset_x: (Number(w.offset_x) || 0), offset_y: bottom + 200
+                }).then(function (layer) {
+                    practiceScreen(layer);
+                    a.setScreenVoltage(layer, 208);
+                    layer.powerAmperage = 20;
+                    layer.powerAmperageCustom = 20;
+                    layer.panelWatts = 60;
+                    layer.powerMaximize = false;
+                    layer.powerOrganized = true;
+                    layer.powerFlowPattern = 'tl-h';
+                    a.upsertProjectLayer(layer);
+                    a.updateLayers([layer]);
+                    t.mem.layer = layer.id;
+                    var l = find();
+                    a.selectLayer(l);
+                    frameLayers([l]);
+                    a.saveState('Add Layer');
+                    return t.click('.power-flow-pattern-btn[data-pattern="tl-h-z"]');
+                }).then(function () {
+                    return t.wait(function () { var l = find(); return l && l.powerFlowPattern === 'tl-h-z'; });
+                });
+            },
+            check: function (mem) {
+                var l = (A().project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || l.powerFlowPattern !== 'tl-h-z') return null;
+                var c = (A().calculatePowerAssignments(l).circuits || [])[0] || [];
+                var next = c[l.columns];
+                if (!next || next.row !== 1 || next.col !== 0) return null;
+                return 'Circuit 1 runs row 1 left to right, then row 2 starts again at the left.';
+            }
+        },
+        // Circuit numbers (powerNumberOrder): shown only where Organized
+        // cuts a row too long for one circuit. WIDE WALL goes to 150 W a
+        // cabinet, so a row (3,600 W) is over a circuit (3,328 W) and is cut
+        // into circuits of 22 and 2; Down numbers them down the stacks.
+        circuitNumbers: {
+            since: '1.6.0',
+            target: '#power-number-order-row', place: 'right', title: 'Circuit numbers',
+            avoid: ['#power-number-down'],
+            body: 'A row too long for one circuit is cut into circuits of whole panels. Circuit numbers sets their order: Across goes along each row, Down goes down the stacks and starts each new stack back at the top.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.name === 'WIDE WALL'; });
+                if (!l) throw new Error('WIDE WALL is missing');
+                t.mem.layer = l.id;
+                a.selectLayer(l);
+                l.panelWatts = 150;
+                a.updateLayers([l]);
+                a.saveState('Change Panel Watts');
+                a.loadLayerToInputs();
+                a.updatePowerCapacityDisplay();
+                return t.wait(function () {
+                    var row = $('#power-number-order-row');
+                    return row && row.style.display !== 'none' ? row : null;
+                }).then(function (row) {
+                    if (!row) throw new Error('Circuit numbers is not shown for WIDE WALL');
+                    return t.click('#power-number-down');
+                }).then(function () {
+                    return t.wait(function () {
+                        var x = (a.project.layers || []).find(function (y) { return y.id === t.mem.layer; });
+                        return x && x.powerNumberOrder === 'down';
+                    });
+                });
+            },
+            check: function (mem) {
+                var l = (A().project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || l.powerNumberOrder !== 'down') return null;
+                var c = A().calculatePowerAssignments(l).circuits || [];
+                if (!c[1] || !c[1][0] || c[1][0].row !== 1) return null;
+                return 'Circuit 2 now starts row 2 of WIDE WALL, under circuit 1.';
+            }
+        },
+        // Redraw several ports as one (1.6.0, app-merge-runs.js; the owner,
+        // 2026-11-02: "redraw all of those as one port"). LEFTOVERS is six
+        // 512 x 256 cabinets wide on NovaStar Legacy, five to a port, drawn
+        // by hand the way a show drawn before 2026-11-04 was: every row a
+        // port of five and a leftover of one; numbered Down, the four
+        // leftovers are ports 5-8. (Organized now stacks those leftovers
+        // into one port by itself, the owner's ruling of 2026-11-04, so an
+        // automatic screen would have nothing to redraw.) Shift+drag picks
+        // them, the menu redraws them as one, and four clicks draw it: 8
+        // ports become 5.
+        redrawAsOne: {
+            since: '1.6.0',
+            target: '#main-canvas', place: 'top', title: 'Redraw several ports as one',
+            body: 'Shift+click runs, or Shift+drag a box across them, to pick their ports. Right-click and pick Redraw ports as one, then click the cabinets in order: the new port keeps the first number and the ports after it close up.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                var bottom = screens().reduce(function (m, l) {
+                    return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+                }, 0);
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                var at = function (row, col) {
+                    var l = find();
+                    var i = l.panels.findIndex(function (p) { return p.row === row && p.col === col; });
+                    return t.cabinetPoint(l, { index: i });
+                };
+                return j('POST', '/api/layer/add', {
+                    name: 'LEFTOVERS', columns: 6, rows: 4,
+                    cabinet_width: 512, cabinet_height: 256,
+                    offset_x: (w && Number(w.offset_x)) || 0, offset_y: bottom + 200
+                }).then(function (layer) {
+                    practiceScreen(layer);
+                    layer.processorType = 'novastar-armor';
+                    layer.portMappingMode = 'organized';
+                    layer.portNumberOrder = 'down';
+                    var paths = {};
+                    [0, 1, 2, 3].forEach(function (row) {
+                        paths[row + 1] = [0, 1, 2, 3, 4].map(function (col) { return { row: row, col: col }; });
+                        paths[row + 5] = [{ row: row, col: 5 }];
+                    });
+                    layer.lastFlowPattern = 'tl-h';
+                    layer.flowPattern = 'custom';
+                    layer.customPortPaths = paths;
+                    layer.customPortIndex = 8;
+                    layer.customPortOverrides = [];
+                    a.upsertProjectLayer(layer);
+                    a.updateLayers([layer]);
+                    t.mem.layer = layer.id;
+                    var l = find();
+                    a.selectLayer(l);
+                    frameLayers([l]);
+                    a.saveState('Add Layer');
+                    a.updatePortCapacityDisplay();
+                    t.mem.before = a.getLayerPortsRequired(l);
+                    return t.pause(PACE.rest);
+                }).then(function () {
+                    // Shift+drag down the leftover column: ports 5-8 light.
+                    var from = at(0, 5), to = at(3, 5);
+                    return t.moveTo(from, { badge: 'Shift' }).then(function () {
+                        press(true);
+                        t.canvasDown(from, { shiftKey: true });
+                        return t.pause(PACE.dragPress);
+                    }).then(function () {
+                        return t.canvasGlide(to, { shiftKey: true });
+                    }).then(function () {
+                        t.canvasUp(to, { shiftKey: true });
+                        press(false);
+                        badge('');
+                        return t.pause(PACE.rest);
+                    });
+                }).then(function () {
+                    t.mem.picks = a.portPicksFor(find());
+                    return t.rightClick(at(1, 5));
+                }).then(function () {
+                    var item = $('[data-action="ovr-merge"]');
+                    t.mem.label = item ? item.textContent : '';
+                    return t.pickMenu('ovr-merge');
+                }).then(function () {
+                    return t.wait(function () { return a._mergeRedraw && a._mergeRedraw.ready; }, 2500);
+                }).then(function () {
+                    return [[0, 5], [1, 5], [2, 5], [3, 5]].reduce(function (chain, rc) {
+                        return chain.then(function () {
+                            var q = at(rc[0], rc[1]);
+                            return t.hover(q).then(function () {
+                                press(true);
+                                t.canvasDown(q, {});
+                                return t.pause(70);
+                            }).then(function () {
+                                t.canvasUp(q, {});
+                                press(false);
+                                ripple(q.x, q.y);
+                                return t.pause(PACE.rest);
+                            });
+                        });
+                    }, Promise.resolve());
+                }).then(function () {
+                    return t.wait(function () { return !a._mergeRedraw; }, 2500);
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || a._mergeRedraw || (mem.picks || []).join() !== '5,6,7,8') return null;
+                var five = (l.customPortPaths || {})[5] || [];
+                var n = a.getLayerPortsRequired(l);
+                if (five.length !== 4 || !five.every(function (e) { return e && e.col === 5; }) || n !== 5) return null;
+                return (mem.label || 'Redraw ports 5-8 as one') + ': port 5 runs down the last column, and LEFTOVERS needs '
+                    + n + ' ports instead of ' + mem.before + '.';
+            }
+        },
+        // Alt+drag picks ports in Data the way it picks circuits in Power
+        // (1.6.0, canvas-input.js's armed Alt+press, app-merge-runs.js
+        // sweepPortPicks; the owner, 2026-11-02: "Data should match
+        // Power"). On LEFTOVERS after the redraw, ports 1-4 are its rows
+        // and port 5 its last column, so a drag down the first column
+        // crosses ports 1-3 and the right-click names them. Picking is all
+        // the step does: the menu closes and the picks drop at its end.
+        sweepPorts: {
+            since: '1.6.0',
+            target: '#main-canvas', place: 'top', title: 'Pick ports with Alt',
+            body: 'Hold Alt and drag across runs to pick every port the drag crosses, then right-click to redraw them as one. Alt+click alone still redraws one port.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.name === 'LEFTOVERS'; });
+                if (!l) throw new Error('LEFTOVERS is missing');
+                t.mem.layer = l.id;
+                a.selectLayer(l);
+                frameLayers([l]);
+                a.clearPortPicks();
+                var at = function (row, col) {
+                    var i = l.panels.findIndex(function (p) { return p.row === row && p.col === col; });
+                    return t.cabinetPoint(l, { index: i });
+                };
+                var from = at(0, 0), to = at(2, 0);
+                return t.hover(from, { badge: 'Alt' }).then(function () {
+                    press(true);
+                    t.canvasDown(from, { altKey: true });
+                    return t.pause(PACE.dragPress);
+                }).then(function () {
+                    t.canvasMove({ x: from.x + 6, y: from.y + 6 }, { altKey: true });
+                    return t.canvasGlide(to, { altKey: true }, PACE.sweep);
+                }).then(function () {
+                    t.canvasMove(to, { altKey: true });
+                    return t.pause(PACE.hover);
+                }).then(function () {
+                    t.canvasUp(to, { altKey: true });
+                    press(false);
+                    badge('');
+                    t.mem.picks = a.portPicksFor(l);
+                    return t.pause(PACE.sweepRest);
+                }).then(function () {
+                    return t.rightClick(at(1, 0));
+                }).then(function () {
+                    var item = $('[data-action="ovr-merge"]');
+                    t.mem.label = (item && item.style.display !== 'none') ? item.textContent : '';
+                    return t.pause(PACE.rest);
+                }).then(function () {
+                    a.hideContextMenu();
+                    a.clearPortPicks();
+                });
+            },
+            check: function (mem) {
+                if ((mem.picks || []).join() !== '1,2,3' || mem.label !== 'Redraw ports P1-P3 as one') return null;
+                return 'One Alt+drag down LEFTOVERS picked ports 1-3; the menu offered ' + mem.label + '.';
+            }
+        },
         helpMenu: {
             target: '[data-menu="help"]', place: 'bottom', title: 'Help',
-            body: 'Every guide lives under Help: Quick Start, What&rsquo;s New in 1.6, the Advanced Guide and the keyboard shortcuts.',
+            body: 'Every guide lives under Help: Quick Start, What&rsquo;s New, the Advanced Guide and the keyboard shortcuts.',
             before: function () { closePrefs(); },
             act: function (t) {
                 return t.click('[data-menu="help"]').then(function () {
@@ -4017,11 +6804,12 @@
             body: 'Done puts your own project back. Reopen any guide from Help.',
             before: function () { hideMenus(); closeExport(); closePrefs(); }
         },
-        // ── What's New in 1.6 (Matt, 2026-10-10: every feature release
-        // ships a short guide that shows ALL its new features). Each step
-        // sets up the view and the selection it needs in before(), so a
-        // Go to, a Back or a replay lands ready.
+        // The 1.7 tabs and windows, shown after Cabinets across screens: the
+        // steps need the second wall and run before the two are grouped.
+        // Each sets up the view and the selection it needs in before(), so
+        // a Go to, a Back, a replay or What's New lands ready.
         s3dOpen: {
+            since: '1.7.0',
             target: '[data-mode="3d"]', place: 'bottom', title: 'The 3D tab',
             body: 'The new 3D tab stands every Show Look screen on a stage, built from its cabinets with its Pixel Map on the front.',
             before: function () { switchView('pixel-map'); },
@@ -4038,6 +6826,7 @@
             }
         },
         s3dSelect: {
+            since: '1.7.0',
             target: '#s3d-view', place: 'left', title: 'Pick a screen',
             avoid: [function () { return stagePoint(wall2()); }],
             body: 'Click a screen in the view to select it. The 3D Placement panel shows where it stands and how it turns.',
@@ -4058,6 +6847,7 @@
             }
         },
         s3dCurve: {
+            since: '1.7.0',
             target: '#s3d-curve-col', place: 'right', title: 'Bend the column joints',
             body: 'Column joints bends every joint between two columns, up to 15&deg; either way. Here 5&deg; curves the screen toward the audience.',
             before: function () { return open3d().then(function () { only(wall2()); }); },
@@ -4073,6 +6863,7 @@
             }
         },
         s3dYaw: {
+            since: '1.7.0',
             target: '[data-s3d-axis="yaw"] [data-s3d-step="15"]', ring: ['#s3d-yaw', '[data-s3d-axis="yaw"]'],
             place: 'right', title: 'Turn the screen',
             body: 'The +15 and -15 buttons turn the screen in steps, or type any angle in Pitch, Yaw or Roll.',
@@ -4089,6 +6880,7 @@
             }
         },
         s3dCamera: {
+            since: '1.7.0',
             target: '#s3d-toolbar', place: 'bottom', title: 'Camera views',
             avoid: ['[data-s3d-view="top"]', '[data-s3d-view="iso"]'],
             body: 'The bar over the view looks from the Front, Back, Left, Right, Top or Iso, in Perspective or Orthographic. Top looks straight down; Iso from above and to one side.',
@@ -4108,6 +6900,7 @@
             }
         },
         s3dJoint: {
+            since: '1.7.0',
             target: '#s3d-joint-angle', ring: ['#s3d-joint-label', '#s3d-joint-angle'], place: 'right', title: 'Bend one joint',
             avoid: ['#s3d-joint-angle', function () {
                 var w2 = wall2(), at = w2 && A()._s3dDebugSeam ? A()._s3dDebugSeam(w2.id, 'col', 2) : null;
@@ -4138,6 +6931,7 @@
             }
         },
         outputOpen: {
+            since: '1.7.0',
             outputStep: true,
             target: '[data-menu="view"]', place: 'bottom', title: 'Output to Display',
             avoid: ['[data-menu="view"]', '#menu-view [data-action="output-to-display"]'],
@@ -4163,6 +6957,7 @@
             after: function (next) { if (!next || !next.outputStep) closeOutput(); }
         },
         outputChoices: {
+            since: '1.7.0',
             outputStep: true,
             target: '#output-display-view', ring: ['#output-display-view', 'input[name="output-display-scale"][value="1to1"]'],
             place: 'right', title: 'The view and the scale',
@@ -4188,6 +6983,7 @@
             after: function () { closeOutput(); }
         },
         idmOpen: {
+            since: '1.7.0',
             target: '[data-mode="idm"]', place: 'bottom', title: 'The IDM Locator tab',
             body: 'The IDM Locator fills every screen with one solid color, so a dead pixel or a bad module stands out on the wall.',
             before: function () { closeOutput(); },
@@ -4205,6 +7001,7 @@
             }
         },
         idmModules: {
+            since: '1.7.0',
             target: '#idm-modules-x', ring: ['#idm-modules-x', '#idm-modules-y'], place: 'right', title: 'Modules in a cabinet',
             avoid: ['#idm-modules-x', '#idm-modules-y'],
             body: 'Type how many modules make up one cabinet, across and down. Here each cabinet of DEMO WALL 2 is 2 &times; 2.',
@@ -4224,6 +7021,7 @@
             }
         },
         idmMarkColor: {
+            since: '1.7.0',
             target: '#idm-style-color', place: 'bottom', title: 'Mark a bad module',
             avoid: ['#idm-style-color', function () { return modulePoint(wall2(), MARK_COLOR); }],
             body: 'With the color mark picked in the toolbar, click a module to fill it with the mark color. Click it again to clear it.',
@@ -4239,6 +7037,7 @@
             }
         },
         idmMarkX: {
+            since: '1.7.0',
             target: '#idm-style-x', place: 'bottom', title: 'Mark with an X',
             avoid: ['#idm-style-x', function () { return modulePoint(wall2(), MARK_X); }],
             body: 'Pick X and the next mark draws an X corner to corner instead. Each mark keeps its own style and color.',
@@ -4254,6 +7053,7 @@
             }
         },
         idmField: {
+            since: '1.7.0',
             target: '.idm-swatches', ring: ['.idm-swatches', '.idm-seg'], place: 'right', title: 'The field and its borders',
             avoid: ['[data-idm-field="#ff0000"]', '[data-idm-border="lines"]'],
             body: 'Pick the field: white, red, green, blue, black or your own. Lines draws every module edge as a thin line in the field&rsquo;s own color, never black.',
@@ -4270,6 +7070,7 @@
             }
         },
         idmModuleIds: {
+            since: '1.7.0',
             target: '#idm-module-ids', place: 'right', title: 'Module ID',
             body: 'Module ID labels every module in the Cabinet ID style, A1 B1 / A2 B2, starting again in each cabinet.',
             before: openIdm,
@@ -4283,6 +7084,7 @@
             }
         },
         idmColours: {
+            since: '1.7.0',
             target: '.idm-colours', place: 'right', title: 'Your own colors',
             avoid: ['#idm-label-colour', '[data-idm-auto="labelColor"]'],
             body: 'Each label and edge color can be set by hand. Auto goes back to the field&rsquo;s own color at a lower level.',
@@ -4305,6 +7107,7 @@
             }
         },
         idmHighlight: {
+            since: '1.7.0',
             target: '#idm-hl-readout', ring: ['#idm-hl-readout', '#idm-pad'], place: 'right', title: 'Point with the arrow keys',
             avoid: [function () { return modulePoint(wall2(), MARK_KEYS); }],
             body: 'The arrow keys move a blinking highlight from module to module, in the view and on the wall. Space marks the highlighted module.',
@@ -4339,6 +7142,7 @@
             }
         },
         idmList: {
+            since: '1.7.0',
             target: '#idm-list', place: 'right', title: 'The marked modules',
             avoid: [function () { return idmRows()[0] || null; }],
             body: 'Every mark is listed by screen, cabinet ID and module. Click one and that module blinks in the view.',
@@ -4355,6 +7159,7 @@
             }
         },
         notesChecklist: {
+            since: '1.7.0',
             target: '#notes-panel', place: 'left', title: 'A checklist in the Notes',
             avoid: ['#notes-checklist-add'],
             body: 'Under the notes, + Add item starts a to-do and its box ticks it off. The list saves with the show.',
@@ -4385,11 +7190,6 @@
                     ? (title ? title.textContent : 'Checklist') + ': Walk the wall is ticked off.' : null;
             }
         },
-        outroWhatsNew: {
-            title: 'That&rsquo;s 1.6', center: true,
-            body: 'Done puts your own project back. Reopen this from Help &rsaquo; What&rsquo;s New in 1.6, or take the Advanced Guide for the whole app.',
-            before: function () { hideMenus(); closeExport(); closePrefs(); closeOutput(); }
-        },
         outroQuick: {
             title: 'You&rsquo;re all set', center: true,
             body: 'Done puts your own project back. Reopen this guide any time from Help &rsaquo; Quick Start Guide, or take the full walkthrough below.',
@@ -4406,7 +7206,7 @@
             var ps = wallPins();
             if (ps.length <= mem.before || ps.length !== portsNeeded()) return null;
             var socks = ps.map(function (p) { return Number(p.port); }).sort(function (a, b) { return a - b; });
-            return 'All ' + ps.length + ' ports are back on sockets ' + socks[0] + '–' + socks[socks.length - 1]
+            return 'All ' + ps.length + ' ports are back on sockets ' + socks[0] + ' to ' + socks[socks.length - 1]
                 + (flagOk() ? '; the flag is green.' : '.');
         }
     });
@@ -4432,38 +7232,32 @@
             steps: ['introQuick', 'cabinetSize', 'gridSize', 'processing', 'addProcessor',
                     'dropProcessor', 'addDistro', 'dropMulti', 'exportBinder', 'outroQuick']
         },
-        // Every feature release replaces this with a short tour of ALL its
-        // new features (Matt, 2026-10-10); the old release's steps stay in
-        // STEPS as long as another tour uses them.
-        whatsNew: {
-            title: 'What’s New in 1.6',
-            seed: {
-                name: 'Demo Show',
-                wall: { columns: 10, rows: 5, cabinet_width: 200, cabinet_height: 200 },
-                second: { name: 'DEMO WALL 2', columns: 6, rows: 4, cabinet_width: 200, cabinet_height: 200,
-                          offset_x: 2200, offset_y: 0 }
-            },
-            steps: ['introWhatsNew', 's3dOpen', 's3dSelect', 's3dCurve', 's3dYaw', 's3dCamera', 's3dJoint',
-                    'outputOpen', 'outputChoices',
-                    'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
-                    'idmColours', 'idmHighlight', 'idmList',
-                    'notesChecklist', 'outroWhatsNew']
-        },
         advanced: {
             title: 'Advanced Guide',
             seed: { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } },
-            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'gridSize', 'fit', 'blankCabinet',
-                    'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'addProcessor',
-                    'nameProcessor', 'redundancy', 'backupProcessor', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
+            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'startPage', 'startPanel', 'sameAsLast', 'avgPower', 'gridSize', 'fit', 'blankCabinet', 'quickPalettes',
+                    'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'zPattern', 'addProcessor',
+                    'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
-                    'overrideRun', 'addBreakoutBox', 'boxFiber', 'fiberStrands', 'panelWatts', 'breakoutType', 'addDistro', 'nameDistro',
-                    'distroRating', 'distroPhase', 'distroOutputs',
-                    'dropMulti', 'typeChip', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',
-                    'multiCableSheet', 'powerJumpers', 'powerCableTags',
-                    'customPower', 'customDraw', 'splitters', 'balance', 'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'groupScreens',
-                    'exportBinder', 'screenOrder', 'wiringTick', 'titleBlock', 'preferences',
-                    'helpMenu', 'outroAdvanced']
+                    'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'procCableList', 'panelWatts', 'panelInput', 'breakoutType',
+                    'addDistro', 'nameDistro',
+                    'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows',
+                    'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',
+                    'multiCableSheet', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPerKind',
+                    'cableStockPieces', 'powerCableTags',
+                    'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
+                    'addService', 'serviceRating', 'serviceDistro', 'feederLength',
+                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingTotals',
+                    'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
+                    's3dOpen', 's3dSelect', 's3dCurve', 's3dYaw', 's3dCamera', 's3dJoint',
+                    'outputOpen', 'outputChoices',
+                    'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
+                    'idmColours', 'idmHighlight', 'idmList', 'notesChecklist',
+                    'groupScreens', 'groupNames',
+                    'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
+                    'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
+                    'redrawAsOne', 'sweepPorts', 'helpMenu', 'outroAdvanced']
         }
     };
 
@@ -4477,11 +7271,17 @@
 
     window.QuickStart = {
         start: function () { return show('quick'); },
-        startWhatsNew: function () { return show('whatsNew'); },
         startAdvanced: function () { return show('advanced'); },
+        // What's New: the Advanced Guide steps whose `since` is newer than
+        // `after` and not newer than `upTo` (keys, guide order), and a run
+        // of just those steps, each from its own entry snapshot.
+        newSteps: newSteps,
+        startSteps: startSteps,
         startTour: function (name) { return TOURS[name] ? show(name) : Promise.resolve(); },
         tours: toursAsLists,
         steps: function () { return STEPS; },
+        // The windows step `key` works in, read now (its `window`).
+        windowsOf: function (key) { return windowsOf(STEPS[key]); },
         end: end,
         setSpeed: function (n) { speed = Math.max(0.25, Number(n) || 1); },
         // Go to step n (1-based); {apply: true} runs the steps between
@@ -4493,25 +7293,56 @@
         signature: signature,
         state: function () {
             return { tour: S.name, index: S.idx, running: S.running, visible: S.visible,
-                     jumpedVia: S.jumpedVia };
+                     jumpedVia: S.jumpedVia, steps: S.keys.slice(), phase: S.phase };
         }
     };
 
+    // The boot's own business, from load until the stash is recovered and
+    // the first-run guide has either shown or decided not to. The startup
+    // panel picker (app-presets.js maybeOpenStartupPicker) waits it out, so
+    // the guide never opens over the picker and closes it.
+    var autoPending = true;
+    window.QuickStart.autoPending = function () { return autoPending; };
+
+    // FIRST RUN ONLY (the owner, 2026-11-04): the first-run guide shows on
+    // the first launch, and every launch after it opens on the start page.
+    // Nothing used to record a first run: only an opt-out box in the
+    // guide's callout kept it away, so it came back every launch, and a
+    // launch quit in the middle of it opened on the start page next (the
+    // guide's recovery skips it), so the two took turns. The first run is
+    // marked as the guide opens. The opt-out box is gone (owner,
+    // 2026-11-04: "Remove it"): after the first run the guide opens only
+    // from Help. The key it wrote (lrd_quickstart_disabled) is never read;
+    // an older browser that still holds it is treated like any other.
+    //
+    // The mark is '0' while the first run is still to come, '1' after.
+    // A browser that ran the app before the mark existed has none, and a
+    // What's New stamp (whatsnew.js writes one every launch, silently on
+    // the first), so its first run is behind it. Settled here, as the page
+    // loads: whatsnew.js loads after this file and writes its stamp only
+    // once a fetch answers, so a first launch has none yet. A first launch
+    // whose guide never got to open keeps '0' and shows it next time.
+    function firstRunDone() { return lsGet(FIRST_RUN_KEY) === '1'; }
+    if (lsGet(FIRST_RUN_KEY) == null) lsPut(FIRST_RUN_KEY, lsGet('lrd_whatsnew_seen') != null ? '1' : '0');
+
     function maybeAutoShow() {
-        if (disabled()) return;
         // Never auto-show inside an automated browser (Playwright/Selenium set
         // navigator.webdriver). The tour's click-catcher would otherwise block
         // E2E tests. Real users are unaffected; they can still open it manually.
-        if (navigator.webdriver) return;
+        if (navigator.webdriver) { autoPending = false; return; }
+        if (firstRunDone()) { autoPending = false; return; }
         var tries = 0;
         var t = setInterval(function () {
             tries++;
             if (document.querySelector('#view-tabs') && document.querySelector('#right-sidebar')
                     && window.app && window.app.project && window.canvasRenderer) {
                 clearInterval(t);
-                setTimeout(function () { show('quick'); }, 400);
+                setTimeout(function () {
+                    try { lsPut(FIRST_RUN_KEY, '1'); show('quick'); } finally { autoPending = false; }
+                }, 400);
             } else if (tries > 40) {
                 clearInterval(t);
+                autoPending = false;
             }
         }, 150);
     }
@@ -4529,9 +7360,11 @@
                 clearInterval(t);
                 recoverStash().then(function (recovered) {
                     if (!recovered) maybeAutoShow();
-                });
+                    else autoPending = false;
+                }, function () { autoPending = false; });
             } else if (tries > 80) {
                 clearInterval(t);
+                autoPending = false;
             }
         }, 150);
     }

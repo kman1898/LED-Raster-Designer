@@ -141,7 +141,7 @@ ALL_VIEWS = ['pixel-map', 'cabinet-id', 'show-look', 'data-flow', 'power']
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport=VIEWPORT)
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)  # socket connect + app init
@@ -1133,6 +1133,33 @@ def test_the_dock_clamps_at_min_and_max(page):
     assert page.evaluate(DOCK_STATE_JS)['storedH'] == str(ceiling), (
         "the saved height is not the clamped one")
     assert_canvas_matches_wrapper(page, "dragging the dock to its clamps")
+
+
+SIDE_TABS_JS = """() => {
+    const d = document.getElementById('hardware-dock').getBoundingClientRect();
+    const w = document.getElementById('canvas-wrapper').getBoundingClientRect();
+    return ['left-sidebar-toggle', 'right-sidebar-toggle'].map(id => {
+        const r = document.getElementById(id).getBoundingClientRect();
+        return { id, top: r.top, bottom: r.bottom, mid: (r.top + r.bottom) / 2,
+                 dockTop: d.top, wrapTop: w.top, wrapBottom: w.bottom };
+    });
+}"""
+
+
+@pytest.mark.parametrize('dy', [-150, -900])
+def test_the_side_tabs_stay_off_a_tall_tray(page, dy):
+    """QA, 1.6.0 beta 5: the side panels' collapse tabs sat at the window's
+    middle, so a tray dragged tall slid under them and they covered the
+    first letters of its rows ("creen1 7 of 12 ports"). They ride the
+    canvas's middle now, clear of the tray at any height it takes."""
+    reset_widths(page, 'data-flow')
+    drag_dock(page, dy)
+    _settle(page, 300)
+    for tab in page.evaluate(SIDE_TABS_JS):
+        assert tab['bottom'] <= tab['dockTop'] + 0.5, (
+            f"{tab['id']} covers the tray: {tab}")
+        assert tab['wrapTop'] - 0.5 <= tab['mid'] <= tab['wrapBottom'] + 0.5, (
+            f"{tab['id']} is off the canvas: {tab}")
 
 
 def test_a_saved_tray_taller_than_the_column_is_clamped_on_load(page):

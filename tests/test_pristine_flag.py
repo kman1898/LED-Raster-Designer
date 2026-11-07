@@ -427,7 +427,7 @@ def test_every_layer_put_in_the_front_end_goes_through_put_layer():
     core = _js('app-core.js')
     helper = core[core.index('    _putLayer(id, body) {'):]
     helper = helper[:helper.index('\n    }')]
-    assert "this._layerPutIsAnEdit() ? '?edited=1' : ''" in helper, helper
+    assert "this._layerPutIsAnEdit() ? '?edited=1&' : '?'" in helper, helper
     callers = {
         # (file, method): the PUT is made through the helper
         ('app-screen-info.js', 'toggleLayerVisibility'): "this._putLayer(layer.id, { visible: layer.visible })",

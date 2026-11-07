@@ -59,7 +59,8 @@ BUILD_JS = """async (rot) => {
             row: r, col: c, x: o.offset_x + c * o.cabinet_width, y: o.offset_y + r * o.cabinet_height,
             width: o.cabinet_width, height: o.cabinet_height, hidden: false, blank: false, halfTile: 'none' });
         return Object.assign({ type: 'screen', visible: true, cabinet_width: 128, cabinet_height: 128,
-            panel_weight: 20, weight_unit: 'kg', panelWatts: 100, powerVoltage: 100, powerAmperage: 15,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            panel_weight: 20, weight_unit: 'kg', panelWatts: 100, powerVoltage: 100, powerAmperage: 18.75,
             // stated, not implied: a screen with no breakout takes the
             // PREFERENCE (True1 as shipped), not Edison (2026-09-22)
             powerBreakoutType: 'soca-edison',
@@ -77,11 +78,12 @@ BUILD_JS = """async (rot) => {
         // PLAIN: a 5A circuit holds one row exactly, so with the splitters
         // off every row is a circuit of its own - five unshared discs.
         screen({ id: 3, name: 'PLAIN', columns: 5, rows: 5, offset_x: 1800, offset_y: 0,
-                 powerFlowPattern: 'tl-h', powerAmperage: 5, rotation: rot || 0 }),
+                 powerFlowPattern: 'tl-h', powerAmperage: 6.25, rotation: rot || 0 }),
     ];
     const j = (method, url, body) => fetch(url, {method, headers: {'Content-Type': 'application/json'},
         body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
-    await j('PUT', '/api/project', { layers, groups: [], canvases: [], rack: [] });
+    await j('PUT', '/api/project', { layers, groups: [], canvases: [], rack: [],
+        distros: [{ id: 'd1', name: 'PD', ratingA: 200, system: '120/208', voltage: 208, phase: 3 }] });
     app.project = await j('GET', '/api/project');
     app.selectLayer(app.project.layers[0]);
     await app.refreshProcessors();
@@ -96,6 +98,8 @@ SET_JS = """([cable, nfer]) => {
     const app = window.app;
     for (const l of app.project.layers) {
         l.powerSplitters = { enabled: l.name !== 'PLAIN', maxWays: 3, manual: { merge: [], split: [] } };
+        // fed, so the cables draw: no distro, no extension (2026-10-20)
+        l.powerSocaDistro = { 1: 'd1' }; l.powerSocaNames = { 1: 'S1' };
         l.powerCircuitCables = { 1: { ft: 10 }, 2: { ft: 25 } };
         l.showPowerCableTags = cable;
         l.showPowerNferTags = nfer;
@@ -144,7 +148,7 @@ def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1600, 'height': 950},
                                      device_scale_factor=1)
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -254,7 +258,9 @@ def _stack_faults(view):
             gx, gy = _gap(p, t)
             if gx > -HAIR:
                 bad.append('%s is beside its tag %s, not over or under it' % (p['text'], t['text']))
-            if not (-HAIR <= gy < 6):
+            # (the gap holds both pills' rims and a hair - 1.6.0 QA: the
+            # rims touched - about 2.3 map units, so it grows with zoom)
+            if not (-HAIR <= gy < 3.5 * max(1.0, view['zoom'])):
                 bad.append('%s stands %.1f px off its tag %s' % (p['text'], gy, t['text']))
         # covers nothing, and stays inside its wall
         for o in discs + tags + [q for q in pills if q is not p]:

@@ -2,7 +2,7 @@
 widths (1.5).
 
 A distro's gear opened in a narrow window used to cut the panel's contents
-off on the right - "A per leç", "Follow the circuit voltage — Lir",
+off on the right - "A per leç", "Follow the circuit voltage: Lir",
 "Edison / True1 / powerCC" - and the selects read as text boxes, their
 chevrons lost under a background shorthand. The panel now:
 
@@ -67,7 +67,7 @@ def page(e2e_server, pw_browser, presets_file):
     app_module.current_project['distros'] = [json.loads(json.dumps(DISTRO))]
     context = pw_browser.new_context(viewport={'width': 1600, 'height': HEIGHT})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -84,7 +84,18 @@ def page(e2e_server, pw_browser, presets_file):
 def _open(pg, key='distro-d1'):
     """Open a gear by the gear's own click handler. A dispatched click, not
     a pointer one: at a phone-narrow window the app's own panels overlap
-    the tray, and what is under test is the panel, not the tray."""
+    the tray, and what is under test is the panel, not the tray.
+
+    First the window's last resize settles: a short window re-clamps the
+    tray's height (theme.js reclamp) and the tray eases to it over 0.18s,
+    its gear and an open panel moving with it. A panel opened and measured
+    mid-ease moved again under the test (8162ef7: the 640x460 window before
+    the drag test clamps the tray since the narrow header wraps to two
+    rows). Two frames let the resize event run; then no panel eases."""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+    pg.wait_for_function("""() => !document.getAnimations().some(a => a.playState === 'running'
+        && a.effect && a.effect.target instanceof Element
+        && a.effect.target.matches('#hardware-dock, .lrd-panel'))""")
     pg.evaluate("""async (key) => {
         const app = window.app;
         app._hwPopoverClose();

@@ -81,8 +81,29 @@ class _Processors {
 
     _applyProcessorState(data) {
         if (!data || !data.resolved) return;
+        // AN OLDER ANSWER NEVER PUTS AN OLDER TREE BACK. The server numbers
+        // every reply that carries the tree before reading it
+        // (app.processor_state_stamp), so a lower number was read from an
+        // older tree: a refresh sent before a rename and answered after the
+        // rename's own reply put the old name back on the page (2026-10-30).
+        // A new `boot` is a restarted server, whose numbers start again.
+        const stamp = data.stateStamp;
+        if (stamp && typeof stamp.n === 'number') {
+            const last = this._processorStamp;
+            if (last && last.boot === stamp.boot && stamp.n < last.n) {
+                sendClientLog('processor_state_stale_dropped', { n: stamp.n, newest: last.n });
+                return;
+            }
+            this._processorStamp = { boot: stamp.boot, n: stamp.n };
+        }
         this._processorsResolved = data.resolved;
         this._processorsRaw = JSON.stringify(data.processors || []);
+        // A card's or box's cable sheet and fold go with the record, so a
+        // record that comes later under the same id starts closed
+        // (app-dock-cable-sheets.js _forgetHardwareViews).
+        if (typeof this._forgetHardwareViews === 'function') {
+            this._forgetHardwareViews(data.resolved);
+        }
         // The connectors a data cable can be typed as, served with the
         // tree (catalog DATA_CABLE_CONNECTORS) so the sheet's select and
         // the server's refusals name one list.
@@ -94,9 +115,18 @@ class _Processors {
         // onto the project under the tree's own rule: never written onto a
         // project that has none and never had any, so a file that never
         // met the feature stays byte-for-byte what it was.
+        // Each in the STORED shape (processor_catalog store_show_snake):
+        // an unset length or connector is no key at all, never null, so
+        // the saved file is the same whichever order a show was opened,
+        // edited or re-read in.
         if (Array.isArray(data.snakes) && this.project
                 && (data.snakes.length || this.project.snakes)) {
-            this.project.snakes = data.snakes;
+            this.project.snakes = data.snakes.map(s => {
+                const out = { id: s.id, members: s.members, name: s.name };
+                if (s.ft != null) out.ft = s.ft;
+                if (s.connector != null) out.connector = s.connector;
+                return out;
+            });
         }
         // The show's fiber cables, the same way - except that an emptied
         // list leaves no key behind (the server drops it too), so the
@@ -170,10 +200,17 @@ class _Processors {
                 if (applied && data.portAssignments && this.project) {
                     this.project.port_assignments = data.portAssignments;
                 }
+                // The mirror screens the removal unplugged, off this copy
+                // of the layers before the resolve below reads them and
+                // before the snapshot takes them: one undo, both back.
+                if (applied && Array.isArray(data.mirrorsCleared)
+                        && typeof this._dropClearedMirrors === 'function') {
+                    this._dropClearedMirrors(data.mirrorsCleared);
+                }
                 this._applyProcessorState(data);
                 if (applied && pullBefore) this._dropPullEditsGoneWith(pullBefore);
                 if (applied && action) this.saveState(action);
-                // What the edit had to say - "Removed box XD B - 3
+                // What the edit had to say - "Removed box XD B: 3
                 // ports of LEFT are unplaced again" - read where a refusal
                 // would read, but not in a refusal's color: the edit did
                 // exactly what it was told.
@@ -365,23 +402,38 @@ class _Processors {
         return this.deriveReturnLabel(primary);
     }
 
-    _buildCapacityRow(used, ceiling, known, reason) {
+    // USABLE PORTS, THE BACKUPS BESIDE THEM (owner, 2026-11-03): "40 / 40
+    // ports · 40 backup" for two 40-port cards paired 1:1, never "80 / 80
+    // ports". `backup` is the ports consumed as returns (the server's
+    // backupCount - a 1:1 backup card, a port shape's returns, a loop or
+    // backup box), taken off both sides; the capacity check reads the
+    // usable counts. A card that is nothing but returns reads "16 backup
+    // ports".
+    // `inside`: how many of the backup sockets are among `used` and the
+    // ceiling (the server's backupInPorts) - a backup box on a card in
+    // Backup mode delivers sockets the counts never held.
+    _buildCapacityRow(used, ceiling, known, reason, backup = 0, inside = backup) {
         const row = document.createElement('div');
         row.style.fontSize = '11px';
         row.style.fontFamily = 'monospace';
+        const spare = backup > 0 ? ` · ${backup} backup` : '';
         if (!known) {
             // A device whose count the sources never settled stays selectable
             // and says so. Substituting a sibling's number here would silently
             // cap a wall, which is the one failure this panel must not have.
             row.style.color = '#c8a04a';
-            row.textContent = `${used} ports / ceiling unknown`;
+            row.textContent = `${used - inside} ports / ceiling unknown${spare}`;
             if (reason) row.title = reason;
             return row;
         }
-        const over = used > ceiling;
+        const usable = used - inside;
+        const reach = ceiling - inside;
+        const over = usable > reach;
         row.style.color = over ? '#d05a52' : 'var(--ps-dim, #c0c0c0)';
-        row.textContent = `${used} / ${ceiling} ports`;
-        if (over) row.textContent += ' - over capacity';
+        row.textContent = backup > 0 && usable === 0 && reach === 0
+            ? `${backup} backup ports`
+            : `${usable} / ${reach} ports${spare}`;
+        if (over) row.textContent += ' · over capacity';
         return row;
     }
 
@@ -432,7 +484,8 @@ class _Processors {
         cap.style.justifyContent = 'space-between';
         cap.style.gap = '8px';
         cap.appendChild(this._buildCapacityRow(
-            proc.defined, proc.ceiling, proc.ceilingKnown, proc.note));
+            proc.defined, proc.ceiling, proc.ceilingKnown, proc.note,
+            proc.backupCount || 0, proc.backupInPorts || 0));
         if (proc.maxCards !== null && proc.maxCards !== undefined
                 && proc.form === 'chassis') {
             const cards = document.createElement('div');
@@ -446,6 +499,21 @@ class _Processors {
             cap.appendChild(cards);
         }
         wrap.appendChild(cap);
+        // PORTS NO BACKUP COVERS (owner, 2026-11-03): beside the capacity
+        // and the backup settings, each box whose backup carries fewer of
+        // its ports than it has, by the server's coverage (unbackedPorts).
+        const unbacked = this.unbackedPortsText(proc);
+        if (unbacked) {
+            const line = document.createElement('div');
+            line.className = 'hw-pop-unbacked';
+            line.dataset.lrdField = `processor-unbacked-${proc.id}`;
+            line.style.fontSize = '11px';
+            line.style.color = '#c8a04a';
+            line.style.marginTop = '2px';
+            line.style.lineHeight = '1.4';
+            line.textContent = unbacked;
+            wrap.appendChild(line);
+        }
 
         if (proc.redundancySupported) {
             // THE ONE HOME FOR REDUNDANCY - and one calm surface. The
@@ -505,32 +573,15 @@ class _Processors {
             'Remove processor',
             `Remove this processor. Its ${this.unitWordFor(proc) === 'processor' ? '' : `${this.unitWordFor(proc)}s, `}boxes and every port on them `
             + 'go with it; undo puts it back.',
+            // The machine's cards' and boxes' folds and cable sheets go
+            // with it when the reply's tree is adopted
+            // (_forgetHardwareViews): their ids DO come back - undo of an
+            // add rewinds the counter, and every show numbers from 1 - so
+            // a key left behind would open or fold whatever later takes
+            // the same id.
             () => this._processorRequest(
                 `/api/processors/${proc.id}`, 'DELETE', undefined,
-                'Remove Processor')
-                .then(() => {
-                    // The machine is gone and its id never comes back, so
-                    // its fold keys go with it - the dock's card and box
-                    // sections fold under their own ids, which die with the
-                    // machine too. The other ways a processor leaves (undo
-                    // of an add, another project loading over this one)
-                    // just orphan their keys, harmlessly: no later
-                    // processor in this project can inherit one.
-                    try {
-                        (proc.slots || []).forEach(slot => {
-                            const card = slot.card;
-                            if (!card) return;
-                            localStorage.removeItem(
-                                'ledRasterPanelCollapsed_hwdock-card-'
-                                + card.id);
-                            (card.cvts || []).forEach(cvt => {
-                                localStorage.removeItem(
-                                    'ledRasterPanelCollapsed_hwdock-box-'
-                                    + cvt.id);
-                            });
-                        });
-                    } catch (_) { /* blocked storage never held the keys */ }
-                })));
+                'Remove Processor')));
         return wrap;
     }
 
@@ -542,7 +593,7 @@ class _Processors {
         if (this.cardIsUnitFace(p, c)) {
             return p.name || p.deviceName || c.deviceName;
         }
-        return `${c.name || c.unitTitle || c.deviceName} in ${p.name || p.deviceName}`;
+        return `${this.cardShortName(p, c) || c.name || c.unitTitle || c.deviceName} in ${p.name || p.deviceName}`;
     }
 
     // Whether the vendor fixes this unit's pairing (Brompton's adjacent
@@ -568,6 +619,28 @@ class _Processors {
         return !!(shape && shape.mode !== '1to1');
     }
 
+    // The loop boxes backing a card's ports - a box on a copy OPT set to
+    // Backup (an H_4xfiber in Backup mode, a NovaPro UHD box set to
+    // Backup) - each with the boxes whose ports it backs up (null: the
+    // unit's own ports), in card order: [{ box, mains: [box|null] }].
+    // Read off the same `backedBy` link every backup end is read off
+    // (processor_catalog's _apply_backup_mapping, `loop`), so the paper
+    // never says Off for a card whose returns come home on a box.
+    _cardLoopBackups(card) {
+        const cvts = (card && card.cvts) || [];
+        const byId = new Map(cvts.map(c => [c.id, c]));
+        const out = new Map();
+        for (const p of (card && card.ports) || []) {
+            const bb = p.backedBy;
+            if (!bb || !bb.loop || !byId.has(bb.cvtId)) continue;
+            if (!out.has(bb.cvtId)) out.set(bb.cvtId, { box: byId.get(bb.cvtId), mains: [] });
+            const main = p.cvtId ? (byId.get(p.cvtId) || null) : null;
+            const mains = out.get(bb.cvtId).mains;
+            if (!mains.includes(main)) mains.push(main);
+        }
+        return [...out.values()];
+    }
+
     // THE DERIVED LEVEL. What the bar lights is read from what is stored,
     // never from what was clicked, so the bar can never claim a level
     // that is not there:
@@ -576,11 +649,20 @@ class _Processors {
     //   'fixed'  - the vendor fixes the pairing (a fact, not a level)
     //   'unit'   - a standalone unit whose one card is at 1:1, partner
     //              picked or not - "Backed up" is its level
+    //   'mixed'  - a chassis whose cards disagree (some 1:1, some in a
+    //              port shape), or one the user put at Mixed on purpose
+    //              (the stored redundancyMixed pick)
     //   'port'   - every card is in a port shape
     //   'card'   - anything else: cards at 1:1, paired singly or not yet
     // A chassis has no whole-unit level any more (2026-09-25): a second
     // unit mirroring it whole is its backup processor, the switch under
     // the bar.
+    //
+    // The cards that decide are the ones with a choice of their own: a
+    // card consumed as somebody's 1:1 backup is its main's return end, and
+    // whatever mode it stored underneath is inert - so it never makes a
+    // chassis read Mixed. Where every card is consumed the stored modes
+    // are all there is, and they are read as before.
     _procRedundancyLevel(proc) {
         if (!proc.redundancy) return 'off';
         if (this._backupUnitMainId(proc)) return 'backup';
@@ -590,10 +672,32 @@ class _Processors {
             return cards.length && this._cardPortShaped(cards[0])
                 ? 'port' : 'unit';
         }
-        if (cards.length && cards.every(c => this._cardPortShaped(c))) {
-            return 'port';
-        }
+        if (this._procMixable(proc) && proc.redundancyMixed) return 'mixed';
+        const live = cards.filter(c => !c.backupFor);
+        const deciding = live.length ? live : cards;
+        const shaped = deciding.filter(c => this._cardPortShaped(c)).length;
+        if (deciding.length && shaped === deciding.length) return 'port';
+        if (shaped && this._procMixable(proc)) return 'mixed';
         return 'card';
+    }
+
+    // Whether the bar offers Mixed on this unit: a chassis with more than
+    // one slot (owner, 2026-10-29: "on say H series i have 3 16 port
+    // cards"). A standalone unit is its one card, so there is nothing to
+    // mix; a vendor-fixed pairing never reaches here (its own bar).
+    _procMixable(proc) {
+        return proc.form === 'chassis' && (proc.slots || []).length > 1;
+    }
+
+    // A row's legend under the bar - one place, so the words a slot row
+    // wears can change in one place. A chassis says its slot and the card
+    // in it, the slot counted from one - "Slot 2 · Card 2" where nobody
+    // named the card (cardShortName); a standalone unit is its one card,
+    // read by its unit title.
+    _redRowLegend(proc, slot, card) {
+        return proc.form === 'chassis'
+            ? `Slot ${slot.index + 1} · ${this.cardShortName(proc, card) || card.name || card.deviceName}`
+            : this.dataUnitTitle(proc, card).title;
     }
 
     // The segment the bar lights: the derived level. (A remembered pick
@@ -617,25 +721,49 @@ class _Processors {
     //          (_procRedundancyShown) and outside history, since the two
     //          are the same stored shape read at two levels. The partner
     //          pick under either is what actually pairs.
+    //   mixed - (a chassis only) no card moves: redundancy on where it
+    //          was off, and the Mixed pick remembered on the processor
+    //          (redundancyMixed) so the bar stays here while the cards
+    //          happen to agree. Each card then picks its own kind in its
+    //          row. Per card / Per port from Mixed convert every card as
+    //          they always did, and the server drops the pick with them.
     _setRedundancyLevel(proc, level) {
         const cards = (proc.slots || []).map(s => s.card).filter(Boolean);
         const url = `/api/processors/${proc.id}`;
+        const shown = this._procRedundancyShown(proc);
         if (level === 'off' || level === 'on') {
             if (!!proc.redundancy === (level === 'on')) return;
             this._processorRequest(url, 'PUT', { redundancy: level === 'on' },
                                    'Toggle Redundancy');
             return;
         }
+        if (level === 'mixed') {
+            if (shown === 'mixed') return;
+            this._processorRequest(
+                url, 'PUT', { redundancy: true, redundancyMixed: true },
+                'Set Redundancy Mixed');
+            return;
+        }
         if (level === 'port') {
+            // The lit segment is a no-op, whatever a consumed card stored.
+            if (shown === 'port') return;
             if (proc.redundancy && cards.length
-                    && cards.every(c => this._cardPortShaped(c))) return;
+                    && cards.every(c => this._cardPortShaped(c))) {
+                // Already every card in a port shape: nothing moves - the
+                // bar sat at Mixed by pick, which Per port lets go of in
+                // one write, the shapes left as they are.
+                if (!proc.redundancyMixed) return;
+                this._processorRequest(url, 'PUT', { redundancyMixed: false },
+                                       'Set Redundancy Per Port');
+                return;
+            }
             this._processorRequest(
                 url, 'PUT',
                 { redundancy: true, cardsRedundancyMode: 'sequential' },
                 'Set Redundancy Per Port');
             return;
         }
-        const moving = !proc.redundancy
+        const moving = !proc.redundancy || shown === 'mixed'
             || cards.some(c => this._cardPortShaped(c));
         if (!moving) return;
         this._processorRequest(
@@ -697,7 +825,7 @@ class _Processors {
                 fact.style.lineHeight = '1.4';
                 fact.style.margin = '6px 0 0';
                 fact.textContent = proc.redundancyPairing.statement;
-                fact.title = 'The loops this unit runs now - each is its '
+                fact.title = 'The loops this unit runs now: each is its '
                     + 'own switch above.';
                 block.appendChild(fact);
             }
@@ -741,7 +869,7 @@ class _Processors {
             fact.style.color = '#c8a04a';
             fact.textContent = `Backs up ${main
                 ? (main.name || main.deviceName) : 'another processor'}`
-                + ' - card for card; its ports carry that unit’s returns.';
+                + ', card for card; its ports carry that unit’s returns.';
             fact.title = 'Picked as the whole-processor backup. Clear the '
                 + 'pick on the main processor to free this one.';
             block.appendChild(fact);
@@ -759,10 +887,14 @@ class _Processors {
 
         const chassis = proc.form === 'chassis';
         const shown = this._procRedundancyShown(proc);
-        block.appendChild(this._buildRedundancyStrip(proc, chassis
+        // Mixed (owner, 2026-10-29: "i want to leave the bar. so i think
+        // adding mixed makes the most sense") rides the chassis's bar only
+        // where there is more than one slot to mix.
+        const segments = chassis
             ? [['off', 'Off'], ['card', `Per ${this.unitWordFor(proc)}`], ['port', 'Per port']]
-            : [['off', 'Off'], ['unit', 'Backed up'], ['port', 'Per port']],
-            shown));
+            : [['off', 'Off'], ['unit', 'Backed up'], ['port', 'Per port']];
+        if (chassis && this._procMixable(proc)) segments.push(['mixed', 'Mixed']);
+        block.appendChild(this._buildRedundancyStrip(proc, segments, shown));
         if (shown === 'off') return block;
 
         if (!cards.length) {
@@ -770,7 +902,7 @@ class _Processors {
             none.style.fontSize = '11px';
             none.style.color = 'var(--ps-dim, #c0c0c0)';
             none.style.marginTop = '6px';
-            none.textContent = `No ${this.unitWordFor(proc)}s in the slots yet - put a ${this.unitWordFor(proc)} in `
+            none.textContent = `No ${this.unitWordFor(proc)}s in the slots yet. Put a ${this.unitWordFor(proc)} in `
                 + 'a slot below and its row appears here.';
             block.appendChild(none);
             return block;
@@ -779,6 +911,13 @@ class _Processors {
         if (shown === 'unit') {
             // One row: the partner. A standalone unit is its one card, so
             // it picks that card's 1:1 partner - the second sending card.
+            // A unit that IS another's backup says whose instead: a backup
+            // takes no backup of its own.
+            if (cards[0].backupFor) {
+                block.appendChild(this._buildRedRow('backup',
+                    this._buildBacksUpFact(proc, cards[0])));
+                return block;
+            }
             const pick = this._buildCardBackupPick(proc, cards[0]);
             if (pick) block.appendChild(this._buildRedRow('mirrored by', pick));
             return block;
@@ -790,12 +929,18 @@ class _Processors {
         (proc.slots || []).forEach(slot => {
             const card = slot.card;
             if (!card) return;
-            const legend = chassis
-                ? `Slot ${slot.index + 1} · ${card.name || card.deviceName}`
-                : this.dataUnitTitle(proc, card).title;
-            let control = shown === 'card'
-                ? this._buildCardBackupPick(proc, card)
-                : this._buildCardShapeChips(proc, card);
+            const legend = this._redRowLegend(proc, slot, card);
+            if (shown === 'mixed') {
+                block.appendChild(this._buildMixedCardRow(proc, card, legend));
+                return;
+            }
+            // Per card, a card that is another card's 1:1 backup offers no
+            // partner pick (owner, beta.4: no backup of a backup) - it says
+            // whose it is, "backs up Card 1".
+            let control = shown !== 'card'
+                ? this._buildCardShapeChips(proc, card)
+                : card.backupFor ? this._buildBacksUpFact(proc, card)
+                : this._buildCardBackupPick(proc, card);
             if (!control) {
                 // A card the sheet says cannot pair states so in the
                 // control's place; nothing is drawn that could not act.
@@ -840,7 +985,8 @@ class _Processors {
 
     _buildRedundancyBar(proc, segments, shown) {
         const bar = document.createElement('div');
-        bar.className = 'hw-pop-seg';
+        // Four segments size to their words (theme.css hw-pop-seg-fit).
+        bar.className = 'hw-pop-seg' + (segments.length > 3 ? ' hw-pop-seg-fit' : '');
         bar.setAttribute('role', 'radiogroup');
         bar.setAttribute('aria-label', 'Redundancy');
         bar.dataset.lrdField = `processor-redundancy-${proc.id}`;
@@ -849,14 +995,16 @@ class _Processors {
             off: 'Redundancy off for this processor.',
             on: 'Redundancy on. The device pairs its outputs itself.',
             unit: 'Backed up: another unit mirrors this one, port for '
-                + `port - ${word === 'card' ? 'the second sending card' : `a second ${word}`}. Pick it below.`,
+                + `port: ${word === 'card' ? 'the second sending card' : `a second ${word}`}. Pick it below.`,
             card: `Per ${word}: each ${word} is mirrored 1:1 by a ${word} you pick, `
                 + 'one row per slot.',
             // One processor can hold copper cards and fiber cards at once,
             // so this line names no trunk: the CARD's chip does that, in
             // the word its own face prints (_portShapeSplitLabel).
-            port: `Per port: ports pair inside ${word === 'processor' ? 'the processor' : `each ${word}`} - sequential, `
+            port: `Per port: ports pair inside ${word === 'processor' ? 'the processor' : `each ${word}`}: sequential, `
                 + 'split, or picked by hand on each chip.',
+            mixed: `Mixed: each ${word} picks its own: 1:1 onto a ${word} you pick, `
+                + 'or its ports paired inside it. One row per slot.',
         };
         segments.forEach(([level, text]) => {
             const seg = document.createElement('button');
@@ -894,13 +1042,137 @@ class _Processors {
         return row;
     }
 
+    // One slot's row under MIXED (owner, 2026-10-29: "i want card 1 and 2
+    // to be primary and backup but then card 3 i want port level
+    // backup"). The card picks its own kind on one chip row - 1:1 beside
+    // the same Sequential / Split / Manual chips Per port draws, with the
+    // same tips - and at 1:1 the same partner pick Per card draws sits
+    // under it, held to the same pairing rules (the server's). Every
+    // gesture writes ONLY this card, through the card's own route, one
+    // request and one undo step each, and says redundancyMixed so the
+    // bar stays at Mixed even where the write leaves the cards agreeing.
+    // "backs up Card 1": the Per card row of a card that is another
+    // card's 1:1 backup (owner, beta.4), gold like the Mixed row's fact,
+    // offering nothing. The main by the name it goes by (cardShortName:
+    // its typed name, else Card N) where it is in this processor, else by
+    // its unit ("Card 1 in H9"), else the server's title.
+    _buildBacksUpFact(proc, card) {
+        const fact = document.createElement('span');
+        fact.className = 'hw-pop-red-backupfor';
+        fact.style.fontSize = '11px';
+        fact.style.color = '#c8a04a';
+        fact.dataset.lrdField = `processor-card-backupfor-${card.id}`;
+        const mainId = card.backupFor.cardId;
+        const mainSlot = (proc.slots || [])
+            .find(s => s.card && s.card.id === mainId);
+        const elsewhere = mainSlot ? null : this._otherCards(card.id)
+            .find(x => x.card.id === mainId);
+        const main = mainSlot
+            ? (this.cardShortName(proc, mainSlot.card)
+               || this._backupUnitTitle(proc, mainSlot.card))
+            : elsewhere ? this._backupUnitTitle(elsewhere.proc, elsewhere.card)
+            : card.backupFor.title;
+        fact.textContent = `backs up ${main}`;
+        fact.title = `This ${this.unitWordFor(proc, card)} is ${main}’s 1:1 `
+            + 'backup: its ports carry those returns. Clear the pick on '
+            + `${main}’s row to free it.`;
+        return fact;
+    }
+
+    // A card consumed as another card's 1:1 backup is that card's return
+    // end: it says whose, gold, and offers nothing.
+    _buildMixedCardRow(proc, card, legend) {
+        if (card.backupFor) {
+            const fact = document.createElement('span');
+            fact.className = 'hw-pop-red-backupfor';
+            fact.style.fontSize = '11px';
+            fact.style.color = '#c8a04a';
+            fact.style.minWidth = '0';
+            fact.style.flex = '1 1 100%';
+            fact.style.overflow = 'hidden';
+            fact.style.textOverflow = 'ellipsis';
+            fact.style.whiteSpace = 'nowrap';
+            fact.dataset.lrdField = `processor-card-backupfor-${card.id}`;
+            // The main by the same legend its own row wears where it sits
+            // in this chassis (three cards of one model read apart only by
+            // their slots), else by the unit it sits in.
+            const mainId = card.backupFor.cardId;
+            const mainSlot = (proc.slots || [])
+                .find(s => s.card && s.card.id === mainId);
+            const elsewhere = mainSlot ? null : this._otherCards(card.id)
+                .find(x => x.card.id === mainId);
+            const main = mainSlot ? this._redRowLegend(proc, mainSlot, mainSlot.card)
+                : elsewhere ? this._backupUnitTitle(elsewhere.proc, elsewhere.card)
+                : card.backupFor.title;
+            fact.textContent = `Backup for ${main}`;
+            fact.title = `${fact.textContent}: its ports carry that `
+                + `${this.unitWordFor(proc, card)}’s returns. Clear the pick `
+                + 'on that row to free it.';
+            const row = this._buildRedRow(legend, fact);
+            // legend over the line, the way a chip row wraps
+            row.classList.add('hw-pop-red-row-chips');
+            return row;
+        }
+        const chips = this._buildCardShapeChips(proc, card,
+                                                { pair: true, mixed: true });
+        if (!chips) {
+            const none = document.createElement('span');
+            none.style.fontSize = '11px';
+            none.style.color = 'var(--ps-dim, #c0c0c0)';
+            none.textContent = card.redundancyShape
+                ? 'fixed by the device' : `not supported on this ${this.unitWordFor(proc, card)}`;
+            return this._buildRedRow(legend, none);
+        }
+        const row = this._buildRedRow(legend, chips);
+        if (card.redundancyShape.mode === '1to1') {
+            const pick = this._buildCardBackupPick(proc, card,
+                                                   { redundancyMixed: true });
+            if (pick) row.appendChild(pick);
+        }
+        return row;
+    }
+
+    // "ports 9-10 have no backup" / "port 9 has no backup": one box's
+    // uncovered ports in its own numbers, as runs; '' when there are none.
+    boxUnbackedText(box) {
+        const nums = [...new Set((box && box.unbackedPorts) || [])]
+            .sort((a, b) => a - b);
+        if (!nums.length) return '';
+        const runs = [];
+        nums.forEach(n => {
+            const last = runs[runs.length - 1];
+            if (last && n === last[1] + 1) last[1] = n;
+            else runs.push([n, n]);
+        });
+        const text = runs.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`))
+            .join(', ');
+        return nums.length === 1 ? `port ${text} has no backup`
+            : `ports ${text} have no backup`;
+    }
+
+    // The processor gear's line: every box on the unit with ports no
+    // backup covers, "CVT10 A ports 9-10 have no backup. CVT10 B ...".
+    unbackedPortsText(proc) {
+        const parts = [];
+        (proc.slots || []).forEach(s => ((s.card && s.card.cvts) || [])
+            .forEach(box => {
+                const said = this.boxUnbackedText(box);
+                if (said) {
+                    parts.push(`${box.displayTitle || box.name || box.deviceName} ${said}.`);
+                }
+            }));
+        return parts.join(' ');
+    }
+
     // The card's 1:1 partner pick. Every other card in the project is
     // offered with its port count in the text, because the count is the
     // eligibility rule - a 1:1 backup mirrors port for port, and the
     // server refuses a mismatch with both counts in the reason. Ranges
     // over the whole project because a backup unit is usually a second
     // machine, not a second slot.
-    _buildCardBackupPick(proc, card) {
+    // `extra` rides in the same request body (a Mixed row's
+    // redundancyMixed), so the pick stays one request and one undo step.
+    _buildCardBackupPick(proc, card, extra = null) {
         const shape = card.redundancyShape;
         if (!shape || shape.forced) return null;
         const partner = document.createElement('select');
@@ -913,23 +1185,47 @@ class _Processors {
         blank.selected = !card.backupCardId;
         partner.appendChild(blank);
         this._otherCards(card.id).forEach(({ proc: p, card: c }) => {
+            // A card already doing a job the pick would give it twice is
+            // not offered (the server refuses both, _check_backup_card): one
+            // that backs up another card, and a main with a backup of its
+            // own. The current partner always stays, so the pick reads it.
+            if (c.id !== card.backupCardId
+                    && ((c.backupFor && c.backupFor.cardId !== card.id)
+                        || (c.backupCardId && c.redundancyShape
+                            && c.redundancyShape.mode === '1to1'))) return;
             const opt = document.createElement('option');
             opt.value = c.id;
             const title = this._backupUnitTitle(p, c);
             // The card's reach - on a box-fed card, what its boxes give
             // ("Follow the boxes", 2026-10-04).
             const count = c.ceilingKnown ? `${c.ceiling}` : '?';
-            let note = '';
-            if (c.backupFor && c.id !== card.backupCardId) {
-                note = ` (backs up ${c.backupFor.title})`;
-            }
-            opt.textContent = `${title} - ${count} ports${note}`;
+            opt.textContent = `${title} · ${count} ports`;
             if (c.id === card.backupCardId) opt.selected = true;
             partner.appendChild(opt);
         });
+        // Nothing to pick: the empty list is not drawn, the reason is said
+        // in its place (QA, 1.6.0 beta 5: Card 3's "backed up by..." opened
+        // on nothing, with no word why).
+        if (partner.options.length === 1) {
+            const word = this.unitWordFor(proc, card);
+            const none = document.createElement('span');
+            none.className = 'hw-pop-red-nopartner';
+            none.dataset.lrdField = `processor-card-nopartner-${card.id}`;
+            none.style.fontSize = '11px';
+            none.style.color = 'var(--ps-dim, #c0c0c0)';
+            const others = this._otherCards(card.id).length;
+            none.textContent = others ? `no ${word} free to back it up`
+                : `no other ${word} to back it up`;
+            none.title = others
+                ? `Every other ${word} already backs one up or has a backup of its own. `
+                    + 'Clear one of those picks to free it.'
+                : `A 1:1 backup is another ${word}, port for port. Add one to pick it here.`;
+            return none;
+        }
         partner.addEventListener('change', () => this._processorRequest(
             `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
-            { backupCardId: partner.value }, 'Change Backup Unit'));
+            Object.assign({ backupCardId: partner.value }, extra || {}),
+            'Change Backup Unit'));
         return partner;
     }
 
@@ -1030,7 +1326,7 @@ class _Processors {
             (val) => this._processorRequest(`/api/processors/${proc.id}`, 'PUT',
                 { backupUnit: { name: val } }, 'Rename Backup Processor'));
         field.style.marginTop = '6px';
-        field.title = `The backup unit's name - ${main} BU until one is typed.`;
+        field.title = `The backup unit's name, ${main} BU until one is typed.`;
         block.appendChild(field);
         return block;
     }
@@ -1098,10 +1394,22 @@ class _Processors {
         const word = this.unitWordFor(proc, card);
         const Word = this.unitWordTitle(word);
         // A one-box unit's card IS the unit, so its gear is headed by the
-        // unit's one name; a slot card is headed by its own.
+        // unit's one name; a slot card is headed by its own - "Card 2" on
+        // a card-based processor where nobody named it (cardShortName).
         wrap.appendChild(this._popHeading(this.cardIsUnitFace(proc, card)
             ? this.dataUnitTitle(proc, card).title
-            : (card.name || card.deviceName)));
+            : (this.cardShortName(proc, card) || card.name || card.deviceName)));
+        // The model stands under a card-based processor's card heading:
+        // the card's own gear is where to look up which card it is.
+        if (this.procIsCardBased(proc) && card.deviceName) {
+            const model = document.createElement('div');
+            model.className = 'hw-pop-model';
+            model.textContent = card.deviceName;
+            model.style.fontSize = '12px';
+            model.style.color = 'var(--ps-dim, #c0c0c0)';
+            model.style.margin = '0 0 8px 0';
+            wrap.appendChild(model);
+        }
 
         // The two template fields share a wrapping line, the same reason
         // the old panel wrapped them: at popover width two fields fit
@@ -1153,7 +1461,7 @@ class _Processors {
             if (conflict) {
                 const blank = document.createElement('option');
                 blank.value = '';
-                blank.textContent = 'sources disagree - pick one';
+                blank.textContent = 'sources disagree, pick one';
                 blank.selected = !card.mode;
                 select.appendChild(blank);
             }
@@ -1161,7 +1469,7 @@ class _Processors {
                 const opt = document.createElement('option');
                 opt.value = m.id;
                 opt.textContent = m.count === null
-                    ? m.label : `${m.label} - ${m.count} ports`;
+                    ? m.label : `${m.label} · ${m.count} ports`;
                 if (m.id === card.mode) opt.selected = true;
                 select.appendChild(opt);
             });
@@ -1179,7 +1487,8 @@ class _Processors {
         if (redundancy) wrap.appendChild(redundancy);
 
         const cap = this._buildCapacityRow(
-            card.defined, card.ceiling, card.ceilingKnown, card.ceilingReason);
+            card.defined, card.ceiling, card.ceilingKnown, card.ceilingReason,
+            card.backupCount || 0, card.backupInPorts || 0);
         cap.style.marginTop = '6px';
         wrap.appendChild(cap);
 
@@ -1238,9 +1547,10 @@ class _Processors {
                 const fit = fits.find(d => keyOf(d) === picker.value);
                 if (!fit) return;
                 picks[card.id] = picker.value;
-                this._processorRequest(
-                    `/api/processors/${proc.id}/cards/${card.id}/cvts`, 'POST',
-                    this._boxFitBody(fit), 'Add Breakout Box');
+                // Mirror or Backup is asked first where the box lands on a
+                // copy OPT of a per-box card (app-mirror-screens.js).
+                this.addBoxWithRole(proc, card, this._boxFitBody(fit),
+                                    'Add Breakout Box');
             });
             if (fits.length) {
                 row.appendChild(picker);
@@ -1250,8 +1560,8 @@ class _Processors {
                 full.style.fontSize = '11px';
                 full.style.color = 'var(--ps-dim, #c0c0c0)';
                 full.textContent = card.trunksFree
-                    ? `Only ${card.trunksFree} trunk left - no box fits it.`
-                    : `All ${card.trunks} trunks are used.`;
+                    ? `Only ${card.trunksFree} trunk left, and no box fits it.`
+                    : (card.trunks === 2 ? 'Both trunks are used.' : `All ${card.trunks} trunks are used.`);
                 row.appendChild(full);
             }
             wrap.appendChild(row);
@@ -1265,6 +1575,12 @@ class _Processors {
                 `${card.trunksUsed} / ${card.trunks} trunks, `
                 + `${card.portsPerTrunk} ports each`;
             wrap.appendChild(trunks);
+
+            // Per OPT, where the card's own RJ45s are carried out on it too
+            // (the MX40 Pro, the H_16xRJ45+2xfiber): all of one OPT's ports
+            // at the RJ45 or at its box, in one go (app-mirror-screens.js).
+            const plugRows = this._buildCardPlugRows(proc, card);
+            if (plugRows) wrap.appendChild(plugRows);
 
             // "16x RJ45 + 2x fiber, plus a breakout box" reads as if the ports
             // add up. They do not: the OPTs copy Ethernet 1-8 and 9-16, so a
@@ -1297,7 +1613,7 @@ class _Processors {
                 short.style.marginTop = '2px';
                 short.style.lineHeight = '1.4';
                 const s = card.shortfall;
-                short.textContent = `${s.delivered} of ${s.ceiling} ports - `
+                short.textContent = `${s.delivered} of ${s.ceiling} ports: `
                     + (s.reachesWith.length
                         ? `this ${word} reaches ${s.ceiling} with `
                           + `${s.reachesWith.join(' or ')}.`
@@ -1449,8 +1765,8 @@ class _Processors {
         const beachField = this.buildBeachPicker({
             value: cvt.beachId,
             fieldKey: `processor-cvt-beach-${cvt.id}`,
-            title: 'The beach this box sits on. Every row it produces - the '
-                + 'cables of the ports it delivers, its fiber, the box itself - '
+            title: 'The beach this box sits on. Every row it produces (the '
+                + 'cables of the ports it delivers, its fiber, the box itself) '
                 + 'is pulled there.',
             onPick: (beachId) => this._processorRequest(
                 url, 'PUT', { beachId }, 'Set Box Beach'),
@@ -1462,6 +1778,24 @@ class _Processors {
         wrap.appendChild(place);
 
         if (cvt.singleInput) wrap.appendChild(this._buildBoxInputsStrip(proc, cvt));
+        // A box on a copy OPT that picks per box: Mirror or Backup.
+        if (cvt.copyRoleChoice) wrap.appendChild(this._buildBoxCopyRoleStrip(proc, cvt));
+
+        // Its fiber's mode where the catalog states one (owner, 2026-11-04):
+        // the model and "Single mode" / "Multimode", as on its dock header.
+        const mode = this.boxFiberMode(cvt);
+        if (mode) {
+            const modeLine = document.createElement('div');
+            modeLine.dataset.lrdField = `processor-cvt-mode-${cvt.id}`;
+            modeLine.style.fontSize = '11px';
+            modeLine.style.color = 'var(--ps-dim, #c0c0c0)';
+            modeLine.style.marginTop = '4px';
+            modeLine.textContent = `${cvt.deviceName} · ${this.fiberModeWord(mode)} fiber`;
+            modeLine.title = `Single mode and multimode never share a fiber cable: a `
+                + `${this.fiberModeWord(mode === 'single' ? 'multi' : 'single', true)} box `
+                + `cannot take a cable this box is on.`;
+            wrap.appendChild(modeLine);
+        }
 
         const info = document.createElement('div');
         info.style.fontSize = '11px';
@@ -1476,11 +1810,16 @@ class _Processors {
         // ruling: "all cvt's are 1-10 or 1-16") - so the line says how many
         // sockets work, never where the card's internal ordinals fall.
         info.textContent = cvt.portCount
-            ? `ports 1-${cvt.portCount}` : 'no ports delivered';
+            ? (cvt.portCount === 1 ? 'port 1' : `ports 1-${cvt.portCount}`) : 'no ports delivered';
         // How many trunks it eats is as much a fact about the box as how many
         // ports come out of it, and it is the one that decides what else will
         // go on the card.
         if (cvt.trunksIn > 1) info.textContent += `, ${cvt.trunksIn} trunks in`;
+        // a box straddling a main OPT and its copy OPT feeding a mirror
+        // from its copy input (a backup says its loop below)
+        if (cvt.spansCopy && cvt.copyInputRole === 'mirror') {
+            info.textContent += ', its input on a copy OPT feeds a mirror screen';
+        }
         const backupOfId = cvt.backupOf
             || (card.redundancyPairing ? cvt.duplicateOf : null);
         if (cvt.beyondTrunks) {
@@ -1488,7 +1827,7 @@ class _Processors {
             // be drawing a machine they have not built - but it is the one
             // thing that can push a card past its ceiling, so it says so.
             info.style.color = '#d05a52';
-            info.textContent += ' - no trunk left for this box';
+            info.textContent += ' · no trunk left for this box';
         } else if (backupOfId) {
             // A BACKUP UNIT, SAID AS SUCH. Two ways a box earns the line: it
             // was created as a NovaStar primary's backup (backupOf, delete it
@@ -1497,10 +1836,27 @@ class _Processors {
             // the only thing a second box can be.
             const primary = (card.cvts || [])
                 .find(c => c.id === backupOfId);
+            // by its title, letter and all ("CVT10 A"), never the bare
+            // model every box on the card shares
             const who = primary
-                ? (primary.name || primary.deviceName) : 'the primary box';
+                ? (primary.displayTitle || primary.name || primary.deviceName) : 'the primary box';
             info.style.color = '#c8a04a';
-            info.textContent += ` - backs up ${who}`;
+            info.textContent += ` · backs up ${who}`;
+        } else if (this.boxLoopMixed(cvt)) {
+            // A backup bound port by port: the ports of each primary box
+            // it backs up (boxLoopText), "loop of CVT10 A 1-10, ...".
+            info.style.color = '#c8a04a';
+            info.textContent += `: ${this.boxLoopText(cvt, card.cvts,
+                b => b.displayTitle || b.name || b.deviceName)}`;
+        } else if (cvt.copyRole === 'mirror') {
+            // A copy that feeds a mirror screen: sockets of its own,
+            // carrying the mirror's runs.
+            const primary = (card.cvts || []).find(c => c.id === cvt.mirrorOf);
+            const trunk = (card.trunkTitles || [])[cvt.copiesTrunk];
+            info.style.color = '#c8a04a';
+            info.textContent += ` · mirrors ${primary
+                ? (primary.displayTitle || primary.name || primary.deviceName)
+                : (trunk || 'its primary')} for a mirror screen`;
         } else if (cvt.duplicateOf) {
             // A copy trunk outside any backup pairing: the same ports
             // delivered a second time.
@@ -1513,15 +1869,11 @@ class _Processors {
             'Remove box',
             'Remove this breakout box. Its sockets go with it; undo puts '
             + 'it back.',
+            // Its fold and cable sheet go when the reply's tree is
+            // adopted (_forgetHardwareViews).
             () => this._processorRequest(
                 `/api/processors/${proc.id}/cvts/${cvt.id}`, 'DELETE',
-                undefined, 'Remove Breakout Box')
-                .then(() => {
-                    try {
-                        localStorage.removeItem(
-                            `ledRasterPanelCollapsed_hwdock-box-${cvt.id}`);
-                    } catch (_) { /* blocked storage never held the key */ }
-                })));
+                undefined, 'Remove Breakout Box')));
         return wrap;
     }
 
@@ -1558,7 +1910,8 @@ class _Processors {
     // fiber" (2026-09-07).
     getDataCableConnectors() {
         return (this._dataCableConnectors || [
-            { id: 'cat', name: 'CAT' },
+            { id: 'cat', name: 'Cat6' },
+            { id: 'ethercon', name: 'etherCON' },
         ]).map(c => ({ id: c.id, name: c.name }));
     }
 
@@ -1567,16 +1920,42 @@ class _Processors {
         return hit ? hit.name : null;
     }
 
-    // The record that OWNS a socket's home run: the first breakout box
-    // delivering it (the one that names it - resolve_card), else the card
+    // THE word for a data home run, on every surface that names one - the
+    // pull sheet, the binder's PORTS / CABLES / Snakes & home runs, the
+    // map's cable tags and the tray chips (owner, 2026-10-21): "etherCON"
+    // where the box's output is etherCON, "Cat6" where it is plain RJ45 or
+    // nobody documented it. A snake is "<word> Snake", its extension
+    // "<word> Extension", a coupler "<word> Barrel". Fiber keeps its own
+    // names (fiberCableTypeText).
+    dataCableWord(id) {
+        return this.dataCableConnectorName(id)
+            || this.dataCableConnectorName('cat') || 'Cat6';
+    }
+
+    // The record that OWNS a socket's home run: the breakout box
+    // delivering it (the port's cvtId, the one that names it -
+    // resolve_card; never a backup box carrying it again), else the card
     // itself. Returns { kind: 'card'|'cvt', id, procId, cardId, rec } or
     // null for a socket nothing resolves to.
-    _dataPortOwner(cardId, socket) {
+    //
+    // `boxId` names the box to read the socket on where the socket number
+    // alone cannot: a loop box on a copy OPT set to Backup carries the
+    // SAME card-wide numbers as the ports it backs up, so a backup end
+    // (`backedBy` - processor_catalog's _apply_backup_mapping, its
+    // `cvtId`) is read on that box. Ignored where that box does not carry
+    // the socket.
+    _dataPortOwner(cardId, socket, boxId = null) {
         const found = this._dockFindCard(cardId);
         if (!found) return null;
         const n = parseInt(socket, 10);
-        const box = (found.card.cvts || []).find(c =>
-            (c.ports || []).some(p => p.number === n));
+        const port = (found.card.ports || []).find(p => p.number === n);
+        const named = boxId
+            ? (found.card.cvts || []).find(c => c.id === boxId
+                && (c.ports || []).some(p => p.number === n))
+            : null;
+        const box = named || (port
+            ? (port.cvtId ? (found.card.cvts || []).find(c => c.id === port.cvtId) : null)
+            : (found.card.cvts || []).find(c => (c.ports || []).some(p => p.number === n)));
         if (box) {
             return { kind: 'cvt', id: box.id, procId: found.proc.id,
                      cardId, rec: box };
@@ -1760,6 +2139,30 @@ class _Processors {
         return (((rec || {}).name) || '').trim();
     }
 
+    // "CARD 3": what a card on a card-based processor is, by the slot it
+    // sits in, counted from one (owner, 2026-10-29: "we should show it as
+    // Card 1, 2, 3 etc instead of H_16 which gets confusing"). The slots
+    // before it may be empty - the card in slot 3 is Card 3. '' on every
+    // other processor (an SX40, an S8, an SQ200's QD-S never say card) and
+    // for a card in no slot. The server's card_slot_title.
+    cardSlotTitle(proc, card) {
+        if (!card || !this.procIsCardBased(proc)) return '';
+        const slot = (((proc || {}).slots) || [])
+            .find(s => s && s.card && s.card.id === card.id);
+        return slot ? `Card ${(slot.index || 0) + 1}` : '';
+    }
+
+    // THE NAME A CARD GOES BY ON A CARD-BASED PROCESSOR: the name somebody
+    // typed (it always wins), else Card N (cardSlotTitle) - never the
+    // model, which is said only where gear is pulled (the binder's Cards
+    // table and its pull page's Hardware). '' on every other processor, so
+    // a caller's own reading for those stays exactly as it was:
+    //     this.cardShortName(proc, card) || <the caller's old fallback>
+    cardShortName(proc, card) {
+        if (!card || !this.procIsCardBased(proc)) return '';
+        return this.cardTypedName(proc, card) || this.cardSlotTitle(proc, card);
+    }
+
     // THE UNIT A SOCKET SITS ON, NAMED ONCE (2026-09-09, off the live
     // show A binder: "IMAG SR IMAG SR · NovaPro UHD Jr · 16 ports").
     // A processor with no slots - a NovaPro UHD Jr, an S8 - carries
@@ -1781,8 +2184,9 @@ class _Processors {
         const slot = (((proc || {}).slots) || [])
             .find(s => s && s.card && s.card.id === card.id);
         const host = p || proc.deviceName || proc.id || '';
-        // A card that is a unit of its own goes by its title ("QD 1").
-        const part = c || card.unitTitle
+        // A card that is a unit of its own goes by its title ("QD 1"); an
+        // unnamed card on a card-based processor by its slot, "Card 3".
+        const part = this.cardShortName(proc, card) || c || card.unitTitle
             || (slot ? `slot ${(slot.index || 0) + 1}` : card.deviceName || '');
         const named = !!(p || c);
         if (!host || !part) return { title: host || part, named };
@@ -1828,6 +2232,23 @@ class _Processors {
         return String((port && port.localNumber) || n);
     }
 
+    // The number silkscreened beside a socket ON `owner` - the card-wide
+    // key turned into the box's own 1..N: a loop box's backup socket by
+    // its own socket (backedBy's localPort), a box's own port by its
+    // localNumber, a card's port by its number.
+    dataSocketLocal(owner, socket) {
+        const n = parseInt(socket, 10);
+        if (!owner || owner.kind !== 'cvt') return n;
+        const found = this._dockFindCard(owner.cardId);
+        const port = ((found && found.card.ports) || []).find(p => p.number === n);
+        const bb = port && port.backedBy;
+        if (bb && bb.loop && bb.cvtId === owner.id && port.cvtId !== owner.id) return bb.localPort;
+        if (port && port.cvtId === owner.id && port.localNumber != null) return port.localNumber;
+        const at = ((owner.rec && owner.rec.portNumbers) || []).indexOf(n);
+        const faces = (owner.rec && owner.rec.socketNumbers) || [];
+        return at >= 0 ? (faces[at] != null ? faces[at] : at + 1) : n;
+    }
+
     // The members of `snake` that are NOT on `owner`, grouped by the
     // device they sit on: [{ owner, sockets, text }] - what a sheet says
     // about the rest of a snake it can only show part of ("+ B-1, B-2 on
@@ -1857,32 +2278,36 @@ class _Processors {
 
     // The connector a socket's cable FOLLOWS: the stored pick where there
     // is one, else the catalog's word for the device the port comes out of
-    // (rec.portConnector - the box, else the card, else the processor),
-    // else null: no name is printed rather than a guessed one.
+    // (rec.portConnector - a box's own, never its card's; a card's, else
+    // its processor's), else 'cat': an undocumented port reads Cat6.
     dataPortConnectorId(owner, stored) {
         if (stored && this.dataCableConnectorName(stored)) return stored;
         const follows = owner && owner.rec && owner.rec.portConnector;
         return follows && this.dataCableConnectorName(follows)
-            ? follows : null;
+            ? follows : 'cat';
     }
 
     // What one socket's home run reads as: the snake it rides
     // ({ kind: 'snake', snake, owner, ext, extConnector, text: 'SNAKE A'
     // or "SNAKE A +25'" }) or its own cable ({ kind: 'cable', ft,
-    // connector, id, name, text: "50' CAT" }), or null for a socket with
+    // connector, id, name, text: "50' Cat6" }), or null for a socket with
     // neither. On a snaked socket `ext` is the EXTENSION from the snake's
     // fan-out to the panel (rec.portCables on that socket - the same store
     // a loose socket's home run lives in), null when none; `text` is what
     // the chip corner, the canvas tag and the paperwork print.
-    dataPortCable(cardId, socket) {
-        const owner = this._dataPortOwner(cardId, socket);
+    dataPortCable(cardId, socket, boxId = null) {
+        const owner = this._dataPortOwner(cardId, socket, boxId);
         if (!owner) return null;
         return this._dataPortCableOn(owner, socket);
     }
 
-    _dataPortCableOn(owner, socket) {
-        const snake = this.dataPortSnake(owner, socket);
-        const rec = (owner.rec.portCables || {})[String(socket)];
+    // `key` reads another entry of the socket's store: a box backing up
+    // its OWN outputs keeps the backup output's cable under 'r<socket>'
+    // (backupCableKey) - a cable of its own that rides no snake (a snake
+    // holds the socket's main output).
+    _dataPortCableOn(owner, socket, key = null) {
+        const snake = key ? null : this.dataPortSnake(owner, socket);
+        const rec = (owner.rec.portCables || {})[key || String(socket)];
         const ft = rec ? this.parseCableLength(rec.ft) : null;
         const hasFt = !!rec && Number.isFinite(ft) && ft > 0;
         if (snake) {
@@ -1891,32 +2316,59 @@ class _Processors {
             return {
                 kind: 'snake', snake, owner, ext,
                 extConnector: (rec && rec.connector) || null,
-                text: ext != null ? `${name} +${this.cableText(ext, '')}` : name,
+                text: ext != null ? `${name} +${this.cableText(ext, '', 'data')}` : name,
             };
         }
         if (!hasFt) return null;
         const id = this.dataPortConnectorId(owner, rec.connector);
-        const name = this.dataCableConnectorName(id) || '';
+        const name = this.dataCableWord(id);
         return {
             kind: 'cable', owner, ft, connector: rec.connector || null,
-            id, name, text: this.cableText(ft, name),
+            id, name, text: this.cableText(ft, name, 'data'),
         };
+    }
+
+    // What a port's tag on the DATA MAP reads (owner, 2026-11-02: "just
+    // list 25'"): a loose cable by its length alone ("25'", "8 m", the
+    // stock pieces "100'+25'"), never its connector - on a wall of narrow
+    // columns "25' etherCON" was wider than a column and the tags zig-
+    // zagged over and under the discs. The binder names the connector once
+    // under the screen's name instead (_bDataCableNote). A snake reads as
+    // it always has ("SNAKE A", "SNAKE A +25'"): its text carries no
+    // connector. The pull sheet, the binder's tables and the cable sheets
+    // keep the whole cable (`text`, runText); the power map is not read
+    // through here.
+    dataMapTagText(cable) {
+        if (!cable) return '';
+        if (cable.kind === 'cable' && Number.isFinite(Number(cable.ft)) && Number(cable.ft) > 0) {
+            return this.cableText(cable.ft, '', 'data');
+        }
+        return cable.text || '';
     }
 
     // One run as the papers say it, whole - the binder's home-run cell and
     // the pull list share this: a snake reads "SR Primary 150'" (its name
     // and its home run; "SR Primary · no length" without one), plus
     // " +25'" when the socket carries an extension; a loose cable reads
-    // as its text ("50' CAT"); nothing reads '—'.
-    runText(cable) {
-        if (!cable) return '—';
-        if (cable.kind !== 'snake') return cable.text || '—';
+    // as its text ("50' Cat6"); nothing reads blank. A socket a port is
+    // placed on (`at`, { cardId, port }) with no home run typed reads as
+    // the pull list writes it, "etherCON no length" (owner, 2026-10-22):
+    // a blank is only for a truly empty cell (no em dash, owner 2026-11-03).
+    runText(cable, at = null) {
+        if (!cable) {
+            const owner = at && at.cardId != null && typeof this._dataPortOwner === 'function'
+                ? this._dataPortOwner(at.cardId, at.port, at.cvtId || null) : null;
+            if (!owner || typeof this.pullDataConnectorWord !== 'function') return '';
+            const rec = (owner.rec.portCables || {})[String(at.port)];
+            return `${this.pullDataConnectorWord(this.dataPortConnectorId(owner, rec && rec.connector))} no length`;
+        }
+        if (cable.kind !== 'snake') return cable.text || '';
         const s = cable.snake || {};
         const ft = this.parseCableLength(s.ft);
         let text = (s.name || 'snake')
             + (Number.isFinite(ft) && ft > 0
-                ? ` ${this.cableText(ft, '')}` : ' · no length');
-        if (cable.ext != null) text += ` +${this.cableText(cable.ext, '')}`;
+                ? ` ${this.cableText(ft, '', 'data')}` : ' · no length');
+        if (cable.ext != null) text += ` +${this.cableText(cable.ext, '', 'data')}`;
         return text;
     }
 
@@ -1945,14 +2397,34 @@ class _Processors {
     // read off the tree by _pullBackedBy (app-pull-list.js: the pull list
     // walks the backup end through the same helper - one implementation),
     // then that socket's own home run: the backup box's snake, "+25'" when
-    // the backup socket carries an extension, "50' CAT" for a loose backup
+    // the backup socket carries an extension, "50' Cat6" for a loose backup
     // cable. Null while the port is on no card, has no backup, or the
     // backup socket carries nothing.
     dataPortBackupCableForScreen(layer, portNum) {
         const port = this._screenPortPin(layer, portNum);
         if (!port || typeof this._pullBackedBy !== 'function') return null;
-        const bb = this._pullBackedBy(port.cardId, port.port);
-        return bb ? this.dataPortCable(bb.cardId, bb.port) : null;
+        return this.dataPortBackupCable(this._pullBackedBy(port.cardId, port.port));
+    }
+
+    // A BOX BACKING UP ITS OWN OUTPUTS (a CVT4K-S straddling a VX1000's
+    // OPT 1 and its copy: ports 1-8 out on 1-8, their backup on 9-16,
+    // processor_catalog link() marks the backup end `self`). The backup
+    // output is a cable of its own with its own length - "of course it
+    // will have its own extension" (owner, 2026-11-03) - kept in the box's
+    // port cables under 'r<socket>', since both outputs share the
+    // card-wide number. Null for every other backup end, whose socket's
+    // own entry is its cable.
+    backupCableKey(bb) {
+        return bb && bb.self && bb.port != null ? `r${parseInt(bb.port, 10)}` : null;
+    }
+
+    // The home run of a port's backup end (`bb`, the main port's
+    // backedBy): read off the box or card the return comes back on, a
+    // self-backing box's backup output by its own key. Null for none.
+    dataPortBackupCable(bb) {
+        if (!bb || bb.cardId == null || bb.port == null) return null;
+        const owner = this._dataPortOwner(bb.cardId, bb.port, bb.cvtId || null);
+        return owner ? this._dataPortCableOn(owner, bb.port, this.backupCableKey(bb)) : null;
     }
 
     // The snake's tag as the bracket and the sheet print it:
@@ -1971,7 +2443,7 @@ class _Processors {
         let text = `${name} · ${this.snakeSizeText(name, ways)}`;
         const ft = this.parseCableLength(snake.ft);
         if (withFt && Number.isFinite(ft) && ft > 0) {
-            text += ` · ${this.cableText(ft, '')}`;
+            text += ` · ${this.cableText(ft, '', 'data')}`;
         }
         return text;
     }
@@ -2127,7 +2599,16 @@ class _Processors {
         const body = {};
         if ('name' in patch) body.name = (patch.name || '').trim();
         if ('ft' in patch) {
-            body.ft = this.parseCableLength(patch.ft);
+            // read the way every typed length is (readTypedLength,
+            // 2026-10-22): "30m" in a feet show converted and said, text
+            // that is no length refused and said, the length kept
+            if (typeof patch.ft === 'string') {
+                const read = this.readTypedLength(patch.ft, 'snake');
+                if (!read.ok) return Promise.resolve();
+                body.ft = read.n;
+            } else {
+                body.ft = this.parseCableLength(patch.ft);
+            }
         }
         if ('connector' in patch) {
             body.connector = patch.connector
@@ -2156,9 +2637,18 @@ class _Processors {
                 ? 'Set Port Extension' : 'Set Port Cable';
         }
         const stores = this._dataCableStores(owner);
-        const key = String(parseInt(socket, 10));
+        // a self-backing box's backup output: its own 'r' key
+        // (backupCableKey)
+        const key = /^r\d+$/.test(String(socket)) ? String(socket) : String(parseInt(socket, 10));
         const before = JSON.stringify(stores.portCables[key] || null);
-        const ft = cable ? this.parseCableLength(cable.ft) : null;
+        // a length typed as text reads the way every typed length does
+        // (readTypedLength): converted and said, or refused and kept
+        let ft = cable ? this.parseCableLength(cable.ft) : null;
+        if (cable && typeof cable.ft === 'string') {
+            const read = this.readTypedLength(cable.ft, 'cable');
+            if (!read.ok) return Promise.resolve();
+            ft = read.n;
+        }
         const connector = cable && cable.connector
             && this.dataCableConnectorName(cable.connector)
             ? cable.connector : null;
@@ -2189,8 +2679,10 @@ class _Processors {
         }));
         const before = JSON.stringify(stores.portCables);
         (ports || owner.rec.ports || []).forEach(p => {
-            if (snaked.has(p.number)) return;
-            const key = String(p.number);
+            // a self-backing box's backup output rides no snake and keeps
+            // its own key (boxSheetPorts' cableKey)
+            if (!p.cableKey && snaked.has(p.number)) return;
+            const key = p.cableKey || String(p.number);
             const cur = stores.portCables[key] || {};
             if (ft == null) {
                 delete stores.portCables[key];
@@ -2241,7 +2733,7 @@ class _Processors {
         fact.style.color = 'var(--ps-dim, #c0c0c0)';
         fact.title = 'Set behind the processor\u2019s \u2699.';
         if (!proc.redundancy) {
-            fact.textContent = 'Redundancy: off - set behind the '
+            fact.textContent = 'Redundancy: off, set behind the '
                 + 'processor’s ⚙';
             return fact;
         }
@@ -2260,7 +2752,7 @@ class _Processors {
         const named = shape.mode === 'halves'
             ? this._portShapeSplitLabel(card) : shape.mode;
         if (shape.forced) {
-            fact.textContent = `Redundancy: ${named} - fixed by the `
+            fact.textContent = `Redundancy: ${named}, fixed by the `
                 + 'device';
             return fact;
         }
@@ -2299,6 +2791,18 @@ class _Processors {
         return word ? `${word} Split` : 'Split';
     }
 
+    // The word a redundancy shape wears on its chip under the processor's
+    // ⚙ - "1:1", "Sequential", "OPT Split", "Manual" - one spelling for
+    // the chips and every sheet that names a card's shape, never the
+    // stored id ("1to1", "halves"). '' for no shape.
+    _redundancyShapeLabel(card, mode) {
+        if (mode === '1to1') return '1:1';
+        if (mode === 'sequential') return 'Sequential';
+        if (mode === 'halves') return this._portShapeSplitLabel(card);
+        if (mode === 'manual') return 'Manual';
+        return mode && mode !== 'off' ? String(mode) : '';
+    }
+
     // The sentence the split's tip adds where the split really is the
     // trunks backing each other, and nothing at all where it is not.
     // Derived, never assumed: the ports fill the trunks in blocks of
@@ -2326,7 +2830,12 @@ class _Processors {
     // bar's own Per card level. A vendor-fixed pairing (Brompton
     // adjacent) never draws chips - it is stated under the bar instead -
     // and a card the sheet says cannot pair draws none either.
-    _buildCardShapeChips(proc, card) {
+    //
+    // Under MIXED (opts.pair) the trio gains a 1:1 chip in front - the
+    // card's own pick between a partner card and a port shape - and every
+    // chip's write carries redundancyMixed (opts.mixed) so the bar stays
+    // at Mixed. Same chips, same tips, same stored ids otherwise.
+    _buildCardShapeChips(proc, card, opts = {}) {
         const shape = card.redundancyShape;
         if (!shape || shape.forced) return null;
         const group = document.createElement('div');
@@ -2334,14 +2843,19 @@ class _Processors {
         group.setAttribute('role', 'radiogroup');
         group.setAttribute('aria-label', 'Port shape');
         group.dataset.lrdField = `processor-card-shape-${card.id}`;
+        if (opts.pair) group.classList.add('hw-pop-chips-pair');
         const half = card.ceilingKnown && card.ceiling
             ? Math.floor(card.ceiling / 2) : null;
-        [['sequential', 'Sequential',
+        const word = this.unitWordFor(proc, card);
+        [...(opts.pair ? [['1to1', this._redundancyShapeLabel(card, '1to1'),
+          `1:1: another ${word} mirrors this one, port for port. `
+          + 'Pick it under the chips.']] : []),
+         ['sequential', this._redundancyShapeLabel(card, 'sequential'),
           card.ceilingKnown && card.ceiling
-              ? `1 backed by 2, 3 by 4 - ${shape.mode === 'sequential'
+              ? `1 backed by 2, 3 by 4: ${shape.mode === 'sequential'
                   ? shape.usable : Math.ceil(card.ceiling / 2)} of `
                 + `${card.ceiling} ports usable.`
-              : '1 backed by 2, 3 by 4 - even ports are the returns.'],
+              : '1 backed by 2, 3 by 4: even ports are the returns.'],
          // The same split the server maps: mains are the front ceil(n/2),
          // returns the back floor(n/2) - port 1 comes back on 9 of 16.
          // Both spans named, because this is the one shape whose main
@@ -2356,7 +2870,7 @@ class _Processors {
          // (2026-10-04), so its spans are the server's (halvesSpans) -
          // "Ports 26-40 carry the returns of 1-10, 21-25." - and the
          // trunk sentence only where no box is missing between boxes.
-         ['halves', this._portShapeSplitLabel(card), card.halvesSpans
+         ['halves', this._redundancyShapeLabel(card, 'halves'), card.halvesSpans
              ? `Ports ${card.halvesSpans.backs} carry the returns of `
                + `${card.halvesSpans.mains}.`
                + ((card.gaps || []).length ? ''
@@ -2366,7 +2880,7 @@ class _Processors {
                + `returns of 1-${half}.` + this._splitTrunkClause(card, half)
              : 'The back half of the ports are the front half’s '
                + 'returns.'],
-         ['manual', 'Manual',
+         ['manual', this._redundancyShapeLabel(card, 'manual'),
           'Each port picks its backup in its chip on the hardware dock. '
           + 'An unpicked port has no backup.'],
         ].forEach(([id, text, tip]) => {
@@ -2381,9 +2895,11 @@ class _Processors {
             chip.title = tip;
             chip.addEventListener('click', () => {
                 if (id === shape.mode) return;
+                const body = { redundancyMode: id };
+                if (opts.mixed) body.redundancyMixed = true;
                 this._processorRequest(
                     `/api/processors/${proc.id}/cards/${card.id}`, 'PUT',
-                    { redundancyMode: id }, 'Change Redundancy Mode');
+                    body, 'Change Redundancy Mode');
             });
             group.appendChild(chip);
         });

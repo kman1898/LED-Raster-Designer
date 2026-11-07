@@ -3,6 +3,7 @@
 // the Pixel Map bulk-select with its half-tile / blank bulk verbs.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
+import { SCREEN_FEED_KEYS } from './app-clipboard.js';
 
 // getPanelByRowCol's per-screen index: panels array -> { len, map of
 // "row,col" -> the panel's SLOT in the array }. Weak, so a rebuilt screen's
@@ -68,8 +69,8 @@ class _PixelSelect {
         });
         const differ = scope.filter(l => isOn(l) !== !!enabled);
         return {
-            change: differ.filter(l => !l.locked),
-            locked: differ.filter(l => l.locked),
+            change: differ.filter(l => !this._layerLocked(l)),
+            locked: differ.filter(l => this._layerLocked(l)),
         };
     }
 
@@ -107,6 +108,15 @@ class _PixelSelect {
             this.syncCustomModeControls();
             return;
         }
+        // A port still open for redrawing on a screen turning custom is
+        // finished first, the way Esc finishes it: in custom mode every
+        // port is the drawing, and a redraw left open held its number
+        // apart from the cards (QA, 1.6.0 beta 5).
+        const ed = this._overrideEditing;
+        if (enabled && ed && ed.kind === 'data' && change.some(l => l.id === ed.layerId)
+                && typeof this.endOverrideEdit === 'function') {
+            this.endOverrideEdit();
+        }
         change.forEach(layer => {
             if (enabled) {
                 if (layer.flowPattern && layer.flowPattern !== 'custom') {
@@ -121,6 +131,16 @@ class _PixelSelect {
         if (!enabled) {
             this.customSelectMode = false;
             this.customSelection.clear();
+        } else if (typeof this._closeCustomGapsOnToggle === 'function') {
+            // Custom ports run 1..N with no gaps (the owner, 2026-11-03):
+            // a drawing kept from an earlier spell closes up as it comes back.
+            this._closeCustomGapsOnToggle(change);
+            change.forEach(layer => this._clampCustomPortStart(layer));
+            // A number with nothing drawn on it holds no socket (QA, 1.6.0
+            // beta 5): the pins the automatic ports had there let go.
+            if (typeof this._releasePinsOffPorts === 'function') {
+                this._releasePinsOffPorts(change, { custom: true });
+            }
         }
         this.saveState('Custom Mode Toggle');
         this.saveClientSideProperties();
@@ -131,6 +151,22 @@ class _PixelSelect {
         this.updateLayers(this._persistWith(change));
         this.syncCustomModeControls();
         window.canvasRenderer.render();
+    }
+
+    // The active port of a screen turned custom is never past the first
+    // free number (QA, 1.6.0 beta 5): "Redraw port P4", then "Port P4 back
+    // to auto", left it at 4, and the first port drawn was P4 with P1-P3
+    // missing. Past the drawing (1..N once its gaps close) it starts at
+    // N + 1; a port of the drawing stays the active one.
+    _clampCustomPortStart(layer) {
+        if (!layer) return;
+        const paths = layer.customPortPaths || {};
+        const drawn = Object.keys(paths).map(k => parseInt(k, 10))
+            .filter(n => Number.isFinite(n) && n >= 1
+                && Array.isArray(paths[n]) && paths[n].length > 0);
+        const next = (drawn.length ? Math.max(...drawn) : 0) + 1;
+        const at = parseInt(layer.customPortIndex, 10) || 1;
+        if (at > next) layer.customPortIndex = next;
     }
 
     // Both custom checkboxes and both custom panels, from the shown screen.
@@ -213,18 +249,43 @@ class _PixelSelect {
     // Idempotent like its data twin above: a call that changes nothing only
     // re-syncs the controls; only screens whose mode differs are written,
     // and a locked one stays as it is and is named.
+    //
+    // The way IN starts empty (the owner's ruling, 2026-10-19: "turning
+    // custom ON wipes all circuits on the affected screens, starting
+    // empty - that includes any earlier hand take-overs"). Each screen
+    // turned custom drops every circuit it holds the way Clear All does
+    // (_clearMemberCustomRuns): its drawn paths - a path kept from an
+    // earlier custom spell and every taken-over run alike, since both live
+    // in powerCustomPaths and a kept one would come back as a custom
+    // circuit nobody drew this time - its overrides, its active number and
+    // the cables typed on the circuits that go. The shares drawn against
+    // those custom numbers go with them (_wipeCustomSplitterGroups), so a
+    // fresh drawing under the same numbers is never ganged by an old
+    // merge. The circuit labels typed by hand go too (the owner, same
+    // day): a fresh drawing under an old number must not print the old
+    // circuit's name. A run that crosses a locked screen's cabinets stays
+    // with its label, and the locked screen is named. All of it rides the
+    // toggle's one history entry.
     toggleCustomPowerMode(enabled) {
         if (!this.currentLayer) return;
         enabled = !!enabled;
         const { change, locked } = this._customToggleScope('power', enabled);
-        this._showLockedError(locked);
         if (change.length === 0) {
+            this._showLockedError(locked);
             this.syncCustomModeControls();
             return;
         }
         const undone = [];
+        const keptFor = new Map();
+        const pullBefore = enabled ? this._pullLiveRowKeys() : null;
+        let wiped = false;
         change.forEach(layer => {
             if (enabled) {
+                const customGroups = this._splitterManualSpace(layer) === 'custom';
+                if (this._clearMemberCustomRuns(layer, 'power', keptFor)) wiped = true;
+                if (customGroups && this._wipeCustomSplitterGroups(layer)) wiped = true;
+                if (this._wipeTypedCircuitLabels(layer)) wiped = true;
+                if (this._unplugEmptyCustomWall(layer)) wiped = true;
                 if (layer.powerFlowPattern && layer.powerFlowPattern !== 'custom') {
                     layer.lastPowerFlowPattern = layer.powerFlowPattern;
                 }
@@ -242,6 +303,12 @@ class _PixelSelect {
                 }
             }
         });
+        this._showLockedError([...new Map([...locked, ...keptFor.values()]
+            .map(l => [l.id, l])).values()]);
+        if (wiped) {
+            this._dropPullEditsGoneWith(pullBefore);
+            this._circuitTailCache = null;
+        }
         if (!enabled) {
             this.powerCustomSelection.clear();
         }
@@ -263,15 +330,58 @@ class _PixelSelect {
             const who = undone.length > 1 || this.getSelectedLayers().length > 1
                 ? `${undone[0].layer.name}: ` : '';
             this._toast(
-                `Custom mode off - ${who}${this._runListText(first.runIds)
-                    .toLowerCase()} drew ${first.load.amps.toFixed(1)} A on a `
-                + `${+first.load.cap.toFixed(1)} A circuit, so the share was `
+                `Custom mode off. ${who}${this._runListText(first.runIds, undone[0].layer)
+                } drew ${first.load.amps.toFixed(1)} A on `
+                + `${this.circuitLimitText(undone[0].layer)}, so the share was `
                 + 'undone'
                 + (count > 1 ? ` (${count - 1} more like it)` : '')
                 + '. A share past the amps holds only in custom mode.',
                 false, 6000);
         }
         window.canvasRenderer.render();
+    }
+
+    // The custom toggle's way in, once the wipe left the screen no drawn
+    // circuit: its multis held circuits that are gone, and a multi left
+    // with no circuit goes with its programming and home run
+    // (_removeCircuitsKeepFeeds). Kept, they stayed on their distro and
+    // the automatic plan an empty custom screen falls back to was charged
+    // to it: a phantom load on the distro and a voltage warning for a box
+    // nothing was drawn on (QA 1.6.0-beta.4). The stores are emptied,
+    // never deleted (an absent key is missing from the PUT). True when it
+    // wrote.
+    _unplugEmptyCustomWall(layer) {
+        if (!layer || this.usesCustomCircuits(layer)) return false;
+        let changed = false;
+        SCREEN_FEED_KEYS.forEach(k => {
+            const store = layer[k];
+            if (!store || typeof store !== 'object' || !Object.keys(store).length) return;
+            layer[k] = {};
+            changed = true;
+        });
+        if (Array.isArray(layer.powerSocaSplits) && layer.powerSocaSplits.length) {
+            layer.powerSocaSplits = [];
+            changed = true;
+        }
+        return changed;
+    }
+
+    // The custom toggle's way in: forget the labels typed on the circuits
+    // it wiped - every one but a run still drawn (kept for a locked
+    // screen). The store object is left behind, never the key deleted (an
+    // absent key is missing from the PUT and the server keeps the old
+    // labels). True when it wrote.
+    _wipeTypedCircuitLabels(layer) {
+        const labels = layer && layer.powerLabelOverrides;
+        if (!labels || typeof labels !== 'object') return false;
+        const paths = layer.powerCustomPaths || {};
+        let changed = false;
+        Object.keys(labels).forEach(n => {
+            if ((paths[n] || []).length > 0) return;
+            delete labels[n];
+            changed = true;
+        });
+        return changed;
     }
 
     updateCustomPowerUI() {
@@ -289,7 +399,10 @@ class _PixelSelect {
             container.style.display = isCustom ? 'block' : 'none';
         }
         if (portInput && this.currentLayer) {
-            portInput.value = `${this.currentLayer.powerCustomIndex || 1}`;
+            // The circuit, not the drawn run: a 3fer's legs read as one
+            // number (customCircuitShown).
+            const owner = this.powerPathOwner(this.currentLayer);
+            portInput.value = `${this.customCircuitShown(owner, owner.powerCustomIndex || 1)}`;
         }
         // Power view only - see the note on the same line in
         // updateCustomFlowUI. Unguarded, this one always won.
@@ -441,7 +554,7 @@ class _PixelSelect {
                 && panel.x <= x2 && (panel.x + panel.width) >= x1
                 && panel.y <= y2 && (panel.y + panel.height) >= y1);
             if (hit.length === 0) return;
-            if (member.locked) locked.push(member);
+            if (this._layerLocked(member)) locked.push(member);
             hit.forEach(panel => selection.add(this.getScopedPanelKey(member.id, panel)));
         });
         return locked;
@@ -596,7 +709,7 @@ class _PixelSelect {
             const hit = layer.panels.filter(panel => panel.x <= x2 && (panel.x + panel.width) >= x1
                 && panel.y <= y2 && (panel.y + panel.height) >= y1);
             if (hit.length === 0) return;
-            if (layer.locked) locked.push(layer);
+            if (this._layerLocked(layer)) locked.push(layer);
             hit.forEach(panel => keys.push(this.getScopedPanelKey(layer.id, panel)));
         });
         return { keys, locked };
@@ -703,7 +816,7 @@ class _PixelSelect {
             const mine = layer.panels.filter(p => want.has(p) && !placed.has(p));
             if (mine.length === 0) return;
             mine.forEach(p => placed.add(p));
-            if (layer.locked) { locked.push(layer); lockedGroups.push({ layer, panels: mine }); return; }
+            if (this._layerLocked(layer)) { locked.push(layer); lockedGroups.push({ layer, panels: mine }); return; }
             groups.push({ layer, panels: mine });
         });
         const strays = (panels || []).filter(p => p && !placed.has(p));
@@ -712,7 +825,7 @@ class _PixelSelect {
             const ids = new Set(strays.map(p => p.id));
             const mine = cur.panels.filter(p => ids.has(p.id));
             if (mine.length) {
-                if (cur.locked) {
+                if (this._layerLocked(cur)) {
                     const lg = lockedGroups.find(x => x.layer === cur);
                     if (lg) mine.forEach(p => { if (!lg.panels.includes(p)) lg.panels.push(p); });
                     else { locked.push(cur); lockedGroups.push({ layer: cur, panels: mine }); }

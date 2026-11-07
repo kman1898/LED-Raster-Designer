@@ -46,7 +46,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -84,7 +84,8 @@ window.__ar = {
             panel_width_mm: 500, panel_height_mm: 500,
             offset_x: 0, offset_y: 0,
             panel_weight: 20, weight_unit: 'kg',
-            panelWatts: 200, powerVoltage: 208, powerAmperage: 20,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            panelWatts: 200, powerVoltage: 208, powerAmperage: 25,
             processorType: 'brompton', bitDepth: 8, frameRate: 60,
             lowLatency: false,
             color1: { r: 64, g: 70, b: 128 }, color2: { r: 149, g: 156, b: 184 },
@@ -225,7 +226,7 @@ window.__fresh = async (props) => {
     Object.assign(l, {
         processorType: 'brompton', bitDepth: 8, frameRate: 60, lowLatency: false,
         portMappingMode: 'organized', rotation: 0,
-        panelWatts: 200, powerVoltage: 208, powerAmperage: 20,
+        panelWatts: 200, powerVoltage: 208, powerAmperage: 25,
         panel_weight: 20, weight_unit: 'kg',
         flowPattern: 'tl-h', powerFlowPattern: 'tl-h',
         customPortPaths: {}, customPortIndex: 1,
@@ -585,12 +586,13 @@ def test_group_and_ungroup_are_one_undo_step_each(page):
     # the fixtures genuinely disagree on it: __fresh writes 208 V, while the
     # preset-added screen takes the 110 V default. That is a real conflict and
     # the dialog is right to open on it - but this test is about the undo step,
-    # so normalise it here alongside the others.
+    # so normalise it here alongside the others. powerAmperage joined them
+    # too (1.6.0-beta.4 QA: one wall is cut on one breaker size).
     page.evaluate("""() => {
         window.app.project.layers.forEach(l => {
             if ((l.type || 'screen') !== 'screen') return;
             l.processorType = 'brompton'; l.bitDepth = 8; l.frameRate = 60;
-            l.lowLatency = false; l.powerVoltage = 208;
+            l.lowLatency = false; l.powerVoltage = 208; l.powerAmperage = 20;
             l.canvas_id = window.app.project.active_canvas_id;
         });
         window.app.updateLayers(window.app.project.layers);
@@ -1117,12 +1119,19 @@ def test_legacy_max_capacity_now_maps_walls_it_used_to_refuse(page, dims):
 
 
 @pytest.mark.parametrize("dims", [(60, 2), (100, 1), (45, 6)])
-def test_legacy_organized_still_refuses_a_row_wider_than_one_port(page, dims):
-    """ASSERTS CURRENT BEHAVIOUR (identical to v0.10.8.1).
+def test_legacy_organized_splits_a_row_wider_than_one_port(page, dims):
+    """ASSERTS CURRENT BEHAVIOUR - a deliberate change in v1.5.4.
 
-    The asymmetry is deliberate: Organized keeps whole rows on one port, so a
-    60-cabinet row it cannot fit is still a capacity error. Only Max Capacity
-    gained the ability to split it.
+    Until v1.5.4 Organized kept whole rows on one port, so a 60-cabinet row
+    it could not fit was a capacity error and no map at all. The owner's
+    ruling (2026-11-01): fill the port with as many whole cabinets as fit
+    and start the next port in the same row. 40 fit a port here, so a row
+    of 60 is 40 + 20, of 100 is 40 + 40 + 20, of 45 is 40 + 5, and no port
+    snakes on from mid-row. The owner's ruling of 2026-11-04: the row-end
+    leftovers in the same columns stack into one port while it carries
+    them, so the two 20s of the 60 x 2 wall are one port of 40 and the six
+    5s of the 45 x 6 wall one port of 30. Numbered along the rows, a
+    stacked port comes where its first cabinet does.
     """
     cols, rows = dims
     got = page.evaluate("""(d) => {
@@ -1131,12 +1140,29 @@ def test_legacy_organized_still_refuses_a_row_wider_than_one_port(page, dims):
                               processorType: 'novastar-armor', portMappingMode: 'organized' });
         return ar.withProject([s], 'data-flow', () => {
             const a = app.calculatePortAssignments(s) || [];
+            const byPort = {};
+            a.forEach(x => {
+                (byPort[x.port] = byPort[x.port] || []).push(x.panel.row);
+            });
             return { n: a.length, auto: s._autoPortsRequired,
+                     sizes: Object.keys(byPort).map(Number).sort((p, q) => p - q)
+                         .map(p => byPort[p].length),
+                     rowsPerPort: Object.values(byPort).map(rs => new Set(rs).size),
                      err: s._capacityError ? s._capacityError.unitType : null };
         });
     }""", [cols, rows])
-    assert got['err'] == 'row', f"Organized no longer reports the row error: {got}"
-    assert got['n'] == 0 and got['auto'] == 0
+    left = cols % 40
+    stack = min(rows, 40 // left) if left else 0
+    sizes = []
+    for r in range(rows):
+        sizes += [40] * (cols // 40)
+        if left and r % stack == 0:
+            sizes.append(left * min(stack, rows - r))
+    assert got['err'] is None, f"Organized still refuses the long row: {got}"
+    assert got['n'] == cols * rows
+    assert got['sizes'] == sizes
+    assert got['auto'] == len(sizes)
+    assert set(got['rowsPerPort']) == ({1, min(stack, rows)} if stack else {1})
 
 
 def test_a_screen_with_no_fill_colours_no_longer_blanks_the_canvas(page):

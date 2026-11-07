@@ -37,7 +37,7 @@ pw = pytest.importorskip("playwright.sync_api", reason="playwright not installed
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -79,7 +79,8 @@ window.__gt = {
             cabinet_width: 128, cabinet_height: 128,
             offset_x: 0, offset_y: 0,
             panel_weight: 20, weight_unit: 'kg',
-            panelWatts: 200, powerVoltage: 208, powerAmperage: 20,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            panelWatts: 200, powerVoltage: 208, powerAmperage: 25,
             processorType: 'brompton', bitDepth: 8, frameRate: 60,
             lowLatency: false,
             flowPattern: 'tl-h', portMappingMode: 'organized',
@@ -241,13 +242,14 @@ def test_mixed_wall_ports(page):
 # ── Half / quarter cabinets keep their area-derated share ─────────────────
 
 def test_a_quarter_size_cabinet_contributes_its_derated_share(page):
-    """getPanelLoadFactor derates by area (x1.3, capped at 1). A cabinet at a
-    quarter of the full pixel area is 0.25 x 1.3 = 0.325 of a load, not 1.
+    """getPanelLoadFactor derates a part cabinet's WATTS by its area (a half
+    tile 50%, owner 2026-10-21): a cabinet at a quarter of the full pixel
+    area is 0.25 of a load, not 1. Its WEIGHT keeps area x 1.3 (0.325).
 
     Grid of 4 full 128x128 cabinets, one of them replaced by a 64x64:
-      equivalentPanels = 3 + 0.325 = 3.325
-      watts            = 3.325 x 200 W = 665 W
-      weight           = 3.325 x 20 kg =  66.5 kg
+      equivalentPanels = 3 + 0.25 = 3.25
+      watts            = 3.25 x 200 W = 650 W
+      weight           = (3 + 0.325) x 20 kg =  66.5 kg
       cabinets         = 4 (it is still one cabinet you have to hang)
       pixels           = 3 x 16,384 + 4,096 = 53,248
     """
@@ -259,13 +261,13 @@ def test_a_quarter_size_cabinet_contributes_its_derated_share(page):
         return [[a, b], gt.group([a, b])];
     }""")
     member = t['members'][0]
-    assert member['equivalentPanels'] == pytest.approx(3.325)
+    assert member['equivalentPanels'] == pytest.approx(3.25)
     assert member['cabinets'] == 4, 'a part cabinet is still a cabinet'
     assert member['pixels'] == 53248
-    assert member['watts'] == pytest.approx(665.0)
+    assert member['watts'] == pytest.approx(650.0)
     assert member['weightKg'] == pytest.approx(66.5)
     # ...and it lands in the group total rather than being rounded to a whole.
-    assert t['equivalentPanels'] == pytest.approx(4.325)
+    assert t['equivalentPanels'] == pytest.approx(4.25)
     assert t['cabinets'] == 5
 
 
@@ -562,7 +564,7 @@ def test_a_member_with_no_visible_key_still_counts(page):
                     columns: cols, rows: rows,
                     cabinet_width: cab, cabinet_height: cab,
                     panel_weight: weight, panelWatts: watts, weight_unit: 'kg',
-                    powerVoltage: 208, powerAmperage: 20,
+                    powerVoltage: 208, powerAmperage: 25,
                     processorType: 'brompton', bitDepth: 8, frameRate: 60,
                     flowPattern: 'tl-h', offset_x: 0, offset_y: 0,
                     powerOrganized: true, portMappingMode: 'organized'};
@@ -600,7 +602,7 @@ def test_an_explicitly_hidden_member_is_excluded(page):
                 const L = {id, type: 'screen', name: 'M' + id, group_id: 'g1',
                     columns: 2, rows: 2, cabinet_width: 128, cabinet_height: 128,
                     panel_weight: 20, panelWatts: 300, weight_unit: 'kg',
-                    powerVoltage: 208, powerAmperage: 20,
+                    powerVoltage: 208, powerAmperage: 25,
                     processorType: 'brompton', bitDepth: 8, frameRate: 60,
                     flowPattern: 'tl-h', offset_x: 0, offset_y: 0,
                     powerOrganized: true, portMappingMode: 'organized'};
@@ -1065,6 +1067,10 @@ def test_route_as_one_stored_true_crosses_exactly_as_absent(page):
 # its power circuit - circuit 2 is 11 cabinets / 2200 W (10.58 A at 208 V),
 # not 12 / 2400 W, the multi 5200 W / 25 A. Its ports are unchanged.
 
+# A second one (owner, 2026-10-21: a half tile draws 50%, not 65%): the
+# 'halves' wall's half row is lighter, so circuit 1 takes 22 cabinets and
+# circuit 2 the last 2. Its ports are unchanged.
+
 PIN_ROUTES = {
     'org_h':
         '{"ports":[[0,0,1,true,0],[0,1,1,false,16384],[0,2,1,false,32768],[0,3,1,false,49152],[0,4,'
@@ -1136,21 +1142,19 @@ PIN_ROUTES = {
         '":512,\\"x2\\":1024}],\\"watts\\":8000,\\"x1\\":0,\\"x2\\":1024,\\"amps\\":38.46153846153846,\\"lengt'
         'h\\":null}]"}',
     'halves':
-        '{"ports":[[0,0,1,true,0],[0,1,1,false,8192],[0,2,1,false,24576],[0,3,1,false,40960],[0,4,1'
-        ',false,57344],[0,5,1,false,73728],[1,5,1,false,90112],[1,4,1,false,106496],[1,3,1,false,12'
-        '2880],[1,2,1,false,139264],[1,1,1,false,155648],[1,0,1,false,172032],[2,0,1,false,180224],'
-        '[2,1,1,false,188416],[2,2,1,false,204800],[2,3,1,false,221184],[2,4,1,false,237568],[2,5,1'
-        ',false,253952],[3,5,1,false,270336],[3,4,1,false,286720],[3,3,1,false,303104],[3,2,1,false'
-        ',319488],[3,1,1,false,335872],[3,0,1,false,352256]],"autoPorts":1,"portsRequired":1,"power'
-        '":[[[0,0],[0,1],[0,2],[0,3],[0,4],[0,5],[1,5],[1,4],[1,3],[1,2],[1,1],[1,0],[2,0],[2,1],[2'
-        ',2],[2,3],[2,4],[2,5],[3,5],[3,4],[3,3]],[[3,2],[3,1],[3,0]]],"circuits":2,"soca":"[{\\"soc'
-        'a\\":1,\\"number\\":1,\\"name\\":\\"S1\\",\\"distroId\\":null,\\"legs\\":[{\\"leg\\":1,\\"circuit\\":1,\\"'
-        'label\\":\\"S1-1\\",\\"tiles\\":21,\\"watts\\":3990,\\"amps\\":19.182692307692307,\\"x1\\":0,\\"x2\\":7'
-        '68},{\\"leg\\":2,\\"circuit\\":2,\\"label\\":\\"S1-2\\",\\"tiles\\":3,\\"watts\\":530,\\"amps\\":2.54807'
-        '6923076923,\\"x1\\":0,\\"x2\\":384}],\\"watts\\":4520,\\"x1\\":0,\\"x2\\":768,\\"amps\\":21.7307692307'
-        '6923,\\"length\\":null}]"}',
-    # The legacy blank at (0, 0) carries no data and draws no power (owner:
-    # a blank does not exist), so it is off the data port and off circuit 2.
+        '{"ports":[[0,0,1,true,0],[0,1,1,false,8192],[0,2,1,false,24576],[0,3,1,false,40960],[0,4,1,f'
+        'alse,57344],[0,5,1,false,73728],[1,5,1,false,90112],[1,4,1,false,106496],[1,3,1,false,122880'
+        '],[1,2,1,false,139264],[1,1,1,false,155648],[1,0,1,false,172032],[2,0,1,false,180224],[2,1,1'
+        ',false,188416],[2,2,1,false,204800],[2,3,1,false,221184],[2,4,1,false,237568],[2,5,1,false,2'
+        '53952],[3,5,1,false,270336],[3,4,1,false,286720],[3,3,1,false,303104],[3,2,1,false,319488],['
+        '3,1,1,false,335872],[3,0,1,false,352256]],"autoPorts":1,"portsRequired":1,"power":[[[0,0],[0'
+        ',1],[0,2],[0,3],[0,4],[0,5],[1,5],[1,4],[1,3],[1,2],[1,1],[1,0],[2,0],[2,1],[2,2],[2,3],[2,4'
+        '],[2,5],[3,5],[3,4],[3,3],[3,2]],[[3,1],[3,0]]],"circuits":2,"soca":"[{\\"soca\\":1,\\"number\\"'
+        ':1,\\"name\\":\\"S1\\",\\"distroId\\":null,\\"legs\\":[{\\"leg\\":1,\\"circuit\\":1,\\"label\\":\\"S1-1\\",\\'
+        '"tiles\\":22,\\"watts\\":4100,\\"amps\\":19.71153846153846,\\"x1\\":0,\\"x2\\":768},{\\"leg\\":2,\\"circ'
+        'uit\\":2,\\"label\\":\\"S1-2\\",\\"tiles\\":2,\\"watts\\":300,\\"amps\\":1.4423076923076923,\\"x1\\":0,\\"'
+        'x2\\":256}],\\"watts\\":4400,\\"x1\\":0,\\"x2\\":768,\\"amps\\":21.153846153846153,\\"length\\":null}]"'
+        '}',
     'holes':
         '{"ports":[[4,0,1,true,0],[4,1,1,false,16384],[4,2,1,false,32768],[4,3,1,false,49152],[4,4,1,'
         'false,65536],[4,5,1,false,81920],[3,5,1,false,98304],[3,4,1,false,114688],[3,3,1,false,13107'
@@ -1194,7 +1198,7 @@ ROUTE_BATTERY_JS = """
         org_v: () => gt.screen({ id: 1, name: 'OrgV', columns: 5, rows: 7,
             flowPattern: 'br-v', portMappingMode: 'organized',
             powerFlowPattern: 'bl-v', powerOrganized: true,
-            panelWatts: 150, powerVoltage: 110, powerAmperage: 20 }),
+            panelWatts: 150, powerVoltage: 110, powerAmperage: 25 }),
         maxcap: () => gt.screen({ id: 1, name: 'Max', columns: 7, rows: 4,
             flowPattern: 'tr-h', portMappingMode: 'maximize',
             powerFlowPattern: 'tr-h', powerOrganized: false, powerMaximize: true }),

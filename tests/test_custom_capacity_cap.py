@@ -1,8 +1,9 @@
 """Custom drawing caps at capacity, and a pattern fill cuts there.
 
 The wall that asked for this (2026-09-03): 28 cabinets wide on 110 V / 15 A.
-Automatic power refuses it - a full row is more than a circuit carries - so
-the user goes to custom mode, selects a 14 x 6 block, presses serpentine, and
+Automatic power refused it then - a full row is more than a circuit carries;
+since 2026-11-01 Organized cuts the row - so
+the user went to custom mode, selects a 14 x 6 block, presses serpentine, and
 wants circuits 1..6 at 14 apiece. Before this the pattern buttons poured the
 WHOLE selection into the one active circuit, and a click past the cap was
 taken without a word.
@@ -55,7 +56,7 @@ def _restore_server_project(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -68,7 +69,10 @@ def page(e2e_server, pw_browser):
 # One screen built through the real add endpoint so cabinets carry real
 # geometry. 115 W cabinets on a 110 V / 15 A circuit (1,650 W) pack 14 to a
 # circuit - the user's own figure. 256 px cabinets (65,536 px) on a Brompton
-# port at 8-bit / 60 Hz (525,000 px) pack 8 to a port.
+# port at 8-bit / 60 Hz (525,000 px) pack 8 to a port. A US circuit packs to
+# 80% of its breaker (2026-10-22), so every breaker set here is the figure
+# the docstrings name x 1.25 (15 A -> 18.75 A): the circuit still carries
+# the same watts, and the readouts say "at 80%".
 HELPERS_JS = r"""
 window.__cap = {
     toasts: [],
@@ -107,7 +111,7 @@ window.__cap = {
         l.powerOrganized = true;
         l.powerMaximize = false;
         l.powerVoltage = 110;
-        l.powerAmperage = 15;
+        l.powerAmperage = 18.75;
         l.panelWatts = 115;
         l.processorType = 'brompton';
         l.bitDepth = 8;
@@ -222,7 +226,7 @@ def test_power_serpentine_over_a_14x6_block_fills_circuits_1_to_6_at_14_each(pag
     # And the status says what was filled, with the cap it was filled to.
     assert len(out['toasts']) == 1, out['toasts']
     assert out['toasts'][0].startswith('Filled circuits '), out['toasts'][0]
-    assert 'whole rows, up to 14 panels each at 110V/15A' in out['toasts'][0], out['toasts'][0]
+    assert 'whole rows, up to 14 panels each at 110V/18.75A at 80%' in out['toasts'][0], out['toasts'][0]
 
 
 def test_a_run_snakes_inside_itself_and_the_next_restarts_from_the_start_side(page):
@@ -286,8 +290,8 @@ def test_power_fill_is_one_undo_step_that_puts_everything_back(page):
 
 
 def test_power_fill_counts_half_tiles_by_watt_equivalent(page):
-    """A half-height row derates to 0.65 of a cabinet (getPanelLoadFactor),
-    so the row of 14 halves is 1,046.5 W - and circuit 1 is that row alone,
+    """A half-height row derates to 0.5 of a cabinet (getPanelLoadFactor,
+    2026-10-21), so the row of 14 halves is 805 W - and circuit 1 is that row alone,
     because the whole row of 14 wholes below it (1,610 W) would cross
     1,650 W and a run never takes part of a row. Same figures the automatic
     engine's loadOf charges."""
@@ -305,7 +309,7 @@ def test_power_fill_counts_half_tiles_by_watt_equivalent(page):
         };
     }""")
     assert out['counts'] == [[1, 14], [2, 14], [3, 14]], out['counts']
-    assert abs(out['fill1']['load'] - 1046.5) < 1e-6, out['fill1']
+    assert abs(out['fill1']['load'] - 805) < 1e-6, out['fill1']
     assert out['active'] == 3, out['active']
 
 
@@ -313,7 +317,7 @@ def test_power_fill_counts_half_tiles_by_watt_equivalent(page):
 # 120 V / 20 A (2,400 W) - 24 cabinets a circuit, a row is 18.
 WHOLE_ROWS_JS = """() => {
     const l = window.__cap.layer();
-    l.powerVoltage = 120; l.powerAmperage = 20; l.panelWatts = 100;
+    l.powerVoltage = 120; l.powerAmperage = 25; l.panelWatts = 100;
 }"""
 
 
@@ -340,7 +344,7 @@ def test_rows_at_24_a_circuit_are_one_row_per_circuit_not_24_and_a_bit(page):
     for n in range(1, 8):
         assert paths[str(n)] == [[n - 1, c] for c in range(18)], (n, paths[str(n)])
     assert out['active'] == 7, out['active']
-    assert 'whole rows, up to 24 panels each at 120V/20A' in out['toasts'][0], out['toasts']
+    assert 'whole rows, up to 24 panels each at 120V/25A at 80%' in out['toasts'][0], out['toasts']
 
 
 def test_two_rows_go_on_one_circuit_when_both_fit_whole(page):
@@ -350,7 +354,7 @@ def test_two_rows_go_on_one_circuit_when_both_fit_whole(page):
     circuit 4."""
     reset(page, columns=18, rows=7)
     page.evaluate(WHOLE_ROWS_JS)
-    page.evaluate("() => { window.__cap.layer().powerAmperage = 33.4; }")
+    page.evaluate("() => { window.__cap.layer().powerAmperage = 41.75; }")
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
         app.selectPowerPanelsInRect(cap.layer(), cap.rect(18, 7, 128));
@@ -400,7 +404,7 @@ def test_a_row_longer_than_a_circuit_is_cut_and_its_remainder_stands_alone(page)
     from the start side."""
     reset(page, columns=18, rows=2)
     page.evaluate(WHOLE_ROWS_JS)
-    page.evaluate("() => { window.__cap.layer().powerAmperage = 10; }")
+    page.evaluate("() => { window.__cap.layer().powerAmperage = 12.5; }")
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
         app.selectPowerPanelsInRect(cap.layer(), cap.rect(18, 2, 128));
@@ -417,9 +421,11 @@ def test_a_row_longer_than_a_circuit_is_cut_and_its_remainder_stands_alone(page)
 
 def test_data_serpentine_cuts_at_the_pixel_derived_port_cap(page):
     """The data twin: 256 px cabinets on a 525,000 px Brompton port pack 8.
-    A 12-wide row is longer than a port, so each row is cut at 8 and its
-    remaining 4 stand on a port of their own - port 2 does NOT snake back
-    along row 1, because row 1 (12) would not fit on it whole."""
+    A 12-wide row is longer than a port, so each row is cut at 8 from the
+    left. Port 2 does NOT snake on along row 1 from mid-row: it takes the
+    leftover 4 of row 0 and, stacked under them, the leftover 4 of row 1
+    (the owner's ruling, 2026-11-04: the leftovers fill their port as far
+    as the math allows), and port 3 is row 1 from the left."""
     reset(page, columns=12, rows=2, cab=256, view='data-flow')
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
@@ -438,16 +444,15 @@ def test_data_serpentine_cuts_at_the_pixel_derived_port_cap(page):
     assert out['selected'] == 24, out['selected']
     assert out['cap']['count'] == 8 and out['cap']['limit'] == 525000, out['cap']
     paths = out['paths']
-    assert [len(paths[str(n)]) for n in (1, 2, 3, 4)] == [8, 4, 8, 4], paths
+    assert sorted(paths) == ['1', '2', '3'], paths
     assert paths['1'] == [[0, c] for c in range(8)], paths['1']
-    # Port 2 is the rest of row 0, read on in the pattern's direction, and
-    # nothing else: row 1 does not fit on it whole.
-    assert paths['2'] == [[0, 8], [0, 9], [0, 10], [0, 11]], paths['2']
-    # Port 3 starts row 1 from the left - the start side - and port 4 takes
-    # the rest of it.
+    # Port 2 is the rest of row 0, read on in the pattern's direction, then
+    # the rest of row 1 under it, back the other way.
+    assert paths['2'] == [[0, 8], [0, 9], [0, 10], [0, 11],
+                          [1, 11], [1, 10], [1, 9], [1, 8]], paths['2']
+    # Port 3 starts row 1 from the left - the start side.
     assert paths['3'] == [[1, c] for c in range(8)], paths['3']
-    assert paths['4'] == [[1, 8], [1, 9], [1, 10], [1, 11]], paths['4']
-    assert out['active'] == 4, out['active']
+    assert out['active'] == 3, out['active']
     assert out['hist'] == ['Initial State', 'Custom Pattern Apply'], out['hist']
     assert len(out['toasts']) == 1 and out['toasts'][0].startswith('Filled ports '), out['toasts']
     assert 'whole rows, up to 8 panels each at 525,000 px/port' in out['toasts'][0], out['toasts'][0]
@@ -499,7 +504,7 @@ def test_maximize_power_packs_14x6_as_one_snake_cut_at_14(page):
     assert out['active'] == 6, out['active']
     assert out['hist'] == ['Initial State', 'Power Custom Pattern Apply'], out['hist']
     assert len(out['toasts']) == 1 and out['toasts'][0].startswith('Filled circuits '), out['toasts']
-    assert '(packed full, up to 14 panels each at 110V/15A)' in out['toasts'][0], out['toasts'][0]
+    assert '(packed full, up to 14 panels each at 110V/18.75A at 80%)' in out['toasts'][0], out['toasts'][0]
     assert 'whole rows' not in out['toasts'][0], out['toasts'][0]
 
 
@@ -535,7 +540,7 @@ def test_maximize_power_at_24_a_circuit_cuts_mid_row_and_carries_the_snake_on(pa
     assert paths['1'][18:] == [[1, c] for c in range(17, 11, -1)], paths['1']
     assert paths['2'][0] == [1, 11], paths['2']
     assert out['active'] == 6, out['active']
-    assert '(packed full, up to 24 panels each at 120V/20A)' in out['toasts'][0], out['toasts']
+    assert '(packed full, up to 24 panels each at 120V/25A at 80%)' in out['toasts'][0], out['toasts']
 
 
 def test_max_capacity_data_packs_ports_of_8_8_8_across_the_row_break(page):
@@ -569,8 +574,8 @@ def test_max_capacity_data_packs_ports_of_8_8_8_across_the_row_break(page):
 
 def test_flipping_the_mode_back_to_organized_gives_whole_rows_again(page):
     """Same screen, Max Capacity then Organized: the second fill is the
-    whole-row result the organized tests pin (8, 4, 8, 4), and its toast
-    names whole rows."""
+    whole-row result the organized tests pin (each row cut from the left,
+    the leftovers stacked), and its toast names whole rows."""
     reset(page, columns=12, rows=2, cab=256, view='data-flow')
     packed = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
@@ -594,11 +599,11 @@ def test_flipping_the_mode_back_to_organized_gives_whole_rows_again(page):
         return { paths: cap.paths('customPortPaths'), toasts: cap.toasts.slice() };
     }""")
     paths = out['paths']
-    assert [len(paths[str(n)]) for n in (1, 2, 3, 4)] == [8, 4, 8, 4], paths
+    assert sorted(paths) == ['1', '2', '3'], paths
     assert paths['1'] == [[0, c] for c in range(8)], paths['1']
-    assert paths['2'] == [[0, 8], [0, 9], [0, 10], [0, 11]], paths['2']
+    assert paths['2'] == [[0, 8], [0, 9], [0, 10], [0, 11],
+                          [1, 11], [1, 10], [1, 9], [1, 8]], paths['2']
     assert paths['3'] == [[1, c] for c in range(8)], paths['3']
-    assert paths['4'] == [[1, 8], [1, 9], [1, 10], [1, 11]], paths['4']
     assert '(whole rows, up to 8 panels each at 525,000 px/port)' in out['toasts'][0], out['toasts']
     assert 'packed full' not in out['toasts'][0], out['toasts'][0]
 
@@ -723,7 +728,7 @@ def test_power_click_past_the_cap_is_refused_and_does_not_advance(page):
     assert out['steps'] == 0, out
     assert len(out['toasts']) == 1, out['toasts']
     msg = out['toasts'][0]
-    assert 'is full — 14 panels at 110V/15A' in msg, msg
+    assert 'is full, 14 panels at 110V/18.75A at 80%' in msg, msg
     assert 'Step to the next circuit (Tab / ])' in msg, msg
     assert out['fill']['full'] is True and out['fill']['count'] == 14, out['fill']
 
@@ -741,14 +746,17 @@ def test_data_click_past_the_cap_is_refused(page):
     }""")
     assert out['n'] == 8 and out['active'] == 1, out
     assert len(out['toasts']) == 1, out['toasts']
-    assert 'is full — 8 panels at 525,000 px/port' in out['toasts'][0], out['toasts']
+    assert 'is full, 8 panels at 525,000 px/port' in out['toasts'][0], out['toasts']
     assert 'Step to the next port (Tab / ])' in out['toasts'][0], out['toasts']
 
 
 def test_a_per_run_override_is_capped_by_the_same_gate(page):
     """Alt takeover shares the click path. Automatic organized rows on a
     14-wide screen put row 0 (1,610 W) on circuit 1; taken over, it is
-    already full, and the first click onto row 1 is refused."""
+    already full, and the first click onto row 1 is refused. Row 1 is
+    circuit 2's, and on an automatic screen a redraw may not take another
+    circuit's cabinet at all (2026-10-20), so the refusal names that
+    first: either way nothing is added."""
     reset(page, columns=14, rows=3, autoPower=True)
     out = page.evaluate("""() => {
         const app = window.app, cap = window.__cap;
@@ -766,7 +774,9 @@ def test_a_per_run_override_is_capped_by_the_same_gate(page):
     }""")
     assert out['seeded'] == 14 and out['editing'] is True, out
     assert out['n'] == 14, out
-    assert len(out['toasts']) == 1 and 'is full' in out['toasts'][0], out['toasts']
+    # named by the label the wall prints (the owner, 2026-10-21), not "circuit 2"
+    name = page.evaluate("() => window.app.getPowerCircuitLabel(window.__cap.layer(), 2)")
+    assert len(out['toasts']) == 1 and f'already wired to circuit {name}.' in out['toasts'][0], out['toasts']
 
 
 def test_no_capacity_means_no_cap(page):
@@ -803,7 +813,7 @@ def test_the_badge_reads_the_fill_and_calls_the_run_full(page):
     assert out['full']['pill'] == '14/14 on circuit · full', out['full']
     assert out['full']['full'] is True, out['full']
     # The sidebar mirrors it under the custom controls.
-    assert '9/14 panels' in out['midReadout'] and '(110V/15A)' in out['midReadout'], out['midReadout']
+    assert '9/14 panels' in out['midReadout'] and '(110V/18.75A at 80%)' in out['midReadout'], out['midReadout']
     assert '14/14 panels · full' in out['fullReadout'], out['fullReadout']
 
 
@@ -819,13 +829,26 @@ def test_the_data_badge_and_readout_mirror_the_port_cap(page):
     assert '525,000 px/port' in out['readout'], out['readout']
 
 
-def test_the_auto_power_refusal_names_the_pattern_fill_route(page):
-    """The message the user hit: it now says the custom route works."""
+def test_auto_power_cuts_the_wide_rows_instead_of_refusing(page):
+    """The message the user hit is gone (the owner's ruling, 2026-11-01):
+    Organized cuts the 28-wide row the way the custom fill does, 14 and
+    14, each circuit inside one row and read from the left."""
     reset(page, autoPower=True)
-    why = page.evaluate("() => window.app._socaPlanEmptyReason(window.__cap.layer())")
-    assert why and 'a full row is' in why, why
-    assert 'select a narrower block and apply a pattern' in why, why
-    assert 'circuits cut at capacity' in why, why
+    out = page.evaluate("""() => {
+        const app = window.app, L = window.__cap.layer();
+        const a = app.calculatePowerAssignments(L);
+        return {
+            why: app._socaPlanEmptyReason(L),
+            error: a.error,
+            sizes: (a.circuits || []).map(c => c.length),
+            oneRow: (a.circuits || []).every(c => new Set(c.map(p => p.row)).size === 1),
+            firstCols: (a.circuits || []).map(c => c[0].col),
+        };
+    }""")
+    assert out['why'] is None and out['error'] is None, out
+    assert out['sizes'] and all(n == 14 for n in out['sizes']), out
+    assert out['oneRow'], out
+    assert set(out['firstCols']) == {0, 14}, out
 
 
 # ── The readout lives in the canvas strip, not on the wall ────────────────

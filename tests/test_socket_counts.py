@@ -2,8 +2,9 @@
 
 The owner's report (2026-09-24): "there is a counting issue. right now it
 shows 11/40 ports being used when I have 11 primary and 11 redundant. so
-that means it's 22/40". The n of every n/N the app prints for a card or a
-breakout box is the sockets on it that hold a primary OR carry a placed
+that means it's 22/40". The n of the server's n/N for a card or a
+breakout box (the binder's count; since 2026-11-04 the processor tray
+prints primaries only, test_tray_primary_counts) is the sockets on it that hold a primary OR carry a placed
 primary's return (port_assignment._taken_sockets, served as the card
 summary's `taken` and per box as `boxes`). A return counts where its SOCKET
 lives, whatever shape put it there:
@@ -176,7 +177,12 @@ def test_redundancy_off_counts_primaries_only(client):
                                  'taken': 3, 'free': 3}
 
 
-# ── 2. The tray and the binder read the one count ─────────────────────────
+# ── 2. The binder reads this count; the tray counts primaries ─────────────
+#
+# The owner, 2026-11-04: on the tray "we're drawing in the primaries and the
+# backups are automatic, so we don't need to count the backups". The tray's
+# headers read primaries over the sockets that can carry one
+# (trayPrimaryCount, test_tray_primary_counts); the binder keeps this count.
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
@@ -279,7 +285,7 @@ BINDER_ROWS_JS = """(procId) => {
 def count_page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)
@@ -292,35 +298,37 @@ def count_page(e2e_server, pw_browser):
     context.close()
 
 
-def test_the_sx40_header_counts_primaries_and_returns(count_page):
-    """Eleven primaries in the fixed sequential pairing read 22/40."""
+def test_the_sx40_header_counts_its_primaries(count_page):
+    """Eleven primaries in the fixed pairing read 11/20 on the tray (the
+    binder, below, still prints 22 / 40)."""
     page, ids = count_page
     four = ids['units']['FOUR']
     glance = page.evaluate(GLANCE_JS, f"card-{four['cardId']}")
-    assert glance and glance['text'] == '22/40', glance
+    assert glance and glance['text'] == '11/20', glance
     assert abs(glance['barW'] - 55) < 0.5, glance
 
 
-def test_each_box_header_counts_its_own_sockets(count_page):
-    """A 10/10 (the mains), B 10/10 (their returns), C 1/10, D 1/10."""
+def test_each_primary_box_header_counts_its_own_sockets(count_page):
+    """A 10/10 and C 1/10; B and D carry nothing but the automatic
+    backups, so their rows draw no count."""
     page, ids = count_page
     four = ids['units']['FOUR']
     texts = [(page.evaluate(GLANCE_JS, f'box-{b}') or {}).get('text')
              for b in four['boxes']]
-    assert texts == ['10/10', '10/10', '1/10', '1/10'], texts
+    assert texts == ['10/10', None, '1/10', None], texts
 
 
 def test_a_unit_full_of_pairs_reads_full(count_page):
-    """Ten primaries and their ten returns on a two-box SX40: 20/20 and a
-    full fill line - the owner's WALL SL, which read 10/20."""
+    """Ten primaries and their ten returns on a two-box SX40: 10/10 and a
+    full fill line."""
     page, ids = count_page
     full = ids['units']['FULL']
     glance = page.evaluate(GLANCE_JS, f"card-{full['cardId']}")
-    assert glance and glance['text'] == '20/20', glance
+    assert glance and glance['text'] == '10/10', glance
     assert glance['barW'] == 100 and not glance['over'], glance
     texts = [(page.evaluate(GLANCE_JS, f'box-{b}') or {}).get('text')
              for b in full['boxes']]
-    assert texts == ['10/10', '10/10'], texts
+    assert texts == ['10/10', None], texts
 
 
 def test_the_binder_cards_table_prints_the_same_count(count_page):

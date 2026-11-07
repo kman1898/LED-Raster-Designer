@@ -100,7 +100,7 @@ SERVED_JS = """async () => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)
@@ -360,6 +360,9 @@ def test_stored_true_survives_a_reload_and_default_stays_off(page):
 # Live repro: a 13-wide screen of 200W panels at 110V/15A in organized row
 # mode -> CANNOT FIT COMPLETE ROW -> zero circuits -> empty soca plan -> the
 # old panel rendered NOTHING, and the user read the soca feature as broken.
+# Since 2026-11-01 Organized cuts a row (or column) too big for one circuit,
+# so the one power error left is a single panel over a circuit; the screen
+# below is that one (1,500W panels on the same circuit).
 # The panel is gone; the story now rides the hardware dock's issue strip
 # (#hw-dock-issues) as a "No circuits on SCREEN — <reason>" row, pushed by
 # _dockRenderPower from _socaPlanEmptyReason. Only the ERROR empty state
@@ -367,14 +370,14 @@ def test_stored_true_survives_a_reload_and_default_stays_off(page):
 # keeps the strip silent.
 
 ERROR_SCREEN_JS = """() => {
-    // The user's shape, in memory only: 13 columns of 200W cabinets on a
-    // 110V/15A circuit, organized rows. A full row is 2,600W against a
-    // 1,650W circuit.
+    // The user's shape, in memory only: 13 columns of cabinets on a
+    // 110V/15A circuit, organized rows, at 1,500W a cabinet: one panel is
+    // over a 1,320W circuit (80% of the breaker on a US screen, 2026-10-22).
     const layer = {
         id: 99901, name: 'WideErr', type: 'screen', visible: true,
         columns: 13, rows: 2, group_id: null,
         cabinet_width: 128, cabinet_height: 128,
-        panelWatts: 200, powerVoltage: 110, powerAmperage: 15,
+        panelWatts: 1500, powerVoltage: 110, powerAmperage: 15,
         powerFlowPattern: 'tl-h', powerOrganized: true, powerMaximize: false,
         panels: [],
     };
@@ -420,13 +423,14 @@ def test_dock_strip_states_the_power_error_with_the_layers_figures(page):
     assert not out['empty'], (
         "an error-emptied plan raised no strip row - the exact silence the "
         "user read as the feature being broken")
-    for figure in ('No circuits on WideErr', 'a full row is 2,600 W',
-                   '110 V / 15 A', 'carries 1,650 W',
-                   'higher voltage or amperage', 'column pattern',
-                   'custom path'):
+    for figure in ('No circuits on WideErr', 'one panel is 1,500 W',
+                   '110 V / 15 A', 'carries 1,320 W (80% of the breaker)',
+                   'higher voltage or amperage'):
         assert figure in out['text'], (
             f"{figure!r} missing - the row must carry the layer's own "
             f"numbers and a way out: {out['text']}")
+    # no pattern helps one panel over a circuit, so none is offered
+    assert 'pattern' not in out['text'], out['text']
     assert out['fits'], (
         "the error row overflows the strip sideways - it must wrap inside "
         "the dock like every other row")
@@ -436,8 +440,14 @@ def test_dock_strip_states_the_power_error_with_the_layers_figures(page):
     # row above is the one story (updatePowerLabelEditor is a kept no-op).
 
 
-def test_column_error_names_the_column_and_the_row_way_out(page):
+def test_a_row_or_column_too_big_for_a_circuit_is_cut_not_an_error(page):
+    """The old repro, 13 wide at 200W (a row of 2,600W on a 1,320W
+    circuit), and its tall twin on tl-v: Organized cuts the line into
+    circuits (2026-11-01), so the strip has no row for either."""
+    wide = page.evaluate(WITH_LAYER_JS, "layer.panelWatts = 200;")
+    assert 'No circuits on WideErr' not in wide['text'], wide['text']
     out = page.evaluate(WITH_LAYER_JS, """
+        layer.panelWatts = 200;
         layer.powerFlowPattern = 'tl-v';
         layer.columns = 2; layer.rows = 13;
         layer.panels = [];
@@ -447,9 +457,7 @@ def test_column_error_names_the_column_and_the_row_way_out(page):
                                 hidden: false, blank: false, halfTile: 'none' });
         }
     """)
-    assert 'a full column is 2,600 W' in out['text'], out['text']
-    assert 'row pattern' in out['text'], (
-        f"a column error suggests the row pattern, not itself: {out['text']}")
+    assert 'No circuits on WideErr' not in out['text'], out['text']
 
 
 def test_legitimately_empty_states_keep_the_strip_silent(page):

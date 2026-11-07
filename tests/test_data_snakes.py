@@ -35,7 +35,7 @@ difference: the stores live on the HARDWARE record, not the screen -
     programming and a clear forgets it.)
   - layer.showDataCableTags (default FALSE), "Show Cable Tags" under Show
     Port Load %; on, a blue tag beside the port's label on screen and in
-    exportMode alike: the snake's name, or "50' CAT".
+    exportMode alike: the snake's name, or a loose cable's length, "50'".
 
 Run locally (each session takes its own free port, so it runs beside
 any other):
@@ -52,7 +52,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import processor_catalog as catalog  # noqa: E402
-from conftest import private_fixture, private_fixture_missing  # noqa: E402
+from conftest import (private_fixture, private_fixture_missing,  # noqa: E402
+                      settled)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -139,7 +140,7 @@ def test_the_store_round_trips_on_a_card_and_a_box(client):
     rcard = _resolved(client, pid)['slots'][0]['card']
     assert 'snakes' not in rcard
     assert rcard['portCables']['16'] == {'ft': 75, 'connector': 'cat'}
-    # the card's sockets follow its documented kind: RJ45 → CAT
+    # the card's sockets follow its documented kind: RJ45 → Cat6
     assert rcard['portConnector'] == 'cat'
     # The box: its own sockets (the CVT10 on OPT 1 of this card delivers
     # 1-8 again - copy delivery), its own snake, and the card's untouched.
@@ -155,7 +156,7 @@ def test_the_store_round_trips_on_a_card_and_a_box(client):
     assert box['portCables'] == {'7': {'ft': 25}}
     rbox = _resolved(client, pid)['slots'][0]['card']['cvts'][0]
     assert rbox['portConnector'] == 'cat', 'a box with no documented ' \
-        'connector follows its card'
+        'connector reads Cat6'
     # the card's snakes never saw the box's PUT
     assert [s['ports'] for s in _snakes(client, 'card', cid)] \
         == [[9, 10, 11], [13, 14]]
@@ -270,26 +271,38 @@ def test_removing_a_card_or_a_box_drops_its_snakes(client):
 
 def test_the_connector_list_is_served_and_follows_the_catalog(client):
     """getDataCableConnectors mirrors DATA_CABLE_CONNECTORS through the
-    state payload - CAT alone: "panels dont take fiber. what would take
-    fiber is processor to breakout box" (2026-09-07). A card's followed
-    connector is the catalog's documented copper (rj45 → cat) and NOTHING
-    where it is silent or fiber - the no-hardware-assumptions rule, so an
-    undocumented box, and a panel lead off a fiber card, print a bare
-    length rather than a guessed plug. A 'fiber' pick stored by an older
-    file reads as "follows the port" rather than a plug the sheet cannot
-    offer."""
+    state payload - copper only, Cat6 and etherCON: "panels dont take
+    fiber. what would take fiber is processor to breakout box"
+    (2026-09-07). A port follows the connector its device documents
+    (rj45 → Cat6, ethercon → etherCON) and reads Cat6 where nothing is
+    documented (2026-10-21: "Cat6" when it's plain RJ45 OR unknown). A
+    box answers for itself alone: it never borrows its card's or its
+    processor's plug. A 'fiber' pick stored by an older file reads as
+    "follows the port" rather than a plug the sheet cannot offer."""
     st = client.get('/api/processors').get_json()
-    assert st['dataCableConnectors'] == [{'id': 'cat', 'name': 'CAT'}]
+    assert st['dataCableConnectors'] == [{'id': 'cat', 'name': 'Cat6'},
+                                         {'id': 'ethercon', 'name': 'etherCON'}]
     assert catalog.data_port_connector(None, {'connector': 'rj45'}, None) \
         == 'cat'
+    assert catalog.data_port_connector(None, {'connector': 'ethercon'},
+                                       None) == 'ethercon'
+    assert catalog.data_port_connector(None, None,
+                                       {'connector': 'ethercon'}) == 'ethercon'
     assert catalog.data_port_connector(None, {'connector': 'fiber'}, None) \
-        is None
-    assert catalog.data_port_connector({}, {}, {}) is None
+        == 'cat'
+    assert catalog.data_port_connector({}, {}, {}) == 'cat'
+    # a box: its own word, never its card's or its processor's
+    assert catalog.data_port_connector(
+        {'connector': 'ethercon'}, {'connector': 'rj45'}, None,
+        box=True) == 'ethercon'
+    assert catalog.data_port_connector(
+        {}, {'connector': 'ethercon'}, {'connector': 'ethercon'},
+        box=True) == 'cat'
     pid, cid, bid = _h9_with_card_and_box(client, 'novastar-card-h-4xfiber')
     rcard = _resolved(client, pid)['slots'][0]['card']
-    assert rcard['portConnector'] is None
-    assert rcard['cvts'][0]['portConnector'] is None, (
-        'the CVT10 documents no connector and its card is fiber: nothing')
+    assert rcard['portConnector'] == 'cat'
+    assert rcard['cvts'][0]['portConnector'] == 'cat', (
+        'the CVT10 documents no connector: Cat6')
     snakes = catalog.resolved_show_snakes({
         'snakes': [{'id': 'snk1', 'name': 'OLD', 'connector': 'fiber',
                     'members': [{'kind': 'card', 'id': 'card2',
@@ -506,7 +519,7 @@ FRAME_TEXTS_JS = """() => {
         const texts = [];
         ctx.fillText = function (t, x, y, w) { texts.push(String(t)); return oT.call(ctx, t, x, y, w); };
         try { r.render(); } finally { ctx.fillText = oT; }
-        return texts.filter(t => /^(SNAKE |FOH|\\d+(\\.\\d+)?' )/.test(t));
+        return texts.filter(t => /^(SNAKE |FOH|\\d+(\\.\\d+)?'( |$))/.test(t));
     };
     const prevMode = r.viewMode, prevExport = r.exportMode;
     let interactive, exported;
@@ -542,18 +555,92 @@ FOCUS_JS = """() => {
 }"""
 
 
-@pytest.fixture(scope="module")
-def page(e2e_server, pw_browser):
+# Every fetch the page sends, counted open until its reply is read and
+# the handlers on it have had their turn (one macrotask after the body
+# lands), so a follow-up request they start is counted before this one
+# closes. A reply nobody reads closes once its own handlers have run.
+OPEN_FETCHES_JS = """(() => {
+    const send = window.fetch.bind(window);
+    window.__lrdOpenFetches = 0;
+    window.fetch = (...args) => {
+        window.__lrdOpenFetches++;
+        let done = false;
+        const close = () => {
+            if (done) return;
+            done = true;
+            setTimeout(() => { window.__lrdOpenFetches--; }, 0);
+        };
+        return send(...args).then(res => {
+            let reading = false;
+            for (const k of ['json', 'text', 'blob', 'arrayBuffer']) {
+                const read = res[k].bind(res);
+                res[k] = () => { reading = true; return read().finally(close); };
+            }
+            setTimeout(() => { if (!reading) close(); }, 0);
+            return res;
+        }, err => { close(); throw err; });
+    };
+})()"""
+
+# The page gone quiet: no fetch open, every layer save and undo/redo
+# restore landed, no debounced snapshot waiting, and the tray's
+# next-frame layout pass run.
+SETTLE_JS = """async () => {
+    const app = window.app;
+    const frame = () => new Promise(r => requestAnimationFrame(() => r()));
+    const quiet = () => window.__lrdOpenFetches === 0 && !app._saveStateTimer
+        && !(app._restorePutsInFlight && app._restorePutsInFlight.size);
+    const until = Date.now() + 10000;
+    for (;;) {
+        await app._layerSavesSettled();
+        if (quiet()) {
+            await frame();
+            while (app._dockMasonryRaf) await frame();
+            if (quiet()) return;
+        }
+        if (Date.now() > until) {
+            throw new Error('page never settled: '
+                + `${window.__lrdOpenFetches} fetches open`);
+        }
+        await new Promise(r => setTimeout(r, 10));
+    }
+}"""
+
+
+def _settle(page):
+    page.evaluate(SETTLE_JS)
+
+
+def _viewport_settled(page, w, h):
+    page.wait_for_function(
+        f'() => window.innerWidth === {w} && window.innerHeight === {h}')
+    _settle(page)
+
+
+def _open_page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
+    context.add_init_script(OPEN_FETCHES_JS)
     pg = context.new_page()
-    pg.goto(e2e_server, wait_until='domcontentloaded')
-    pg.wait_for_timeout(2000)
+    return context, pg
+
+
+def _to_data_flow(pg):
+    pg.wait_for_function('() => window.app && window.app._initialLoadComplete')
     pg.locator('[data-mode="data-flow"]').click()
-    pg.wait_for_timeout(500)
+    pg.wait_for_function(
+        "() => window.canvasRenderer.viewMode === 'data-flow'")
+    _settle(pg)
+
+
+@pytest.fixture(scope="module")
+def page(e2e_server, pw_browser):
+    context, pg = _open_page(e2e_server, pw_browser)
+    pg.goto(e2e_server, wait_until='domcontentloaded')
+    _to_data_flow(pg)
     ids = pg.evaluate(SEED_JS)
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     assert ids['ports'] == [[i, ids['cardId'], i] for i in range(1, 7)], (
         f'fixture: WALL must take card sockets 1-6 (the box\'s): {ids}')
     yield pg, ids
@@ -581,12 +668,18 @@ def _alt_sweep(page, card_id, a, b):
     page.mouse.move(x2, y2, steps=4)
     page.mouse.up()
     page.keyboard.up('Alt')
-    page.wait_for_timeout(300)
+    _next_task(page)
+
+
+def _next_task(page):
+    """The sweep's mouseup lifts its click swallow on the next macrotask."""
+    page.evaluate('() => new Promise(r => setTimeout(r, 0))')
 
 
 def _right_click(page, x, y):
     page.mouse.click(x, y, button='right')
-    page.wait_for_timeout(400)
+    page.wait_for_function(
+        "() => document.getElementById('context-menu').style.display === 'block'")
     return page.evaluate(MENU_JS)
 
 
@@ -596,7 +689,8 @@ def _close_menu(page):
         return {x: r.left + 15, y: r.top + 15};
     }""")
     page.mouse.click(pt['x'], pt['y'])
-    page.wait_for_timeout(250)
+    page.wait_for_function(
+        "() => document.getElementById('context-menu').style.display !== 'block'")
 
 
 def _sheet_open(page, kind, owner_id, want_open=True):
@@ -604,20 +698,13 @@ def _sheet_open(page, kind, owner_id, want_open=True):
     tray = page.evaluate(TRAY_JS, [kind, owner_id])
     if bool(tray['sheet']) != want_open:
         page.locator(f'[data-lrd-field="data-cable-sheet-{owner_id}"]').click()
-        page.wait_for_timeout(400)
+        _settle(page)
     return page.evaluate(TRAY_JS, [kind, owner_id])
 
 
 def _served(page, ids, want, timeout_ms=4000):
-    waited = 0
-    served = None
-    while waited <= timeout_ms:
-        served = page.evaluate(SERVED_JS, ids)
-        if served and want(served):
-            return served
-        page.wait_for_timeout(250)
-        waited += 250
-    return served
+    return settled(page, lambda: page.evaluate(SERVED_JS, ids),
+                   lambda s: bool(s and want(s)), timeout_ms)
 
 
 def test_the_sweep_lights_chips_and_a_right_click_snakes_them(page):
@@ -645,7 +732,7 @@ def test_the_sweep_lights_chips_and_a_right_click_snakes_them(page):
     assert menu['items'][2]['text'] == 'Set home run…', menu
     index = pg.evaluate(STATE_JS, ids)['index']
     pg.locator('#context-menu [data-action="hw-snake-n0"]').click()
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'] == [{'name': 'SNAKE A', 'ft': None,
                                     'connector': None,
@@ -659,12 +746,12 @@ def test_the_sweep_lights_chips_and_a_right_click_snakes_them(page):
     served = _served(pg, ids, lambda s: bool(s['boxSnakes']))
     assert served['boxSnakes'][0]['ports'] == [1, 2, 3, 4, 5, 6], served
     pg.evaluate('() => window.app.undo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'] == [] and st['index'] == index, st
     assert pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])['brackets'] == []
     pg.evaluate('() => window.app.redo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4, 5, 6], st
 
@@ -713,6 +800,8 @@ def test_the_sweep_crosses_to_another_card_and_escape_clears(page):
         if (typeof window.app.settleLayout === 'function') window.app.settleLayout();
         return h;
     }""")
+    # a clock, on purpose: settleLayout re-places the panels on its own
+    # 60 and 220 ms timers and says nothing when it is done
     pg.wait_for_timeout(400)
     try:
         pts = pg.evaluate(TWO_CHIPS_JS,
@@ -731,7 +820,7 @@ def test_the_sweep_crosses_to_another_card_and_escape_clears(page):
         pg.mouse.move(x2, y2, steps=6)
         pg.mouse.up()
         pg.keyboard.up('Alt')
-        pg.wait_for_timeout(300)
+        _next_task(pg)
         tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
         assert tray['lit'] == [7, 8], tray
         other = pg.evaluate(TRAY_JS, ['card', ids['card2Id']])
@@ -741,7 +830,6 @@ def test_the_sweep_crosses_to_another_card_and_escape_clears(page):
         assert ghosts == ['3 channel snake ↔', '3 channel snake ↔'], (
             tray['brackets'], other['brackets'])
         pg.keyboard.press('Escape')
-        pg.wait_for_timeout(200)
         tray = pg.evaluate(TRAY_JS, ['cvt', ids['boxId']])
         assert tray['lit'] == [] and [b['ghost'] for b in tray['brackets']] == [False]
         assert pg.evaluate(TRAY_JS, ['card', ids['card2Id']])['lit'] == []
@@ -751,6 +839,7 @@ def test_the_sweep_crosses_to_another_card_and_escape_clears(page):
             d.style.height = h || '';
             if (typeof window.app.settleLayout === 'function') window.app.settleLayout();
         }""", was)
+        # settleLayout's timers again (see above)
         pg.wait_for_timeout(300)
 
 
@@ -769,7 +858,7 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
     tray = pg.evaluate(TRAY_JS, ['card', cid])
     assert tray['grid'] and tray['btn'] and not tray['on'], tray
     pg.locator(f'[data-lrd-field="data-cable-sheet-{cid}"]').click()
-    pg.wait_for_timeout(400)
+    _settle(pg)
     tray = pg.evaluate(TRAY_JS, ['card', cid])
     assert tray['sheet'] and tray['on'] and not tray['grid'], tray
     sheet = pg.evaluate(SHEET_JS, ['card', cid])
@@ -801,7 +890,7 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
     ft9 = pg.locator(f'[data-lrd-field="data-cable-ft-{cid}-9"]')
     ft9.fill('50')
     ft9.press('Tab')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None}}, st
     assert st['action'] == 'Set Port Cable' and st['index'] == index + 1, st
@@ -809,7 +898,7 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
         'Tab must walk to the next row\'s ft field across the rebuild')
     pg.keyboard.type('75')
     pg.keyboard.press('Tab')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
                                     '10': {'ft': 75, 'connector': None}}, st
@@ -820,22 +909,22 @@ def test_the_card_sheet_types_loose_lengths_that_read_in_the_corner(page):
     pg.evaluate("""(ids) => window.app.setPortCable(
         window.app._dataCableOwner('card', ids.cardId), 10,
         {ft: '70', connector: 'cat'})""", ids)
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables']['10'] == {'ft': 70, 'connector': 'cat'}, st
     assert st['action'] == 'Set Port Cable' and st['index'] == index + 3, st
     ft10 = pg.locator(f'[data-lrd-field="data-cable-ft-{cid}-10"]')
     ft10.fill('75')
     ft10.press('Tab')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables']['10'] == {'ft': 75, 'connector': 'cat'}, st
     assert st['action'] == 'Set Port Cable' and st['index'] == index + 4, st
     reading = pg.evaluate("""(ids) => [9, 10].map(n =>
         window.app.dataPortCable(ids.cardId, n).text)""", ids)
-    assert reading == ["50' CAT", "75' CAT"], reading
+    assert reading == ["50' Cat6", "75' Cat6"], reading
     pg.locator(f'[data-lrd-field="data-cable-sheet-{cid}"]').click()
-    pg.wait_for_timeout(400)
+    _settle(pg)
     tray = pg.evaluate(TRAY_JS, ['card', cid])
     assert tray['grid'] and not tray['sheet'], tray
     assert tray['corners'] == {'9': "50'", '10': "75'", '11': None,
@@ -861,7 +950,7 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
         pg.locator(f'[data-lrd-field="data-snake-tick-{cid}-{n}"]').check()
     index = pg.evaluate(STATE_JS, ids)['index']
     pg.locator(f'[data-lrd-field="data-cable-snake-{cid}"]').click()
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['snakes'] == [{'name': 'SNAKE B', 'ft': None,
                                      'connector': None, 'ports': [11, 12, 13]}]
@@ -889,7 +978,7 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
     assert pg.evaluate(FOCUS_JS) == f'data-cable-ft-{cid}-12'
     pg.keyboard.type('25')
     pg.keyboard.press('Tab')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
                                     '10': {'ft': 75, 'connector': 'cat'},
@@ -902,15 +991,15 @@ def test_the_sheet_ticks_and_snakes_and_undo_loosens(page):
     }""", ids)
     assert reading == ['snake', 25, "SNAKE B +25'", "SNAKE B · no length +25'"], reading
     pg.evaluate('() => window.app.undo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert '12' not in st['card']['cables'] and st['index'] == index + 1, st
     pg.evaluate('() => window.app.undo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['snakes'] == [] and st['index'] == index, st
     pg.evaluate('() => window.app.redo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     assert pg.evaluate(STATE_JS, ids)['card']['snakes'][0]['ports'] == [11, 12, 13]
     _sheet_open(pg, 'card', cid, False)
 
@@ -933,14 +1022,14 @@ def test_rename_and_home_run_commit_one_entry_each(page):
     name = pg.locator(f'[data-lrd-field="data-snake-name-{bid}-{snake_id}"]')
     name.fill('FOH')
     name.press('Tab')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['name'] == 'FOH', st
     assert st['action'] == 'Rename Snake' and st['index'] == index + 1, st
     ft = pg.locator(f'[data-lrd-field="data-snake-ft-{bid}-{snake_id}"]')
     ft.fill('100')
     ft.press('Tab')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['ft'] == 100, st
     assert st['action'] == 'Set Snake Home Run' and st['index'] == index + 2
@@ -959,7 +1048,7 @@ def test_rename_and_home_run_commit_one_entry_each(page):
         'the snake row asks no connector')
     pg.evaluate("""([ids, sid]) => window.app.setSnake(
         sid, {connector: 'cat'}, 'Set Snake Home Run')""", [ids, snake_id])
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['connector'] == 'cat', st
     assert st['action'] == 'Set Snake Home Run' and st['index'] == index + 3
@@ -980,7 +1069,7 @@ def test_a_port_cleared_from_its_screen_keeps_its_snake(page):
     pg.evaluate("""(ids) => window.app._assignmentRequest(
         '/api/port-assignments/unpin', 'POST',
         {layerId: String(ids.id), index: 0}, null, 'Release Port')""", ids)
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['action'] == 'Release Port', st
     assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4, 5, 6], (
@@ -1002,12 +1091,8 @@ def test_a_port_cleared_from_its_screen_keeps_its_snake(page):
         hist: window.app.history.map(h => h.action).slice(-4),
         index: window.app.historyIndex,
     })"""
-    waited = 0
-    back = pg.evaluate(probe, ids)
-    while waited < 4000 and not back['occ']:
-        pg.wait_for_timeout(250)
-        waited += 250
-        back = pg.evaluate(probe, ids)
+    back = settled(pg, lambda: pg.evaluate(probe, ids),
+                   lambda b: b['occ'], 4000)
     assert back['occ'] == 1 and [0, 1] in back['pins'], (
         f'undo must put the port back on socket 1: {back}')
     assert pg.evaluate(STATE_JS, ids)['box']['snakes'][0]['ports'] == [
@@ -1016,7 +1101,7 @@ def test_a_port_cleared_from_its_screen_keeps_its_snake(page):
 
 def test_the_canvas_tag_follows_the_switch_and_the_export(page):
     """Off (the default): the data pass paints no home-run text on screen
-    or in exportMode. Tick Show Cable Tags: one 'Toggle Data Cable Tags'
+    or in exportMode. Tick Show Cable Tags: one 'Toggle Data Tags'
     step, the flag lands on the server, and both passes paint FOH beside
     ports 1-6 (their sockets ride the snake). Undo un-ticks and un-paints."""
     pg, ids = page
@@ -1025,9 +1110,9 @@ def test_the_canvas_tag_follows_the_switch_and_the_export(page):
     assert pg.evaluate(FRAME_TEXTS_JS) == {'interactive': [], 'exported': []}
     index = pg.evaluate(STATE_JS, ids)['index']
     box.click()
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
-    assert st['flag'] is True and st['action'] == 'Toggle Data Cable Tags', st
+    assert st['flag'] is True and st['action'] == 'Toggle Data Tags', st
     assert st['index'] == index + 1, st
     frame = pg.evaluate(FRAME_TEXTS_JS)
     assert frame['interactive'] == ['FOH'] * 6, frame
@@ -1035,28 +1120,29 @@ def test_the_canvas_tag_follows_the_switch_and_the_export(page):
         f'the export pass must match the screen: {frame}')
     served = _served(pg, ids, lambda s: s['flag'] is True)
     assert served and served['flag'] is True, served
-    # A loose port with its own cable prints "50' CAT": move WALL's port 6
-    # onto card socket 9 (the card's loose 50' CAT) and read the tag.
+    # A loose port with its own cable prints its length alone, "50'" (the
+    # map's tag never names the connector, owner 2026-11-02): move WALL's
+    # port 6 onto card socket 9 (the card's loose 50' Cat6) and read the tag.
     pg.evaluate("""(ids) => window.app._assignmentRequest(
         '/api/port-assignments/place', 'POST',
         {layerId: String(ids.id), index: 5, cardId: ids.cardId, port: 9},
         null, 'Place Port')""", ids)
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     frame = pg.evaluate(FRAME_TEXTS_JS)
-    assert sorted(frame['interactive']) == sorted(['FOH'] * 5 + ["50' CAT"]), frame
+    assert sorted(frame['interactive']) == sorted(['FOH'] * 5 + ["50'"]), frame
     assert sorted(frame['exported']) == sorted(frame['interactive']), frame
     pg.evaluate('() => window.app.undo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     pg.evaluate('() => window.app.undo()')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['flag'] is False and not box.is_checked(), st
     assert pg.evaluate(FRAME_TEXTS_JS) == {'interactive': [], 'exported': []}
     pg.evaluate('() => window.app.redo()')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     assert pg.evaluate(STATE_JS, ids)['flag'] is True and box.is_checked()
     box.click()
-    pg.wait_for_timeout(600)
+    _settle(pg)
     assert pg.evaluate(STATE_JS, ids)['flag'] is False
 
 
@@ -1077,7 +1163,7 @@ def test_an_extension_reads_on_the_corner_the_tag_and_survives_loosen(page):
         const owner = app._dataCableOwner('cvt', ids.boxId);
         return app.setPortCable(owner, 3, {ft: '25', connector: ''});
     }""", ids)
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['cables'] == {'3': {'ft': 25, 'connector': None}}, st
     assert st['action'] == 'Set Port Extension' and st['index'] == index + 1, st
@@ -1116,7 +1202,7 @@ def test_an_extension_reads_on_the_corner_the_tag_and_survives_loosen(page):
         return app.loosenPorts(
             [app.snakeMember(app._dataCableOwner('cvt', ids.boxId), 3)]);
     }""", ids)
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['ports'] == [1, 2, 4, 5, 6], st
     assert st['box']['cables'] == {'3': {'ft': 25, 'connector': None}}, st
@@ -1125,11 +1211,11 @@ def test_an_extension_reads_on_the_corner_the_tag_and_survives_loosen(page):
         const c = window.app.dataPortCable(ids.cardId, 3);
         return [c.kind, c.text];
     }""", ids)
-    assert loose == ['cable', "25' CAT"], loose
+    assert loose == ['cable', "25' Cat6"], loose
     assert pg.evaluate(TRAY_JS, ['cvt', bid])['corners']['3'] == "25'"
     for _ in range(2):
         pg.evaluate('() => window.app.undo()')
-        pg.wait_for_timeout(1200)
+        _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['cables'] == {} and st['index'] == index, st
     assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4, 5, 6], st
@@ -1176,13 +1262,13 @@ def test_unsnake_from_the_bracket_menu_and_from_lit_chips(page):
         'Rename FOH', 'Set home run of FOH…', 'Unsnake FOH'], menu
     index = pg.evaluate(STATE_JS, ids)['index']
     pg.locator('#context-menu [data-action="hw-snake-n2"]').click()
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'] == [], st
     assert st['action'] == 'Unsnake' and st['index'] == index + 1, st
     assert pg.evaluate(TRAY_JS, ['cvt', bid])['brackets'] == []
     pg.evaluate('() => window.app.undo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['name'] == 'FOH' and st['index'] == index
     assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4, 5, 6]
@@ -1194,7 +1280,7 @@ def test_unsnake_from_the_bracket_menu_and_from_lit_chips(page):
     assert 'Snake these 2 (Alt+Enter)' in texts and 'Unsnake these 2' in texts
     assert not any('Loosen' in t for t in texts), texts
     pg.locator('#context-menu .menu-option', has_text='Unsnake these 2').click()
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][0]['ports'] == [1, 2, 3, 4], st
     assert st['action'] == 'Unsnake' and st['index'] == index + 1, st
@@ -1205,7 +1291,7 @@ def test_unsnake_from_the_bracket_menu_and_from_lit_chips(page):
     x, y = _chip_center(pg, ids['cardId'], 8)
     _right_click(pg, x, y)
     pg.locator('#context-menu [data-action="hw-snake-n1"]').click()
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert [s['ports'] for s in st['box']['snakes']] == [[1, 2, 3, 4], [7, 8]]
     assert st['box']['snakes'][1]['name'] == 'SNAKE A', (
@@ -1215,7 +1301,7 @@ def test_unsnake_from_the_bracket_menu_and_from_lit_chips(page):
         'Set home run… must open the sheet on the new snake\'s length')
     pg.keyboard.type('60')
     pg.keyboard.press('Tab')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['snakes'][1]['ft'] == 60 and st['action'] == 'Set Snake Home Run'
     _sheet_open(pg, 'cvt', bid, False)
@@ -1230,7 +1316,7 @@ def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
     assert _sheet_open(pg, 'card', cid)['sheet']
     index = pg.evaluate(STATE_JS, ids)['index']
     pg.locator(f'[data-lrd-field="data-cable-fill-{cid}-100"]').click()
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {
         '9': {'ft': 100, 'connector': None},
@@ -1241,15 +1327,15 @@ def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
     assert st['action'] == 'Set Port Cable' and st['index'] == index + 1, st
     assert st['card']['snakes'][0]['ports'] == [11, 12, 13]
     pg.locator(f'[data-lrd-field="data-cable-fill-{cid}-none"]').click()
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {} and st['index'] == index + 2, st
     pg.evaluate('() => window.app.undo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     assert pg.evaluate(STATE_JS, ids)['card']['cables']['16'] == {
         'ft': 100, 'connector': None}
     pg.evaluate('() => window.app.undo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
                                     '10': {'ft': 75, 'connector': 'cat'}}
@@ -1288,7 +1374,7 @@ def test_a_typed_length_fills_the_loose_ports_and_leaves_the_snake(page):
     index = pg.evaluate(STATE_JS, ids)['index']
     box.fill('37')
     btn.click()
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     want = {'9': {'ft': 37, 'connector': None},
             '10': {'ft': 37, 'connector': 'cat'},
@@ -1308,7 +1394,7 @@ def test_a_typed_length_fills_the_loose_ports_and_leaves_the_snake(page):
     assert box.input_value() == '37', 'the rebuilt box shows the length in force'
     box.fill('12.5')
     box.press('Enter')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables']['9'] == {'ft': 12.5, 'connector': None}, st
     assert st['card']['cables']['10'] == {'ft': 12.5, 'connector': 'cat'}, st
@@ -1316,7 +1402,7 @@ def test_a_typed_length_fills_the_loose_ports_and_leaves_the_snake(page):
     for junk in ['', '0', '-5']:
         box.fill(junk)
         btn.click()
-        pg.wait_for_timeout(500)
+        _settle(pg)
         st = pg.evaluate(STATE_JS, ids)
         assert st['index'] == index + 2 and st['card']['cables']['9']['ft'] == 12.5, (
             f'{junk!r} must write nothing: {st}')
@@ -1326,18 +1412,18 @@ def test_a_typed_length_fills_the_loose_ports_and_leaves_the_snake(page):
         b.value = 'abc';
         b.dispatchEvent(new KeyboardEvent('keydown', {{key: 'Enter', bubbles: true}}));
     }}""")
-    pg.wait_for_timeout(500)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['index'] == index + 2 and st['card']['cables']['9']['ft'] == 12.5, st
     assert box.input_value() == '12.5'
     pg.locator(f'[data-lrd-field="data-cable-fill-{cid}-100"]').click()
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables']['16'] == {'ft': 100, 'connector': None}, st
     assert st['index'] == index + 3, st
     for _ in range(3):
         pg.evaluate('() => window.app.undo()')
-        pg.wait_for_timeout(1200)
+        _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
                                     '10': {'ft': 75, 'connector': 'cat'}}, st
@@ -1366,7 +1452,7 @@ def test_a_typed_length_with_ticked_writes_only_the_ticked_rows(page):
     # nothing ticked: the length is refused with a word, not written
     box.fill('42')
     btn.click()
-    pg.wait_for_timeout(500)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['index'] == index and '14' not in st['card']['cables'], st
     assert _status(pg) == 'Tick the ports first, then Fill.', _status(pg)
@@ -1374,7 +1460,7 @@ def test_a_typed_length_with_ticked_writes_only_the_ticked_rows(page):
     pg.locator(f'[data-lrd-field="data-snake-tick-{cid}-15"]').check()
     box.fill('42')
     btn.click()
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     want = {'9': {'ft': 50, 'connector': None},
             '10': {'ft': 75, 'connector': 'cat'},
@@ -1396,7 +1482,7 @@ def test_a_typed_length_with_ticked_writes_only_the_ticked_rows(page):
     pg.locator(f'[data-lrd-field="data-snake-tick-{cid}-12"]').check()
     box.fill('8')
     box.press('Enter')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables']['12'] == {'ft': 8, 'connector': None}, st
     assert st['card']['cables']['14'] == {'ft': 42, 'connector': None}, st
@@ -1409,7 +1495,7 @@ def test_a_typed_length_with_ticked_writes_only_the_ticked_rows(page):
     assert reading == ['snake', 8], reading
     for _ in range(2):
         pg.evaluate('() => window.app.undo()')
-        pg.wait_for_timeout(1200)
+        _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
                                     '10': {'ft': 75, 'connector': 'cat'}}, st
@@ -1446,8 +1532,12 @@ FOLD_JS = """([secId, kind, id]) => {
 
 
 def _fold_arrow(page, sec_id):
+    folded = """(id) => document.querySelector(`[data-lrd-sec="${id}"]`)
+        .parentElement.classList.contains('lrd-sec-collapsed')"""
+    was = page.evaluate(folded, sec_id)
     page.locator(f'[data-lrd-sec="{sec_id}"] .lrd-sec-arrow').click()
-    page.wait_for_timeout(300)
+    page.wait_for_function(f'(id) => ({folded})(id) !== {str(was).lower()}',
+                           arg=sec_id)
 
 
 @pytest.mark.parametrize('which', ['card', 'box'])
@@ -1477,7 +1567,7 @@ def test_the_sheet_leaves_the_fold_alone(page, which):
     ft = pg.locator(f'[data-lrd-field="{row["ftKey"]}"]')
     ft.fill('20')
     ft.press('Tab')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     assert pg.evaluate(STATE_JS, ids)['index'] == index + 1
     st = pg.evaluate(FOLD_JS, args)
     assert st['collapsed'] and st['stored'] == '1' and st['sheetVisible'], (
@@ -1495,7 +1585,7 @@ def test_the_sheet_leaves_the_fold_alone(page, which):
     ft = pg.locator(f'[data-lrd-field="{row["ftKey"]}"]')
     ft.fill('30')
     ft.press('Tab')
-    pg.wait_for_timeout(900)
+    _settle(pg)
     assert pg.evaluate(STATE_JS, ids)['index'] == index + 2
     st = pg.evaluate(FOLD_JS, args)
     assert st['sheetVisible'] and not st['collapsed'] and st['stored'] == '0', st
@@ -1503,9 +1593,9 @@ def test_the_sheet_leaves_the_fold_alone(page, which):
     st = pg.evaluate(FOLD_JS, args)
     assert st['gridVisible'] and not st['collapsed'] and st['stored'] == '0', st
     pg.evaluate('() => window.app.undo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     pg.evaluate('() => window.app.undo()')
-    pg.wait_for_timeout(1200)
+    _settle(pg)
     assert pg.evaluate(STATE_JS, ids)['index'] == index
 
 
@@ -1563,7 +1653,7 @@ BOX_SHEET_JS = """(id) => {
                     reason=str(private_fixture_missing(SCRATCH_FIXTURE)))
 def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
     """On the frozen file, box SR B's snake row and its four member rows
-    read "SR - MAIN" - exactly what box SR A's read - with the "p1 return"
+    read "SR - MAIN" - exactly what box SR A's read - with the "P1 return"
     detail on the row's title; the table is never wider than the sheet,
     and the HOME RUN cell (the last one - four columns) sits on it, on
     both boxes. Runs in its own
@@ -1571,19 +1661,19 @@ def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
     back when it is done."""
     with open(SCRATCH_FIXTURE, encoding='utf-8') as fh:
         project = json.load(fh)
-    context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
-    context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
-    pg = context.new_page()
+    context, pg = _open_page(e2e_server, pw_browser)
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
     try:
         pg.goto(e2e_server, wait_until='domcontentloaded')
-        pg.wait_for_timeout(2000)
+        pg.wait_for_function(
+            '() => window.app && window.app._initialLoadComplete')
         before = pg.evaluate("async () => (await fetch('/api/project')).json()")
         try:
             pg.locator('[data-mode="data-flow"]').click()
-            pg.wait_for_timeout(400)
+            pg.wait_for_function(
+                "() => window.canvasRenderer.viewMode === 'data-flow'")
+            _settle(pg)
             ids = pg.evaluate("""async (project) => {
                 const app = window.app;
                 const j = (method, url, body) => fetch(url, {method,
@@ -1608,14 +1698,14 @@ def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
                 return { a: boxA.id, b: boxB.id, snakeA: on(boxA), snakeB: on(boxB),
                          backup: backup.backupFor ? backup.backupFor.title : null };
             }""", project)
-            pg.wait_for_timeout(800)
+            _settle(pg)
             assert ids['a'] == 'cvt8' and ids['b'] == 'cvt9', ids
             assert ids['snakeA'] == [1, 2, 3, 4] and ids['snakeB'] == [1, 2, 3, 4], ids
             assert ids['backup'] == 'Card 1', f'fixture: Card 3 must back Card 1: {ids}'
             sheets = {}
             for which in ('a', 'b'):
                 pg.locator(f'[data-lrd-field="data-cable-sheet-{ids[which]}"]').click()
-                pg.wait_for_timeout(500)
+                _settle(pg)
                 sheets[which] = pg.evaluate(BOX_SHEET_JS, ids[which])
                 assert sheets[which], f'box {which} has no sheet open'
             a, b = sheets['a'], sheets['b']
@@ -1623,14 +1713,15 @@ def test_the_backup_boxs_sheet_reads_like_the_primarys(e2e_server, pw_browser):
             assert a['rows'][0]['kind'] == 'snake' and a['rows'][0]['who'] == 'SR - MAIN', a['rows'][0]
             assert [r['who'] for r in a['rows'][1:5]] == ['SR - MAIN'] * 4, a['rows']
             assert [r['kind'] for r in a['rows'][1:5]] == ['member'] * 4, a['rows']
-            # the backup reads the same - the "p1 return" detail rides the titles
+            # the backup reads the same - the "P1 return" detail rides the titles
+            # (a port is P1, as the tray and the map say it, since 2026-11-03)
             assert b['rows'][0]['kind'] == 'snake' and b['rows'][0]['who'] == 'SR - MAIN', b['rows'][0]
             assert [r['who'] for r in b['rows'][1:5]] == ['SR - MAIN'] * 4, b['rows']
-            assert 'p1 return' in b['rows'][0]['rowTitle'] and 'p4 return' in b['rows'][0]['rowTitle'], b['rows'][0]
+            assert 'P1 return' in b['rows'][0]['rowTitle'] and 'P4 return' in b['rows'][0]['rowTitle'], b['rows'][0]
             assert b['rows'][0]['whoTitle'] == b['rows'][0]['rowTitle'], b['rows'][0]
             for n, r in enumerate(b['rows'][1:5], start=1):
-                assert r['rowTitle'] == f'SR - MAIN p{n} return', (n, r)
-                assert r['whoTitle'] == f'SR - MAIN p{n} return', (n, r)
+                assert r['rowTitle'] == f'SR - MAIN P{n} return', (n, r)
+                assert r['whoTitle'] == f'SR - MAIN P{n} return', (n, r)
             # a primary row says nothing more than its cell, so no row title
             assert all(r['rowTitle'] == '' for r in a['rows'][:5]), a['rows']
             # the geometry: never a table wider than its sheet, every HOME
@@ -1730,7 +1821,7 @@ def test_a_sheet_fits_its_cell_and_never_widens_its_unit(page):
     snake_id = pg.evaluate(STATE_JS, ids)['box']['ids'][0]
     try:
         pg.set_viewport_size({'width': 1440, 'height': 900})
-        pg.wait_for_timeout(400)
+        _viewport_settled(pg, 1440, 900)
         tray = _sheet_open(pg, 'cvt', ids['boxId'], True)
         assert tray['sheet'], tray
         out = pg.evaluate(SHEET_FIT_JS, ['cvt', ids['boxId']])
@@ -1761,7 +1852,7 @@ def test_a_sheet_fits_its_cell_and_never_widens_its_unit(page):
         index = pg.evaluate(STATE_JS, ids)['index']
         name.fill(long_name)
         name.press('Tab')
-        pg.wait_for_timeout(900)
+        _settle(pg)
         st = pg.evaluate(STATE_JS, ids)
         assert st['box']['snakes'][0]['name'] == long_name and st['index'] == index + 1, st
         grown = pg.evaluate(SHEET_FIT_JS, ['cvt', ids['boxId']])
@@ -1783,7 +1874,7 @@ def test_a_sheet_fits_its_cell_and_never_widens_its_unit(page):
         if grown['table']['w'] > grown['sheet']['w'] + 1:
             assert grown['sheetScrolls'], grown
         pg.evaluate('() => window.app.undo()')
-        pg.wait_for_timeout(1200)
+        _settle(pg)
         st = pg.evaluate(STATE_JS, ids)
         assert st['box']['snakes'][0]['name'] == 'FOH' and st['index'] == index, st
         back = pg.evaluate(SHEET_FIT_JS, ['cvt', ids['boxId']])
@@ -1791,7 +1882,7 @@ def test_a_sheet_fits_its_cell_and_never_widens_its_unit(page):
     finally:
         _sheet_open(pg, 'cvt', ids['boxId'], False)
         pg.set_viewport_size({'width': 1700, 'height': 950})
-        pg.wait_for_timeout(400)
+        _viewport_settled(pg, 1700, 950)
 
 
 # One port chip's occupant line as laid out: the occupant's text and the
@@ -1840,7 +1931,7 @@ def test_a_chip_reads_its_occupant_and_its_length_side_by_side(page):
     index = pg.evaluate(STATE_JS, ids)['index']
     pg.evaluate("""(ids) => window.app.setPortCable(
         window.app._dataCableOwner('cvt', ids.boxId), 5, {ft: '10'})""", ids)
-    pg.wait_for_timeout(900)
+    _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert st['box']['cables'].get('5') == {'ft': 10, 'connector': None}, st
     assert st['index'] == index + 1, st
@@ -1858,7 +1949,7 @@ def test_a_chip_reads_its_occupant_and_its_length_side_by_side(page):
             app.renderHardwareDock();
             return app._portOccupants(ids.cardId, 5).map(o => o.name);
         }""", ids)
-        pg.wait_for_timeout(600)
+        _settle(pg)
         assert who == ['SL - MAIN'], who
         line = pg.evaluate(CHIP_LINE_JS, [f'port-{cid}-5', None])
         print('\nchip line:', json.dumps(line))
@@ -1893,9 +1984,9 @@ def test_a_chip_reads_its_occupant_and_its_length_side_by_side(page):
             app.renderLayers();
             app.renderHardwareDock();
         }""", ids)
-        pg.wait_for_timeout(600)
+        _settle(pg)
         pg.evaluate('() => window.app.undo()')
-        pg.wait_for_timeout(1200)
+        _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
     assert '5' not in st['box']['cables'] and st['index'] == index, st
     assert pg.evaluate("(ids) => window.app._portOccupants(ids.cardId, 5).map(o => o.name)", ids) == ['WALL']
@@ -1958,7 +2049,7 @@ def test_the_home_run_column_lines_up_and_a_snake_keeps_its_members(page):
         const owner = app._dataCableOwner('cvt', ids.boxId);
         return await app.snakePorts(app.snakeMembersOf(owner, [5, 6, 7, 8]));
     }""", ids)
-    pg.wait_for_timeout(900)
+    _settle(pg)
     try:
         _sheet_open(pg, 'cvt', ids['boxId'], True)
         rows = pg.evaluate(RUN_COLUMN_JS, ['cvt', ids['boxId']])
@@ -2023,7 +2114,7 @@ def test_the_home_run_column_lines_up_and_a_snake_keeps_its_members(page):
             await app.refreshProcessors();
             app.renderHardwareDock();
         }""", {'pid': ids['procId'], 'box': ids['boxId'], 'was': was})
-        pg.wait_for_timeout(700)
+        _settle(pg)
         _sheet_open(pg, 'cvt', ids['boxId'], False)
 
 

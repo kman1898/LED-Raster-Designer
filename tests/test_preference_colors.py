@@ -27,7 +27,9 @@ import re
 
 import pytest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from conftest import settled
+
+ROOT =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 INDEX_HTML = os.path.join(ROOT, 'src', 'templates', 'index.html')
 PREFS_JS = os.path.join(ROOT, 'src', 'static', 'js', 'app-preferences.js')
 PRESETS_JS = os.path.join(ROOT, 'src', 'static', 'js', 'app-presets.js')
@@ -237,14 +239,122 @@ def _guard(server_project_guard):
 def page(_guard, e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1440, 'height': 900})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
+    context.add_init_script(FETCH_COUNT_JS)
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e) + '\n' + str(getattr(e, 'stack', ''))))
     pg.goto(e2e_server, wait_until='domcontentloaded')
-    pg.wait_for_timeout(2000)
+    _booted(pg)
     yield pg, errors
     context.close()
+
+
+# The page's fetches still out. Several of the app's own writes (the
+# preference PUT, the raster sync POST after New or a load) are not
+# tracked by _layerSavesSettled; this counts them, and only them.
+FETCH_COUNT_JS = """(() => {
+    const real = window.fetch;
+    let out = 0;
+    Object.defineProperty(window, '__lrdFetchesOut', { get: () => out });
+    window.fetch = function (...args) {
+        out++;
+        const p = real.apply(this, args);
+        p.then(() => { out--; }, () => { out--; });
+        return p;
+    };
+})()"""
+
+
+def _settle(pg):
+    """Every fetch the page made has answered and every layer save landed."""
+    pg.wait_for_function("() => window.__lrdFetchesOut === 0")
+    pg.evaluate("async () => { await window.app._layerSavesSettled(); }")
+    pg.wait_for_function("() => window.__lrdFetchesOut === 0")
+
+
+def _booted(pg):
+    """The page's load pass is done and what it wrote has landed."""
+    pg.wait_for_function("() => !!(window.app && window.app._initialLoadComplete)")
+    _settle(pg)
+
+
+def _reload(pg):
+    pg.reload(wait_until='domcontentloaded')
+    _booted(pg)
+
+
+def _new_project(pg):
+    """New Project, through its raster sync POST."""
+    pg.evaluate("() => { window.__oldProject = window.app.project; window.app.createNewProject(); }")
+    pg.wait_for_function("() => window.app.project !== window.__oldProject")
+    _settle(pg)
+
+
+def _open_prefs(pg):
+    pg.evaluate("() => window.app.openPreferencesModal()")
+    pg.locator('#preferences-modal').wait_for(state='visible')
+
+
+def _save_prefs(pg):
+    pg.locator('#preferences-save').click()
+    _settle(pg)
+
+
+def _added(pg, before):
+    """The add answered (one screen more than `before`) and its push landed."""
+    settled(pg, lambda: len(pg.evaluate(IDS_JS)), lambda n: n > len(before))
+    _settle(pg)
+
+
+def _toast_text(pg):
+    return pg.evaluate("() => { const h = document.getElementById('app-toast-host'); return h ? h.textContent : ''; }")
+
+
+def _watch_toasts(pg):
+    """Record every toast as it is put up (its text, and whether it is the
+    red error kind), so a short-lived toast is seen however long the test
+    waits before it looks."""
+    pg.evaluate("""() => {
+        window.__toastsSeen = [];
+        if (window.__toastWatch) window.__toastWatch.disconnect();
+        // a new host and the toast in it can come as two records: one each
+        const taken = new WeakSet();
+        const take = (el) => {
+            if (taken.has(el)) return;
+            taken.add(el);
+            window.__toastsSeen.push({ text: el.textContent,
+                error: /#a8324b|rgb\\(168, 50, 75\\)/.test(el.style.background) });
+        };
+        window.__toastWatch = new MutationObserver((muts) => {
+            for (const m of muts) for (const n of m.addedNodes) {
+                if (n.nodeType !== 1) continue;
+                if (n.id === 'app-toast-host') [...n.children].forEach(take);
+                else if (n.parentElement && n.parentElement.id === 'app-toast-host') take(n);
+            }
+        });
+        window.__toastWatch.observe(document.body, { childList: true, subtree: true });
+    }""")
+
+
+def _toasts_seen(pg):
+    return pg.evaluate("() => window.__toastsSeen || []")
+
+
+def _clear_toasts(pg):
+    pg.evaluate("() => { const h = document.getElementById('app-toast-host'); if (h) h.textContent = ''; }")
+
+
+def _watch_status(pg, text):
+    """Raise window.__statusSeen when the status line reads `text`."""
+    pg.evaluate("""(text) => {
+        window.__statusSeen = false;
+        const el = document.getElementById('status-message');
+        const mo = new MutationObserver(() => {
+            if (el.textContent === text) { window.__statusSeen = true; mo.disconnect(); }
+        });
+        mo.observe(el, { childList: true, characterData: true, subtree: true });
+    }""", text)
 
 
 # Store a preference patch the way the dialog's Save does: the live copy,
@@ -283,7 +393,8 @@ def _colours_of(layer):
 
 def _delete(pg, layer_id):
     pg.evaluate("(id) => window.app.deleteLayer(id)", layer_id)
-    pg.wait_for_timeout(800)
+    pg.wait_for_function("(id) => !window.app.project.layers.some(l => l.id === id)", arg=layer_id)
+    _settle(pg)
     pg.evaluate("() => { const app = window.app; app.selectLayer(app.project.layers[0]); }")
 
 
@@ -297,14 +408,13 @@ def test_a_new_screen_keeps_its_preference_colours_on_reload(page):
     pg.evaluate(SET_PREFS_JS, COLOURS)
     before = pg.evaluate(IDS_JS)
     pg.evaluate("() => window.app.addLayer()")
-    pg.wait_for_timeout(1500)
+    _added(pg, before)
     srv = pg.evaluate(SERVER_NEW_JS, before)
     assert 'error' not in srv, srv
     assert _colours_of(srv) == COLOURS_AS_LAYER, 'the server holds the literals, not the preference'
     # the other client-side defaults ride the same PUT
     assert srv['flowPattern'] == 'tl-h' and srv['bitDepth'] == 8 and srv['frameRate'] == 60, srv
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     live = pg.evaluate(CLIENT_NEW_JS, before)
     assert 'error' not in live, live
     assert _colours_of(live) == COLOURS_AS_LAYER, 'the reload lost the colours'
@@ -348,18 +458,16 @@ def test_a_malformed_stored_colour_shows_and_saves_the_shipped_default(page):
                                'dataLineColor': 'not a colour'})
     before = pg.evaluate(IDS_JS)
     pg.evaluate("() => window.app.addLayer()")
-    pg.wait_for_timeout(1500)
+    _added(pg, before)
     srv = pg.evaluate(SERVER_NEW_JS, before)
     assert 'error' not in srv, srv
     assert (srv['labelsColor'], srv['cabinetIdColor']) == ('#FFFFFF', '#ABCDEF'), srv
     _delete(pg, srv['id'])
-    pg.evaluate("() => window.app.openPreferencesModal()")
-    pg.wait_for_timeout(300)
+    _open_prefs(pg)
     shown = pg.evaluate("""(ids) => ids.map(id => document.getElementById(id).value)""",
                         ['pref-screen-name-color', 'pref-cabinet-id-color', 'pref-data-line-color'])
     assert shown == ['#ffffff', '#abcdef', '#ffffff'], shown
-    pg.locator('#preferences-save').click()
-    pg.wait_for_timeout(600)
+    _save_prefs(pg)
     served = pg.evaluate("async () => (await (await fetch('/api/preferences')).json())")
     assert (served['screenNameColor'], served['cabinetIdColor'], served['dataLineColor']) == \
         ('#FFFFFF', '#ABCDEF', '#FFFFFF'), served
@@ -384,7 +492,7 @@ def _dress_and_copy(pg, how):
         app.updateLayers([l]);
         return { sourceId: l.id, before: app.project.layers.map(x => x.id) };
     }""", DATA_COLOURS)
-    pg.wait_for_timeout(700)
+    _settle(pg)
     if how == 'paste':
         pg.evaluate("""(id) => {
             const app = window.app;
@@ -397,7 +505,7 @@ def _dress_and_copy(pg, how):
             const l = window.app.project.layers.find(x => x.id === id);
             window.app.duplicateLayer(l);
         }""", state['sourceId'])
-    pg.wait_for_timeout(1200)
+    _added(pg, state['before'])
     return state
 
 
@@ -435,7 +543,7 @@ def test_a_preset_with_empty_colour_keys_takes_the_defaults(page):
         powerCircuitColors: null, border_color_data: null,
         bitDepth: 10,
     })""")
-    pg.wait_for_timeout(1500)
+    _added(pg, before)
     live = pg.evaluate(CLIENT_NEW_JS, before)
     assert 'error' not in live, live
     assert _colours_of(live) == COLOURS_AS_LAYER, live
@@ -454,18 +562,16 @@ def test_the_pristine_startup_screen_takes_the_colour_defaults_on_save(page):
     name, so it takes them too. Last in the module: it replaces the
     project (the module guard puts the seeded one back)."""
     pg, errors = page
-    pg.evaluate("() => window.app.createNewProject()")
-    pg.wait_for_timeout(1500)
+    _new_project(pg)
     state = pg.evaluate("""() => { const app = window.app; return {
         pristine: app.project.is_pristine, n: app.project.layers.length,
         name: app.project.name, id: app.currentLayer && app.currentLayer.id }; }""")
     assert state['pristine'] is True and state['n'] == 1 and state['name'] == 'Untitled Project', state
-    pg.evaluate("() => window.app.openPreferencesModal()")
-    pg.wait_for_timeout(300)
+    _open_prefs(pg)
 
     def _tab(key):
         pg.locator(f'#preferences-modal .pm-tabstrip .view-tab[data-key="{key}"]').click()
-        pg.wait_for_timeout(150)
+        pg.locator(f'#pm-sec-{key}').wait_for(state='visible')
     for prop, key in LAYER_OF.items():
         pid = next(p for p, (k, _s, _w) in PICKERS.items() if k == key)
         _tab('look' if pid in ('pref-screen-name-color', 'pref-cabinet-id-color')
@@ -478,8 +584,7 @@ def test_the_pristine_startup_screen_takes_the_colour_defaults_on_save(page):
         el = pg.locator(f'#pref-power-circuit-color-{letter}')
         el.fill(value.lower())
         el.dispatch_event('change')
-    pg.locator('#preferences-save').click()
-    pg.wait_for_timeout(1000)
+    _save_prefs(pg)
     live = pg.evaluate("() => window.app.project.layers[0]")
     assert _colours_of(live) == COLOURS_AS_LAYER, 'the startup screen kept the shipped colours'
     srv = pg.evaluate("async () => (await (await fetch('/api/project')).json()).layers[0]")
@@ -531,12 +636,11 @@ def test_a_chosen_old_green_stays_and_an_untouched_old_set_migrates(page):
     # and a screen made from it keeps the green through a reload
     before = pg.evaluate(IDS_JS)
     pg.evaluate("() => window.app.addLayer()")
-    pg.wait_for_timeout(1500)
+    _added(pg, before)
     srv = pg.evaluate(SERVER_NEW_JS, before)
     assert 'error' not in srv, srv
     assert srv['powerCircuitColors'] == dict(zip('ABCDEF', chosen)), srv['powerCircuitColors']
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     live = pg.evaluate(CLIENT_NEW_JS, before)
     assert 'error' not in live, live
     assert live['powerCircuitColors']['D'] == '#79FC4C', 'the reload repainted the chosen old green'
@@ -558,7 +662,7 @@ def test_a_preset_with_junk_colour_keys_takes_the_defaults(page):
     def _add(preset):
         before = pg.evaluate(IDS_JS)
         pg.evaluate("(p) => window.app.addLayer(p)", preset)
-        pg.wait_for_timeout(1500)
+        _added(pg, before)
         live = pg.evaluate(CLIENT_NEW_JS, before)
         assert 'error' not in live, live
         srv = pg.evaluate(SERVER_NEW_JS, before)
@@ -603,7 +707,7 @@ def test_junk_tile_preferences_never_reach_the_server(page):
     pg.evaluate(SET_PREFS_JS, {'color1': '#FFF', 'color2': 'nope', 'borderColor': ''})
     before = pg.evaluate(IDS_JS)
     pg.evaluate("() => window.app.addLayer()")
-    pg.wait_for_timeout(1500)
+    _added(pg, before)
     srv = pg.evaluate(SERVER_NEW_JS, before)
     assert 'error' not in srv, srv
     assert srv['color1'] == {'r': 255, 'g': 255, 'b': 255}, srv['color1']
@@ -612,13 +716,11 @@ def test_junk_tile_preferences_never_reach_the_server(page):
                'border_color_data', 'border_color_power']
     assert [srv.get(k) for k in borders] == ['#FFFFFF'] * 5, {k: srv.get(k) for k in borders}
     _delete(pg, srv['id'])
-    pg.evaluate("() => window.app.openPreferencesModal()")
-    pg.wait_for_timeout(300)
+    _open_prefs(pg)
     shown = pg.evaluate("(ids) => ids.map(id => document.getElementById(id).value)",
                         ['pref-color1', 'pref-color2', 'pref-border-color'])
     assert shown == ['#ffffff', '#959cb8', '#ffffff'], shown
-    pg.locator('#preferences-save').click()
-    pg.wait_for_timeout(600)
+    _save_prefs(pg)
     served = pg.evaluate("async () => (await (await fetch('/api/preferences')).json())")
     assert (served['color1'], served['color2'], served['borderColor']) == \
         ('#FFFFFF', '#959CB8', '#FFFFFF'), served
@@ -644,15 +746,21 @@ def test_a_failed_push_after_add_is_logged_not_thrown(page):
             route.continue_()
     pg.route('**/api/layer/*', _abort_puts)
     before = pg.evaluate(IDS_JS)
+    # The toast lives 2.4 s, and _added waits for every fetch out - one can
+    # be a panel catalog refresh to a dead port that takes ~3 s to fail on
+    # Windows - so the toast is caught as it is made, not read afterwards.
+    _watch_toasts(pg)
     try:
         pg.evaluate("() => window.app.addLayer()")
-        pg.wait_for_timeout(1500)
+        _added(pg, before)
     finally:
         pg.unroute('**/api/layer/*')
+    toasts = settled(pg, lambda: _toasts_seen(pg), lambda ts: any('not saved' in t['text'] for t in ts))
+    pg.evaluate("() => window.__toastWatch.disconnect()")
     rejections = pg.evaluate("() => window.__rejections")
     assert rejections == [], rejections
-    toast = pg.evaluate("() => { const h = document.getElementById('app-toast-host'); return h ? h.textContent : ''; }")
-    assert 'not saved' in toast, toast
+    shown = [t for t in toasts if 'not saved' in t['text']]
+    assert len(shown) == 1 and shown[0]['error'], toasts
     live = pg.evaluate(CLIENT_NEW_JS, before)
     assert 'error' not in live, live
     _delete(pg, live['id'])
@@ -661,15 +769,13 @@ def test_a_failed_push_after_add_is_logged_not_thrown(page):
 
 def _save_columns(pg, n):
     """Set the Wall tab's Columns preference to n and Save."""
-    pg.evaluate("() => window.app.openPreferencesModal()")
-    pg.wait_for_timeout(300)
+    _open_prefs(pg)
     pg.locator('#preferences-modal .pm-tabstrip .view-tab[data-key="wall"]').click()
-    pg.wait_for_timeout(150)
+    pg.locator('#pm-sec-wall').wait_for(state='visible')
     el = pg.locator('#pref-columns')
     el.fill(str(n))
     el.dispatch_event('change')
-    pg.locator('#preferences-save').click()
-    pg.wait_for_timeout(1000)
+    _save_prefs(pg)
 
 
 # The startup screen's columns in the browser and on the server, and the
@@ -689,7 +795,7 @@ def _edit_columns(pg, n):
         el.value = String(n);
         el.dispatchEvent(new Event('change'));
     }""", n)
-    pg.wait_for_timeout(1000)
+    _settle(pg)
 
 
 def test_a_preference_save_follows_the_startup_screen_until_it_is_edited_across_relaunches(page):
@@ -707,8 +813,7 @@ def test_a_preference_save_follows_the_startup_screen_until_it_is_edited_across_
     pg, errors = page
     # the app launched fresh: a new SERVER project, then the page booting on it
     pg.evaluate("async () => { await fetch('/api/project/new', { method: 'POST' }); }")
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     state = pg.evaluate("""() => { const app = window.app; return {
         pristine: app.project.is_pristine, n: app.project.layers.length, name: app.project.name }; }""")
     assert state == {'pristine': True, 'n': 1, 'name': 'Untitled Project'}, state
@@ -717,8 +822,7 @@ def test_a_preference_save_follows_the_startup_screen_until_it_is_edited_across_
     assert pg.evaluate(STARTUP_STATE_JS) == \
         {'live': 3, 'srv': 3, 'pristine': True, 'srvPristine': True}, 'the first Save did not follow'
     # relaunched: the page reloads on the same server project
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     assert pg.evaluate(STARTUP_STATE_JS)['srvPristine'] is True, 'the reload itself ended the pristine state'
     _save_columns(pg, 4)
     assert pg.evaluate(STARTUP_STATE_JS) == \
@@ -732,21 +836,18 @@ def test_a_preference_save_follows_the_startup_screen_until_it_is_edited_across_
     assert pg.evaluate(STARTUP_STATE_JS) == \
         {'live': 6, 'srv': 6, 'pristine': False, 'srvPristine': False}, 'the Save re-made the edited screen'
     # and after a relaunch the edited screen is still left alone
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     _save_columns(pg, 7)
     assert pg.evaluate(STARTUP_STATE_JS) == \
         {'live': 6, 'srv': 6, 'pristine': False, 'srvPristine': False}, 'the relaunch forgot the edit'
 
     # New Project in-session: the same, start to finish
-    pg.evaluate("() => window.app.createNewProject()")
-    pg.wait_for_timeout(1500)
+    _new_project(pg)
     assert pg.evaluate(STARTUP_STATE_JS)['srvPristine'] is True, 'New Project ended its own pristine state'
     _save_columns(pg, 3)
     assert pg.evaluate(STARTUP_STATE_JS) == \
         {'live': 3, 'srv': 3, 'pristine': True, 'srvPristine': True}, 'a Save on the new project did not follow'
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     _save_columns(pg, 4)
     assert pg.evaluate(STARTUP_STATE_JS) == \
         {'live': 4, 'srv': 4, 'pristine': True, 'srvPristine': True}, 'the new project stopped following after a reload'
@@ -769,22 +870,25 @@ def test_a_failed_add_is_logged_and_toasted_not_thrown(page):
         window.addEventListener('unhandledrejection', e => window.__rejections.push(String(e.reason)));
     }""")
     before = pg.evaluate(IDS_JS)
+    _clear_toasts(pg)
     pg.route('**/api/layer/add', lambda route: route.abort())
     try:
         pg.evaluate("() => window.app.addLayer()")
-        pg.wait_for_timeout(1500)
+        toast = settled(pg, lambda: _toast_text(pg), lambda t: 'not added' in t)
+        _settle(pg)
     finally:
         pg.unroute('**/api/layer/add')
     assert pg.evaluate("() => window.__rejections") == []
-    toast = pg.evaluate("() => { const h = document.getElementById('app-toast-host'); return h ? h.textContent : ''; }")
     assert 'not added' in toast, toast
     assert pg.evaluate(IDS_JS) == before, 'a screen landed from a failed add'
     # a server error answers JSON too; the chain must not go on to select a layer with no id
     pg.route('**/api/layer/add', lambda route: route.fulfill(
         status=500, content_type='application/json', body='{"error": "boom"}'))
+    _clear_toasts(pg)
     try:
         pg.evaluate("() => window.app.addLayer()")
-        pg.wait_for_timeout(1500)
+        settled(pg, lambda: _toast_text(pg), lambda t: 'not added' in t)
+        _settle(pg)
     finally:
         pg.unroute('**/api/layer/add')
     assert pg.evaluate("() => window.__rejections") == []
@@ -792,18 +896,18 @@ def test_a_failed_add_is_logged_and_toasted_not_thrown(page):
     # a 200 whose body carries no id is no layer either (2026-09-23): the
     # chain used to land an {id: undefined} screen that every later PUT
     # 404ed on. Same toast, nothing added.
-    pg.evaluate("() => { const h = document.getElementById('app-toast-host'); if (h) h.textContent = ''; }")
+    _clear_toasts(pg)
     pg.route('**/api/layer/add', lambda route: route.fulfill(
         status=200, content_type='application/json', body='{"status": "ok"}'))
     try:
         pg.evaluate("() => window.app.addLayer()")
-        pg.wait_for_timeout(1500)
+        toast = settled(pg, lambda: _toast_text(pg), lambda t: 'not added' in t)
+        _settle(pg)
     finally:
         pg.unroute('**/api/layer/add')
     assert pg.evaluate("() => window.__rejections") == []
     assert pg.evaluate(IDS_JS) == before, 'a screen with no id landed from a 200'
     assert pg.evaluate("() => window.app.project.layers.some(l => l.id == null)") is False
-    toast = pg.evaluate("() => { const h = document.getElementById('app-toast-host'); return h ? h.textContent : ''; }")
     assert 'not added' in toast, toast
     assert errors == [], errors
 
@@ -826,7 +930,7 @@ def test_a_presets_tile_colours_take_the_same_check_as_the_rest(page):
     for preset, want1, want2 in cases:
         before = pg.evaluate(IDS_JS)
         pg.evaluate("(preset) => window.app.addLayer({ columns: 2, rows: 2, _presetName: 'tiles', ...preset })", preset)
-        pg.wait_for_timeout(1500)
+        _added(pg, before)
         srv = pg.evaluate(SERVER_NEW_JS, before)
         assert 'error' not in srv, srv
         assert srv['color1'] == want1, (preset, srv['color1'])
@@ -867,11 +971,14 @@ def test_normalize_tile_color_does_what_its_comment_says(page):
 
 def _load_file(pg, project, name='file.json'):
     """Drive File > Open with an in-memory project, the way the user does."""
+    _watch_status(pg, 'Project loaded')
     with pg.expect_file_chooser() as chooser:
         pg.evaluate("() => window.app.loadProjectFromFile()")
     chooser.value.set_files({'name': name, 'mimeType': 'application/json',
                              'buffer': json.dumps(project).encode('utf-8')})
-    pg.wait_for_timeout(2000)
+    # the load's PUT answered and its layer sync went out
+    pg.wait_for_function("() => window.__statusSeen === true")
+    _settle(pg)
 
 
 def test_the_old_green_migrates_only_for_a_project_an_older_build_wrote(page):
@@ -914,8 +1021,7 @@ def test_a_saved_file_carries_the_app_version_and_a_load_reads_it_back(page):
     pg, errors = page
     version = pg.evaluate("async () => (await (await fetch('/api/version')).json()).version")
     assert re.match(r'^\d+\.\d+\.\d+', version or ''), version
-    pg.evaluate("() => window.app.createNewProject()")
-    pg.wait_for_timeout(1500)
+    _new_project(pg)
     live = pg.evaluate("async () => ({ client: window.app.project.app_version,"
                        " server: (await (await fetch('/api/project')).json()).app_version,"
                        " title: window.app.appVersion() })")
@@ -953,8 +1059,7 @@ def test_an_old_file_with_the_old_set_migrates_and_a_stamped_one_does_not(page):
     pg, errors = page
     old_set = dict(zip('ABCDEF', OLD_SHIPPED_CIRCUIT_COLORS))
     pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': SHIPPED_CIRCUIT_COLORS})
-    pg.evaluate("() => window.app.createNewProject()")
-    pg.wait_for_timeout(1500)
+    _new_project(pg)
     project = json.loads(pg.evaluate("() => window.app.serializeProjectForFile()"))
 
     unversioned = dict(project)
@@ -969,8 +1074,7 @@ def test_an_old_file_with_the_old_set_migrates_and_a_stamped_one_does_not(page):
     got = _load_with_old_set(pg, dict(project, app_version='1.3.0'), 'Stamped File')
     assert got['live'] == old_set, got['live']
     assert got['srv'] == old_set, got['srv']
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     live = pg.evaluate("() => window.app.project.layers[0].powerCircuitColors")
     assert live == old_set, live
     assert errors == [], errors
@@ -987,8 +1091,7 @@ def test_a_file_this_build_saves_is_never_migrated_on_its_next_open(page):
     pg, errors = page
     old_set = dict(zip('ABCDEF', OLD_SHIPPED_CIRCUIT_COLORS))
     pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': SHIPPED_CIRCUIT_COLORS})
-    pg.evaluate("() => window.app.createNewProject()")
-    pg.wait_for_timeout(1500)
+    _new_project(pg)
     project = json.loads(pg.evaluate("() => window.app.serializeProjectForFile()"))
     version = project.get('app_version')
     assert not pg.evaluate("(v) => window.app.projectPredatesVersion('1.3.0', { app_version: v })", version), \
@@ -1012,8 +1115,7 @@ def test_an_opened_file_is_stamped_so_the_migration_runs_once(page):
     old_set = dict(zip('ABCDEF', OLD_SHIPPED_CIRCUIT_COLORS))
     version = pg.evaluate("async () => (await (await fetch('/api/version')).json()).version")
     pg.evaluate(SET_PREFS_JS, {'powerCircuitColors': SHIPPED_CIRCUIT_COLORS})
-    pg.evaluate("() => window.app.createNewProject()")
-    pg.wait_for_timeout(1500)
+    _new_project(pg)
     project = json.loads(pg.evaluate("() => window.app.serializeProjectForFile()"))
     unversioned = dict(project)
     del unversioned['app_version']
@@ -1029,14 +1131,14 @@ def test_an_opened_file_is_stamped_so_the_migration_runs_once(page):
         layer.powerCircuitColors = { ...old };
         app.updateLayers([layer], false, 'Paint old set');
     }""", old_set)
-    pg.wait_for_timeout(1000)
+    _settle(pg)
     srv = pg.evaluate("async () => (await (await fetch('/api/project')).json()).layers[0].powerCircuitColors")
     assert srv == old_set, srv
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     live = pg.evaluate("() => window.app.project.layers[0].powerCircuitColors")
     assert live == old_set, live
     # and the recent-files path stamps the same way
+    _watch_status(pg, 'Project loaded from recent files')
     recent = pg.evaluate("""(old) => {
         const app = window.app;
         const data = JSON.parse(JSON.stringify(app.project));
@@ -1048,7 +1150,8 @@ def test_an_opened_file_is_stamped_so_the_migration_runs_once(page):
         return true;
     }""", old_set)
     assert recent
-    pg.wait_for_timeout(2000)
+    pg.wait_for_function("() => window.__statusSeen === true")
+    _settle(pg)
     back = pg.evaluate("async () => ({ name: window.app.project.name, client: window.app.project.app_version,"
                        " server: (await (await fetch('/api/project')).json()).app_version,"
                        " d: window.app.project.layers[0].powerCircuitColors.D })")
@@ -1079,14 +1182,12 @@ def _pref_field(pg, field_id, value):
         el.value = v;
         el.dispatchEvent(new Event('change', { bubbles: true }));
     }""", [field_id, value])
-    pg.wait_for_timeout(100)
 
 
 def _open_power_tab(pg):
-    pg.evaluate("() => window.app.openPreferencesModal()")
-    pg.wait_for_timeout(300)
+    _open_prefs(pg)
     pg.locator('#preferences-modal .pm-tabstrip .view-tab[data-key="power"]').click()
-    pg.wait_for_timeout(150)
+    pg.locator('#pm-sec-power').wait_for(state='visible')
 
 
 def test_the_pristine_startup_screen_follows_the_breakout_preference(page):
@@ -1103,16 +1204,14 @@ def test_the_pristine_startup_screen_follows_the_breakout_preference(page):
     saved = pg.evaluate("() => window.app.getPreferences()")
     try:
         pg.evaluate(SET_PREFS_JS, {'powerVoltage': 208, 'breakoutType': 'soca-true1', 'columns': 8})
-        pg.evaluate("() => window.app.createNewProject()")
-        pg.wait_for_timeout(1500)
+        _new_project(pg)
         st = pg.evaluate(STARTUP_POWER_JS)
         assert st['live'] == [208, 'soca-true1'] and st['srv'] == [208, 'soca-true1'], st
         assert st['pristine'] is True and st['srvPristine'] is True, st
 
         _open_power_tab(pg)
         _pref_field(pg, 'pref-breakout-type', 'soca-powercon')
-        pg.locator('#preferences-save').click()
-        pg.wait_for_timeout(1000)
+        _save_prefs(pg)
         st = pg.evaluate(STARTUP_POWER_JS)
         assert st['live'] == [208, 'soca-powercon'] and st['srv'] == [208, 'soca-powercon'], st
         assert st['pristine'] is True and st['srvPristine'] is True, st
@@ -1121,15 +1220,13 @@ def test_the_pristine_startup_screen_follows_the_breakout_preference(page):
         _pref_field(pg, 'pref-breakout-type', 'l2130-true1')
         _pref_field(pg, 'pref-power-voltage-select', '110')
         assert pg.evaluate("() => document.getElementById('pref-breakout-type').value") == 'soca-edison'
-        pg.locator('#preferences-save').click()
-        pg.wait_for_timeout(1000)
+        _save_prefs(pg)
         st = pg.evaluate(STARTUP_POWER_JS)
         assert st['live'] == [110, 'soca-edison'] and st['srv'] == [110, 'soca-edison'], st
         assert st['pristine'] is True and st['srvPristine'] is True, st
 
         # a relaunch: the startup overlay writes the same pair
-        pg.reload(wait_until='domcontentloaded')
-        pg.wait_for_timeout(2500)
+        _reload(pg)
         st = pg.evaluate(STARTUP_POWER_JS)
         assert st['live'] == [110, 'soca-edison'] and st['srv'] == [110, 'soca-edison'], st
         assert st['srvPristine'] is True, st
@@ -1140,8 +1237,7 @@ def test_the_pristine_startup_screen_follows_the_breakout_preference(page):
         _open_power_tab(pg)
         _pref_field(pg, 'pref-power-voltage-select', '208')
         _pref_field(pg, 'pref-breakout-type', 'l2130-powercon')
-        pg.locator('#preferences-save').click()
-        pg.wait_for_timeout(1000)
+        _save_prefs(pg)
         st = pg.evaluate(STARTUP_POWER_JS)
         assert st['live'] == [110, 'soca-edison'] and st['srv'] == [110, 'soca-edison'], st
         assert st['columns'] == [6, 6] and st['pristine'] is False and st['srvPristine'] is False, st
@@ -1195,20 +1291,18 @@ def test_a_hand_on_the_eye_the_lock_or_the_name_ends_the_pristine_state(page, ho
     and after a relaunch a Save leaves the screen alone."""
     pg, errors = page
     pg.evaluate("async () => { await fetch('/api/project/new', { method: 'POST' }); }")
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     before = pg.evaluate(STARTUP_STATE_JS)
     assert before['pristine'] is True and before['srvPristine'] is True, before
     pg.evaluate(HANDS_JS[how])
-    pg.wait_for_timeout(800)
+    _settle(pg)
     after = pg.evaluate(STARTUP_STATE_JS)
     assert after['srvPristine'] is False, (how, after)
     if how.startswith('rename'):
         names = pg.evaluate("""async () => [window.app.project.layers[0].name,
             (await (await fetch('/api/project')).json()).layers[0].name]""")
         assert names == ['Renamed on the panel' if 'panel' in how else 'Renamed on the canvas'] * 2, names
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     want = 3 if before['live'] != 3 else 4
     _save_columns(pg, want)
     got = pg.evaluate(STARTUP_STATE_JS)
@@ -1230,8 +1324,7 @@ def test_the_guide_s_exit_hands_a_pristine_project_back_still_pristine(page):
     never says it. Then the real guide: start, end, still pristine."""
     pg, errors = page
     pg.evaluate("async () => { await fetch('/api/project/new', { method: 'POST' }); }")
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     out = pg.evaluate("""async () => {
         const app = window.app;
         const snap = JSON.parse(JSON.stringify(app.project));
@@ -1254,8 +1347,7 @@ def test_the_guide_s_exit_hands_a_pristine_project_back_still_pristine(page):
     }""")
     assert out == {'snapPristine': True, 'mid': False, 'srv': True, 'live': True,
                    'marker': False, 'layers': 1}, out
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     _save_columns(pg, 3)
     assert pg.evaluate(STARTUP_STATE_JS) == \
         {'live': 3, 'srv': 3, 'pristine': True, 'srvPristine': True}, 'the Save after the exit did not follow'
@@ -1264,21 +1356,22 @@ def test_the_guide_s_exit_hands_a_pristine_project_back_still_pristine(page):
     # re-make saves no step, so that is the 8 the page booted on.
     _edit_columns(pg, 6)
     pg.evaluate("() => window.app.undo()")
-    pg.wait_for_timeout(1000)
+    pg.wait_for_function("() => !window.app._restorePutPending")
+    _settle(pg)
     got = pg.evaluate(STARTUP_STATE_JS)
     assert got['live'] == got['srv'] == 8 and got['srvPristine'] is False, got
 
     # the real guide on a fresh project: start, then end
     pg.evaluate("async () => { await fetch('/api/project/new', { method: 'POST' }); }")
-    pg.reload(wait_until='domcontentloaded')
-    pg.wait_for_timeout(2500)
+    _reload(pg)
     assert pg.evaluate(STARTUP_STATE_JS)['srvPristine'] is True
     pg.evaluate("() => { window.QuickStart.setSpeed(4); window.QuickStart.start(); }")
-    pg.wait_for_timeout(3000)
-    running = pg.evaluate("() => window.QuickStart.state()")
+    # the scratch show built and the first step up
+    running = settled(pg, lambda: pg.evaluate("() => window.QuickStart.state()"),
+                      lambda st: st['index'] >= 0 and not st['running'])
     assert running['visible'] is True, running
     pg.evaluate("async () => { await window.QuickStart.end(); }")
-    pg.wait_for_timeout(1500)
+    _settle(pg)
     ended = pg.evaluate("() => window.QuickStart.state()")
     assert ended['visible'] is False, ended
     got = pg.evaluate(STARTUP_STATE_JS)

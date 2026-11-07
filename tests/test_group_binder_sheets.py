@@ -9,7 +9,9 @@ printed.
 
   * The NAMES switch is per tab ("Yes, per tab"): Pixel Map, Cabinet ID,
     Data, Power and Show Look keep their own value; an old show's single
-    project.groupNameDisplay starts every tab on it.
+    project.groupNameDisplay starts every tab on it. Per GROUP since
+    2026-11-04 (test_names_per_group.py); the show-wide value set here is
+    what a group with no value of its own reads.
   * The binder follows the Power and Data tabs' values, side by side ("say
     power is set to label by group name then power will be by group and if
     data is set to screens then it will be 2 different"):
@@ -99,7 +101,7 @@ OPTS = {'sheet': 'tabloid', 'palette': 'colour', 'sides': {'power': True, 'data'
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -351,48 +353,61 @@ def test_both_asks_at_export_and_remembers_the_answer(page):
     assert not errors, errors
 
 
-def test_names_switch_is_per_tab(page):
-    """Each tab keeps its own Names value: a click on the Power tab's switch
-    changes Power alone, as one history entry; an old show's single
-    groupNameDisplay starts every tab on it; the canvas labels each view by
-    its own tab's value."""
+def test_names_switch_is_per_group_per_tab(page):
+    """Each group keeps its own Names value per tab (2026-11-04): with a
+    member of WALL selected, a click on the Power tab's switch changes
+    WALL's Power alone, as one history entry, and leaves the show-wide
+    value where it was; an old show's single groupNameDisplay starts every
+    tab of every group on it; the canvas labels each view by the group's
+    own value for it."""
     pg, ids, errors = page
-    out = pg.evaluate("""async () => {
+    out = pg.evaluate("""async (ids) => {
         const app = window.app;
         const had = Object.prototype.hasOwnProperty.call(app.project, 'groupNameDisplayByView');
         const was = app.project.groupNameDisplayByView, old = app.project.groupNameDisplay;
+        const g = app.resolveGroup('g1');
+        const ownWas = g.nameDisplayByView;
+        const L = app.project.layers.find(l => l.id === ids.l);
         const r = window.canvasRenderer, view = r.viewMode;
         try {
             delete app.project.groupNameDisplayByView;
+            delete g.nameDisplayByView;
             app.project.groupNameDisplay = 'both';
-            const VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look'];
-            const migrated = VIEWS.map(v => app.groupNameDisplayFor(v));
+            const VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look', 'rigging'];
+            app.migrateGroupNameDisplay();
+            const migrated = VIEWS.map(v => app.groupNameDisplayFor(v, g));
+            const showWide = { ...app.project.groupNameDisplayByView };
+            app.selectLayer(L);
             const steps = app.historyIndex;
             document.querySelector('.name-display-btn[data-name-view="power"][data-name-display="screens"]').click();
-            const after = VIEWS.map(v => app.groupNameDisplayFor(v));
-            const stored = { ...app.project.groupNameDisplayByView };
+            const after = VIEWS.map(v => app.groupNameDisplayFor(v, g));
+            const stored = { ...g.nameDisplayByView };
             const entry = { steps: app.historyIndex - steps, action: app.history[app.historyIndex].action };
             const active = [...document.querySelectorAll('.name-display-btn.active')]
                 .map(b => b.dataset.nameView + ':' + b.dataset.nameDisplay).sort();
             const modes = {};
-            for (const v of VIEWS) { r.viewMode = v; modes[v] = r._groupNameMode(); }
-            return { migrated, after, stored, entry, active, modes };
+            for (const v of VIEWS) { r.viewMode = v; modes[v] = r._groupNameMode(L); }
+            return { migrated, showWide, after, stored, entry, active, modes,
+                     showWideAfter: { ...app.project.groupNameDisplayByView } };
         } finally {
             r.viewMode = view;
             if (had) app.project.groupNameDisplayByView = was; else delete app.project.groupNameDisplayByView;
             if (old === undefined) delete app.project.groupNameDisplay; else app.project.groupNameDisplay = old;
+            if (ownWas === undefined) delete g.nameDisplayByView; else g.nameDisplayByView = ownWas;
             app.refreshNameDisplayButtons();
         }
-    }""")
-    assert out['migrated'] == ['both'] * 5, out
-    assert out['after'] == ['both', 'both', 'both', 'screens', 'both'], out
-    assert out['stored'] == {'pixel-map': 'both', 'cabinet-id': 'both', 'data-flow': 'both',
-                             'power': 'screens', 'show-look': 'both'}, out
+    }""", ids)
+    all_both = {'pixel-map': 'both', 'cabinet-id': 'both', 'data-flow': 'both',
+                'power': 'both', 'show-look': 'both', 'rigging': 'both'}
+    assert out['migrated'] == ['both'] * 6, out
+    assert out['showWide'] == all_both, out
+    assert out['after'] == ['both', 'both', 'both', 'screens', 'both', 'both'], out
+    assert out['stored'] == {**all_both, 'power': 'screens'}, out
+    assert out['showWideAfter'] == all_both, out
     assert out['entry'] == {'steps': 1, 'action': 'Change Name Display'}, out
     assert out['active'] == ['cabinet-id:both', 'data-flow:both', 'pixel-map:both',
-                             'power:screens', 'show-look:both'], out
-    assert out['modes'] == {'pixel-map': 'both', 'cabinet-id': 'both', 'data-flow': 'both',
-                            'power': 'screens', 'show-look': 'both'}, out
+                             'power:screens', 'rigging:both', 'show-look:both'], out
+    assert out['modes'] == {**all_both, 'power': 'screens'}, out
     assert not errors, errors
 
 
@@ -494,15 +509,15 @@ def test_the_pull_sheet_follows_each_side(page):
     texts = _screens_table(out['sheets'][pull[0]]['texts'])
     i, li, ri = texts.index('WALL'), texts.index('WALL-L'), texts.index('WALL-R')
     wall, lrow, rrow = texts[i:i + 6], texts[li:li + 6], texts[ri:ri + 6]
-    assert wall[1] == '—' and wall[2] == '—' and wall[3] != '—' and wall[4] == '—', wall
-    assert lrow[2] == '12' and lrow[3] == '—' and lrow[4] != '—', lrow
-    assert rrow[2] == '12' and rrow[3] == '—' and rrow[4] != '—', rrow
+    assert wall[1] == '' and wall[2] == '' and wall[3] != '' and wall[4] == '', wall
+    assert lrow[2] == '12' and lrow[3] == '' and lrow[4] != '', lrow
+    assert rrow[2] == '12' and rrow[3] == '' and rrow[4] != '', rrow
     # the other way round: one data line, a power line per member
     out = _run(pg, ids, {'power': 'screens', 'data-flow': 'group'}, titles=pull)
     texts = _screens_table(out['sheets'][pull[0]]['texts'])
     i, li = texts.index('WALL'), texts.index('WALL-L')
-    assert texts[i + 3] == '—' and texts[i + 4] != '—', texts[i:i + 6]
-    assert texts[li + 3] != '—' and texts[li + 4] == '—', texts[li:li + 6]
+    assert texts[i + 3] == '' and texts[i + 4] != '', texts[i:i + 6]
+    assert texts[li + 3] != '' and texts[li + 4] == '', texts[li:li + 6]
     assert not errors, errors
 
 

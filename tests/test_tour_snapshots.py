@@ -15,11 +15,14 @@ not any waiting"). Three things are pinned here:
     server, gives the shipped bytes - the rot guard for a step whose act
     changes what the show looks like;
   - the jump WORKS: from a fresh tour, Go to every Advanced step (and all
-    of Quick, and every fifth What's New step) lands within three seconds
+    of Quick) lands within three seconds
     via the snapshot, with no shade, and the step's act then finishes done
     - a later "add" step minting ids past the restored show, a step past
     the preference-writing ones still leaving the person's preferences
-    alone at Done, and a changed tour falling back to applying the steps.
+    alone at Done, and a changed tour falling back to applying the steps;
+  - What's New, the Advanced steps run on their own, starts each step from
+    the same Advanced entry snapshot, and falls back to applying the
+    Advanced steps before it when the file does not match.
 
 Run locally (each session takes its own free port):
     python3 -m pytest tests/test_tour_snapshots.py -v --browser chromium
@@ -45,7 +48,7 @@ from test_tour_anchors import (_start, _end, _wait_step,    # noqa: E402
 
 FIXTURE = builder.FIXTURE
 REBUILD = 'run: python3 scripts/build_tour_snapshots.py'
-TOURS = ('quick', 'whatsNew', 'advanced')
+TOURS = ('quick', 'advanced')
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -60,7 +63,7 @@ def page(e2e_server, pw_browser):
     shipped one to the byte (a drop lands on the same cabinet)."""
     context = pw_browser.new_context(viewport=builder.VIEWPORT)
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_function(
@@ -237,8 +240,7 @@ def _indices(tour, n, every=1):
     return [i for i in range(1, n) if (i % every == 0 or i == n - 1)]
 
 
-ADVANCED_STEPS = 62
-WHATS_NEW_STEPS = 20
+ADVANCED_STEPS = 125
 QUICK_STEPS = 10
 
 
@@ -249,17 +251,6 @@ def test_go_to_every_advanced_step_lands_on_the_snapshot(page, i):
     landed, landing, st = _jump(page, 'advanced', i)
     try:
         _assert_landed('advanced', i, landed, landing, st)
-    finally:
-        _end(page)
-
-
-@pytest.mark.parametrize('i', _indices('whatsNew', WHATS_NEW_STEPS, every=5))
-def test_go_to_every_fifth_whats_new_step_lands_on_the_snapshot(page, i):
-    n = page.evaluate("() => window.QuickStart.tours().whatsNew.length")
-    assert n == WHATS_NEW_STEPS, f"the What's New tour has {n} steps; update WHATS_NEW_STEPS"
-    landed, landing, st = _jump(page, 'whatsNew', i)
-    try:
-        _assert_landed('whatsNew', i, landed, landing, st)
     finally:
         _end(page)
 
@@ -295,12 +286,13 @@ def test_ids_after_a_restored_show_do_not_collide(page):
     try:
         _assert_landed('advanced', i, landed, landing, st)
         assert page.evaluate("() => window.app.getDistros().map(d => d.id)") == ['d1']
+        # the guide's MX40 Pro and the H9 its Mixed redundancy step adds
         procs = page.evaluate("() => (window.app._processorsResolved || []).map(p => p.id)")
-        assert len(procs) == 1, procs
+        assert len(procs) == 2, procs
         fresh = page.evaluate("""() => fetch('/api/processors', {method: 'POST',
             headers: {'Content-Type': 'application/json'}, body: JSON.stringify({deviceId: 'novastar-h9'})})
             .then(r => r.json()).then(st => st.processors.map(p => p.id))""")
-        assert len(fresh) == 2 and len(set(fresh)) == 2, fresh
+        assert len(fresh) == 3 and len(set(fresh)) == 3, fresh
     finally:
         _end(page)
 
@@ -330,11 +322,16 @@ def test_a_jump_past_the_preference_steps_still_puts_preferences_back(page):
         assert i > _step_index(page, 'advanced', 'Border and title block')
         landed, landing, st = _jump(page, 'advanced', i)
         _assert_landed('advanced', i, landed, landing, st)
-        page.locator('#qs-next').click()      # Next from Preferences: Help
-        st = _wait_step(page, i + 1)
-        assert st['state'] == 'done', st
+        # Next from Preferences through every later step (Mirror a screen,
+        # Port numbers, the power Z patterns, Circuit numbers, Help), each
+        # taking
+        n = page.evaluate("() => window.QuickStart.tours().advanced.length")
+        for k in range(i + 1, n - 1):
+            page.locator('#qs-next').click()
+            st = _wait_step(page, k)
+            assert st['state'] == 'done', st
         page.locator('#qs-next').click()      # the outro
-        _wait_step(page, i + 2)
+        _wait_step(page, n - 1)
         page.locator('#qs-next').click()      # Done
         page.wait_for_timeout(1500)
         assert not page.evaluate("window.QuickStart.state().visible")
@@ -369,3 +366,134 @@ def test_a_changed_tour_falls_back_to_applying_the_steps(page):
         _end(page)
         page.evaluate("() => { window.QuickStart.steps().cabinetSize.title = window.__qsTitle; }")
     assert page.evaluate("() => window.QuickStart.signature('quick')") == _fixture()['tours']['quick']['signature']
+
+
+# ── What's New: Advanced steps on their own ──────────────────────────────
+
+def test_whats_new_steps_start_from_the_advanced_snapshots(page):
+    """What's New runs Advanced steps on their own: each one lands on the
+    Advanced Guide's shipped entry snapshot of that step (jumpedVia
+    'snapshot'), so it takes without the steps before it, and Go to
+    inside it does the same."""
+    keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', '1.5.3')")
+    assert len(keys) >= 2, keys
+    page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
+    page.evaluate("(k) => { window.QuickStart.startSteps(k); }", keys)
+    try:
+        st = _wait_step(page, 0)
+        assert st['state'] == 'done' and not st['fail'], st
+        assert page.evaluate("window.QuickStart.state().jumpedVia") == 'snapshot'
+        last = len(keys) - 1
+        page.fill('#qs-jump', str(last + 1))
+        page.press('#qs-jump', 'Enter')
+        st = _wait_step(page, last)
+        assert st['qs']['index'] == last and st['state'] == 'done' and not st['fail'], st
+        assert page.evaluate("window.QuickStart.state().jumpedVia") == 'snapshot'
+    finally:
+        _end(page)
+
+
+def test_whats_new_falls_back_to_applying_the_advanced_steps(page):
+    """With the shipped file stale for the Advanced Guide (one title
+    changed under it), a What's New step is reached by applying the
+    Advanced steps before it behind the shade (jumpedVia 'apply'); the next
+    one carries on from there, and both take."""
+    keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', '1.5.3')")
+    picked = [keys[0], keys[-1]]
+    page.evaluate("() => { window.__qsTitle = window.QuickStart.steps().cabinetSize.title; "
+                  "window.QuickStart.steps().cabinetSize.title += ' (changed)'; }")
+    try:
+        assert page.evaluate("() => window.QuickStart.signature('advanced')") != \
+            _fixture()['tours']['advanced']['signature']
+        page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
+        page.evaluate("(k) => { window.QuickStart.startSteps(k); }", picked)
+        st = _wait_step(page, 0)
+        assert st['state'] == 'done' and not st['fail'], st
+        assert page.evaluate("window.QuickStart.state().jumpedVia") == 'apply'
+        page.locator('#qs-next').click()
+        st = _wait_step(page, 1)
+        assert st['state'] == 'done' and not st['fail'], st
+        assert page.evaluate("window.QuickStart.state().jumpedVia") == 'apply'
+        assert page.evaluate("getComputedStyle(document.getElementById('qs-fast')).display") == 'none'
+    finally:
+        _end(page)
+        page.evaluate("() => { window.QuickStart.steps().cabinetSize.title = window.__qsTitle; }")
+    assert page.evaluate("() => window.QuickStart.signature('advanced')") == \
+        _fixture()['tours']['advanced']['signature']
+
+
+def test_a_guide_step_survives_the_tray_rebuilding_under_it(page):
+    """The tray rebuilds whenever the app restates it - the page's own late
+    layer_updated echo is enough (updateUI -> refreshDistroPanel) - and a
+    step must aim at the rebuilt field, not the one it found before. Here
+    the tray is rebuilt before every timer of "Name the distro" fires (the
+    reveal's settle, the hover's beat, each typed key): the step still
+    types SL into the live field and takes. It used to fail with
+    "distro-name-... is not in the tray", or type into the detached copy -
+    the What's New fallback's flake."""
+    page.evaluate("""() => {
+        const qs = window.QuickStart, app = window.app;
+        const step = qs.steps().nameDistro, act = step.act, orig = window.setTimeout;
+        step.act = function (t) {
+            window.setTimeout = function (fn, ms, ...rest) {
+                return orig(() => { app.renderHardwareDock(); fn(...rest); }, ms);
+            };
+            const done = () => { window.setTimeout = orig; step.act = act; };
+            return Promise.resolve().then(() => act.call(this, t))
+                .then(v => { done(); return v; }, e => { done(); throw e; });
+        };
+    }""")
+    page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
+    page.evaluate("() => { window.QuickStart.startSteps(['nameDistro']); }")
+    try:
+        st = _wait_step(page, 0)
+        assert st['state'] == 'done' and not st['fail'], st
+    finally:
+        _end(page)
+
+
+ODD_PROCESSING = {'bitDepth': 10, 'frameRate': 50, 'lowLatency': True}
+# The guide steps that put in a screen of their own and count its ports.
+PRACTICE_STEPS = ('mirrorScreen', 'portNumbers', 'portsMinimum',
+                  'redrawAsOne', 'sweepPorts')
+
+
+def test_practice_screens_ignore_the_processing_preferences(page):
+    """1.6.0 QA: with 10-bit, 50 Hz and Low Latency in Preferences, "Redraw
+    several ports as one" and "Port numbers" did not take - their practice
+    screens took the preferences' processing (initializeLayerDefaults), so
+    a port carried fewer cabinets than the step counts on. Every screen a
+    guide puts in is 8-bit, 60 Hz, Low Latency off, whatever the
+    preferences say; the scratch show's DEMO WALL too."""
+    from test_tour_anchors import PREFS_JS
+    original = page.evaluate(PREFS_JS, None)
+    page.evaluate(PREFS_JS, ODD_PROCESSING)
+    page.wait_for_timeout(300)
+    try:
+        page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
+        page.evaluate("(k) => { window.QuickStart.startSteps(k); }",
+                      list(PRACTICE_STEPS))
+        made = {}
+        for i, key in enumerate(PRACTICE_STEPS):
+            if i:
+                page.fill('#qs-jump', str(i + 1))
+                page.press('#qs-jump', 'Enter')
+            st = _wait_step(page, i)
+            assert st['state'] == 'done' and not st['fail'], (key, st)
+            for name, bits, rate, ull in page.evaluate(
+                    "() => window.app.project.layers.map(l => "
+                    "[l.name, l.bitDepth, l.frameRate, !!l.lowLatency])"):
+                made[name] = (bits, rate, ull)
+        _end(page)
+        for name in ('IMAG L', 'IMAG R', 'LONG ROWS', 'LEFTOVERS'):
+            assert made.get(name) == (8, 60, False), (name, made)
+        st = _start(page, 'quick')
+        assert st['state'] in ('done', 'idle'), st
+        wall = page.evaluate(
+            "() => { const l = window.app.project.layers.find("
+            "x => x.name === 'DEMO WALL'); "
+            "return [l.bitDepth, l.frameRate, !!l.lowLatency]; }")
+        assert wall == [8, 60, False], wall
+    finally:
+        _end(page)
+        page.evaluate(PREFS_JS, {k: original.get(k) for k in ODD_PROCESSING})

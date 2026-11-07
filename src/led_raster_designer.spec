@@ -35,7 +35,8 @@ a = Analysis(
         (os.path.join('..', 'THIRD-PARTY-NOTICES'), '.'),  # served by /api/third-party-notices (Help > License)
         ('launcher_window.html', '.'),  # splash/control window UI
         (certifi.where(), 'certifi'),
-    ] + collect_data_files('webview'),  # pywebview bridge/runtime data files
+    ] + ([('BUILD_TAG.txt', '.')] if os.path.exists(os.path.join(BASE_DIR, 'BUILD_TAG.txt')) else [])  # beta builds only (release.yml)
+      + collect_data_files('webview'),  # pywebview bridge/runtime data files
     hiddenimports=[
         'flask',
         'flask_socketio',
@@ -110,8 +111,8 @@ if IS_MAC:
         info_plist={
             'CFBundleName': 'LED Raster Designer',
             'CFBundleDisplayName': 'LED Raster Designer',
-            'CFBundleShortVersionString': '1.6.0',
-            'CFBundleVersion': '1.6.0',
+            'CFBundleShortVersionString': '1.7.0',
+            'CFBundleVersion': '1.7.0',
             'NSHighResolutionCapable': True,
             # Menu-bar app, no Dock icon (same as the pre-window launcher):
             # the launcher window hides to the menu-bar status item, which is

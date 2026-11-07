@@ -64,7 +64,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -96,7 +96,8 @@ window.__sh = {
             // 100V screen is refused (owner, 2026-10-16: 110, 115 and 120
             // are 120V; anything else that does not fit is refused). 110V x
             // 5A still fits five 100W cabinets a circuit.
-            panelWatts: 100, powerVoltage: 110, powerAmperage: 5,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            panelWatts: 100, powerVoltage: 110, powerAmperage: 6.25,
             processorType: 'brompton', bitDepth: 8, frameRate: 60,
             lowLatency: false,
             flowPattern: 'tl-h', portMappingMode: 'organized',
@@ -644,7 +645,7 @@ def test_dock_wears_the_clash(page):
     assert len(reds) == 3, f'one strip row per claimed tail: {out["strip"]}'
     assert all(not r['mild'] for r in reds), 'a clash is a red question'
     for t, r in zip((1, 2, 3), reds):
-        assert f'C2 3 circuit {t} is claimed twice' in r['text'], r
+        assert f'C2-3 circuit {t} is claimed twice' in r['text'], r
         assert f'ON SL STRIP C2-3-{t}' in r['text'] \
             and f'CEN SL STRIP C2-3-{t}' in r['text'], r
 
@@ -667,7 +668,7 @@ def test_pin_round_trips_and_undoes_on_the_real_server(page):
         const made = await resp.json();
         app.project = await (await fetch('/api/project')).json();
         const L = app.project.layers.find(l => l.id === made.id);
-        L.powerVoltage = '100'; L.powerAmperage = '5'; L.panelWatts = '100';
+        L.powerVoltage = '100'; L.powerAmperage = '6.25'; L.panelWatts = '100';
         L.powerOrganized = true; L.powerMaximize = false;
         L.powerFlowPattern = 'tl-v';
         app.currentLayer = L;
@@ -719,7 +720,7 @@ def test_one_field_writes_through_every_member_and_one_undo_walks_back(page):
         const A = app.project.layers.find(l => l.id === a.id);
         const B = app.project.layers.find(l => l.id === b.id);
         for (const L of [A, B]) {
-            L.powerVoltage = '100'; L.powerAmperage = '5';
+            L.powerVoltage = '100'; L.powerAmperage = '6.25';
             L.panelWatts = '100'; L.powerOrganized = true;
             L.powerMaximize = false; L.powerFlowPattern = 'tl-v';
         }
@@ -994,7 +995,7 @@ def test_split_round_trips_and_undoes_on_the_real_server(page):
         const made = await resp.json();
         app.project = await (await fetch('/api/project')).json();
         const L = app.project.layers.find(l => l.id === made.id);
-        L.powerVoltage = '100'; L.powerAmperage = '5'; L.panelWatts = '100';
+        L.powerVoltage = '100'; L.powerAmperage = '6.25'; L.panelWatts = '100';
         L.powerOrganized = true; L.powerMaximize = false;
         L.powerFlowPattern = 'tl-v';
         app.currentLayer = L;

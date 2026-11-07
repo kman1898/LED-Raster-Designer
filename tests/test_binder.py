@@ -81,24 +81,28 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-from conftest import private_fixture, private_fixture_missing  # noqa: E402
+from conftest import open_app, private_fixture, private_fixture_missing  # noqa: E402
 SCRATCH_FIXTURE = private_fixture('live-show-b.json', 'LRD_PULL_SMOKE_JSON')
 
 BOX_WORD = re.compile(r'\b(box|boxes)\b', re.I)
-# The band over a multi's circuits: "SR1 · Multi 208 · 125' · 6 circuits" -
-# name · type · length · count (no "home run": the length IS the home run,
+# The band over a multi's circuits: "SR1 · Multi 208 TRUE1 breakout · 125'
+# · 6 circuits" - name · type and the connector it breaks out to
+# (2026-10-21) · length · count (no "home run": the length IS the home run,
 # user 2026-09-08).
-BAND = re.compile(r"^.+ · (Multi (208|120)|L21-30|no distro) · .+ · \d+ circuits?( · .*)?$")
+BAND = re.compile(r"^.+ · ((Multi (208|120)|L21-30) (TRUE1|powerCON|Edison|L6-20) breakout|no distro)"
+                  r" · .+ · \d+ circuits?( · .*)?$")
 def _bands(texts):
     return [t for t in texts if BAND.match(t)]
 # "breakout" as the generic noun for the power unit is gone (2026-09-07);
-# the pull list's "Tru-1 Breakout" CABLE row and the data side's "breakout
+# the pull list's "TRUE1 Breakout" CABLE row and the data side's "breakout
 # box" keep their names - and the Power Wiring sheet's block for a multi
 # IS its breakout, the fan-out, named by type ("Multi 208 breakout", user
 # 2026-09-08: "it is a breakout also known as a fan out / but i like the
 # first option").
 BREAKOUT_WORD = re.compile(r'\bbreakouts?\b', re.I)
-POWER_BREAKOUT = re.compile(r'\b(Multi (208|120)|L21-30) breakout\b')
+POWER_BREAKOUT = re.compile(r'\b(Multi (208|120)|L21-30)( (TRUE1|powerCON|Edison|L6-20))? breakout\b')
+# the pull list's breakout CABLE row, one per connector ("TRUE1 Breakout")
+BREAKOUT_CABLE = re.compile(r'\b(TRUE1|powerCON|Edison|L6-20) Breakout\b')
 
 
 # The Fiber connections table's own headings say BREAKOUT for the end of a
@@ -109,7 +113,7 @@ FIBER_BREAKOUT_HEADS = {'BREAKOUT', 'AT THE BREAKOUT'}
 
 def _generic_breakout(texts):
     return [t for t in texts if BREAKOUT_WORD.search(t)
-            and 'breakout box' not in t.lower() and 'Tru-1 Breakout' not in t
+            and 'breakout box' not in t.lower() and not BREAKOUT_CABLE.search(t)
             and not POWER_BREAKOUT.search(t) and t not in FIBER_BREAKOUT_HEADS]
 
 
@@ -121,7 +125,11 @@ SHEETS = {
     'archd': (7200, 4800, [2592, 1728]),
 }
 W, H, PT = SHEETS['tabloid']
+# The book canvas paints a Tabloid sheet at 2x (400 px/in); its maps'
+# bitmaps print at 300 px/in (app-binder.js MAP_DPI): 1.5 bitmap pixels to
+# the page unit.
 SCALE = 2
+MAP_SCALE = 1.5
 # The frame: the border PAD in, the title block TB_W wide inside it on the
 # right, the drawing area DA_PAD in from both.
 PAD, TB_W, DA_PAD = 50, 480, 30
@@ -240,8 +248,11 @@ def test_the_menu_items_the_format_option_and_the_section_are_served(client):
     assert not [l for l in literals if re.search(r'\btails?\b', l)], [l for l in literals if 'tail' in l]
     # "Multi" may name a CABLE (the GEAR LIST's word); it never names the unit
     assert not [l for l in literals if 'Multi' in l], [l for l in literals if 'Multi' in l]
+    # the power band names a multi's breakout by its type and connector
+    # (2026-10-21, _bBoxTypeText)
+    band_type = {'`${box.type} ${box.connector} breakout`', '`${box.type} breakout`'}
     generic = [l for l in literals if BREAKOUT_WORD.search(l) and 'breakout box' not in l.lower()
-               and l.strip("'").upper() not in FIBER_BREAKOUT_HEADS]
+               and l.strip("'").upper() not in FIBER_BREAKOUT_HEADS and l not in band_type]
     assert not generic, generic
     assert not [l for l in literals if 'Palette' in l], [l for l in literals if 'Palette' in l]
     # the wiring sheet's own strings the same - save the power block's
@@ -334,18 +345,19 @@ SEED_JS = """async () => {
     await j('PUT', '/api/project', proj);
     const add = (body) => j('POST', '/api/layer/add', body);
     await add({name: 'WALL-A', columns: 4, rows: 3, cabinet_width: 200, cabinet_height: 200,
-               powerVoltage: 208, powerAmperage: 10, panelWatts: 200,
+               // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+               powerVoltage: 208, powerAmperage: 12.5, panelWatts: 200,
                powerFlowPattern: 'tl-h', powerOrganized: true, flowPattern: 'tl-h',
                processorType: 'novastar-armor'});
     await add({name: 'WALL-B', columns: 4, rows: 3, cabinet_width: 200, cabinet_height: 200,
-               powerVoltage: 208, powerAmperage: 10, panelWatts: 250,
+               powerVoltage: 208, powerAmperage: 12.5, panelWatts: 250,
                powerFlowPattern: 'tl-h', powerOrganized: true, flowPattern: 'tl-h',
                processorType: 'novastar-armor', offset_x: 900});
     await add({name: 'CENTER', columns: 3, rows: 5, cabinet_width: 128, cabinet_height: 128,
                // stated, not implied: a screen with no breakout takes the
                // PREFERENCE (True1 as shipped), not Edison (2026-09-22)
                powerVoltage: 110, powerBreakoutType: 'soca-edison',
-               powerAmperage: 15, panelWatts: 100,
+               powerAmperage: 18.75, panelWatts: 100,
                powerFlowPattern: 'tl-v', powerOrganized: true, flowPattern: 'tl-h',
                powerSplitters: {enabled: true, maxWays: 2, manual: {merge: [], split: []}},
                processorType: 'novastar-armor', offset_x: 1800});
@@ -432,12 +444,11 @@ PLAN = [
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
-    pg.goto(e2e_server, wait_until='domcontentloaded')
-    pg.wait_for_timeout(2000)
+    open_app(pg, e2e_server)
     pg.locator('[data-mode="power"]').click()
     pg.wait_for_timeout(500)
     ids = pg.evaluate(SEED_JS)
@@ -548,8 +559,8 @@ def test_the_sheets_come_in_series_by_subject(page):
     assert all((p['w'], p['h'], p['sheet']) == (W, H, 'tabloid') for p in full), full
     assert [p['view'] for p in full] == list(range(1, 14)) + [None, None, None]
     assert all(p['sheetTitle'] == p['sheetTitle'].upper() for p in full)
-    assert [p['sheetTitle'] for p in full][:6] == ['OVERVIEW', 'WALL-A · POWER · FRONT VIEW', 'WALL-A · POWER WIRING',
-                                                   'WALL-A · DATA · FRONT VIEW', 'WALL-A · DATA WIRING', 'WALL-B · POWER · FRONT VIEW']
+    assert [p['sheetTitle'] for p in full][:6] == ['OVERVIEW', 'WALL-A · POWER · FRONT VIEW', 'WALL-A · POWER WIRING · FRONT VIEW',
+                                                   'WALL-A · DATA · FRONT VIEW', 'WALL-A · DATA WIRING · FRONT VIEW', 'WALL-B · POWER · FRONT VIEW']
     assert [p['sheetTitle'] for p in full][-3:] == ['PULL · SR BEACH, CENTER', 'DISTRO · SR', 'PROCESSOR · H9 · PULL LIST']
     assert [p['names'] for p in full][-3:] == [['SR Beach', 'CENTER'], ['SR'], ['H9', 'All positions']]
     assert ids['errors'] == []
@@ -571,7 +582,7 @@ def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(
     bands = _bands(texts)
     # the type is Multi, and the length stands alone - "125' home run"
     # said it twice (user, 2026-09-08)
-    assert bands == ["SR1 · Multi 208 · 125' · 2 circuits"], texts
+    assert bands == ["SR1 · Multi 208 TRUE1 breakout · 125' · 2 circuits"], texts
     assert not [t for t in texts if 'home run' in t.lower()], [t for t in texts if 'home run' in t.lower()]
     # "Multi" alone is a cable row, never a heading
     assert not any(t.strip() == 'MULTI' for t in texts), [t for t in texts if t.strip() == 'MULTI']
@@ -582,13 +593,13 @@ def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(
     # · AMPS · CABLE - the band above the headings (2026-09-26: "same with
     # distros") - the cable typed on each, the cables table, the facts
     i = texts.index('CIRCUITS')
-    assert texts[i + 1:i + 7] == ["SR1 · Multi 208 · 125' · 2 circuits",
+    assert texts[i + 1:i + 7] == ["SR1 · Multi 208 TRUE1 breakout · 125' · 2 circuits",
                                   'CIRCUIT', 'NO.', 'PANELS', 'AMPS', 'CABLE'], texts[i:i + 8]
     assert 'SR1-1' in texts and 'SR1-2' in texts
-    assert texts.count("10' True1") >= 2
+    assert texts.count("10' TRUE1") >= 2
     assert 'CABLES THIS SCREEN' in texts and 'FACTS' in texts
     assert 'Multi' in texts and "125'" in texts      # the breakout's cable, in the GEAR LIST's word
-    assert 'Tru-1 Breakout' in texts
+    assert 'TRUE1 Breakout' in texts
     assert 'SHARED CIRCUITS' not in texts
     assert not [t for t in texts if 'Palette' in t]
     # the view bubble under the map: view 2, the sheet's name
@@ -606,7 +617,9 @@ def test_shared_circuits_are_listed_only_where_a_screen_has_them(page):
     i = ganged.index('SHARED CIRCUITS')
     assert ganged[i:i + 7] == ['SHARED CIRCUITS', 'CIRCUIT', 'SPLITTER', 'AMPS', ganged[i + 4], '2fer', ganged[i + 6]]
     assert ganged[i + 4].endswith('1') or ganged[i + 4]   # the shared circuit's label
-    assert 'Edison 2fer' in ganged
+    # the splitter is on the panels' side: CENTER's Edison breakout feeds
+    # TRUE1 panels (2026-10-21)
+    assert 'TRUE1 2fer' in ganged
 
 
 def test_the_rulers_number_every_fifth_column_and_the_ends_in_bold(page):
@@ -638,14 +651,14 @@ def test_the_printer_sheet_has_no_colour_and_a_dash_per_circuit(page):
 def test_cable_tags_follow_the_screens_switch(page):
     pg, ids = page
     on = _render(pg, SHOW, 'WALL-A - Power - Front View')['mapTexts']
-    assert "10' True1" in on and _on_map(on, 'SR1-1'), on
+    assert "10' TRUE1" in on and _on_map(on, 'SR1-1'), on
     off = _render(pg, SHOW, 'WALL-B - Power - Front View')['mapTexts']
-    assert _on_map(off, 'SR2-1') and "6' True1" not in off, off
+    assert _on_map(off, 'SR2-1') and "6' TRUE1" not in off, off
     # flip WALL-A off, and the tag leaves the map
     pg.evaluate("(id) => { window.app.project.layers.find(l => l.id === id).showPowerCableTags = false; }", ids['a'])
     try:
         flipped = _render(pg, SHOW, 'WALL-A - Power - Front View')['mapTexts']
-        assert "10' True1" not in flipped and _on_map(flipped, 'SR1-1'), flipped
+        assert "10' TRUE1" not in flipped and _on_map(flipped, 'SR1-1'), flipped
     finally:
         pg.evaluate("(id) => { window.app.project.layers.find(l => l.id === id).showPowerCableTags = true; }", ids['a'])
 
@@ -773,7 +786,9 @@ def test_the_pdf_route_receives_one_display_list_per_sheet(page):
                      texts: body.pages.map(p => p.ops.filter(o => o.op === 'text').length),
                      imageIds: body.pages.map(p => Object.keys(p.images)),
                      imageOps: body.pages.map(p => p.ops.filter(o => o.op === 'image').map(o => o.id)),
-                     png: body.pages.every(p => Object.values(p.images).every(d => d.startsWith('data:image/png;base64,'))),
+                     imageRects: body.pages.map(p => p.ops.filter(o => o.op === 'image').map(o => [o.x, o.y, o.w, o.h])),
+                     imageKinds: body.pages.map(p => p.ops.filter(o => o.op === 'image')
+                         .map(o => p.images[o.id].slice(0, p.images[o.id].indexOf(',') + 1))),
                      bitmaps: body.pages.some(p => 'dataUrl' in p || 'data' in p),
                      firstOps: body.pages[0].ops.slice(0, 3),
                      saved: seen.saved, plan: plan.length,
@@ -805,14 +820,18 @@ def test_the_pdf_route_receives_one_display_list_per_sheet(page):
     assert out['firstOps'][0] == {'op': 'rect', 'x': 0, 'y': 0, 'w': W, 'h': H, 'fill': '#ffffff'}
     assert out['firstOps'][1] == {'op': 'rect', 'x': PAD, 'y': PAD, 'w': W - PAD * 2, 'h': H - PAD * 2, 'stroke': '#111111', 'width': 3}
     # only the map sheets, the wiring sheets and the overview (its raster)
-    # carry images - one each, the op naming the bitmap the record holds, as
-    # a PNG; a wiring sheet is one side, so one wall
-    for kind, ids_, ops_ in zip(out['kindsByPage'], out['imageIds'], out['imageOps']):
+    # carry images - one map each, the ops naming the bitmaps the record
+    # holds: one PNG, or the split pair (app-binder.js _bLayMapBitmap) - a
+    # JPEG of the fills, then a PNG over it at the very same rect; a wiring
+    # sheet is one side, so one wall
+    PNG, JPEG = 'data:image/png;base64,', 'data:image/jpeg;base64,'
+    for kind, ids_, ops_, kinds_, rects in zip(out['kindsByPage'], out['imageIds'], out['imageOps'],
+                                               out['imageKinds'], out['imageRects']):
         if kind in ('overview', 'power', 'data', 'wiring'):
-            assert len(ids_) == 1 and ops_ == ids_, (kind, ids_, ops_)
+            assert ops_ == ids_ and kinds_ in ([PNG], [JPEG, PNG]), (kind, ids_, ops_, kinds_)
+            assert len(set(map(tuple, rects))) == 1, (kind, rects)
         else:
             assert ids_ == [] and ops_ == [], (kind, ids_, ops_)
-    assert out['png']
     assert out['saved'] == {'filename': 'Two Positions - binder rev 1.0.pdf', 'mime': 'application/pdf', 'size': 9}
 
 
@@ -964,7 +983,8 @@ def _restore_keys(pg, was):
 def test_a_rear_export_names_the_side_on_every_screen_sheet_and_leaves_the_toggles_alone(page):
     """View: Rear. Every screen sheet's view heading, its title block's
     sheet title and its CONTENTS line read "· REAR VIEW" and its plan
-    title "- Rear View"; the overview stays OVERVIEW and reads no side at
+    title "- Rear View"; every wiring sheet's title the same ("· POWER
+    WIRING · REAR VIEW", 2026-10-21); the overview stays OVERVIEW and reads no side at
     all. The renderer painted every Power and Data map - the wiring
     sheets' walls too - with every canvas's two perspective keys and the
     project root's pair at 'back', the overview's show map with every one
@@ -997,6 +1017,15 @@ def test_a_rear_export_names_the_side_on_every_screen_sheet_and_leaves_the_toggl
             assert sheet_title.endswith(' · REAR VIEW'), sheet_title
             assert sheet_title in texts and texts.count(sheet_title) >= (2 if TITLE_BLOCK else 1), (sheet_title, texts[:60])   # the block and the bubble
             assert not [t for t in texts if 'FRONT VIEW' in t], texts[:60]
+        # the wiring sheets, drawn from the same side, name it the same way
+        # in the block, under the drawing and in the CONTENTS (2026-10-21)
+        wiring = [i for i, k in enumerate(rear['kinds']) if k == 'wiring']
+        assert len(wiring) == 6, rear['kinds']
+        for i in wiring:
+            sheet_title, texts = rear['sheetTitles'][i], rear['texts'][i]
+            assert sheet_title.endswith(' WIRING · REAR VIEW'), sheet_title
+            assert texts.count(sheet_title) >= (2 if TITLE_BLOCK else 1), (sheet_title, texts[:60])
+            assert not [t for t in texts if 'FRONT VIEW' in t], texts[:60]
         assert rear['titles'] == [t.replace(' - Front View', ' - Rear View') for t in [p[2] for p in PLAN]]
         assert rear['sheetTitles'][0] == 'OVERVIEW' and rear['names'][0] == 'Overview'
         overview = rear['texts'][0]
@@ -1005,7 +1034,7 @@ def test_a_rear_export_names_the_side_on_every_screen_sheet_and_leaves_the_toggl
         c = overview.index('CONTENTS')
         listed = [overview[c + 4 + 2 * n] for n in range(len(PLAN))]
         assert listed == rear['sheetTitles'], listed
-        assert 'WALL-A · POWER · REAR VIEW' in listed and 'WALL-A · POWER WIRING' in listed
+        assert 'WALL-A · POWER · REAR VIEW' in listed and 'WALL-A · POWER WIRING · REAR VIEW' in listed
         # the paints: every map from the back, the overview from the front
         # (the binder's own paints; the workspace's live canvas may paint
         # too, between the sheets, and reads its own toggles)
@@ -1229,7 +1258,7 @@ def test_the_map_carries_no_screen_name_plate_but_the_export_still_does(page):
 def test_no_sheet_says_box_breakout_or_palette(page):
     """No sheet text says box ("I dont like calling them boxes"), none
     says breakout as the generic noun ("no need to call it a breakout") -
-    save a data-side breakout box's own name and the pull list's "Tru-1
+    save a data-side breakout box's own name and the pull list's "TRUE1
     Breakout" cable row - and none says Palette. The distro sheet names
     its table by what it lists: "2 Multi 208", the units by type."""
     pg, ids = page
@@ -1241,10 +1270,12 @@ def test_no_sheet_says_box_breakout_or_palette(page):
         assert not boxy, (idx, boxy)
         assert not _generic_breakout(texts), (idx, _generic_breakout(texts))
         assert not [t for t in texts if 'palette' in t.lower()], (idx, texts)
+        # never "tail", the Edison adapter included: it is "Edison → TRUE1
+        # cable" (the owner, 2026-10-21)
         assert not [t for t in texts if re.search(r'\btails?\b', t.lower())], (idx, texts)
     distro = _render(pg, SHOW, DISTRO)['texts']
     i = distro.index('2 MULTI 208')
-    assert distro[i + 1] == 'NAME' and distro[i + 2] == 'TYPE' and 'SR 1' in distro and 'SR 2' in distro
+    assert distro[i + 1] == 'NAME' and distro[i + 2] == 'TYPE' and 'SR1' in distro and 'SR2' in distro
     assert 'BREAKOUTS' not in distro and 'Breakouts' not in distro
     assert [t for t in distro if re.fullmatch(r'\d+ on 2 Multi 208', t)], distro
 
@@ -1481,7 +1512,7 @@ def test_the_packer_lays_blocks_whole_splits_only_the_tall_and_repeats_the_heads
 
 
 def test_a_sheet_whose_tables_do_not_fit_continues_on_the_next_number(page):
-    """A position stuffed past a Tabloid's four pull columns continues on
+    """A position stuffed past a Tabloid's pull columns continues on
     the next number of its series, "(cont.)", the table's title and
     heading repeated at the top of the continuation under the position's
     name again; the next position joins it there; the sheets after take
@@ -1514,8 +1545,10 @@ def test_a_sheet_whose_tables_do_not_fit_continues_on_the_next_number(page):
     i = titles.index('Pull - SR Beach')
     assert titles[i:i + 3] == ['Pull - SR Beach', 'Pull - SR Beach (cont.), CENTER', DISTRO], titles
     assert [p[1] for p in plan[i:i + 3]] == ['3.1', '3.2', '4.1'], plan
-    assert plan[i][4] == 'tables' and plan[i][5] == 4, plan[i]
-    assert plan[i + 1][3] == 'PULL · SR BEACH (CONT.), CENTER' and plan[i + 1][4] == 'tables' and plan[i + 1][5] == 2
+    # (three columns: the Screens table's every heading at its full size
+    # needs a column wider than four to a Tabloid give - QA beta.5)
+    assert plan[i][4] == 'tables' and plan[i][5] == 3, plan[i]
+    assert plan[i + 1][3] == 'PULL · SR BEACH (CONT.), CENTER' and plan[i + 1][4] == 'tables' and plan[i + 1][5] == 3
     assert [p[1] for p in plan if p[0] in ('distro', 'processor', 'totals')] == ['4.1', '4.2']
     # the continuation: its title block says (CONT.) and 3.2; under the
     # position's name again, the first thing is the stuffed table's title
@@ -1534,9 +1567,66 @@ def test_a_sheet_whose_tables_do_not_fit_continues_on_the_next_number(page):
     assert listed == [(p[1], p[3]) for p in plan], listed
 
 
-PULL_SPREAD_JS = """([opts, n]) => {
+SERVICE_SET_JS = """(opts) => {
+    const app = window.app;
+    const d = app.getDistros()[0];
+    const had = 'services' in app.project, was = d.serviceId;
+    app.project.services = [{ id: 'svc-num', name: 'HOUSE', ratingA: 400, system: d.system,
+                              voltage: d.voltage, phase: d.phase }];
+    d.serviceId = 'svc-num';
+    try {
+        const plan = app.planBinder(opts);
+        const pages = plan.map((p, i) => app.renderBinderPage(opts, i).texts);
+        const k = plan.findIndex(p => p.title === 'WALL-A - Power - Front View');
+        return { system: d.system, plan: plan.map(p => [p.kind, p.number, p.sheetTitle]), pages,
+                 power: k < 0 ? null : { textInfo: app.renderBinderPage(opts, k).textInfo },
+                 systemName: app.distroSystemName(d) };
+    } finally {
+        if (had) app.project.services = []; else delete app.project.services;
+        if (was === undefined) delete d.serviceId; else d.serviceId = was;
+    }
+}"""
+
+
+def test_the_service_sheet_numbers_in_sequence_with_the_hardware(page):
+    """A show with a service, a distro on it and a processor: the Service
+    sheet prints first in the hardware and takes 4.1, the distro 4.2, the
+    processor and the pull list 4.3 - the CONTENTS in ascending order, in
+    plan order, every sheet's title block carrying its CONTENTS number. It
+    used to print as 5.1 between 3.1 and 4.1 (2026-10-21). The screen's
+    Power sheet names the service in a SERVICE row over its DISTRO row,
+    the distro's system said once, on the service."""
+    pg, ids = page
+    out = pg.evaluate(SERVICE_SET_JS, json.loads(_SHOW_JSON))
+    plan = out['plan']
+    assert plan[-4:] == [['pull', '3.1', 'PULL · SR BEACH, CENTER'], ['service', '4.1', 'SERVICE · HOUSE'],
+                         ['distro', '4.2', 'DISTRO · SR'], ['processor', '4.3', 'PROCESSOR · H9 · PULL LIST']], \
+        (out['system'], plan)
+    key = [tuple(int(n) for n in p[1].split('.')) for p in plan]
+    assert key == sorted(key) and len(set(key)) == len(key), plan
+    ov = out['pages'][0]
+    c = ov.index('CONTENTS')
+    listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
+    assert listed == [(p[1], p[2]) for p in plan], listed
+    for (kind, number, sheet_title), texts in zip(plan, out['pages']):
+        _title_block(texts, sheet_title, number)
+    power = out['power']
+    assert power, plan
+    assert _kv_values(power, 'Service') == ['HOUSE · 400 A · ' + out['systemName']], power
+    fed = _kv_values(power, 'Distro')
+    assert len(fed) == 1 and re.match(r'SR · 400 A · X\s[\d.]+ · Y\s[\d.]+ · Z\s[\d.]+\sA$', fed[0]), fed
+    keys = [t['text'] for t in power['textInfo'] if t['weight'] == 700]
+    assert keys.index('Distro') == keys.index('Service') + 1, keys
+    assert ids['errors'] == []
+
+
+PULL_SPREAD_JS ="""([opts, n]) => {
     const app = window.app;
     const real = app.buildPullSheet;
+    // every screen names its panel, so each position prints a Panels block
+    // (a screen with no name has none, owner 2026-11-05)
+    const named = app.project.layers.map(l => [l, l.panelModelName]);
+    app.project.layers.forEach(l => { l.panelModelName = 'House 500 mm tile'; });
     // the show's positions cut to `n` - one, the sheet a small show prints
     // (3.1 with a single beach) - or copied up to it, four sharing a sheet
     app.buildPullSheet = function () {
@@ -1558,12 +1648,16 @@ PULL_SPREAD_JS = """([opts, n]) => {
                      .map(o => ({ t: o.text, x: o.x, size: o.size, weight: o.weight })) };
     } finally {
         app.buildPullSheet = real;
+        named.forEach(([l, name]) => { l.panelModelName = name; });
     }
 }"""
 
-PULL_SECTIONS = ('POWER CABLES', 'DATA CABLES', 'HARDWARE', 'SCREENS')
-PULL_HEADINGS = ('CABLE', 'LENGTH', 'QTY', 'LABEL', 'ITEM', 'DETAIL',
+PULL_SECTIONS = ('POWER CABLES', 'DATA CABLES', 'HARDWARE', 'PANELS', 'SCREENS')
+PULL_HEADINGS = ('CABLE', 'LENGTH', 'QTY', 'LABEL', 'ITEM', 'DETAIL', 'PANEL',
                  'SCREEN', 'SIZE', 'PANELS', 'CIRCUITS', 'PORTS', 'SHARED')
+# PANELS is both a section (the position's panel rows, 2026-10-22) and the
+# SCREENS table's column heading: each is told by its size.
+PULL_SECTION_AND_HEADING = {'PANELS'}
 
 
 @pytest.mark.parametrize('n', [1, 2, 4], ids=['one position', 'two positions', 'four positions'])
@@ -1574,20 +1668,21 @@ def test_the_pull_sheet_spreads_across_the_page_and_cuts_no_heading(page, n):
     space out to the right"): a sheet with three or more sections uses more
     than half the drawing width, and no heading is cut - the Screens
     table's CIRCUITS and PORTS read "CIRCU…" and "POR…" in the old narrow
-    column, PANELS in small type. Where the sheet has the room (one
-    position, two) every section title and column heading prints at its
-    full size; four positions still share a Tabloid, each in its narrow
-    column, the Screens headings set smaller there but whole."""
+    column, PANELS in small type. Every section title and column heading
+    prints at its full size (QA beta.5, 2026-11-03: one type size for
+    every heading): four positions no longer squeeze onto one Tabloid with
+    the Screens headings set smaller - the sheet takes the three whose
+    columns hold every heading whole, the fourth goes on the next."""
     pg, ids = page
     out = pg.evaluate("(a) => (%s)(a)" % PULL_SPREAD_JS, [json.loads(_SHOW_JSON), n])
     texts = [o['t'] for o in out['ops']]
     sections = [s for s in PULL_SECTIONS if s in texts]
     assert len(sections) >= 3, texts
-    assert len(out['names']) == n, out['names']
+    assert len(out['names']) == min(n, 3), out['names']
     if n == 1:
         assert out['title'] == 'Pull - SR Beach' and out['cols'] >= 2, (out['title'], out['cols'])
     if n == 4:
-        assert out['cols'] == 4, out['cols']
+        assert out['cols'] == 3, out['cols']
     # the drawing's extent at its scale, and the text itself, reach past
     # the middle of the drawing area
     used = out['extent']['w'] * out['scale']
@@ -1596,13 +1691,19 @@ def test_the_pull_sheet_spreads_across_the_page_and_cuts_no_heading(page, n):
     # nothing on the sheet is cut, and every heading is whole and full size
     assert not [t for t in texts if t.endswith('…')], [t for t in texts if t.endswith('…')]
     sc = out['scale'] or 1
+    title_size = 25 * sc
     for h in PULL_HEADINGS:
         sizes = [o['size'] for o in out['ops'] if o['t'] == h and o['weight'] == 700]
-        assert len(sizes) >= n, (h, texts)
-        if n < 4:
-            assert all(abs(s - 21 * sc) < 0.05 for s in sizes), (h, sizes, sc)
+        if h in PULL_SECTION_AND_HEADING:
+            sizes = [s for s in sizes if abs(s - title_size) >= 0.05]
+        assert len(sizes) >= min(n, 3), (h, texts)
+        assert all(abs(s - 21 * sc) < 0.05 for s in sizes), (h, sizes, sc)
     for h in sections:
         sizes = [o['size'] for o in out['ops'] if o['t'] == h and o['weight'] == 700]
+        if h in PULL_SECTION_AND_HEADING:
+            sizes = [s for s in sizes if abs(s - title_size) < 0.05]
+            assert len(sizes) >= min(n, 3), (h, sizes, sc)
+            continue
         assert sizes and all(abs(s - 25 * sc) < 0.05 for s in sizes), (h, sizes, sc)
     assert ids['errors'] == []
 
@@ -2335,16 +2436,17 @@ def test_a_logo_heads_the_title_block_on_every_sheet_and_reaches_the_pdf(page):
 
 def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
     """Card SR backed 1:1 by a second (unnamed) card: the Ports table is
-    two halves (2026-09-26), the backup card banded "H9 slot 2 · …" - never
-    "slot 2 1" - over the backup half. Each row is SR's port and, beside
-    it, its return port on its own socket ("SR-1R", "H9 slot 2 · 1"), with
+    two halves (2026-09-26), the backup card banded "H9 Card 2 · 16 ports"
+    (Card N by its slot, no model - owner, 2026-10-29) over the backup
+    half. Each row is SR's port and, beside it, its return port on its
+    own socket ("SR-1R", "H9 Card 2 · 1"), with
     PANELS once and no PX; the Processor line names the unit once ("H9",
     not "H9 · H9"); Redundancy reads the bar ("Per card"). Each card's
     snake heads its own half ("SR Primary · 1 channel snake · 100'", "SR
     Backup · 1 channel snake · 150'") and each end's HOME RUN is its own
     extension ("+25'" on the backup's socket, 2026-09-07: "i have no way of
     putting lengths for redundancy cables"), never cut to "…"; Cables this screen lists the
-    backup's snake, the extension and the extension's `Ether-con Barrel`
+    backup's snake, the extension and the extension's `Cat6 Barrel`
     (one per extension, 2026-09-07); the processor sheet lists the
     extension as an `ext` row under its snake."""
     pg, ids = page
@@ -2382,7 +2484,8 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
         p0 = texts.index('PORTS')
         assert texts[p0 + 1:p0 + 14] == [
             'PRIMARY', 'BACKUP', 'H9 SR · H_16xRJ45+2xfiber · 16 ports',
-            'H9 slot 2 · H_16xRJ45+2xfiber · 16 ports',
+            # the backup card nobody named goes by its slot, no model
+            'H9 Card 2 · 16 ports',
             'PORT', 'OUTPUT', 'HOME RUN', 'PORT', 'OUTPUT', 'HOME RUN', 'PANELS',
             "SR Primary · 1 channel snake · 100'", "SR Backup · 1 channel snake · 150'"], texts[p0:p0 + 16]
         rows = []
@@ -2395,20 +2498,21 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
             # it, on the backup card's own socket
             assert re.fullmatch(r'H9 SR · \d+', primary), (label, primary)
             socket = primary.rsplit(' · ', 1)[-1]
-            assert (blabel, boutput) == (f'{label}R', f'H9 slot 2 · {socket}'), rows
+            assert (blabel, boutput) == (f'{label}R', f'H9 Card 2 · {socket}'), rows
             assert _on_map(out['mapTexts'], f'{label}R'), (label, out['mapTexts'])
-            assert panels != '—', rows
+            assert panels != '', rows
             # the run itself is in each heading; each end says only its
             # own extension - none at the primary, 25' at the backup
-            assert home == '—' and bhome == "+25'", (label, home, bhome)
+            assert home == '' and bhome == "+25'", (label, home, bhome)
         assert 'PX' not in texts
         assert not [t for t in texts if t.startswith('slot ') or t.endswith('…')]
         cables = texts[texts.index('CABLES THIS SCREEN'):texts.index('Screen')]
-        assert ['Ether-con', "25'", '1'] == cables[cables.index('Ether-con'):cables.index('Ether-con') + 3], cables
-        k = cables.index('Ether-con Barrel')
-        assert cables[k:k + 3] == ['Ether-con Barrel', 'EA', '1'], cables
-        assert cables.count('Ether-con Barrel') == 1, cables
-        assert cables.count('Ether-con Snake') == 2, cables
+        k = cables.index('Cat6 Extension')
+        assert ['Cat6 Extension', "25'", '1'] == cables[k:k + 3], cables
+        k = cables.index('Cat6 Barrel')
+        assert cables[k:k + 3] == ['Cat6 Barrel', 'EA', '1'], cables
+        assert cables.count('Cat6 Barrel') == 1, cables
+        assert cables.count('Cat6 Snake') == 2, cables
         assert "150'" in cables and "100'" in cables, cables
         # the Facts say how many ports, never a px-per-port ceiling
         assert texts[texts.index('Ports') + 1] == '1 port' and not [t for t in texts if 'px/port' in t]
@@ -2417,12 +2521,13 @@ def test_the_data_sheet_prints_the_return_end_and_the_processor_once(page):
         proc = _render(pg, SHOW, PROC)['texts']
         assert proc[proc.index('Redundancy') + 1] == 'Per card'
         assert not [t for t in proc if BOX_WORD.search(t)]
-        # an unnamed card goes by its SLOT on its own processor, never by
-        # the device's long model string (_bCardShort's rule, 2026-09-09 -
-        # the model was being shrunk and cut); the row is its socket,
-        # 'ext', the length and the snake it hangs off
+        # an unnamed card goes by its slot on its own processor, "Card 2"
+        # the way a named one goes by its name (owner, 2026-10-29), never
+        # by the device's long model string (_bCardShort's rule,
+        # 2026-09-09 - the model was being shrunk and cut); the row is its
+        # socket, 'ext', the length and the snake it hangs off
         k = proc.index('ext')
-        assert proc[k - 1] == 'H9 slot 2 1' and proc[k:k + 3] == ['ext', "25'", 'SR Backup'], proc[k - 3:k + 4]
+        assert proc[k - 1] == 'Card 2 1' and proc[k:k + 3] == ['ext', "25'", 'SR Backup'], proc[k - 3:k + 4]
         assert proc[proc.index('SR Backup · 1 channel') : proc.index('SR Backup · 1 channel') + 3] == \
             ['SR Backup · 1 channel', 'snake', "150'"], proc
     finally:
@@ -2472,8 +2577,10 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
         band = "CVT4K-S A-B · OPT 1-2 · 16 ports · 12 Tac Fiber 250'"
         assert band in texts, texts
         i = texts.index(band)
+        # a placed port with no home run typed says so, as CABLES THIS
+        # SCREEN does (owner, 2026-10-22) - '—' is for an empty cell
         assert texts[i + 1:i + 8] == ['PORT', 'OUTPUT', 'HOME RUN', 'PANELS',
-                                      'SR-1', 'CVT4K-S A-B · 1', '—'], texts[i:i + 10]
+                                      'SR-1', 'CVT4K-S A-B · 1', 'etherCON no length'], texts[i:i + 10]
         assert not [t for t in texts if t.startswith('H9 SR ·')], 'the card is not listed where the box delivers'
         k = texts.index('CABLES THIS SCREEN')
         assert texts[k + 4:k + 7] == ['12 Tac Fiber', "250'", '1'], texts[k:k + 12]
@@ -2492,7 +2599,7 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
         # left out (2026-10-18), the port's run beside it
         assert 'SR · 1' not in texts and 'OUTPUT' not in texts
         i = texts.index('SR-1')
-        assert texts[i - 3:i + 2] == ['PORT', 'HOME RUN', 'PANELS', 'SR-1', '—'], texts[i - 4:i + 3]
+        assert texts[i - 3:i + 2] == ['PORT', 'HOME RUN', 'PANELS', 'SR-1', 'etherCON no length'], texts[i - 4:i + 3]
         # the processor sheet: the box under its card, with its fiber
         proc = _render(pg, SHOW, PROC)['texts']
         b = proc.index('BREAKOUT BOXES')
@@ -2548,7 +2655,7 @@ def test_a_box_delivering_the_port_is_listed_instead_of_the_card(page):
             # so neither half prints OUTPUT (2026-10-18)
             assert texts[j + 4:j + 9] == ['PORT', 'HOME RUN', 'PORT', 'HOME RUN', 'PANELS'], texts[j:j + 12]
             i = texts.index('SR-1')
-            assert i > j and texts[i:i + 4] == ['SR-1', '—', 'BK-1', '—'], texts[i:i + 8]
+            assert i > j and texts[i:i + 4] == ['SR-1', 'etherCON no length', 'BK-1', 'etherCON no length'], texts[i:i + 8]
             assert 'SR · 1' not in texts and 'BK · 1' not in texts
             assert not [t for t in texts if t.endswith('…')]
         finally:
@@ -2591,7 +2698,7 @@ def test_the_port_cell_reads_a_long_label_whole(page):
         texts = out['texts']
         assert 'SR A-1' in texts, texts
         i = texts.index('SR A-1')
-        assert texts[i:i + 3] == ['SR A-1', 'H9 SR A · 1', '—'], texts[i:i + 6]
+        assert texts[i:i + 3] == ['SR A-1', 'H9 SR A · 1', 'Cat6 no length'], texts[i:i + 6]
         assert not [t for t in texts if t.endswith('…')], [t for t in texts if t.endswith('…')]
         assert _on_map(out['mapTexts'], 'SR A-1'), out['mapTexts']
     finally:
@@ -2796,18 +2903,20 @@ def test_the_title_block_switch_is_a_preference_the_dialog_reflects(page):
 # ── the smoke: the user's own show ───────────────────────────────────────
 
 
-# A Power sheet's FED BY row: "SR · 400 A 208 V 3φ · this screen on its
-# legs X a Y b Z c A" - the service as it is, then THIS SCREEN's amps on
-# its legs. It used to print the service's whole legs, every screen the
-# distro feeds summed (the user, 2026-09-15, on SR - MAIN reading SR's
-# 301 / 311 / 311 A beside the screen's own 252 A: "it should be what is
-# calculated per screen"). The hardware sheet's LEGS row keeps the whole
-# service. The figures are the engine's own attribution (boxFeedLegAmps -
-# a 208 V circuit on its leg pair, a 110 V circuit on one leg, as phasors)
-# run over the one screen's multis; nothing here re-derives them.
+# A Power sheet's DISTRO row: "SR · 400 A · 120/208V 3φ · X a · Y b · Z c
+# A" - the distro as it is (its system named where it is on no service),
+# then THIS SCREEN's amps on each leg; the sheet is the screen's, so no
+# "this screen on its legs" (the user, 2026-10-21: "just put the XYZ of
+# each leg"). It used to print the distro's whole legs, every screen it
+# feeds summed (the user, 2026-09-15, on SR - MAIN reading SR's 301 / 311
+# / 311 A beside the screen's own 252 A: "it should be what is calculated
+# per screen"). The hardware sheet's LEGS row keeps the whole distro. The
+# figures are the engine's own attribution (boxFeedLegAmps - a 208 V
+# circuit on its leg pair, a 110 V circuit on one leg, as phasors) run
+# over the one screen's multis; nothing here re-derives them.
 # a leg's letter is tied to its figure with a no-break space, so a wrap
 # never parts them; \s takes either
-FED_BY_LEGS = re.compile(r'legs X\s([\d.]+) Y\s([\d.]+) Z\s([\d.]+)\sA')
+DISTRO_LEGS = re.compile(r'· X\s([\d.]+) · Y\s([\d.]+) · Z\s([\d.]+)\sA')
 SERVICE_LEGS = re.compile(r'X ([\d.]+) · Y ([\d.]+) · Z ([\d.]+) A')
 
 
@@ -2861,13 +2970,13 @@ LEGS_JS = """([distroId, layerIds]) => {
 
 
 def test_a_screens_fed_by_legs_are_its_own(page):
-    """WALL-A and WALL-B both on SR (3φ): each Power sheet's FED BY row
+    """WALL-A and WALL-B both on SR (3φ): each Power sheet's DISTRO row
     names SR and carries THAT screen's legs - the engine's attribution
     over its own multis, to the tenth - and the two differ (250 W panels
     against 200 W); neither is the service's whole legs. The hardware
     sheet's LEGS row is still the whole service: the engine's walk over
     both screens, which is what getDistroLoads reports - at the head of
-    its one Load line. CENTER, on no
+    its one Load line. SR is on no service: no SERVICE row. CENTER, on no
     distro, still says so."""
     pg, ids = page
     legs = pg.evaluate(LEGS_JS, [ids['distroId'], [ids['a'], ids['b']]])
@@ -2876,17 +2985,19 @@ def test_a_screens_fed_by_legs_are_its_own(page):
     assert a_want != b_want, legs
     assert sum(a_want) > 0 and sum(b_want) > 0, legs
     for title, want in (('WALL-A - Power - Front View', a_want), ('WALL-B - Power - Front View', b_want)):
-        fed = _kv_values(_render(pg, SHOW, title), 'Fed by')
-        assert len(fed) == 1, (title, fed)
-        assert fed[0].startswith('SR · 400 A 208 V 3φ · this screen on its legs X'), fed
-        assert _legs_of(fed[0], FED_BY_LEGS) == want, (title, fed, want)
+        out = _render(pg, SHOW, title)
+        fed = _kv_values(out, 'Distro')
+        assert len(fed) == 1 and _kv_values(out, 'Service') == [] and _kv_values(out, 'Fed by') == [], (title, fed)
+        assert fed[0].startswith('SR · 400 A · 120/208V 3φ · X'), fed
+        assert 'legs' not in fed[0] and 'screen' not in fed[0], fed
+        assert _legs_of(fed[0], DISTRO_LEGS) == want, (title, fed, want)
     whole = _rounded(legs['whole'])
     assert whole not in (a_want, b_want), (whole, a_want, b_want)
     assert whole == _rounded(legs['all']), legs
     # the service's legs lead its one Load line (2026-10-18)
     hw = _kv_values(_render(pg, SHOW, DISTRO), 'Load')
     assert len(hw) == 1 and _legs_of(hw[0], SERVICE_LEGS) == whole, (hw, whole)
-    assert _kv_values(_render(pg, SHOW, 'CENTER - Power - Front View'), 'Fed by') == ['no distro']
+    assert _kv_values(_render(pg, SHOW, 'CENTER - Power - Front View'), 'Distro') == ['none']
     assert ids['errors'] == []
 
 
@@ -2921,6 +3032,8 @@ def test_smoke_live_show_b(page):
         await j('PUT', '/api/project', project);
         app.project = await j('GET', '/api/project');
         app.dedupeProjectLayers('binder_smoke');
+        // File > Open keeps a pre-1.5.4 show's automatic 2fers as saved
+        if (app.olderShowKeepsShares(app.project)) app.keepOlderShowShares();
         app.selectLayer(app.project.layers.find(l => (l.type || 'screen') === 'screen'));
         await app.refreshProcessors();
         await app.refreshPortAssignment();
@@ -2970,8 +3083,10 @@ def test_smoke_live_show_b(page):
     # show's pull list beside it
     assert names[PULL4] == ['SR', 'SL']
     assert names['Distros - SR, SL'] == ['SR', 'SL'] and names['Processor - H9 · Pull list'] == ['H9', 'All positions']
-    # eight positions make two pull sheets, four columns each (the show's
-    # two beaches, three more copies of each)
+    # eight positions make three pull sheets (the show's two beaches, three
+    # more copies of each): at its narrowest each of this show's positions
+    # is now wider than a quarter of a Tabloid sheet, so three share one
+    # (owner approved, 1.5.4) and the last sheet takes the two left over
     two = pg.evaluate("""(opts) => {
         const app = window.app;
         const real = app.buildPullSheet;
@@ -2984,8 +3099,9 @@ def test_smoke_live_show_b(page):
         try { return app.planBinder(opts).filter(p => p.kind === 'pull').map(p => [p.number, p.cols, p.names]); }
         finally { app.buildPullSheet = real; }
     }""", json.loads(_SHOW_JSON))
-    assert two == [['3.1', 4, ['SR', 'SL', 'SR B', 'SL B']],
-                   ['3.2', 4, ['SR C', 'SL C', 'SR D', 'SL D']]], two
+    assert two == [['3.1', 3, ['SR', 'SL', 'SR B']],
+                   ['3.2', 3, ['SL B', 'SR C', 'SL C']],
+                   ['3.3', 2, ['SR D', 'SL D']]], two
     # on Letter SR - MAIN's power sheet stays at 1 and, its tables wrapped
     # around the map (2026-09-26), fits the one sheet it used to continue
     # from; the Return's data sheets fit theirs too
@@ -2993,8 +3109,17 @@ def test_smoke_live_show_b(page):
                          {**json.loads(_SHOW_JSON), 'sheet': 'letter'})
     k = [t for t, _s in letter].index('SR - MAIN - Power - Front View')
     assert letter[k] == ['SR - MAIN - Power - Front View', 1] and letter[k + 1][0] == 'SR - MAIN - Power Wiring', letter
+    # H9 continues on Letter, as it always has. Since every binder table
+    # keeps one type size (QA beta.5, 2026-11-03) its continuation fills its
+    # own sheet - the snakes beside H9's pull list - and the show's pull
+    # list takes the next whole; before, the continuation shared its sheet
+    # with the show's list ("Processor - H9 (cont.) · Pull list"). Four
+    # hardware sheets either way.
     assert [t for t, _s in letter if t.endswith('(cont.)')] == [
-        'SR - MAIN - Data - Front View (cont.)', 'SL - MAIN - Data - Front View (cont.)'], letter
+        'SR - MAIN - Data - Front View (cont.)', 'SL - MAIN - Data - Front View (cont.)',
+        'Processor - H9 (cont.)'], letter
+    assert [t for t, _s in letter][-4:] == [
+        'Distros - SR, SL', 'Processor - H9', 'Processor - H9 (cont.)', 'Pull list - all positions'], letter
     main = _render(pg, SHOW, 'SR - MAIN - Power - Front View')
     texts = main['texts']
     _title_block(texts, 'SR - MAIN · POWER · FRONT VIEW', '2.1', show=project['name'])
@@ -3036,10 +3161,10 @@ def test_smoke_live_show_b(page):
     assert 'CIRCUITS' in texts and 'FACTS' in texts and 'CABLES THIS SCREEN' in texts
     bands = _bands(texts)
     assert bands == [
-        "SR1 · Multi 208 · 125' · 6 circuits",
-        "SR2 · Multi 208 · 100' · 5 circuits",
-        "SR3 · Multi 208 · 125' · 6 circuits",
-        "SR4 · Multi 208 · 100' · 5 circuits",
+        "SR1 · Multi 208 TRUE1 breakout · 125' · 6 circuits",
+        "SR2 · Multi 208 TRUE1 breakout · 100' · 5 circuits",
+        "SR3 · Multi 208 TRUE1 breakout · 125' · 6 circuits",
+        "SR4 · Multi 208 TRUE1 breakout · 100' · 5 circuits",
     ]
     assert not [t for t in texts if 'home run' in t.lower()]
     assert len([t for t in texts if re.fullmatch(r'SR[1-4]-\d', t)]) == 22
@@ -3048,10 +3173,12 @@ def test_smoke_live_show_b(page):
     assert '22 at 208 V / 20 A · 14 panels each' in texts
     rulers = [t['text'] for t in main['textInfo'] if t['size'] == 22 and t['weight'] == 700]
     assert rulers[:7] == ['1', '5', '10', '15', '20', '25', '28'] and rulers[7:] == [str(i) for i in range(1, 12)]
-    assert ["SR1 · 125'", "SR2 · 100'", "SR3 · 125'", "SR4 · 100'"] == [t for t in main['texts'] if re.fullmatch(r"SR\d · \d+'", t)]
+    # each bracket's label once, with its length (drawn a side at a time,
+    # the left side's first: _bBoxBrackets)
+    assert ["SR3 · 125'", "SR4 · 100'", "SR1 · 125'", "SR2 · 100'"] == [t for t in main['texts'] if re.fullmatch(r"SR\d · \d+'", t)]
     # the map: every label, and the typed cables as tags (the screen's switch is on);
     # no screen-name plate over them - the title block names the screen
-    assert _on_map(main['mapTexts'], 'SR1-1') and "10' True1" in main['mapTexts'], main['mapTexts'][:20]
+    assert _on_map(main['mapTexts'], 'SR1-1') and "10' TRUE1" in main['mapTexts'], main['mapTexts'][:20]
     assert not _on_map(main['mapTexts'], 'SR - MAIN')
     # the band rule: every band is followed straight by its headings and
     # then its first circuit (2026-09-26: the band above the headings)
@@ -3092,7 +3219,7 @@ def test_smoke_live_show_b(page):
     i = ret.index('SHARED CIRCUITS')
     assert ret[i + 4:i + 4 + 15:3] == ['SR5-1', 'SR5-2', 'SR5-3', 'SR5-4', 'SR5-5']
     assert ret.count('2fer') == 5
-    assert "SR5 · Multi 208 · 125' · 6 circuits" in ret
+    assert "SR5 · Multi 208 TRUE1 breakout · 125' · 6 circuits" in ret
     dpage = _render(pg, SHOW, 'SR - MAIN - Data - Front View')
     assert not _on_map(dpage['mapTexts'], 'SR - MAIN')
     _title_block(dpage['texts'], 'SR - MAIN · DATA · FRONT VIEW', '2.3', show=project['name'])
@@ -3131,16 +3258,17 @@ def test_smoke_live_show_b(page):
     # of the rows, and each end carries only the extension it adds
     # (2026-09-10: "Why is the same data written multiple times under the
     # snake under a specific port number"). One barrel per extension,
-    # primary and backup, six in all, still counted in Cables this screen.
+    # primary and backup, six in all, still counted in Cables this screen
+    # (etherCON: the CVT4K-S's outputs are etherCON, from its catalog entry).
     heading_a = "SR A · 4 channel snake · 150'"
     heading_b = "SR B · 4 channel snake · 100'"
     assert data.count(heading_a) == 1 and data.count(heading_b) == 1, [t for t in data if 'channel' in t]
     assert data.index(heading_a) + 1 == data.index(heading_b) < data.index('SR A-1'), data
-    assert [data[data.index(f'SR A-{n}') + 1] for n in (1, 2, 3, 4)] == ["+10'", '—', "+25'", "+25'"], data
-    assert [data[data.index(f'SR A-{n}') + 3] for n in (1, 2, 3, 4)] == ["+10'", '—', "+10'", "+75'"], data
+    assert [data[data.index(f'SR A-{n}') + 1] for n in (1, 2, 3, 4)] == ["+10'", '', "+25'", "+25'"], data
+    assert [data[data.index(f'SR A-{n}') + 3] for n in (1, 2, 3, 4)] == ["+10'", '', "+10'", "+75'"], data
     cables = data[data.index('CABLES THIS SCREEN'):data.index('FACTS')]
-    k = cables.index('Ether-con Barrel')
-    assert cables[k:k + 3] == ['Ether-con Barrel', 'EA', '6'], cables
+    k = cables.index('etherCON Barrel')
+    assert cables[k:k + 3] == ['etherCON Barrel', 'EA', '6'], cables
     # the processor once, the redundancy in the bar's words
     assert data[data.index('Processor') + 1] == 'H9' and 'H9 · H9' not in data
     assert data[data.index('Redundancy') + 1] == 'Per card'
@@ -3159,8 +3287,8 @@ def test_smoke_live_show_b(page):
     c = ov.index('CONTENTS')
     listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
     assert [n for n, _t in listed] == [n for n, _t in plan]
-    assert listed[1:5] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING'),
-                           ('2.3', 'SR - MAIN · DATA · FRONT VIEW'), ('2.4', 'SR - MAIN · DATA WIRING')], listed[1:5]
+    assert listed[1:5] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING · FRONT VIEW'),
+                           ('2.3', 'SR - MAIN · DATA · FRONT VIEW'), ('2.4', 'SR - MAIN · DATA WIRING · FRONT VIEW')], listed[1:5]
     assert listed[-3:] == [('3.1', 'PULL · SR, SL'), ('4.1', 'DISTROS · SR, SL'),
                            ('4.2', 'PROCESSOR · H9 · PULL LIST')], listed[-3:]
     # no sheet says box, none says breakout as the generic noun, none Palette
@@ -3228,9 +3356,10 @@ def test_live_show_b_screens_carry_their_own_legs(page):
     assert main_want != ret_want and whole not in (main_want, ret_want), (main_want, ret_want, whole)
     assert all(r < m < w for r, m, w in zip(ret_want, main_want, whole)), (ret_want, main_want, whole)
     for title, want in (('SR - MAIN - Power - Front View', main_want), ('SR - Return - Power - Front View', ret_want)):
-        fed = _kv_values(_render(pg, SHOW, title), 'Fed by')
-        assert len(fed) == 1 and fed[0].startswith('SR · 400 A 208 V 3φ · this screen on its legs X'), (title, fed)
-        assert _legs_of(fed[0], FED_BY_LEGS) == want, (title, fed, want)
+        fed = _kv_values(_render(pg, SHOW, title), 'Distro')
+        assert len(fed) == 1 and fed[0].startswith('SR · 400 A · 120/208V 3φ · X'), (title, fed)
+        assert 'legs' not in fed[0] and 'screen' not in fed[0], (title, fed)
+        assert _legs_of(fed[0], DISTRO_LEGS) == want, (title, fed, want)
     hw = _kv_values(_render(pg, SHOW, 'Distros - SR, SL'), 'Load')      # SR's block first (names: SR, SL)
     assert len(hw) == 2 and _legs_of(hw[0], SERVICE_LEGS) == whole == _rounded(legs['all']), (hw, whole)
     assert ids['errors'] == []
@@ -3253,7 +3382,7 @@ NINE_BY_FIVE_JS = """async () => {
     proj.name = 'Nine by Five';
     await j('PUT', '/api/project', proj);
     await j('POST', '/api/layer/add', {name: 'D - OffSL IMAG', columns: 9, rows: 5, cabinet_width: 216, cabinet_height: 216,
-               powerVoltage: 208, powerAmperage: 20, panelWatts: 800,
+               powerVoltage: 208, powerAmperage: 25, panelWatts: 800,
                powerFlowPattern: 'tl-v', powerOrganized: true, flowPattern: 'tl-h',
                processorType: 'novastar-armor'});
     let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9'});
@@ -3337,7 +3466,7 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     # the bands and the rows say what the wall is
     texts = tabloid['texts']
     bands = _bands(texts)
-    assert bands == ["SR1 · Multi 208 · 125' · 6 circuits", "SR2 · Multi 208 · 100' · 3 circuits"], bands
+    assert bands == ["SR1 · Multi 208 TRUE1 breakout · 125' · 6 circuits", "SR2 · Multi 208 TRUE1 breakout · 100' · 3 circuits"], bands
     assert len([t for t in texts if re.fullmatch(r'SR[12]-\d', t)]) == 9
     # the record: the tables' text at base x s, the rulers and brackets at
     # their own sizes, the title block at its own
@@ -3415,7 +3544,7 @@ ORDER_SEED_JS = """async () => {
     let x = 0;
     for (const name of ['B - X', 'A - Y', 'C - Z']) {
         await j('POST', '/api/layer/add', {name, columns: 4, rows: 3, cabinet_width: 200, cabinet_height: 200,
-                   powerVoltage: 208, powerAmperage: 10, panelWatts: 200,
+                   powerVoltage: 208, powerAmperage: 12.5, panelWatts: 200,
                    powerFlowPattern: 'tl-h', powerOrganized: true, flowPattern: 'tl-h',
                    processorType: 'novastar-armor', offset_x: x});
         x += 900;
@@ -3527,8 +3656,8 @@ def test_the_screens_run_in_the_order_the_project_keeps(page):
     k = ov.index('CONTENTS')
     listed = [(ov[k + 3 + 2 * n], ov[k + 4 + 2 * n]) for n in range(len(beached['titles']))]
     assert listed == [tuple(t) for t in beached['titles']], listed
-    assert listed[1:5] == [('2.1', 'C - Z · POWER · FRONT VIEW'), ('2.2', 'C - Z · POWER WIRING'),
-                           ('2.3', 'C - Z · DATA · FRONT VIEW'), ('2.4', 'C - Z · DATA WIRING')], listed
+    assert listed[1:5] == [('2.1', 'C - Z · POWER · FRONT VIEW'), ('2.2', 'C - Z · POWER WIRING · FRONT VIEW'),
+                           ('2.3', 'C - Z · DATA · FRONT VIEW'), ('2.4', 'C - Z · DATA WIRING · FRONT VIEW')], listed
     # the dialog's select: one undo entry, the same POST as the other
     # fields, read back from a loaded file; a stray value reads as alpha
     out = pg.evaluate("""async () => {

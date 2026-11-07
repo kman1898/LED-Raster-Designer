@@ -241,7 +241,7 @@ def test_a_failure_is_still_logged_as_a_failure(monkeypatch):
 def test_an_osascript_cancel_reaches_the_browser_as_a_cancel(
         client, monkeypatch, route):
     """End to end from the subprocess result to the JSON the export code
-    branches on: {cancelled:true} makes it show "Export cancelled - nothing
+    branches on: {cancelled:true} makes it show "Export canceled, nothing
     was saved", {unavailable:true} makes it download to Downloads instead."""
     monkeypatch.setattr(rd.platform, 'system', lambda: 'Darwin')
     monkeypatch.setattr(rd.subprocess, 'run', lambda *a, **k: _finished(

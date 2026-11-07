@@ -226,7 +226,7 @@ def page(e2e_server, pw_browser):
     pytest.importorskip('playwright.sync_api', reason='playwright not installed')
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)
@@ -424,7 +424,10 @@ def test_y_derate_arithmetic_is_one_minus_y_over_h(page):
 
 # ── half tiles ───────────────────────────────────────────────────────────
 
-def test_half_tile_load_factor_is_0_65_and_a_quarter_would_be_0_325(page):
+def test_half_tile_load_factor_is_0_5_and_a_quarter_would_be_0_25(page):
+    """A half tile draws half its cabinet's watts (owner, 2026-10-21: "we
+    can change it to 50% unless stated otherwise by the panel type in panel
+    library"); any other part cabinet by its area. It was area x 1.3."""
     got = _js(page, """
         const l = A.screen({ cabinet_width: 128, cabinet_height: 128 });
         const full = { width: 128, height: 128 };
@@ -436,15 +439,15 @@ def test_half_tile_load_factor_is_0_65_and_a_quarter_would_be_0_325(page):
         };
     """)
     assert got['full'] == 1
-    assert abs(got['halfW'] - 0.65) < 1e-9
-    assert abs(got['halfH'] - 0.65) < 1e-9
-    assert abs(got['quarter'] - 0.325) < 1e-9
+    assert abs(got['halfW'] - 0.5) < 1e-9
+    assert abs(got['halfH'] - 0.5) < 1e-9
+    assert abs(got['quarter'] - 0.25) < 1e-9
 
 
-def test_half_tiles_carry_raw_pixel_area_into_data_capacity_not_the_1_3_factor(page):
-    """Documenting, not asserting a bug: weight/watts use area x 1.3, data
-    capacity uses raw area. A half tile is 0.65 cabinets of load but 0.5
-    cabinets of bandwidth."""
+def test_half_tiles_carry_raw_pixel_area_into_data_capacity(page):
+    """Data capacity uses raw area, and since 2026-10-21 so do watts: a
+    half tile is 0.5 cabinets of load and 0.5 cabinets of bandwidth.
+    (Weight keeps area x 1.3 where the library names no half.)"""
     got = _js(page, """
         const l = A.screen({ cabinet_width: 128, cabinet_height: 128 });
         const half = { width: 64, height: 128 };
@@ -455,7 +458,7 @@ def test_half_tiles_carry_raw_pixel_area_into_data_capacity_not_the_1_3_factor(p
         };
     """)
     assert got['pixels'] / got['fullPixels'] == 0.5
-    assert abs(got['factor'] - 0.65) < 1e-9
+    assert abs(got['factor'] - 0.5) < 1e-9
 
 
 # ── frame rate / bit depth outside a processor's table ───────────────────
@@ -826,8 +829,9 @@ def test_per_cabinet_weight_and_watts_never_cross_between_members(page):
 
 
 def test_group_totals_derate_half_tiles_in_weight_and_watts(page):
-    """4 cabinets, two of them half-width. Equivalent cabinets = 2 x 1 +
-    2 x 0.65 = 3.3. Weight = 3.3 x 20 = 66 kg. Watts = 3.3 x 200 = 660 W.
+    """4 cabinets, two of them half-width. Equivalent cabinets (watts) =
+    2 x 1 + 2 x 0.5 = 3; Watts = 3 x 200 = 600 W. Weight keeps a half at
+    0.65 where the library names none: (2 + 2 x 0.65) x 20 = 66 kg.
     Cabinet COUNT is still 4 - a half cabinet is a cabinet on the truck."""
     got = _js(page, """
         const s = A.screen({ id: 1, columns: 2, rows: 2 });
@@ -836,9 +840,9 @@ def test_group_totals_derate_half_tiles_in_weight_and_watts(page):
         const g = A.group([s]);
         return A.withProject([s], [g], () => window.app.getGroupTotals('g1'));
     """)
-    assert abs(got['equivalentPanels'] - 3.3) < 1e-9
+    assert abs(got['equivalentPanels'] - 3) < 1e-9
     assert abs(got['weightKg'] - 66) < 1e-9
-    assert abs(got['watts'] - 660) < 1e-9
+    assert abs(got['watts'] - 600) < 1e-9
     assert got['cabinets'] == 4
     # pixels are raw area: 2 x 16384 + 2 x 8192 = 49,152
     assert got['pixels'] == 2 * 128 * 128 + 2 * 64 * 128

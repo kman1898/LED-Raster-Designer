@@ -46,7 +46,7 @@ def page(server, pw_browser):
     # Keep the first-run Quick Start tour from auto-showing; its click-catch
     # overlay would otherwise intercept pointer events during the tests.
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(server, wait_until='domcontentloaded')
@@ -184,11 +184,11 @@ def test_canvas_has_content(page):
 
 
 def test_view_tabs_exist(page):
-    """All view tabs (Pixel Map, Cabinet ID, Show Look, Data, Power, 3D, IDM Locator) exist."""
-    # [data-mode] keeps this to the seven view tabs: the Preferences dialog
+    """All view tabs (Pixel, Cabinet, Show Look, Data, Power, Header/Footer, 3D, IDM Locator) exist."""
+    # [data-mode] keeps this to the eight view tabs: the Preferences dialog
     # reuses the .view-tab class for its own tabs.
     tabs = page.locator('.view-tab[data-mode]')
-    assert tabs.count() == 7, f"Expected the seven view tabs, found {tabs.count()}"
+    assert tabs.count() == 8, f"Expected the eight view tabs, found {tabs.count()}"
 
 
 def test_switching_views_doesnt_crash(page):
@@ -196,11 +196,11 @@ def test_switching_views_doesnt_crash(page):
     errors = []
     page.on('pageerror', lambda err: errors.append(str(err)))
 
-    # Only the seven view tabs: the Preferences dialog reuses the .view-tab
+    # Only the eight view tabs: the Preferences dialog reuses the .view-tab
     # class for its own (hidden) tabs, and a hidden button cannot be clicked.
     tabs = page.locator('.view-tab[data-mode]')
     count = tabs.count()
-    assert count == 7, f'expected the seven view tabs, found {count}'
+    assert count == 8, f'expected the eight view tabs, found {count}'
     for i in range(count):
         tabs.nth(i).click()
         page.wait_for_timeout(200)

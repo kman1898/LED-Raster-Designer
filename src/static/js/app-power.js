@@ -1,6 +1,16 @@
 // app-power: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLog, isVerticalFlowPattern } from './helpers.js';
+
+// The first build whose US circuits packed to 80% of the breaker: a show
+// saved before it keeps its automatic 2fers and 3fers as they were
+// (keepOlderShowShares). 1.5.4 only ever shipped as betas (1.5.4-beta.N)
+// on the way to 1.6.0, which packs the same way; it stays the bar so a
+// show those betas saved reads as a new one, while a 1.5.3 or older show
+// (or an unstamped one) is old. projectPredatesVersion compares
+// MAJOR.MINOR.PATCH only, so "1.5.4-beta.3" reads as 1.5.4: not before it.
+const KEPT_SHARES_BEFORE = '1.5.4';
 
 class _Power {
 
@@ -12,6 +22,34 @@ class _Power {
         const current = kind === 'power'
             ? (layer.powerCustomIndex || 1) : (layer.customPortIndex || 1);
         if (!this._isOverrideEditing(layer, kind)) {
+            // A custom wall steps circuit by circuit, never leg by leg
+            // (customCircuitRun below).
+            if (kind === 'power' && this.isCustomPower(layer)) {
+                if (!this.usesCustomCircuits(layer)) {
+                    return this.customCircuitRun(layer, Math.max(1, current + delta));
+                }
+                // Circuit to circuit, never onto a cleared gap (the
+                // owner's ruling, 2026-10-22) - a gap the field counts
+                // (_customPlaceRuns) included. Next from a gap lands on
+                // the circuit after it, Prev on the one before it; a gap
+                // with no circuit before it (circuit 1 cleared) stays put,
+                // since stepping back must never move forward. Past the
+                // last circuit is the next free number.
+                const heads = this.screenCircuits(layer).map(c => Number(c.num));
+                let at = parseInt(this._customCircuitHead(layer, current), 10);
+                for (let i = 0; i < Math.abs(delta); i++) {
+                    if (delta > 0) {
+                        const next = heads.find(h => h > at);
+                        at = next != null ? next
+                            : this.customCircuitRun(layer, Number.MAX_SAFE_INTEGER);
+                    } else {
+                        const before = heads.filter(h => h < at);
+                        if (before.length) at = before[before.length - 1];
+                        else if (heads.includes(at)) at = heads[0];
+                    }
+                }
+                return at;
+            }
             return Math.max(1, current + delta);
         }
         const nums = this.getOverrideNums(layer, kind);
@@ -19,6 +57,123 @@ class _Power {
         const next = at === -1 ? 0
             : Math.max(0, Math.min(nums.length - 1, at + delta));
         return nums[next];
+    }
+
+    // ---- a custom circuit is read by circuit, not by drawn run ----------
+    //
+    // A custom 2fer or 3fer is ONE circuit whose legs each hold a drawn
+    // number: a sharing fill over ten columns at 3fer draws runs 1-10 and
+    // merges 1-3, 4-6 and 7-9, four circuits that print S1-1 to S1-4. The
+    // owner's ruling, 2026-10-21: what you read and step is the circuit.
+    // The active-circuit field shows the circuit's place on the wall (4,
+    // not 10), Next / Prev / Tab step circuit by circuit, a typed number
+    // is that circuit (5 is the next free one, not the middle leg of
+    // S1-2), and a refusal names labels. The drawn numbers stay the
+    // store's keys. With no share and no cleared gap every one of these is
+    // the identity. A gap a Clear Circuit left is not a circuit, so the
+    // field counts past it the way the labels do (2026-10-22).
+
+    // The share groups of a custom screen's drawn runs, as the wall reads
+    // them (appliedSplitterGroups): [[first, ...legs], ...].
+    _customMergeGroups(owner) {
+        if (!owner || !this.usesCustomCircuits(owner)) return [];
+        const paths = owner.powerCustomPaths || {};
+        const drawn = Object.keys(paths).map(n => parseInt(n, 10))
+            .filter(n => Number.isFinite(n) && (paths[n] || []).length > 0);
+        return this.appliedSplitterGroups(owner, drawn).merge;
+    }
+
+    // The circuit drawn run `num` is a leg of: its share's first run (the
+    // number the circuit is labelled by), or the run itself.
+    _customCircuitHead(owner, num) {
+        const n = parseInt(num, 10);
+        if (!owner || !Number.isFinite(n) || !this.isCustomPower(owner)) return num;
+        const g = this._customMergeGroups(owner).find(ids => ids.includes(n));
+        return g ? g[0] : num;
+    }
+
+    // The circuit number run `num` reads as: the circuit's place among the
+    // wall's circuits (screenCircuits, a share counted once), the place its
+    // label is named by. A number no circuit holds - past the last one, or
+    // a gap a Clear Circuit left - reads as the place a circuit drawn there
+    // would take, so the field and the label agree after a clear (the
+    // owner's ruling, 2026-10-22: the drawn number counted the gap, and
+    // the field read 4 over S1-3). With nothing drawn it is the number.
+    //
+    // A gap whose tail its multi still holds free on a distro (sticky
+    // multi numbers: the circuits after it keep their tails, 1, 3, 4 read
+    // S1-1, S1-3, S1-4) is counted, so the field reads 2 on it and 3 over
+    // S1-3 - it read 2 over S1-3 and the clicks went to circuit 3 (QA
+    // 1.6.0-beta.4, round 3) - and a typed 2 is that gap, to draw it
+    // again. Next / Prev still step over it. A gap on a multi that
+    // re-packs (no distro) is not counted: the labels close up over it.
+    customCircuitShown(owner, num) {
+        const n = parseInt(num, 10) || 1;
+        if (!owner || !this.usesCustomCircuits(owner)) return n;
+        const head = parseInt(this._customCircuitHead(owner, n), 10) || n;
+        const places = this._customPlaceRuns(owner);
+        const at = places.indexOf(head);
+        return at >= 0 ? at + 1 : places.filter(r => r < head).length + 1;
+    }
+
+    // The drawn numbers that are places on a custom wall, in wall order:
+    // every circuit's first run, and every cleared gap whose tail stays
+    // held - the next circuit after it sits on a distro, which keeps its
+    // tails where a clear left them (_removeCircuitsKeepFeeds). A share's
+    // later legs are no place.
+    _customPlaceRuns(owner) {
+        const circuits = this.screenCircuits(owner);
+        if (!circuits.length) return [];
+        const heads = circuits.map(c => Number(c.num));
+        const runs = new Set(circuits.flatMap(c => (c.runIds || [c.num]).map(Number)));
+        const max = Math.max(...runs);
+        const nm = this._powerNaming(owner);
+        const out = [];
+        let next = 0;
+        for (let n = 1; n <= max; n++) {
+            if (runs.has(n)) {
+                if (heads.includes(n)) out.push(n);
+                continue;
+            }
+            while (next < heads.length && heads[next] < n) next += 1;
+            const slot = next < heads.length ? nm.slots.get(heads[next]) : null;
+            const rec = slot ? nm.socas.get(slot.multi) : null;
+            if (rec && rec.distroId) out.push(n);
+        }
+        return out;
+    }
+
+    // Is drawn number `num` a gap the circuits after it close up over? A
+    // custom screen's number with nothing drawn on it, below its highest
+    // drawn run, whose tail no multi on a distro holds (_customPlaceRuns).
+    // It names no place of its own (_predictedCircuitSlot).
+    _customGapIsNoPlace(owner, num) {
+        const n = parseInt(num, 10);
+        if (!owner || !Number.isFinite(n) || !this.isCustomPower(owner) || !this.usesCustomCircuits(owner)) {
+            return false;
+        }
+        const paths = owner.powerCustomPaths || {};
+        if ((paths[n] || []).length > 0) return false;
+        const drawn = Object.keys(paths).map(k => parseInt(k, 10))
+            .filter(k => Number.isFinite(k) && (paths[k] || []).length > 0);
+        if (!drawn.length || n > Math.max(...drawn)) return false;
+        return !this._customPlaceRuns(owner).includes(n);
+    }
+
+    // The drawn number circuit `shown` is written under: the first run of
+    // the circuit in that place (a held gap is a place, _customPlaceRuns),
+    // or past the last circuit the next free number, one after the
+    // highest drawn. The inverse of customCircuitShown, so stepping and
+    // typing land on circuits, held gaps and the next free one.
+    customCircuitRun(owner, shown) {
+        const want = Math.max(1, parseInt(shown, 10) || 1);
+        if (!owner || !this.isCustomPower(owner) || !this.usesCustomCircuits(owner)) return want;
+        const places = this._customPlaceRuns(owner);
+        if (want <= places.length) return places[want - 1];
+        const paths = owner.powerCustomPaths || {};
+        const drawn = Object.keys(paths).map(k => parseInt(k, 10))
+            .filter(k => Number.isFinite(k) && (paths[k] || []).length > 0);
+        return Math.max(0, ...drawn) + 1;
     }
 
     // A step button (Next / Prev, data and power) is a MOUSE control. A
@@ -55,7 +210,7 @@ class _Power {
             return this._steppedCustomIndex(layer, kind, delta) !== current;
         };
         if (view === 'data-flow' && this.isCustomFlowEditing(this.currentLayer)) {
-            if (layer.locked && !moves('data')) return;
+            if (this._layerLocked(layer) && !moves('data')) return;
             if (this._lockedStepRefused(this.currentLayer)) return;
             this.ensureCustomFlowState(this.currentLayer);
             this.currentLayer.customPortIndex =
@@ -73,18 +228,22 @@ class _Power {
             this.updatePortLabelEditor();
             window.canvasRenderer.render();
         } else if (view === 'power' && this.isCustomPowerEditing(this.currentLayer)) {
-            if (layer.locked && !moves('power')) return;
-            if (this._lockedStepRefused(this.currentLayer)) return;
-            this.ensureCustomPowerState(this.currentLayer);
-            this.currentLayer.powerCustomIndex =
-                this._steppedCustomIndex(this.currentLayer, 'power', delta);
+            // The active circuit of a custom group is the wall owner's
+            // (powerPathOwner).
+            const owner = this.powerPathOwner(layer);
+            const ownerMoves = this._steppedCustomIndex(owner, 'power', delta)
+                !== (owner.powerCustomIndex || 1);
+            if (this._layerLocked(owner) && !ownerMoves) return;
+            if (this._lockedStepRefused(owner)) return;
+            this.ensureCustomPowerState(owner);
+            owner.powerCustomIndex = this._steppedCustomIndex(owner, 'power', delta);
             if (this._overrideEditing && this._overrideEditing.kind === 'power'
-                    && this._overrideEditing.layerId === this.currentLayer.id) {
-                this._overrideEditing.num = this.currentLayer.powerCustomIndex;
+                    && this._overrideEditing.layerId === owner.id) {
+                this._overrideEditing.num = owner.powerCustomIndex;
             }
             this.saveState('Power Custom Circuit Change');
             this.saveClientSideProperties();
-            this.updateLayers(this.getSelectedLayers());
+            this.updateLayers(this._pathPersistLayers(owner));
             this.updateCustomPowerUI();
             window.canvasRenderer.render();
         }
@@ -112,8 +271,8 @@ class _Power {
         const rectNote = usesRectangle
             ? ' NovaStar Armor reserves a pixel rectangle enclosing every cabinet in the port, so a port holds fewer pixels than the raw limit.'
             : '';
-        mappingOrgBtn.title = 'Ports fill complete rows or columns only.' + rectNote;
-        mappingMaxBtn.title = 'Ports fill to max pixel capacity - may split mid-row/column.' + rectNote;
+        mappingOrgBtn.title = 'Ports fill complete rows or columns. A row or column too long for one port is cut into ports of whole cabinets.' + rectNote;
+        mappingMaxBtn.title = 'Ports fill to max pixel capacity, and may split mid-row/column.' + rectNote;
 
         // v0.11.0: the theme styles .mapping-mode-btn / .mapping-mode-btn.active
         // with !important, so the .active class is the ONLY thing that can move
@@ -128,6 +287,10 @@ class _Power {
         // function, behind the early returns below (no current layer / image
         // layer), so the buttons could latch into a stale state.
         this.updatePortMappingButtons();
+        // The Port numbers row beside it (app-screen-info.js), same reason.
+        if (typeof this.updatePortNumberOrderControl === 'function') {
+            this.updatePortNumberOrderControl();
+        }
         // v0.11.0: same reasoning - the Low Latency control and its note must
         // not latch on a stale processor when the early returns below fire.
         this.updateLowLatencyUI();
@@ -136,6 +299,17 @@ class _Power {
         // layer or nothing at all, so it runs ahead of the early returns too.
         if (typeof this.updateGroupRouteControl === 'function') {
             this.updateGroupRouteControl();
+        }
+        // The Names switch acts on the selected group(s), so it follows the
+        // selection the same way: hidden with no group selected, lit on the
+        // selected group's own value (app-core.js refreshNameDisplayButtons).
+        if (typeof this.refreshNameDisplayButtons === 'function') {
+            this.refreshNameDisplayButtons();
+        }
+        // ...and the mirror's read-only data map (app-mirror-screens.js):
+        // the map controls dim while the shown screen is a mirror.
+        if (typeof this.updateMirrorDataLock === 'function') {
+            this.updateMirrorDataLock();
         }
 
         if (!this.currentLayer) {
@@ -220,6 +394,14 @@ class _Power {
         // derate note, and re-walking it would be pure waste.
         const portsRequired = this.getLayerPortsRequired(this.currentLayer, assignments);
         this.currentLayer._portsRequired = portsRequired;
+        // v1.6.0: the READOUT is the fewest ports the screen needs in its
+        // Organized / Max Capacity setting (the owner's ruling, 2026-11-01),
+        // which on a custom data path is not the number of ports drawn so
+        // far. _portsRequired above stays the drawn count: Apply Style and
+        // the port labels work over the ports that exist. On an automatic
+        // screen the two are the same figure and the same capacity error.
+        const minimum = this.getLayerPortsMinimumDetail(this.currentLayer, assignments);
+        const portsShown = minimum.ports;
         // debug toggle removed
         const portsRequiredEl = document.getElementById('ports-required');
         if (portsRequiredEl) {
@@ -239,8 +421,8 @@ class _Power {
             // wall beside it is correctly routed.
             const servedByPeer = typeof this.isServedByPeerRouting === 'function'
                 && this.isServedByPeerRouting(this.currentLayer, 'data');
-            if ((this.currentLayer._capacityError || noCapacity
-                    || (portsRequired === 0 && panelsPerPort > 0
+            if ((minimum.error || noCapacity
+                    || (portsShown === 0 && panelsPerPort > 0
                         && panelCountForStatus > 0 && !servedByPeer))) {
                 portsRequiredEl.textContent = 'ERROR';
                 portsRequiredEl.style.color = '#ff0000';
@@ -248,10 +430,10 @@ class _Power {
                 portsRequiredEl.textContent = '0';
                 portsRequiredEl.style.color = 'var(--ps-dim, #c0c0c0)';
             } else {
-                portsRequiredEl.textContent = portsRequired;
-                if (portsRequired <= 4) {
+                portsRequiredEl.textContent = portsShown;
+                if (portsShown <= 4) {
                     portsRequiredEl.style.color = '#00cc00';
-                } else if (portsRequired <= 8) {
+                } else if (portsShown <= 8) {
                     portsRequiredEl.style.color = '#ffcc00';
                 } else {
                     portsRequiredEl.style.color = '#ff6600';
@@ -260,6 +442,185 @@ class _Power {
         }
         // The cap under the custom controls reads the same figures.
         this._syncCustomFillReadout('data');
+    }
+
+    // ---- what one circuit carries (the owner's rulings, 2026-10-22) --------
+    //
+    // A show load is continuous, so a US circuit is packed to 80% of its
+    // breaker: a 120V / 20A circuit carries 16 A, 1,920 W. The packing % is
+    // the REGION's ("It needs to be valid for the region. US is 80"):
+    //   - a circuit on a US distro packs at 80% whatever its voltage, so a
+    //     240 V screen on a US 120/240 distro is 80% too;
+    //   - a US distro marked "100% rated breakers" packs at the breaker;
+    //   - a circuit on a UK/EU distro packs at the breaker;
+    //   - a screen on no distro decides by its voltage: 208 V or under (110,
+    //     120, 208) is US at 80%, 220/230/240 V is at the breaker.
+    // A screen on several distros packs at the lowest of them, so it fits
+    // on every one. This is the ONE figure everything that asks "does it
+    // fit on a circuit" reads: the automatic packer, the sidebar's
+    // Watts/Circuit and Panels/Circuit, the custom caps and readouts, the
+    // share and Nfer amps rule. It is the same % the distro's own breaker
+    // check holds a circuit to (distroChecks), so a fully packed circuit
+    // never trips that warning.
+    //   { voltage, breakerA, pct, amps, watts, us, rated100, byDistro }
+    // `byDistro`: a distro decided the %, not the voltage.
+    circuitCapacity(layer) {
+        const voltage = parseFloat(layer && layer.powerVoltage) || 0;
+        const breakerA = parseFloat(layer && layer.powerAmperage) || 0;
+        const rule = this._circuitPackRule(layer, voltage);
+        const pct = rule.pct;
+        const amps = breakerA * pct;
+        return { voltage, breakerA, pct, amps, watts: voltage * amps,
+                 us: rule.us, rated100: rule.us && pct >= 1, byDistro: !!rule.byDistro,
+                 onDistro: !!rule.onDistro };
+    }
+
+    // The watts one circuit of `layer` carries (circuitCapacity).
+    circuitCapacityWatts(layer) {
+        return this.circuitCapacity(layer).watts;
+    }
+
+    // How a sentence names the circuit: "a 15 A circuit held to 12 A (80%)"
+    // on a US screen, "a 16 A circuit" at the breaker.
+    circuitLimitText(layer) {
+        const cap = this.circuitCapacity(layer);
+        const breaker = +cap.breakerA.toFixed(2);
+        if (cap.pct >= 1) return `a ${breaker} A circuit`;
+        return `a ${breaker} A circuit held to ${+cap.amps.toFixed(2)} A `
+            + `(${Math.round(cap.pct * 100)}%)`;
+    }
+
+    // The sidebar's line beside the Amperage box: "20 A breaker · 16 A
+    // usable" on an 80% circuit, "20 A breaker · 20 A usable" at 100%.
+    // Empty with no breaker typed.
+    circuitUsableText(layer) {
+        const cap = this.circuitCapacity(layer);
+        if (!(cap.breakerA > 0)) return '';
+        return `${+cap.breakerA.toFixed(2)} A breaker · ${+cap.amps.toFixed(2)} A usable`;
+    }
+
+    // Why the screen's circuits pack at the % they do, in one sentence.
+    circuitPctReason(layer) {
+        const cap = this.circuitCapacity(layer);
+        if (cap.pct < 1) {
+            return 'A US circuit carries a continuous load to 80% of its breaker. '
+                + 'A US distro marked "100% rated breakers" packs to the breaker.';
+        }
+        if (cap.us) return 'Its distro has 100% rated breakers, so it packs to the breaker.';
+        if (cap.byDistro) return 'A UK/EU circuit packs to its breaker.';
+        // an old distro record with no system picked has no say, so the
+        // voltage decides (_circuitPackRule), as on no distro
+        if (cap.onDistro) {
+            return 'Its distro has no system picked, so a screen above 208 V packs to its breaker.';
+        }
+        return 'A screen on no distro above 208 V packs to its breaker.';
+    }
+
+    // The packing % one distro holds its circuits to: 80% on a US system,
+    // the breaker when it is marked "100% rated breakers" or on a UK/EU
+    // system. Null for an old record whose system is unknown: it has no
+    // say, and the screen's voltage decides (distroChecks has no breaker
+    // check for it either).
+    _distroPackPct(d) {
+        const region = d && typeof this.distroRegion === 'function' ? this.distroRegion(d) : null;
+        if (region === 'us') return d.breakers100 ? 1 : 0.8;
+        if (region === 'eu') return 1;
+        return null;
+    }
+
+    // { pct, us } for one screen's circuits (circuitCapacity). The distros
+    // its multis are on decide, every member of its group counted (a wall
+    // packs as one); a screen on none decides by voltage.
+    //
+    // A multi the screen no longer has (the wall got lighter and its last
+    // multi went) can still have an entry in powerSocaDistro: those are
+    // left out. How many multis a screen has depends on the % itself, so
+    // it is counted at a fixed % with this rule switched off for the count
+    // (_capacityProbe), never by asking getSocaPlan: at 80%, the most
+    // circuits a screen normally makes, and, only when an entry lies past
+    // that, at 100% too (a wall whose rows cannot fit at 80% makes no
+    // circuits there at all). An entry past both counts is stale whatever
+    // the %. An entry inside them holds a multi that exists at that %, so
+    // the screen packs to it and that multi is real: the answer agrees
+    // with itself.
+    _circuitPackRule(layer, voltage) {
+        const byVoltage = voltage > 0 && voltage < 208.5;
+        const fallback = { pct: byVoltage ? 0.8 : 1, us: byVoltage };
+        if (this._capacityProbe) return { pct: this._capacityProbe.pct, us: byVoltage };
+        if (!layer) return fallback;
+        if (typeof this.getDistros !== 'function') return fallback;
+        const group = (layer.group_id && typeof this.groupMembersOf === 'function')
+            ? this.groupMembersOf(layer) : [];
+        const screens = group.length ? group : [layer];
+        const distros = this.getDistros() || [];
+        // [{ screen, index, d, pct }] for every entry naming a distro that exists
+        const entries = [];
+        for (const s of screens) {
+            const map = (s && s.powerSocaDistro) || {};
+            for (const key of Object.keys(map)) {
+                const id = map[key];
+                const index = parseInt(key, 10);
+                if (!id || !Number.isFinite(index) || index < 1) continue;
+                const d = distros.find(x => x && x.id === id);
+                if (!d) continue;
+                const own = this._distroPackPct(d);
+                entries.push({ screen: s, index, d,
+                               pct: own === null ? fallback.pct : own,
+                               region: own === null ? null : this.distroRegion(d) });
+            }
+        }
+        if (!entries.length) return fallback;
+        const decide = (list) => {
+            if (!list.length) return fallback;
+            const pct = Math.min(...list.map(e => e.pct));
+            // US when any distro deciding is a US one (or, on old records,
+            // the voltage said so)
+            const us = list.some(e => e.region === 'us' || (e.region === null && byVoltage));
+            // a distro of a known system decided it; an old record whose
+            // system is unknown leaves it to the voltage (onDistro says the
+            // screen is on a distro all the same, for circuitPctReason)
+            return { pct, us, byDistro: list.some(e => e.region !== null), onDistro: true };
+        };
+        // Every entry agreeing with the voltage's %: a stale one cannot
+        // change it, so nothing needs counting (the common case).
+        if (entries.every(e => e.pct === fallback.pct)) {
+            const d = decide(entries);
+            return { pct: fallback.pct, us: d.us, byDistro: d.byDistro, onDistro: true };
+        }
+        const counts = new Map();
+        const live = entries.filter(e => {
+            if (!counts.has(e.screen)) counts.set(e.screen, this._multiCountAt(e.screen, 0.8));
+            if (e.index <= counts.get(e.screen)) return true;
+            return e.index <= this._multiCountAt(e.screen, 1);
+        });
+        return decide(live);
+    }
+
+    // How many multis `layer` has when its circuits are packed at `pct` of
+    // the breaker, for _circuitPackRule's stale-entry rule. Every screen
+    // the count packs reads `pct` (_capacityProbe). Memoized for the naming
+    // burst (_circuitTailCache), which every edit that moves circuits drops.
+    _multiCountAt(layer, pct) {
+        const cache = this._circuitTailCache;
+        if (cache && this._multiCountMemoFor !== cache) {
+            this._multiCountMemoFor = cache;
+            this._multiCountMemo = new Map();
+        }
+        const memo = cache ? this._multiCountMemo : null;
+        const key = `${pct}`;
+        const seen = memo ? memo.get(layer) : null;
+        if (seen && key in seen) return seen[key];
+        const outer = this._capacityProbe;
+        this._capacityProbe = { pct };
+        let n = 0;
+        try {
+            const circuits = this.screenCircuits(layer) || [];
+            n = circuits.length ? this.socaCountFor(layer, circuits.length) : 0;
+        } finally {
+            this._capacityProbe = outer;
+        }
+        if (memo) memo.set(layer, Object.assign(seen || {}, { [key]: n }));
+        return n;
     }
 
     updatePowerCapacityDisplay() {
@@ -275,13 +636,17 @@ class _Power {
             if (circuitsEl) circuitsEl.textContent = '-';
             if (amps1El) amps1El.textContent = '-';
             if (amps3El) amps3El.textContent = '-';
+            const usableEl = document.getElementById('power-amperage-usable');
+            if (usableEl) { usableEl.textContent = ''; usableEl.title = ''; }
             return;
         }
         const layer = this.currentLayer;
         const voltage = parseFloat(layer.powerVoltage) || 0;
         const amperage = parseFloat(layer.powerAmperage) || 0;
         const panelWatts = parseFloat(layer.panelWatts) || 0;
-        const wattsPerCircuit = voltage * amperage;
+        // 80% of the breaker on a US screen (circuitCapacity).
+        const capacity = this.circuitCapacity(layer);
+        const wattsPerCircuit = capacity.watts;
         const panelsPerCircuit = panelWatts > 0 ? Math.floor(wattsPerCircuit / panelWatts) : 0;
         // v0.11.0 audit fix: `!p.blank` as well as `!p.hidden`. This filter used
         // to drop hidden cabinets only, so a 2 x 2 screen with one cabinet
@@ -308,8 +673,47 @@ class _Power {
         const amps1El = document.getElementById('power-total-amps-1ph');
         const amps3El = document.getElementById('power-total-amps-3ph');
 
-        if (wattsEl) wattsEl.textContent = wattsPerCircuit > 0 ? wattsPerCircuit.toLocaleString('en-US') : '0';
-        if (panelsEl) panelsEl.textContent = panelsPerCircuit > 0 ? panelsPerCircuit.toLocaleString('en-US') : '0';
+        // The Amperage box is the BREAKER SIZE (the owner's rulings,
+        // 2026-10-22: it keeps its Amperage label); the usable amps show beside it, so a 16 typed on a
+        // US screen reads "16 A breaker · 12.8 A usable" and a double
+        // derating is there to see.
+        const usableEl = document.getElementById('power-amperage-usable');
+        const usableText = this.circuitUsableText(layer);
+        if (usableEl) {
+            usableEl.textContent = usableText;
+            usableEl.title = usableText ? this.circuitPctReason(layer) : '';
+        }
+        if (wattsEl) {
+            wattsEl.textContent = wattsPerCircuit > 0 ? wattsPerCircuit.toLocaleString('en-US') : '0';
+            wattsEl.title = wattsPerCircuit > 0
+                ? `What one circuit carries: ${voltage} V × ${+capacity.amps.toFixed(2)} A usable `
+                    + `(${Math.round(capacity.pct * 100)}% of the ${amperage} A breaker). `
+                    + this.circuitPctReason(layer)
+                : '';
+        }
+        if (panelsEl) {
+            panelsEl.textContent = panelsPerCircuit > 0 ? panelsPerCircuit.toLocaleString('en-US') : '0';
+            panelsEl.title = wattsPerCircuit > 0 && panelWatts > 0
+                ? `How many ${panelWatts} W panels fit on one circuit: its `
+                    + `${+capacity.amps.toFixed(2)} A usable of the ${amperage} A breaker, `
+                    + `${wattsPerCircuit.toLocaleString('en-US')} W.`
+                : '';
+        }
+        // Screens selected together on different voltages, breakers or
+        // panel watts have no one circuit to describe: the per-circuit
+        // figures read "-", as their boxes do (loadLayerToInputs), rather
+        // than the current screen's as if they were everyone's.
+        const picked = (typeof this.getSelectedLayers === 'function'
+            ? this.getSelectedLayers() : [])
+            .filter(l => l && (l.type || 'screen') === 'screen');
+        const differ = (key, dflt) => picked.length > 1 && picked.some(l =>
+            String(l[key] ?? dflt) !== String(picked[0][key] ?? dflt));
+        if (differ('powerVoltage', 110) || differ('powerAmperage', 15)
+                || differ('panelWatts', 200)) {
+            if (usableEl) { usableEl.textContent = ''; usableEl.title = ''; }
+            if (wattsEl) { wattsEl.textContent = '-'; wattsEl.title = ''; }
+            if (panelsEl) { panelsEl.textContent = '-'; panelsEl.title = ''; }
+        }
         const powerAssignments = this.calculatePowerAssignments(layer);
         // count via the shared authority so a custom-routed screen reports the
         // circuits actually drawn, not what auto routing would have produced
@@ -323,24 +727,36 @@ class _Power {
         // circuit with its neighbour's number.
         layer._powerCircuitNumKeys = powerAssignments.nums || null;
 
-        if (circuitsEl) circuitsEl.textContent = circuitsRequired > 0 ? circuitsRequired.toLocaleString('en-US') : '0';
         layer._powerCircuitsRequired = circuitsRequired;
-        // The screen that carries a wall's circuits reads the WALL's load
-        // beside the wall's circuit count - the figure its circuits draw,
-        // every member's panels counted once (getCarriedPowerLoad) - the
-        // way its canvas label already does. A screen that routes alone
-        // reads its own panels, exactly as before; the cached
-        // _powerTotalAmps1/3 stay this screen's own either way.
-        const carried = circuitsRequired > 0 ? this.getCarriedPowerLoad(layer) : null;
-        const wall = carried && carried.peers.length ? carried : null;
-        const shownAmps1 = wall ? wall.amps1 : totalAmps1;
-        const shownAmps3 = wall ? wall.amps3 : totalAmps3;
-        const wallTitle = wall
-            ? `The wall's load on these circuits: ${[layer, ...wall.peers].map(l => l.name).join(' + ')}` : '';
-        if (amps1El) { amps1El.textContent = shownAmps1 ? shownAmps1.toFixed(2) + ' A' : '0'; amps1El.title = wallTitle; }
-        if (amps3El) { amps3El.textContent = shownAmps3 ? shownAmps3.toFixed(2) + ' A' : '0'; amps3El.title = wallTitle; }
+        // The circuit count and the load beside it are the WALL's wherever
+        // the screen's circuits are (_powerReadoutFor): a group member
+        // whose cabinets ride a peer's circuits read 0 and its own amps
+        // while the member carrying them read the wall's (QA 1.6.0-beta.4).
+        // The cached _powerTotalAmps1/3 stay this screen's own either way.
+        const shown = this._powerReadoutFor(layer, circuitsRequired, totalAmps1, totalAmps3);
+        // Screens selected together that read different figures have no
+        // one count or load to show: "-", as the per-circuit boxes above.
+        const others = picked.length > 1 && picked.includes(layer)
+            ? picked.filter(l => l !== layer) : [];
+        const mixed = others.length > 0 && others.some(l => {
+            const r = this._powerReadoutFor(l);
+            return r.circuits !== shown.circuits
+                || Math.abs(r.amps1 - shown.amps1) > 0.005
+                || Math.abs(r.amps3 - shown.amps3) > 0.005;
+        });
+        if (circuitsEl) {
+            circuitsEl.textContent = mixed ? '-'
+                : (shown.circuits > 0 ? shown.circuits.toLocaleString('en-US') : '0');
+        }
+        const wallTitle = mixed ? '' : shown.title;
+        const amps = (v) => (mixed ? '-' : (v ? v.toFixed(2) + ' A' : '0'));
+        if (amps1El) { amps1El.textContent = amps(shown.amps1); amps1El.title = wallTitle; }
+        if (amps3El) { amps3El.textContent = amps(shown.amps3); amps3El.title = wallTitle; }
         // The cap under the custom controls reads the same figures.
         this._syncCustomFillReadout('power');
+        // A change that cuts a row, or stops cutting one, shows or hides
+        // the Circuit numbers switch.
+        this.syncPowerNumberOrder(layer);
         // Deferred, not called inline: this runs synchronously inside the
         // change handlers of the static Power fields (panel watts, voltage,
         // amperage). The knob syncs are cheap, but refreshDistroPanel is a
@@ -353,6 +769,54 @@ class _Power {
             this.refreshSplitterPanel();
             this.refreshDistroPanel();
         });
+    }
+
+    // What the Power settings box reads for `layer`: { circuits, amps1,
+    // amps3, title }. The screen that carries a wall's circuits reads the
+    // WALL's load beside the wall's circuit count - the figure its
+    // circuits draw, every member's panels counted once
+    // (getCarriedPowerLoad) - the way its canvas label already does. A
+    // group member with no circuits of its own whose cabinets ride its
+    // peers' circuits reads those carriers' count and load, so a group
+    // reads the same whichever member is current. A screen that routes
+    // alone reads its own panels. `circuits`, `amps1` and `amps3` may be
+    // passed when the caller already has them.
+    _powerReadoutFor(layer, circuits = null, amps1 = null, amps3 = null) {
+        const own = circuits == null ? this.screenCircuitCount(layer) : circuits;
+        if (amps1 == null || amps3 == null) {
+            const v = parseFloat(layer.powerVoltage) || 0;
+            const panels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
+            const watts = (parseFloat(layer.panelWatts) || 0)
+                * panels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
+            const lineV = this.threePhaseLineVoltage(layer);
+            amps1 = v > 0 ? watts / v : 0;
+            amps3 = lineV > 0 ? watts / (lineV * 1.73) : 0;
+        }
+        const wallOf = (carriers) => {
+            const loads = carriers.map(c => ({ c, load: this.getCarriedPowerLoad(c) }));
+            const names = new Map();
+            loads.forEach(({ c, load }) => {
+                names.set(String(c.id), c.name);
+                load.peers.forEach(p => names.set(String(p.id), p.name));
+            });
+            return {
+                circuits: loads.reduce((n, x) => n + x.load.circuits, 0),
+                amps1: loads.reduce((n, x) => n + x.load.amps1, 0),
+                amps3: loads.reduce((n, x) => n + x.load.amps3, 0),
+                title: `The wall's load on these circuits: ${[...names.values()].join(' + ')}`,
+            };
+        };
+        if (own > 0) {
+            const carried = this.getCarriedPowerLoad(layer);
+            if (carried.peers.length) return Object.assign(wallOf([layer]), { circuits: own });
+            return { circuits: own, amps1, amps3, title: '' };
+        }
+        const carriers = (typeof this.getPathScopeLayers === 'function'
+            ? this.getPathScopeLayers(layer) : [layer])
+            .filter(m => m !== layer && m.id !== layer.id
+                && this.getCarriedPowerLoad(m).peerIds.some(id => String(id) === String(layer.id)));
+        if (carriers.length) return wallOf(carriers);
+        return { circuits: own, amps1, amps3, title: '' };
     }
 
     // ---- Soca plan (Phase B) -------------------------------------------------
@@ -558,6 +1022,30 @@ class _Power {
         return this._socaSegments(layer, count).length;
     }
 
+    // The multis the circuit info line counts for `layers` (a screen, or
+    // a group's members): one per BOX their circuits are plugged into,
+    // and one per part not plugged in yet. An Unplug circuit leaves a
+    // multi in parts on ONE box (1-2 and 4-5 on DISTRO 1-1), and a circuit
+    // on a direct output is on no multi at all; counting segments read
+    // both as multis (QA 1.6.0-beta.4). A box two members share is one
+    // multi. With nothing plugged in it is socaCountFor's figure.
+    infoMultiCount(layers) {
+        const keys = new Set();
+        (Array.isArray(layers) ? layers : [layers]).forEach(layer => {
+            if (!layer || (layer.type || 'screen') !== 'screen') return;
+            for (const rec of this._powerNaming(layer).socas.values()) {
+                if (!rec || !rec.circuits || !rec.circuits.length) continue;
+                if (!rec.distroId) {
+                    keys.add(`${layer.id}#${rec.index}`);
+                } else if (!(typeof this._isDirectBox === 'function'
+                        && this._isDirectBox(rec.distroId, rec.number))) {
+                    keys.add(`${rec.distroId}|${rec.number}`);
+                }
+            }
+        });
+        return keys.size;
+    }
+
     // Insert (delta +1) or remove (delta -1) one multi's slot at `at` in
     // every per-multi store, the way an array splice would: a split gives
     // the new second part a clean slate and every later multi keeps its
@@ -696,8 +1184,15 @@ class _Power {
     // dropped because the arrangement covered circuits the part no longer
     // has. Contiguous only: a boundary, never a reshuffle.
     splitSocaAfter(layer, socaIndex, afterLeg) {
+        // A locked screen stays unchanged (owner, 2026-10-16), and so does
+        // a locked screen sharing the box: a split that would deal its
+        // tails again is put back whole, the screen named
+        // (_lockedPowerTrial).
+        if (this._lockedRefused(layer)) return false;
+        const shared = this._lockedPowerTrial();
         const stamped = this._splitSocaApply(layer, socaIndex, afterLeg);
         if (!stamped) return false;
+        if (shared()) return false;
         this.updateLayers([...new Set([layer, ...stamped])], true,
                           'Split Multi');
         return true;
@@ -872,6 +1367,38 @@ class _Power {
         const plan = this._socaTakePlan(layer, ordinal, distroId, number);
         if (!plan.ok) return { ok: false, why: plan.why, free: plan.free,
                                tailLen: plan.remaining };
+        // A locked screen the take would REPACK - one grouped with this
+        // screen, whose packing % the group shares - keeps it unchanged
+        // (owner, 2026-10-22): the take is tried and put back, and when it
+        // moves a locked screen's % it is refused whole, the screen named.
+        if (this._takeRepacksLocked(layer, plan, distroId)) {
+            return { ok: false, why: 'locked', free: 0, tailLen: 0, locked: true };
+        }
+        // Nor one sharing the box the take joins or the multi leaves: a take
+        // that would deal its tails again is put back whole, the screen
+        // named (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
+        const touched = this._takeSocaApply(layer, plan, distroId);
+        if (shared()) return { ok: false, why: 'locked', free: 0, tailLen: 0, locked: true };
+        this.updateLayers([...touched], true, action || 'Assign Multi Distro');
+        return { ok: true, took: plan.take, tailLen: plan.remaining,
+                 free: plan.free };
+    }
+
+    // True (the locked screens named) when the take `plan` onto `distroId`
+    // would repack a locked screen (_repackRefused). A plan that cannot
+    // happen moves nothing. Asked by takeSocaOnto, and by a drop before
+    // anything of it is written (the box type it stamps).
+    _takeRepacksLocked(layer, plan, distroId) {
+        if (!layer || !plan || !plan.ok) return false;
+        return this._repackRefused(() => this._takeSocaApply(layer, plan, distroId), [layer]);
+    }
+
+    // takeSocaOnto's store moves on their own, no history entry and no
+    // checks: resegment, re-key, stamp, assign. Returns the touched layers
+    // (a Set). Run for real by takeSocaOnto, and as the trial its repack
+    // check puts back (_repackRefused).
+    _takeSocaApply(layer, plan, distroId) {
         const count = this.screenCircuits(layer).length;
         const size = this.socaBoxSize(layer);
         const segs = this._socaSegments(layer, count);
@@ -955,9 +1482,7 @@ class _Power {
         (layer.powerSocaNumber || (layer.powerSocaNumber = {}))[idx]
             = plan.number;
         this._circuitTailCache = null;
-        this.updateLayers([...touched], true, action || 'Assign Multi Distro');
-        return { ok: true, took: plan.take, tailLen: plan.remaining,
-                 free: plan.free };
+        return touched;
     }
 
     // The drop-implied cut spelled as it always was - multi `socaIndex`,
@@ -996,6 +1521,18 @@ class _Power {
         const seg = this._socaSegments(layer, count)
             .find(s => s.index === Number(socaIndex));
         if (!seg || !seg.userEnd) return false;
+        // The weld can take the second part's distro off the wall (the
+        // first part's identity wins): a locked screen that would repack -
+        // one grouped with this screen - refuses it whole (owner,
+        // 2026-10-22).
+        if (this._repackRefused(() => {
+            layer.powerSocaSplits = this._socaSplitPoints(layer, count)
+                .filter(p => p !== seg.end);
+            this._spliceSocaStores(layer, Number(socaIndex) + 1, -1);
+        }, [layer])) return false;
+        // ...and a locked screen on the box the weld re-deals keeps its
+        // tails: put back whole when it would not (_lockedPowerTrial).
+        const shared = this._lockedPowerTrial();
         // The welded multi keeps the first part's pin with MORE circuits,
         // so it re-deals on its box exactly like a split part does - the
         // other members of a shared box hold their rendered tails first.
@@ -1008,6 +1545,7 @@ class _Power {
         delete (layer.powerSocaPhasePos || {})[socaIndex];
         delete (layer.powerSocaPhaseOffset || {})[socaIndex];
         this._circuitTailCache = null;
+        if (shared()) return false;
         this.updateLayers([...new Set([layer, ...stamped])], true,
                           'Un-split Multi');
         return true;
@@ -1046,7 +1584,7 @@ class _Power {
     // No history entry and none of the circuit's own paperwork here: the
     // dock's _clearCircuitChip wraps this with the wipe of the removed
     // circuit's programming (label override, manual splitter entries) and
-    // the one 'Clear Circuit' entry, so a single undo puts back the cuts,
+    // the one 'Unplug Circuit' entry, so a single undo puts back the cuts,
     // the stores and the positions together. Returns { touched,
     // removedIdx } or null when the circuit is not in that multi.
     //
@@ -1246,7 +1784,8 @@ class _Power {
             s.legs.push({
                 leg, circuit: c.num,
                 label: this.getPowerCircuitLabel(layer, c.num),
-                tiles: c.panels.length, watts,
+                // a blank cabinet on a drawn path is fed by nothing
+                tiles: c.panels.filter(p => p && !p.blank).length, watts,
                 amps: voltage ? watts / voltage : 0,
                 x1: Number.isFinite(lx1) ? lx1 : null,
                 x2: Number.isFinite(lx2) ? lx2 : null
@@ -1298,7 +1837,7 @@ class _Power {
     // reads the size through socaBoxSize below, never the literal 6.
     getPowerBreakoutTypes() {
         return [
-            { id: 'soca-true1', name: 'Multi → True1', connector: 'True1', boxSize: 6, breakoutItem: 'Multi breakouts → True1' },
+            { id: 'soca-true1', name: 'Multi → TRUE1', connector: 'TRUE1', boxSize: 6, breakoutItem: 'Multi breakouts → TRUE1' },
             { id: 'soca-powercon', name: 'Multi → powerCON', connector: 'powerCON', boxSize: 6, breakoutItem: 'Multi breakouts → powerCON' },
             { id: 'soca-edison', name: 'Multi → Edison (110V)', connector: 'Edison', boxSize: 6, breakoutItem: 'Multi breakouts → Edison', tailItem: 'Edison → panels' },
             { id: 'soca-l620', name: 'Multi → L6-20', connector: 'L6-20', boxSize: 6, breakoutItem: 'Multi breakouts → L6-20', tailItem: 'L6-20 → panels' },
@@ -1307,7 +1846,7 @@ class _Power {
             // True1 or powerCON - a leg-PAIR circuit per tail, never a
             // 6-circuit soca. It hangs on a distro number like a multi
             // does, with 3 tails.
-            { id: 'l2130-true1', name: 'L21-30 (3 × 208V) → True1', connector: 'True1', boxSize: 3, feedLegA: 30, breakoutItem: 'L21-30 breakouts → True1' },
+            { id: 'l2130-true1', name: 'L21-30 (3 × 208V) → TRUE1', connector: 'TRUE1', boxSize: 3, feedLegA: 30, breakoutItem: 'L21-30 breakouts → TRUE1' },
             { id: 'l2130-powercon', name: 'L21-30 (3 × 208V) → powerCON', connector: 'powerCON', boxSize: 3, feedLegA: 30, breakoutItem: 'L21-30 breakouts → powerCON' }
         ];
     }
@@ -1358,6 +1897,44 @@ class _Power {
         const stored = types.find(t => t.id === (layer && layer.powerBreakoutType));
         if (stored && this._breakoutEligible(stored, layer.powerVoltage)) return stored;
         return this._preferredBreakoutFor(layer && layer.powerVoltage);
+    }
+
+    // ---- the panel input --------------------------------------------------
+    //
+    // Panels take power in on TRUE1 or powerCON and nothing else (owner,
+    // 2026-10-21). A TRUE1 or powerCON breakout IS the panel input; an
+    // Edison or L6-20 breakout is not, so those screens carry their own
+    // choice, layer.powerPanelInput ('true1' / 'powercon'; absent reads
+    // TRUE1, so a show from before it reads as it always did). The
+    // jumpers, the splitters and the Edison / L6-20 adapter cables follow it.
+    getPanelInputTypes() {
+        return [{ id: 'true1', name: 'TRUE1' }, { id: 'powercon', name: 'powerCON' }];
+    }
+
+    // Whether a breakout leaves the panel input to the screen.
+    breakoutHasPanelInputChoice(bt) {
+        const id = bt && bt.id;
+        return id === 'soca-edison' || id === 'soca-l620';
+    }
+
+    // The panel input in force on a screen: { id, name }.
+    panelInput(layer) {
+        const types = this.getPanelInputTypes();
+        const bt = layer ? this.getPowerBreakout(layer) : null;
+        if (bt && !this.breakoutHasPanelInputChoice(bt)) {
+            const own = types.find(t => t.id === this._cableConnectorId(bt.connector));
+            if (own) return own;
+        }
+        return types.find(t => t.id === (layer && layer.powerPanelInput)) || types[0];
+    }
+
+    // The type of a cable that runs straight to the panels off a distro
+    // outlet (a direct output): the panel input alone where the plug is
+    // already that, else both ends, "CEE 16A → TRUE1".
+    directCableType(plugName, layer) {
+        const input = this.panelInput(layer).name;
+        const plug = String(plugName || '').trim();
+        return !plug || plug === input ? input : `${plug} → ${input}`;
     }
 
     // The store's normalizer (user ruling, 2026-09-22: a screen always
@@ -1462,9 +2039,9 @@ class _Power {
         const v = this.voltageNumber(voltage);
         const at = v > 0 ? `at ${v}V` : 'until a voltage is set';
         const id = String(type && type.id);
-        if (id.startsWith('l2130-')) return `Not available ${at} — L21-30 is 208V only.`;
-        if (id === 'soca-edison') return `Not available ${at} — Edison is for screens up to 120V.`;
-        return `Not available ${at} — a screen up to 120V runs Multi → True1, powerCON or Edison.`;
+        if (id.startsWith('l2130-')) return `Not available ${at}: L21-30 is 208V only.`;
+        if (id === 'soca-edison') return `Not available ${at}: Edison is for screens up to 120V.`;
+        return `Not available ${at}: a screen up to 120V runs Multi → TRUE1, powerCON or Edison.`;
     }
 
     // The voltage CLASS a screen belongs to for distro matching, as a
@@ -1518,7 +2095,7 @@ class _Power {
         if (!type || !layer || this._outputFeedsVoltage(type, layer.powerVoltage)) return null;
         const v = this.voltageNumber(layer.powerVoltage);
         const article = /^(?:[AEIOU]|[FHLMNRSX](?![a-z]))/.test(type.name) ? 'an' : 'a';
-        return `${layer.name} runs at ${v}V — ${article} ${type.name} output `
+        return `${layer.name} runs at ${v}V, and ${article} ${type.name} output `
             + `feeds ${this._outputFeedsText(type)}`;
     }
 
@@ -1529,7 +2106,13 @@ class _Power {
         if (!layer) return false;
         const type = this.getPowerBreakoutTypes().find(t => t.id === id);
         if (!type || !this._breakoutEligible(type, layer.powerVoltage)) return false;
+        // A locked screen keeps its breakout, and so does the box a locked
+        // screen shares with this one: a breakout is the box size, and a
+        // box that changes size deals its tails again (_lockedPowerTrial).
+        if (this._lockedRefused(layer)) return false;
+        const shared = this._lockedPowerTrial();
         layer.powerBreakoutType = type.id;
+        if (shared()) return false;
         this.updateLayers([layer], true, 'Change Power Breakout');
         return true;
     }
@@ -1547,10 +2130,12 @@ class _Power {
     // Multi 120 on a screen up to 120V with a True1, powerCON or Edison
     // breakout, an L21-30 on a 208V screen's L21-30 box. The voltage
     // matters because True1 and powerCON breakouts now exist at both
-    // voltages. Nothing is extrapolated past the table - a breakout no
-    // type names (L6-20) is a mismatch like any other, refused with the
-    // fix said out loud, never silently re-typed; a screen at a blank
-    // voltage matches by breakout alone. `faces` are the breakout
+    // voltages. No multi type feeds the L6-20 breakout: it takes an L6-20
+    // cable off a distro's L6-20 output, one circuit each (the owner's
+    // ruling, 2026-11-03 - faceBoxEligible). A breakout no type names is
+    // a mismatch like any other, refused with the fix said out loud,
+    // never silently re-typed; a screen at a blank voltage matches by
+    // breakout alone. `faces` are the breakout
     // connectors the popover row shows beside the type; `badge` is the
     // bracket's text sub-pill.
     //
@@ -1572,10 +2157,10 @@ class _Power {
             };
         };
         return [
-            { id: 'soca208', name: 'Multi 208', sub: 'True1 / powerCON',
+            { id: 'soca208', name: 'Multi 208', sub: 'TRUE1 / powerCON',
               glyph: 'soca', faces: ['true1', 'powercon'], volts: [208],
               breakouts: ['soca-true1', 'soca-powercon'], badge: 'MULTI 208' },
-            { id: 'soca120', name: 'Multi 120', sub: 'Edison / True1 / powerCON',
+            { id: 'soca120', name: 'Multi 120', sub: 'Edison / TRUE1 / powerCON',
               glyph: 'soca', faces: ['edison', 'true1', 'powercon'], volts: [110, 120],
               breakouts: ['soca-edison', 'soca-true1', 'soca-powercon'], badge: 'MULTI 120' },
             // voltsExact: the L21-30 is documented at 208V and nowhere
@@ -1796,18 +2381,22 @@ class _Power {
     // cables with its label overrides: cables are programming.
 
     // The connectors a cable can be typed as - the breakout table's own
-    // connector names, once each, in table order. Ids are the plug chips'
-    // face ids (true1 / powercon / edison / l620), so the select's value
-    // and the OUTPUTS row's faces name the same thing.
+    // connector names, then every distro face connector's cable (CEE 16A,
+    // Schuko, stage pin...), once each, in table order. Ids are the plug
+    // chips' face ids (true1 / powercon / edison / l620), so the select's
+    // value and the OUTPUTS row's faces name the same thing.
     getPowerCableConnectors() {
         const seen = new Set();
         const out = [];
-        this.getPowerBreakoutTypes().forEach(bt => {
-            const id = this._cableConnectorId(bt.connector);
+        const add = (name) => {
+            const id = this._cableConnectorId(name);
             if (!id || seen.has(id)) return;
             seen.add(id);
-            out.push({ id, name: bt.connector });
-        });
+            out.push({ id, name });
+        };
+        this.getPowerBreakoutTypes().forEach(bt => add(bt.connector));
+        const face = typeof this.distroConnectors === 'function' ? this.distroConnectors() : [];
+        face.forEach(c => { if (c && c.kind === 'direct') add(c.cable); });
         return out;
     }
 
@@ -1829,7 +2418,8 @@ class _Power {
     // Edison on a spare Multi 120 (its list leads with Edison), True1 on
     // a spare Multi 208 or L21-30 - never the breakout catalog's order,
     // which would read True1 for every spare. Off any distro the screen's
-    // own breakout is the whole answer. Returns a connector id.
+    // own breakout is the whole answer. A DIRECT output has no breakout:
+    // its tail is the outlet itself. Returns a connector id.
     boxTailConnector(d, number, layer) {
         const bts = this.getPowerBreakoutTypes();
         const own = layer ? this.getPowerBreakout(layer) : null;
@@ -1837,6 +2427,9 @@ class _Power {
             return this._cableConnectorId((own || bts[0]).connector);
         }
         const type = this.distroBoxType(d, number).type;
+        if (type && type.face && type.kind === 'direct' && type.cable) {
+            return this._cableConnectorId(type.cable);
+        }
         const ids = (type && type.breakouts) || [];
         const first = ids.map(id => bts.find(b => b.id === id)).find(Boolean);
         const pick = (own && ids.includes(own.id))
@@ -1862,7 +2455,10 @@ class _Power {
     // The stored cable on one circuit, resolved for printing: null when
     // the circuit has none, else { ft, connector (the stored id or null),
     // id (the id in force), name, text } - text is what the chip corner,
-    // the canvas tag and the paperwork all print ("10' True1").
+    // the canvas tag and the paperwork all print ("10' TRUE1"). On a
+    // DIRECT output the cable runs outlet to panel, so `name` is its type
+    // (directCableType): "CEE 16A → TRUE1", or "TRUE1" where both ends
+    // are TRUE1.
     powerCircuitCable(layer, circuitNum) {
         const store = layer && layer.powerCircuitCables;
         const rec = store && store[circuitNum];
@@ -1870,14 +2466,14 @@ class _Power {
         if (!rec || ft === null) return null;
         let id = rec.connector && this.cableConnectorName(rec.connector)
             ? rec.connector : null;
-        if (!id) {
-            const box = this._circuitBox(layer, circuitNum);
-            id = this.boxTailConnector(box.d, box.number, layer);
-        }
-        const name = this.cableConnectorName(id) || '';
+        const box = this._circuitBox(layer, circuitNum);
+        if (!id) id = this.boxTailConnector(box.d, box.number, layer);
+        let name = this.cableConnectorName(id) || '';
+        const fbox = box.d && typeof this.faceBox === 'function' ? this.faceBox(box.d, box.number) : null;
+        if (fbox && fbox.kind === 'direct') name = this.directCableType(name, layer);
         return {
             ft, connector: rec.connector || null, id, name,
-            text: this.cableText(ft, name),
+            text: this.cableText(ft, name, 'circuit'),
         };
     }
 
@@ -1896,11 +2492,14 @@ class _Power {
     }
 
     // "10' True1" in a feet show, "3 m True1" in a meters one: the length
-    // in the show's unit (app-cable-units.js), then the connector.
-    cableText(ft, name) {
+    // in the show's unit (app-cable-units.js), then the connector. `kind`
+    // ('multi' / 'data' / 'circuit') writes the length as the show's cable
+    // stock pieces ("100'+25' True1", cableStockText); without one, or
+    // with no stock, the length as typed.
+    cableText(ft, name, kind = null) {
         const n = Number(ft);
-        const len = this.cableUnit() === 'm'
-            ? `${this.cableFigure(n)} m` : `${this.cableFigure(n)}'`;
+        const len = (kind && this.cableStockText(n, kind)) || (this.cableUnit() === 'm'
+            ? `${this.cableFigure(n)} m` : `${this.cableFigure(n)}'`);
         return `${len}${name ? ` ${name}` : ''}`;
     }
 
@@ -1918,9 +2517,23 @@ class _Power {
         return Number.isFinite(n) && n > 0 ? n : (this.cableUnit() === 'm' ? 3 : 10);
     }
 
+    // A length TYPED as text ("30m", "25 ft") reads the way every typed
+    // length does (readTypedLength, 2026-10-22): the other unit converted
+    // and said, text that is no length refused and said, the cable that
+    // was there kept.
     setCircuitCable(layer, circuitNum, cable, record = true) {
         if (!layer) return false;
-        const ft = cable ? Number(cable.ft) : NaN;
+        let ft = cable ? Number(cable.ft) : NaN;
+        if (cable && typeof cable.ft === 'string') {
+            if (this._layerLocked(layer)) {
+                const read = this.parseTypedCableLength(cable.ft);
+                ft = read.n === null ? NaN : read.n;
+            } else {
+                const read = this.readTypedLength(cable.ft, 'cable');
+                if (!read.ok) return false;
+                ft = read.n === null ? NaN : read.n;
+            }
+        }
         const next = (!Number.isFinite(ft) || ft <= 0) ? null : {
             ft,
             connector: cable.connector && this.cableConnectorName(cable.connector)
@@ -1931,7 +2544,7 @@ class _Power {
         // A locked screen stays unchanged (owner, 2026-10-16) - the setter
         // refuses and names it, whichever control called it - when the cable
         // would really change; setting the one it has says nothing.
-        if (layer.locked) {
+        if (this._layerLocked(layer)) {
             if (changed) this._showLockedError([layer]);
             return false;
         }
@@ -2055,7 +2668,7 @@ class _Power {
         return svg;
     }
 
-    // Rollup per distro across every screen, plus an 'unassigned' bucket so
+    // Rollup per distro across every shown screen, plus an 'unassigned' bucket so
     // no load is silently dropped. A distro with legs (three-phase, or
     // split-phase) also gets per-leg loads so you can see whether the
     // service is loaded evenly.
@@ -2089,6 +2702,11 @@ class _Power {
         const boxRows = new Map();      // share key -> the one feeds row
         for (const layer of this.project.layers || []) {
             if ((layer.type || 'screen') !== 'screen') continue;
+            // A hidden screen is left out of every distro and service load
+            // (the owner's ruling, 2026-10-23), the way the pull sheet
+            // leaves it out (_pullScreens): a distro whose screens are all
+            // hidden reads empty.
+            if (layer.visible === false) continue;
             const plan = this.getSocaPlan(layer);
             if (!plan.length) continue;
             const assign = layer.powerSocaDistro || {};
@@ -2190,7 +2808,7 @@ class _Power {
             }
             return {
                 id: d ? d.id : null,
-                name: d ? d.name : 'Unassigned',
+                name: d ? this.distroLabel(d) : 'Unassigned',
                 location: (d && d.location) || null,
                 ratingA: rating, voltage: v, phase: d ? d.phase : null,
                 system: d ? (d.system || null) : null,
@@ -2228,6 +2846,8 @@ class _Power {
             pairWatts: {},
         };
         if (!distro) return { X: 0, Y: 0, Z: 0 };
+        // a hidden screen loads nothing (getDistroLoads)
+        members = (members || []).filter(m => !(m && m.layer && m.layer.visible === false));
         const legacy = this._legacyBoxFeedLegAmps(distro, members);
         if (legacy) return legacy;
         for (const m of (members || [])) {
@@ -2250,26 +2870,42 @@ class _Power {
     // `record` mirrors setSocaName's: false for the dock's shared-box
     // write-through, which issues one updateLayers over every member itself.
     setSocaLength(layer, socaIndex, length, record = true) {
-        if (!layer) return;
-        const v = String(length || '').trim();
-        // "100ft" keeps its number (relabelled by number on a unit
-        // change); text that is no length here stays as typed and prints
-        // as no length.
-        const n = this.parseCableLength(v);
-        const stored = v ? (n !== null ? String(n) : v) : '';
+        if (!layer) return false;
+        const v = String(length == null ? '' : length).trim();
+        // A length typed in the show's unit keeps its number ("100ft" is
+        // 100, relabelled by number on a unit change); one in the other
+        // unit is converted and said ("30m" in a feet show is 98.4 ft);
+        // text that is no length is refused, said, and the length that
+        // was there stays (2026-10-22, the feeder field's rule).
+        const read = this.parseTypedCableLength(v);
+        const stored = read.bad ? v : (read.n !== null ? String(read.n) : '');
         // A locked screen stays unchanged (owner, 2026-10-16) - the setter
         // refuses and names it, whichever control called it - when the
         // length would really change.
-        if (layer.locked) {
+        if (this._layerLocked(layer)) {
             const cur = String((layer.powerSocaLengths || {})[socaIndex] || '').trim();
             if (cur !== stored) this._showLockedError([layer]);
-            return;
+            return false;
         }
+        // On a direct output the length is the circuit's cable, not a
+        // multi's home run, and the refusal and the undo entry say so.
+        const direct = this._socaOnDirectOutput(layer, socaIndex);
+        if (!this.readTypedLength(v, direct ? 'cable' : 'home run').ok) return false;
         const store = layer.powerSocaLengths || (layer.powerSocaLengths = {});
         if (stored) store[socaIndex] = stored; else delete store[socaIndex];
         if (record) {
-            this.updateLayers([layer], true, 'Set Multi Home Run');
+            this.updateLayers([layer], true, direct ? 'Set Direct Cable' : 'Set Multi Home Run');
         }
+        return true;
+    }
+
+    // Whether multi `socaIndex` of `layer` sits on a distro's DIRECT
+    // output (one circuit on its own connector) rather than a multi box.
+    _socaOnDirectOutput(layer, socaIndex) {
+        const did = ((layer && layer.powerSocaDistro) || {})[socaIndex];
+        if (!did || typeof this._isDirectBox !== 'function') return false;
+        const rec = this._powerNaming(layer).socas.get(Number(socaIndex));
+        return !!(rec && this._isDirectBox(did, rec.number));
     }
 
     // The distro list died with the Power sidebar: the dock's distro
@@ -2300,7 +2936,7 @@ class _Power {
             .filter(sc => sc.lineToLine === ph.derived.lineToLine);
         if (ph.explicit && !offered.some(sc => sc.id === ph.scheme.id)) {
             offered.push({ ...ph.scheme,
-                name: `${ph.scheme.name} — does not match the `
+                name: `${ph.scheme.name}, which does not match the `
                     + `${Math.round(ph.circuitVoltage)} V circuits `
                     + `(${ph.derived.coupling.toLowerCase()})` });
         }
@@ -2316,12 +2952,15 @@ class _Power {
         const wrap = document.createElement('div');
         const heading = document.createElement('div');
         heading.className = 'hw-pop-heading';
-        heading.textContent = d.name || 'distro';
+        // The display label (distroLabel): SR-1 where two distros are SR.
+        heading.textContent = this.distroLabel(d) || 'distro';
         wrap.appendChild(heading);
 
+        // Returns updateDistro's answer: null when it refused or asked.
         const patch = (p) => {
-            this.updateDistro(d.id, p);
+            const res = this.updateDistro(d.id, p);
             this._restateNaming();
+            return res;
         };
         const cap = (text) => {
             const c = document.createElement('label');
@@ -2336,6 +2975,16 @@ class _Power {
         // app-distro-systems.js) - the old Voltage and 1φ/3φ selects
         // became the one system pick.
         this._buildDistroSupplySection(d, wrap, patch);
+        // SERVICE (2026-10-20, app-services.js): the house power this
+        // distro is fed from, once the show has one.
+        if (typeof this._buildDistroServiceRow === 'function') {
+            this._buildDistroServiceRow(d, wrap);
+        }
+        // FEEDER (2026-10-21, app-services.js): its length and where it is
+        // fed from - the service, or another distro.
+        if (typeof this._buildDistroFeederRow === 'function') {
+            this._buildDistroFeederRow(d, wrap);
+        }
 
         if (Number(d.phase) === 3) {
             const ph = this.distroPhasingState(d);
@@ -2345,7 +2994,7 @@ class _Power {
             row2.style.alignItems = 'center';
             row2.style.marginTop = '6px';
             row2.title = 'Phasing. How a multi\'s 6 circuits land on the '
-                + 'phase legs - a property of the distro\'s bus and breaker '
+                + 'phase legs, a property of the distro\'s bus and breaker '
                 + 'arrangement, read off the distro. Not the connector\'s '
                 + 'E1.80 pinout type. Each name gives the coupling, then '
                 + 'the dealing order.';
@@ -2368,7 +3017,7 @@ class _Power {
             const followOpt = document.createElement('option');
             followOpt.value = '';
             followOpt.textContent =
-                `Follow the circuit voltage — ${this.distroSchemeName(d, ph.derived)}`;
+                `Follow the circuit voltage: ${this.distroSchemeName(d, ph.derived)}`;
             if (!ph.explicit) followOpt.selected = true;
             derive.appendChild(followOpt);
             sel.appendChild(derive);
@@ -2415,7 +3064,7 @@ class _Power {
         beachSelect.style.flex = '1';
         beachSelect.style.minWidth = '0';
         beachSelect.dataset.lrdField = `distro-beach-${d.id}`;
-        beachSelect.title = 'The beach this distro sits on - the dimmer beach, '
+        beachSelect.title = 'The beach this distro sits on: the dimmer beach, '
             + 'stage left world, FOH. Its multis, breakouts and circuit cables '
             + 'are pulled there.';
         this.fillBeachPicker(beachSelect, d.beachId);
@@ -2499,20 +3148,15 @@ class _Power {
             if (typeof this._hwPopoverClose === 'function') {
                 this._hwPopoverClose();
             }
-            this.removeDistro(d.id);
-            // The distro is gone and its id never comes back, so its fold
-            // keys go with it - the dock section's, and the per-number
-            // multi keys under it (a prefix sweep catches however many the
-            // tray ever drew).
-            try {
-                localStorage.removeItem(
-                    `ledRasterPanelCollapsed_hwdock-distro-${d.id}`);
-                const prefix =
-                    `ledRasterPanelCollapsed_hwdock-multi-${d.id}-`;
-                Object.keys(localStorage)
-                    .filter(k => k.startsWith(prefix))
-                    .forEach(k => localStorage.removeItem(k));
-            } catch (_) { /* blocked storage never held the key */ }
+            // Refused (a locked screen it would repack): nothing went, so
+            // its fold keys stay.
+            if (!this.removeDistro(d.id)) return;
+            // The distro is gone, and its id DOES come back (the next add
+            // takes it), so its sheets and folds go with it now
+            // (_forgetDistroViews).
+            if (typeof this._forgetDistroViews === 'function') {
+                this._forgetDistroViews();
+            }
             this._restateNaming();
         });
         wrap.appendChild(remove);
@@ -2542,6 +3186,9 @@ class _Power {
             // strip - so ONE render covers what four panel wipes did
             // (refreshDistroPanel is this same render under its old name).
             this.renderHardwareDock && this.renderHardwareDock();
+            // A distro's 100% switch or system moves the packing %, which
+            // the sidebar's Breaker line and Watts/Circuit read.
+            if (this.currentLayer) this.updatePowerCapacityDisplay();
         });
     }
 
@@ -2549,11 +3196,13 @@ class _Power {
     // sentence, minus its lead-in, so the soca host ("No circuits — ...")
     // and the label editor ("No circuits to edit — ...") share one story.
     //
-    // Live repro: a 13-wide screen of 200W panels at 110V/15A in organized
-    // row mode cannot fit a row on a circuit, so the plan is empty - and the
-    // soca panel rendered NOTHING, which read as the soca feature being
-    // broken. The explanation lived only in the left sidebar and the red
-    // wall tint. Every other empty state stays blank: a non-screen layer, a
+    // Live repro: a screen whose one cabinet draws more than a circuit
+    // carries has an empty plan - and the soca panel rendered NOTHING,
+    // which read as the soca feature being broken. The explanation lived
+    // only in the left sidebar and the red wall tint. Since 1.6.0 that is
+    // the only power error: Organized cuts a row (or a column) too big for
+    // one circuit into several (calculatePowerAssignments), so no pattern
+    // change is ever the fix. Every other empty state stays blank: a non-screen layer, a
     // screen with nothing visible on it, a group member counted on its
     // owner, and a custom-routed screen (whose drawn paths supersede the
     // auto error - the same rule updatePowerCapacityDisplay applies to
@@ -2563,16 +3212,10 @@ class _Power {
         if (this.usesCustomCircuits(layer)) return null;
         const err = this.calculatePowerAssignments(layer).error;
         if (!err) return null;
-        const voltage = parseFloat(layer.powerVoltage) || 0;
-        const amperage = parseFloat(layer.powerAmperage) || 0;
+        const cap = this.circuitCapacity(layer);
         const fmt = (w) => `${Math.round(w).toLocaleString('en-US')} W`;
-        const circuit = `a circuit at ${voltage} V / ${amperage} A carries ${fmt(voltage * amperage)}`;
-        if (err.unitType) {
-            const across = err.unitType === 'row' ? 'column' : 'row';
-            return `a full ${err.unitType} is ${fmt(err.unitLoad || 0)} and ${circuit}. `
-                + `Fix in Power Settings: higher voltage or amperage, a ${across} pattern, or a custom path `
-                + `(select a narrower block and apply a pattern — circuits cut at capacity).`;
-        }
+        const held = cap.pct < 1 ? ` (${Math.round(cap.pct * 100)}% of the breaker)` : '';
+        const circuit = `a circuit at ${cap.voltage} V / ${cap.breakerA} A carries ${fmt(cap.watts)}${held}`;
         // PANEL WATTS EXCEED CIRCUIT CAPACITY: one cabinet alone is over,
         // so no pattern can help.
         return `one panel is ${fmt(parseFloat(layer.panelWatts) || 0)} and ${circuit}. `
@@ -2598,7 +3241,12 @@ class _Power {
                 this.getPowerBreakoutTypes().forEach(t => {
                     const opt = document.createElement('option');
                     opt.value = t.id;
-                    opt.textContent = t.name;
+                    // The L21-30's "(3 × 208V)" stays in the type's name
+                    // everywhere else; in this select it ran the longest
+                    // option past the sidebar (QA 1.6.0-beta.4), and the
+                    // select only offers it at 208V anyway.
+                    opt.textContent = String(t.id).startsWith('l2130-')
+                        ? t.name.replace(/\s*\(3 × 208V\)/, '') : t.name;
                     sel.appendChild(opt);
                 });
             }
@@ -2623,6 +3271,23 @@ class _Power {
             if (screen && sel !== document.activeElement) {
                 sel.value = this.getPowerBreakout(layer).id;
             }
+        }
+        // The panel input: only where the breakout leaves it to the screen
+        // (Edison, L6-20).
+        const inp = document.getElementById('power-panel-input');
+        const inpRow = document.getElementById('power-panel-input-row');
+        if (inp) {
+            if (!inp.options.length) {
+                this.getPanelInputTypes().forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = t.name;
+                    inp.appendChild(opt);
+                });
+            }
+            const choice = !!(screen && this.breakoutHasPanelInputChoice(this.getPowerBreakout(layer)));
+            if (inpRow) inpRow.style.display = choice ? 'flex' : 'none';
+            if (screen && inp !== document.activeElement) inp.value = this.panelInput(layer).id;
         }
         if (brk && brk !== document.activeElement) {
             // OFF unless explicitly ticked (=== true, matching the canvas
@@ -2655,15 +3320,15 @@ class _Power {
             // A locked screen keeps its breakout (the owner's ruling,
             // 2026-10-16), named when this would have changed it.
             const all = this._socaPanelTargets(layer);
-            this._showLockedError(all.filter(l => l.locked
+            this._showLockedError(all.filter(l => this._layerLocked(l)
                 && this.getPowerBreakout(l).id !== type.id));
-            const list = all.filter(l => !l.locked);
+            const list = all.filter(l => !this._layerLocked(l));
             const skipped = list.filter(l => !this._breakoutEligible(type, l.powerVoltage));
             const write = list.filter(l => !skipped.includes(l));
             if (skipped.length) {
                 const names = skipped.map(l => `${l.name || l.id} `
                     + `(${parseFloat(l.powerVoltage) || 0}V)`).join(', ');
-                const msg = `${type.name} is not available at ${names} — `
+                const msg = `${type.name} is not available at ${names}, so `
                     + `${skipped.length === 1 ? 'that screen keeps its' : 'those screens keep their'} breakout.`;
                 if (typeof this._toast === 'function') this._toast(msg, true, 4000);
                 else if (typeof this._dockSay === 'function') this._dockSay(msg);
@@ -2672,8 +3337,37 @@ class _Power {
                 sel.value = this.getPowerBreakout(layer).id;
                 return;
             }
+            // A breakout is the box size: a locked screen sharing a box
+            // with one of these keeps its tails, or nothing is written
+            // (_lockedPowerTrial).
+            const shared = this._lockedPowerTrial();
             write.forEach(l => { l.powerBreakoutType = type.id; });
+            if (shared()) {
+                sel.value = this.getPowerBreakout(layer).id;
+                return;
+            }
             this.updateLayers(write, true, 'Change Power Breakout');
+            this.refreshSocaRuns();
+        });
+        // The panel input, on every selected screen whose breakout leaves
+        // it to the screen; a locked one keeps its own and is named.
+        const inp = document.getElementById('power-panel-input');
+        if (inp) inp.addEventListener('change', () => {
+            const layer = this.currentLayer;
+            if (!layer) return;
+            const want = this.getPanelInputTypes().find(t => t.id === inp.value);
+            if (!want) return;
+            const all = this._socaPanelTargets(layer)
+                .filter(l => this.breakoutHasPanelInputChoice(this.getPowerBreakout(l)));
+            this._showLockedError(all.filter(l => this._layerLocked(l) && this.panelInput(l).id !== want.id));
+            const write = all.filter(l => !this._layerLocked(l) && this.panelInput(l).id !== want.id);
+            if (!write.length) {
+                inp.value = this.panelInput(layer).id;
+                return;
+            }
+            write.forEach(l => { l.powerPanelInput = want.id; });
+            this.updateLayers(write, true, 'Change Panel Input');
+            if (window.canvasRenderer) window.canvasRenderer.render();
         });
         const brk = document.getElementById('show-soca-brackets');
         if (brk) brk.addEventListener('change', () => {
@@ -2681,9 +3375,9 @@ class _Power {
             if (!layer) return;
             const all = this._socaPanelTargets(layer);
             // A locked screen keeps its brackets setting, and is named.
-            this._showLockedError(all.filter(l => l.locked
+            this._showLockedError(all.filter(l => this._layerLocked(l)
                 && !!l.showSocaBrackets !== !!brk.checked));
-            const list = all.filter(l => !l.locked);
+            const list = all.filter(l => !this._layerLocked(l));
             if (!list.length) {
                 brk.checked = !!layer.showSocaBrackets;
                 return;
@@ -2698,24 +3392,58 @@ class _Power {
         const writeAll = (patch) => {
             const layer = this.currentLayer;
             if (!layer) return;
-            const all = this._socaPanelTargets(layer);
-            // A locked screen keeps its packing, named when the patch would
-            // have changed it; with nothing writable the knobs snap back.
-            this._showLockedError(all.filter(l => {
-                if (!l.locked) return false;
-                const cur = this.getPowerSplitters(l);
-                return Object.keys(patch).some(k => cur[k] !== patch[k]);
-            }));
-            const list = all.filter(l => !l.locked);
-            if (!list.length) {
+            // One setting per wall (the owner's ruling, 2026-10-19 - see
+            // _splitterWallHost): every selected screen's WALL takes the
+            // patch, each member written with the wall's knobs plus the
+            // patch so the members agree from here on. A wall is changed
+            // whole or not at all: a locked member that the patch would
+            // change blocks its whole wall and is named (a locked screen is
+            // never changed, and a wall half-changed would read as the
+            // first member's setting anyway). With nothing writable the
+            // knobs snap back.
+            const walls = new Map();
+            this._socaPanelTargets(layer).forEach(l => {
+                const host = this._splitterWallHost(l) || l;
+                if (!walls.has(host.id)) walls.set(host.id, this._splitterWallMembers(l));
+            });
+            const changes = (l, next) => {
+                const cur = this._ownPowerSplitters(l);
+                return cur.enabled !== next.enabled || cur.maxWays !== next.maxWays;
+            };
+            const blocked = [];
+            const list = [];
+            // Packing renumbers the circuits: each cable stays with its
+            // cabinets (_cableCarryBegin, owner 2026-11-04).
+            const carry = this._cableCarryBegin([...walls.values()].flat());
+            // Packing changes the circuits, so a box shared with a locked
+            // screen deals again: refused whole when that would move the
+            // locked screen's tails (_lockedPowerTrial).
+            const shared = this._lockedPowerTrial();
+            walls.forEach(members => {
+                const wall = this.getPowerSplitters(members[0]);
+                const next = { enabled: wall.enabled, maxWays: wall.maxWays, ...patch };
+                const locked = members.filter(l => this._layerLocked(l) && changes(l, next));
+                if (locked.length) {
+                    blocked.push(...locked);
+                    return;
+                }
+                members.forEach(l => {
+                    if (!changes(l, next)) return;
+                    const cur = this._ownPowerSplitters(l);
+                    l.powerSplitters = { ...cur, ...next, manual: cur.manual };
+                    list.push(l);
+                });
+            });
+            this._showLockedError(blocked);
+            if (!list.length || shared()) {
                 this.refreshSplitterPanel();
                 return;
             }
-            list.forEach(l => {
-                const cur = this.getPowerSplitters(l);
-                l.powerSplitters = { ...cur, ...patch, manual: cur.manual };
-            });
-            this.updateLayers(list, true, 'Change Splitter Packing');
+            this._cableCarryApply(carry);
+            if (carry.changed.length) this.saveClientSideProperties();
+            this.updateLayers([...new Set([...list, ...carry.changed])], true,
+                'Change Splitter Packing');
+            this._cableCarrySay(carry);
             this._rebuildAfterGesture(() => {
                 this.refreshSplitterPanel();
                 this.refreshSocaRuns();
@@ -2753,9 +3481,10 @@ class _Power {
         const screen = layer && (layer.type || 'screen') === 'screen';
         const sp = screen ? this.getPowerSplitters(layer)
             : { enabled: false, maxWays: 3 };
-        if (en !== document.activeElement) {
-            en.checked = !!(screen && sp.enabled);
-        }
+        // A checkbox has no half-typed state to protect, so it always
+        // shows the wall's value - focus left on it by the last click must
+        // not keep the previous screen's tick when another one is selected.
+        en.checked = !!(screen && sp.enabled);
         const row = document.getElementById('power-splitters-maxways-row');
         if (row) row.style.display = (screen && sp.enabled) ? 'flex' : 'none';
         const mw = document.getElementById('power-splitters-maxways');
@@ -2779,12 +3508,13 @@ class _Power {
     // one circuit, and in AUTOMATIC mode (the custom toggle off) the model
     // refuses one whose runs together draw more than the screen's Amperage:
     // the menu item stays on the menu disabled with the reason as its hover
-    // title, the batch verb refuses as a whole naming the first group that
-    // does not fit, and the packer never made an over group on its own
+    // title, and the packer never made an over group on its own
     // (_packPowerRuns closes a circuit before the load passes
     // wattsPerCircuit). In CUSTOM mode the user owns the runs, so a share
     // past the amps is honored and the chip and the wall flag OVER - a
-    // warning, not a label. A screen leaving custom mode with such a share
+    // warning, not a label. The batch verb is the exception in both modes:
+    // it never deals a group past the amps at all (the owner's ruling,
+    // 2026-10-19 - see "the batch verb" below). A screen leaving custom mode with such a share
     // in place has it un-shared on the way out (toggleCustomPowerMode).
     //
     // The load is the soca plan's own leg figure: each run's cabinets at
@@ -2794,11 +3524,15 @@ class _Power {
 
     // Amps per run in the id space the screen reads right now - the run
     // ordinals of an auto screen (a packed circuit's branches, in runId
-    // order), the drawn circuit numbers of a custom one.
+    // order), the drawn circuit numbers of a custom one. A taken-over
+    // circuit is left out: its number is a circuit number, and read as a
+    // run ordinal it overwrote the figure of the auto run that shares the
+    // digits (_shareRunSegments, which keeps it out of every deal).
     _splitterRunAmps(layer) {
         const voltage = parseFloat(layer.powerVoltage) || 0;
         const amps = new Map();
         this.screenCircuits(layer).forEach(c => {
+            if (this._isTakenOverCircuit(layer, c.num)) return;
             const ids = c.runIds || [c.num];
             const branches = c.branches || [c.panels];
             let off = 0;
@@ -2819,18 +3553,45 @@ class _Power {
     // so a caller that only wants the figure reads amps/cap. `runAmps` lets
     // a batch reuse one _splitterRunAmps walk across its groups.
     shareLoad(layer, runIds, runAmps) {
-        const cap = parseFloat(layer && layer.powerAmperage) || 0;
+        // 80% of the breaker on a US screen (circuitCapacity).
+        const cap = layer ? this.circuitCapacity(layer).amps : 0;
         const byRun = runAmps || this._splitterRunAmps(layer);
         const amps = (runIds || []).reduce((s, id) => s + (byRun.get(id) || 0), 0);
         const over = cap > 0 && amps > cap + 1e-9 && !this.isCustomPower(layer);
         return { amps, cap, over };
     }
 
-    // "Runs 5 and 6", "Runs 1, 2 and 3" - the runs a refusal names.
-    _runListText(runIds) {
+    // The runs a refusal names, by the labels the wall prints (the owner,
+    // 2026-10-21: a run number is nothing anybody can find on the wall):
+    // "S1-1 and S1-2", "S1-1, S1-2 and S1-3". A run that is one leg of a
+    // shared circuit is named by its leg, "S1-2 leg 3". `layer` is the
+    // screen (or a custom wall's owner) whose id space the runs are in;
+    // another member's run arrives as its `${layerId}:${run}` token.
+    // Without a layer, the run numbers: "Runs 5 and 6".
+    _runListText(runIds, layer) {
         const ids = (runIds || []).slice();
-        if (ids.length <= 1) return `Run ${ids[0]}`;
-        return `Runs ${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}`;
+        const list = (xs) => (xs.length <= 1 ? `${xs[0]}`
+            : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+        if (!layer) {
+            if (ids.length <= 1) return `Run ${ids[0]}`;
+            return `Runs ${list(ids)}`;
+        }
+        const where = new Map();
+        this._wallCircuits(layer).forEach(({ layer: m, c }) => {
+            // A taken-over circuit's number is a circuit, not a run.
+            if (this._isTakenOverCircuit(m, c.num)) return;
+            const legs = c.runIds || [c.num];
+            legs.forEach((id, k) => where.set(
+                m.id === layer.id ? String(id) : `${m.id}:${id}`,
+                { m, c, k, of: legs.length }));
+        });
+        const names = ids.map(id => {
+            const at = where.get(String(id));
+            if (!at) return `run ${id}`;
+            const name = this.getPowerCircuitLabel(at.m, at.c.num);
+            return at.of > 1 ? `${name} leg ${at.k + 1}` : name;
+        });
+        return list([...new Set(names)]);
     }
 
     // The refusal for a share of `groups` (arrays of run ids, each one
@@ -2846,10 +3607,38 @@ class _Power {
             if (!load.over) continue;
             return {
                 runs: g.slice(), amps: load.amps, cap: load.cap,
-                text: `${this._runListText(g)} together draw `
-                    + `${load.amps.toFixed(1)} A on a ${+load.cap.toFixed(1)} A `
-                    + 'circuit - share past the amps only in custom mode',
+                text: `${this._runListText(g, layer)} together draw `
+                    + `${load.amps.toFixed(1)} A on ${this.circuitLimitText(layer)}. `
+                    + 'Share past the amps only in custom mode.',
             };
+        }
+        return null;
+    }
+
+    // Custom mode follows the leg model (the owner's ruling 12, 2026-10-19:
+    // "the batch button and the share verbs must split a wide custom
+    // circuit into its own legs, never join it with neighbours. Joining
+    // applies only to single-column circuits"). So Share with next joins
+    // two circuits only while each is one run on one column (or row): a
+    // circuit already shared - its runs are its legs - or one drawn across
+    // several columns never joins a neighbor. `items` are the circuits a
+    // share would join, [{ layer, c }] off screenCircuits / _wallCircuits.
+    // Returns the reason the Share entry wears, disabled, or null.
+    customShareBlock(items) {
+        for (const { layer, c } of items || []) {
+            if (!layer || !c) continue;
+            const name = this.getPowerCircuitLabel(layer, c.num);
+            const ways = (c.runIds || []).length;
+            if (ways > 1) {
+                return `${name} is already a ${ways}fer, and a shared circuit `
+                    + 'never joins another. Only a circuit of one run shares.';
+            }
+            const legs = this._runLegs(layer, c.num);
+            const n = legs ? legs.legs.length : 0;
+            if (n > 1) {
+                return `${name} runs across ${n} ${legs.noun}s, so it splits into `
+                    + `its own legs (${n}fer it) and never joins another.`;
+            }
         }
         return null;
     }
@@ -2878,23 +3667,29 @@ class _Power {
         // A locked screen stays unchanged (owner, 2026-10-16) - the setter
         // refuses and names it, whichever control called it.
         if (this._lockedRefused(layer)) return false;
-        const chosen = new Set(circuitNums);
-        const runIds = [];
-        this.screenCircuits(layer).forEach(c => {
-            if (!chosen.has(c.num)) return;
-            (c.runIds || [c.num]).forEach(id => runIds.push(id));
-        });
+        // A circuit taken over by hand is a drawing, not a packed run - see
+        // _shareRunSegments. It is never dealt into a share.
+        if (circuitNums.some(n => this._isTakenOverCircuit(layer, n))) return false;
+        // Custom mode joins only single-run circuits (customShareBlock).
+        if (this.isCustomPower(layer) && this.customShareBlock(this.screenCircuits(layer)
+            .filter(c => circuitNums.includes(c.num)).map(c => ({ layer, c })))) return false;
+        const runIds = this._shareRunSegments(layer, circuitNums).flat();
         if (runIds.length < 2) return false;
         if (this.shareRefusal(layer, [runIds])) return false;
-        this._writeSplitterManual(layer, (manual) => {
+        const write = (manual) => {
             const inNew = new Set(runIds);
             manual.merge = manual.merge
                 .map(g => (Array.isArray(g) ? g.filter(n => !inNew.has(n)) : []))
                 .filter(g => g.length >= 2);
             manual.split = manual.split.filter(n => !inNew.has(n));
             manual.merge.push([...runIds].sort((a, b) => a - b));
-        });
-        return true;
+        };
+        // A share that would REPACK a locked screen - one grouped with this
+        // screen, whose packing % the group shares - is refused whole, the
+        // screen named (owner, 2026-10-23): tried and put back first.
+        if (this._repackRefused(() => this._writeSplitterManual(
+            layer, write, null, { silent: true }), [layer])) return false;
+        return this._writeSplitterManual(layer, write) !== false;
     }
 
     // Un-merge the selected circuits. Auto runs are additionally PINNED out
@@ -2909,15 +3704,11 @@ class _Power {
         // A locked screen stays unchanged (owner, 2026-10-16) - the setter
         // refuses and names it, whichever control called it.
         if (this._lockedRefused(layer)) return;
-        const chosen = new Set(circuitNums);
-        const runIds = [];
-        this.screenCircuits(layer).forEach(c => {
-            if (!chosen.has(c.num)) return;
-            (c.runIds || [c.num]).forEach(id => runIds.push(id));
-        });
+        // A taken-over circuit's runs are its drawing's, not the store's.
+        const runIds = this._shareRunSegments(layer, circuitNums).flat();
         if (!runIds.length) return;
         const custom = this.usesCustomCircuits(layer);
-        this._writeSplitterManual(layer, (manual) => {
+        const write = (manual) => {
             const hit = new Set(runIds);
             manual.merge = manual.merge
                 .map(g => (Array.isArray(g) ? g.filter(n => !hit.has(n)) : []))
@@ -2926,7 +3717,12 @@ class _Power {
                 manual.split = [...new Set([...manual.split, ...runIds])]
                     .sort((a, b) => a - b);
             }
-        }, action, opts);
+        };
+        // Nor one that would repack a locked group member (owner,
+        // 2026-10-23). A silent call's caller owns the check with its commit.
+        if (!(opts && opts.silent) && this._repackRefused(() => this._writeSplitterManual(
+            layer, write, null, { silent: true }), [layer])) return;
+        this._writeSplitterManual(layer, write, action, opts);
     }
 
     // ---- the batch verb: "3fer them" ---------------------------------------
@@ -2937,42 +3733,57 @@ class _Power {
     // spelled out. The verb PARTITIONS - consecutive adjacent groups dealt
     // left to right along the wall - so 18 circuits under "3fer them"
     // become six separate 3fers, never one mega-gang. Adjacency is the
-    // splitter doctrine (never skip a run). A deal with any group past the
-    // amps is refused as a whole in automatic mode (the amps rule above);
-    // in custom mode it is honored and the group flags OVER.
+    // splitter doctrine (never skip a run).
+    //
+    // The owner's ruling, 2026-10-19: the batch verb ("3fer Screen" /
+    // "2fer Screen", the selection's "3fer them" alike, in automatic AND
+    // in custom mode) NEVER builds an OVER gang. A group takes the next run
+    // only while their load still fits the circuit - the amps rule's own
+    // figure (shareLoad against the screen's Amperage, the limit the OVER
+    // flag reads) - and closes at n runs, so the deal is the automatic
+    // packer's walk (_packPowerRuns) at maxWays n. Whatever is left over,
+    // and a run too big to share with its neighbour, stays on a circuit of
+    // its own with no tag. Before this the deal cut by COUNT alone: on a
+    // custom wall whose circuits were already three columns each, "3fer
+    // Screen" joined them in threes into 45-cabinet circuits that all read
+    // OVER, and it pulled the lone last column into a gang. This replaces
+    // the 2026-08-30 remainder re-deal (16 @ 3fer as 3,3,3,3,2,2): a
+    // remainder is a leftover, the way the automatic wall leaves it.
 
-    // Group sizes for `count` runs dealt as Nfers. The REMAINDER RE-DEALS
-    // so nothing is orphaned (user-vetoable choice, mock option (i)):
-    // a remainder of 2+ becomes its own smaller fer (8 @ 3fer -> 3,3,2);
-    // a remainder of 1 borrows from the last full group and goes out as
-    // two 2fers (16 @ 3fer -> 3,3,3,3,2,2). Only "2fer them" over an odd
-    // count leaves a single plain run - there is no smaller fer to deal.
+    // The one walk: `ids` in order cut into groups of at most `size`, a
+    // group closing early when `fits` refuses the next run. Pure.
+    _dealRunGroups(ids, size, fits) {
+        const n = Math.max(2, Number(size) || 2);
+        const groups = [];
+        let cur = [];
+        (ids || []).forEach(id => {
+            if (cur.length && (cur.length >= n || (fits && !fits(cur.concat([id]))))) {
+                groups.push(cur);
+                cur = [];
+            }
+            cur.push(id);
+        });
+        if (cur.length) groups.push(cur);
+        return groups;
+    }
+
+    // Group sizes for `count` runs that all fit together, dealt as Nfers:
+    // full groups of n, the remainder a smaller fer, or one plain run.
     batchNferGroups(count, n) {
         const L = Math.max(0, Number(count) || 0);
-        const size = Math.max(2, Number(n) || 2);
-        let full = Math.floor(L / size);
-        const rem = L % size;
-        let tail = [];
-        if (rem === 1 && size > 2 && full >= 1) {
-            // borrow the last full group and re-deal its n+1 runs as two
-            // smaller fers, biggest first: 3fer -> 2+2, 4fer -> 3+2
-            full -= 1;
-            const m = size + 1;
-            tail = [Math.ceil(m / 2), Math.floor(m / 2)];
-        } else if (rem >= 2) {
-            tail = [rem];
-        } else if (rem === 1) {
-            tail = [1];
-        }
-        return Array.from({ length: full }, () => size).concat(tail);
+        return this._dealRunGroups(Array.from({ length: L }, (_, i) => i), n)
+            .map(g => g.length);
     }
 
     // "6 × 3fer", "4 × 4fer + 2fer", "3 × 2fer + 1 plain" - the group math
     // the menu entry carries, so the deal is read before it is taken.
     batchNferLabel(count, n) {
-        const sizes = this.batchNferGroups(count, n);
+        return this._nferSizesLabel(this.batchNferGroups(count, n));
+    }
+
+    _nferSizesLabel(sizes) {
         const tally = new Map();
-        sizes.forEach(s => tally.set(s, (tally.get(s) || 0) + 1));
+        (sizes || []).forEach(s => tally.set(s, (tally.get(s) || 0) + 1));
         return [...tally.entries()].sort((a, b) => b[0] - a[0])
             .map(([sz, k]) => sz === 1
                 ? `${k} plain`
@@ -2980,43 +3791,207 @@ class _Power {
             .join(' + ');
     }
 
+    // Does a group of runs fit one circuit? The amps rule's figure, in
+    // either mode - the batch verb never leans on custom mode's licence.
+    _shareFits(layer, runIds, runAmps) {
+        const load = this.shareLoad(layer, runIds, runAmps);
+        return !(load.cap > 0 && load.amps > load.cap + 1e-9);
+    }
+
+    // A circuit the user took over by hand on an automatic screen (the
+    // Alt take-over, app-run-overrides.js). Never in whole-screen custom,
+    // where isRunOverridden is false for every number.
+    _isTakenOverCircuit(layer, num) {
+        return typeof this.isRunOverridden === 'function'
+            && this.isRunOverridden(layer, 'power', num);
+    }
+
+    // The runs of `circuitNums` a share may deal, in wall order, as
+    // SEGMENTS of neighbours. A taken-over circuit is a drawing, not a
+    // packed run: its runs are its own (a 3fer taken over stays a 3fer -
+    // _mergeOverrideCircuits) and its number is a CIRCUIT number, not a run
+    // ordinal. Dealing that number as a run - which every share verb did
+    // through `c.runIds || [c.num]` - ganged whatever auto run happened to
+    // carry the same ordinal: on a wall with circuit 2 taken over, "2fer
+    // them" over circuits 1-3 wrote run 2 into two groups and left the
+    // runs after it plain. So it is left out, and it breaks the line: the
+    // runs either side of it are not neighbours.
+    _shareRunSegments(layer, circuitNums) {
+        const chosen = new Set(circuitNums || []);
+        const segs = [[]];
+        this.screenCircuits(layer).forEach(c => {
+            if (!chosen.has(c.num)) return;
+            if (this._isTakenOverCircuit(layer, c.num)) {
+                if (segs[segs.length - 1].length) segs.push([]);
+                return;
+            }
+            (c.runIds || [c.num]).forEach(id => segs[segs.length - 1].push(id));
+        });
+        return segs.filter(seg => seg.length);
+    }
+
+    // The deal itself, pure: the run ids of `circuitNums` in wall order cut
+    // into groups that fit (see the ruling above). `over` names the first
+    // group refused for its load - for a deal that shares nothing at all,
+    // the first pair of neighbours - so a menu entry can say why. Read by
+    // the menu (to label the deal before it is taken) and by
+    // batchShareCircuits (to make it).
+    // `refs` (optional, wall circuits {layerId, num} in wall order) deal a
+    // custom group's wall across its members - `layer` is then the wall's
+    // owner and another member's runs read as tokens (_wallRunSegments).
+    batchShareGroups(layer, circuitNums, n, refs) {
+        const size = Math.max(2, Number(n) || 0);
+        const runAmps = refs ? this._wallRunAmps(layer) : this._splitterRunAmps(layer);
+        const runIds = [];
+        const groups = [];
+        const splits = [];
+        const sizes = [];
+        const tooWide = [];
+        let over = null;
+        const fits = (g) => {
+            if (this._shareFits(layer, g, runAmps)) return true;
+            if (!over) over = g.slice();
+            return false;
+        };
+        // Custom circuits follow the leg model (the owner's ruling,
+        // 2026-10-19, "a wide circuit splits into its own legs"): a run
+        // drawn across several columns is split into a run per column on
+        // its own circuit when its columns fit the size dealt and its load
+        // fits the amps, else left a circuit of its own - and it is never
+        // joined with a neighbour, so it breaks the line the single-column
+        // runs deal along. Automatic runs are always one column (the
+        // packer's), so an automatic deal is the walk it always was.
+        const custom = this.isCustomPower(layer);
+        const deal = (ids) => {
+            if (!ids.length) return;
+            const gs = this._dealRunGroups(ids, size, fits);
+            groups.push(...gs);
+            sizes.push(...gs.map(g => g.length));
+        };
+        (refs ? this._wallRunSegments(layer, refs)
+            : this._shareRunSegments(layer, circuitNums)).forEach(seg => {
+            runIds.push(...seg);
+            if (!custom) {
+                deal(seg);
+                return;
+            }
+            let line = [];
+            seg.forEach(id => {
+                const legs = this._runLegs(layer, id);
+                if (!legs || legs.legs.length < 2) {
+                    line.push(id);
+                    return;
+                }
+                deal(line);
+                line = [];
+                const ways = legs.legs.length;
+                if (ways <= size && this._shareFits(layer, [id], runAmps)) {
+                    splits.push({ id, ways });
+                    sizes.push(ways);
+                } else {
+                    if (ways > size) tooWide.push({ id, ways, noun: legs.noun });
+                    sizes.push(1);
+                }
+            });
+            deal(line);
+        });
+        return { runIds, groups, over, splits, sizes, tooWide };
+    }
+
+    // The legs of custom run `id` in a wall deal (_pathLegs): the wall's
+    // owner's run by its number, another member's by its
+    // `${layerId}:${run}` token. Null when the run has no drawing.
+    _runLegs(owner, id) {
+        let layer = owner;
+        let num = id;
+        if (typeof id === 'string') {
+            const [lid, n] = id.split(':').map(v => parseInt(v, 10));
+            layer = (this.project.layers || []).find(l => l.id === lid);
+            num = n;
+        }
+        const path = layer && (layer.powerCustomPaths || {})[num];
+        return (path && path.length) ? this._pathLegs(layer, path) : null;
+    }
+
     // Deal the chosen circuits' RUNS into Nfer groups, one manual-store
     // write, ONE history entry (`action`). Operates at the run level so an
     // existing gang inside the batch re-deals with everything else. A solo
-    // remainder on an auto screen is split-PINNED so re-packing cannot
-    // quietly gang what the deal left plain (custom circuits need no pin -
-    // they never auto-pack). Same id-space rules as every manual edit:
+    // run on an auto screen is split-PINNED so re-packing cannot quietly
+    // gang what the deal left plain (custom circuits need no pin - they
+    // never auto-pack). Same id-space rules as every manual edit:
     // _writeSplitterManual stamps the space the screen currently reads.
-    // Returns false - nothing written - when the amps rule refuses a group.
-
-    // The deal itself, pure: the run ids of `circuitNums` in wall order cut
-    // into Nfer groups. Read by the menu (to refuse a deal before it is
-    // offered) and by batchShareCircuits (to make it).
-    batchShareGroups(layer, circuitNums, n) {
-        const size = Math.max(2, Number(n) || 0);
-        const chosen = new Set(circuitNums || []);
-        const runIds = [];
-        this.screenCircuits(layer).forEach(c => {
-            if (!chosen.has(c.num)) return;
-            (c.runIds || [c.num]).forEach(id => runIds.push(id));
-        });
-        const groups = [];
-        let off = 0;
-        this.batchNferGroups(runIds.length, size).forEach(sz => {
-            groups.push(runIds.slice(off, off + sz));
-            off += sz;
-        });
-        return { runIds, groups };
-    }
-
-    batchShareCircuits(layer, circuitNums, n, action) {
-        if (!layer || !Array.isArray(circuitNums)) return false;
+    // Returns false - nothing written - when no two runs fit together.
+    // `refs`: a custom group's wall circuits (batchShareGroups); runs of
+    // another member are adopted first (_adoptWallCircuits), in the same
+    // history entry.
+    // `opts.tickSharing` ("2fer / 3fer this screen", the owner's ruling,
+    // 2026-10-21): the wall's "Share circuits via splitters" is ticked too,
+    // in the same history entry - every member of the wall at once, as the
+    // box writes it (_wireScreenPowerKnobs), and refused whole, the locked
+    // screens named, when a locked member would change.
+    batchShareCircuits(layer, circuitNums, n, action, refs, opts) {
+        if (!layer || !(Array.isArray(circuitNums) || Array.isArray(refs))) return false;
         // A locked screen stays unchanged (owner, 2026-10-16) - the setter
         // refuses and names it, whichever control called it.
         if (this._lockedRefused(layer)) return false;
-        const { runIds, groups } = this.batchShareGroups(layer, circuitNums, n);
-        if (runIds.length < 2) return false;
-        if (this.shareRefusal(layer, groups)) return false;
+        const wallWays = this.getPowerSplitters(layer).maxWays;
+        const tick = (opts && opts.tickSharing && !this.getPowerSplitters(layer).enabled)
+            ? this._splitterWallMembers(layer).filter(m => {
+                const own = this._ownPowerSplitters(m);
+                return !own.enabled || own.maxWays !== wallWays;
+            }) : [];
+        if (tick.some(m => this._layerLocked(m))) {
+            this._showLockedError(tick.filter(m => this._layerLocked(m)));
+            return false;
+        }
+        // A deal that would REPACK a locked screen (one grouped with this
+        // screen) is refused whole, the screen named (owner, 2026-10-23):
+        // everything below is written, checked, and put back before the
+        // commit when it moves a locked screen's packing %.
+        const repacked = this._repackTrial([layer]);
+        // An automatic screen with sharing off (the owner's ruling,
+        // 2026-10-22): its runs are the ones sharing gives, so sharing goes
+        // on first and the whole screen is dealt on those. A deal that
+        // shares nothing puts it back as it was.
+        let untick = null;
+        if (tick.length && !this.usesCustomCircuits(layer) && !refs) {
+            untick = this._wallSharingOn(layer);
+            circuitNums = this.screenCircuits(layer).map(c => c.num);
+        }
+        const deal = this.batchShareGroups(layer, circuitNums, n, refs);
+        let { runIds, groups, splits } = deal;
+        if (!runIds.length || (!groups.some(g => g.length >= 2) && !splits.length)) {
+            if (untick) untick();
+            return false;
+        }
+        // A split rewrites its run's path: a run drawn across a locked
+        // screen's cabinets is not rewritten (another member's run is
+        // checked by its adoption).
+        const lockedRuns = new Map();
+        splits.forEach(sp => {
+            if (typeof sp.id === 'string') return;
+            this._runLockedLayers(layer, 'power', sp.id)
+                .forEach(l => lockedRuns.set(l.id, l));
+        });
+        if (lockedRuns.size) {
+            if (untick) untick();
+            this._showLockedError([...lockedRuns.values()]);
+            return false;
+        }
+        let adopted = null;
+        if (refs && this._refsAdopt(layer, refs)) {
+            adopted = this._adoptWallCircuits(layer, refs);
+            if (!adopted) {
+                if (untick) untick();
+                return false;
+            }
+            const num = id => (typeof id === 'string' ? adopted.ids.get(id) : id);
+            runIds = runIds.map(num).filter(id => id !== undefined);
+            groups = groups.map(g => g.map(num).filter(id => id !== undefined))
+                .filter(g => g.length);
+            splits = splits.map(sp => ({ ...sp, id: num(sp.id) }))
+                .filter(sp => sp.id !== undefined);
+        }
         const custom = this.usesCustomCircuits(layer);
         this._writeSplitterManual(layer, (manual) => {
             const hit = new Set(runIds);
@@ -3032,8 +4007,1310 @@ class _Power {
                 }
             });
             manual.split = [...new Set(manual.split)].sort((a, b) => a - b);
-        }, action);
+        }, action, { silent: true });
+        // The wide runs, highest number first so a split's renumbering
+        // never moves a run still waiting for its own.
+        splits.slice().sort((a, b) => b.id - a.id).forEach(sp => {
+            const path = (layer.powerCustomPaths || {})[sp.id];
+            if (path && path.length) {
+                this._splitCustomRun(layer, sp.id, this._pathLegs(layer, path).legs);
+            }
+        });
+        const written = new Map((adopted ? adopted.touched : [layer]).map(l => [l.id, l]));
+        tick.forEach(m => {
+            const own = this._ownPowerSplitters(m);
+            m.powerSplitters = { ...own, enabled: true, maxWays: wallWays,
+                                 manual: (m.powerSplitters || {}).manual || own.manual };
+            written.set(m.id, m);
+        });
+        if (repacked()) return false;
+        this._commitWallShare([...written.values()], action);
         return true;
+    }
+
+    // Turn "Share circuits via splitters" on for every member of `layer`'s
+    // wall, at the wall's size, keeping each member's own shares. Returns
+    // the undo: each member's stored field put back exactly as it was.
+    // Unrecorded; the naming caches are dropped both ways.
+    _wallSharingOn(layer) {
+        const ways = this.getPowerSplitters(layer).maxWays;
+        const saved = this._splitterWallMembers(layer).map(m => ({
+            m, had: Object.prototype.hasOwnProperty.call(m, 'powerSplitters'),
+            value: m.powerSplitters,
+        }));
+        saved.forEach(({ m }) => {
+            m.powerSplitters = { ...(m.powerSplitters || {}), enabled: true, maxWays: ways };
+        });
+        this._circuitTailCache = null;
+        this._displayNumCache = null;
+        return () => {
+            saved.forEach(({ m, had, value }) => {
+                if (had) m.powerSplitters = value; else delete m.powerSplitters;
+            });
+            this._circuitTailCache = null;
+            this._displayNumCache = null;
+        };
+    }
+
+    // `fn()` read with the wall's sharing on, then put back - the menu
+    // works out "2fer this screen" on the runs it would deal.
+    _withWallSharingOn(layer, fn) {
+        const undo = this._wallSharingOn(layer);
+        try {
+            return fn();
+        } finally {
+            undo();
+        }
+    }
+
+    // ---- custom mode: a group is ONE wall -----------------------------------
+    //
+    // The owner's ruling, 2026-10-19: "3 fers etc can fill across screens
+    // just like in auto when in a group. remember it's treated as one screen
+    // in this way." Auto already packs a matching group as one wall whose
+    // first member reports every circuit (getAutoRoutePlan). Custom mode now
+    // does the same for EVERY group, mixed panels and wattages included (so
+    // a share can cross the seam - auto is unchanged): the group's first
+    // custom member owns and numbers every circuit drawn on the wall,
+    // whichever member is selected (powerPathOwner - the fill, a click, an
+    // arrow key, Tab and the active-circuit controls all draw there), so
+    // labels and multis run as one sequence, like auto. The drawing itself
+    // is the cross-layer path it always was: steps on a peer carry the
+    // peer's layerId (app-cross-layer-paths.js).
+    //
+    // An old file can still hold runs owned by other members. They open
+    // and draw unchanged. A wall action that needs one - a sweep, the batch
+    // verb or Share reaching it - ADOPTS it first (_adoptWallCircuits): its
+    // runs move into the owner's numbering after the owner's last number,
+    // and the label typed on it, its cable and its place on the distro are
+    // forgotten the way the dock's Clear circuit forgets them. The adoption
+    // and the share are ONE history entry. A locked member is never
+    // adopted from - the action is refused whole and the screen named.
+
+    // The custom-power members of `layer`'s wall in the group's own order,
+    // the owner first - or null off a group, off custom mode, or when no
+    // other member draws custom (a locked member left in auto). Members on
+    // another canvas are not on the wall (getPathScopeLayers).
+    _customPowerWall(layer) {
+        if (!layer || !this.isCustomPower(layer)) return null;
+        const group = (typeof this.getGroupOfLayer === 'function')
+            ? this.getGroupOfLayer(layer) : null;
+        if (!group) return null;
+        const rank = new Map();
+        (this.getGroupMembers(group) || []).forEach((m, i) => {
+            if (m) rank.set(m.id, i);
+        });
+        const at = m => (rank.has(m.id) ? rank.get(m.id) : Number.MAX_SAFE_INTEGER);
+        const members = this.getPathScopeLayers(layer)
+            .filter(m => m && this.isCustomPower(m))
+            .sort((a, b) => at(a) - at(b) || (a.id - b.id));
+        return members.length > 1 ? members : null;
+    }
+
+    // The layer a custom power drawing on `layer` is written to: the wall's
+    // owner on a custom group, the layer itself everywhere else.
+    powerPathOwner(layer) {
+        const wall = this._customPowerWall(layer);
+        return wall ? wall[0] : layer;
+    }
+
+    // The wall's circuits in wall order, [{ layer, c }]: the owner's, then
+    // each other member's own (an old file's) in group order - the order
+    // they take when adopted. Only DRAWN circuits: a member with nothing
+    // drawn reports its auto fallback from screenCircuits, which is no
+    // circuit at all here. One screen's circuits off a wall.
+    _wallCircuits(layer) {
+        const wall = this._customPowerWall(layer);
+        if (!wall) return this.screenCircuits(layer).map(c => ({ layer, c }));
+        const out = [];
+        wall.forEach(m => {
+            if (!this.usesCustomCircuits(m)) return;
+            this.screenCircuits(m).forEach(c => out.push({ layer: m, c }));
+        });
+        return out;
+    }
+
+    // Every wall circuit as a ref, the shape a share across the wall reads.
+    _wallRefs(layer) {
+        return this._wallCircuits(layer)
+            .map(x => ({ layerId: x.layer.id, num: x.c.num }));
+    }
+
+    // The run ids of `refs` (wall circuits, in wall order) as segments of
+    // neighbours, the _shareRunSegments of a wall: the owner's runs by their
+    // own ids, another member's by a `${layerId}:${run}` token until
+    // adoption numbers them.
+    _wallRunSegments(owner, refs) {
+        const byKey = new Map(this._wallCircuits(owner)
+            .map(x => [`${x.layer.id}:${x.c.num}`, x]));
+        const segs = [[]];
+        (refs || []).forEach(r => {
+            const x = byKey.get(`${r.layerId}:${r.num}`);
+            if (!x) return;
+            const mine = x.layer.id === owner.id;
+            if (mine && this._isTakenOverCircuit(owner, x.c.num)) {
+                if (segs[segs.length - 1].length) segs.push([]);
+                return;
+            }
+            (x.c.runIds || [x.c.num]).forEach(id => segs[segs.length - 1]
+                .push(mine ? id : `${x.layer.id}:${id}`));
+        });
+        return segs.filter(seg => seg.length);
+    }
+
+    // _splitterRunAmps across the wall, keyed the way _wallRunSegments
+    // names the runs.
+    _wallRunAmps(owner) {
+        const amps = this._splitterRunAmps(owner);
+        (this._customPowerWall(owner) || []).forEach(m => {
+            if (m.id === owner.id || !this.usesCustomCircuits(m)) return;
+            this._splitterRunAmps(m).forEach((v, id) => amps.set(`${m.id}:${id}`, v));
+        });
+        return amps;
+    }
+
+    // Do `refs` reach past the owner's own circuits?
+    _refsAdopt(owner, refs) {
+        return (refs || []).some(r => r.layerId !== owner.id);
+    }
+
+    // Adopt other members' circuits into the wall's owner. `refs` are
+    // circuits of those members, in wall order. Each moves whole: its feed
+    // is let go first (_takeCircuitOffMember), then every run's path goes
+    // to the owner under the next number after the owner's last, its steps
+    // re-pointed (a step on the member names it; a step on the owner drops
+    // the pointer, the plain form). Unrecorded - the caller's one entry
+    // carries it. Returns { ids: Map(token -> new number), touched } or
+    // null - nothing written, the locked screens named - when a member
+    // adopted from, or a screen one of its runs crosses, is locked.
+    _adoptWallCircuits(owner, refs) {
+        const jobs = [];
+        const locked = new Map();
+        if (this._layerLocked(owner)) locked.set(owner.id, owner);
+        (refs || []).forEach(r => {
+            if (r.layerId === owner.id) return;
+            const m = (this.project.layers || []).find(l => l.id === r.layerId);
+            const c = m && this.screenCircuits(m).find(x => x.num === r.num);
+            if (!c) return;
+            const runs = c.runIds || [c.num];
+            if (this._layerLocked(m)) locked.set(m.id, m);
+            runs.forEach(n => this._runLockedLayers(m, 'power', n)
+                .forEach(l => locked.set(l.id, l)));
+            jobs.push({ m, num: c.num, runs });
+        });
+        if (locked.size) {
+            this._showLockedError([...locked.values()]);
+            return null;
+        }
+        const pullBefore = this._pullLiveRowKeys();
+        this.ensureCustomPowerState(owner);
+        const paths = owner.powerCustomPaths;
+        let next = Object.keys(paths)
+            .filter(n => (paths[n] || []).length > 0)
+            .reduce((mx, n) => Math.max(mx, parseInt(n, 10) || 0), 0) + 1;
+        const ids = new Map();
+        const touched = new Set([owner]);
+        jobs.forEach(({ m, num, runs }) => {
+            const taken = this._takeCircuitOffMember(m, num, runs);
+            taken.touched.forEach(l => touched.add(l));
+            runs.forEach(n => {
+                paths[next] = (taken.steps[n] || []).map(e => {
+                    const entry = { ...e };
+                    const lid = e.layerId === undefined || e.layerId === null
+                        ? m.id : e.layerId;
+                    if (lid === owner.id) delete entry.layerId;
+                    else entry.layerId = lid;
+                    return entry;
+                });
+                ids.set(`${m.id}:${n}`, next);
+                next += 1;
+            });
+        });
+        this._dropPullEditsGoneWith(pullBefore);
+        this._circuitTailCache = null;
+        return { ids, touched: [...touched] };
+    }
+
+    // Take circuit `num` (its runs `runs`) off member `m` for good, ahead of
+    // its adoption. Its place on the distro goes the way the dock's Clear
+    // circuit lets it go (_clearCircuitChip): cut out of a multi of several
+    // (_socaReleaseCircuit), then the one-circuit multi it is left as
+    // forgets its box, number, tails and home run and its cuts. Its typed
+    // labels and cables go, and any share the member stored over its runs
+    // dissolves. Then its paths come off, and the multi bookkeeping closes
+    // the hole: every stored cut past it steps back one ordinal, and the
+    // multi it stood alone in leaves the per-multi stores
+    // (_spliceSocaStores). Returns { steps: {run: path}, touched }.
+    _takeCircuitOffMember(m, num, runs) {
+        const touched = new Set([m]);
+        this._circuitTailCache = null;
+        let slot = this._powerNaming(m).slots.get(num);
+        if (slot) {
+            const rec = this._powerNaming(m).socas.get(slot.multi);
+            if (rec && rec.circuits.length > 1) {
+                const r = this._socaReleaseCircuit(m, slot.multi, num);
+                if (r) r.touched.forEach(l => touched.add(l));
+                this._circuitTailCache = null;
+                slot = this._powerNaming(m).slots.get(num);
+            }
+        }
+        if (slot) {
+            const idx = slot.multi;
+            for (const field of ['powerSocaNumber', 'powerSocaDistro',
+                                 'powerSocaPhasePos', 'powerSocaPhaseOffset',
+                                 'powerSocaNames']) {
+                if (m[field]) delete m[field][idx];
+            }
+            this._forgetFeedLengths(m, idx, [num]);
+            this._resegmentSocaStores(m, this._socaClearSplitPoints(m, [idx]));
+        }
+        const list = this.screenCircuits(m);
+        const count = list.length;
+        const o = list.findIndex(x => x.num === num) + 1;
+        const own = o > 0 ? this._socaSegments(m, count)
+            .find(seg => seg.start === o && seg.end === o) : null;
+        const points = this._socaSplitPoints(m, count);
+        if (this._splitterManualSpace(m) === 'custom') {
+            const cur = this._ownPowerSplitters(m);
+            const hit = new Set(runs);
+            m.powerSplitters = { ...cur, manual: {
+                merge: cur.manual.merge.filter(g => Array.isArray(g)
+                    && !g.some(n => hit.has(parseInt(n, 10)))),
+                split: cur.manual.split.filter(n => !hit.has(parseInt(n, 10))),
+                space: 'custom',
+            } };
+        }
+        const steps = {};
+        runs.forEach(n => {
+            steps[n] = (m.powerCustomPaths && m.powerCustomPaths[n]) || [];
+            if (m.powerCustomPaths) delete m.powerCustomPaths[n];
+            if (m.powerLabelOverrides) delete m.powerLabelOverrides[n];
+            this._forgetRunCable(m, 'power', n);
+        });
+        if (o > 0) {
+            if (own) this._spliceSocaStores(m, own.index, -1);
+            m.powerSocaSplits = [...new Set(points.filter(p => p !== o)
+                .map(p => (p > o ? p - 1 : p)))]
+                .filter(p => p >= 1).sort((a, b) => a - b);
+        }
+        this._circuitTailCache = null;
+        return { steps, touched };
+    }
+
+    // ── A wall that shrinks: its drawn circuits (the owner, 2026-11-02) ──
+    //
+    // The data side came first (app-merge-runs.js trimPortsOffWall). Power
+    // had the same fault: a circuit taken over by hand across columns 0-9
+    // still listed columns 6-9 once the wall was cut to 6 columns, and a
+    // custom circuit drawn wholly on columns 6-9 stayed a circuit with no
+    // cabinets, listed and counted. The ruling, "trim, leave the hole":
+    //   trim       every drawn circuit (custom paths, a taken-over circuit's
+    //              path, a drawing left from a custom spell) drops the
+    //              cabinets that fell off the wall. A `branch` mark (the
+    //              head of a shared take-over's next run) passes to the
+    //              run's first cabinet still on the wall.
+    //   the hole   a circuit left with none is removed and every other
+    //              circuit KEEPS its number: unlike a port, nothing closes
+    //              up. On a custom screen the circuit comes off its multi
+    //              the way Unplug circuit takes it off (its cable, its
+    //              label, its share entries; its multi's home run when it
+    //              was the multi's only circuit), and every other circuit
+    //              keeps its distro, its multi number and its tail
+    //              (_removeCircuitsKeepFeeds). On an automatic screen a
+    //              taken-over circuit left with none is let go the way
+    //              returnRunToAuto lets it go, its cable with it, and the
+    //              walk deals the wall as it does after any shrink.
+    //   shares     a custom 2fer or 3fer keeps the legs that still have
+    //              cabinets; with one leg left it is a plain circuit, with
+    //              none it goes. A circuit whose FIRST leg went is read by
+    //              its next one, so its typed label and cable follow.
+    // The pass rides trimPortsOffWall: the same hooks (updateLayers, the
+    // load repair, the `_projectOpening` hold), the same off-the-wall test
+    // (`onWall`, a step past the grid of the screen it names, its own or a
+    // group peer's) and one toast. Returns { layers: the screens it wrote,
+    // notes: the toast's sentences }.
+    //
+    // LOCKED SCREENS (the owner's rule, 2026-10-16: a locked screen stays
+    // unchanged until unlocked, and any attempt says why). A locked owner
+    // keeps its circuits as they are. A removal that would change another
+    // locked screen - repack it (the repack lock every unplug runs,
+    // _repackTrial, a locked member of the owner's group) or move its
+    // circuits, numbers or tails on a multi box it shares - is not made:
+    // everything it wrote is put back and the circuit stays, pending, until
+    // the screen is unlocked; the next layer save tries again. Each is said
+    // in the locked error naming what was kept (_sayTrimHeld), once for as
+    // long as it stays held - the pass runs on every layer save.
+    _trimCircuitsOffWall({ load = false, onWall } = {}) {
+        const out = { layers: [], notes: [] };
+        if (!this.project || !Array.isArray(this.project.layers)
+                || typeof onWall !== 'function') {
+            return out;
+        }
+        const plans = [];
+        this.project.layers.forEach(owner => {
+            if (!owner || (owner.type || 'screen') !== 'screen') return;
+            const old = owner.powerCustomPaths;
+            if (!old || typeof old !== 'object') return;
+            const trimmed = {};
+            let cut = 0;
+            Object.keys(old).forEach(k => {
+                const path = old[k];
+                if (!Array.isArray(path)) return;
+                const kept = this._circuitStepsOnWall(owner, path, onWall);
+                if (kept.length === path.length) return;
+                trimmed[k] = kept;
+                cut += path.length - kept.length;
+            });
+            if (!cut) return;
+            const custom = this.isCustomPower(owner);
+            const ovr = custom ? [] : this.getOverrideNums(owner, 'power');
+            const live = n => custom || ovr.includes(n);
+            const emptied = Object.keys(trimmed).map(k => parseInt(k, 10))
+                .filter(n => Number.isFinite(n) && live(n) && trimmed[n].length === 0)
+                .sort((a, b) => a - b);
+            if (this._layerLocked(owner)) {
+                sendClientLog('circuits_off_wall_locked',
+                    { layerId: owner.id, cut, circuits: emptied });
+                const labels = emptied.map(n => this.getPowerCircuitLabel(owner, n));
+                const one = labels.length === 1;
+                this._sayTrimHeld(owner, 'owner', [owner], null, labels.length
+                    ? `${owner.name || 'Screen'}: ${this._trimCircuitsText(labels, load)} `
+                        + `and ${one ? 'stays' : 'stay'} as ${one ? 'it is' : 'they are'}.`
+                    : `${owner.name || 'Screen'}: its circuits keep the cabinets that came off the wall.`,
+                `${cut}:${emptied.join(',')}`);
+                return;
+            }
+            plans.push({ owner, trimmed, emptied, cut, custom, load });
+        });
+        if (!plans.length) return out;
+
+        const pullBefore = typeof this._pullLiveRowKeys === 'function'
+            ? this._pullLiveRowKeys() : null;
+        const touched = new Set();
+        plans.forEach(plan => {
+            const r = plan.custom
+                ? this._trimCustomCircuits(plan) : this._trimTakenOverCircuits(plan);
+            r.touched.forEach(l => touched.add(l));
+            const name = plan.owner.name || 'Screen';
+            const said = [];
+            if (r.removed.length) {
+                const one = r.removed.length === 1;
+                said.push(this._trimCircuitsText(r.removed, load)
+                    + `, so ${one ? 'it is' : 'they are'} gone`
+                    + (plan.custom ? ' and the other circuits keep their numbers.' : '.'));
+            }
+            if (r.unplugged.length) {
+                const one = r.unplugged.length === 1;
+                said.push(`${r.unplugged.join(', ')} ${one ? 'is' : 'are'} unplugged `
+                    + `from ${one ? 'its' : 'their'} distro.`);
+            }
+            r.shares.forEach(s => {
+                said.push(`Circuit ${s.label} lost ${s.lost === 1 ? 'a leg' : 'legs'} `
+                    + 'that came off the wall'
+                    + (s.ways >= 2 ? ` and is a ${s.ways}fer now.` : ' and is one circuit now.'));
+            });
+            if (said.length) out.notes.push(`${name}: ${said.join(' ')}`);
+            sendClientLog('circuits_off_wall_trimmed', {
+                layerId: plan.owner.id, cut: plan.cut, removed: r.removedNums,
+                held: r.held || [],
+                shares: r.shares.map(s => ({ num: s.num, ways: s.ways })), load: !!load,
+            });
+        });
+        if (pullBefore && typeof this._dropPullEditsGoneWith === 'function') {
+            this._dropPullEditsGoneWith(pullBefore);
+        }
+        this._circuitTailCache = null;
+        // A show being opened takes its first history entry afresh, which
+        // forgets a moved multi hold; its distros are written here instead.
+        if (load && this._multiHoldsDirty && typeof this._persistDistros === 'function') {
+            this._persistDistros();
+        }
+        out.layers = [...touched];
+        return out;
+    }
+
+    // "circuits S1-2, S1-3 had only cabinets that came off the wall" (or,
+    // opening a show, "had no cabinets on the wall").
+    _trimCircuitsText(labels, load) {
+        const one = labels.length === 1;
+        return `circuit${one ? '' : 's'} ${labels.join(', ')} `
+            + (load ? 'had no cabinets on the wall' : 'had only cabinets that came off the wall');
+    }
+
+    // The locked error for a trim the lock held, said once while that same
+    // trim stays held (`key`): the pass runs on every layer save, and the
+    // user hears it the first time, not on every edit after. A trim that
+    // goes through forgets the screen's keys, so a later hold is said anew.
+    _sayTrimHeld(owner, kind, screens, why, lead, key) {
+        const held = this._circuitTrimHeld || (this._circuitTrimHeld = new Set());
+        const id = `${owner.id}|${kind}|${key}`;
+        if (held.has(id)) return;
+        held.add(id);
+        this._showLockedError(screens, why, lead);
+    }
+
+    _forgetTrimHeld(owner) {
+        const held = this._circuitTrimHeld;
+        if (!held) return;
+        [...held].forEach(id => { if (id.startsWith(`${owner.id}|`)) held.delete(id); });
+    }
+
+    // What a locked screen shows of its power and holds of it: every
+    // power store, and each multi's distro, number, circuits and tails as
+    // the naming reads them. A removal elsewhere that changes this changed
+    // the locked screen.
+    _lockedPowerFacts(layer) {
+        const fields = {};
+        Object.keys(layer).forEach(k => {
+            if (k.startsWith('power')) fields[k] = layer[k];
+        });
+        const socas = [...this._powerNaming(layer).socas.values()].map(rec => [
+            rec.index, rec.distroId || null, rec.number, rec.circuits,
+            Array.isArray(rec.positions) ? rec.positions : null,
+        ]);
+        return JSON.stringify({ fields, socas });
+    }
+
+    // The locked screens on any distro one of `layers` feeds from: the
+    // only ones a change to those screens' circuits can deal again or
+    // re-number (a box and its numbers belong to one distro).
+    _lockedOnDistrosOf(layers) {
+        const ids = new Set();
+        (layers || []).forEach(l => {
+            if (l) Object.values(l.powerSocaDistro || {}).forEach(id => { if (id) ids.add(id); });
+        });
+        if (!ids.size) return [];
+        return ((this.project && this.project.layers) || []).filter(l => l
+            && (l.type || 'screen') === 'screen' && this._layerLocked(l)
+            && Object.values(l.powerSocaDistro || {}).some(id => ids.has(id)));
+    }
+
+    // THE SHARED-BOX LOCK (the owner's rule, 2026-10-16: a locked screen
+    // stays unchanged until unlocked, and any attempt says why). A gesture
+    // on an unlocked screen can still move a LOCKED screen's circuits
+    // through a multi box they share, or a distro they are both on: a
+    // circuit unplugged, a multi cleared, split, pinned or moved, a share
+    // or a row of the distro changed re-deals the box, and a locked member
+    // that does not store its tails is dealt again with it.
+    //
+    // Called BEFORE the gesture's first write, it returns moved(), to call
+    // after the writes and before the commit. moved() is true when a locked
+    // screen's power (_lockedPowerFacts) is not what it was: then every
+    // record the gesture wrote is already put back (_holdPowerRecords), the
+    // locked screens are named ('shared', or `say(screens)` when given),
+    // and the caller returns without its commit or its history entry.
+    // False keeps the change - the locked screens were never written
+    // (_materializeSocaBox leaves them alone).
+    //
+    // A gesture made of setters that run this lock themselves (a drop that
+    // assigns and pins) runs it around them too: a setter refused inside
+    // the gesture's own trial refuses the whole gesture, without a second
+    // error. _repackTrial runs this lock with the repack lock.
+    _lockedPowerTrial(say = null) {
+        const locked = ((this.project && this.project.layers) || []).filter(l => l
+            && (l.type || 'screen') === 'screen' && this._layerLocked(l));
+        if (!locked.length) return () => false;
+        const mark = this._lockedPowerRefusals || 0;
+        this._circuitTailCache = null;
+        const before = new Map(locked.map(l => [l, this._lockedPowerFacts(l)]));
+        const release = this._holdPowerRecords();
+        return () => {
+            this._circuitTailCache = null;
+            const moved = locked.filter(l => this._lockedPowerFacts(l) !== before.get(l));
+            const inner = (this._lockedPowerRefusals || 0) !== mark;
+            if (!moved.length && !inner) return false;
+            release();
+            this._circuitTailCache = null;
+            if (moved.length) {
+                this._lockedPowerRefusals = (this._lockedPowerRefusals || 0) + 1;
+                sendClientLog('locked_shared_refused', { screens: moved.map(l => l.id) });
+                if (typeof say === 'function') say(moved);
+                else this._showLockedError(moved, 'shared');
+            }
+            return true;
+        };
+    }
+
+    // Make a removal (`apply`) on `owner` only if no locked screen changes
+    // with it: the repack lock the unplug gestures run (_repackTrial, the
+    // locked members of the owner's group, whose packing % the wall
+    // shares) and the shared-box lock it runs with it (_lockedPowerTrial,
+    // a multi box shared with the owner re-dealing a locked screen's
+    // tails). Either way, a refusal puts back everything `apply` wrote and
+    // says so, `lead` first (_sayTrimHeld). True when the removal stands.
+    _trimUnderLocks(owner, lead, key, apply) {
+        const say = (screens, why) => this._sayTrimHeld(owner, why, screens, why, lead, key);
+        const refused = this._repackTrial([owner], say);
+        apply();
+        this._circuitTailCache = null;
+        return !refused();
+    }
+
+    // `path` without the steps off the wall. A dropped step that started a
+    // run (`branch`, a shared take-over) hands the mark to the first step
+    // of that run still on the wall, so each run still starts where it did.
+    // The same array when nothing is dropped.
+    _circuitStepsOnWall(owner, path, onWall) {
+        if (path.every(e => onWall(owner, e))) return path;
+        const kept = [];
+        let pending = false;
+        path.forEach((e, i) => {
+            if (i > 0 && e && e.branch) pending = true;
+            if (!onWall(owner, e)) return;
+            kept.push(pending && kept.length && !e.branch ? { ...e, branch: true } : e);
+            pending = false;
+        });
+        return kept;
+    }
+
+    // An automatic screen: the trimmed paths are written, and a taken-over
+    // circuit left with no cabinets is let go (returnRunToAuto's way) with
+    // its cable. A drawing left from a custom spell that lost everything
+    // simply goes.
+    _trimTakenOverCircuits({ owner, trimmed, emptied, load }) {
+        const paths = owner.powerCustomPaths;
+        const removed = emptied.map(n => this.getPowerCircuitLabel(owner, n));
+        const live = new Set(emptied.map(String));
+        Object.keys(trimmed).forEach(k => {
+            if (trimmed[k].length) paths[k] = trimmed[k];
+            else if (!live.has(k)) delete paths[k];
+        });
+        const out = { touched: [owner], removed, removedNums: emptied, unplugged: [], shares: [] };
+        if (!emptied.length) return out;
+        const one = removed.length === 1;
+        const lead = `${owner.name || 'Screen'}: ${this._trimCircuitsText(removed, load)} `
+            + `and ${one ? 'stays' : 'stay'} for now.`;
+        const done = this._trimUnderLocks(owner, lead, emptied.join(','), () => {
+            emptied.forEach(n => {
+                delete paths[n];
+                this._dropRunOverride(owner, 'power', n);
+                this._forgetRunCable(owner, 'power', n);
+            });
+        });
+        this._circuitTailCache = null;
+        if (done) {
+            this._forgetTrimHeld(owner);
+            return out;
+        }
+        return { ...out, removed: [], removedNums: [], held: emptied };
+    }
+
+    // A custom screen: partial trims written, shares that lost a leg kept
+    // with the legs left, and every circuit left with no cabinets removed
+    // with its feed (_removeCircuitsKeepFeeds).
+    _trimCustomCircuits({ owner, trimmed, emptied, load }) {
+        const paths = owner.powerCustomPaths;
+        const emptySet = new Set(emptied);
+        const covered = new Set();
+        const whole = [];
+        const legs = [];
+        // Read before anything moves: the circuits as the wall shows them.
+        this._circuitTailCache = null;
+        this.screenCircuits(owner).forEach(c => {
+            const runs = (c.runIds || [c.num]).map(n => parseInt(n, 10));
+            runs.forEach(n => covered.add(n));
+            const gone = runs.filter(n => emptySet.has(n));
+            if (!gone.length) return;
+            const label = this.getPowerCircuitLabel(owner, c.num);
+            if (gone.length === runs.length) whole.push({ num: c.num, runs, label });
+            else legs.push({ num: c.num, runs, gone, label });
+        });
+        // Paths that keep cabinets take their trim now; an emptied run of a
+        // circuit keeps its steps until that circuit is taken off below.
+        Object.keys(trimmed).forEach(k => {
+            const n = parseInt(k, 10);
+            if (trimmed[k].length) { paths[k] = trimmed[k]; return; }
+            if (!Number.isFinite(n) || !covered.has(n)) delete paths[k];
+        });
+        const shares = [];
+        legs.forEach(g => {
+            const left = g.runs.filter(n => !g.gone.includes(n));
+            // the share keeps its other legs; with one left it dissolves
+            this._wipeSplitterManualFor(owner, g.gone);
+            g.gone.forEach(n => {
+                delete paths[n];
+                if (n !== g.num && owner.powerLabelOverrides) delete owner.powerLabelOverrides[n];
+                if (n !== g.num) this._forgetRunCable(owner, 'power', n);
+            });
+            // the circuit is read by its first leg now
+            const head = left[0];
+            if (head !== g.num) {
+                ['powerLabelOverrides', 'powerCircuitCables'].forEach(key => {
+                    const store = owner[key];
+                    if (!store || store[g.num] === undefined) return;
+                    if (store[head] === undefined) store[head] = store[g.num];
+                    delete store[g.num];
+                });
+            }
+            shares.push({ num: head, label: g.label, ways: left.length, lost: g.gone.length });
+        });
+        let touched = [owner];
+        let unplugged = [];
+        let held = [];
+        if (whole.length) {
+            const one = whole.length === 1;
+            const lead = `${owner.name || 'Screen'}: `
+                + `${this._trimCircuitsText(whole.map(g => g.label), load)} `
+                + `and ${one ? 'stays' : 'stay'} for now.`;
+            let r = null;
+            const done = this._trimUnderLocks(owner, lead, whole.map(g => g.num).join(','),
+                () => { r = this._removeCircuitsKeepFeeds(owner, whole); });
+            if (done) {
+                touched = r.touched;
+                unplugged = whole.filter(g => r.unplugged.includes(g.num)).map(g => g.label);
+                this._forgetTrimHeld(owner);
+            } else {
+                held = whole.map(g => g.num);
+            }
+        }
+        const ed = this._overrideEditing;
+        if (ed && ed.kind === 'power' && ed.layerId === owner.id && emptySet.has(ed.num)
+                && !held.length) {
+            this._overrideEditing = null;
+        }
+        this._circuitTailCache = null;
+        const kept = whole.filter(g => !held.includes(g.num));
+        return {
+            touched, removed: kept.map(g => g.label), removedNums: kept.map(g => g.num),
+            unplugged, shares, held,
+        };
+    }
+
+    // Take custom circuits `gone` ([{ num, runs }], still drawn) off
+    // `layer` for good, every other circuit kept on its feed. A circuit's
+    // multi is read by its PLACE among the screen's circuits, so a circuit
+    // taken out moves every later one a place down, and the box grid (six
+    // to a soca) would then regroup them: the first circuit of the next
+    // multi slid into this one. So the multis are rebuilt from what each
+    // one held: a multi keeps the circuits it had (less the gone ones), its
+    // distro, its number (held as a pin, as Unplug circuit holds the parts
+    // it leaves), its home run, its name and each circuit's tail - so S1
+    // feeding 1-6 on tails 1-6 reads S1-1, S1-3 ... S1-6 with tail 2 free.
+    // Where the grid still cuts a multi in two, both parts sit on the same
+    // box (the shared-box shape Unplug circuit leaves), each circuit on its
+    // tail; the home run stays with the first part. A multi left with no
+    // circuit goes with its programming and home run. Unplugged multis next
+    // to each other are not kept apart (the leftover rule a clear runs,
+    // _socaClearSplitPoints): they fall back onto the box grid. Every
+    // other screen on a shared box holds its tails first, as every split
+    // does (_materializeSocaBox). Unrecorded: the caller's entry carries
+    // it. Returns { touched: layers written, unplugged: the gone circuit
+    // numbers that were on a distro }.
+    _removeCircuitsKeepFeeds(layer, gone) {
+        const touched = new Set([layer]);
+        const goneNums = new Set(gone.map(g => g.num));
+        this._circuitTailCache = null;
+        const before = this.screenCircuits(layer);
+        const segs = this._socaSegments(layer, before.length);
+        let naming = this._powerNaming(layer);
+        const assign = layer.powerSocaDistro || {};
+        const olds = segs.map(s => {
+            const circ = before.slice(s.start - 1, s.end).map(c => c.num);
+            return { s, circ, keep: circ.filter(n => !goneNums.has(n)),
+                     fed: !!assign[s.index] };
+        });
+        const firstHit = olds.findIndex(o => o.keep.length !== o.circ.length);
+        // A LOCKED screen on the box is not written, not even to hold the
+        // tails it shows (_materializeSocaBox passes it by): it keeps its
+        // stores as they are, and if the rebuild would deal its tails
+        // again, the caller's lock check (_trimUnderLocks) finds it and
+        // puts the removal back.
+        olds.forEach((o, i) => {
+            if (firstHit < 0 || i < firstHit || !o.fed) return;
+            const rec = naming.socas.get(o.s.index);
+            if (!rec) return;
+            this._materializeSocaBox(rec.distroId, rec.number, layer, o.s.index)
+                .forEach(l => touched.add(l));
+        });
+        this._circuitTailCache = null;
+        naming = this._powerNaming(layer);
+        const unplugged = [];
+        olds.forEach(o => {
+            const rec = naming.socas.get(o.s.index);
+            o.distroId = assign[o.s.index] || null;
+            o.number = rec ? parseInt(rec.number, 10) : NaN;
+            o.tails = new Map();
+            if (rec && Array.isArray(rec.positions) && rec.positions.length === o.circ.length) {
+                o.circ.forEach((n, k) => o.tails.set(n, rec.positions[k]));
+            }
+            if (o.fed) o.circ.forEach(n => { if (goneNums.has(n)) unplugged.push(n); });
+        });
+        const FIELDS = ['powerSocaDistro', 'powerSocaLengths', 'powerSocaPhasePos',
+                        'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaNumber'];
+        const snap = {};
+        FIELDS.forEach(f => { snap[f] = { ...(layer[f] || {}) }; });
+
+        // The circuits go: paths, typed labels and cables, share entries -
+        // the entries first, while the drawn numbers still read as custom.
+        this._wipeSplitterManualFor(layer, gone.flatMap(g => g.runs));
+        gone.forEach(g => {
+            [g.num, ...g.runs].forEach(n => {
+                if (layer.powerCustomPaths) delete layer.powerCustomPaths[n];
+                if (layer.powerLabelOverrides) delete layer.powerLabelOverrides[n];
+                this._forgetRunCable(layer, 'power', n);
+            });
+        });
+        this._circuitTailCache = null;
+
+        // The multis again, each from what it held.
+        if (firstHit < 0) return { touched: [...touched], unplugged };
+        this._rebuildSocaStores(layer, olds, snap);
+        return { touched: [...touched], unplugged };
+    }
+
+    // Write a screen's multi stores again from what each multi holds now:
+    // `olds` is one entry per multi in wall order - { s: its segment as it
+    // was (index, userEnd), circ: the circuits it had, keep: the circuits
+    // it has now, fed, distroId, number, tails: circuit -> tail } - and
+    // `snap` the stores as they were (FIELDS below). A multi boundary goes
+    // where a plugged multi now ends off the box grid, and each part takes
+    // its multi's distro, number and its circuits' tails. Shared by a
+    // removal (_removeCircuitsKeepFeeds) and a newcomer
+    // (_seatNewCustomCircuit). Unrecorded.
+    _rebuildSocaStores(layer, olds, snap) {
+        const FIELDS = ['powerSocaDistro', 'powerSocaLengths', 'powerSocaPhasePos',
+                        'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaNumber'];
+        const size = this.socaBoxSize(layer);
+        const groups = [];
+        let ord = 0;
+        olds.forEach(o => {
+            if (!o.keep.length) return;
+            groups.push({ o, start: ord + 1, end: ord + o.keep.length });
+            ord += o.keep.length;
+        });
+        const points = [];
+        for (let i = 0; i + 1 < groups.length; i++) {
+            const a = groups[i], b = groups[i + 1];
+            if (a.end % size === 0) continue;
+            if (a.o.fed || b.o.fed || (a.o.s && a.o.s.userEnd)) points.push(a.end);
+        }
+        if (Array.isArray(layer.powerSocaSplits) || points.length) {
+            layer.powerSocaSplits = points;
+        }
+        const nums = groups.flatMap(g => g.o.keep);
+        const groupAt = [];
+        groups.forEach((g, gi) => { for (let i = g.start; i <= g.end; i++) groupAt[i] = gi; });
+        const next = {};
+        FIELDS.forEach(f => {
+            next[f] = {};
+            Object.keys(snap[f]).forEach(k => {
+                // not a multi index, so not ours to move (_spliceSocaStores)
+                if (!Number.isFinite(parseInt(k, 10))) next[f][k] = snap[f][k];
+            });
+        });
+        const firstPart = new Map();
+        this._socaSegments(layer, ord).forEach(ns => {
+            const g = groups[groupAt[ns.start]];
+            if (!g) return;
+            const o = g.o;
+            const oi = o.s ? o.s.index : null;
+            const first = oi != null && !firstPart.has(oi);
+            if (first) firstPart.set(oi, ns.index);
+            const carry = (f) => {
+                if (snap[f][oi] !== undefined) next[f][ns.index] = snap[f][oi];
+            };
+            if (first && ns.start === g.start && ns.end === g.end
+                    && o.keep.length === o.circ.length) {
+                FIELDS.forEach(carry);
+                return;
+            }
+            if (first) carry('powerSocaLengths');
+            carry('powerSocaNames');
+            if (!o.fed) return;
+            next.powerSocaDistro[ns.index] = o.distroId;
+            if (Number.isFinite(o.number) && o.number >= 1) {
+                next.powerSocaNumber[ns.index] = o.number;
+            }
+            const pos = nums.slice(ns.start - 1, ns.end).map(n => o.tails.get(n));
+            if (pos.every(p => Number.isInteger(p) && p >= 1) && new Set(pos).size === pos.length) {
+                next.powerSocaPhasePos[ns.index] = pos;
+            }
+        });
+        if (typeof this._rekeyMultiHolds === 'function') {
+            this._rekeyMultiHolds(layer, n => (firstPart.has(n) ? firstPart.get(n) : null));
+        }
+        FIELDS.forEach(f => {
+            if (layer[f] !== undefined || Object.keys(next[f]).length) layer[f] = next[f];
+        });
+        this._circuitTailCache = null;
+    }
+
+    // Clear Circuit on a custom screen: the drawn circuit holding run
+    // `num` comes off the wall the way a trim takes an emptied circuit off
+    // (_removeCircuitsKeepFeeds), so every other circuit keeps its distro,
+    // its multi number and its tail. A multi is read by its circuits'
+    // PLACES, and deleting the path alone moved every later circuit a
+    // place down: the next circuit, unplugged, slid onto the freed slot
+    // and read DISTRO 1-2-1 (QA 1.6.0-beta.4). The circuit's own label
+    // override, cable and share entries go with it, as Unplug circuit
+    // forgets them. `whole` takes a shared circuit (a 2fer, 3fer) with
+    // every leg; otherwise only a circuit of the one run is taken, and a
+    // leg of a share is left to the caller. Unrecorded: the caller's
+    // entry carries it. Returns the layers written, or null when there is
+    // no such drawn circuit here (the caller deletes the path as before).
+    _clearDrawnCircuitKeepFeeds(layer, num, whole = false) {
+        const n = parseInt(num, 10);
+        if (!layer || !Number.isFinite(n) || !this.usesCustomCircuits(layer)) return null;
+        this._circuitTailCache = null;
+        const c = this.screenCircuits(layer)
+            .find(x => (x.runIds || [x.num]).map(Number).includes(n));
+        if (!c) return null;
+        const runs = (c.runIds || [c.num]).map(Number);
+        if (runs.length > 1 && !whole) return null;
+        return this._removeCircuitsKeepFeeds(layer, [{ num: c.num, runs }]).touched;
+    }
+
+    // A circuit drawn NEW on a custom screen keeps every plugged circuit on
+    // its tail (sticky multi numbers, the owner's ruling): a Clear Circuit
+    // leaves its tail free, and the next circuit drawn used to re-pack the
+    // multi onto it - 1, 3, 4 on tails 1, 3, 4 read 1, 3, 4, 5 on tails
+    // 1-4 (QA 1.6.0-beta.4, round 3). `before` is _customSeatSnapshot,
+    // taken before the first cabinet went on. The newcomer joins the multi
+    // of a neighbour it can sit beside: the lowest free tail of that box
+    // between the tails of the circuits either side of it, the stores
+    // written again around it (_rebuildSocaStores). Past the last circuit,
+    // beside a full box, it opens a multi of its own. When the write would
+    // move any other circuit, or nothing fits in order, the stores are put
+    // back and the multi deals as it always did. Unrecorded: the caller's
+    // entry carries it. Returns the layers written ([] for none).
+    _customSeatSnapshot(layer) {
+        if (!layer || !this.usesCustomCircuits(layer)) return null;
+        this._circuitTailCache = null;
+        const nm = this._powerNaming(layer);
+        const recs = [...nm.socas.values()].map(r => ({
+            index: r.index, distroId: r.distroId || null, number: Number(r.number),
+            circuits: (r.circuits || []).map(Number),
+            positions: Array.isArray(r.positions) ? r.positions.slice() : null }));
+        return { nums: this.screenCircuits(layer).map(c => Number(c.num)), recs };
+    }
+
+    _seatNewCustomCircuit(layer, num, before) {
+        const n = Number(num);
+        if (!before || !layer || before.nums.includes(n)) return [];
+        this._circuitTailCache = null;
+        const nums = this.screenCircuits(layer).map(c => Number(c.num));
+        const k = nums.indexOf(n) + 1;
+        if (!k || nums.length !== before.nums.length + 1) return [];
+        const prev = k > 1 ? nums[k - 2] : null;
+        const next = k < nums.length ? nums[k] : null;
+        const size = this.socaBoxSize(layer);
+        const assign = layer.powerSocaDistro || {};
+        // The multis as they were: the push wrote no store, so the old
+        // segments are the stored splits over the old count.
+        const olds = this._socaSegments(layer, before.nums.length).map(seg => {
+            const circ = before.nums.slice(seg.start - 1, seg.end);
+            const rec = before.recs.find(r => r.index === seg.index);
+            const tails = new Map();
+            if (rec && rec.positions && rec.positions.length === circ.length) {
+                circ.forEach((c, i) => tails.set(c, rec.positions[i]));
+            }
+            return { s: seg, circ, keep: circ.slice(), fed: !!assign[seg.index],
+                     distroId: assign[seg.index] || null,
+                     number: rec ? Number(rec.number) : NaN, tails };
+        });
+        const plugged = (o) => o && o.fed && o.tails.size === o.circ.length;
+        const ofCircuit = (c) => olds.find(o => o.circ.includes(c)) || null;
+        // Tails of the box held by every other multi on it, any screen.
+        const takenOn = (o) => {
+            const taken = new Set(o.tails.values());
+            for (const l of ((this.project && this.project.layers) || [])) {
+                if ((l.type || 'screen') !== 'screen') continue;
+                for (const r of this._powerNaming(l).socas.values()) {
+                    if (l === layer && r.index === o.s.index) continue;
+                    if (r.distroId !== o.distroId || Number(r.number) !== o.number) continue;
+                    (r.positions || []).forEach(p => taken.add(p));
+                }
+            }
+            return taken;
+        };
+        const seat = (o) => {
+            if (!plugged(o)) return null;
+            const lo = prev != null && o.circ.includes(prev) ? o.tails.get(prev) : 0;
+            const hi = next != null && o.circ.includes(next) ? o.tails.get(next) : size + 1;
+            const taken = takenOn(o);
+            for (let t = lo + 1; t < hi; t++) if (!taken.has(t)) return t;
+            return null;
+        };
+        const op = prev != null ? ofCircuit(prev) : null;
+        const on = next != null ? ofCircuit(next) : null;
+        let target = null, tail = null;
+        if (op && (tail = seat(op)) != null) target = op;
+        else if (on && on !== op && (tail = seat(on)) != null) target = on;
+        // Past the last circuit, beside a plugged multi with no tail left
+        // in order: the newcomer opens a multi of its own, unplugged,
+        // rather than dealing a seventh tail or re-packing the box.
+        const alone = !target && plugged(op) && next == null;
+        if (!target && !alone) return [];
+        // Every circuit's box and tail before, the newcomer's after: the
+        // write stands only when it delivers exactly that.
+        const factsOf = (recs) => {
+            const out = new Map();
+            recs.forEach(r => (r.circuits || []).forEach((c, i) => out.set(Number(c), r.distroId
+                ? `${r.distroId}:${Number(r.number)}:${(r.positions || [])[i]}` : '-')));
+            return out;
+        };
+        const want = factsOf(before.recs);
+        if (target) want.set(n, `${target.distroId}:${target.number}:${tail}`);
+        else want.set(n, '-');
+        const release = this._holdPowerRecords();
+        const touched = new Set([layer]);
+        // Every other screen on the box holds the tails it shows first.
+        if (target) {
+            this._materializeSocaBox(target.distroId, target.number, layer, target.s.index)
+                .forEach(l => touched.add(l));
+        }
+        const FIELDS = ['powerSocaDistro', 'powerSocaLengths', 'powerSocaPhasePos',
+                        'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaNumber'];
+        const snap = {};
+        FIELDS.forEach(f => { snap[f] = { ...(layer[f] || {}) }; });
+        if (target) {
+            const at = target.keep.indexOf(target === op ? prev : next);
+            target.keep.splice(target === op ? at + 1 : at, 0, n);
+            target.tails.set(n, tail);
+        } else {
+            olds.push({ s: null, circ: [], keep: [n], fed: false, distroId: null,
+                        number: NaN, tails: new Map() });
+        }
+        this._rebuildSocaStores(layer, olds, snap);
+        this._circuitTailCache = null;
+        const got = factsOf([...this._powerNaming(layer).socas.values()]);
+        if ([...want].some(([c, v]) => got.get(c) !== v)) {
+            release();
+            this._circuitTailCache = null;
+            return [];
+        }
+        return [...touched];
+    }
+
+    // Share wall circuits `refs` as ONE circuit through a splitter - the
+    // single-run Share across the seam: adoption first, then the merge the
+    // way mergeSplitterCircuits writes it (custom mode honors a share past
+    // the amps and flags it OVER). One history entry.
+    mergeWallCircuits(owner, refs) {
+        if (!owner || !Array.isArray(refs) || refs.length < 2) return false;
+        if (this._lockedRefused(owner)) return false;
+        // Only single-run circuits join (customShareBlock), across the seam
+        // as on one screen.
+        const picked = new Set(refs.map(r => `${r.layerId}:${r.num}`));
+        if (this.customShareBlock(this._wallCircuits(owner)
+            .filter(x => picked.has(`${x.layer.id}:${x.c.num}`)))) return false;
+        const tokens = this._wallRunSegments(owner, refs).flat();
+        if (tokens.length < 2) return false;
+        // A share that would repack a locked group member is refused whole
+        // (owner, 2026-10-23): written, checked, put back before the commit.
+        const repacked = this._repackTrial([owner]);
+        const adopted = this._adoptWallCircuits(owner, refs);
+        if (!adopted) return false;
+        const runIds = tokens.map(id => (typeof id === 'string'
+            ? adopted.ids.get(id) : id)).filter(id => id !== undefined);
+        this._writeSplitterManual(owner, (manual) => {
+            const inNew = new Set(runIds);
+            manual.merge = manual.merge
+                .map(g => (Array.isArray(g) ? g.filter(n => !inNew.has(n)) : []))
+                .filter(g => g.length >= 2);
+            manual.split = manual.split.filter(n => !inNew.has(n));
+            manual.merge.push([...runIds].sort((a, b) => a - b));
+        }, null, { silent: true });
+        if (repacked()) return false;
+        this._commitWallShare(adopted.touched, 'Edit Splitter Groups');
+        return true;
+    }
+
+    // The one PUT and history entry of a share that adopted runs, and the
+    // rebuild _writeSplitterManual would have run.
+    _commitWallShare(layers, action) {
+        this.updateLayers(layers, true, action);
+        this._rebuildAfterGesture(() => {
+            this.refreshSplitterPanel();
+            this.refreshSocaRuns();
+            this.refreshDistroPanel();
+            this.updatePowerLabelEditor && this.updatePowerLabelEditor();
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        });
+    }
+
+    // ---- a wide circuit splits into its own legs ------------------------------
+    //
+    // The owner's ruling, 2026-10-19: "i am taking 3 columns and 1 port and
+    // making it 3fer the single port. across 3 columns. which is how auto
+    // has worked this whole time" (a port, to him, is a power circuit). A
+    // 2fer or 3fer is ONE circuit split into legs, one run per column - or
+    // per row, on a wall cabled across - exactly what the automatic packer
+    // builds. So a circuit drawn as ONE run across several columns (a fill
+    // made with sharing off, a file from before 1.5.3) can be split, on the
+    // same circuit, into a run per column: right-click > "3fer it", or Alt
+    // pick it and right-click (app-dock-menus.js _prepareNferItMenu). The
+    // ways are the circuit's columns and nothing else: "three columns on
+    // one port, the only option available should be a three fer. if 2 then
+    // only a 2 fer. if 4 then 4 fer etc." (the owner, 2026-10-19). So the
+    // one entry offered is the circuit's own Nfer, never a smaller one, and
+    // the splitter size in Power Settings (maxWays) does not cap it - that
+    // setting caps what the automatic packer and the batch verb gang. The
+    // split is offered only while the circuit's own load fits the amps the
+    // OVER flag reads, else it stays on the menu disabled with the reason.
+    //
+    // How the legs are written depends on what the circuit is:
+    //   custom     each leg takes its own drawn number, the circuit's number
+    //              for the first and the next ones after it (every circuit
+    //              after it steps up, its typed label and cable with it), and
+    //              the legs are one manual merge - the shape a sharing custom
+    //              fill draws, so it numbers, labels, tags and deals the same.
+    //              On a custom group the wall's owner holds it: a circuit an
+    //              old file left on another member is adopted first.
+    //   taken over the take-over's own shape: the step that heads every leg
+    //              after the first is marked `branch: true` (overrideRun).
+    //   automatic  taken over already split - the natural path for one
+    //              circuit, since the automatic share store only gangs whole
+    //              runs and cannot cut one packed with sharing off.
+    // Each is ONE history entry ("3fer Circuit") and undoes whole.
+
+    // A path's legs: its steps cut wherever the next step leaves the column
+    // (or row) the last one sat in, on the wall's position lattice so a
+    // column of one member is never a column of another. The cut is taken
+    // both ways and the one that makes FEWER legs is the drawing's
+    // direction - a run snaking down three columns is three column legs,
+    // not fifteen row legs; a tie goes to the screen's pattern. A step that
+    // does not resolve (a hidden cabinet) rides with the leg after it.
+    // Returns { noun: 'column' | 'row', legs: [[entry, ...], ...] }.
+    _pathLegs(layer, path) {
+        const lattice = typeof this._pathLattice === 'function'
+            ? this._pathLattice(layer) : null;
+        const items = (Array.isArray(path) ? path : []).map(entry => {
+            const hit = this.resolvePathEntry(layer, entry);
+            return { entry, hit: (hit && !hit.panel.hidden) ? hit : null };
+        });
+        const key = (h, axis) => {
+            if (lattice) {
+                return axis === 'col' ? lattice.colOf(h.layer, h.panel)
+                    : lattice.rowOf(h.layer, h.panel);
+            }
+            return `${h.layer.id}:${axis === 'col' ? h.panel.col : h.panel.row}`;
+        };
+        const cut = (axis) => {
+            const legs = [];
+            let pending = [];
+            let last = null;
+            items.forEach(it => {
+                if (!it.hit) { pending.push(it); return; }
+                const k = key(it.hit, axis);
+                if (!legs.length || k !== last) legs.push([]);
+                legs[legs.length - 1].push(...pending, it);
+                pending = [];
+                last = k;
+            });
+            if (pending.length) {
+                if (legs.length) legs[legs.length - 1].push(...pending);
+                else legs.push(pending);
+            }
+            return legs;
+        };
+        const byCol = cut('col');
+        const byRow = cut('row');
+        const vertical = byCol.length < byRow.length
+            || (byCol.length === byRow.length
+                && String(this.autoPowerPattern(layer)).includes('-v'));
+        // Every leg is fed from the same end as the first, the way the
+        // automatic wall feeds each column run at its head: a run that
+        // snaked down one column and up the next becomes legs that all run
+        // down. (A leg ran the other way would put its head - where the
+        // splitter's tail lands - at the far end of the wall.)
+        const along = vertical ? 'row' : 'col';
+        const at = (h) => (lattice ? key(h, along) : (vertical ? h.panel.row : h.panel.col));
+        const ends = (leg) => {
+            const hits = leg.filter(it => it.hit);
+            return hits.length > 1 ? at(hits[hits.length - 1].hit) - at(hits[0].hit) : 0;
+        };
+        const legs = vertical ? byCol : byRow;
+        const lead = Math.sign(legs.length ? ends(legs[0]) : 0);
+        const out = legs.map(leg => {
+            const turn = lead !== 0 && Math.sign(ends(leg)) === -lead;
+            return (turn ? leg.slice().reverse() : leg).map(it => it.entry);
+        });
+        return { noun: vertical ? 'column' : 'row', legs: out };
+    }
+
+    // What "Nfer it" would make of circuit `num` of `layer` (the layer whose
+    // numbering holds it): { mode, layer, num, path, noun, legs, ways,
+    // amps, cap, label, reason } - `reason` set when it cannot be
+    // done - or null when the circuit is not there or is already shared
+    // (its runs are its legs already; Un-share is that circuit's verb).
+    nferCircuitPlan(layer, num) {
+        if (!layer || !num) return null;
+        const c = this.screenCircuits(layer).find(x => x.num === num);
+        if (!c) return null;
+        let mode;
+        let path;
+        if (this.isCustomPower(layer)) {
+            if ((c.runIds || []).length > 1) return null;
+            mode = 'custom';
+            path = (layer.powerCustomPaths || {})[num] || [];
+        } else if (this._isTakenOverCircuit(layer, num)) {
+            if ((c.runIds || []).length > 1) return null;
+            mode = 'override';
+            path = (layer.powerCustomPaths || {})[num] || [];
+        } else {
+            if ((c.runIds || []).length > 1 || (c.branches || []).length > 1) return null;
+            mode = 'auto';
+            path = this._runSeedHits(layer, 'power', num)
+                .map(h => this.makePathEntry(layer, h.layer, h.panel));
+        }
+        if (!path.length) return null;
+        const { noun, legs } = this._pathLegs(layer, path);
+        const ways = legs.length;
+        const voltage = parseFloat(layer.powerVoltage) || 0;
+        const watts = this._circuitWatts(layer, c.panels, c.layers);
+        const amps = voltage > 0 ? watts / voltage : 0;
+        // 80% of the breaker on a US screen (circuitCapacity).
+        const cap = this.circuitCapacity(layer).amps;
+        const name = this.getPowerCircuitLabel(layer, num);
+        const label = ways >= 2 ? `${ways}fer it (${ways} ${noun} runs)` : '2fer / 3fer it';
+        let reason = null;
+        if (ways < 2) {
+            reason = `${name} feeds one ${noun}. A 2fer or 3fer needs a run `
+                + `per ${noun} on the circuit.`;
+        } else if (cap > 0 && amps > cap + 1e-9) {
+            reason = `${name} draws ${amps.toFixed(1)} A on ${this.circuitLimitText(layer)}. `
+                + 'That is over the amps, so it cannot be one splitter circuit.';
+        }
+        return { mode, layer, num, path, noun, legs, ways, amps, cap,
+                 label, reason };
+    }
+
+    // Split circuit `num` of `layer` into its legs - ONE history entry,
+    // `${ways}fer Circuit`. False, nothing written, when the plan refuses or
+    // a screen it would change is locked (named).
+    nferCircuit(layer, num) {
+        const plan = this.nferCircuitPlan(layer, num);
+        if (!plan || plan.reason) return false;
+        const action = `${plan.ways}fer Circuit`;
+        if (plan.mode === 'custom') {
+            const owner = this.powerPathOwner(layer);
+            const locked = new Map();
+            [owner, ...this._runLockedLayers(layer, 'power', num)]
+                .forEach(l => { if (l && this._layerLocked(l)) locked.set(l.id, l); });
+            if (locked.size) {
+                this._showLockedError([...locked.values()]);
+                return false;
+            }
+            // An Nfer that would repack a locked group member is refused
+            // whole (owner, 2026-10-23): written, checked, put back first.
+            const repacked = this._repackTrial([owner, layer]);
+            let at = num;
+            let touched = [owner];
+            if (owner !== layer) {
+                const adopted = this._adoptWallCircuits(owner, [{ layerId: layer.id, num }]);
+                if (!adopted) return false;
+                at = adopted.ids.get(`${layer.id}:${num}`);
+                touched = adopted.touched;
+            }
+            const legs = this._pathLegs(owner, owner.powerCustomPaths[at]).legs;
+            this._splitCustomRun(owner, at, legs);
+            if (repacked()) return false;
+            this._sweepSelection = null;
+            this._commitWallShare(touched, action);
+            return true;
+        }
+        const owner = layer;
+        const locked = this._runLockedLayers(owner, 'power', num);
+        if (this._layerLocked(owner) && !locked.includes(owner)) locked.unshift(owner);
+        if (locked.length) {
+            this._showLockedError(locked);
+            return false;
+        }
+        const repacked = this._repackTrial([owner]);
+        this.ensureCustomPowerState(owner);
+        owner.powerCustomPaths[num] = plan.legs.flatMap((leg, k) => leg.map((e, i) => {
+            const entry = { ...e };
+            delete entry.branch;
+            if (k > 0 && i === 0) entry.branch = true;
+            return entry;
+        }));
+        if (plan.mode === 'auto') {
+            const nums = this.getOverrideNums(owner, 'power');
+            if (!nums.includes(num)) nums.push(num);
+            owner.powerCustomOverrides = nums.sort((a, b) => a - b);
+        }
+        if (repacked()) return false;
+        this._sweepSelection = null;
+        this._circuitTailCache = null;
+        this.saveState(action);
+        this.saveClientSideProperties();
+        this.updateLayers(this._pathPersistLayers(owner));
+        this._rebuildAfterGesture(() => {
+            this.updatePowerCapacityDisplay();
+            this.refreshSocaRuns();
+            this.refreshDistroPanel();
+            this.updatePowerLabelEditor && this.updatePowerLabelEditor();
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        });
+        return true;
+    }
+
+    // Write custom run `num`'s legs on `owner` (unrecorded - the caller's
+    // one entry carries it): the first leg keeps `num`, the rest take the
+    // numbers after it, every drawn number past `num` stepping up to make
+    // room (_shiftCustomRuns), and the legs become one manual merge in the
+    // custom id space, out of any group `num` sat in.
+    _splitCustomRun(owner, num, legs) {
+        const by = legs.length - 1;
+        if (by < 1) return;
+        this.ensureCustomPowerState(owner);
+        this._shiftCustomRuns(owner, num, by);
+        legs.forEach((leg, k) => {
+            owner.powerCustomPaths[num + k] = leg.map(e => {
+                const entry = { ...e };
+                delete entry.branch;
+                return entry;
+            });
+        });
+        const ids = legs.map((_, k) => num + k);
+        this._writeSplitterManual(owner, (manual) => {
+            const hit = new Set(ids);
+            manual.merge = manual.merge
+                .map(g => (Array.isArray(g) ? g.filter(n => !hit.has(parseInt(n, 10))) : []))
+                .filter(g => g.length >= 2);
+            manual.split = manual.split.filter(n => !hit.has(parseInt(n, 10)));
+            manual.merge.push(ids);
+        }, null, { silent: true });
+        this._circuitTailCache = null;
+    }
+
+    // Step every drawn custom number past `after` up by `by`, with what is
+    // keyed by it: the typed label, the cable, the manual groups (custom id
+    // space) and the active index. A circuit's place on the distro is keyed
+    // by its multi, not its number, so it stays put. Unrecorded.
+    _shiftCustomRuns(owner, after, by) {
+        if (!by) return;
+        const move = (store) => {
+            if (!store) return;
+            Object.keys(store).map(n => parseInt(n, 10))
+                .filter(n => Number.isFinite(n) && n > after)
+                .sort((a, b) => b - a)
+                .forEach(n => {
+                    store[n + by] = store[n];
+                    delete store[n];
+                });
+        };
+        move(owner.powerCustomPaths);
+        move(owner.powerLabelOverrides);
+        move(owner.powerCircuitCables);
+        const step = n => {
+            const v = parseInt(n, 10);
+            return Number.isFinite(v) && v > after ? v + by : v;
+        };
+        const raw = owner.powerSplitters;
+        if (raw && raw.manual && this._splitterManualSpace(owner) === 'custom') {
+            const cur = this._ownPowerSplitters(owner);
+            owner.powerSplitters = { ...cur, manual: {
+                merge: cur.manual.merge.map(g => (Array.isArray(g) ? g.map(step) : g)),
+                split: cur.manual.split.map(step),
+                space: 'custom',
+            } };
+        }
+        if ((owner.powerCustomIndex || 1) > after) {
+            owner.powerCustomIndex = step(owner.powerCustomIndex);
+        }
+        this._circuitTailCache = null;
     }
 
     // ---- what a CLEAR forgets ------------------------------------------------
@@ -3045,46 +5322,39 @@ class _Power {
     // re-assigning resurrected the old balance layout. Now the clear wipes
     // the cleared thing's stored programming too, and the caller folds
     // every wipe into ONE history entry so a single undo restores all of
-    // it. The split boundaries at the cleared multi's edges go too, and
-    // so does every cut left between multis nobody is feeding (user
+    // it. Every cut left between multis nobody is feeding goes too (user
     // ruling, 2026-09-04, extending the above: a wall of one-circuit
     // multis left by circuit-pip drops read S1[1-6] S2[7] S3[8] ... after
-    // a clear - "the numbering is all wrong") - see _socaClearSplitPoints.
+    // a clear - "the numbering is all wrong"), but a cut beside a multi
+    // that is still fed stays, so a clear never moves another feed
+    // (owner, 2026-11-02) - see _socaClearSplitPoints.
 
     // The split points that survive clearing `indices` on this layer.
-    // Two rules, one home:
+    // ONE rule: a stored cut goes when NEITHER multi beside it is fed
+    // once the clear has run (a cleared multi counts as unfed), and every
+    // other cut stays.
     //
-    // 1. The cleared multis' own edges. The boundary that ends each
-    //    cleared multi and the one that ends the multi before it are
-    //    forgotten, so the cleared circuits fall back onto the natural box
-    //    grid (_socaSegments cuts at every multiple of socaBoxSize
-    //    whatever is stored). A run of cleared multis inside one grid
-    //    cell is treated as one: its interior cuts always go; the cut to
-    //    a KEPT neighbour goes when the run has a kept neighbour on ONE
-    //    side only (the run welds onto it - the neighbour keeps its
-    //    identity and re-deals its tails, the un-split rule), and both
-    //    cuts stay when kept multis flank the run on both sides -
-    //    forgetting either would weld two multis that were not cleared
-    //    into one and lose the second's distro, number and name, which
-    //    the ruling never asked for. Grid lines are never stored, so a
-    //    neighbour across one is not a neighbour here.
+    // So the cuts between the cleared multis themselves go, and so do the
+    // cuts to an unassigned neighbour, welding the freed circuits back
+    // onto the natural box grid (_socaSegments cuts at every multiple of
+    // socaBoxSize whatever is stored). That is the leftover rule (user,
+    // 2026-09-04): a run of circuit-pip drops had left twelve one-circuit
+    // multis S2..S13 behind S1, already unassigned, and a clear that kept
+    // their cuts left the wall reading S1[1-6] S2[7] S3[8] ... - "if i
+    // add circuits the numbering is all wrong". An unassigned cut is
+    // programming nobody is using, and a clear must not remember how the
+    // wall was programmed (2026-08-30).
     //
-    // 2. The leftovers. Every remaining stored cut that sits between two
-    //    multis which are BOTH unassigned (no distro) once the clear has
-    //    run goes too, welding them back onto the natural grid. On the
-    //    user's own show (2026-09-04) a run of circuit-pip drops had left
-    //    twelve one-circuit multis S2..S13 behind S1, already unassigned,
-    //    so rule 1 alone cleared S1 and left the wall reading S1[1-6]
-    //    S2[7] S3[8] ... - "if i add circuits the numbering is all wrong",
-    //    and "we need to audit this so it allows me to do up to 6 if i am
-    //    doing multi/soca". An unassigned cut is programming nobody is
-    //    using, and a clear must not remember how the wall was programmed
-    //    (the 2026-08-30 ruling above). A cut with an ASSIGNED multi on
-    //    either side stays: that multi keeps its identity, its number and
-    //    its circuits under its new index (_resegmentSocaStores), so a
-    //    flanked run of leftovers between two fed multis keeps both cuts
-    //    - rule 1's flanked case is the same test with the cleared run
-    //    counted as unassigned.
+    // A cut with a FED multi on either side always stays, the cleared
+    // multi's own edge included. Owner (2026-11-02): "when i clear a
+    // breakout on the power it jumps them to another breakout. it should
+    // just clear the ports." The cut to a fed neighbour used to go when
+    // the cleared run had a neighbour on one side only, so the neighbour
+    // grew over the freed circuits and dealt them fresh tails on its own
+    // box: unplugging one multi moved another, and could double-book its
+    // box against a screen already on those tails. Now the neighbour
+    // keeps its circuits, tails and identity exactly as they were, and
+    // the freed circuits just sit unplugged.
     //
     // Pure: reads the stores as the caller left them (the wipe ran first,
     // so a cleared multi's distro is already gone; `indices` covers it
@@ -3095,32 +5365,13 @@ class _Power {
         const count = this.screenCircuits(layer).length;
         const segs = this._socaSegments(layer, count);
         const stored = new Set(this._socaSplitPoints(layer, count));
-        const size = this.socaBoxSize(layer);
         const cleared = new Set((indices || []).map(Number));
-        const gone = new Set();
-        for (let i = 0; i < segs.length; i++) {
-            if (!cleared.has(segs[i].index)) continue;
-            let j = i;
-            while (j + 1 < segs.length && cleared.has(segs[j + 1].index)
-                    && segs[j].end % size !== 0) j++;
-            for (let k = i; k < j; k++) gone.add(segs[k].end);
-            const before = segs[i].start - 1;
-            const after = segs[j].end;
-            const keptBefore = before >= 1 && before % size !== 0
-                && stored.has(before);
-            const keptAfter = after < count && after % size !== 0
-                && stored.has(after);
-            if (!(keptBefore && keptAfter)) {
-                if (keptBefore) gone.add(before);
-                if (keptAfter) gone.add(after);
-            }
-            i = j;
-        }
         const assign = layer.powerSocaDistro || {};
         const fed = s => !cleared.has(s.index) && !!assign[s.index];
+        const gone = new Set();
         for (let i = 0; i + 1 < segs.length; i++) {
             const p = segs[i].end;
-            if (!stored.has(p) || gone.has(p)) continue;
+            if (!stored.has(p)) continue;
             if (!fed(segs[i]) && !fed(segs[i + 1])) gone.add(p);
         }
         return [...stored].filter(p => !gone.has(p));
@@ -3133,14 +5384,11 @@ class _Power {
     _socaClearTargets(layer, socaIndex) {
         const rec = this._powerNaming(layer).socas.get(Number(socaIndex));
         const circuits = rec ? rec.circuits.slice() : [];
-        const runIds = [];
-        if (circuits.length) {
-            const inMulti = new Set(circuits);
-            this.screenCircuits(layer).forEach(c => {
-                if (!inMulti.has(c.num)) return;
-                (c.runIds || [c.num]).forEach(id => runIds.push(id));
-            });
-        }
+        // A taken-over circuit has no runs in the share store - its number
+        // is a circuit number, not a run ordinal (_shareRunSegments), and
+        // read as one it wiped the auto run of the same ordinal's share.
+        const runIds = circuits.length
+            ? this._shareRunSegments(layer, circuits).flat() : [];
         return { circuits, runIds };
     }
 
@@ -3205,6 +5453,198 @@ class _Power {
         return changed;
     }
 
+    // Every circuit cable on `layer` that no fed circuit carries once a
+    // clear has run: the cleared circuits' own, and any left under a
+    // circuit number the screen's plan no longer has. The clear wipes its
+    // multis' circuits by the numbers they hold NOW (_wipeSocaProgramming),
+    // so a cable typed on circuit 6 before the wall renumbered to five
+    // circuits, or one on a taken-over circuit with nothing drawn, outlived
+    // the clear and came back on whatever circuit took that number next
+    // (the owner's log, 2026-11-04: Clear Distro left a 10' cable on two
+    // screens, each on a number no circuit had). No distro, no extension
+    // (2026-10-20), and a
+    // length never reappears on a later feed (2026-10-17). Unrecorded: the
+    // clear's one entry carries it. True when it wrote.
+    _forgetUnfedCircuitCables(layer) {
+        const store = layer && layer.powerCircuitCables;
+        if (!store || !Object.keys(store).length) return false;
+        this._circuitTailCache = null;
+        const fed = new Set();
+        for (const rec of this._powerNaming(layer).socas.values()) {
+            if (!rec.distroId) continue;
+            rec.circuits.forEach(num => fed.add(String(num)));
+        }
+        let changed = false;
+        Object.keys(store).forEach(key => {
+            if (fed.has(String(parseInt(key, 10)))) return;
+            delete store[key];
+            changed = true;
+        });
+        return changed;
+    }
+
+    // ---- a circuit's cable follows its cabinets ------------------------------
+    //
+    // The owner, 2026-11-04: "I have an extension on circuit six, but then
+    // after balancing it goes to circuit five. The extension needs to follow
+    // that move." Ruled the same day: when the automatic plan renumbers its
+    // circuits (a redraw ends and the circuits after it slide left, Organized
+    // or Max Capacity, 2fer packing, the Circuit numbers switch), a circuit's
+    // cable (powerCircuitCables, its length and its connector pick) stays
+    // with the circuit's FIRST cabinet, the one it plugs into:
+    //   - that cabinet still starts a circuit: the cable goes to it;
+    //   - it no longer starts one: the cable goes to the circuit that now
+    //     holds that cabinet, and a toast says so;
+    //   - two cables land on one circuit: one is kept and a toast names the
+    //     screen and the circuit. The one kept is the cable plugged into
+    //     that circuit's own first cabinet; with none, the one whose cabinet
+    //     comes first along the circuit (nearest the plug), then the lower
+    //     old number. A cable plugged into the circuit's first cabinet is
+    //     the one still physically in place, so it is the right one to keep;
+    //     any other ran to a cabinet that is now mid-circuit.
+    // Labels and label overrides keyed by number are not moved here.
+    //
+    // Use: carry = _cableCarryBegin(layers) BEFORE the change, then
+    // _cableCarryApply(carry) after it and before the gesture's history
+    // entry, so one undo puts the cables back with the change.
+
+    // The screens whose plans a change to `layers` can move: themselves,
+    // their group, and every screen their drawn paths reach.
+    _cableCarryScope(layers) {
+        const out = new Set();
+        (layers || []).forEach(l => {
+            if (!l || (l.type || 'screen') !== 'screen') return;
+            out.add(l);
+            if (l.group_id && typeof this.groupMembersOf === 'function') {
+                (this.groupMembersOf(l) || []).forEach(m => m && out.add(m));
+            }
+            if (typeof this.getPathScopeLayers === 'function') {
+                (this.getPathScopeLayers(l) || []).forEach(m => m && out.add(m));
+            }
+        });
+        return [...out].filter(l => (l.type || 'screen') === 'screen');
+    }
+
+    // Where every cable on those screens is plugged in now: per screen,
+    // circuit number -> its first cabinet, its label and the cable's text.
+    _cableCarryBegin(layers) {
+        this._circuitTailCache = null;
+        const snap = [];
+        this._cableCarryScope(layers).forEach(layer => {
+            const store = layer.powerCircuitCables;
+            if (!store || !Object.keys(store).length) return;
+            const heads = new Map();
+            this.screenCircuits(layer).forEach(c => {
+                const head = c.panels && c.panels[0];
+                if (!head || store[c.num] === undefined) return;
+                const cable = this.powerCircuitCable(layer, c.num);
+                heads.set(c.num, {
+                    head, label: this.getPowerCircuitLabel(layer, c.num),
+                    text: cable ? cable.text : null,
+                });
+            });
+            if (heads.size) snap.push({ layer, heads });
+        });
+        return { snap, notes: [], changed: [] };
+    }
+
+    // Move the cables the snapshot saw onto the circuits their first
+    // cabinets are on now. Returns the carry with `changed` (the screens
+    // written) and `notes` (what the toast says) filled in. Model only: the
+    // caller records and persists. A locked screen is never written.
+    _cableCarryApply(carry) {
+        if (!carry || carry.applied) return carry;
+        carry.applied = true;
+        this._circuitTailCache = null;
+        for (const { layer, heads } of carry.snap) {
+            if (this._layerLocked(layer)) continue;
+            const store = layer.powerCircuitCables || {};
+            const starts = new Map();
+            const holds = new Map();
+            const at = new Map();
+            this.screenCircuits(layer).forEach(c => (c.panels || []).forEach((p, i) => {
+                if (i === 0) starts.set(p, c.num);
+                if (!holds.has(p)) { holds.set(p, c.num); at.set(p, i); }
+            }));
+            const claims = new Map();   // new number -> [{old, h, rec, starts, at}]
+            const gone = [];
+            for (const [old, h] of heads) {
+                const rec = store[old];
+                if (rec === undefined) continue;
+                let num = starts.get(h.head);
+                const begins = num !== undefined;
+                if (!begins) num = holds.get(h.head);
+                if (num === undefined) { gone.push({ old, h }); continue; }
+                const list = claims.get(num) || [];
+                list.push({ old, h, rec, begins, at: at.get(h.head) || 0 });
+                claims.set(num, list);
+            }
+            const same = !gone.length && [...claims].every(([num, list]) =>
+                list.length === 1 && list[0].old === num && list[0].begins);
+            if (same) continue;
+            this._circuitTailCache = null;
+            const name = layer.name || 'Screen';
+            const labelOf = (num) => this.getPowerCircuitLabel(layer, num);
+            const next = {};
+            // A cable the snapshot did not see (on a number no circuit had)
+            // stays where it is, unless a carried cable takes that number.
+            Object.keys(store).forEach(k => {
+                if (!heads.has(parseInt(k, 10))) next[k] = store[k];
+            });
+            for (const [num, list] of claims) {
+                list.sort((a, b) => (Number(b.begins) - Number(a.begins))
+                    || (a.at - b.at) || (a.old - b.old));
+                const keep = list[0];
+                next[num] = keep.rec;
+                if (!keep.begins) {
+                    carry.notes.push(`${name}: the ${keep.h.text || 'cable'} on circuit `
+                        + `${keep.h.label} moved to circuit ${labelOf(num)}. Its first `
+                        + `cabinet no longer starts a circuit, and ${labelOf(num)} now holds it.`);
+                }
+                list.slice(1).forEach(lost => {
+                    carry.notes.push(`${name}: two cables landed on circuit ${labelOf(num)}. `
+                        + `The ${keep.h.text || 'cable'} from ${keep.h.label} stays, `
+                        + (keep.begins ? 'since it plugs into the circuit’s first cabinet'
+                            : 'since its cabinet comes first on the circuit')
+                        + `, and the ${lost.h.text || 'cable'} from ${lost.h.label} was removed.`);
+                });
+            }
+            gone.forEach(g => carry.notes.push(`${name}: circuit ${g.h.label}’s first `
+                + `cabinet is on no circuit now, so its ${g.h.text || 'cable'} was removed.`));
+            Object.keys(store).forEach(k => { delete store[k]; });
+            Object.assign(store, next);
+            layer.powerCircuitCables = store;
+            carry.changed.push(layer);
+        }
+        if (carry.changed.length && typeof sendClientLog === 'function') {
+            sendClientLog('circuit_cables_carried', {
+                layers: carry.changed.map(l => l.id), notes: carry.notes.length,
+            });
+        }
+        return carry;
+    }
+
+    // Say what a carry could not do quietly, once, after its gesture landed.
+    _cableCarrySay(carry) {
+        if (!carry || !carry.notes || !carry.notes.length || carry.said) return;
+        carry.said = true;
+        if (typeof this._toast === 'function') this._toast(carry.notes.join(' '), true, 9000);
+    }
+
+    // A carry whose change records no history entry of its own (a redraw
+    // ending, which is session state): its own entry and PUT, only when a
+    // cable really moved.
+    _cableCarryCommit(carry, action) {
+        this._cableCarryApply(carry);
+        if (!carry || !carry.changed.length || carry.committed) return false;
+        carry.committed = true;
+        this.saveState(action);
+        this.saveClientSideProperties();
+        this.updateLayers(carry.changed);
+        this._cableCarrySay(carry);
+        return true;
+    }
+
     // Drop the manual share (merge) groups and split pins covering the
     // given run ids, so a cleared scope re-packs naturally instead of
     // keeping hand-ganged circuits nobody is feeding any more. Unrecorded
@@ -3217,7 +5657,7 @@ class _Power {
         if (!raw || !raw.manual) return false;
         const space = this._splitterManualSpace(layer);
         if (space && space !== this._splitterIdSpace(layer)) return false;
-        const cur = this.getPowerSplitters(layer);
+        const cur = this._ownPowerSplitters(layer);
         const hit = new Set(runIds);
         const merge = cur.manual.merge
             .map(g => (Array.isArray(g) ? g.filter(n => !hit.has(n)) : []))
@@ -3234,6 +5674,34 @@ class _Power {
         return true;
     }
 
+    // The custom toggle's way in (toggleCustomPowerMode): the share groups
+    // stored against CUSTOM circuit numbers go with the circuits the toggle
+    // wiped, keeping only a group whose every member is a run still drawn
+    // (one kept for a locked screen). The caller reads the store's space
+    // BEFORE the wipe - the legacy inference reads the drawn paths - and
+    // calls only for a custom-space store; groups stored against the auto
+    // run ordinals are not circuits and stay, dormant, for the way out.
+    // Unrecorded: the toggle's one entry carries it. True when it wrote.
+    _wipeCustomSplitterGroups(layer) {
+        const raw = layer && layer.powerSplitters;
+        if (!raw || !raw.manual) return false;
+        const cur = this._ownPowerSplitters(layer);
+        const paths = layer.powerCustomPaths || {};
+        const drawn = new Set(Object.keys(paths)
+            .filter(n => (paths[n] || []).length > 0).map(n => parseInt(n, 10)));
+        const merge = cur.manual.merge
+            .filter(g => Array.isArray(g) && g.length >= 2
+                && g.every(n => drawn.has(parseInt(n, 10))));
+        const split = cur.manual.split.filter(n => drawn.has(parseInt(n, 10)));
+        if (merge.length === cur.manual.merge.length
+                && split.length === cur.manual.split.length
+                && cur.manual.space === 'custom') {
+            return false;
+        }
+        layer.powerSplitters = { ...cur, manual: { merge, split, space: 'custom' } };
+        return true;
+    }
+
     // `action` names the history entry; the default keeps every existing
     // caller's entry byte-identical. The batch verb passes its own name
     // ('3fer Selection') so one commit is one legible undo step.
@@ -3241,7 +5709,14 @@ class _Power {
     // nor refresh - for a caller folding the edit into its own history
     // entry and its own rebuild (the custom toggle's way out).
     _writeSplitterManual(layer, fn, action, opts) {
-        const cur = this.getPowerSplitters(layer);
+        const silent = !!(opts && opts.silent);
+        // A share or un-share changes the screen's circuits, so a multi box
+        // it shares with a locked screen deals again: refused whole, the
+        // locked screen named, when that would move the locked screen's
+        // tails (_lockedPowerTrial). A silent write's caller owns the check
+        // with its commit. False when refused.
+        const shared = silent ? null : this._lockedPowerTrial();
+        const cur = this._ownPowerSplitters(layer);
         // An edit is made in the CURRENT id space. Groups stored from the
         // other space cannot be edited alongside it - one store, one space -
         // so the edit starts clean and the write stamps the space it was
@@ -3257,7 +5732,11 @@ class _Power {
         fn(manual);
         manual.space = space;
         layer.powerSplitters = { ...cur, manual };
-        if (opts && opts.silent) return;
+        if (silent) return true;
+        if (shared()) {
+            this.refreshSplitterPanel();
+            return false;
+        }
         this.updateLayers([layer], true, action || 'Edit Splitter Groups');
         this._rebuildAfterGesture(() => {
             this.refreshSplitterPanel();
@@ -3266,6 +5745,7 @@ class _Power {
             this.updatePowerLabelEditor && this.updatePowerLabelEditor();
             if (window.canvasRenderer) window.canvasRenderer.render();
         });
+        return true;
     }
 
     // Multi-select doctrine: a panel edit applies to EVERY selected screen,
@@ -3301,8 +5781,64 @@ class _Power {
     // auto pattern and silently re-ganged auto run ordinals 7-9 into an
     // over-capacity 3fer the user never asked for.
 
-    // Normalized read - the raw field may be absent or partial.
+    // Normalized read - the raw field may be absent or partial. The
+    // packing knobs (`enabled`, `maxWays`) are the WALL's: on a grouped
+    // screen they are read off the group's first member, whichever member
+    // asks (the owner's ruling, 2026-10-19 - see _splitterWallHost); the
+    // manual store is always the layer's own. Writers that keep a layer's
+    // own knobs read _ownPowerSplitters instead, so a manual edit never
+    // stamps the wall's knobs onto a member that disagreed in an old file.
     getPowerSplitters(layer) {
+        const own = this._ownPowerSplitters(layer);
+        const host = this._splitterWallHost(layer);
+        if (!host || host === layer) return own;
+        const wall = this._ownPowerSplitters(host);
+        return { ...own, enabled: wall.enabled, maxWays: wall.maxWays };
+    }
+
+    // ---- one splitter setting per wall ---------------------------------------
+    //
+    // The owner's ruling, 2026-10-19: in a group, "Share circuits via
+    // splitters" - the enabled flag AND the splitter size - is ONE setting
+    // for the whole wall, in auto and in custom: "when grouped they should
+    // be sharing that setting". The box writes every member at once
+    // (_wireScreenPowerKnobs) and the sidebar shows the wall's value
+    // whichever member is selected. Members that disagree - files saved
+    // before this, where each member carried its own flag - read the
+    // group's FIRST member's setting (the member an automatic wall's walk
+    // already packs by, and the custom wall's owner on any ordinary group);
+    // nothing is rewritten until the setting is touched. Before this the
+    // box showed and wrote the selected member's own flag while the custom
+    // fill read the wall owner's, so a member showing "on" filled one wide
+    // run per circuit.
+
+    // The screen whose knobs a grouped layer reads: its group's first screen
+    // member, or the layer itself off a group.
+    _splitterWallHost(layer) {
+        if (!layer || !layer.group_id || typeof this.getGroupOfLayer !== 'function') {
+            return layer;
+        }
+        const group = this.getGroupOfLayer(layer);
+        if (!group) return layer;
+        const first = (this.getGroupMembers(group) || [])
+            .find(m => m && (m.type || 'screen') === 'screen');
+        return first || layer;
+    }
+
+    // Every screen that shares `layer`'s splitter setting: its group's
+    // screen members, or the layer alone.
+    _splitterWallMembers(layer) {
+        if (!layer) return [];
+        const group = (layer.group_id && typeof this.getGroupOfLayer === 'function')
+            ? this.getGroupOfLayer(layer) : null;
+        if (!group) return [layer];
+        const members = (this.getGroupMembers(group) || [])
+            .filter(m => m && (m.type || 'screen') === 'screen');
+        return members.length ? members : [layer];
+    }
+
+    // The layer's OWN stored knobs and manual store, normalized.
+    _ownPowerSplitters(layer) {
         const raw = (layer && layer.powerSplitters) || {};
         const mw = parseInt(raw.maxWays, 10);
         const manual = raw.manual || {};
@@ -3387,10 +5923,15 @@ class _Power {
     // the amps - a custom screen's, or a file's older group past them, the
     // soca `over` convention flags); a split-pinned run is its own circuit
     // and a boundary.
+    // `apart(a, b)` (run indices, optional) says another circuit sits
+    // between two runs: the automatic walk passes it so a 2fer / 3fer never
+    // jumps over a redrawn circuit (the owner's ruling, 2026-11-03 - see
+    // calculatePowerAssignments' `apart`). The run stays a circuit of its
+    // own and the next circuit starts there.
     // Returns { circuits, runs, runIds } index-aligned: circuits[i] is the
     // concatenated panels, runs[i] the per-branch panel counts, runIds[i]
     // the run ordinals ganged into that circuit.
-    _packPowerRuns(runs, wattsPerCircuit, maxWays, manual) {
+    _packPowerRuns(runs, wattsPerCircuit, maxWays, manual, apart = null) {
         const N = runs.length;
         const groupOf = new Map();
         ((manual && manual.merge) || []).forEach(g =>
@@ -3415,6 +5956,7 @@ class _Power {
                     if (members.length >= maxWays) break;
                     if (groupOf.has(nid) || splitSet.has(nid)) break;
                     if (load + runs[j].load > wattsPerCircuit) break;
+                    if (apart && apart(members[members.length - 1] - 1, j)) break;
                     members.push(nid);
                     load += runs[j].load;
                 }
@@ -3425,6 +5967,183 @@ class _Power {
             runIds.push(members.slice());
         }
         return { circuits, runs: counts, runIds };
+    }
+
+    // ---- an older show's automatic shares (1.6.0) ---------------------------
+    //
+    // Up to 1.5.3 a US circuit packed to 100% of its breaker; it packs to
+    // 80% now (circuitCapacity), since the 1.5.4 betas that led to 1.6.0.
+    // Automatic 2fers and 3fers are never
+    // stored: the walk above derives them from that figure on every read,
+    // so an older show whose 2fers fit at 100% but not at 80% opened with
+    // them re-split - more circuits, more multis, a different pull sheet -
+    // and nothing said. The owner's ruling (2026-10-30): keep them as they
+    // were saved and flag the ones past the limit OVER; the user shares
+    // them again.
+    //
+    // KEPT: opening a show saved before KEPT_SHARES_BEFORE
+    // (olderShowKeepsShares, read off the file's app_version before the
+    // load stamps it) runs keepOlderShowShares. Every screen whose
+    // automatic walk shares circuits is packed the way the old build
+    // packed it, at 100% of the breaker, and where that differs from
+    // today's pack the old circuits are written on the screen as
+    //   powerSplitters.kept = { groups: [[1, 2], [3, 4], ..., [11]], sig }
+    // - every run ordinal in walk order, one array per circuit - and the
+    // walk emits exactly those circuits (_packKeptRuns). A screen whose
+    // 2fers still fit, and every manual share, gets nothing: it packs the
+    // same either way. A locked screen is kept like any other, so it opens
+    // unchanged too. Hand-drawn (custom) circuits never come here.
+    //
+    // OVER: nothing new. A kept circuit past the screen's figure is an
+    // ordinary shared circuit past its amps: the Nfer pill on the wall and
+    // on the binder's map reads "2fer · OVER" in red (canvas-power
+    // _nferGangs), the tray's chip fills red past its figure, and the
+    // distro's breaker check counts it.
+    //
+    // CLEARED: `sig` is the screen as it was packed - pattern, voltage,
+    // breaker, splitter size, manual shares, and every run's cabinets and
+    // watts (_keptShareSig). The keep holds only while the screen still
+    // reads that. Any change that repacks the screen (its cabinets, watts,
+    // power settings, pattern, splitters, a share made or removed) leaves
+    // it stale: the walk packs normally, and the next layer commit drops
+    // it (pruneStaleKeptShares). A write through the manual store drops it
+    // at once (_ownPowerSplitters carries no `kept`), and so does turning
+    // the splitters off or changing their size. Undo puts it back with the
+    // state it belongs to. A change that only moves the packing % (a
+    // distro's system, 100% rated breakers) is no repack: a kept screen's
+    // circuits are what they were.
+
+    // Was `project` saved by a build that packed US circuits to 100%?
+    olderShowKeepsShares(project = this.project) {
+        return this.projectPredatesVersion(KEPT_SHARES_BEFORE, project);
+    }
+
+    // The kept circuits the walk takes for `layer`'s `count` runs, or null:
+    // no keep, a stale one (`sigOf()` is the screen now), or one that is
+    // not every run once in walk order. Null while keepOlderShowShares or
+    // the prune is probing, so the probe sees the screen's own pack.
+    _keptShares(layer, count, sigOf) {
+        if (this._keptShareProbe) return null;
+        const kept = layer && layer.powerSplitters && layer.powerSplitters.kept;
+        if (!kept || !Array.isArray(kept.groups) || typeof kept.sig !== 'string') return null;
+        const flat = kept.groups.flat();
+        if (flat.length !== count || flat.some((n, i) => n !== i + 1)
+                || kept.groups.some(g => !Array.isArray(g) || !g.length)) return null;
+        return kept.sig === sigOf() ? kept.groups : null;
+    }
+
+    // The kept circuits as the walk's result (_packPowerRuns' shape).
+    _packKeptRuns(runs, groups) {
+        const circuits = [], counts = [], runIds = [];
+        groups.forEach(g => {
+            circuits.push(g.flatMap(n => runs[n - 1].panels));
+            counts.push(g.map(n => runs[n - 1].panels.length));
+            runIds.push(g.slice());
+        });
+        return { circuits, runs: counts, runIds };
+    }
+
+    // What a keep is held to: the screen's automatic walk as it reads now,
+    // everything but the packing % (FNV-1a over the description, short
+    // enough to save). `runs` are the walk's runs, `manual` the applied
+    // manual shares, `layerOfPanel` the screen each cabinet sits on (a
+    // group packed as one wall walks its members' cabinets).
+    _keptShareSig(layer, pattern, runs, maxWays, manual, layerOfPanel) {
+        const text = JSON.stringify([
+            pattern, parseFloat(layer.powerVoltage) || 0, parseFloat(layer.powerAmperage) || 0,
+            maxWays, manual.merge, manual.split,
+            runs.map(r => [(Number(r.load) || 0).toFixed(3), r.panels.map(p => {
+                const on = layerOfPanel(p);
+                return `${on ? on.id : ''}:${p.row}:${p.col}`;
+            }).join(',')]),
+        ]);
+        let h = 0x811c9dc5;
+        for (let i = 0; i < text.length; i += 1) {
+            h ^= text.charCodeAt(i);
+            h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        return `${runs.length}:${h.toString(16).padStart(8, '0')}`;
+    }
+
+    // `layer`'s automatic splitter walk without its keep: { sig, runIds },
+    // at `pct` of the breaker (null: the screen's own figure). Null when
+    // the screen does not walk shares (custom, splitters off, a group
+    // member packed on its owner) or a row or column cannot fit.
+    _keptShareWalk(layer, pct) {
+        const outerCap = this._capacityProbe;
+        const outerProbe = this._keptShareProbe;
+        const seen = new Map();
+        this._keptShareProbe = seen;
+        if (pct) this._capacityProbe = { pct };
+        try {
+            this.calculatePowerAssignments(layer);
+        } finally {
+            this._capacityProbe = outerCap;
+            this._keptShareProbe = outerProbe;
+        }
+        return seen.get(layer) || null;
+    }
+
+    _dropKeptShares(layer) {
+        const raw = layer && layer.powerSplitters;
+        if (!raw || !Object.prototype.hasOwnProperty.call(raw, 'kept')) return false;
+        const rest = { ...raw };
+        delete rest.kept;
+        layer.powerSplitters = rest;
+        return true;
+    }
+
+    // Opening an older show (olderShowKeepsShares): keep every screen's
+    // automatic shares as the old build packed them, at 100% of the
+    // breaker, where they differ from today's pack - that is, where a 2fer
+    // or 3fer that fit at 100% is past the limit now. Worked out afresh
+    // from the screens as they are (a keep already on one is redone), so
+    // a load may run it before and after the server's copy comes back.
+    // Unrecorded: the load's own history reset takes it. Returns the
+    // screens kept.
+    keepOlderShowShares() {
+        const screens = ((this.project && this.project.layers) || [])
+            .filter(l => l && (l.type || 'screen') === 'screen');
+        screens.forEach(l => this._dropKeptShares(l));
+        this._circuitTailCache = null;
+        const kept = [];
+        screens.forEach(layer => {
+            const then = this._keptShareWalk(layer, 1);
+            if (!then || !then.runIds.some(g => g.length > 1)) return;
+            // A panel that cannot fit now has no circuits to keep:
+            // the screen says it cannot fit (_bCannotFit).
+            const now = this._keptShareWalk(layer, null);
+            if (!now || JSON.stringify(now.runIds) === JSON.stringify(then.runIds)) return;
+            layer.powerSplitters = { ...(layer.powerSplitters || {}),
+                kept: { groups: then.runIds.map(g => g.slice()), sig: then.sig } };
+            kept.push(layer);
+        });
+        this._circuitTailCache = null;
+        if (kept.length) {
+            sendClientLog('older_show_shares_kept', {
+                layers: kept.map(l => ({ id: l.id, circuits: l.powerSplitters.kept.groups.length })),
+            });
+        }
+        return kept;
+    }
+
+    // Drop every keep the screen no longer reads (a repack made it stale).
+    // Run by the layer commits (updateLayers / updateLayer) before they
+    // store anything; returns the screens it wrote.
+    pruneStaleKeptShares() {
+        const out = [];
+        ((this.project && this.project.layers) || []).forEach(layer => {
+            const kept = layer && layer.powerSplitters && layer.powerSplitters.kept;
+            if (!kept) return;
+            // the screen's walk as it reads now, its run count included
+            const now = this._keptShareWalk(layer, null);
+            const holds = !!now && now.sig === kept.sig && Array.isArray(kept.groups)
+                && kept.groups.flat().length === now.runIds.flat().length;
+            if (holds) return;
+            if (this._dropKeptShares(layer)) out.push(layer);
+        });
+        if (out.length) this._circuitTailCache = null;
+        return out;
     }
 
     // The drawn path steps a (possibly merged) custom circuit covers - the
@@ -3456,6 +6175,127 @@ class _Power {
         return (last && last !== 'custom') ? last : 'tl-h';
     }
 
+    // The screen's Circuit numbers switch (powerNumberOrder), the owner's
+    // ruling of 2026-11-01, worded and read the way the data side's Port
+    // numbers switch is (portNumberOrderOf). It decides only how the
+    // circuits Organized cuts from a row (or a column) too big for one
+    // circuit are NUMBERED; the circuits themselves never move:
+    //   Across  along each row first: circuit 1 is row 1's first run,
+    //           circuit 2 its next, and row 2 starts after the last;
+    //   Down    down the stacks: circuit 1 is row 1's first run, circuit 2
+    //           row 2's first, and when the stack ends the next one starts
+    //           back at the first row.
+    // For a vertical-first pattern the lines are columns and the two words
+    // keep their meaning on the wall: Across numbers along the top band of
+    // runs first, Down numbers down each column first. The pattern's start
+    // corner decides where the first line and the first run are, so a
+    // bottom-start pattern stacks up from the bottom and a right-start one
+    // steps its stacks right to left.
+    //
+    // A screen that has never been switched (no powerNumberOrder, every
+    // show from before the switch) FOLLOWS THE FLOW (the owner, 2026-11-01,
+    // the same rule as the data side): it numbers along its lines, the way
+    // the walk always has - Across on a horizontal-first pattern, Down on a
+    // vertical-first one. `isHorizontalFirst` says which; left out, the
+    // screen's automatic pattern decides (autoPowerPattern, so a custom
+    // screen reads the pattern it remembers). A screen whose lines all fit
+    // has nothing to renumber either way, so no older show moves.
+    powerNumberOrder(layer, isHorizontalFirst = null) {
+        const saved = layer && layer.powerNumberOrder;
+        if (saved === 'down' || saved === 'across') return saved;
+        const horizontal = isHorizontalFirst === null
+            ? !isVerticalFlowPattern(this.autoPowerPattern(layer))
+            : !!isHorizontalFirst;
+        return horizontal ? 'across' : 'down';
+    }
+
+    // True when the circuits cut from long lines are to be numbered stack
+    // by stack, i.e. when the Circuit numbers switch points ACROSS the
+    // lines rather than along them: Down on a horizontal-first pattern,
+    // Across on a vertical-first one. Never with Maximize Power Use, which
+    // packs every circuit full and cuts no line. The automatic walk
+    // (calculatePowerAssignments) and the custom Apply Pattern
+    // (_chunkPicksByCapacity, _chunkPicksIntoShares) both ask here, the
+    // way the data side asks portNumbersStack.
+    powerNumbersStack(layer, isHorizontalFirst) {
+        if (!layer || layer.powerMaximize) return false;
+        const order = this.powerNumberOrder(layer, isHorizontalFirst);
+        return isHorizontalFirst ? order === 'down' : order === 'across';
+    }
+
+    // Does the Circuit numbers switch do anything on this screen? On an
+    // automatic Organized screen, where its walk cuts a row (or a column)
+    // into several circuits; a group member routed on its owner reads the
+    // owner's walk. Returns that walking screen, or null.
+    //
+    // A CUSTOM screen (the owner's ruling, 2026-11-02: custom power follows
+    // Down like data) has the switch wherever Apply Pattern would cut a
+    // line, asked the way the data side asks (portNumberOrderMatters):
+    // in a horizontal and a vertical pattern, since Apply Pattern can be
+    // either, and not with Maximize Power Use (the fill packs full there).
+    // It returns the screen the custom circuits are written to
+    // (powerPathOwner), whose field the fill reads. Like data, the switch
+    // decides how the NEXT Apply Pattern numbers; circuits already drawn
+    // keep their numbers.
+    powerNumberOrderApplies(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return null;
+        if (this.isCustomPower(layer)) {
+            const owner = this.powerPathOwner(layer);
+            return this._customPowerNumbersMatter(owner) ? owner : null;
+        }
+        const plan = (typeof this.getAutoRoutePlan === 'function')
+            ? this.getAutoRoutePlan(layer, 'power') : null;
+        const walker = (plan && !plan.isOwner && plan.owner) ? plan.owner : layer;
+        if (walker.powerMaximize || !walker.powerOrganized) return null;
+        if (this.usesCustomCircuits(walker)) return null;
+        return this.calculatePowerAssignments(walker).cut ? walker : null;
+    }
+
+    // Would a custom Apply Pattern on this screen cut a line into several
+    // circuits? The automatic Organized walk is asked in tl-h and tl-v on
+    // the screen (or its wall), the way the fill cuts its lines, and every
+    // field it was asked with is put back exactly afterwards.
+    _customPowerNumbersMatter(owner) {
+        if (!owner || owner.powerMaximize) return false;
+        const plan = (typeof this.getAutoRoutePlan === 'function')
+            ? this.getAutoRoutePlan(owner, 'power') : null;
+        const walker = (plan && !plan.isOwner && plan.owner) ? plan.owner : owner;
+        const fields = ['lastPowerFlowPattern', 'powerOrganized', 'powerMaximize'];
+        const kept = fields.map(k => [k, Object.prototype.hasOwnProperty.call(walker, k), walker[k]]);
+        const flow = walker.powerFlowPattern;
+        try {
+            walker.powerFlowPattern = 'custom';
+            walker.powerOrganized = true;
+            walker.powerMaximize = false;
+            return ['tl-h', 'tl-v'].some(pattern => {
+                walker.lastPowerFlowPattern = pattern;
+                return !!this.calculatePowerAssignments(walker).cut;
+            });
+        } finally {
+            walker.powerFlowPattern = flow;
+            kept.forEach(([k, had, v]) => {
+                if (had) walker[k] = v;
+                else delete walker[k];
+            });
+        }
+    }
+
+    // The Circuit numbers row under Organized: shown only where it does
+    // something (powerNumberOrderApplies), its lit button the order the
+    // walking screen numbers by now (powerNumberOrder - unset follows the
+    // flow: Across on horizontal first, Down on vertical first).
+    syncPowerNumberOrder(layer = this.currentLayer) {
+        const row = document.getElementById('power-number-order-row');
+        if (!row) return;
+        const walker = layer ? this.powerNumberOrderApplies(layer) : null;
+        row.style.display = walker ? '' : 'none';
+        if (!walker) return;
+        const order = this.powerNumberOrder(walker);
+        row.querySelectorAll('[data-order]').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-order') === order);
+        });
+    }
+
     // A unit's cabinets less the blank ones - a blank draws no power and
     // rides no circuit ("they don't exist", 2026-10-18).
     _livePanels(panels) {
@@ -3482,10 +6322,9 @@ class _Power {
             return this._mergeOverrideCircuits(layer, { circuits: [], error: null });
         }
 
-        const voltage = parseFloat(layer.powerVoltage) || 0;
-        const amperage = parseFloat(layer.powerAmperage) || 0;
         const panelWatts = parseFloat(layer.panelWatts) || 0;
-        const wattsPerCircuit = voltage * amperage;
+        // 80% of the breaker on a US screen (circuitCapacity).
+        const wattsPerCircuit = this.circuitCapacityWatts(layer);
         const pattern = this.autoPowerPattern(layer);
         const maximize = !!layer.powerMaximize;
         const organized = !!layer.powerOrganized && !maximize;
@@ -3556,79 +6395,208 @@ class _Power {
                 ? [...Array(gridRows).keys()].map(i => (startsTop ? i : (gridRows - 1 - i)))
                 : [...Array(gridCols).keys()].map(i => (startsLeft ? i : (gridCols - 1 - i)));
 
-            // Splitter packing: one RUN per unit (row/column) - each branch
-            // is its own short daisy fed at its head, the physical truth of
-            // a wall cabled top-down - then _packPowerRuns gangs consecutive
-            // runs onto shared circuits within maxWays and capacity. The
-            // single-unit-too-big error is unchanged. Off by default; the
-            // default path below is byte-identical to the pre-splitter code.
-            const splitters = this.getPowerSplitters(layer);
-            if (splitters.enabled) {
-                const runs = [];
-                for (const idx of unitIndices) {
-                    const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx));
-                    if (unitPanels.length === 0) continue;
-                    const unitLoad = unitPanels.reduce((sum, p) => sum + loadOf(p), 0);
-                    if (unitLoad > wattsPerCircuit) {
-                        return {
-                            circuits: [],
-                            error: {
-                                message: isHorizontalFirst ? 'CANNOT FIT COMPLETE ROW' : 'CANNOT FIT COMPLETE COLUMN',
-                                unitType: isHorizontalFirst ? 'row' : 'column',
-                                unitCount: isHorizontalFirst ? gridCols : gridRows,
-                                // the offending unit's own watts, so the empty
-                                // soca panel can say WHY with real figures
-                                unitLoad
-                            }
-                        };
-                    }
-                    runs.push({
-                        panels: unclaimed(this._livePanels(this.getOrganizedPanelsForUnits(
-                            layer, pattern, isHorizontalFirst, [idx], false, plan))),
-                        load: unitLoad,
-                    });
-                }
-                const manual = this.appliedSplitterGroups(
-                    layer, runs.map((_, i) => i + 1));
-                const packed = this._packPowerRuns(
-                    runs, wattsPerCircuit, splitters.maxWays, manual);
-                return this._mergeOverrideCircuits(layer, withOwners({
-                    circuits: packed.circuits, runs: packed.runs,
-                    runIds: packed.runIds, error: null }));
-            }
-
-            let current = { unitIndices: [], load: 0 };
-
+            // The units (rows, or columns for a vertical-first pattern) in
+            // walk order, each with its load. A unit too big for one circuit
+            // is CUT along its own walk (the owner's ruling, 2026-11-01):
+            // each circuit takes as many whole cabinets as fit, the next
+            // starts where it stopped in the same unit, and the last takes
+            // the remainder - a 90-wide row of 150 W cabinets on a 3,328 W
+            // circuit is 22, 22, 22, 22 and 2. A piece never wraps onto the
+            // next unit. A one-unit circuit walks from the pattern's start
+            // side, the way every one-row circuit always has, so the pieces
+            // of every cut row line up in stacks. Rows that fit are the
+            // walk they always were. One cabinet over a circuit is the
+            // PANEL WATTS error above.
+            const walkOf = (indices) => unclaimed(this._livePanels(this.getOrganizedPanelsForUnits(
+                layer, pattern, isHorizontalFirst, indices, false, plan)));
+            // Where a piece's first cabinet sits along its line, counted
+            // from the pattern's start side (a right start counts from the
+            // right edge, a bottom start from the bottom), so Down can put
+            // a piece of a line cut differently from the lines around it
+            // under the stack it starts in (_splitRunStacks).
+            const posOf = (panel) => {
+                const at = isHorizontalFirst ? colOfPanel(panel) : rowOfPanel(panel);
+                if (!Number.isFinite(at)) return undefined;
+                return (isHorizontalFirst ? startsLeft : startsTop) ? at : -at;
+            };
+            const units = [];
             for (const idx of unitIndices) {
                 const unitPanels = visibleOrdered.filter(p => (isHorizontalFirst ? rowOfPanel(p) === idx : colOfPanel(p) === idx));
                 if (unitPanels.length === 0) continue;
                 const unitLoad = unitPanels.reduce((sum, p) => sum + loadOf(p), 0);
+                const unit = { idx, load: unitLoad, pieces: null };
                 if (unitLoad > wattsPerCircuit) {
-                    return {
-                        circuits: [],
-                        error: {
-                            message: isHorizontalFirst ? 'CANNOT FIT COMPLETE ROW' : 'CANNOT FIT COMPLETE COLUMN',
-                            unitType: isHorizontalFirst ? 'row' : 'column',
-                            unitCount: isHorizontalFirst ? gridCols : gridRows,
-                            // the offending unit's own watts, so the empty
-                            // soca panel can say WHY with real figures
-                            unitLoad
-                        }
-                    };
+                    unit.pieces = [];
+                    let piece = null;
+                    walkOf([idx]).forEach(p => {
+                        const w = loadOf(p);
+                        if (piece && piece.load + w > wattsPerCircuit) piece = null;
+                        if (!piece) unit.pieces.push(piece = { panels: [], load: 0, pos: posOf(p) });
+                        piece.panels.push(p);
+                        piece.load += w;
+                    });
                 }
-                if (current.load > 0 && current.load + unitLoad > wattsPerCircuit) {
-                    circuits.push(unclaimed(
-                        this._livePanels(this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan))
-                    ));
-                    current = { unitIndices: [], load: 0 };
-                }
-                current.unitIndices.push(idx);
-                current.load += unitLoad;
+                units.push(unit);
             }
-            if ((current.unitIndices || []).length > 0) {
-                circuits.push(unclaimed(
-                    this._livePanels(this.getOrganizedPanelsForUnits(layer, pattern, isHorizontalFirst, current.unitIndices || [], false, plan))
-                ));
+            const anyCut = units.some(u => u.pieces);
+            // SIDE BY SIDE ONLY (the owner's ruling, 2026-11-03). Once a
+            // circuit is redrawn, the cabinets it took are out of the walk,
+            // and two runs either side of it read as neighbours: a column
+            // left over before a redrawn 2fer was ganged with the column
+            // after it, a 2fer whose cable jumped the other circuit and
+            // whose disc landed on that circuit's. "All circuits cabling
+            // should move to the left": the automatic circuits after a
+            // redraw pack from the first free line, side by side, and a
+            // share or a daisy never reaches over a line a redrawn circuit
+            // holds. `claimedLines` are the lines (rows, or columns on a
+            // vertical-first pattern) with a cabinet on an override;
+            // `apart(a, b)` is true when one lies between units a and b
+            // (indices into `units`). A blank or hidden line is no circuit
+            // and parts nothing. Empty without overrides: every walk below
+            // is the one it always was.
+            const lineOf = (p) => (isHorizontalFirst ? rowOfPanel(p) : colOfPanel(p));
+            const claimedLines = new Set();
+            if (claimed.size) {
+                (plan ? plan.ordered.map(c => c.panel) : layer.panels).forEach(p => {
+                    if (p && !p.hidden && !p.blank && claimed.has(p)) claimedLines.add(lineOf(p));
+                });
+            }
+            const unitsApart = (a, b) => {
+                if (!claimedLines.size || a === b) return false;
+                const lo = Math.min(units[a].idx, units[b].idx);
+                const hi = Math.max(units[a].idx, units[b].idx);
+                for (let k = lo + 1; k < hi; k++) if (claimedLines.has(k)) return true;
+                return false;
+            };
+            // STACKS. Read across the lines instead of along them: inside
+            // every unbroken stretch of cut units, each unit's first piece,
+            // then each unit's second, and so on; anything that is not a
+            // piece of a cut unit ends the stretch and keeps its place. A
+            // unit cut differently from the stacks (a half-height row whose
+            // circuits carry twice the cabinets) puts each piece in the
+            // stack its first cabinet sits under, in walk order: "Power
+            // will be the same" (the owner, 2026-11-02). The data side's
+            // _stackSplitRuns, the one rule both share. `items` come in
+            // walk order and each carries `at` = [unit, piece], `pos` (its
+            // first cabinet along the unit) and `piece` (true for a piece
+            // of a cut unit). Returns the indices. `byPlace` leaves the
+            // positions out, so every piece stacks by its place along its
+            // unit: the splitter packing's reading below, which the
+            // numbers never move.
+            const stackOrder = (items, byPlace = false) => this._stackSplitRuns(
+                items.map((_, i) => i), (i) => {
+                    const item = items[i];
+                    if (!item.piece) return null;
+                    return { line: item.at[0], seg: item.at[1], pos: byPlace ? undefined : item.pos };
+                });
+            // THE NUMBERS (the Circuit numbers switch, powerNumberOrder):
+            // along the walk, or down the stacks - Down on a
+            // horizontal-first pattern, Across on a vertical-first one,
+            // where the lines are columns. `items` in walk order; returns
+            // the indices in circuit-number order. Only the numbers move.
+            const numberByStacks = this.powerNumbersStack(layer, isHorizontalFirst);
+            const numberOrder = (items) => (numberByStacks
+                ? stackOrder(items) : items.map((_, i) => i));
+
+            // Splitter packing: one RUN per unit (row/column) - each branch
+            // is its own short daisy fed at its head, the physical truth of
+            // a wall cabled top-down - then _packPowerRuns gangs consecutive
+            // runs onto shared circuits within maxWays and capacity. Off by
+            // default; the default path below is byte-identical to the
+            // pre-splitter code.
+            //
+            // A cut unit's pieces are runs like any other (the owner's
+            // ruling, 2026-11-01: the short leftover is a circuit like any
+            // other and shares). The runs of a cut stretch are read by
+            // stacks (stackOrder), so the leftovers at the far end sit next
+            // to each other and share the way neighbouring runs always
+            // have. That reading is the packing's own and never moves with
+            // the Circuit numbers switch: renumbering never changes which
+            // cabinets share a circuit. It reads every piece by its place
+            // along its unit (byPlace), as it always has, so a unit cut
+            // differently from the stacks shares exactly as before; only
+            // its circuits' NUMBERS follow the stack it starts under. An
+            // uncut screen reads one run per unit in walk order, exactly
+            // as before.
+            const splitters = this.getPowerSplitters(layer);
+            if (splitters.enabled) {
+                const walkRuns = [];
+                units.forEach((u, k) => {
+                    if (u.pieces) {
+                        u.pieces.forEach((p, j) => walkRuns.push({ ...p, at: [k, j], piece: true }));
+                    } else {
+                        walkRuns.push({ panels: walkOf([u.idx]), load: u.load, at: [k, 0], piece: false });
+                    }
+                });
+                const runs = anyCut ? stackOrder(walkRuns, true).map(i => walkRuns[i]) : walkRuns;
+                const manual = this.appliedSplitterGroups(
+                    layer, runs.map((_, i) => i + 1));
+                // An older show's automatic shares, kept as it was saved
+                // (_keptShares): while the screen is the one they were
+                // packed on, the walk takes them as they are, over the
+                // limit or not, and the OVER flags read them.
+                const sigOf = () => this._keptShareSig(
+                    layer, pattern, runs, splitters.maxWays, manual, layerOfPanel);
+                const kept = this._keptShares(layer, runs.length, sigOf);
+                const apart = claimedLines.size
+                    ? (a, b) => unitsApart(runs[a].at[0], runs[b].at[0]) : null;
+                const packed = kept ? this._packKeptRuns(runs, kept) : this._packPowerRuns(
+                    runs, wattsPerCircuit, splitters.maxWays, manual, apart);
+                if (this._keptShareProbe) {
+                    this._keptShareProbe.set(layer, { sig: sigOf(), runIds: packed.runIds });
+                }
+                const result = { circuits: packed.circuits, runs: packed.runs,
+                    runIds: packed.runIds, error: null };
+                if (anyCut) {
+                    // Each circuit sits where its first run does; put them
+                    // in walk order, then number them.
+                    const heads = packed.runIds.map(ids => runs[ids[0] - 1]);
+                    const walk = heads.map((_, i) => i).sort((a, b) =>
+                        (heads[a].at[0] - heads[b].at[0]) || (heads[a].at[1] - heads[b].at[1]) || (a - b));
+                    const order = numberOrder(walk.map(i => heads[i])).map(n => walk[n]);
+                    result.circuits = order.map(i => packed.circuits[i]);
+                    result.runs = order.map(i => packed.runs[i]);
+                    result.runIds = order.map(i => packed.runIds[i]);
+                    result.cut = true;
+                }
+                return this._mergeOverrideCircuits(layer, withOwners(result));
+            }
+
+            // Whole units that fit share one circuit while they fit, as
+            // always; a cut unit closes the circuit in hand, and each of its
+            // pieces is a circuit of its own (a piece joining the next unit
+            // would wrap onto the next row).
+            const items = [];
+            let current = { unitIndices: [], load: 0, at: null, last: null };
+            const flush = () => {
+                if (current.unitIndices.length > 0) {
+                    circuits.push(walkOf(current.unitIndices));
+                    items.push({ at: current.at, piece: false });
+                }
+                current = { unitIndices: [], load: 0, at: null, last: null };
+            };
+            units.forEach((u, k) => {
+                if (u.pieces) {
+                    flush();
+                    u.pieces.forEach((piece, j) => {
+                        circuits.push(piece.panels);
+                        items.push({ at: [k, j], piece: true, pos: piece.pos });
+                    });
+                    return;
+                }
+                if (current.load > 0 && current.load + u.load > wattsPerCircuit) flush();
+                // never a daisy over a redrawn circuit's line (unitsApart)
+                if (current.last !== null && unitsApart(current.last, k)) flush();
+                if (current.unitIndices.length === 0) current.at = [k, 0];
+                current.last = k;
+                current.unitIndices.push(u.idx);
+                current.load += u.load;
+            });
+            flush();
+            if (anyCut) {
+                const walked = circuits.splice(0, circuits.length);
+                numberOrder(items).forEach(i => circuits.push(walked[i]));
+                return this._mergeOverrideCircuits(layer, withOwners({ circuits, error: null, cut: true }));
             }
         } else {
             let current = [];
@@ -3677,29 +6645,54 @@ class _Power {
             });
         });
         const crossing = overrides.some(o => o.hits.some(h => h.layer.id !== layer.id));
+        // A taken-over circuit that was SHARED keeps its runs (the owner's
+        // ruling, 2026-10-19): the take-over seeds a `branch` mark on the
+        // head of every run after the first (overrideRun), so a 3fer of
+        // three columns stays three runs on the one circuit and draws, tags
+        // and counts as a 3fer. Its run ids are its own - "2.1", "2.2" -
+        // never the automatic run ordinals, which are a different space
+        // (and the share verbs leave a taken-over circuit alone anyway,
+        // _shareRunSegments). One run is the plain circuit it always was.
+        let branched = false;
         overrides.forEach(o => {
+            const counts = this._overrideRunCounts(o.hits);
+            const shared = counts.length > 1;
+            if (shared) branched = true;
             rows.push({
                 num: o.num,
                 panels: o.hits.map(h => h.panel),
                 layers: (result.layers || crossing)
                     ? o.hits.map(h => h.layer) : null,
-                runs: result.runs ? [o.hits.length] : null,
-                runIds: null,
+                runs: (result.runs || shared) ? counts : null,
+                runIds: shared ? counts.map((_, k) => `${o.num}.${k + 1}`) : null,
             });
         });
         rows.sort((a, b) => a.num - b.num);
         const out = { circuits: rows.map(r => r.panels), error: null, nums: rows.map(r => r.num) };
+        if (result.cut) out.cut = true;
         if (result.layers || crossing) {
             // Owner rows for the auto circuits that never had any: every
             // cabinet is this layer's own. _powerOwnerIdRows nulls those rows
             // back out downstream, so the tinting fast path stays untouched.
             out.layers = rows.map(r => r.layers || (r.panels || []).map(() => layer));
         }
-        if (result.runs) {
-            out.runs = rows.map(r => r.runs);
+        if (result.runs || branched) {
+            out.runs = rows.map(r => r.runs || [(r.panels || []).length]);
             out.runIds = rows.map(r => r.runIds);
         }
         return out;
+    }
+
+    // The run sizes of one taken-over circuit, from its resolved hits: a
+    // new run starts at every hit carrying the `branch` mark. [n] for a
+    // plain circuit.
+    _overrideRunCounts(hits) {
+        const counts = [];
+        (hits || []).forEach((h, i) => {
+            if (i === 0 || h.branch) counts.push(0);
+            counts[counts.length - 1] += 1;
+        });
+        return counts.length ? counts : [0];
     }
 
 }

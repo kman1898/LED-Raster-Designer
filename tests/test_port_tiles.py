@@ -155,7 +155,7 @@ CLICK_FACE_JS = """(tileId) => {
 def panel_page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)  # socket connect + app init
@@ -253,6 +253,89 @@ def test_a_contested_port_wears_the_clash_state(panel_page):
     finally:
         # WallB and its pin would haunt every later seed's occupancy
         panel_page.evaluate("""async (project) => {
+            await fetch('/api/project', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(project),
+            });
+            window.app.project = await (await fetch('/api/project')).json();
+            await window.app.refreshPortAssignment();
+        }""", snapshot)
+        panel_page.wait_for_timeout(400)
+
+
+def test_a_conflicting_placement_asks_in_the_apps_dialog(panel_page):
+    """A placement that would land on a port somebody holds is a question,
+    asked in the app's own dialog (app-dialogs appConfirm, QA round 3), not
+    the browser's confirm(). Declining it places nothing and clears the
+    note the last move left on the panel; saying yes places it."""
+    ids = seed(panel_page)
+    snapshot = panel_page.evaluate(
+        "async () => await (await fetch('/api/project')).json()")
+    # the conflict is asked of a real request: no native dialog may open
+    panel_page.route('**/api/native-dialog/**',
+                     lambda route: route.fulfill(status=403, body=''))
+    try:
+        panel_page.evaluate("""async (args) => {
+            const app = window.app;
+            await fetch('/api/layer/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'WallB', columns: 2, rows: 2,
+                                       cabinet_width: 128,
+                                       cabinet_height: 128 }),
+            });
+            app.project = await (await fetch('/api/project')).json();
+            await app.refreshPortAssignment();
+            const screen1 = app.project.layers.find(l => l.name === 'Screen1');
+            await app._assignmentRequest('/api/port-assignments/pin', 'POST',
+                                         { layerId: String(screen1.id),
+                                           index: 0, cardId: args.cardId,
+                                           port: 1 });
+            // what an earlier move leaves on the panel
+            app._assignmentNote = 'Screen1 is now on SR-7';
+            app.renderPortAssignmentPanel();
+            const wallB = app.project.layers.find(l => l.name === 'WallB');
+            window.__placeSpot = { layerId: String(wallB.id), index: 0,
+                                   cardId: args.cardId, port: 1 };
+            await app._placePort(window.__placeSpot, false);
+        }""", {'cardId': ids['cardId']})
+        modal = panel_page.locator('#port-place-conflict-modal')
+        modal.wait_for(state='visible', timeout=5000)
+        assert 'Place it here anyway?' in modal.inner_text(), modal.inner_text()
+        modal.get_by_role('button', name='Cancel').click()
+        modal.wait_for(state='detached', timeout=5000)
+        panel_page.wait_for_timeout(300)
+        declined = panel_page.evaluate("""(cardId) => {
+            const tile = document.querySelector(
+                `[data-lrd-tile="port-${cardId}-1"]`);
+            return { note: window.app._assignmentNote,
+                     error: window.app._assignmentError,
+                     clash: tile.classList.contains('lrd-tile-clash') };
+        }""", ids['cardId'])
+        assert declined == {'note': None, 'error': None, 'clash': False}, (
+            f'declining the placement left something behind: {declined}')
+        # the same question answered yes lands the port on the held one
+        panel_page.evaluate(
+            "() => { window.app._placePort(window.__placeSpot, false); }")
+        modal.wait_for(state='visible', timeout=5000)
+        modal.get_by_role('button', name='Place it').click()
+        modal.wait_for(state='detached', timeout=5000)
+        panel_page.wait_for_function(
+            """(cardId) => {
+                const tile = document.querySelector(
+                    `[data-lrd-tile="port-${cardId}-1"]`);
+                return !!tile && tile.classList.contains('lrd-tile-clash');
+            }""", arg=ids['cardId'], timeout=5000)
+    finally:
+        panel_page.unroute('**/api/native-dialog/**')
+        panel_page.evaluate("""async (project) => {
+            delete window.__placeSpot;
+            // a question left standing is answered No, so the dialog queue
+            // (one question at a time) is not held for later modules
+            const stray = document.getElementById('port-place-conflict-modal');
+            const no = stray && stray.querySelector('button[data-answer="0"]');
+            if (no) no.click();
             await fetch('/api/project', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -1262,7 +1345,7 @@ def test_a_backing_tile_carries_the_mirrored_return_occupant(panel_page):
         back = tile_state(panel_page, f"port-{ids['cardId']}-2")
         main = tile_state(panel_page, f"port-{ids['cardId']}-1")
         assert back, 'socket 2 lost its tile'
-        assert 'Screen1 p1 return' in back['faceText'], back
+        assert 'Screen1 P1 return' in back['faceText'], back
         assert back['occupied'], (
             f'a working return must wear the occupied ground: {back}')
         assert 'Screen1' in main['faceText'], main

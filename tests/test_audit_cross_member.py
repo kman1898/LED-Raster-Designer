@@ -86,7 +86,8 @@ window.__ax = {
             panel_width_mm: 500, panel_height_mm: 500,
             offset_x: 0, offset_y: 0,
             panel_weight: 20, weight_unit: 'kg',
-            panelWatts: 200, powerVoltage: 208, powerAmperage: 20,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            panelWatts: 200, powerVoltage: 208, powerAmperage: 25,
             processorType: 'brompton', bitDepth: 8, frameRate: 60,
             lowLatency: false,
             color1: { r: 64, g: 70, b: 128 }, color2: { r: 149, g: 156, b: 184 },
@@ -277,7 +278,7 @@ window.__ax = {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -482,6 +483,33 @@ def test_mixed_size_wall_pattern_is_in_physical_order(page, pattern):
     assert order == MIXED_EXPECTED[pattern], (pattern, order)
 
 
+# The Z twins (the owner, 2026-11-01): every row or column starts again from
+# the start side, so no line runs back. Hand-derived from the same wall.
+MIXED_EXPECTED_Z = {
+    'tl-h-z': ['1:0,0', '1:0,1', '1:0,2', '2:0,0', '2:0,1', '2:0,2',
+               '2:1,0', '2:1,1', '2:1,2',
+               '1:1,0', '1:1,1', '1:1,2', '2:2,0', '2:2,1', '2:2,2',
+               '2:3,0', '2:3,1', '2:3,2'],
+    'br-v-z': ['2:3,2', '2:2,2', '2:1,2', '2:0,2',
+               '2:3,1', '2:2,1', '2:1,1', '2:0,1',
+               '2:3,0', '2:2,0', '2:1,0', '2:0,0',
+               '1:1,2', '1:0,2',
+               '1:1,1', '1:0,1',
+               '1:1,0', '1:0,0'],
+}
+
+
+@pytest.mark.parametrize('pattern', sorted(MIXED_EXPECTED_Z))
+def test_mixed_size_wall_z_pattern_is_in_physical_order(page, pattern):
+    order = _run(page, MIXED, """
+        const app = window.app;
+        app.selectPanelsInRect(app.currentLayer, ax.rect(0, 0, 576, 256));
+        app.applyPatternToSelection('%s');
+        return ax.pathKeys(a, 1);
+    """ % pattern)
+    assert order == MIXED_EXPECTED_Z[pattern], (pattern, order)
+
+
 def test_member_above_the_owner_is_wired_first(page):
     """B sits ABOVE A. A top-left serpentine has to start on B, not on A."""
     order = _run(page, ABOVE, """
@@ -616,7 +644,7 @@ def test_peer_cabinet_cannot_be_claimed_by_two_ports_of_the_owner(page):
     assert result['p2'] == [], result
     assert len(result['toasts']) == 1, result
     assert 'Half Panels' in result['toasts'][0], result['toasts']
-    assert 'port 1' in result['toasts'][0], result['toasts']
+    assert 'P1' in result['toasts'][0], result['toasts']
 
 
 def test_conflict_across_members_names_the_owning_screen(page):
@@ -634,7 +662,7 @@ def test_conflict_across_members_names_the_owning_screen(page):
     """)
     assert result['aPort1'] == ['2:0,0'], result
     assert result['bPort1'] == 0, result
-    assert 'port 1 on JP5' in result['toasts'][-1], result['toasts']
+    assert 'P1 on JP5' in result['toasts'][-1], result['toasts']
 
 
 def test_pattern_apply_is_rejected_wholesale_on_a_cross_member_conflict(page):
@@ -664,7 +692,7 @@ def test_pattern_apply_sees_a_claim_made_by_a_peers_own_port(page):
         return { p1: ax.pathKeys(a, 1), toasts: window.__ax.toasts };
     """)
     assert result['p1'] == [], result
-    assert 'port 3 on Half Panels' in result['toasts'][-1], result['toasts']
+    assert 'P3 on Half Panels' in result['toasts'][-1], result['toasts']
 
 
 def test_same_cabinet_cannot_be_added_twice_to_one_port(page):
@@ -1060,7 +1088,7 @@ def test_three_member_group_conflict_is_found_on_the_third_member(page):
         });
     }""")
     assert result['path'] == [], result
-    assert 'port 4 on C' in result['toasts'][-1], result['toasts']
+    assert 'P4 on C' in result['toasts'][-1], result['toasts']
     assert 'R2C2 on B' in result['toasts'][-1], result['toasts']
 
 
@@ -1596,7 +1624,7 @@ def test_route_switch_panel_row_checks_toggles_and_greys_out(page):
     assert out['third']['enabled'] is False, out
     # Mixed cabinet sizes are said in plain words (owner, 2026-10-16).
     assert out['third']['hint'] == (
-        'Cabinet sizes differ - runs stay per screen. Use Custom to run across.'), out
+        'Cabinet sizes differ, so runs stay per screen. Use Custom to run across.'), out
 
 
 def test_route_switch_row_exists_only_while_a_grouped_screen_is_shown(page):

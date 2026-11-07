@@ -519,7 +519,7 @@ PULL_JS = """() => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)
@@ -613,19 +613,22 @@ def test_five_and_six_at_both_ends_are_one_four_way(page):
     tags_b = [b['tag'] for b in pg.evaluate(TRAY_JS, ['cvt', ids['boxB']])]
     assert tags_a == ["5-6 PAIR · 4 channel snake · 150' ↔"], tags_a
     assert tags_b == ["5-6 PAIR · 4 channel snake · 150' ↔"], tags_b
-    # The pull list: the snake said ONCE, two extensions, two barrels.
+    # The pull list: the snake said ONCE, two extensions, two barrels - in
+    # etherCON, the CVT4K-S's own output (2026-10-21).
     pull = pg.evaluate(PULL_JS)
     rows = [r for _name, rs in pull['rows'] for r in rs]
-    snakes = [r for r in rows if r[0] == 'Ether-con Snake']
-    assert snakes == [['Ether-con Snake', "150'", 1, '5-6 PAIR', '4 channel']], rows
-    barrels = [r for r in rows if r[0] == 'Ether-con Barrel']
+    snakes = [r for r in rows if r[0] == 'etherCON Snake']
+    # labelled by its ports, its name and size in Notes (2026-10-21)
+    assert snakes == [['etherCON Snake', "150'", 1, 'BOX A-5, BOX A-6, BOX B-5, BOX B-6',
+                       '5-6 PAIR · 4 channel']], rows
+    barrels = [r for r in rows if r[0] == 'etherCON Barrel']
     assert [r[2] for r in barrels] == [2], barrels
-    exts = [r for r in rows if r[0] == 'Ether-con' and 'ext' in r[4]]
+    exts = [r for r in rows if r[0] == 'etherCON Extension' and 'ext' in r[4]]
     assert [r[1] for r in exts] == ["25'"] and [r[2] for r in exts] == [2], exts
     # and once on the processor's own sheet, whatever it crosses
     hw = [h for h in pull['hardware'] if h[0] == 'processor']
     assert len(hw) == 1, hw
-    assert len([r for r in hw[0][2] if r[0] == 'Ether-con Snake']) == 1, hw
+    assert len([r for r in hw[0][2] if r[0] == 'etherCON Snake']) == 1, hw
     # Undo: the extensions, then the home run, the name, and the snake -
     # whole, in one step, off both boxes at once.
     for _ in range(5):
@@ -634,3 +637,23 @@ def test_five_and_six_at_both_ends_are_one_four_way(page):
     show = pg.evaluate(SHOW_JS)
     assert show['snakes'] == [], show
     assert show['index'] == 0, show
+
+
+def test_a_snake_is_stored_one_way_whatever_the_file_said(client):
+    """A file carrying `connector: null` / `ft: null` (an older save, a copy
+    taken off the served list) loads in the stored shape - no key for an
+    unset length or connector - so the next save is the same file whatever
+    order the show was opened in (QA, beta.4)."""
+    ids = _two_cards_with_boxes(client)
+    project = _project(client)
+    project['snakes'] = [
+        {'id': 'snk70', 'name': 'NULLS', 'ft': None, 'connector': None,
+         'members': [_member('cvt', ids['boxA'], 1),
+                     _member('cvt', ids['boxA'], 2)]},
+        {'id': 'snk71', 'name': 'SET', 'ft': 50, 'connector': 'ethercon',
+         'members': [_member('cvt', ids['boxB'], 1)]}]
+    r = client.put('/api/project', json=project)
+    assert r.status_code == 200, r.get_data(as_text=True)
+    stored = {s['name']: s for s in _project(client)['snakes']}
+    assert 'ft' not in stored['NULLS'] and 'connector' not in stored['NULLS']
+    assert (stored['SET']['ft'], stored['SET']['connector']) == (50, 'ethercon')

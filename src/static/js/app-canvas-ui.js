@@ -1,7 +1,7 @@
 // app-canvas-ui: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, holdDragOff } from './helpers.js';
 
 class _CanvasUi {
     regroupLayersByCanvas(container) {
@@ -61,11 +61,54 @@ class _CanvasUi {
             </div>
             <div class="canvas-group-body"></div>
             <div class="canvas-group-footer">
-                <button class="btn btn-secondary canvas-add-btn" title="Add a layer to this canvas">+ Add</button>
+                <button class="btn btn-secondary canvas-add-btn" title="Add a screen, image or text label to this canvas">+ Add</button>
             </div>
         `;
         this._wireCanvasGroupEl(wrap, canvas);
         return wrap;
+    }
+
+    // A canvas dropped on the Screens list outside every canvas block: the
+    // space under the last block (the list fills the panel, so it is most of
+    // an empty list), and the gaps between blocks. Nothing took a drop there,
+    // so a canvas let go under the last block stayed put and said nothing
+    // (1.6.0 QA, beta.6; owner: canvases drag to a new place, to the end too).
+    // It goes before the first block below the drop, or last when there is
+    // none. A drop on a block is the block's own (_wireCanvasGroupEl). The
+    // list element outlives its contents, so this is wired once.
+    _canvasDropSpot(list, y) {
+        const blocks = [...list.querySelectorAll('.canvas-group')];
+        const below = blocks.find(el => y < el.getBoundingClientRect().top);
+        if (below) return { el: below, after: false };
+        return blocks.length ? { el: blocks[blocks.length - 1], after: true } : null;
+    }
+
+    _wireCanvasListDrop() {
+        const list = document.getElementById('layers-list');
+        if (!list) return;
+        const clear = () => list.querySelectorAll('.canvas-group.drag-before, .canvas-group.drag-after')
+            .forEach(el => el.classList.remove('drag-before', 'drag-after'));
+        const onABlock = (e) => !!(e.target.closest && e.target.closest('.canvas-group'));
+        list.addEventListener('dragover', (e) => {
+            if (!this._dragCanvasId || onABlock(e)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            clear();
+            const spot = this._canvasDropSpot(list, e.clientY);
+            if (spot && spot.el.dataset.canvasId !== this._dragCanvasId) {
+                spot.el.classList.add(spot.after ? 'drag-after' : 'drag-before');
+            }
+        });
+        list.addEventListener('dragleave', (e) => {
+            if (e.target === list) clear();
+        });
+        list.addEventListener('drop', (e) => {
+            if (!this._dragCanvasId || onABlock(e)) return;
+            e.preventDefault();
+            clear();
+            const spot = this._canvasDropSpot(list, e.clientY);
+            if (spot) this.reorderCanvasBeforeTarget(this._dragCanvasId, spot.el.dataset.canvasId, spot.after);
+        });
     }
 
     _escapeAttr(s) {
@@ -86,15 +129,41 @@ class _CanvasUi {
             this.setActiveCanvas(canvas.id);
         });
 
-        // Double-click name to rename inline.
-        nameInput.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
+        // Double-click name to rename inline. The second click opens the
+        // edit as well as the dblclick: the list can be rebuilt between the
+        // two clicks (the rename just ended on another canvas re-renders it
+        // when the server answers), and Firefox sends no dblclick when the
+        // two clicks land on different elements. Whichever comes first
+        // opens it; the other finds it open.
+        //
+        // The read-only name fills most of the header, so it is draggable
+        // itself and its dragstart reaches the header's (below), as on the
+        // screen rows. WebKit may not start an ancestor's drag from a press
+        // on a text field, even a read-only one, which would leave only the
+        // small handle to grab (owner's report, Mac app, 1.6.0 beta.5:
+        // canvases would not reorder; WebKit cannot be run on the test PC).
+        // While the name is edited neither the field nor the header is
+        // draggable, so a drag in the field selects text (helpers.js
+        // holdDragOff).
+        nameInput.draggable = true;
+        let releaseDrag = null;
+        const startRename = () => {
+            if (!nameInput.readOnly) return;
             nameInput.readOnly = false;
+            releaseDrag = holdDragOff(nameInput, header);
             nameInput.focus();
             nameInput.select();
+        };
+        nameInput.addEventListener('click', (e) => {
+            if (nameInput.readOnly && e.detail >= 2) startRename();
+        });
+        nameInput.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            startRename();
         });
         const commitName = () => {
             nameInput.readOnly = true;
+            if (releaseDrag) { releaseDrag(); releaseDrag = null; }
             const newName = nameInput.value.trim();
             if (newName && newName !== canvas.name) {
                 this.updateCanvas(canvas.id, { name: newName });
@@ -127,8 +196,9 @@ class _CanvasUi {
         // -- Drag & drop --
         // Drag canvas header => reorder canvases.
         header.addEventListener('dragstart', (e) => {
-            // If the drag originated from the name input (when readonly was true
-            // and user grabbed the field), still treat as canvas reorder.
+            // A drag from the read-only name field is a canvas reorder too
+            // (it bubbles here). One from a name being edited is not.
+            if (!nameInput.readOnly) { e.preventDefault(); return; }
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('application/x-canvas-id', canvas.id);
             e.dataTransfer.setData('text/plain', `canvas:${canvas.id}`);
@@ -138,7 +208,19 @@ class _CanvasUi {
         header.addEventListener('dragend', () => {
             wrap.classList.remove('dragging');
             this._dragCanvasId = null;
+            document.querySelectorAll('.canvas-group.drag-before, .canvas-group.drag-after')
+                .forEach(el => el.classList.remove('drag-before', 'drag-after'));
         });
+
+        // Where a canvas dropped on this one goes: before it on the upper
+        // half of this canvas's block, after it on the lower half (the screen
+        // rows' midpoint rule). Dropping always meant "before", so a canvas
+        // could never reach the end of the list, and with two canvases
+        // dragging the first onto the second changed nothing.
+        const dropsAfter = (e) => {
+            const r = wrap.getBoundingClientRect();
+            return e.clientY >= r.top + r.height / 2;
+        };
 
         // Drop target: canvas header accepts canvas-reorder OR layer drop.
         wrap.addEventListener('dragover', (e) => {
@@ -149,19 +231,26 @@ class _CanvasUi {
             e.preventDefault();
             e.dataTransfer.dropEffect = (isLayer && (e.metaKey || e.altKey)) ? 'copy' : 'move';
             wrap.classList.add('drag-target');
+            if (isCanvas && this._dragCanvasId !== canvas.id) {
+                const after = dropsAfter(e);
+                wrap.classList.toggle('drag-before', !after);
+                wrap.classList.toggle('drag-after', after);
+            }
         });
         wrap.addEventListener('dragleave', (e) => {
             // Only clear the highlight when leaving the wrap entirely.
-            if (!wrap.contains(e.relatedTarget)) wrap.classList.remove('drag-target');
+            if (!wrap.contains(e.relatedTarget)) {
+                wrap.classList.remove('drag-target', 'drag-before', 'drag-after');
+            }
         });
         wrap.addEventListener('drop', (e) => {
-            wrap.classList.remove('drag-target');
+            wrap.classList.remove('drag-target', 'drag-before', 'drag-after');
             // Canvas reorder?
             const draggedCanvasId = this._dragCanvasId
                 || e.dataTransfer.getData('application/x-canvas-id');
             if (draggedCanvasId && draggedCanvasId !== canvas.id) {
                 e.preventDefault();
-                this.reorderCanvasBeforeTarget(draggedCanvasId, canvas.id);
+                this.reorderCanvasBeforeTarget(draggedCanvasId, canvas.id, dropsAfter(e));
                 return;
             }
             // Cross-canvas layer drop?
@@ -434,7 +523,7 @@ class _CanvasUi {
         const locked = new Map();
         let ids = (layerIds || []).filter(id => {
             const l = byId.get(id);
-            if (l && l.locked) {
+            if (l && this._layerLocked(l)) {
                 if (targetCanvasId == null || where(l) !== targetCanvasId) locked.set(l.id, l);
                 return false;
             }
@@ -449,7 +538,7 @@ class _CanvasUi {
                     ? this.groupMembersOf(l)
                     : layers.filter(m => m && m.group_id === l.group_id);
                 const lockedStaying = (members || []).filter(m => m && m.id !== l.id
-                    && m.locked && m.canvas_id !== targetCanvasId);
+                    && this._layerLocked(m) && m.canvas_id !== targetCanvasId);
                 if (lockedStaying.length === 0) return;
                 held.add(id);
                 lockedStaying.forEach(m => locked.set(m.id, m));
@@ -659,6 +748,13 @@ class _CanvasUi {
             // The routing switch describes the wall, and this is the same wall
             // arriving somewhere else (or again) - so it keeps its answer.
             if ('routeDataAsOne' in group) snapshot.routeDataAsOne = group.routeDataAsOne;
+            // Its Names values too (per group since 2026-11-04).
+            if (group.nameDisplayByView && typeof group.nameDisplayByView === 'object') {
+                snapshot.nameDisplayByView = { ...group.nameDisplayByView };
+            }
+            // A move keeps the wall's power answer; a duplicate is a new
+            // group and walks as one (decidePowerPerMemberOnOpen).
+            if ('powerPerMember' in group) snapshot.powerPerMember = group.powerPerMember;
             out.push(snapshot);
         });
         return out;
@@ -695,6 +791,8 @@ class _CanvasUi {
                 if (!group) {
                     group = { id: snapshot.id, name: snapshot.name, layer_ids: [] };
                     if ('routeDataAsOne' in snapshot) group.routeDataAsOne = snapshot.routeDataAsOne;
+                    if (snapshot.nameDisplayByView) group.nameDisplayByView = { ...snapshot.nameDisplayByView };
+                    if ('powerPerMember' in snapshot) group.powerPerMember = snapshot.powerPerMember;
                     this.project.groups.push(group);
                 }
                 group.layer_ids = members.map(m => m.id);
@@ -714,6 +812,8 @@ class _CanvasUi {
                 layer_ids: pairs.map(p => p.clone.id),
             };
             if ('routeDataAsOne' in snapshot) group.routeDataAsOne = snapshot.routeDataAsOne;
+            if (snapshot.nameDisplayByView) group.nameDisplayByView = { ...snapshot.nameDisplayByView };
+            group.powerPerMember = false;
             this.project.groups.push(group);
             pairs.forEach(p => { p.clone.group_id = group.id; });
             this.remapCopiedLayerPaths(pairs);
@@ -934,14 +1034,54 @@ class _CanvasUi {
         this.setActiveCanvas(targetCid, opts);
     }
 
-    reorderCanvasBeforeTarget(draggedId, targetId) {
+    /**
+     * The screen a show opens with selected: the first one on the canvas it
+     * was saved on. Selecting a screen activates its canvas, so picking
+     * layers[0] opened a multi-canvas show on whichever canvas that screen
+     * sat on - and, before the project PUT, asked the server to activate a
+     * canvas only the incoming show has (a 404). A saved canvas with no
+     * screens opens with none selected. A project with no canvases, or one
+     * whose saved canvas is missing, keeps the old first-screen pick.
+     * Returns the screen selected, or null.
+     */
+    _selectOpeningScreen() {
+        const layers = (this.project && Array.isArray(this.project.layers)) ? this.project.layers : [];
+        let pick = null;
+        if (layers.length) {
+            const canvas = this._activeCanvas();
+            if (!canvas || canvas.id !== this.project.active_canvas_id) {
+                pick = layers[0];
+            } else {
+                const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+                    && window.canvasRenderer.isShowLookView());
+                const cidOf = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
+                pick = layers.find(l => cidOf(l) === canvas.id) || null;
+            }
+        }
+        if (pick) {
+            this.selectLayer(pick);
+        } else {
+            this.currentLayer = null;
+            this.selectedLayerIds = new Set();
+            this.lastSelectedLayerId = null;
+            this.selectionAnchorLayerId = null;
+        }
+        return pick;
+    }
+
+    // `draggedId` goes just before `targetId`, or just after it when
+    // `insertAfter` (a drop on the lower half of the target). A move that
+    // leaves the order as it is sends nothing and records no undo step.
+    reorderCanvasBeforeTarget(draggedId, targetId, insertAfter = false) {
         if (!this.project || !this.project.canvases) return;
-        const ids = this.project.canvases.map(c => c.id);
+        const before = this.project.canvases.map(c => c.id);
+        const ids = before.slice();
         const from = ids.indexOf(draggedId);
         const to = ids.indexOf(targetId);
         if (from < 0 || to < 0 || from === to) return;
         ids.splice(from, 1);
-        ids.splice(ids.indexOf(targetId), 0, draggedId);
+        ids.splice(ids.indexOf(targetId) + (insertAfter ? 1 : 0), 0, draggedId);
+        if (ids.every((id, i) => id === before[i])) return;
         return fetch('/api/canvas/reorder', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1082,7 +1222,9 @@ class _CanvasUi {
         } else if (action === 'color') {
             this.openCanvasColorPicker(canvas);
         } else if (action === 'delete') {
-            if (window.confirm(this._deleteCanvasConfirmText(canvas))) this.deleteCanvas(canvas.id);
+            this.appConfirm(this._deleteCanvasConfirmText(canvas),
+                { id: 'canvas-delete-modal', title: 'Delete canvas', okLabel: 'Delete', danger: true })
+                .then(yes => { if (yes) this.deleteCanvas(canvas.id); });
         }
     }
 
@@ -1107,7 +1249,7 @@ class _CanvasUi {
         // No "cannot be undone": undo restores a deleted canvas and its
         // screens (the Delete Canvas history entry is a full snapshot).
         let msg = layerCount > 0
-            ? `Delete canvas '${canvas.name}' and its ${layerCount} layer${plural(layerCount)}?`
+            ? `Delete canvas '${canvas.name}' and its ${layerCount} screen${plural(layerCount)}?`
             : `Delete canvas '${canvas.name}'?`;
         if (kept.length === 0) return msg;
         const targets = [...new Set(kept.map(l => l.show_canvas_id))];
@@ -1386,7 +1528,7 @@ class _CanvasUi {
             renameFinished = true;
             let newName = input.value.trim() || currentName;
             // A locked screen keeps its name, and the error says why.
-            if (newName !== currentName && layer.locked) {
+            if (newName !== currentName && this._layerLocked(layer)) {
                 this._showLockedError([layer]);
                 newName = currentName;
             }

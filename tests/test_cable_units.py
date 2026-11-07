@@ -29,6 +29,7 @@ import os
 import sys
 
 import pytest
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..', 'src'))
@@ -104,7 +105,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -164,7 +165,7 @@ PULL_JS = """() => {
     app._circuitTailCache = null;
     const list = app.buildPullSheet();
     const rows = list.positions.flatMap(p => p.rows);
-    return rows.filter(r => /Tru-1/.test(r.type)).map(r => [r.type, r.length, r.qty]);
+    return rows.filter(r => /TRUE1/.test(r.type)).map(r => [r.type, r.length, r.qty]);
 }"""
 
 
@@ -202,7 +203,7 @@ def test_a_long_jump_is_measured_in_the_show_s_unit(page):
 
 
 def test_every_surface_prints_the_show_s_unit(page):
-    """In a meters show: the circuit cable reads "3 m True1" (the chip, the
+    """In a meters show: the circuit cable reads "3 m TRUE1" (the chip, the
     tag, the paperwork), the canvas tags say so, the pull sheet's rows are
     "3 m" / "7.5 m" and the jumpers "2 m" / "1.5 m", the workbook carries
     them (and its GEAR LIST takes them), the binder's power sheet prints
@@ -212,19 +213,19 @@ def test_every_surface_prints_the_show_s_unit(page):
     pg, errors, _ = page
     _seed(pg, 'ft')
     feet = pg.evaluate(PULL_JS)
-    assert ['Tru-1', "3'", 1] in feet and ['Tru-1', "7.5'", 1] in feet, feet
-    assert any(r[0] == 'Tru-1 Power Jump' and r[1] == "1.5'" for r in feet), feet
-    assert "3' True1" in pg.evaluate(TAG_TEXTS_JS)
+    assert ['TRUE1', "3'", 1] in feet and ['TRUE1', "7.5'", 1] in feet, feet
+    assert any(r[0] == 'TRUE1 Power Jump' and r[1] == "1.5'" for r in feet), feet
+    assert "3' TRUE1" in pg.evaluate(TAG_TEXTS_JS)
 
     _seed(pg, 'm')
     cable = pg.evaluate("() => window.app.powerCircuitCable(window.app.project.layers[0], 1)")
-    assert cable['text'] == '3 m True1', cable
+    assert cable['text'] == '3 m TRUE1', cable
     tags = pg.evaluate(TAG_TEXTS_JS)
-    assert '3 m True1' in tags and '7.5 m True1' in tags, tags
-    assert not [t for t in tags if t.endswith("' True1")], tags
+    assert '3 m TRUE1' in tags and '7.5 m TRUE1' in tags, tags
+    assert not [t for t in tags if t.endswith("' TRUE1")], tags
     rows = pg.evaluate(PULL_JS)
-    assert ['Tru-1', '3 m', 1] in rows and ['Tru-1', '7.5 m', 1] in rows, rows
-    jumps = {r[1] for r in rows if r[0] == 'Tru-1 Power Jump'}
+    assert ['TRUE1', '3 m', 1] in rows and ['TRUE1', '7.5 m', 1] in rows, rows
+    jumps = {r[1] for r in rows if r[0] == 'TRUE1 Power Jump'}
     assert jumps and jumps <= {'2 m', '1.5 m'}, rows
     assert not [r for r in rows if r[1].endswith("'")], rows
 
@@ -246,7 +247,7 @@ def test_every_surface_prints_the_show_s_unit(page):
     ws = wb['Pull Sheet']
     col = pull_sheet.BLOCK_COLS[0]
     block = [tuple(ws.cell(r, col + i).value for i in range(3)) for r in range(7, 40)]
-    assert ('Tru-1', '3 m', 1) in block and ('Tru-1', '7.5 m', 1) in block, block
+    assert ('TRUE1', '3 m', 1) in block and ('TRUE1', '7.5 m', 1) in block, block
     gear = [wb['GEAR LIST'].cell(r, 2).value for r in range(1, 70)]
     assert '3 m' in gear and '7.5 m' in gear, gear
 
@@ -261,10 +262,10 @@ def test_every_surface_prints_the_show_s_unit(page):
         return { title: plan[idx].title, texts: r.texts };
     }""")
     texts = out['texts']
-    assert '3 m True1' in texts and '7.5 m True1' in texts, (out['title'], texts)
+    assert '3 m TRUE1' in texts and '7.5 m TRUE1' in texts, (out['title'], texts)
     cables = texts[texts.index('CABLES THIS SCREEN'):]
     assert '3 m' in cables and '1.5 m' in cables, cables
-    assert not [t for t in texts if t.endswith("' True1") or t in ("3'", "1.5'", "2'")], texts
+    assert not [t for t in texts if t.endswith("' TRUE1") or t in ("3'", "1.5'", "2'")], texts
 
     # the box's cable sheet and the sidebars
     dock = pg.evaluate("""(distroId) => {
@@ -314,32 +315,28 @@ def test_changing_the_unit_keeps_every_number_and_asks_first(page):
     sections - one setting): on a show holding typed lengths it asks first,
     and No changes nothing. Yes relabels: the stored numbers are the same
     (3 stays 3, the jumpers 2 / 1.5), the papers say m, a pull-sheet edit
-    keyed "Tru-1|3'" follows its row to "Tru-1|3 m", one undo step that the
+    keyed "TRUE1|3'" follows its row to "TRUE1|3 m", one undo step that the
     server holds - and undo puts feet back."""
     pg, errors, _ = page
     _seed(pg, 'ft')
     pg.evaluate("""() => {
         const app = window.app;
-        app.project.pullSheetEdits = {positions: {x: {rows: [{key: "Tru-1|3'", notes: 'spare'}],
-                                                       added: [{type: 'Tru-1', length: "25'", qty: 2}]}}};
+        app.project.pullSheetEdits = {positions: {x: {rows: [{key: "TRUE1|3'", notes: 'spare'}],
+                                                       added: [{type: 'TRUE1', length: "25'", qty: 2}]}}};
     }""")
     asked = []
-
-    def no(d):
-        asked.append(d.message)
-        d.dismiss()
-    pg.once('dialog', no)
     pg.evaluate("() => { window.app.openExportModal ? window.app.openExportModal() : null; }")
     pg.evaluate("""() => { const s = document.getElementById('export-pull-sheet-cable-unit');
                           s.value = 'm'; s.dispatchEvent(new Event('change')); }""")
+    asked.append(answer_app_dialog(pg, accept=False))
     pg.wait_for_timeout(300)
     assert asked and '25 ft becomes 25 m' in asked[0] and 'meters' in asked[0], asked
     st = pg.evaluate("() => [window.app.cableUnit(), document.getElementById('export-pull-sheet-cable-unit').value]")
     assert st == ['ft', 'ft'], st
 
-    pg.once('dialog', lambda d: d.accept())
     pg.evaluate("""() => { const s = document.getElementById('export-binder-cable-unit');
                           s.value = 'm'; s.dispatchEvent(new Event('change')); }""")
+    answer_app_dialog(pg)
     pg.wait_for_timeout(600)
     st = pg.evaluate("""async () => {
         const app = window.app, l = app.project.layers[0];
@@ -355,10 +352,10 @@ def test_changing_the_unit_keeps_every_number_and_asks_first(page):
     assert st['unit'] == 'm' and st['both'] == ['m'] * 4, st
     assert st['cables']['1']['ft'] == 3 and st['cables']['2']['ft'] == 7.5, st
     assert st['jumps'] == [2, 1.5], st
-    assert st['edits']['rows'][0]['key'] == 'Tru-1|3 m', st
+    assert st['edits']['rows'][0]['key'] == 'TRUE1|3 m', st
     assert st['edits']['added'][0]['length'] == '25 m', st
     assert st['action'] == 'Set Cable Lengths Unit' and st['served'] == 'm', st
-    assert st['servedEdits']['positions']['x']['rows'][0]['key'] == 'Tru-1|3 m', st
+    assert st['servedEdits']['positions']['x']['rows'][0]['key'] == 'TRUE1|3 m', st
 
     pg.evaluate("() => window.app.undo()")
     pg.wait_for_timeout(800)
@@ -426,8 +423,8 @@ def test_the_stock_ladders_are_preferences(page):
     served = pg.evaluate("async () => (await (await fetch('/api/preferences')).json())")
     assert served['jumperStockFt'] == [4, 8, 12], served
     pg.evaluate("() => { window.app.openPreferencesModal(); window.app.showPreferencesTab('pull'); }")
-    pg.once('dialog', lambda d: d.accept())
     pg.click('#preferences-reset')
+    answer_app_dialog(pg)
     pg.click('#preferences-save')
     pg.wait_for_timeout(500)
     served = pg.evaluate("async () => (await (await fetch('/api/preferences')).json())")
@@ -449,6 +446,8 @@ def test_a_new_show_takes_the_preference_unit_and_its_lengths(page):
     pg.fill('#pref-pull-data-jump-length-h-m', '1.5')
     pg.fill('#pref-power-cable-length-m', '4')
     pg.click('#preferences-save')
+    # the offer to switch the open show too: No, it stays in feet
+    answer_app_dialog(pg, accept=False)
     pg.wait_for_timeout(500)
     served = pg.evaluate("async () => (await (await fetch('/api/preferences')).json())")
     assert (served['cableUnit'], served['dataJumpLengthM'], served['dataJumpLengthHM'],

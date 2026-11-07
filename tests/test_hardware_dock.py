@@ -91,6 +91,7 @@ import sys
 import pytest
 
 from conftest import settled  # noqa: E402
+from app_dialogs import answer_app_dialog  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
@@ -137,7 +138,8 @@ SEED_JS = """async () => {
         // default (Legacy) onto it and every drop here would refuse.
         await fetch(`/api/layer/${l.id}`, {method: 'PUT',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({powerVoltage: 208, powerAmperage: 20,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            body: JSON.stringify({powerVoltage: 208, powerAmperage: 25,
                                   processorType: 'novastar-coex-1g'})});
     }
     const p = await (await fetch('/api/project')).json();
@@ -295,17 +297,49 @@ POWER_STATE_JS = """(layerId) => {
 }"""
 
 
+# Counts the page's fetches until each reply's body is read. The count
+# drops a macrotask later, so a request chained on the reply starts first.
+FETCH_COUNT_JS = """(() => {
+    const orig = window.fetch;
+    window.__lrdFetches = 0;
+    window.fetch = function (...args) {
+        window.__lrdFetches++;
+        const sent = orig.apply(this, args);
+        const done = () => setTimeout(() => { window.__lrdFetches--; }, 0);
+        sent.then(r => r.clone().text().then(done, done), done);
+        return sent;
+    };
+})()"""
+
+# Quiet: no fetch in flight, no debounced history snapshot pending and no
+# dock layout pass queued, for two frames running.
+QUIET_JS = """() => {
+    const app = window.app;
+    const idle = window.__lrdFetches === 0 && !app._saveStateTimer
+        && !app._dockMasonryRaf;
+    window.__lrdQuiet = idle ? (window.__lrdQuiet || 0) + 1 : 0;
+    return window.__lrdQuiet >= 2;
+}"""
+
+
+def landed(page):
+    """Wait until everything the last gesture started has landed: its
+    requests answered, its history snapshot taken, the tray laid out."""
+    page.evaluate("() => { window.__lrdQuiet = 0; }")
+    page.wait_for_function(QUIET_JS)
+
+
 def right_click(page, x, y):
     """A real right-click, and what the clear item looks like once the
     menu is up."""
     page.mouse.click(x, y, button='right')
-    page.wait_for_timeout(400)
+    landed(page)
     return page.evaluate(CLEAR_ITEM_JS)
 
 
 def take_clear(page):
     page.locator('#context-menu [data-action="hw-clear"]').click()
-    page.wait_for_timeout(800)
+    landed(page)
 
 
 def close_menu(page):
@@ -318,7 +352,7 @@ def close_menu(page):
         return {x: r.left + 15, y: r.top + 15};
     }""")
     page.mouse.click(pt['x'], pt['y'])
-    page.wait_for_timeout(250)
+    landed(page)
     assert not page.evaluate(MENU_SHOWN_JS), 'click-away did not close it'
 
 
@@ -326,19 +360,25 @@ def close_menu(page):
 def dock_page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
+    context.add_init_script(FETCH_COUNT_JS)
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
-    pg.wait_for_timeout(2000)  # socket connect + app init
+    # socket connect + app init
+    pg.wait_for_function("() => window.app && window.app._initialLoadComplete"
+                         " === true && window.app._socketConnects >= 1")
+    landed(pg)
     ids = pg.evaluate(SEED_JS)
-    pg.wait_for_timeout(1200)
+    landed(pg)
     yield pg, ids
     context.close()
 
 
 def open_view(page, mode):
     page.locator(f'[data-mode="{mode}"]').click()
-    page.wait_for_timeout(500)
+    page.wait_for_function(
+        "(mode) => window.canvasRenderer.viewMode === mode", arg=mode)
+    landed(page)
 
 
 def panel_point(page, layer_id, which):
@@ -354,7 +394,7 @@ def drag(page, sx, sy, ex, ey, mid_check=None):
     page.mouse.move(ex, ey, steps=5)
     mid = mid_check(page) if mid_check else None
     page.mouse.up()
-    page.wait_for_timeout(700)
+    landed(page)
     return mid
 
 
@@ -397,7 +437,9 @@ def test_the_dock_lives_only_in_the_hardware_views(dock_page):
     page, ids = dock_page
     for mode in ALL_VIEWS:
         open_view(page, mode)
-        out = page.evaluate("""() => {
+        # the switch re-measures on a frame and two timers (settleLayout);
+        # the old fixed wait gave them 500 ms, and so does this bound
+        out = settled(page, lambda: page.evaluate("""() => {
             const dock = document.getElementById('hardware-dock');
             return {
                 display: getComputedStyle(dock).display,
@@ -406,7 +448,8 @@ def test_the_dock_lives_only_in_the_hardware_views(dock_page):
                 canvasW: document.getElementById('main-canvas').width,
                 wrapW: document.getElementById('canvas-wrapper').clientWidth,
             };
-        }""")
+        }"""), lambda o: o['canvasH'] == o['wrapH']
+            and o['canvasW'] == o['wrapW'], 500)
         expected = mode in ('data-flow', 'power')
         assert (out['display'] != 'none') == expected, (
             f'the dock is {out["display"]} in {mode}')
@@ -478,7 +521,12 @@ def test_a_slow_fold_still_leaves_the_canvas_its_real_size(dock_page):
                             ('#hardware-dock-toggle', lambda s: s['dockH'] > 100)):
             page.locator(click).click()
             settled(page, lambda: page.evaluate(read), done)
-            page.wait_for_timeout(400)
+            # read once the fold's transition has ended, where its own
+            # measure runs
+            page.wait_for_function("() => document.getElementById("
+                                   "'hardware-dock').getAnimations().length"
+                                   " === 0")
+            landed(page)
             out = page.evaluate(read)
             assert done(out) and out['canvasH'] == out['wrapH'], (
                 f'the canvas kept a mid-fold height after {click}: {out}')
@@ -546,7 +594,7 @@ def test_the_header_bar_shows_each_views_own_controls(dock_page):
     retired auto switch stays gone."""
     page, ids = dock_page
     open_view(page, 'data-flow')
-    page.wait_for_timeout(300)
+    landed(page)
     out = page.evaluate(HEADBAR_JS)
     assert out['data'] and not out['power'], out
     assert out['flag'], (
@@ -578,7 +626,7 @@ def test_the_header_bar_shows_each_views_own_controls(dock_page):
     assert hid['back'], 'restoring the assignment did not restore the flag'
 
     open_view(page, 'power')
-    page.wait_for_timeout(300)
+    landed(page)
     out = page.evaluate(HEADBAR_JS)
     assert out['power'] and not out['data'], out
     assert out['flag'], (
@@ -596,7 +644,7 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     st = page.evaluate(STRIP_JS)
     assert st['rows'] == [] and st['display'] == 'none', (
@@ -607,7 +655,7 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
     # stays free of rows - no auto-off condition exists to report, and the
     # flag wears the unattached count instead.
     page.evaluate(UNATTACH_ALL_JS, ids)
-    page.wait_for_timeout(700)
+    landed(page)
     st = page.evaluate(STRIP_JS)
     assert st['rows'] == [] and st['display'] == 'none', (
         f'nothing belongs in the strip with everything unattached - the '
@@ -621,7 +669,7 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
 
     # re-attaching is the way back: the flag goes green, the strip stays empty
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(700)
+    landed(page)
     assert page.evaluate(FLAG_JS)['ok']
     st = page.evaluate(STRIP_JS)
     assert st['rows'] == [] and st['display'] == 'none', (
@@ -647,15 +695,15 @@ def test_the_issues_strip_warns_offers_and_hides_when_empty(dock_page):
         app._circuitTailCache = null;
         app.renderHardwareDock();
     }""", ids)
-    page.wait_for_timeout(600)
+    landed(page)
     st = page.evaluate(STRIP_JS)
     clash = [r for r in st['rows'] if 'claimed twice' in r['text']]
     assert clash and not clash[0]['mild'], (
         f'the twice-claimed tail must warn red: {st}')
-    assert 'PD 1 circuit 1' in clash[0]['text'], st
+    assert 'PD1 circuit 1' in clash[0]['text'], st
     assert 'WALL A' in clash[0]['text'] and 'WALL B' in clash[0]['text'], st
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 # ── the attachment flag ───────────────────────────────────────────────────
@@ -727,7 +775,7 @@ def test_the_flag_counts_screens_and_opens_its_rows_on_demand(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     # everything attached: green, and nothing to open
     st = page.evaluate(FLAG_JS)
@@ -736,7 +784,7 @@ def test_the_flag_counts_screens_and_opens_its_rows_on_demand(dock_page):
     assert st['rows'] == [] and not st['rowsShown'], st
 
     page.evaluate(UNATTACH_ALL_JS, ids)
-    page.wait_for_timeout(700)
+    landed(page)
     st = page.evaluate(FLAG_JS)
     assert st['shown'] and not st['ok'], st
     assert 'not all attached' in st['text'], st
@@ -749,7 +797,7 @@ def test_the_flag_counts_screens_and_opens_its_rows_on_demand(dock_page):
 
     hist = page.evaluate(HIST_LEN_JS)
     page.locator('#hw-dock-flag').click()
-    page.wait_for_timeout(400)
+    landed(page)
     st = page.evaluate(FLAG_JS)
     assert st['rowsShown'], f'the click did not open the rows: {st}'
     got = {r['name']: r for r in st['rows']}
@@ -763,7 +811,7 @@ def test_the_flag_counts_screens_and_opens_its_rows_on_demand(dock_page):
 
     # a rebuild mid-look must not slam the rows shut
     page.evaluate("() => window.app.renderHardwareDock()")
-    page.wait_for_timeout(300)
+    landed(page)
     st = page.evaluate(FLAG_JS)
     assert st['rowsShown'] and len(st['rows']) == 2, (
         f'the rebuild slammed the rows shut mid-look: {st}')
@@ -782,14 +830,14 @@ def test_the_flag_counts_screens_and_opens_its_rows_on_demand(dock_page):
 
     # the same click closes them again
     page.locator('#hw-dock-flag').click()
-    page.wait_for_timeout(300)
+    landed(page)
     st = page.evaluate(FLAG_JS)
     assert not st['rowsShown'] and not st['ok'], st
 
     # recovery is re-attaching (the seed's explicit fill): green, nothing
     # to open
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(700)
+    landed(page)
     st = page.evaluate(FLAG_JS)
     assert st['ok'] and st['rows'] == [], st
 
@@ -805,9 +853,9 @@ def test_a_flag_row_click_centers_the_canvas_and_earns_no_undo(dock_page):
     page.evaluate(RESET_DATA_JS, ids)
     page.evaluate(RESET_PAN_JS)
     page.evaluate(UNATTACH_ALL_JS, ids)
-    page.wait_for_timeout(700)
+    landed(page)
     page.locator('#hw-dock-flag').click()
-    page.wait_for_timeout(300)
+    landed(page)
 
     before = page.evaluate(CENTER_JS, ids['bId'])
     assert abs(before['dx']) > 5 or abs(before['dy']) > 5, (
@@ -816,7 +864,7 @@ def test_a_flag_row_click_centers_the_canvas_and_earns_no_undo(dock_page):
     zoom = page.evaluate("() => window.canvasRenderer.zoom")
     hist = page.evaluate(HIST_LEN_JS)
     page.locator('.hw-dock-attach-row:has-text("WALL B")').click()
-    page.wait_for_timeout(300)
+    landed(page)
     after = page.evaluate(CENTER_JS, ids['bId'])
     assert abs(after['dx']) < 1 and abs(after['dy']) < 1, (
         f'the row click did not center WALL B: {after}')
@@ -825,23 +873,24 @@ def test_a_flag_row_click_centers_the_canvas_and_earns_no_undo(dock_page):
     assert after['pulsing'], 'the landing pulse never armed'
     assert page.evaluate(HIST_LEN_JS) == hist, (
         'centering is view state - it must not be an undo entry')
-    page.wait_for_timeout(1600)
-    assert not page.evaluate("() => !!window.canvasRenderer._pulse"), (
-        'the pulse must clear itself')
+    # bounded by the 1.9 s after the click that the fixed waits gave it
+    pulse = settled(page, lambda: page.evaluate(
+        "() => !!window.canvasRenderer._pulse"), lambda p: not p, 1900)
+    assert not pulse, 'the pulse must clear itself'
 
     # a chip is the same gesture aimed at the same screen
     beforeA = page.evaluate(CENTER_JS, ids['aId'])
     assert abs(beforeA['dx']) > 5 or abs(beforeA['dy']) > 5, beforeA
     page.locator('.hw-dock-attach-row:has-text("WALL A") '
                  '.hw-dock-attach-chip').first.click()
-    page.wait_for_timeout(300)
+    landed(page)
     afterA = page.evaluate(CENTER_JS, ids['aId'])
     assert abs(afterA['dx']) < 1 and abs(afterA['dy']) < 1, afterA
 
     # put the module state back: everything re-attached, flag green, pan
     # re-seeded
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(700)
+    landed(page)
     page.evaluate(RESET_PAN_JS)
     st = page.evaluate(FLAG_JS)
     assert st['ok'] and not st['rowsShown'], st
@@ -856,7 +905,7 @@ def test_the_flag_reads_circuits_in_the_power_view(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     st = page.evaluate(FLAG_JS)
     assert st['shown'] and not st['ok'], st
@@ -865,7 +914,7 @@ def test_the_flag_reads_circuits_in_the_power_view(dock_page):
         f'closed by default here too: {st}')
 
     page.locator('#hw-dock-flag').click()
-    page.wait_for_timeout(400)
+    landed(page)
     st = page.evaluate(FLAG_JS)
     got = {r['name']: r for r in st['rows']}
     assert set(got) == {'WALL A', 'WALL B'}, st
@@ -877,7 +926,7 @@ def test_the_flag_reads_circuits_in_the_power_view(dock_page):
     page.evaluate(RESET_PAN_JS)
     hist = page.evaluate(HIST_LEN_JS)
     page.locator('.hw-dock-attach-row:has-text("WALL B")').click()
-    page.wait_for_timeout(300)
+    landed(page)
     after = page.evaluate(CENTER_JS, ids['bId'])
     assert abs(after['dx']) < 1 and abs(after['dy']) < 1, after
     assert page.evaluate(HIST_LEN_JS) == hist
@@ -890,14 +939,14 @@ def test_the_flag_reads_circuits_in_the_power_view(dock_page):
         app.setSocaDistro(a, 1, ids.distroId);
         app.setSocaDistro(b, 1, ids.distroId);
     }""", ids)
-    page.wait_for_timeout(500)
+    landed(page)
     st = page.evaluate(FLAG_JS)
     assert st['ok'] and st['rows'] == [], st
     assert 'all attached' in st['text'] and 'not all' not in st['text'], st
 
     page.evaluate(RESET_POWER_JS, ids)
     page.evaluate(RESET_PAN_JS)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_the_gear_popover_survives_rebuilds_and_closes_cleanly(dock_page):
@@ -909,11 +958,11 @@ def test_the_gear_popover_survives_rebuilds_and_closes_cleanly(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
     mode_key = f'processor-card-mode-{ids["cardId"]}'
 
     page.locator(f'[data-hwpop="card-{ids["cardId"]}"]').click()
-    page.wait_for_timeout(300)
+    landed(page)
     st = page.evaluate(POP_JS, mode_key)
     assert st['shown'] and st['hasField'], (
         f'the card gear did not open its popover: {st}')
@@ -926,7 +975,7 @@ def test_the_gear_popover_survives_rebuilds_and_closes_cleanly(dock_page):
             `#hw-gear-popover [data-lrd-field="${key}"]`).focus();
         window.app.renderHardwareDock();
     }""", mode_key)
-    page.wait_for_timeout(300)
+    landed(page)
     out = page.evaluate("""() => {
         const el = document.activeElement;
         return {
@@ -940,19 +989,19 @@ def test_the_gear_popover_survives_rebuilds_and_closes_cleanly(dock_page):
         f'the rebuild lost the popover field focus: {out}')
 
     page.keyboard.press('Escape')
-    page.wait_for_timeout(200)
+    landed(page)
     assert not page.evaluate(POP_JS, None)['shown'], (
         'Escape did not close the popover')
 
     page.locator(f'[data-hwpop="card-{ids["cardId"]}"]').click()
-    page.wait_for_timeout(300)
+    landed(page)
     assert page.evaluate(POP_JS, None)['shown']
     corner = page.evaluate("""() => {
         const r = window.canvasRenderer.canvas.getBoundingClientRect();
         return {x: r.left + 15, y: r.top + 15};
     }""")
     page.mouse.click(corner['x'], corner['y'])
-    page.wait_for_timeout(200)
+    landed(page)
     assert not page.evaluate(POP_JS, None)['shown'], (
         'an outside mousedown did not close the popover')
 
@@ -964,9 +1013,9 @@ def test_the_gear_popover_survives_rebuilds_and_closes_cleanly(dock_page):
         window.app.renderHardwareDock();
         return d.id;
     }""")
-    page.wait_for_timeout(400)
+    landed(page)
     page.locator(f'[data-hwpop="distro-{tmp}"]').click()
-    page.wait_for_timeout(300)
+    landed(page)
     st = page.evaluate(POP_JS, f'distro-rating-{tmp}')
     assert st['shown'] and st['hasField'], (
         f'the distro gear did not open its popover: {st}')
@@ -974,7 +1023,7 @@ def test_the_gear_popover_survives_rebuilds_and_closes_cleanly(dock_page):
         window.app.removeDistro(tmp);
         window.app.renderHardwareDock();
     }""", tmp)
-    page.wait_for_timeout(300)
+    landed(page)
     assert not page.evaluate(POP_JS, None)['shown'], (
         'the popover outlived its anchor')
 
@@ -992,7 +1041,7 @@ def test_a_press_on_a_header_control_never_arms_a_drag(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
     key = f'processor-name-{ids["procId"]}'
 
     box = page.locator(f'[data-lrd-field="{key}"]').bounding_box()
@@ -1011,7 +1060,7 @@ def test_a_press_on_a_header_control_never_arms_a_drag(dock_page):
         dragLive: !!window.app._dockDrag,
     })""")
     page.mouse.up()
-    page.wait_for_timeout(200)
+    landed(page)
     assert not mid['ghost'] and not mid['dragLive'], (
         f'a press on the name input armed a drag: {mid}')
 
@@ -1019,7 +1068,7 @@ def test_a_press_on_a_header_control_never_arms_a_drag(dock_page):
         page.locator(f'[data-lrd-field="{key}"]').click()
         page.keyboard.type('SR')
         page.keyboard.press('Tab')
-        page.wait_for_timeout(800)
+        landed(page)
         assert page.evaluate(HIST_JS, 1) == ['Rename Processor']
         out = page.evaluate("""(ids) => {
             const head = document.querySelector(
@@ -1052,7 +1101,7 @@ def test_a_press_on_a_header_control_never_arms_a_drag(dock_page):
             await window.app.refreshProcessors();
         }""", ids)
         page.evaluate(RESET_DATA_JS, ids)
-        page.wait_for_timeout(300)
+        landed(page)
 
 
 # ── data view: port, card, box ────────────────────────────────────────────
@@ -1061,7 +1110,7 @@ def test_a_port_tile_lands_on_the_run_it_is_dropped_on(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     seed = page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
     assert len(seed) == 6, f'the seed did not attach both walls: {seed}'
 
     sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-8')
@@ -1087,16 +1136,16 @@ def test_a_port_tile_lands_on_the_run_it_is_dropped_on(dock_page):
     # one undo walks the drop back to the seed's pins (auto retired,
     # 2026-09-03: the seed is six pins, not an empty state), redo re-lands it
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     assert page.evaluate(PINS_JS) == seed, 'one undo did not walk back the drop'
     page.evaluate("() => window.app.redo()")
-    page.wait_for_timeout(900)
+    landed(page)
     pins = page.evaluate(PINS_JS)
     assert len(pins) == 6 and any(
         p['index'] == 1 and p['layerId'] == str(ids['aId']) and p['port'] == 8
         for p in pins), f'redo did not re-apply the drop: {pins}'
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_dropping_on_an_occupied_socket_asks_first(dock_page):
@@ -1105,21 +1154,22 @@ def test_dropping_on_an_occupied_socket_asks_first(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     seed = page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
 
     # card port 1 is WALL A p1's pinned seat; aiming it at run 3 is a conflict
     seen = []
-    page.once('dialog', lambda d: (seen.append(d.message), d.dismiss()))
     sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-1')
     tgt = panel_point(page, ids['aId'], {'port': 3})
     drag(page, sx, sy, tgt['x'], tgt['y'])
+    seen.append(answer_app_dialog(page, accept=False))
     assert seen and 'already on' in seen[0], (
         f'no conflict question was asked: {seen}')
     assert page.evaluate(PINS_JS) == seed, (
         'declining the question still moved something')
 
-    page.once('dialog', lambda d: d.accept())
     drag(page, sx, sy, tgt['x'], tgt['y'])
+    answer_app_dialog(page)
+    page.wait_for_timeout(600)
     pins = page.evaluate(PINS_JS)
     placed = [p for p in pins if p['index'] == 2
               and p['layerId'] == str(ids['aId'])]
@@ -1127,7 +1177,7 @@ def test_dropping_on_an_occupied_socket_asks_first(dock_page):
         f'confirming did not place the port: {pins}')
     assert page.evaluate(HIST_JS, 1) == ['Place Port']
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_whole_card_fills_in_order_from_the_first_unassigned(dock_page):
@@ -1138,7 +1188,7 @@ def test_a_whole_card_fills_in_order_from_the_first_unassigned(dock_page):
     # fill's home case (the state the retired auto switch used to reach)
     page.evaluate(UNATTACH_ALL_JS, ids)
     page.evaluate("() => window.app.resetHistory('Dock Seed')")
-    page.wait_for_timeout(400)
+    landed(page)
     assert page.evaluate(PINS_JS) == []
 
     # over the LAST port: every unplaced port up to it lands (the cursor
@@ -1154,10 +1204,10 @@ def test_a_whole_card_fills_in_order_from_the_first_unassigned(dock_page):
         f'the card fill is not in order from the first unassigned: {pins}')
     assert page.evaluate(HIST_JS, 1) == ['Fill Ports In Order']
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     assert page.evaluate(PINS_JS) == [], 'undo did not clear the card fill'
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_whole_card_is_refused_when_nothing_is_unassigned(dock_page):
@@ -1177,7 +1227,7 @@ def test_a_whole_card_is_refused_when_nothing_is_unassigned(dock_page):
              port: 8, confirm: false});
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(400)
+    landed(page)
     parked = page.evaluate(PINS_JS)
     assert [p['port'] for p in parked if p['layerId'] == str(ids['bId'])] \
         == [8], parked
@@ -1190,13 +1240,13 @@ def test_a_whole_card_is_refused_when_nothing_is_unassigned(dock_page):
         status: document.getElementById('status-message').textContent,
         pins: (window.app.project.port_assignments || {}).pins || []})""")
     assert out['status'] == (
-        'Every port of WALL B is already on a processor - clear it first'), out
+        'Every port of WALL B is already on a processor. Clear it first.'), out
     assert out['pins'] == parked, f'the refusal still moved something: {out}'
     assert page.evaluate(HIST_LEN_JS) == before, (
         'a refused drop must not write history')
     assert seed is not None
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_breakout_box_goes_on_from_the_card_row(dock_page):
@@ -1217,7 +1267,7 @@ def test_a_breakout_box_goes_on_from_the_card_row(dock_page):
     assert start['free'] > 0, start
     assert f"{start['free']} of {start['trunks']} trunks free" in slot.text_content()
     btn.click()
-    page.wait_for_timeout(300)
+    landed(page)
     menu = page.evaluate("""() => {
         const m = document.querySelector('#hw-gear-popover .hw-dock-addbox-menu');
         return m ? {cap: m.querySelector('.hw-dock-addbox-cap').textContent,
@@ -1226,7 +1276,7 @@ def test_a_breakout_box_goes_on_from_the_card_row(dock_page):
     assert menu and menu['cap'] == f"{start['free']} of {start['trunks']} trunks free", menu
     assert 'CVT4K-S' in ' '.join(menu['items']), menu
     page.locator(f'[data-lrd-field="dock-addbox-{ids["cardId"]}-novastar-cvt4k-s"]').click()
-    page.wait_for_timeout(900)
+    landed(page)
     after = page.evaluate("""(ids) => {
         const app = window.app;
         const card = app._dockFindCard(ids.cardId).card;
@@ -1247,13 +1297,12 @@ def test_a_breakout_box_goes_on_from_the_card_row(dock_page):
                                         'POST', app._boxFitBody(fits[0]), 'Add Breakout Box');
         }
     }""", ids)
-    page.wait_for_timeout(600)
+    landed(page)
     assert btn.count() == 0 and slot.count() == 0
     # undo, back to where it started
     while page.evaluate('() => window.app.historyIndex') > start['index']:
         page.evaluate('() => window.app.undo()')
-        page.wait_for_timeout(250)
-    page.wait_for_timeout(500)
+        landed(page)
     assert page.evaluate("(ids) => window.app._dockFindCard(ids.cardId).card.cvts.length", ids) == start['boxes']
     assert btn.count() == 1
 
@@ -1279,7 +1328,7 @@ def test_a_breakout_box_fills_only_its_own_span(dock_page):
         return {id: cvt.id, first: Math.min(...nums),
                 last: Math.max(...nums), copy: !!cvt.duplicateOf};
     }""", ids)
-    page.wait_for_timeout(600)
+    landed(page)
     # WALL A off the card entirely, and WALL B re-placed as a blocker pinned
     # INSIDE the box's span
     page.evaluate("""async (args) => {
@@ -1292,7 +1341,7 @@ def test_a_breakout_box_fills_only_its_own_span(dock_page):
              confirm: false});
         app.resetHistory('Dock Seed');
     }""", {'ids': ids, 'box': box})
-    page.wait_for_timeout(400)
+    landed(page)
 
     # over the LAST port, so every unplaced port up to it is asked for.
     # Picked up by its grip: the strip's middle is the box's name field
@@ -1321,7 +1370,7 @@ def test_a_breakout_box_fills_only_its_own_span(dock_page):
         await app.refreshProcessors();
     }""", {'ids': ids, 'box': box})
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
 
 
 def test_an_invalid_target_refuses_with_a_reason(dock_page):
@@ -1342,7 +1391,7 @@ def test_an_invalid_target_refuses_with_a_reason(dock_page):
         window.canvasRenderer.render();
         return made.id;
     }""")
-    page.wait_for_timeout(500)
+    landed(page)
     sx, sy = dock_tile_center(page, f'card-{ids["cardId"]}')
     # an image layer has no panels; aim at the middle of its footprint
     tgt = page.evaluate("""(id) => {
@@ -1368,7 +1417,7 @@ def test_an_invalid_target_refuses_with_a_reason(dock_page):
         window.app.renderLayers();
         window.canvasRenderer.render();
     }""", img)
-    page.wait_for_timeout(400)
+    landed(page)
 
 
 def test_drag_back_to_the_dock_releases_the_port(dock_page):
@@ -1383,7 +1432,7 @@ def test_drag_back_to_the_dock_releases_the_port(dock_page):
              port: 8, confirm: false});
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(500)
+    landed(page)
     assert len(page.evaluate(PINS_JS)) == 6   # the seed's six, index 1 on 8
 
     sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-8')
@@ -1395,11 +1444,11 @@ def test_drag_back_to_the_dock_releases_the_port(dock_page):
         f'the drag-back did not release the pin: {pins}')
     assert page.evaluate(HIST_JS, 1) == ['Release Port']
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     assert any(p['port'] == 8 for p in page.evaluate(PINS_JS)), (
         'undo did not restore the released pin')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 CHIP_STATE_JS = """(tid) => {
@@ -1425,13 +1474,13 @@ def test_a_click_opens_the_chip_and_a_drag_never_does(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
     tid = f'port-{ids["cardId"]}-16'
 
     # a plain click opens the editor in place; no drag ever armed
     sx, sy = dock_tile_center(page, tid)
     page.mouse.click(sx, sy)
-    page.wait_for_timeout(200)
+    landed(page)
     s = page.evaluate(CHIP_STATE_JS, tid)
     assert s['open'] and s['editorPainted'], (
         f'the click did not open the chip editor: {s}')
@@ -1441,7 +1490,7 @@ def test_a_click_opens_the_chip_and_a_drag_never_does(dock_page):
     # the face closes its own chip (it moved - the open chip spans the row)
     sx, sy = dock_tile_center(page, tid)
     page.mouse.click(sx, sy)
-    page.wait_for_timeout(200)
+    landed(page)
     assert not page.evaluate(CHIP_STATE_JS, tid)['open'], (
         'the second click did not close the editor')
 
@@ -1451,13 +1500,13 @@ def test_a_click_opens_the_chip_and_a_drag_never_does(dock_page):
     page.mouse.down()
     page.mouse.move(sx + 2, sy + 1)
     page.mouse.up()
-    page.wait_for_timeout(200)
+    landed(page)
     assert page.evaluate(CHIP_STATE_JS, tid)['open'], (
         'a 2px jiggle - inside the 4px threshold - did not count as the '
         'click')
     sx, sy = dock_tile_center(page, tid)
     page.mouse.click(sx, sy)   # close again
-    page.wait_for_timeout(200)
+    landed(page)
 
     # a real drag that ends back ON the same chip: the synthetic click is
     # swallowed, so the drop does not double as an open
@@ -1468,7 +1517,7 @@ def test_a_click_opens_the_chip_and_a_drag_never_does(dock_page):
     mid = page.evaluate(CHIP_STATE_JS, tid)
     page.mouse.move(sx + 2, sy + 1, steps=4)
     page.mouse.up()
-    page.wait_for_timeout(300)
+    landed(page)
     assert mid['ghost'] and mid['dragLive'], (
         f'a 30px press-and-move did not arm the drag: {mid}')
     s = page.evaluate(CHIP_STATE_JS, tid)
@@ -1480,7 +1529,7 @@ def test_a_click_opens_the_chip_and_a_drag_never_does(dock_page):
     # drag, and the editor neither closes nor re-opens around the gesture
     sx, sy = dock_tile_center(page, tid)
     page.mouse.click(sx, sy)
-    page.wait_for_timeout(200)
+    landed(page)
     assert page.evaluate(CHIP_STATE_JS, tid)['open']
     sx, sy = dock_tile_center(page, tid)
     page.mouse.move(sx, sy)
@@ -1489,13 +1538,13 @@ def test_a_click_opens_the_chip_and_a_drag_never_does(dock_page):
     mid = page.evaluate(CHIP_STATE_JS, tid)
     page.mouse.move(sx + 3, sy, steps=4)
     page.mouse.up()
-    page.wait_for_timeout(300)
+    landed(page)
     assert mid['dragLive'], f'an open chip no longer drags: {mid}'
     s = page.evaluate(CHIP_STATE_JS, tid)
     assert s['open'], f'dragging an open chip closed its editor: {s}'
     sx, sy = dock_tile_center(page, tid)
     page.mouse.click(sx, sy)   # leave it closed
-    page.wait_for_timeout(200)
+    landed(page)
 
 
 # ── power view: slot, join, distro, drag-back ─────────────────────────────
@@ -1504,7 +1553,7 @@ def test_a_slot_chip_lands_on_the_circuit_it_is_dropped_on(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
     tgt = panel_point(page, ids['aId'], {'circuit': 0})
@@ -1521,7 +1570,7 @@ def test_a_slot_chip_lands_on_the_circuit_it_is_dropped_on(dock_page):
     # (new distro, pin gone) the user never made.
     assert page.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(700)
+    landed(page)
     out = page.evaluate("""(aId) => {
         const l = window.app.project.layers.find(x => x.id === aId);
         return {distro: l.powerSocaDistro || {}, num: l.powerSocaNumber || {}};
@@ -1544,7 +1593,7 @@ def test_an_occupied_slot_is_the_join_not_a_refusal(dock_page):
         app.setSocaNumber(a, 1, 1);
         app._restateNaming();
     }""", ids)
-    page.wait_for_timeout(700)
+    landed(page)
 
     sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
     tgt = panel_point(page, ids['bId'], {'circuit': 0})
@@ -1574,7 +1623,7 @@ def test_a_distro_fills_the_screens_unassigned_multis(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
 
     sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
     tgt = panel_point(page, ids['aId'], {})
@@ -1610,7 +1659,7 @@ def test_drag_back_to_the_dock_unassigns_the_multi(dock_page):
         app.setSocaNumber(a, 1, 1);
         app._restateNaming();
     }""", ids)
-    page.wait_for_timeout(700)
+    landed(page)
 
     sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
     dock_box = page.locator('#hardware-dock-body').bounding_box()
@@ -1625,9 +1674,9 @@ def test_drag_back_to_the_dock_unassigns_the_multi(dock_page):
     # 2026-08-29 undo audit: pulling the box off the wall is ONE decision and
     # ONE entry - the same promise the right-click clear (_clearMultis) makes
     # for this very chip - so a single Ctrl+Z puts every feed back at once.
-    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    assert page.evaluate(HIST_JS, 1) == ['Unplug Multi']
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(700)
+    landed(page)
     out = page.evaluate("""(aId) => {
         const l = window.app.project.layers.find(x => x.id === aId);
         return {distro: l.powerSocaDistro || {}, num: l.powerSocaNumber || {}};
@@ -1684,7 +1733,7 @@ def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
                    'PUT', { redundancyMode: 'sequential' });
         await window.app.refreshProcessors();
     }""", ids)
-    page.wait_for_timeout(1200)
+    landed(page)
     out = page.evaluate("""(ids) => {
         const grab = (n) => document.querySelector(
             `[data-hwdock="port-${ids.cardId}-${n}"]`);
@@ -1702,8 +1751,8 @@ def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
         };
     }""", ids)
     try:
-        assert out['even'] and 'WALL A p1 return' in out['even'], out
-        assert 'WALL A p1 return' in (out['evenTitle'] or ''), out
+        assert out['even'] and 'WALL A P1 return' in out['even'], out
+        assert 'WALL A P1 return' in (out['evenTitle'] or ''), out
         assert out['evenOccupied'] is True, (
             f'a working return must wear the occupied ground: {out}')
         assert out['idle'] and 'backs up' in out['idle'], out
@@ -1722,7 +1771,7 @@ def test_a_backing_port_wears_its_role_in_the_dock(dock_page):
             await window.app.refreshProcessors();
         }""", ids)
         page.evaluate(RESET_DATA_JS, ids)
-        page.wait_for_timeout(600)
+        landed(page)
 
 
 def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
@@ -1745,7 +1794,7 @@ def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
                    'PUT', { redundancyMode: 'sequential' });
         await window.app.refreshProcessors();
     }""", ids)
-    page.wait_for_timeout(1200)
+    landed(page)
     try:
         pins_before = page.evaluate(PINS_JS)
         hist_before = page.evaluate(HIST_LEN_JS)
@@ -1755,7 +1804,7 @@ def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
         assert item and item['shown'], item
         assert item['disabled'], (
             f'the mirrored return offered an enabled clear: {item}')
-        assert "carries WALL A p1's return" in item['title'], item
+        assert "carries WALL A P1's return" in item['title'], item
         assert 'clear that port' in item['title'], item
         close_menu(page)
 
@@ -1769,7 +1818,7 @@ def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
         drag(page, x, y, inside['x'], inside['y'])
         said = page.evaluate(
             "() => document.getElementById('status-message').textContent")
-        assert "carries WALL A p1's return" in said, said
+        assert "carries WALL A P1's return" in said, said
         assert page.evaluate(PINS_JS) == pins_before, (
             'a refused release moved a pin')
         assert page.evaluate(HIST_LEN_JS) == hist_before, (
@@ -1786,7 +1835,7 @@ def test_a_mirrored_return_refuses_clear_and_drag_back_naming_the_screen(
             await window.app.refreshProcessors();
         }""", ids)
         page.evaluate(RESET_DATA_JS, ids)
-        page.wait_for_timeout(600)
+        landed(page)
 
 
 def test_a_redundant_pair_reads_as_one_group_in_the_dock(dock_page):
@@ -1828,7 +1877,7 @@ def test_a_redundant_pair_reads_as_one_group_in_the_dock(dock_page):
             sxCvts: resolvedSx.slots[0].card.cvts.map(c => c.id),
         };
     }""")
-    page.wait_for_timeout(1200)
+    landed(page)
     out = page.evaluate("""(made) => {
         const boxOf = (id) => {
             const h = document.querySelector(`[data-hwdock="box-${id}"]`);
@@ -1882,7 +1931,7 @@ def test_a_redundant_pair_reads_as_one_group_in_the_dock(dock_page):
             }
             await window.app.refreshProcessors();
         }""", made)
-        page.wait_for_timeout(600)
+        landed(page)
 
 
 def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
@@ -1890,7 +1939,7 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
     """The user's pick of option D's cheap half (2026-09-04): a read-only
     pill on the processor and card headers that states the shape in force
     and opens the PROCESSOR's gear, where the bar that sets it lives.
-    Nothing while redundancy is off; `R per card` / `R 1:1 — no partner`
+    Nothing while redundancy is off; `R per card` / `R 1:1, no partner`
     with nothing paired; `R per card` on the main and `backs up SR` on the
     partner once every card is paired onto it (the partner's consumed cards
     carry the role in their names and get no pill); `R per port` / `R
@@ -1923,7 +1972,7 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
         return { mainId: main.id, mainCards: main.cards,
                  backId: back.id, backCards: back.cards };
     }""")
-    page.wait_for_timeout(1000)
+    landed(page)
     set_js = """async ([made, spec]) => {
         const send = (url, method, body) => fetch(url, { method,
             headers: { 'Content-Type': 'application/json' },
@@ -1982,7 +2031,7 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
 
     def pills(spec):
         page.evaluate(set_js, [made, spec])
-        page.wait_for_timeout(700)
+        landed(page)
         return page.evaluate(pills_js, made)
 
     try:
@@ -1991,12 +2040,14 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
             'mainCards': [None, None], 'backCards': [None, None]}
         assert pills({'redundancy': True}) == {
             'main': 'R per card', 'back': None, 'bu': None,
-            'mainCards': ['R 1:1 — no partner', 'R 1:1 — no partner'],
+            'mainCards': ['R 1:1, no partner', 'R 1:1, no partner'],
             'backCards': [None, None]}
         out = pills({'partner': made['backId']})
         assert out['main'] == 'R per card', out
         assert out['back'] == 'backs up SR', out
-        assert out['mainCards'] == ['R 1:1 → H_16xRJ45+2xfiber in SL'] * 2, out
+        # the partner cards nobody named, by their slots in SL
+        assert out['mainCards'] == ['R 1:1 → Card 1 in SL',
+                                    'R 1:1 → Card 2 in SL'], out
         assert out['backCards'] == [None, None], out
         out = pills({'partner': '', 'modes': ['sequential', 'halves']})
         assert out['main'] == 'R per port', out
@@ -2004,12 +2055,13 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
         assert out['back'] is None, out
         out = pills({'modes': ['manual', 'halves']})
         assert out['mainCards'] == ['R manual', 'R OPT split'], out
+        # cards that disagree read Mixed (2026-10-29), each card its own
         out = pills({'modes': ['1to1', 'halves']})
-        assert out['main'] == 'R per card', out
-        assert out['mainCards'] == ['R 1:1 — no partner', 'R OPT split'], out
+        assert out['main'] == 'R mixed', out
+        assert out['mainCards'] == ['R 1:1, no partner', 'R OPT split'], out
         # the backup processor rides the main's header beside it
         out = pills({'backupUnit': {}})
-        assert out['bu'] == 'Backup: SR BU' and out['main'] == 'R per card', out
+        assert out['bu'] == 'Backup: SR BU' and out['main'] == 'R mixed', out
         out = pills({'backupUnit': None})
         assert out['bu'] is None, out
 
@@ -2043,7 +2095,7 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
         card_pill = page.locator(
             f'[data-hwdock="card-{made["mainCards"][0]}"] .hw-dock-redpill')
         card_pill.click()
-        page.wait_for_timeout(400)
+        landed(page)
         st = page.evaluate("""(made) => ({
             shown: document.getElementById('hw-gear-popover')
                 .style.display === 'block',
@@ -2057,10 +2109,10 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
         assert st['bar'], 'the card pill opened a gear without the bar'
         assert not st['ghost'], 'the pill press armed a drag'
         page.keyboard.press('Escape')
-        page.wait_for_timeout(200)
+        landed(page)
         page.locator(f'[data-lrd-field="processor-name-{made["mainId"]}"]') \
             .locator('xpath=..').locator('.hw-dock-redpill').click()
-        page.wait_for_timeout(400)
+        landed(page)
         st = page.evaluate("""() => ({
             shown: document.getElementById('hw-gear-popover')
                 .style.display === 'block',
@@ -2068,7 +2120,7 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
         })""")
         assert st['shown'] and st['id'] == f'proc-{made["mainId"]}', st
         page.keyboard.press('Escape')
-        page.wait_for_timeout(200)
+        landed(page)
     finally:
         page.evaluate("""async (made) => {
             for (const id of [made.backId, made.mainId]) {
@@ -2076,7 +2128,7 @@ def test_the_redundancy_pill_reads_the_state_and_opens_the_processor_gear(
             }
             await window.app.refreshProcessors();
         }""", made)
-        page.wait_for_timeout(600)
+        landed(page)
 
 
 # ── right-click: clear from the run or the chip ───────────────────────────
@@ -2099,7 +2151,7 @@ def test_right_click_on_a_run_clears_its_pin(dock_page):
              port: 8, confirm: false});
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(500)
+    landed(page)
     assert len(page.evaluate(PINS_JS)) == 6   # the seed's six, index 1 on 8
 
     tgt = panel_point(page, ids['aId'], {'port': 2})
@@ -2119,11 +2171,11 @@ def test_right_click_on_a_run_clears_its_pin(dock_page):
                    for p in pins), f'the pin was not released: {pins}'
     assert page.evaluate(HIST_JS, 1) == ['Release Port']
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     assert any(p['port'] == 8 for p in page.evaluate(PINS_JS)), (
         'undo did not restore the cleared pin')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_run_on_a_card_clears_and_an_unattached_run_is_disabled_with_the_reason(
@@ -2135,12 +2187,15 @@ def test_a_run_on_a_card_clears_and_an_unattached_run_is_disabled_with_the_reaso
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     tgt = panel_point(page, ids['aId'], {'port': 2})
     item = right_click(page, tgt['x'], tgt['y'])
     assert item['shown'] and not item['disabled'], item
-    assert item['label'].startswith('Clear port '), item
+    # the screen port by its number, the way Redraw port P2 names it -
+    # never the card socket's label (QA, 1.6.0 beta 5: "Clear port 1" on
+    # P6 mixed two numberings on one menu)
+    assert item['label'] == 'Clear port P2', item
     assert 'stays unattached' in item['title'], item
     close_menu(page)
 
@@ -2152,9 +2207,10 @@ def test_a_run_on_a_card_clears_and_an_unattached_run_is_disabled_with_the_reaso
                                      {layerId: String(ids.aId)});
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(500)
+    landed(page)
     item = right_click(page, tgt['x'], tgt['y'])
     assert item['shown'] and item['disabled'], item
+    assert item['label'] == 'Clear port P2', item
     assert 'not attached' in item['title'], item
     # a click on the disabled item performs NOTHING. The menu itself closes,
     # because this menu closes on every document click - the existing
@@ -2168,7 +2224,7 @@ def test_a_run_on_a_card_clears_and_an_unattached_run_is_disabled_with_the_reaso
     assert page.evaluate(HIST_JS, 1) == ['Dock Seed'], (
         'a disabled clear earned a history entry')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_dock_card_right_click_clears_every_pin_as_one_step(dock_page):
@@ -2182,7 +2238,7 @@ def test_a_dock_card_right_click_clears_every_pin_as_one_step(dock_page):
              port: 8, confirm: false});
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(500)
+    landed(page)
     # the seed's six pins (WALL A on five sockets, WALL B on one), all on
     # this card - so the card clear empties the whole state
     assert len(page.evaluate(PINS_JS)) == 6
@@ -2199,11 +2255,11 @@ def test_a_dock_card_right_click_clears_every_pin_as_one_step(dock_page):
     assert page.evaluate(HIST_LEN_JS) == before + 1, (
         'the batch clear is not ONE history entry')
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     assert len(page.evaluate(PINS_JS)) == 6, (
         'one undo did not put every pin back')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_dock_port_chip_clears_its_claimant_and_a_free_chip_is_disabled(
@@ -2214,7 +2270,7 @@ def test_a_dock_port_chip_clears_its_claimant_and_a_free_chip_is_disabled(
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     # a FREE socket: nothing on it at all
     sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-12')
@@ -2239,7 +2295,7 @@ def test_a_dock_port_chip_clears_its_claimant_and_a_free_chip_is_disabled(
     assert len(pins) == 5, f'the chip clear took more than its socket: {pins}'
     assert page.evaluate(HIST_JS, 1) == ['Release Port']
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_fresh_project_attaches_nothing_until_dragged(dock_page):
@@ -2251,7 +2307,7 @@ def test_a_fresh_project_attaches_nothing_until_dragged(dock_page):
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
     page.evaluate(UNATTACH_ALL_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
     assert page.evaluate(PINS_JS) == []
 
     made = page.evaluate("""async () => {
@@ -2265,7 +2321,7 @@ def test_a_fresh_project_attaches_nothing_until_dragged(dock_page):
         await window.app.refreshPortAssignment();
         return { id: proc.id };
     }""")
-    page.wait_for_timeout(800)
+    landed(page)
     try:
         assert page.evaluate(PINS_JS) == [], (
             'a new processor attached something by itself')
@@ -2283,20 +2339,20 @@ def test_a_fresh_project_attaches_nothing_until_dragged(dock_page):
             await window.app.refreshProcessors();
         }""", made)
         page.evaluate(RESET_DATA_JS, ids)
-        page.wait_for_timeout(600)
+        landed(page)
 
 
 def test_right_click_on_a_circuit_clears_the_multi_in_one_step(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
-    # unassigned first: the item is there, disabled, and says why
+    # unassigned first: nothing to unplug, so no Unplug item at all (QA
+    # 1.6.0-beta.4: a greyed one read as an item that did nothing)
     tgt = panel_point(page, ids['aId'], {'circuit': 0})
     item = right_click(page, tgt['x'], tgt['y'])
-    assert item['shown'] and item['disabled'], item
-    assert 'not on a distro' in item['title'], item
+    assert item is None or not item['shown'], item
     close_menu(page)
 
     page.evaluate("""(ids) => {
@@ -2307,22 +2363,22 @@ def test_right_click_on_a_circuit_clears_the_multi_in_one_step(dock_page):
         app._restateNaming();
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(700)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     tgt = panel_point(page, ids['aId'], {'circuit': 0})
     item = right_click(page, tgt['x'], tgt['y'])
     assert item['shown'] and not item['disabled'], item
-    assert item['label'].startswith('Clear multi '), item
+    assert item['label'].startswith('Unplug multi '), item
     take_clear(page)
     out = page.evaluate(POWER_STATE_JS, ids['aId'])
     assert out == {'distro': {}, 'num': {}}, (
         f'the clear did not unassign the multi: {out}')
-    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    assert page.evaluate(HIST_JS, 1) == ['Unplug Multi']
     assert page.evaluate(HIST_LEN_JS) == before + 1, (
         'the multi clear is not ONE history entry')
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     out = page.evaluate(POWER_STATE_JS, ids['aId'])
     assert out['distro'] == {'1': ids['distroId']} and out['num'] == {'1': 1}, (
         f'one undo did not restore distro AND number: {out}')
@@ -2346,23 +2402,23 @@ def test_a_slot_chip_right_click_clears_every_member_in_one_step(dock_page):
         app._restateNaming();
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(700)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
     item = right_click(page, sx, sy)
     assert item['shown'] and not item['disabled'], item
-    assert item['label'].startswith('Clear '), item
+    assert item['label'].startswith('Unplug '), item
     take_clear(page)
     for lid in (ids['aId'], ids['bId']):
         out = page.evaluate(POWER_STATE_JS, lid)
         assert out == {'distro': {}, 'num': {}}, (
             f'layer {lid} kept its assignment: {out}')
-    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    assert page.evaluate(HIST_JS, 1) == ['Unplug Multi']
     assert page.evaluate(HIST_LEN_JS) == before + 1, (
         'the box clear is not ONE history entry')
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     for lid in (ids['aId'], ids['bId']):
         out = page.evaluate(POWER_STATE_JS, lid)
         assert out['distro'] == {'1': ids['distroId']}, (
@@ -2374,7 +2430,7 @@ def test_the_distro_chip_right_click_clears_every_multi_on_it(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     # nothing assigned: the item is there, disabled, and says why
     sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
@@ -2393,7 +2449,7 @@ def test_the_distro_chip_right_click_clears_every_multi_on_it(dock_page):
         app._restateNaming();
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(700)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
@@ -2407,7 +2463,7 @@ def test_the_distro_chip_right_click_clears_every_multi_on_it(dock_page):
     assert page.evaluate(HIST_LEN_JS) == before + 1, (
         'the distro clear is not ONE history entry')
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     for lid in (ids['aId'], ids['bId']):
         out = page.evaluate(POWER_STATE_JS, lid)
         assert out['distro'] == {'1': ids['distroId']}, (
@@ -2419,7 +2475,7 @@ def test_right_click_on_nothing_clearable_keeps_the_item_off_the_menu(dock_page)
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
     # a canvas point left of every panel (world x < 0 at this pan/zoom)
     corner = page.evaluate("""() => {
         const rect = window.canvasRenderer.canvas.getBoundingClientRect();
@@ -2455,7 +2511,7 @@ def test_a_dock_data_chip_menu_offers_only_that_chips_action(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
 
     # a port chip: exactly the port's clear, nothing about layers or multis
     sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-3')
@@ -2485,7 +2541,7 @@ def test_a_dock_power_chip_menu_offers_only_that_chips_action(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     # a multi slot chip: exactly the slot's clear, nothing about layers/ports
     sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
@@ -2494,7 +2550,7 @@ def test_a_dock_power_chip_menu_offers_only_that_chips_action(dock_page):
     state = page.evaluate(MENU_ITEMS_JS)
     assert state['items'] == ['hw-clear'], (
         f'a dock slot chip offers more than its own action: {state}')
-    assert 'PD 1' in item['label'], item
+    assert 'PD1' in item['label'], item
     assert 'port' not in item['label'].lower(), (
         f'a power chip is wearing data vocabulary: {item}')
     close_menu(page)
@@ -2519,7 +2575,7 @@ def test_a_chipless_dock_spot_opens_no_menu_at_all(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
 
     # leave a menu open on a chip first
     sx, sy = dock_tile_center(page, f'port-{ids["cardId"]}-3')
@@ -2543,7 +2599,7 @@ def test_the_canvas_run_menu_keeps_layer_items_beside_the_clear(dock_page):
 
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(400)
+    landed(page)
     tgt = panel_point(page, ids['aId'], {'port': 2})
     item = right_click(page, tgt['x'], tgt['y'])
     assert item['menuShown'] and item['shown'], item
@@ -2556,11 +2612,19 @@ def test_the_canvas_run_menu_keeps_layer_items_beside_the_clear(dock_page):
 
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    # plugged in: an unplugged multi has no Unplug item to offer
+    page.evaluate("""(ids) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === ids.aId);
+        app.setSocaDistro(a, 1, ids.distroId);
+        app._restateNaming();
+        app.resetHistory('Dock Seed');
+    }""", ids)
+    landed(page)
     tgt = panel_point(page, ids['aId'], {'circuit': 0})
     item = right_click(page, tgt['x'], tgt['y'])
     assert item['menuShown'] and item['shown'], item
-    assert item['label'].startswith('Clear multi '), item
+    assert item['label'].startswith('Unplug multi '), item
     state = page.evaluate(MENU_ITEMS_JS)
     for action in LAYER_ITEMS + ['hw-clear']:
         assert action in state['items'], (
@@ -2615,7 +2679,7 @@ SPLIT_SEED_JS = """async (which) => {
             // screen is refused (owner, 2026-10-16: 110, 115 and 120 are 120V;
             // anything else that does not fit the system is refused). 110V x 5A
             // still fits five 100W cabinets a circuit, so the plans are unchanged.
-            body: JSON.stringify({powerVoltage: '110', powerAmperage: '5',
+            body: JSON.stringify({powerVoltage: '110', powerAmperage: '6.25',
                 panelWatts: '100', powerOrganized: true, powerMaximize: false,
                 powerFlowPattern: 'tl-v',
                 // Same platform stamp as the module seed: the only card in
@@ -2666,9 +2730,9 @@ SPLIT_CLEAN_JS = """async (st) => {
 
 def split_seed(page, ids, off, cen):
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
     st = page.evaluate(SPLIT_SEED_JS, {'off': off, 'cen': cen})
-    page.wait_for_timeout(800)
+    landed(page)
     # columns IS the circuit count, or every drop below aims at the wrong run
     assert st['offCirc'] == off and st['cenCirc'] == cen, st
     return st
@@ -2676,7 +2740,7 @@ def split_seed(page, ids, off, cen):
 
 def split_clean(page, ids, st):
     page.evaluate(SPLIT_CLEAN_JS, st)
-    page.wait_for_timeout(500)
+    landed(page)
     page.evaluate(RESET_POWER_JS, ids)
 
 
@@ -2718,7 +2782,7 @@ def test_a_multi_section_wears_six_circuit_chips(dock_page):
     # the chip face says tail number + derived label + occupant screen
     assert 'C2-2-1' in occ[0]['text'] and 'OFF SL' in occ[0]['text'], occ
     assert 'OFF SL' in occ[0]['title'] and 'C2-2-1' in occ[0]['title'], occ
-    assert 'Circuit 5 - free' in occ[4]['title'], occ
+    assert 'Circuit 5: free' in occ[4]['title'], occ
     assert 'free' in occ[4]['text'], occ
     empty = out['empty']
     assert empty and len(empty) == 6 and all(empty), out
@@ -2742,7 +2806,6 @@ def test_a_drop_on_a_later_circuit_takes_the_first_circuits(dock_page):
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
     tgt = panel_point(page, st['cenId'], {'circuit': 1})
     drag(page, sx, sy, tgt['x'], tgt['y'])
-    page.wait_for_timeout(400)
     out = page.evaluate("""(st) => {
         const app = window.app;
         const cen = app.project.layers.find(l => l.id === st.cenId);
@@ -2772,7 +2835,7 @@ def test_a_drop_on_a_later_circuit_takes_the_first_circuits(dock_page):
     assert page.evaluate(HIST_JS, 1) == ['Assign Multi Distro']
 
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     out = page.evaluate("""(st) => {
         const cen = window.app.project.layers.find(l => l.id === st.cenId);
         return { splits: cen.powerSocaSplits || [],
@@ -2797,7 +2860,6 @@ def test_the_six_two_shape_lands_whole_on_the_grid_boundary(dock_page):
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
     tgt = panel_point(page, st['cenId'], {'circuit': 7})
     drag(page, sx, sy, tgt['x'], tgt['y'])
-    page.wait_for_timeout(400)
     out = page.evaluate("""(st) => {
         const app = window.app;
         const cen = app.project.layers.find(l => l.id === st.cenId);
@@ -2839,14 +2901,13 @@ def test_right_click_merges_the_split_back_into_its_head(dock_page):
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
     tgt = panel_point(page, st['cenId'], {'circuit': 1})
     drag(page, sx, sy, tgt['x'], tgt['y'])
-    page.wait_for_timeout(400)
 
     # no boundary under the cursor -> no merge item. OFF SL's first circuit:
     # assigned, so the clear arms, but nothing to merge - and inside the
     # section's reframed viewport, where WALL A no longer is.
     plain = panel_point(page, st['offId'], {'circuit': 0})
     page.mouse.click(plain['x'], plain['y'], button='right')
-    page.wait_for_timeout(400)
+    landed(page)
     mi = page.evaluate(MERGE_ITEM_JS)
     assert mi and mi['menuShown'] and not mi['shown'], (
         f'the merge item is armed with no boundary under the cursor: {mi}')
@@ -2855,13 +2916,13 @@ def test_right_click_merges_the_split_back_into_its_head(dock_page):
     # the split-off run offers the merge, named for the surviving head
     tgt = panel_point(page, st['cenId'], {'circuit': 2})
     page.mouse.click(tgt['x'], tgt['y'], button='right')
-    page.wait_for_timeout(400)
+    landed(page)
     mi = page.evaluate(MERGE_ITEM_JS)
     assert mi and mi['menuShown'] and mi['shown'], mi
     assert mi['label'].startswith('Merge back into '), mi
     before = page.evaluate(HIST_LEN_JS)
     page.locator('#context-menu [data-action="hw-merge"]').click()
-    page.wait_for_timeout(800)
+    landed(page)
     out = page.evaluate("""(st) => {
         const cen = window.app.project.layers.find(l => l.id === st.cenId);
         return { splits: cen.powerSocaSplits || [],
@@ -2874,7 +2935,7 @@ def test_right_click_merges_the_split_back_into_its_head(dock_page):
     assert page.evaluate(HIST_LEN_JS) == before + 1
 
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     out = page.evaluate("""(st) => {
         const cen = window.app.project.layers.find(l => l.id === st.cenId);
         return { splits: cen.powerSocaSplits || [],
@@ -2904,18 +2965,16 @@ def test_the_slot_chip_offers_the_merge_for_its_split_off_part(dock_page):
     # from an unknown start could land anywhere in the cycle.
     page.evaluate("(a) => window.app.setDistroBoxType(a[0], 1, 'soca120')",
                   [st['d2']])
-    page.wait_for_timeout(400)
+    landed(page)
     assert page.evaluate(
         "(k) => document.querySelector(`[data-lrd-field=\"${k}\"]`).textContent",
         f'distro-box-type-{st["d2"]}-1') == 'Multi 120'
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-1')
     tgt = panel_point(page, st['cenId'], {'circuit': 1})
     drag(page, sx, sy, tgt['x'], tgt['y'])
-    page.wait_for_timeout(400)
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
     tgt = panel_point(page, st['cenId'], {'circuit': 3})
     drag(page, sx, sy, tgt['x'], tgt['y'])
-    page.wait_for_timeout(400)
     shape = page.evaluate("""(st) => {
         const app = window.app;
         const cen = app.project.layers.find(l => l.id === st.cenId);
@@ -2929,7 +2988,7 @@ def test_the_slot_chip_offers_the_merge_for_its_split_off_part(dock_page):
 
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
     page.mouse.click(sx, sy, button='right')
-    page.wait_for_timeout(400)
+    landed(page)
     mi = page.evaluate(MERGE_ITEM_JS)
     assert mi and mi['menuShown'] and mi['shown'], mi
     assert mi['label'].startswith('Merge back into '), mi
@@ -2937,7 +2996,7 @@ def test_the_slot_chip_offers_the_merge_for_its_split_off_part(dock_page):
     assert state['items'] == ['hw-clear', 'hw-merge'], (
         f'the chip menu carries more than its own actions: {state}')
     page.locator('#context-menu [data-action="hw-merge"]').click()
-    page.wait_for_timeout(800)
+    landed(page)
     out = page.evaluate("""(st) => {
         const cen = window.app.project.layers.find(l => l.id === st.cenId);
         return { splits: cen.powerSocaSplits || [],
@@ -2961,7 +3020,6 @@ def test_a_drop_on_a_box_with_no_free_tail_refuses_with_the_counts(dock_page):
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
     tgt = panel_point(page, st['cenId'], {'circuit': 2})
     drag(page, sx, sy, tgt['x'], tgt['y'])
-    page.wait_for_timeout(400)
     out = page.evaluate("""(st) => {
         const cen = window.app.project.layers.find(l => l.id === st.cenId);
         return {
@@ -3032,12 +3090,12 @@ def drag_probe(page, sx, sy, ex, ey):
     page.mouse.down()
     page.mouse.move((sx + ex) / 2, (sy + ey) / 2, steps=5)
     page.mouse.move(ex, ey, steps=5)
-    page.wait_for_timeout(250)
+    landed(page)
     lit = page.evaluate(LIT_RUNS_JS)
     target = page.evaluate("() => window.app._dockDropTarget")
     page.mouse.move(30, 300, steps=3)
     page.mouse.up()
-    page.wait_for_timeout(300)
+    landed(page)
     return sorted(set(map(tuple, lit))), target
 
 
@@ -3045,7 +3103,7 @@ def test_the_preview_lights_the_drops_whole_reach(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
     nums = page.evaluate(
         """(aId) => window.app.screenCircuits(
@@ -3088,7 +3146,7 @@ def test_the_preview_lights_the_drops_whole_reach(dock_page):
         app.setSocaDistro(a, 1, ids.distroId);
         app._restateNaming();
     }""", ids)
-    page.wait_for_timeout(600)
+    landed(page)
     sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
     tgt = panel_point(page, ids['aId'], {'circuit': 1})
     lit, target = drag_probe(page, sx, sy, tgt['x'], tgt['y'])
@@ -3101,7 +3159,7 @@ def test_the_preview_lights_the_drops_whole_reach(dock_page):
     assert page.evaluate(HIST_LEN_JS) == before + 1, (
         'a mid-flight preview must never write history')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_tail_pip_drags_one_circuit_onto_its_tail(dock_page):
@@ -3113,7 +3171,7 @@ def test_a_tail_pip_drags_one_circuit_onto_its_tail(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     # WALL A's middle circuit onto PD 1 tail 3
@@ -3124,7 +3182,7 @@ def test_a_tail_pip_drags_one_circuit_onto_its_tail(dock_page):
                    ghost: (document.getElementById('hw-dock-ghost')
                            || {}).textContent,
                    target: window.app._dockDropTarget})"""))
-    assert mid['ghost'] == 'PD 1 circuit 3', mid
+    assert mid['ghost'] == 'PD1 circuit 3', mid
     assert mid['target']['kind'] == 'run', mid
     out = page.evaluate(POWER_FULL_STATE_JS, ids['aId'])
     assert out['splits'] == [1, 2], (
@@ -3145,7 +3203,7 @@ def test_a_tail_pip_drags_one_circuit_onto_its_tail(dock_page):
         'the pip gesture must be ONE history entry')
     assert page.evaluate(HIST_JS, 1) == ['Assign Circuit']
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     out = page.evaluate(POWER_FULL_STATE_JS, ids['aId'])
     assert out == {'splits': [], 'distro': {}, 'num': {}, 'pos': {}}, (
         f'one undo did not heal the cuts and the assignment together: {out}')
@@ -3162,7 +3220,7 @@ def test_a_tail_pip_drags_one_circuit_onto_its_tail(dock_page):
     assert out['pos'] == {'1': [5]}, out
     assert page.evaluate(HIST_JS, 1) == ['Assign Circuit']
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_held_pip_refuses_and_the_same_seat_is_a_no_op(dock_page):
@@ -3172,7 +3230,7 @@ def test_a_held_pip_refuses_and_the_same_seat_is_a_no_op(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     # seat WALL B's circuit on PD 1 tail 3 first
     sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-3')
@@ -3199,11 +3257,11 @@ def test_a_held_pip_refuses_and_the_same_seat_is_a_no_op(dock_page):
     drag(page, sx, sy, tgt['x'], tgt['y'])
     said = page.evaluate(
         "() => document.getElementById('status-message').textContent")
-    assert 'already on PD 1 circuit 3' in said, said
+    assert 'already on PD1 circuit 3' in said, said
     assert page.evaluate(HIST_LEN_JS) == before, (
         'a refusal and a no-op must write no history entry')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
@@ -3242,7 +3300,7 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
         return { sxId: sxProc.id,
                  sxCvts: resolved.slots[0].card.cvts.map(c => c.id) };
     }""")
-    page.wait_for_timeout(1200)
+    landed(page)
     out = page.evaluate("""([made, cardId]) => {
         const read = (id) => {
             const h = document.querySelector(`[data-hwdock="box-${id}"]`);
@@ -3314,7 +3372,7 @@ def test_the_dock_sections_ports_by_box_with_lettered_headers(dock_page):
                         { method: 'DELETE' });
             await window.app.refreshProcessors();
         }""", made)
-        page.wait_for_timeout(600)
+        landed(page)
 
 
 # ── the chips wear their load: B's ground meter + C's rack-bar ────────────
@@ -3362,7 +3420,7 @@ def test_data_chips_fill_from_the_badges_own_stats(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(600)
+    landed(page)
 
     model = page.evaluate("""(ids) => {
         const app = window.app;
@@ -3405,7 +3463,7 @@ def test_an_over_capacity_port_reddens_both_layers(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(600)
+    landed(page)
     try:
         model = page.evaluate("""(ids) => {
             const app = window.app;
@@ -3440,7 +3498,7 @@ def test_an_over_capacity_port_reddens_both_layers(dock_page):
             delete a.customPortPaths;
             window.app.renderHardwareDock();
         }""", ids)
-        page.wait_for_timeout(300)
+        landed(page)
 
 
 def test_a_port_with_no_capacity_figure_shows_no_bar(dock_page):
@@ -3450,7 +3508,7 @@ def test_a_port_with_no_capacity_figure_shows_no_bar(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(600)
+    landed(page)
     try:
         page.evaluate("""(ids) => {
             const a = window.app.project.layers.find(l => l.id === ids.aId);
@@ -3470,7 +3528,7 @@ def test_a_port_with_no_capacity_figure_shows_no_bar(dock_page):
             delete a._savedProcessorType;
             window.app.renderHardwareDock();
         }""", ids)
-        page.wait_for_timeout(300)
+        landed(page)
 
 
 def test_power_chips_fill_from_the_plans_leg_figures(dock_page):
@@ -3481,7 +3539,7 @@ def test_power_chips_fill_from_the_plans_leg_figures(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     model = page.evaluate("""(ids) => {
         const app = window.app;
@@ -3491,7 +3549,8 @@ def test_power_chips_fill_from_the_plans_leg_figures(dock_page):
         app._restateNaming();
         app.renderHardwareDock();
         const s = app.getSocaPlan(a).find(x => x.soca === 1);
-        const capA = parseFloat(a.powerAmperage);
+        // the circuit's capacity: 80% of the breaker on a US screen
+        const capA = app.circuitCapacity(a).amps;
         const leg = s.legs.find(l => l.leg === 1);
         return { amps: leg.amps, capA, pct: (leg.amps / capA) * 100 };
     }""", ids)
@@ -3531,7 +3590,7 @@ def test_power_chips_fill_from_the_plans_leg_figures(dock_page):
             const s = app.getSocaPlan(a).find(x => x.soca === 1);
             const leg = s.legs.find(l => l.leg === 1);
             return { amps: leg.amps, over: leg.amps
-                     > parseFloat(a.powerAmperage) };
+                     > app.circuitCapacity(a).amps };
         }""", ids)
         assert over_model['over'], (
             f'the drawn circuit must overload in the model first: '
@@ -3551,7 +3610,7 @@ def test_power_chips_fill_from_the_plans_leg_figures(dock_page):
             app.renderHardwareDock();
         }""", ids)
         page.evaluate(RESET_POWER_JS, ids)
-        page.wait_for_timeout(300)
+        landed(page)
 
 
 # ── the sections fold: card, box, distro, multi - one machinery ───────────
@@ -3581,7 +3640,7 @@ FOLD_STATE_JS = """(secId) => {
 
 def fold_arrow(page, sec_id):
     page.locator(f'[data-lrd-sec="{sec_id}"] .lrd-sec-arrow').click()
-    page.wait_for_timeout(250)
+    landed(page)
 
 
 def test_every_dock_section_kind_folds_and_persists(dock_page):
@@ -3605,7 +3664,7 @@ def test_every_dock_section_kind_folds_and_persists(dock_page):
         assert st['stored'] == '1', f'{sec} did not persist: {st}'
         # the tray rebuilds wholesale on every change; the fold must ride it
         page.evaluate("() => window.app.renderHardwareDock()")
-        page.wait_for_timeout(300)
+        landed(page)
         st = page.evaluate(FOLD_STATE_JS, sec)
         assert st['collapsed'] and st['bodyHidden'], (
             f'{sec} forgot its fold across a rebuild: {st}')
@@ -3615,7 +3674,7 @@ def test_every_dock_section_kind_folds_and_persists(dock_page):
         # folds), and a folded section now shrinks to its natural width,
         # which puts the header's center on the name input
         page.locator(f'[data-lrd-sec="{sec}"] .hw-dock-grip').dblclick()
-        page.wait_for_timeout(250)
+        landed(page)
         st = page.evaluate(FOLD_STATE_JS, sec)
         assert not st['collapsed'] and st['stored'] == '0', (
             f'{sec} did not unfold on header double-click: {st}')
@@ -3628,7 +3687,7 @@ def test_a_folded_header_still_drags_its_whole_scope(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
     sec = f'hwdock-multi-{ids["distroId"]}-1'
     fold_arrow(page, sec)
     assert page.evaluate(FOLD_STATE_JS, sec)['collapsed']
@@ -3648,7 +3707,7 @@ def test_a_folded_header_still_drags_its_whole_scope(dock_page):
                 head.parentElement, false);
         }""", sec)
         page.evaluate(RESET_POWER_JS, ids)
-        page.wait_for_timeout(300)
+        landed(page)
 
 
 def test_a_reveal_into_a_folded_section_opens_it(dock_page):
@@ -3709,7 +3768,7 @@ def test_a_loop_pair_folds_as_one_strip_that_names_both_boxes(dock_page):
         return { sxId: sxProc.id, cardId: card.id,
                  cvtA: a.id, cvtB: b.id };
     }""")
-    page.wait_for_timeout(1200)
+    landed(page)
     try:
         read_pair = """(made) => {
             const head = document.querySelector(
@@ -3752,7 +3811,10 @@ def test_a_loop_pair_folds_as_one_strip_that_names_both_boxes(dock_page):
         assert st['aShown'] and st['bShown'] and not st['collapsed'], st
         for row in st['perBox']:
             assert row and row['gear'] and row['sheet'] and row['drag'], st
-            assert row['use'] and '/' in row['use'], st
+        # the near row counts its primaries; the far one carries only the
+        # automatic backups, so it draws no count (owner, 2026-11-04)
+        assert st['perBox'][0]['use'] and '/' in st['perBox'][0]['use'], st
+        assert st['perBox'][1]['use'] is None, st
 
         # folded, the strip hides both rows and its header names both
         fold_arrow(page, f'hwdock-box-{made["cvtA"]}')
@@ -3781,7 +3843,7 @@ def test_a_loop_pair_folds_as_one_strip_that_names_both_boxes(dock_page):
                         { method: 'DELETE' });
             await window.app.refreshProcessors();
         }""", made)
-        page.wait_for_timeout(600)
+        landed(page)
 
 
 def test_an_idle_loop_end_socket_reads_free(dock_page):
@@ -3825,7 +3887,7 @@ def test_an_idle_loop_end_socket_reads_free(dock_page):
                  b9: card.cvts[1].ports[8].number,
                  a9: card.cvts[0].ports[8].number };
     }""", ids)
-    page.wait_for_timeout(1200)
+    landed(page)
     chip = """([cardId, n]) => {
         const face = document.querySelector(
             `[data-hwdock="port-${cardId}-${n}"]`);
@@ -3857,7 +3919,7 @@ def test_an_idle_loop_end_socket_reads_free(dock_page):
             await window.app.refreshProcessors();
         }""", made)
         page.evaluate(RESET_DATA_JS, ids)
-        page.wait_for_timeout(600)
+        landed(page)
 
 
 def test_the_folded_header_earns_its_keep_with_a_glance(dock_page):
@@ -3875,7 +3937,7 @@ def test_the_folded_header_earns_its_keep_with_a_glance(dock_page):
         app._restateNaming();
         app.renderHardwareDock();
     }""", ids)
-    page.wait_for_timeout(500)
+    landed(page)
     try:
         out = page.evaluate("""(ids) => {
             const head = document.querySelector(
@@ -3896,7 +3958,7 @@ def test_the_folded_header_earns_its_keep_with_a_glance(dock_page):
         # own taken/capacity counts
         open_view(page, 'data-flow')
         page.evaluate(RESET_DATA_JS, ids)
-        page.wait_for_timeout(500)
+        landed(page)
         card = page.evaluate("""(ids) => {
             const head = document.querySelector(
                 `[data-hwdock="card-${ids.cardId}"]`);
@@ -3915,7 +3977,7 @@ def test_the_folded_header_earns_its_keep_with_a_glance(dock_page):
     finally:
         open_view(page, 'power')
         page.evaluate(RESET_POWER_JS, ids)
-        page.wait_for_timeout(300)
+        landed(page)
 
 
 # ── the circuit chip speaks for the circuit: click and right-click ────────
@@ -3948,13 +4010,13 @@ def test_an_occupied_circuit_chip_opens_its_label_editor(dock_page):
         app.renderHardwareDock();
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(600)
+    landed(page)
     tid = f'ptail-{ids["distroId"]}-1-1'
 
     # the face click opens the editor in place, no drag armed
     sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-1')
     page.mouse.click(sx, sy)
-    page.wait_for_timeout(300)
+    landed(page)
     st = page.evaluate(CHIP_STATE_JS, tid)
     assert st and st['open'] and st['editorPainted'], (
         f'the click did not open the circuit chip editor: {st}')
@@ -3965,7 +4027,7 @@ def test_an_occupied_circuit_chip_opens_its_label_editor(dock_page):
         f'[data-lrd-field="power-label-{ids["bId"]}-1"]').click()
     page.keyboard.type('FOH-1')
     page.keyboard.press('Tab')
-    page.wait_for_timeout(800)
+    landed(page)
     out = page.evaluate("""(ids) => {
         const app = window.app;
         const a = app.project.layers.find(x => x.id === ids.aId);
@@ -3986,10 +4048,10 @@ def test_an_occupied_circuit_chip_opens_its_label_editor(dock_page):
     # close the open chip, then a FREE chip: no tile wiring, no editor
     sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-1')
     page.mouse.click(sx, sy)
-    page.wait_for_timeout(300)
+    landed(page)
     sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-5')
     page.mouse.click(sx, sy)
-    page.wait_for_timeout(300)
+    landed(page)
     free = page.evaluate("""(d) => {
         const face = document.querySelector(
             `[data-hwdock="tail-${d}-1-5"]`);
@@ -4015,7 +4077,7 @@ def test_an_occupied_circuit_chip_opens_its_label_editor(dock_page):
         app.updateLayers([b]);
     }""", ids)
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
@@ -4031,7 +4093,7 @@ def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
         app.renderHardwareDock();
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(600)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     # the chip holding WALL B's circuit - a ONE-circuit multi, so the clear
@@ -4042,7 +4104,7 @@ def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
     sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-1')
     item = right_click(page, sx, sy)
     assert item['menuShown'] and item['shown'] and not item['disabled'], item
-    assert item['label'].startswith('Clear circuit '), (
+    assert item['label'].startswith('Unplug circuit '), (
         f"the one-circuit chip must offer the circuit-scope clear: {item}")
     # 2026-08-31: a circuit chip names its screen, so it also carries the
     # screen's "Add <type> from…" outputs submenu (test_distro_outputs.py)
@@ -4054,7 +4116,7 @@ def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
     out = page.evaluate(POWER_STATE_JS, ids['bId'])
     assert out == {'distro': {}, 'num': {}}, (
         f'the chip clear did not unassign the multi: {out}')
-    assert page.evaluate(HIST_JS, 1) == ['Clear Circuit']
+    assert page.evaluate(HIST_JS, 1) == ['Unplug Circuit']
     assert page.evaluate(HIST_LEN_JS) == before + 1
 
     # a free chip: the item is there, disabled, and says why
@@ -4064,7 +4126,7 @@ def test_a_circuit_chips_menu_is_the_circuit_runs_menu(dock_page):
     assert 'is free' in item['title'], item
     close_menu(page)
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_a_circuit_chip_offers_the_merge_for_its_split_off_part(dock_page):
@@ -4077,7 +4139,6 @@ def test_a_circuit_chip_offers_the_merge_for_its_split_off_part(dock_page):
     sx, sy = dock_tile_center(page, f'slot-{st["d2"]}-2')
     tgt = panel_point(page, st['cenId'], {'circuit': 1})
     drag(page, sx, sy, tgt['x'], tgt['y'])
-    page.wait_for_timeout(400)
 
     # CEN SL's first two circuits joined tails 5-6 with the cut after
     # them; the tail-5 chip offers the merge (the head takes its
@@ -4086,7 +4147,7 @@ def test_a_circuit_chip_offers_the_merge_for_its_split_off_part(dock_page):
     # nothing else
     sx, sy = dock_tile_center(page, f'tail-{st["d2"]}-2-5')
     page.mouse.click(sx, sy, button='right')
-    page.wait_for_timeout(400)
+    landed(page)
     mi = page.evaluate(MERGE_ITEM_JS)
     assert mi and mi['menuShown'] and mi['shown'], mi
     assert mi['label'].startswith('Merge back into '), mi
@@ -4094,7 +4155,7 @@ def test_a_circuit_chip_offers_the_merge_for_its_split_off_part(dock_page):
     assert state['items'] == ['hw-clear', 'hw-merge', 'hw-outputs'], (
         f'the chip menu carries more than its own actions: {state}')
     page.locator('#context-menu [data-action="hw-merge"]').click()
-    page.wait_for_timeout(800)
+    landed(page)
     out = page.evaluate("""(st) => {
         const cen = window.app.project.layers.find(l => l.id === st.cenId);
         return { splits: cen.powerSocaSplits || [],
@@ -4187,13 +4248,13 @@ def test_clear_multi_forgets_programming_and_one_undo_restores_it(dock_page):
         app.resetHistory('Dock Seed');
         return c;
     }""", ids)
-    page.wait_for_timeout(700)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     tgt = panel_point(page, ids['aId'], {'circuit': 0})
     item = right_click(page, tgt['x'], tgt['y'])
     assert item['shown'] and not item['disabled'], item
-    assert item['label'].startswith('Clear multi '), item
+    assert item['label'].startswith('Unplug multi '), item
     take_clear(page)
     out = page.evaluate(POWER_PROGRAMMING_JS, ids['aId'])
     assert out['distro'] == {} and out['num'] == {}, out
@@ -4205,7 +4266,7 @@ def test_clear_multi_forgets_programming_and_one_undo_restores_it(dock_page):
         f'the label override survived the clear: {out}')
     assert out['merge'] == [] and out['splitPins'] == [], (
         f'the manual share entries survived the clear: {out}')
-    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    assert page.evaluate(HIST_JS, 1) == ['Unplug Multi']
     assert page.evaluate(HIST_LEN_JS) == before + 1, (
         'the multi clear is not ONE history entry')
     # after the clear, positions deal naturally - nothing resurrects
@@ -4219,7 +4280,7 @@ def test_clear_multi_forgets_programming_and_one_undo_restores_it(dock_page):
         f'a cleared multi must deal naturally, not remember {nat}')
 
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     out = page.evaluate(POWER_PROGRAMMING_JS, ids['aId'])
     assert out['distro'] == {'1': ids['distroId']}, out
     assert out['num'] == {'1': 1}, out
@@ -4231,7 +4292,7 @@ def test_clear_multi_forgets_programming_and_one_undo_restores_it(dock_page):
     assert out['merge'] == [[1, 2]] and out['splitPins'] == [3], out
     page.evaluate(RESET_POWER_JS, ids)
     page.evaluate(FULL_POWER_CLEAN_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_clear_circuit_chip_forgets_position_and_override(dock_page):
@@ -4244,7 +4305,7 @@ def test_clear_circuit_chip_forgets_position_and_override(dock_page):
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
     page.evaluate(FULL_POWER_CLEAN_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
     # seat WALL B's one circuit on PD 1 circuit 5, then override its label
     sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-5')
@@ -4262,13 +4323,13 @@ def test_clear_circuit_chip_forgets_position_and_override(dock_page):
         app.resetHistory('Dock Seed');
         return c;
     }""", ids)
-    page.wait_for_timeout(700)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     sx, sy = dock_tile_center(page, f'tail-{ids["distroId"]}-1-5')
     item = right_click(page, sx, sy)
     assert item['shown'] and not item['disabled'], item
-    assert item['label'].startswith('Clear circuit '), item
+    assert item['label'].startswith('Unplug circuit '), item
     take_clear(page)
     out = page.evaluate(POWER_PROGRAMMING_JS, ids['bId'])
     assert out['distro'] == {} and out['num'] == {}, out
@@ -4278,7 +4339,7 @@ def test_clear_circuit_chip_forgets_position_and_override(dock_page):
         f'the label override survived the circuit clear: {out}')
     assert out['names'] == {'1': 'B BOX'}, (
         f"a circuit clear must keep the multi's typed name: {out}")
-    assert page.evaluate(HIST_JS, 1) == ['Clear Circuit']
+    assert page.evaluate(HIST_JS, 1) == ['Unplug Circuit']
     assert page.evaluate(HIST_LEN_JS) == before + 1, (
         'the circuit clear is not ONE history entry')
 
@@ -4290,9 +4351,9 @@ def test_clear_circuit_chip_forgets_position_and_override(dock_page):
     assert out['pos'] == {'1': [2]}, (
         f're-assigning resurrected the old seat: {out}')
     page.evaluate("() => window.app.undo()")   # the re-seat
-    page.wait_for_timeout(900)
+    landed(page)
     page.evaluate("() => window.app.undo()")   # the clear
-    page.wait_for_timeout(900)
+    landed(page)
     out = page.evaluate(POWER_PROGRAMMING_JS, ids['bId'])
     assert out['distro'] == {'1': ids['distroId']}, out
     assert out['num'] == {'1': 1} and out['pos'] == {'1': [5]}, (
@@ -4300,7 +4361,7 @@ def test_clear_circuit_chip_forgets_position_and_override(dock_page):
     assert out['overrides'].get(str(circuit)) == 'DJ-POWER', out
     page.evaluate(RESET_POWER_JS, ids)
     page.evaluate(FULL_POWER_CLEAN_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_clear_distro_forgets_programming_on_every_member(dock_page):
@@ -4328,7 +4389,7 @@ def test_clear_distro_forgets_programming_on_every_member(dock_page):
         app._restateNaming();
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(700)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     sx, sy = dock_tile_center(page, f'distro-{ids["distroId"]}')
@@ -4350,14 +4411,14 @@ def test_clear_distro_forgets_programming_on_every_member(dock_page):
         f'the distro clear must not touch the distro itself: {distro}')
 
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     a = page.evaluate(POWER_PROGRAMMING_JS, ids['aId'])
     b = page.evaluate(POWER_PROGRAMMING_JS, ids['bId'])
     assert a['pos'] == {'1': [2, 4, 6]} and a['names'] == {'1': 'SL RUN'}, a
     assert b['pos'] == {'1': [3]} and b['lengths'] == {'1': '75ft'}, b
     page.evaluate(RESET_POWER_JS, ids)
     page.evaluate(FULL_POWER_CLEAN_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_drag_back_forgets_programming_like_the_clear(dock_page):
@@ -4380,7 +4441,7 @@ def test_drag_back_forgets_programming_like_the_clear(dock_page):
         app._restateNaming();
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(700)
+    landed(page)
 
     sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
     dock_box = page.locator('#hardware-dock-body').bounding_box()
@@ -4390,16 +4451,16 @@ def test_drag_back_forgets_programming_like_the_clear(dock_page):
     assert out['distro'] == {} and out['num'] == {}, out
     assert out['pos'] == {} and out['names'] == {}, (
         f'the drag-back remembered the programming: {out}')
-    assert page.evaluate(HIST_JS, 1) == ['Clear Multi']
+    assert page.evaluate(HIST_JS, 1) == ['Unplug Multi']
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(900)
+    landed(page)
     out = page.evaluate(POWER_PROGRAMMING_JS, ids['aId'])
     assert out['pos'] == {'1': [1, 3, 5]}, (
         f'one undo did not restore the drag-back: {out}')
     assert out['names'] == {'1': 'US TRUSS'}, out
     page.evaluate(RESET_POWER_JS, ids)
     page.evaluate(FULL_POWER_CLEAN_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
@@ -4409,7 +4470,7 @@ def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
     page, ids = dock_page
     open_view(page, 'data-flow')
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
     page.evaluate("""async (ids) => {
         const app = window.app;
         const send = (url, body) => fetch(url, { method: 'PUT',
@@ -4425,7 +4486,7 @@ def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
               port: 8, confirm: false }, null, 'Place Port');
         app.resetHistory('Dock Seed');
     }""", ids)
-    page.wait_for_timeout(1200)
+    landed(page)
     assert len(page.evaluate(PINS_JS)) == 6, 'the seed pins did not land'
     before = page.evaluate(HIST_LEN_JS)
 
@@ -4434,7 +4495,6 @@ def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
     assert item['shown'] and not item['disabled'], item
     assert 'backup picks' in item['title'], item
     take_clear(page)
-    page.wait_for_timeout(1200)
     assert page.evaluate(PINS_JS) == [], 'the pin survived the card clear'
     card = page.evaluate("""(ids) => {
         const found = window.app._dockCardById(ids.cardId);
@@ -4452,7 +4512,7 @@ def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
         'the card clear is not ONE history entry')
 
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(1500)
+    landed(page)
     restored = page.evaluate("""async (ids) => {
         await window.app.refreshProcessors();
         const found = window.app._dockCardById(ids.cardId);
@@ -4474,7 +4534,7 @@ def test_clear_card_forgets_backup_picks_and_keeps_port_names(dock_page):
         await window.app.refreshProcessors();
     }""", ids)
     page.evaluate(RESET_DATA_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
 
 
 # ── the sweep + the batch verb ("B and then right click", 2026-08-30) ─────
@@ -4527,7 +4587,7 @@ SPLITTERS_ON_JS = """(ids) => {
     const a = app.project.layers.find(x => x.id === ids.aId);
     a.powerSplitters = { enabled: true, maxWays: 2,
                          manual: { merge: [], split: [] } };
-    a.powerAmperage = 30;
+    a.powerAmperage = 37.5;
     app._circuitTailCache = null;
     app.updateLayers([a]);
     app.resetHistory('Dock Seed');
@@ -4538,7 +4598,7 @@ SPLITTERS_OFF_JS = """(ids) => {
     const a = app.project.layers.find(x => x.id === ids.aId);
     a.powerSplitters = { enabled: false, maxWays: 3,
                          manual: { merge: [], split: [] } };
-    a.powerAmperage = 20;
+    a.powerAmperage = 25;
     app._circuitTailCache = null;
     app.updateLayers([a]);
     app._sweepSelection = null;
@@ -4554,21 +4614,23 @@ def alt_sweep(page, sx, sy, ex, ey):
     page.mouse.down()
     page.mouse.move((sx + ex) / 2, (sy + ey) / 2, steps=5)
     page.mouse.move(ex, ey, steps=5)
-    page.wait_for_timeout(150)
+    landed(page)
     hud = page.evaluate(
         "() => { const h = document.getElementById('power-sweep-hud');"
         " return h ? h.textContent : null; }")
     page.mouse.up()
     page.keyboard.up('Alt')
-    page.wait_for_timeout(300)
+    landed(page)
     return hud
 
 
 def test_batch_partition_math_and_labels(dock_page):
-    """The engine's deal: consecutive groups of n, remainder re-dealt so
-    nothing is orphaned - 16 @ 3fer is 3,3,3,3,2,2 (the last full group
-    re-deals with the orphan as two 2fers); only '2fer them' over an odd
-    count leaves a plain run."""
+    """The engine's deal over runs that all fit: consecutive groups of n,
+    the remainder a smaller fer or a plain leftover - 16 @ 3fer is five
+    3fers and one plain run, the way the automatic packer leaves the lone
+    last run (the owner's ruling, 2026-10-19: "leftovers stay on their own
+    circuit with no tag"; it replaced the 2026-08-30 re-deal that went
+    out as 3,3,3,3,2,2)."""
     page, ids = dock_page
     out = page.evaluate("""() => {
         const app = window.app;
@@ -4581,14 +4643,14 @@ def test_batch_partition_math_and_labels(dock_page):
         };
     }""")
     assert out['g18'] == [3, 3, 3, 3, 3, 3], out
-    assert out['g16'] == [3, 3, 3, 3, 2, 2], out
+    assert out['g16'] == [3, 3, 3, 3, 3, 1], out
     assert out['g8'] == [3, 3, 2], out
     assert out['g7'] == [2, 2, 2, 1], out
-    assert out['g5'] == [3, 2], (
+    assert out['g5'] == [4, 1], (
         f'a 5-run 4fer deal must not drop a run: {out}')
     assert out['g5n3'] == [3, 2], out
     assert out['l18'] == '6 × 3fer', out
-    assert out['l16'] == '4 × 3fer + 2 × 2fer', out
+    assert out['l16'] == '5 × 3fer + 1 plain', out
     assert out['l7'] == '3 × 2fer + 1 plain', out
     assert out['l5'] == '1 × 3fer + 1 × 2fer', out
 
@@ -4601,7 +4663,7 @@ def test_alt_drag_sweeps_and_alt_click_stays_takeover(dock_page):
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     p0 = panel_point(page, ids['aId'], {'circuit': 0})
@@ -4621,7 +4683,7 @@ def test_alt_drag_sweeps_and_alt_click_stays_takeover(dock_page):
         'a sweep selection is view state, never a history entry')
 
     page.keyboard.press('Escape')
-    page.wait_for_timeout(200)
+    landed(page)
     assert page.evaluate("() => window.app._sweepSelection") is None, (
         'Esc must drop the selection')
 
@@ -4632,7 +4694,7 @@ def test_alt_drag_sweeps_and_alt_click_stays_takeover(dock_page):
     page.mouse.move(p0['x'] + 2, p0['y'] + 1)
     page.mouse.up()
     page.keyboard.up('Alt')
-    page.wait_for_timeout(600)
+    landed(page)
     out = page.evaluate("""(aId) => {
         const app = window.app;
         const a = app.project.layers.find(x => x.id === aId);
@@ -4643,26 +4705,34 @@ def test_alt_drag_sweeps_and_alt_click_stays_takeover(dock_page):
     assert out['over'], (
         f'a click inside 4px must stay the takeover: {out}')
     assert not out['sel'], out
-    page.evaluate("""() => {
-        if (window.app.endOverrideEdit) window.app.endOverrideEdit();
-        window.app.undo();
-    }""")
-    page.wait_for_timeout(700)
+    # Ending a redraw that changed nothing hands the circuit back to the
+    # walk as its own step (the owner's ruling, 2026-11-03). An undo after
+    # it would take that step back and leave the circuit taken over for
+    # the tests after this one, so none is made: the circuit is automatic
+    # again on its own.
+    page.evaluate("() => { if (window.app.endOverrideEdit) window.app.endOverrideEdit(); }")
+    landed(page)
+    assert not page.evaluate("""(aId) => {
+        const app = window.app;
+        const a = app.project.layers.find(x => x.id === aId);
+        return app.getOverrideNums(a, 'power').length > 0;
+    }""", ids['aId']), 'an unchanged takeover must be automatic again when it ends'
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_sweep_right_click_deals_nfers_in_one_entry(dock_page):
     """Sweep three circuits (five packed runs), right-click: the menu
     offers the sizes with the group math, suppresses the single-run share
-    item, and '3fer them' deals [1,2,3] + [4,5] as ONE '3fer Selection'
-    entry. One undo heals the whole deal. (A 30 A circuit - see
-    SPLITTERS_ON_JS - so the 3fer is within the amps.)"""
+    item, and '2fer them' deals [1,2] + [3,4] + a plain 5 as ONE '2fer
+    Selection' entry. One undo heals the whole deal. The Max splitter is
+    2fer (SPLITTERS_ON_JS), so no '3fer them' is offered (the owner,
+    2026-10-21: the batch never deals past it)."""
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
     page.evaluate(SPLITTERS_ON_JS, ids)
-    page.wait_for_timeout(600)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     p0 = panel_point(page, ids['aId'], {'circuit': 0})
@@ -4673,102 +4743,152 @@ def test_sweep_right_click_deals_nfers_in_one_entry(dock_page):
 
     p1 = panel_point(page, ids['aId'], {'circuit': 1})
     page.mouse.click(p1['x'], p1['y'], button='right')
-    page.wait_for_timeout(400)
+    landed(page)
     items = page.evaluate(BATCH_ITEMS_JS)
     assert items['shown'], items
-    assert items['n0'] and items['n0']['label'].startswith('2fer them ('), items
-    assert items['n1'] and '3fer them (1 × 3fer + 1 × 2fer)' == \
-        items['n1']['label'], items
-    assert items['n1'] and not items['n1']['disabled'], items
+    assert items['n0'] and items['n0']['label'] == '2fer them (2 × 2fer + 1 plain)', items
+    assert not items['n0']['disabled'], items
+    assert items['n1'] is None, f'no size past the Max splitter: {items}'
     assert items['share'] is None, (
         f'the single-run share must stand down behind a sweep: {items}')
-    # the packed 2fers count as existing gangs, so Un-share all is offered
-    assert items['unshare'] and items['unshare']['label'] == 'Un-share all', items
+    # the packed 2fers count as existing gangs, so removing them is offered
+    assert items['unshare'] and items['unshare']['label'] == 'Remove 2fers from these', items
 
-    page.locator('#context-menu [data-action="hw-batch-n1"]').click()
-    page.wait_for_timeout(800)
+    page.locator('#context-menu [data-action="hw-batch-n0"]').click()
+    landed(page)
     out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
-    assert out['merge'] == [[1, 2, 3], [4, 5]], (
-        f'the 3fer deal must partition the five runs as 3+2: {out}')
-    assert out['split'] == [], out
-    assert [len(r) for r in out['runIds'] if r] == [3, 2], out
+    assert out['merge'] == [[1, 2], [3, 4]], (
+        f'the 2fer deal must partition the five runs as 2+2+1: {out}')
+    assert out['split'] == [5], out
+    assert [len(r) for r in out['runIds'] if r] == [2, 2, 1], out
     assert out['sel'] is None, 'the commit must clear the selection'
-    assert page.evaluate(HIST_JS, 1) == ['3fer Selection']
+    assert page.evaluate(HIST_JS, 1) == ['2fer Selection']
     assert page.evaluate(HIST_LEN_JS) == before + 1, (
         'the batch deal is not ONE history entry')
 
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(800)
+    landed(page)
     out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
     assert out['merge'] == [], f'one undo did not heal the deal: {out}'
     page.evaluate(SPLITTERS_OFF_JS, ids)
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_whole_wall_right_click_batches_and_keeps_single_run_items(dock_page):
     """No selection: right-click a run and the batch entries act on the
-    whole screen ('3fer this screen'), beside the single-run share item,
+    whole screen ('2fer this screen'), beside the single-run share item,
     which keeps working unchanged. (A 30 A circuit, as above: the deal
-    is within the amps.)"""
+    is within the amps; the Max splitter is 2fer, so no '3fer this
+    screen'.)"""
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
     page.evaluate(SPLITTERS_ON_JS, ids)
-    page.wait_for_timeout(600)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     p0 = panel_point(page, ids['aId'], {'circuit': 0})
     page.mouse.click(p0['x'], p0['y'], button='right')
-    page.wait_for_timeout(400)
+    landed(page)
     items = page.evaluate(BATCH_ITEMS_JS)
     assert items['shown'], items
-    assert items['n1'] and items['n1']['label'].startswith('3fer this screen ('), items
+    assert items['n0'] and items['n0']['label'].startswith('2fer this screen ('), items
+    assert items['n1'] is None, items
     assert items['share'] is not None, (
         f'the single-run share must keep working with no sweep: {items}')
 
-    page.locator('#context-menu [data-action="hw-batch-n1"]').click()
-    page.wait_for_timeout(800)
+    page.locator('#context-menu [data-action="hw-batch-n0"]').click()
+    landed(page)
     out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
-    assert out['merge'] == [[1, 2, 3], [4, 5]], out
-    assert page.evaluate(HIST_JS, 1) == ['3fer Screen']
+    assert out['merge'] == [[1, 2], [3, 4]] and out['split'] == [5], out
+    assert page.evaluate(HIST_JS, 1) == ['2fer Screen']
     assert page.evaluate(HIST_LEN_JS) == before + 1
 
     page.evaluate("() => window.app.undo()")
-    page.wait_for_timeout(800)
+    landed(page)
     page.evaluate(SPLITTERS_OFF_JS, ids)
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
 
 
 def test_batch_entries_gated_off_with_reason(dock_page):
-    """Splitters off and circuits auto: the batch entries stay ON the menu,
-    disabled, with the sharing gate as their title - discoverable, never
-    rule-breaking - and a click on one changes nothing."""
+    """Splitters off and circuits auto: the whole screen's entries are
+    offered and tick sharing as they deal (the owner's ruling,
+    2026-10-22). Runs picked by a sweep stay gated: their entries stay ON
+    the menu, disabled, with the sharing gate as their title, and a click
+    on one changes nothing."""
     page, ids = dock_page
     open_view(page, 'power')
     page.evaluate(RESET_POWER_JS, ids)
     page.evaluate(SPLITTERS_OFF_JS, ids)
-    page.wait_for_timeout(500)
+    landed(page)
     before = page.evaluate(HIST_LEN_JS)
 
     p0 = panel_point(page, ids['aId'], {'circuit': 0})
     page.mouse.click(p0['x'], p0['y'], button='right')
-    page.wait_for_timeout(400)
+    landed(page)
     items = page.evaluate(BATCH_ITEMS_JS)
     assert items['shown'], items
-    assert items['n0'] and items['n0']['disabled'], items
-    assert 'Sharing is off' in items['n0']['title'], items
-    assert items['n1'] and items['n1']['disabled'], items
-    # three plain runs: no 4fer to offer
-    assert items['n2'] is None, items
+    assert items['n0'] and not items['n0']['disabled'], items
+    assert 'Also turns on "Share circuits via splitters"' in items['n0']['title'], items
+    close_menu(page)
 
-    page.locator('#context-menu [data-action="hw-batch-n0"]').click()
-    page.wait_for_timeout(500)
+    swept = page.evaluate("""([id, x, y]) => {
+        const app = window.app;
+        app._sweepSelection = { layerId: id, nums: [1, 2] };
+        const m = app._prepareBatchMenu(x, y);
+        app._sweepSelection = null;
+        return m && { scope: m.scope, entries: m.entries.map(e => ({
+            label: e.label, disabled: !!e.disabled, title: e.title || '' })) };
+    }""", [ids['aId'], p0['x'], p0['y']])
+    assert swept and swept['scope'] == 'selection', swept
+    assert swept['entries'] and all(e['disabled'] for e in swept['entries']), swept
+    assert 'Sharing is off' in swept['entries'][0]['title'], swept
     out = page.evaluate(SPLITTER_STATE_JS, ids['aId'])
     assert out['merge'] == [], f'a disabled entry still dealt: {out}'
     assert page.evaluate(HIST_LEN_JS) == before, (
         'a disabled batch entry earned a history entry')
-    close_menu(page)
     page.evaluate(RESET_POWER_JS, ids)
-    page.wait_for_timeout(300)
+    landed(page)
+
+
+def test_a_tray_rebuild_keeps_the_text_being_typed_in_a_field(dock_page):
+    """A tray field mid-typing (input events, no change yet) keeps the
+    typed text, its focus and its caret when the tray rebuilds behind it -
+    the page's own late layer_updated echo rebuilds it (updateUI ->
+    refreshDistroPanel). It used to come back focused but holding the
+    stored name, the typing gone. A committed edit is the model's again."""
+    page, ids = dock_page
+    open_view(page, 'power')
+    out = page.evaluate("""async (d) => {
+        const app = window.app;
+        app.renderHardwareDock();
+        const sel = `[data-lrd-field="distro-name-${d}"]`;
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        app._dockRevealSections && app._dockRevealSections(el);
+        const stored = el.value;
+        el.focus();
+        el.value = stored + 'XY';
+        el.setSelectionRange(1, 1);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        app.renderHardwareDock();
+        await new Promise(r => setTimeout(r, 0));
+        const now = document.querySelector(sel);
+        const res = { replaced: now !== el, value: now.value, stored,
+                      focused: document.activeElement === now,
+                      caret: now.selectionStart,
+                      model: app.getDistros().find(x => x.id === d).name };
+        // Leave nothing behind: the typing undone, focus away, no commit.
+        now.value = stored;
+        now.dispatchEvent(new Event('input', { bubbles: true }));
+        now.blur();
+        return res;
+    }""", ids['distroId'])
+    assert out, 'the dock built no distro name field'
+    assert out['replaced'], out
+    assert out['value'] == out['stored'] + 'XY', (
+        f'the typing must ride the rebuild: {out}')
+    assert out['focused'] and out['caret'] == 1, out
+    assert out['model'] == out['stored'], out

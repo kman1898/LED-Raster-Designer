@@ -107,12 +107,13 @@ PLATFORM_LABELS = {
 
 # platform -> the catalog families whose ports may carry it. The Legacy row
 # is the ruling by name - "VX, MCTRL, NovaPro, MSD, H", every non-COEX
-# NovaStar line (the MSD300 files under novastar-mctrl) - and the COEX rows
-# are "CX only map to 5G" with the 1G COEX all-in-ones keeping the 1G COEX
-# setting to themselves.
+# NovaStar line (the MSD300 files under novastar-mctrl, and the 4K-Prime,
+# a V-Can all-in-one for the legacy receiving cards, under novastar-prime)
+# - and the COEX rows are "CX only map to 5G" with the 1G COEX all-in-ones
+# keeping the 1G COEX setting to themselves.
 PLATFORM_FAMILIES = {
     'novastar-armor': {'novastar-vx', 'novastar-mctrl', 'novastar-novapro',
-                       'novastar-h'},
+                       'novastar-h', 'novastar-prime'},
     'novastar-coex-1g': {'novastar-mx'},
     'novastar-5g': {'novastar-cx'},
     # ASSUMPTION (pending user confirmation): every Brompton unit is one family,
@@ -145,6 +146,7 @@ _FAMILY_GEAR = {
     'novastar-mctrl': 'NovaStar legacy gear',
     'novastar-novapro': 'NovaStar legacy gear',
     'novastar-h': 'NovaStar legacy gear',
+    'novastar-prime': 'NovaStar legacy gear',
     'brompton': 'Brompton gear',
     'megapixel': 'Megapixel gear',
 }
@@ -260,6 +262,10 @@ def cards_in(processors):
                 # A card that is a unit of its own ("QD 1", a QD-S on OUT
                 # 1): messages call it that rather than "slot 1".
                 'unitTitle': card.get('unitTitle') or '',
+                # An unnamed card on a card-based processor (the H series,
+                # the MX2000, the MX6000) is "Card 3" by its slot, as the
+                # dock and the binder call it (owner, 2026-10-29).
+                'slotTitle': catalog.card_slot_title(card, proc),
                 # What a message calls it: 'card' on the H series, the
                 # MX2000 and the MX6000 only, else 'processor' ('QD' for a
                 # QD-S) - catalog.unit_word.
@@ -291,10 +297,35 @@ def cards_in(processors):
                 # not box-fed stays None: it offers nothing to a fill and
                 # takes any number by hand, exactly as before.
                 'boxFed': bool(card.get('boxFed')),
+                # A MIRROR SOCKET (resolve_card's mirrorOf - a box on a copy
+                # trunk set to feed a mirror screen) is never one of them:
+                # it carries the copy of a primary, so only a screen set to
+                # mirror the primary's screen lands there (mirrorRoles).
                 'sockets': ([p['number'] for p in card['ports']
-                             if not p.get('beyondCeiling')]
+                             if not p.get('beyondCeiling')
+                             and not p.get('mirrorOf')]
                             if card.get('boxFed') or card['ceilingKnown']
                             else None),
+                # Each mirror socket, by card-wide number, and the primary
+                # socket it copies - claimed by role like a backup socket:
+                # never free, refused to a hand placement.
+                'mirrorRoles': {p['number']: {
+                    'port': p['mirrorOf'],
+                    'localPort': p['localNumber'],
+                    'boxTitle': next((c.get('displayTitle')
+                                      for c in card.get('cvts') or []
+                                      if c['id'] == p.get('cvtId')), None),
+                } for p in card['ports'] if p.get('mirrorOf')},
+                # primary socket -> the mirror socket copying it, and the
+                # card's copy trunks (resolve_card's copyTrunks /
+                # copyTrunkList), for the mirror pass's what-is-missing.
+                'mirrorSockets': {int(k): v for k, v in
+                                  (card.get('mirrorSockets') or {}).items()},
+                'copyTrunks': card.get('copyTrunks'),
+                'copyTrunkList': card.get('copyTrunkList') or [],
+                'portsPerTrunk': card.get('portsPerTrunk'),
+                'mode': card.get('mode'),
+                'modes': card.get('modes') or [],
                 # Allocation is planned against the ports the CARD has, not
                 # against how many of them the boxes currently on it deliver -
                 # a half-patched card is a patching job someone has not
@@ -343,10 +374,13 @@ def cards_in(processors):
                 # lands on, by the number written beside THAT socket. Read
                 # by _attached_labels when nothing upstream is named, so an
                 # unnamed card's return end prints the socket it comes back
-                # on rather than nothing.
+                # on rather than nothing. A loop box's socket (`loop` - a
+                # box on a copy OPT set to Backup) keeps the derived return
+                # it has always printed.
                 'backupSockets': {p['number']: p['backedBy']['localPort']
                                   for p in card['ports']
-                                  if p.get('backedBy')},
+                                  if p.get('backedBy')
+                                  and not p['backedBy'].get('loop')},
                 # Each breakout box's sockets by card-wide number, in the
                 # box's order, so the summary can count a box's taken
                 # sockets the same way it counts the card's. A copy box
@@ -396,6 +430,8 @@ def _card_title(card):
         return card['name']
     if card['processorName'] and card.get('unitTitle'):
         return f"{card['processorName']} {card['unitTitle']}"
+    if card['processorName'] and card.get('slotTitle'):
+        return f"{card['processorName']} {card['slotTitle']}"
     if card['processorName']:
         return f"{card['processorName']} slot {(card['slot'] or 0) + 1}"
     return card['deviceName']
@@ -521,8 +557,47 @@ def _clean_screens(screens):
             # (canvas_spans). Absent is "not measured": such a screen adds
             # nothing to a span and is refused nothing.
             'portRects': _clean_rects(scr.get('portRects')),
+            # The name of the canvas the screen sits on, sent with its
+            # portRects (the route fills it from the project where the
+            # client left it out): a canvas refusal names the screens that
+            # make up the span, and their canvases where there are two or
+            # more (canvas_spans).
+            'canvas': ((scr['canvas'].strip() or None)
+                       if isinstance(scr.get('canvas'), str) else None),
+            # MIRROR A SCREEN (owner, 2026-10-30): the layer this screen
+            # copies, or None. Its port map is that screen's, so its ports
+            # land on the copies of that screen's sockets (_mirror_pass) and
+            # never on pins of its own.
+            'mirrorOf': (str(scr['mirrorOf'])
+                         if scr.get('mirrorOf') not in (None, '') else None),
+            # Why the two no longer match cabinet for cabinet (a resize
+            # after the mirror was set - mirror_mismatch, read off the
+            # project's layers by the route), or None.
+            'mirrorMismatch': scr.get('mirrorMismatch') or None,
+            # The ports with no cabinet on them (0-based), sent by the
+            # client where a number is held empty - a port being redrawn
+            # that has nothing drawn yet. Nothing lands on one: it is never
+            # unplaced, so a fill or a drop skips it (QA, 1.6.0: a card
+            # filled onto such a number drove no cabinets).
+            'emptyPorts': _clean_indices(scr.get('emptyPorts')),
         })
     return out
+
+
+def _clean_indices(values):
+    if not isinstance(values, list):
+        return []
+    out = set()
+    for v in values:
+        if isinstance(v, bool):
+            continue
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            continue
+        if n >= 0:
+            out.add(n)
+    return sorted(out)
 
 
 def _clean_rects(values):
@@ -639,9 +714,16 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
         }
 
     known = {s['layerId'] for s in screens}
+    required = {s['layerId']: s['ports'] for s in screens}
+    mirrors = mirror_sources(screens)
 
     # ── pass 1: pins ──────────────────────────────────────────────────────
     for pin in pins:
+        if pin['layerId'] in mirrors:
+            # A mirror screen's ports follow its source's and hold no pin
+            # of their own (the routes refuse one and drop any it had); a
+            # stale one in a hand-edited file claims nothing.
+            continue
         if pin['layerId'] not in known:
             # The screen was deleted, or the caller sent a partial list. Keep
             # the pin - a deleted screen is very often an undo away - but say
@@ -672,11 +754,24 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
                             'index': pin['index'], 'label': 'Release pin'}],
             })
             continue
+        if pin['index'] >= required.get(pin['layerId'], 0):
+            # The screen has no such port any more (it shrank: 8 ports
+            # with 10 pins). It lights no socket, so every n/N reads what
+            # the tiles show (beta.4 QA: "XD A 10/10" over two free
+            # tiles). The client lets go of such a pin when the screen
+            # shrinks (app-merge-runs.js _releasePinsOffPorts, beta.5);
+            # one an older file still carries is left alone here.
+            continue
         claim(card['cardId'], pin['port'], pin['layerId'], pin['index'], 'pin')
 
     # ── the retired pass, for the migration only ──────────────────────────
     if _legacy_auto:
         _legacy_auto_pass(cards, screens, claims, placed, claim)
+
+    # ── mirror screens: the copies of their sources' sockets ──────────────
+    mirror_claims = {}
+    issues.extend(_mirror_pass(screens, mirrors, by_id, placed,
+                               mirror_claims))
 
     # ── what came out, and what is wrong with it ──────────────────────────
     overlapping = {key for key, owners in claims.items() if len(owners) > 1}
@@ -715,10 +810,13 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
                 # Off the card's own socket set (cards_in): past the
                 # ceiling on a settled card, outside every box on a
                 # box-fed one, never on a card nobody settled.
-                'beyondCapacity': bool(card and not _has_socket(card,
-                                                                 spot['port'])),
+                'beyondCapacity': bool(card and spot['source'] != 'mirror'
+                                       and not _has_socket(card,
+                                                           spot['port'])),
             })
-        unplaced = [p['index'] for p in ports if p['cardId'] is None]
+        empty = set(scr.get('emptyPorts') or [])
+        unplaced = [p['index'] for p in ports
+                    if p['cardId'] is None and p['index'] not in empty]
         used_cards = []
         for p in ports:
             if p['cardId'] and p['cardId'] not in used_cards:
@@ -732,19 +830,23 @@ def resolve(processors, screens, state=None, _legacy_auto=False):
             'unplaced': unplaced,
             'cardIds': used_cards,
             'split': len(used_cards) > 1,
+            # The screen this one mirrors (mirror_sources), or None.
+            'mirrorOf': mirrors.get(scr['layerId']),
         })
 
     issues.extend(_overlap_issues(overlapping, claims, by_id, screens))
     issues.extend(_platform_issues(resolved_screens, by_id))
-    issues.extend(_overflow_issues(resolved_screens, cards))
+    issues.extend(_overflow_issues(
+        [s for s in resolved_screens if not s['mirrorOf']], cards))
     issues.extend(_capacity_issues(cards, screens))
+    issues.extend(_mix_issues(resolved_screens, by_id))
 
     occupancy = _occupancy(resolved_screens)
     _mirror_returns(cards, occupancy)
 
     return {
         'configured': bool(cards),
-        'cards': [_card_summary(c, claims) for c in cards],
+        'cards': [_card_summary(c, claims, mirror_claims) for c in cards],
         'screens': resolved_screens,
         'occupancy': occupancy,
         'issues': issues,
@@ -948,7 +1050,723 @@ def _mirror_returns(cards, occupancy):
                     })
 
 
-def _taken_sockets(card, claims):
+# ── Mirror screens ────────────────────────────────────────────────────────
+#
+# MIRROR A SCREEN (owner, 2026-10-30): "the copy screen's port map follows
+# the first automatically and can't be drawn separately." How a mirror is
+# made changed on 2026-11-01 (owner): not a pick in Screen Info but the
+# card's own Copy setting plus a drag - the card dropped on a first screen
+# feeds it, the same card dropped on a second, matching screen makes that
+# screen the first one's copy (the dock's _copyDropPlan, then the layer
+# PUT through mirror_set_refusal). NovaStar's Copy mode is what feeds it: "OPT 3 copies the output on OPT 1, while OPT 4 copies
+# the output on OPT 2" (H_4xfiber, H15 Specifications V1.15.0 p.36), the
+# enhanced card's OPT 5-8 copy OPT 1-4 (p.37), and an MX40 Pro in 20-port
+# mode has OPT 3/4 as "the copy channel" of OPT 1/2 (User Manual V1.5.0
+# p.9) - there per box, Mirror or Backup. So a mirror screen holds no pin:
+# port N of its source on socket S of a card lands port N of the mirror on
+# the socket copying S (resolve_card's mirrorSockets), card by card, and
+# where that socket is not there the mirror says exactly what is missing.
+
+def mirror_sources(screens):
+    """{mirror layerId: source layerId} for every screen set to mirror
+    another that is in the list, is not itself, and is not a mirror itself
+    (a copy of a copy is refused where the mirror is set, and read here as
+    no mirror at all)."""
+    by_id = {s['layerId']: s for s in screens}
+    out = {}
+    for scr in screens:
+        src = scr.get('mirrorOf')
+        if not src or src == scr['layerId'] or src not in by_id:
+            continue
+        if by_id[src].get('mirrorOf') or scr.get('mirrorMismatch'):
+            continue
+        out[scr['layerId']] = src
+    return out
+
+
+def _mode_words(card):
+    """'Backup mode', '20-port mode' - the card's mode as its label reads,
+    with 'mode' said once - or '' where the mode has no label."""
+    label = next((m.get('label') for m in card.get('modes') or []
+                  if m.get('id') == card.get('mode')), '') or ''
+    return _mode_phrase(label)
+
+
+def _mode_phrase(label):
+    label = (label or '').strip()
+    if not label:
+        return ''
+    return label if label.lower().endswith(' mode') else f'{label} mode'
+
+
+def _mirror_missing(card, port):
+    """Why socket `port` of this card has no copy a mirror screen can land
+    on, as a clause naming what is missing - and, where a setting fixes it,
+    a sentence after it saying which (the caller ends it with a period)."""
+    title = _card_title(card)
+    kind = card.get('copyTrunks')
+    if kind not in ('mirror', 'per-box'):
+        copy_modes = [_mode_phrase(m.get('label') or m.get('id'))
+                      for m in card.get('modes') or []
+                      if m.get('copyTrunks') in ('mirror', 'per-box')]
+        now = _mode_words(card)
+        if copy_modes:
+            return (f'{title} is in {now or "a mode with no copies"}. Set '
+                    f'it to {" or ".join(copy_modes)} to feed a mirror '
+                    f'screen')
+        return f'{title} has no copy outputs to feed a mirror screen'
+    per = card.get('portsPerTrunk') or 0
+    block = (int(port) - 1) // per if per else 0
+    entry = next((t for t in card.get('copyTrunkList') or []
+                  if t['copiesTrunk'] == block), None)
+    if entry is None:
+        return f'{title} has no copy of the output carrying that port'
+    if not entry.get('boxId'):
+        return (f'{entry["trunkTitle"]} on {title} has no box (it copies '
+                f'{entry["copiesTitle"]})')
+    if entry.get('role') != 'mirror':
+        return (f'the box on {entry["trunkTitle"]} of {title} is set to '
+                f'Backup. Set it to Mirror to feed a mirror screen')
+    return (f'the box on {entry["trunkTitle"]} of {title} has no socket '
+            f'copying that port')
+
+
+def _stop_mirroring_offer(layer_id):
+    """The issue button that lets a mirror go: a release of the mirror
+    screen, which the unpin route reads as "unplug the copy" (it clears the
+    screen's dataMirrorOf - routes_port_assignment.unpin_port)."""
+    return {'action': 'release', 'layerId': layer_id,
+            'label': 'Stop mirroring'}
+
+
+def _mirror_pass(screens, mirrors, by_id, placed, mirror_claims):
+    """Land every mirror screen's ports on the copies of its source's
+    sockets, in `placed` (source 'mirror') and `mirror_claims`, and say
+    what stops the rest. A source port with no place leaves the mirror's
+    port unplaced too - the source's own overflow already says so."""
+    issues = []
+    names = {s['layerId']: s['name'] for s in screens}
+    for scr in screens:
+        layer_id = scr['layerId']
+        src = mirrors.get(layer_id)
+        if not src and scr.get('mirrorMismatch'):
+            issues.append({
+                'kind': 'mirror-mismatch',
+                'layerId': layer_id,
+                'sourceLayerId': scr.get('mirrorOf'),
+                'message': (f'{scr["mirrorMismatch"]} {scr["name"]} is not '
+                            f'mirroring until they match again.'),
+                'offers': [_stop_mirroring_offer(layer_id)],
+            })
+            continue
+        if not src:
+            if scr.get('mirrorOf') and scr['mirrorOf'] != layer_id:
+                issues.append({
+                    'kind': 'mirror-source-gone',
+                    'layerId': layer_id,
+                    'message': (f'{scr["name"]} mirrors a screen that is '
+                                f'not in this project, or that mirrors '
+                                f'another screen itself. Stop mirroring, '
+                                f'then drag a card in Copy mode onto the '
+                                f'screen to copy and then onto '
+                                f'{scr["name"]}.'),
+                    'offers': [_stop_mirroring_offer(layer_id)],
+                })
+            continue
+        # A source with no port placed (a locked mirror kept through the
+        # unplug, a show saved like that): nothing is plugged into the
+        # mirror, so nothing can be unplugged from it, and this line is its
+        # way out. The source's own overflow says the rest.
+        if scr['ports'] and not any((src, i) in placed
+                                    for i in range(scr['ports'])):
+            issues.append({
+                'kind': 'mirror-source-unplaced',
+                'layerId': layer_id,
+                'sourceLayerId': src,
+                'message': (f'{scr["name"]} mirrors {names.get(src, src)}, '
+                            f'but {names.get(src, src)} is not on a '
+                            f'processor, so {scr["name"]} has nowhere to '
+                            f'plug in.'),
+                'offers': [_stop_mirroring_offer(layer_id)],
+            })
+            continue
+        missing = {}
+        for index in range(scr['ports']):
+            spot = placed.get((src, index))
+            if spot is None:
+                continue
+            card = by_id.get(spot['cardId'])
+            if card is None:
+                continue
+            copy = (card.get('mirrorSockets') or {}).get(int(spot['port']))
+            if copy is not None:
+                placed[(layer_id, index)] = {'cardId': card['cardId'],
+                                             'port': copy,
+                                             'source': 'mirror'}
+                mirror_claims.setdefault((card['cardId'], copy), []) \
+                    .append((layer_id, index))
+                continue
+            why = _mirror_missing(card, spot['port'])
+            missing.setdefault((card['cardId'], why), []).append(index + 1)
+        for (card_id, why), numbers in missing.items():
+            many = len(numbers) > 1
+            issues.append({
+                'kind': 'mirror-unfed',
+                'layerId': layer_id,
+                'sourceLayerId': src,
+                'cardId': card_id,
+                'ports': numbers,
+                'message': (
+                    f'{scr["name"]} mirrors {names.get(src, src)}, but '
+                    f'{why}. {scr["name"]} '
+                    f'{"ports" if many else "port"} '
+                    f'{catalog._number_spans(numbers)} '
+                    f'{"have" if many else "has"} nowhere to plug in.'),
+                'offers': [_stop_mirroring_offer(layer_id)],
+            })
+    return issues
+
+
+def _num(value):
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(n) if n == int(n) else n
+
+
+def _cabinet_marks(layer):
+    """The cabinets that walk differently - blank, hidden, half tiles - by
+    (row, col), so two screens can be compared cabinet for cabinet."""
+    out = set()
+    for p in (layer or {}).get('panels') or []:
+        if not isinstance(p, dict):
+            continue
+        mark = (bool(p.get('blank')), bool(p.get('hidden')),
+                p.get('halfTile') or 'none')
+        if mark != (False, False, 'none'):
+            out.add((p.get('row'), p.get('col')) + mark)
+    return out
+
+
+_MIRROR_HALVES = ('halfFirstColumn', 'halfLastColumn', 'halfFirstRow',
+                  'halfLastRow')
+
+
+def _crosses_screens(layer):
+    """Whether a run drawn on `layer` crosses onto another screen's
+    cabinets (a customPortPaths entry naming another layer)."""
+    paths = (layer or {}).get('customPortPaths')
+    for entries in (paths.values() if isinstance(paths, dict) else []):
+        for e in entries or []:
+            if isinstance(e, dict) and e.get('layerId') not in (None, '') \
+                    and str(e.get('layerId')) != str(layer.get('id')):
+                return True
+    return False
+
+
+def mirror_shape(layer):
+    """What mirror_mismatch compares, off a layer: columns x rows, the
+    pixels per cabinet, the half-tile edges, the cabinets that walk
+    differently (_cabinet_marks) and whether a custom run crosses onto
+    another screen. The client sends the same thing (`mirrorShape`, for a
+    screen that is a mirror or is mirrored - app-mirror-screens
+    _mirrorShape) with every resolve, so a resize is checked against the
+    screens as the person sees them, not a layer PUT still on its way."""
+    a = layer or {}
+    return {
+        'columns': _num(a.get('columns')),
+        'rows': _num(a.get('rows')),
+        'cabinet_width': _num(a.get('cabinet_width')),
+        'cabinet_height': _num(a.get('cabinet_height')),
+        'halves': tuple(bool(a.get(k)) for k in _MIRROR_HALVES),
+        'marks': _cabinet_marks(a),
+        'crossRuns': _crosses_screens(a),
+    }
+
+
+def clean_mirror_shape(value):
+    """A payload's `mirrorShape` as mirror_shape returns one, or None where
+    it is missing or not that shape (the stored layer is read instead)."""
+    if not isinstance(value, dict):
+        return None
+    halves = value.get('halves')
+    marks = value.get('marks')
+    if not isinstance(halves, list) or len(halves) != len(_MIRROR_HALVES) \
+            or not isinstance(marks, list):
+        return None
+    out = set()
+    for m in marks:
+        if not isinstance(m, list) or len(m) != 5:
+            return None
+        row, col, blank, hidden, half = m
+        out.add((row, col, bool(blank), bool(hidden), half or 'none'))
+    return {
+        'columns': _num(value.get('columns')),
+        'rows': _num(value.get('rows')),
+        'cabinet_width': _num(value.get('cabinetWidth')),
+        'cabinet_height': _num(value.get('cabinetHeight')),
+        'halves': tuple(bool(h) for h in halves),
+        'marks': out,
+        'crossRuns': bool(value.get('crossRuns')),
+    }
+
+
+def mirror_mismatch(source, mirror, shapes=None):
+    """Why `mirror` (a layer) cannot copy `source` cabinet for cabinet, or
+    None. Owner, 2026-11-01, the match rule: the same columns x rows, the
+    same pixels per cabinet (cabinet_width x cabinet_height px), and the
+    ports in exactly the same order - which means the cabinets that walk
+    differently (blank, hidden, half tiles) sit in the same places, or the
+    copied port map would land on cabinets that are not there. The panel's
+    physical size is NOT part of it: "they could be differing panel types
+    but be the same pixel density per panel."
+
+    `shapes` is (source shape, mirror shape) where the client sent them
+    (clean_mirror_shape); a None in it reads that layer's own."""
+    a_shape, b_shape = shapes or (None, None)
+    a = a_shape or mirror_shape(source)
+    b = b_shape or mirror_shape(mirror)
+    a_name = (source or {}).get('name') or f'Screen {(source or {}).get("id")}'
+    b_name = (mirror or {}).get('name') or f'Screen {(mirror or {}).get("id")}'
+    tail = 'A mirror screen must match the screen it copies.'
+    if (a['columns'], a['rows']) != (b['columns'], b['rows']):
+        return (f'{b_name} is {b["columns"]} x {b["rows"]} cabinets and '
+                f'{a_name} is {a["columns"]} x {a["rows"]}. {tail}')
+    if (a['cabinet_width'], a['cabinet_height']) \
+            != (b['cabinet_width'], b['cabinet_height']):
+        return (f'{b_name}\'s cabinets are {b["cabinet_width"]} x '
+                f'{b["cabinet_height"]} px and {a_name}\'s are '
+                f'{a["cabinet_width"]} x {a["cabinet_height"]} px. {tail}')
+    if a['halves'] != b['halves'] or a['marks'] != b['marks']:
+        return (f'{b_name} and {a_name} have different blank, hidden or '
+                f'half cabinets, so their ports would not run in the same '
+                f'order. {tail}')
+    # A run drawn across onto another screen's cabinets is not a map the
+    # mirror can copy cabinet for cabinet.
+    if a['crossRuns']:
+        return (f'{a_name}\'s custom runs cross onto another screen. A '
+                f'mirror screen copies a screen whose runs stay on it.')
+    return None
+
+
+# A COPY TAKES ITS SOURCE'S SETTINGS (owner, 2026-11-05, on Screen2 at 30 fps
+# silently turned to Screen1's 60 by the drop: "this shouldn't let me
+# mirror/copy. or better yet it should say not allowed and give me the option
+# to match them if the size and shape are the same"). The settings that make
+# the port map differ: "Not allowed:", checked LAST, so every flat refusal
+# above it stands, and the dock offers to match (app-mirror-screens.js
+# _mirrorSettingDifferences, the same reading in the same words). This holds
+# where a mirror is SET and nowhere else: an existing mirror's settings are
+# copied from its source (the client's _syncMirrorScreens), never checked.
+
+_MIRROR_FLOW_CORNERS = {'tl': 'Top-left', 'tr': 'Top-right',
+                        'bl': 'Bottom-left', 'br': 'Bottom-right'}
+
+
+def _mirror_flow_words(flow):
+    """A flow pattern as its button's tooltip says it."""
+    if flow == 'custom':
+        return 'Custom'
+    bits = str(flow).split('-')
+    if bits[0] not in _MIRROR_FLOW_CORNERS or len(bits) < 2:
+        return str(flow)
+    vertical = bits[1] == 'v'
+    words = (f'{_MIRROR_FLOW_CORNERS[bits[0]]}, '
+             f'{"vertical" if vertical else "horizontal"} first')
+    if len(bits) < 3:
+        return words
+    if vertical:
+        return (f'{words}, every column starts at the '
+                f'{"top" if bits[0][0] == "t" else "bottom"}')
+    return (f'{words}, every row starts at the '
+            f'{"left" if bits[0][1] == "l" else "right"}')
+
+
+def _mirror_runs(layer):
+    """The drawn runs the walk really reads, as {port: steps}. Whole-screen
+    custom walks every drawn path and ignores the overrides; an automatic
+    screen walks only the numbers in customPortOverrides (an empty one
+    still holds its number). Every other path is left over from a custom
+    spell and read by nothing. A step is (row, col, the peer it names),
+    its own screen read as no peer, so two screens' runs compare."""
+    from scr_project import _drawn_port_number, override_port_numbers
+    paths = layer.get('customPortPaths')
+    paths = paths if isinstance(paths, dict) else {}
+    own = str(layer.get('id'))
+
+    def steps(path):
+        out = []
+        for step in path if isinstance(path, list) else []:
+            if not isinstance(step, dict):
+                continue
+            peer = step.get('layerId')
+            peer = None if peer in (None, '') or str(peer) == own else str(peer)
+            out.append((_num(step.get('row')), _num(step.get('col')), peer))
+        return out
+
+    if layer.get('flowPattern') != 'custom':
+        return {n: steps(paths.get(str(n)))
+                for n in override_port_numbers(layer)}
+    runs = {}
+    for key, path in paths.items():
+        num, run = _drawn_port_number(key), steps(path)
+        if num is not None and run:
+            runs[num] = run
+    return runs
+
+
+def mirror_settings(layer):
+    """What the port walk reads off a screen, each blank read as the walk
+    reads it: no processor is NovaStar (Legacy), no bit depth 8, no frame
+    rate 60, no flow 'tl-h', no mapping Organized, no Low Latency off, and
+    no port number order the one along the pattern's lines. lastFlowPattern
+    and customPortIndex are not here: a memory and a cursor, not the map.
+    A file's retired processor reads as its successor."""
+    a = layer or {}
+    raw = a.get('processorType') or 'novastar-armor'
+    flow = a.get('flowPattern') or 'tl-h'
+    order = a.get('portNumberOrder')
+    if order not in ('across', 'down'):
+        order = 'across' if '-h' in str(flow) else 'down'
+    return {
+        'processor': _PLATFORM_ALIASES.get(raw, raw),
+        'bitDepth': _num(a.get('bitDepth')) or 8,
+        'frameRate': _num(a.get('frameRate')) or 60,
+        'lowLatency': bool(a.get('lowLatency')) or raw == 'brompton-ull',
+        'mapping': ('organized'
+                    if (a.get('portMappingMode') or 'organized') == 'organized'
+                    else 'max-capacity'),
+        'flow': flow,
+        'order': order,
+        'runs': _mirror_runs(a),
+    }
+
+
+def mirror_setting_differences(source, mirror):
+    """Every setting of `mirror` (a layer) that would have to change to copy
+    `source`, each as a sentence with both values, in Screen Info's order;
+    empty where they agree. The port number order counts only between two
+    Organized automatic screens, and only where the switch changes
+    something on one of them (port_number_order_matters): its row is
+    hidden everywhere else, and nothing moves."""
+    from scr_project import port_number_order_matters
+    a, b = mirror_settings(source), mirror_settings(mirror)
+    a_name = (source or {}).get('name') or f'Screen {(source or {}).get("id")}'
+    b_name = (mirror or {}).get('name') or f'Screen {(mirror or {}).get("id")}'
+    out = []
+    if a['processor'] != b['processor']:
+        out.append(f'{b_name} is on '
+                   f'{PLATFORM_LABELS.get(b["processor"], b["processor"])} '
+                   f'and {a_name} is on '
+                   f'{PLATFORM_LABELS.get(a["processor"], a["processor"])}')
+    if a['bitDepth'] != b['bitDepth']:
+        out.append(f'{b_name} is {b["bitDepth"]}-bit and {a_name} is '
+                   f'{a["bitDepth"]}-bit')
+    if a['frameRate'] != b['frameRate']:
+        out.append(f'{b_name} runs at {b["frameRate"]} fps and {a_name} at '
+                   f'{a["frameRate"]}')
+    if a['lowLatency'] != b['lowLatency']:
+        out.append(f'{b_name} has Low Latency {"on" if b["lowLatency"] else "off"}'
+                   f' and {a_name} has it {"on" if a["lowLatency"] else "off"}')
+    if a['mapping'] != b['mapping']:
+        words = {'organized': 'Organized', 'max-capacity': 'Max Capacity'}
+        out.append(f'{b_name}\'s Port Mapping is {words[b["mapping"]]} and '
+                   f'{a_name}\'s is {words[a["mapping"]]}')
+    if a['flow'] != b['flow']:
+        out.append(f'{b_name}\'s data flow is {_mirror_flow_words(b["flow"])} '
+                   f'and {a_name}\'s is {_mirror_flow_words(a["flow"])}')
+    if 'custom' not in (a['flow'], b['flow']) \
+            and a['mapping'] == b['mapping'] == 'organized' \
+            and a['order'] != b['order'] \
+            and (port_number_order_matters(source)
+                 or port_number_order_matters(mirror)):
+        out.append(f'{b_name}\'s port numbers run {b["order"].capitalize()} '
+                   f'and {a_name}\'s run {a["order"].capitalize()}')
+    if a['runs'] != b['runs']:
+        def count(n):
+            if not n:
+                return 'no custom runs'
+            return f'{n} custom run{"" if n == 1 else "s"}'
+        a_n, b_n = len(a['runs']), len(b['runs'])
+        out.append(f'{b_name} and {a_name} have different custom runs'
+                   if a_n == b_n else
+                   f'{b_name} has {count(b_n)} and {a_name} has {count(a_n)}')
+    return out
+
+
+def mirror_set_refusal(project, layer, source_id):
+    """Why `layer` may not be set to mirror the layer `source_id`, or None.
+    Refused, never warned: not a screen, itself, a mirror of a mirror, a
+    screen already copied by another, a size, pixel or port-order mismatch
+    (mirror_mismatch), a screen whose data routes as one with its group
+    (its port map is the group's, not its own), or, last, settings that
+    differ from the source's (mirror_setting_differences). The dock offers
+    to match those and comes back here with them equal."""
+    layers = [l for l in (project or {}).get('layers') or []
+              if isinstance(l, dict)]
+    name = layer.get('name') or f'Screen {layer.get("id")}'
+    source = next((l for l in layers if str(l.get('id')) == str(source_id)),
+                  None)
+    if source is None or (source.get('type') or 'screen') != 'screen':
+        return 'That screen is not in this project.'
+    if str(source.get('id')) == str(layer.get('id')):
+        return f'{name} cannot mirror itself.'
+    src_name = source.get('name') or f'Screen {source.get("id")}'
+    if source.get('dataMirrorOf') not in (None, ''):
+        return (f'{src_name} mirrors another screen itself. Set {name} to '
+                f'mirror the screen {src_name} copies.')
+    copied_by = [l for l in layers if str(l.get('dataMirrorOf'))
+                 == str(layer.get('id')) and l is not layer]
+    if copied_by:
+        return (f'{copied_by[0].get("name") or "Another screen"} mirrors '
+                f'{name}, so {name} cannot mirror another screen.')
+    why = mirror_mismatch(source, layer)
+    if why:
+        return why
+    # One copy OPT, one box, one screen plugged into it: a source has one
+    # mirror.
+    rival = next((l for l in layers if l is not layer
+                  and str(l.get('dataMirrorOf')) == str(source.get('id'))),
+                 None)
+    if rival is not None:
+        return (f'{rival.get("name") or "Another screen"} already mirrors '
+                f'{src_name}. A screen has one mirror, on its copy '
+                f'outputs.')
+    from scr_project import crossing_groups
+    for group, members in crossing_groups(project):
+        ids = {str(m.get('id')) for m in members}
+        for one in (layer, source):
+            if str(one.get('id')) in ids:
+                return (f'{one.get("name") or "That screen"} routes its data '
+                        f'as one screen with the group '
+                        f'{group.get("name") or group.get("id")}. Turn off '
+                        f'Route group as one screen first.')
+    differs = mirror_setting_differences(source, layer)
+    if differs:
+        return f'Not allowed: {differs[0]}'
+    return None
+
+
+def mirror_refusal(screens, layer_id, processors=None, state=None):
+    """Why a placement of `layer_id`'s ports is refused because the screen
+    is a mirror, or None. A mirror's ports follow its source's and are
+    never placed on their own - "can't be drawn separately" - so every such
+    edit says where the change is made, and how the copy is undone: unplug
+    the card (or processor) from the copy screen (owner, 2026-11-01). A
+    RELEASE of a mirror's ports is not refused: it is that unplug
+    (routes_port_assignment.unpin_port). With `processors` and `state` the
+    word is the unit's own that feeds the source; without, 'card'."""
+    cleaned = _clean_screens(screens)
+    mirrors = mirror_sources(cleaned)
+    src = mirrors.get(str(layer_id))
+    if not src:
+        return None
+    names = {s['layerId']: s['name'] for s in cleaned}
+    name, source = names.get(str(layer_id)), names.get(src, src)
+    if isinstance(state, dict) \
+            and src not in mirror_sources_landed(processors, state.get('pins')):
+        # Nothing is plugged into it, so there is nothing to unplug: the
+        # way out is the tray's line (_mirror_pass), the words the client's
+        # _mirrorErrorText says.
+        return (f'{name} mirrors {source}. Its ports follow {source}\'s and '
+                f'cannot be placed on their own. Nothing is plugged into '
+                f'{name} to unplug: press Stop mirroring on its line in the '
+                f'tray.')
+    word = mirror_unit_word(processors, state, src)
+    return (f'{name} mirrors {source}. Its ports follow {source}\'s and '
+            f'cannot be placed on their own. Place {source}\'s ports, or '
+            f'unplug the {word} from {name} to stop mirroring.')
+
+
+def mirror_unit_word(processors, state, source_id):
+    """'card' or 'processor': what feeds `source_id` (the unit its first
+    pin sits on), for a message telling someone what to unplug. 'card'
+    where nothing is known - the word every such message read before."""
+    if not processors or not isinstance(state, dict):
+        return 'card'
+    pins = [p for p in _clean_pins(state.get('pins'))
+            if p['layerId'] == str(source_id)]
+    if not pins:
+        return 'card'
+    card = next((c for c in cards_in(processors)
+                 if c['cardId'] == pins[0]['cardId']), None)
+    return 'card' if _unit_word(card) == 'card' else 'processor'
+
+
+def copy_card_ids(processors):
+    """The cards whose current mode has copies a mirror screen can ride
+    (copy_trunks 'mirror' - the H_4xfiber and its enhanced card in Copy -
+    or 'per-box' - the MX40 Pro in 20-port mode). Read off the catalog's
+    modes and nothing else, so no other product gains a mirror."""
+    return {c['cardId'] for c in cards_in(processors or [])
+            if c.get('copyTrunks') in ('mirror', 'per-box')}
+
+
+def mirror_sources_landed(processors, pins):
+    """The sources (layer ids, as strings) with a pin on a socket that has
+    a copy right now: a mirror of one has somewhere to plug in. A source
+    whose copies went (the box gone, the box on Backup, the card out of
+    Copy) is not here, and neither is one with no pin at all."""
+    copies = {c['cardId']: c.get('mirrorSockets') or {}
+              for c in cards_in(processors or [])}
+    return {p['layerId'] for p in _clean_pins(pins)
+            if int(p['port']) in copies.get(p['cardId'], {})}
+
+
+def _mirror_layers(project):
+    return [l for l in (project or {}).get('layers') or []
+            if isinstance(l, dict)
+            and l.get('dataMirrorOf') not in (None, '')]
+
+
+def mirrors_unplugged(project, processors, before_pins, after_pins,
+                      copy_cards=None):
+    """The mirror screens (layers) an edit to the pins unplugs along with
+    their source. Owner, 2026-11-01: "If the card is unplugged from the
+    FIRST (source) screen, the copy screen unplugs too." A mirror goes when
+    its source HAD a port on a card in a copy mode before the edit and has
+    none on such a card after it - the source came off the card that fed
+    the copy - or had a port on any card and has none on any: unplugged is
+    unplugged, whatever mode the card was left in. Only those transitions:
+    an edit that never touched the source, and a show opened with a mirror
+    whose source is not plugged in yet, clear nothing. A LOCKED mirror
+    stays as it is (the locked-screen rule); with its source unplugged it
+    simply has nothing to follow. `copy_cards`, the cards in a copy mode
+    before the edit, is for an edit that takes the card itself away, where
+    `processors` no longer has it to read (routes_processors)."""
+    layers = _mirror_layers(project)
+    if not layers:
+        return []
+    if copy_cards is None:
+        copy_cards = copy_card_ids(processors)
+
+    def on(pins, src, cards=None):
+        return any(p['layerId'] == str(src)
+                   and (cards is None or p['cardId'] in cards)
+                   for p in _clean_pins(pins))
+
+    return [l for l in layers if not l.get('locked')
+            and ((on(before_pins, l['dataMirrorOf'], copy_cards)
+                  and not on(after_pins, l['dataMirrorOf'], copy_cards))
+                 or (on(before_pins, l['dataMirrorOf'])
+                     and not on(after_pins, l['dataMirrorOf'])))]
+
+
+def mirrors_off_their_sockets(project, processors, pins, landed_before):
+    """The mirror screens (layers) a removal left with nowhere to plug in.
+    Owner, 2026-11-01: "Unplugging only the copy screen just removes the
+    copy." The copy rides its box (owner, 2026-11-04: "breakout is the only
+    way mirror works aka copy"), so a box taken away from under it unplugs
+    it, the way a removed box unplugs any screen on its sockets. Only the
+    LAST socket does (`landed_before`, mirror_sources_landed before the
+    edit): a copy with sockets left keeps them, as a source with ports left
+    keeps its copy, and says what the rest are missing. A locked mirror
+    stays (the locked-screen rule)."""
+    landed = mirror_sources_landed(processors, pins)
+    return [l for l in _mirror_layers(project) if not l.get('locked')
+            and str(l['dataMirrorOf']) in landed_before
+            and str(l['dataMirrorOf']) not in landed]
+
+
+# ── Cards that cannot load one screen together ────────────────────────────
+#
+# NovaStar, H15 Video Wall Splicer Specifications V1.15.0 p.2: "The fiber
+# sending card cannot be used together with the H_20xRJ45 sending card or
+# H_16xRJ45+2xfiber sending card to load the same screen", and of the
+# enhanced H_4xfiber (p.37-38): it "cannot be used together with the
+# H_4xfiber sending card, H_20xRJ45 sending card or H_16xRJ45+2xfiber
+# sending card to load the same screen" and "Only the cards set in the same
+# modes can be used together to load a screen." Read off the catalog's
+# screenExcludes / screenSameMode on those cards and nothing else. A mapping
+# that would put one screen across such cards is REFUSED, never warned.
+
+def _mix_reason(name, cards):
+    """Why the cards (cards_in entries) one screen `name` lands on cannot
+    load it together, or None."""
+    seen = []
+    for card in cards:
+        if all(c['cardId'] != card['cardId'] for c in seen):
+            seen.append(card)
+    for card in seen:
+        device = catalog.get_device(card['deviceId']) or {}
+        excludes = set(device.get('screenExcludes') or [])
+        other = next((c for c in seen if c['deviceId'] in excludes), None)
+        if other:
+            return (f'{name} cannot be loaded by both {card["deviceName"]} '
+                    f'({_card_title(card)}) and {other["deviceName"]} '
+                    f'({_card_title(other)}) - NovaStar does not allow '
+                    f'those cards to load the same screen.')
+    for card in seen:
+        device = catalog.get_device(card['deviceId']) or {}
+        if not device.get('screenSameMode'):
+            continue
+        other = next((c for c in seen if c['deviceId'] == card['deviceId']
+                      and catalog.canonical_mode(device, c.get('mode'))
+                      != catalog.canonical_mode(device, card.get('mode'))),
+                     None)
+        if other:
+            return (f'{name} cannot be loaded by {card["deviceName"]} cards '
+                    f'in different modes - {_card_title(card)} is in '
+                    f'{_mode_words(card)} and {_card_title(other)} is in '
+                    f'{_mode_words(other)}. Only cards set in the same mode '
+                    f'can load one screen.')
+    return None
+
+
+def _cards_by_layer(cards, pins):
+    by_id = {c['cardId']: c for c in cards}
+    out = {}
+    for pin in _clean_pins(pins):
+        card = by_id.get(pin['cardId'])
+        if card is not None:
+            out.setdefault(pin['layerId'], []).append(card)
+    return out
+
+
+def mix_refusal(processors_before, state_before, processors_after,
+                state_after, screens=None):
+    """Why going from `before` to `after` would put one screen across
+    cards that cannot load it together (_mix_reason), or None. Only a
+    screen whose mix is NEW is refused, so an edit beside a show already
+    mixed (an older file) still goes through. Read off the pins alone, so a
+    processor edit (a card's mode) is held to it the same way a placement
+    is."""
+    names = {s['layerId']: s['name'] for s in _clean_screens(screens)}
+    before = _cards_by_layer(cards_in(processors_before),
+                             (state_before or {}).get('pins'))
+    after = _cards_by_layer(cards_in(processors_after),
+                            (state_after or {}).get('pins'))
+    for layer_id, cards in after.items():
+        name = names.get(layer_id) or f'Screen {layer_id}'
+        why = _mix_reason(name, cards)
+        if not why:
+            continue
+        if _mix_reason(name, before.get(layer_id) or []) == why:
+            continue
+        return why
+    return None
+
+
+def _mix_issues(resolved_screens, by_id):
+    """A screen already across cards that cannot load it together - a file
+    saved before the rule. Flagged red, nothing unpinned."""
+    out = []
+    for scr in resolved_screens:
+        cards = [by_id[p['cardId']] for p in scr['ports']
+                 if p['cardId'] in by_id and p['source'] != 'mirror']
+        why = _mix_reason(scr['name'], cards)
+        if why:
+            out.append({'kind': 'card-mix', 'layerId': scr['layerId'],
+                        'message': f'{why} Nothing has been unpinned - '
+                                   f'move the run onto one kind of card.',
+                        'offers': [{'action': 'move-block',
+                                    'layerId': scr['layerId'],
+                                    'label': f'Move {scr["name"]}'}]})
+    return out
+
+
+def _taken_sockets(card, claims, mirror_claims=None):
     """The sockets on one card that are TAKEN - holding a primary, or
     carrying the return of a primary that is placed - by card-wide number.
 
@@ -965,20 +1783,28 @@ def _taken_sockets(card, claims):
     """
     card_id = card['cardId']
     taken = {port for (cid, port) in claims if cid == card_id}
+    # A mirror socket carrying its mirror screen's run is as lit as any.
+    taken |= {port for (cid, port) in (mirror_claims or {})
+              if cid == card_id}
     for number, role in (card.get('backupRoles') or {}).items():
-        if (role.get('cardId'), role.get('port')) in claims:
+        key = (role.get('cardId'), role.get('port'))
+        if key in claims or key in (mirror_claims or {}):
             taken.add(number)
     return taken
 
 
-def _card_summary(card, claims):
+def _card_summary(card, claims, mirror_claims=None):
     used = sum(1 for key in claims if key[0] == card['cardId'])
     # The sockets there ARE, which is the ceiling on a settled card and
     # the boxes' spans on a box-fed one - an SX40 with box B removed has
     # thirty, and neither its free count nor its n/N glance may say forty
     # (the 2026-09-24 ruling). None where nobody settled the count.
     sockets = card.get('sockets')
-    capacity = len(sockets) if sockets is not None else None
+    # The mirror sockets are sockets on the rack too (a box on OPT 3 in
+    # Copy mode has ten), so the n/N counts them - and they come off the
+    # free count, spoken for by their role the way a return is.
+    mirroring = len(card.get('mirrorRoles') or {})
+    capacity = len(sockets) + mirroring if sockets is not None else None
     # Ports consumed as returns are not free, and not "used" either - they
     # are spoken for by a role, so they come off the free count the same way
     # they come out of _free_ports.
@@ -987,7 +1813,7 @@ def _card_summary(card, claims):
     # primary or return (_taken_sockets). `used` stays the primaries alone -
     # the fill arithmetic and the free count read it - and `taken` is what
     # a person counting lit sockets on the rack would say.
-    taken = _taken_sockets(card, claims)
+    taken = _taken_sockets(card, claims, mirror_claims)
     boxes = {
         box_id: {'taken': sum(1 for n in numbers if n in taken),
                  'sockets': len(numbers)}
@@ -1007,7 +1833,7 @@ def _card_summary(card, claims):
         # span: {boxId: {taken, sockets}} - the box header's n/N.
         'boxes': boxes,
         'free': None if capacity is None
-        else max(0, capacity - used - backing),
+        else max(0, capacity - used - backing - mirroring),
         # The names the ports carry, so a panel offering somebody a choice of
         # sockets can call each one what the box calls it. Without them a port
         # picker reads "1, 2, 3..." while the card in the rack reads
@@ -1060,7 +1886,7 @@ def _overlap_issues(overlapping, claims, by_id, screens):
                 f'{_and_list(names)} {"both" if len(names) == 2 else "all"} '
                 f'claim port {port} on '
                 f'{_card_title(card) if card else card_id}. Nothing has been '
-                f'renumbered - move one of them if the clash is wrong.'),
+                f'renumbered. Move one of them if the clash is wrong.'),
             'offers': [{'action': 'move-block', 'layerId': lid,
                         'label': f'Move {_screen_name(screens, lid)}'}
                        for lid in layer_ids],
@@ -1334,11 +2160,13 @@ def canvas_spans(processors, screens, state):
         if proc_id is None or rects is None:
             continue
         rect = rects[pin['index']] if 0 <= pin['index'] < len(rects) else None
-        rec = boxes.setdefault(proc_id, {'box': None, 'ull': False})
+        rec = boxes.setdefault(proc_id, {'box': None, 'ull': False,
+                                         'layers': set()})
         if scr['lowLatency']:
             rec['ull'] = True
         if rect is None:
             continue
+        rec['layers'].add(scr['layerId'])
         box = rec['box']
         rec['box'] = rect if box is None else (
             min(box[0], rect[0]), min(box[1], rect[1]),
@@ -1353,11 +2181,15 @@ def canvas_spans(processors, screens, state):
         title = _proc_title(proc, device)
         width = catalog.canvas_extent(x1 - x0)
         height = catalog.canvas_extent(y1 - y0)
+        # The screens that make up the span, in screen order, each with
+        # its canvas (the message names them - catalog.canvas_span_screens).
+        named = [[s['name'], s['canvas']] for s in screens_by_id.values()
+                 if s['layerId'] in rec['layers']]
         message = catalog.canvas_fit(device, width, height, rec['ull'],
-                                     title=title, present=True)
+                                     title=title, present=True, screens=named)
         out[proc_id] = {'title': title, 'width': width, 'height': height,
                         'ull': rec['ull'], 'fits': message is None,
-                        'message': message}
+                        'message': message, 'screens': named}
     return out
 
 
@@ -1382,7 +2214,8 @@ def canvas_refusal(processors, screens_before, state_before,
             continue
         device = catalog.get_device(raw[proc_id].get('deviceId'))
         return catalog.canvas_fit(device, rec['width'], rec['height'],
-                                  rec['ull'], title=rec['title'])
+                                  rec['ull'], title=rec['title'],
+                                  screens=rec['screens'])
     return None
 
 
@@ -1414,6 +2247,72 @@ def clear_pin(state, layer_id, index=None):
             return True
         return index is not None and pin['index'] != int(index)
     state['pins'] = [p for p in _clean_pins(state.get('pins')) if keep(p)]
+    return state
+
+
+def merge_pins(state, layer_id, removed):
+    """Several screen ports redrawn as one (the owner, 2026-11-02: "redraw
+    all of those as one port"): the merged port keeps the FIRST port's
+    number, so its pin stays where it was; every port in `removed` (0-based
+    indices) goes away, and its pin is released; and every later port of
+    that screen closes up by the removed ports below it, its pin riding
+    along to the new number on the socket it already had. Other screens'
+    pins are untouched. A release next door still never slides anything
+    into the socket it left - only this screen's own numbers move, because
+    the ports themselves did."""
+    gone = sorted({int(i) for i in removed or []})
+
+    def shift(index):
+        return index - sum(1 for r in gone if r < index)
+
+    pins = []
+    for pin in _clean_pins(state.get('pins')):
+        if pin['layerId'] != str(layer_id):
+            pins.append(pin)
+            continue
+        if pin['index'] in gone:
+            continue
+        pins.append(dict(pin, index=shift(pin['index'])))
+    pins.sort(key=lambda p: (p['layerId'], p['index']))
+    state['pins'] = pins
+    return state
+
+
+def remap_pins(state, layer_id, moves):
+    """A screen's ports renumbered under their cabinets: `moves` maps a
+    port's old 0-based index to its new one, or to None where its cabinets
+    are gone (that pin is released). The client works the moves out from
+    which cabinets ride which port before and after (app-merge-runs.js
+    _portMovesByCabinet), so every pinned socket keeps driving the same
+    cabinets. A pin with no move stays where it is. Should two pins meet
+    on one index, the one that was already there keeps it and the other
+    is released. Other screens' pins are untouched."""
+    moves = {int(k): (None if v is None else int(v))
+             for k, v in (moves or {}).items()}
+    layer_id = str(layer_id)
+    others, mine = [], []
+    for pin in _clean_pins(state.get('pins')):
+        if pin['layerId'] != layer_id:
+            others.append(pin)
+            continue
+        if pin['index'] not in moves:
+            mine.append((0, pin['index'], pin))
+            continue
+        to = moves[pin['index']]
+        if to is None or to < 0:
+            continue
+        mine.append((0 if to == pin['index'] else 1, pin['index'],
+                     dict(pin, index=to)))
+    seen = set()
+    kept = []
+    for _rank, _old, pin in sorted(mine, key=lambda t: (t[0], t[1])):
+        if pin['index'] in seen:
+            continue
+        seen.add(pin['index'])
+        kept.append(pin)
+    pins = others + kept
+    pins.sort(key=lambda p: (p['layerId'], p['index']))
+    state['pins'] = pins
     return state
 
 
@@ -1682,6 +2581,15 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
     # what "ports can still be pinned to it by hand" means. A card with a
     # settled one is a fact about metal and there is no port past it to place
     # onto - offering one would put a wall on a socket that does not exist.
+    # A MIRROR SOCKET carries the copy of a primary socket, so it takes
+    # only the mirror screen of whatever is on that primary - refused
+    # outright, the way a return end is, and the refusal says how the
+    # socket is fed.
+    mirror_role = (card.get('mirrorRoles') or {}).get(port)
+    if mirror_role:
+        return None, mirror_box_refusal(
+            card, [port], resolve(processors, screens, state)['screens'],
+            socket=_port_title(card, port)), None
     if not _has_socket(card, port):
         if card.get('boxFed'):
             # A box-fed device has no port outside a box (the 2026-09-24
@@ -1833,6 +2741,13 @@ def move_block(processors, screens, state, layer_id, card_id=None,
     # the loop below simply never starts a block.
     lo = int(first_port) if first_port is not None else None
     hi = int(last_port) if last_port is not None else None
+    # A window that is a MIRROR box's span (every socket in it copies a
+    # primary) takes no run of its own: said, not searched.
+    if card_id and lo is not None and hi is not None:
+        refusal = mirror_box_refusal(by_id[card_id], range(lo, hi + 1),
+                                     resolution['screens'])
+        if refusal:
+            return None, refusal
 
     for position, cid in enumerate(search):
         card = by_id[cid]
@@ -1857,6 +2772,43 @@ def move_block(processors, screens, state, layer_id, card_id=None,
                   f'or place the ports by hand.')
 
 
+def mirror_box_refusal(card, numbers, screens, socket=None):
+    """Why a run is refused onto these sockets of `card` because every one
+    of them is a MIRROR socket (a box on a copy OPT set to Mirror, or the
+    copy OPTs of a card in Copy mode - mirrorRoles), or None. A mirror box
+    takes no run of its own: it carries the copy of the screen on the
+    sockets it copies, and a screen becomes that copy by dragging the box
+    onto it (owner, 2026-11-04: "breakout is the only way mirror works aka
+    copy" - the tray's drop, app-mirror-screens.js _mirrorBoxDropPlan). So
+    the refusal names the box, what it copies, and the gesture: drag it onto
+    the screen that should copy the screen there, or put a screen on the
+    copied box first. `socket` names one socket in place of the box."""
+    roles = card.get('mirrorRoles') or {}
+    numbers = [int(n) for n in numbers]
+    if not numbers or not all(n in roles for n in numbers):
+        return None
+    box = roles[numbers[0]].get('boxTitle') or 'That box'
+    primaries = sorted({int(roles[n]['port']) for n in numbers})
+    titles = card.get('boxTitles') or {}
+    boxes = []
+    for n in primaries:
+        title = titles.get(n)
+        if title and title not in boxes:
+            boxes.append(title)
+    copied = (' and '.join(boxes) if boxes else
+              f'{_card_title(card)} ports {primaries[0]}-{primaries[-1]}')
+    wanted = set(primaries)
+    on = [s for s in screens or [] if not s.get('mirrorOf') and any(
+        p.get('cardId') == card['cardId'] and p.get('port') in wanted
+        and p.get('source') != 'mirror' for p in s.get('ports') or [])]
+    lead = f'{socket or box} copies {copied} for a mirror screen.'
+    if not on:
+        return (f'{lead} Put a screen on {copied} first, then drag {box} '
+                f'onto the screen that should copy it.')
+    return (f'{lead} Drag {box} onto the screen that should copy '
+            f'{on[0]["name"]}.')
+
+
 def _pin_block(state, layer_id, card_id, start, size):
     clear_pin(state, layer_id)
     for index in range(size):
@@ -1865,7 +2817,8 @@ def _pin_block(state, layer_id, card_id, start, size):
 
 
 def place_overflow(processors, screens, state, layer_id, card_id,
-                   first_port=None, last_port=None, last_index=None):
+                   first_port=None, last_port=None, last_index=None,
+                   box_id=None):
     """Put a screen's unattached ports onto a card, in order.
 
     This is the fill a card or box drop runs - a screen with nothing on a
@@ -1877,8 +2830,10 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     either; it is only the app that must not do it unasked.
 
     `first_port`/`last_port` bound the fill to one window of the card: a
-    breakout box is a contiguous span of card ports, so "fill onto that box"
-    is this fill with the box's span as the window.
+    breakout box is a span of card ports, so "fill onto that box" is this
+    fill with the box's span as the window. `box_id` keeps the fill to that
+    box's own sockets inside it: a CVT4K-S on two 10-port OPTs carries 1-8
+    and 11-18, and the unit's own 9 and 10 between are not the box's.
 
     `last_index` bounds the fill to the screen's ports up to that one
     (0-based, the port under the cursor): the dock's whole-unit drop lands
@@ -1904,9 +2859,15 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     if not platform_allows(card, current.get('platform')):
         return None, _platform_refusal(current['name'],
                                        current['platform'], card)
+    if first_port is not None and last_port is not None:
+        refusal = mirror_box_refusal(
+            card, range(int(first_port), int(last_port) + 1),
+            resolution['screens'])
+        if refusal:
+            return None, refusal
     if not current['unplaced']:
         return None, (f'Every port of {current["name"]} is already on a '
-                      f'processor - clear it first.')
+                      f'processor. Clear it first.')
     spare = [i for i in current['unplaced']
              if last_index is None or i <= int(last_index)]
     if not spare:
@@ -1934,8 +2895,10 @@ def place_overflow(processors, screens, state, layer_id, card_id,
     top = max(sockets) if sockets else 0
     lo = max(1, int(first_port)) if first_port is not None else 1
     hi = min(top, int(last_port)) if last_port is not None else top
+    held = card.get('boxSockets') or {}
+    mine = set(held[box_id]) if box_id in held else None
     free = [n for n in sockets
-            if lo <= n <= hi
+            if lo <= n <= hi and (mine is None or n in mine)
             and (card['cardId'], n) not in taken and n not in roles]
     if not free:
         if first_port is not None or last_port is not None:

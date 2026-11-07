@@ -4,7 +4,8 @@
 // memory of which face a box shows. Moved verbatim out of app-dock.js and
 // attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { fiberStrandName, FIBER_STRAND_SUGGESTIONS, TAC_CONNECTORS, COPPER_LINK_KINDS } from './app-fiber.js';
+import { fiberStrandName, FIBER_STRAND_SUGGESTIONS, TAC_CONNECTORS, COPPER_LINK_KINDS,
+         FIBER_EXTENSION_KINDS, FIBER_EXTENSION_CONNECTORS } from './app-fiber.js';
 
 class _DockCableSheets {
     // ── the box's cable sheet ─────────────────────────────────────────────
@@ -42,6 +43,42 @@ class _DockCableSheets {
         } catch (_) { /* no storage: the flip lasts the render */ }
     }
 
+    // A NEW DISTRO STARTS WITH EVERY SHEET DOWN AND EVERY SECTION OPEN,
+    // the power side of _forgetHardwareViews. A multi's cable sheet and the
+    // distro's folds are remembered under the distro's id, and distro ids
+    // come back: a new one takes the next number after the highest
+    // (addDistro), so removing DISTRO 2 and adding one hands "d2" out
+    // again, and so do undo and every new show. So the memory goes with
+    // the distro: every power render forgets the keys of distros not in
+    // the project, an add forgets its new id's (`ids`), and another show
+    // opening or File > New forgets them all (`all`). A reload keeps them.
+    _forgetDistroViews({ all = false, ids = null } = {}) {
+        const live = new Set();
+        if (!all) {
+            const fresh = new Set((ids || []).map(String));
+            ((this.project && this.project.distros) || []).forEach(d => {
+                if (d && !fresh.has(String(d.id))) live.add(String(d.id));
+            });
+        }
+        const patterns = [
+            /^lrd_cable_sheet_(.+)_\d+$/,
+            /^ledRasterPanelCollapsed_hwdock-distro-(.+)$/,
+            /^ledRasterPanelCollapsed_hwdock-multi-(.+)-\d+$/,
+            /^ledRasterPanelCollapsed_hwdock-drow-([^-]+)-.+$/,
+        ];
+        try {
+            const gone = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i) || '';
+                for (const re of patterns) {
+                    const m = re.exec(k);
+                    if (m && !live.has(m[1])) { gone.push(k); break; }
+                }
+            }
+            gone.forEach(k => localStorage.removeItem(k));
+        } catch (_) { /* no storage: nothing was remembered */ }
+    }
+
     _dockBuildCableSheetButton(d, n) {
         const open = this._cableSheetOpen(d.id, n);
         const btn = document.createElement('button');
@@ -49,8 +86,8 @@ class _DockCableSheets {
         btn.className = 'hw-dock-cablebtn' + (open ? ' hw-dock-cablebtn-on' : '');
         btn.textContent = '≡';
         btn.title = open
-            ? 'Cable sheet - click to show the chips again.'
-            : 'Cable sheet - a length and connector per circuit, for the '
+            ? 'Cable sheet. Click to show the chips again.'
+            : 'Cable sheet: a length and connector per circuit, for the '
                 + 'paperwork. Click to flip the chips into the sheet.';
         btn.dataset.lrdField = `power-cable-sheet-${d.id}-${n}`;
         btn.addEventListener('click', (e) => {
@@ -93,9 +130,10 @@ class _DockCableSheets {
             const changed = this.setCircuitCable(
                 layer, circuit, { ft, connector: connector || null });
             if (!changed) {
-                // A locked screen refused it (the setter named it): redraw
-                // so the row shows the cable it kept.
-                if (layer && layer.locked) this._rebuildAfterGesture(() => this.renderHardwareDock());
+                // A locked screen or a length that is no length refused it
+                // (the setter said why), or "30m" converted to the figure
+                // already stored: redraw so the row shows the cable kept.
+                this._rebuildAfterGesture(() => this.renderHardwareDock());
                 return;
             }
             this.saveClientSideProperties();
@@ -139,16 +177,20 @@ class _DockCableSheets {
                 // the sheet exists so six cables is one open - and the
                 // connector stays a click away for the odd one.
                 const td3 = document.createElement('td');
+                // Text, so a length in the other unit can be typed and
+                // converted ("30m" in a feet show, readTypedLength).
                 const ft = document.createElement('input');
-                ft.type = 'number';
-                ft.min = '0';
-                ft.step = 'any';
-                ft.placeholder = '—';
+                ft.type = 'text';
+                ft.inputMode = 'decimal';
+                ft.placeholder = '';
                 ft.className = 'hw-dock-cable-ft';
                 ft.value = stored && Number(stored.ft) > 0
                     ? String(stored.ft) : '';
                 ft.dataset.lrdField = `power-cable-ft-${layer.id}-${h.circuit}`;
-                ft.title = `Length in ${this.cableUnitWord()}. Blank = no cable.`;
+                // The field keeps what was typed; the tooltip says how the
+                // show's cable stock writes it out (cableStockHint).
+                ft.title = `Length in ${this.cableUnitWord()}. Blank = no cable.`
+                    + this.cableStockHint(stored && stored.ft, 'circuit');
                 td3.appendChild(ft);
                 td3.appendChild(document.createTextNode(` ${this.cableUnitAbbr()}`));
                 tr.appendChild(td3);
@@ -158,11 +200,20 @@ class _DockCableSheets {
                 sel.className = 'hw-dock-cable-connector';
                 sel.dataset.lrdField =
                     `power-cable-connector-${layer.id}-${h.circuit}`;
-                const follows = this.cableConnectorName(
+                // what a blank pick prints: the box's tail connector, or on a
+                // direct output the cable outlet to panel ("Edison → TRUE1")
+                let follows = this.cableConnectorName(
                     this.boxTailConnector(d, n, layer)) || '';
+                const direct = typeof this.faceBox === 'function' ? this.faceBox(d, n) : null;
+                if (direct && direct.kind === 'direct') follows = this.directCableType(follows, layer);
                 const blank = document.createElement('option');
                 blank.value = '';
-                blank.textContent = `follows ${typeName} (${follows})`;
+                // The plug first: the select is narrow, and "follows Multi
+                // 208 (TRUE1)" cut the TRUE1 off, then "TRUE1 (follows
+                // Socapex 208V)" cut the box off (QA 1.6.0-beta.4). The
+                // plug and "default"; the title says what it follows.
+                blank.textContent = follows
+                    ? `${follows} (default)` : `follows ${typeName}`;
                 sel.appendChild(blank);
                 connectors.forEach(c => {
                     const o = document.createElement('option');
@@ -174,7 +225,7 @@ class _DockCableSheets {
                     && connectors.some(c => c.id === stored.connector)
                     ? stored.connector : '';
                 sel.title = `The plug on this cable. Follows the ${typeName} `
-                    + 'unless changed - only the odd one needs picking.';
+                    + 'unless changed, so only the odd one needs picking.';
                 td4.appendChild(sel);
                 tr.appendChild(td4);
 
@@ -201,8 +252,11 @@ class _DockCableSheets {
         // by length and connector. A flat readout, not a control.
         const counts = new Map();
         held.forEach(({ layer, circuit }) => {
-            const c = this.powerCircuitCable(layer, circuit);
-            if (!c) return;
+            const own = this.powerCircuitCable(layer, circuit);
+            if (!own) return;
+            // a circuit alone on a direct output: its cable is the output's
+            // one cable, from the direct-output stock (directCircuitCable)
+            const c = this.directCircuitCable(layer, circuit) || own;
             counts.set(c.text, (counts.get(c.text) || 0) + 1);
         });
         const tot = document.createElement('tr');
@@ -297,9 +351,8 @@ class _DockCableSheets {
     _cableQuickAny(row, key, label, title, run) {
         const memo = this._cableQuickAnyFt || (this._cableQuickAnyFt = {});
         const box = document.createElement('input');
-        box.type = 'number';
-        box.min = '0';
-        box.step = 'any';
+        box.type = 'text';
+        box.inputMode = 'decimal';
         box.placeholder = this.cableUnitAbbr();
         box.className = 'hw-dock-cable-ft';
         box.value = memo[key] ? String(memo[key]) : '';
@@ -307,10 +360,13 @@ class _DockCableSheets {
         box.title = `A length of your own, in ${this.cableUnitWord()}. Enter, or the button `
             + 'beside it, fills with it.';
         const go = () => {
-            const ft = Number(box.value.trim());
-            if (!(Number.isFinite(ft) && ft > 0)) {
+            // read the way every typed length is: "30m" in a feet show
+            // fills with 98.4, said; text that is no length is refused
+            const read = this.readTypedLength(box.value.trim(), 'cable');
+            const ft = read.n;
+            if (!read.ok || ft === null) {
                 box.value = memo[key] ? String(memo[key]) : '';
-                this._dockSay(`Type a length in ${this.cableUnitWord()} first.`);
+                if (read.ok) this._dockSay(`Type a length in ${this.cableUnitWord()} first.`);
                 return;
             }
             memo[key] = ft;
@@ -371,6 +427,45 @@ class _DockCableSheets {
         } catch (_) { /* no storage: the flip lasts the render */ }
     }
 
+    // A NEW CARD OR BOX STARTS WITH ITS SHEET DOWN AND ITS SECTION UNFOLDED
+    // (owner, beta.4: a new MX 4x10G and CVT10 came up with their cable
+    // sheets open "as if leftover from another system"). Both memories are
+    // keyed by the record's id, and ids are not forever: every show numbers
+    // its hardware from 1, and undo rewinds the counter, so an add undone
+    // and made again hands out the same id. So the memory goes with the
+    // record: _applyProcessorState calls this with every tree it adopts,
+    // and a key whose card or box is not in that tree goes - a removed
+    // record, an add undone. `all` (another show opening, File > New)
+    // forgets every card's and box's; a plain page reload keeps them.
+    _forgetHardwareViews(resolved, all = false) {
+        const live = new Set();
+        if (!all) {
+            (resolved || []).forEach(p => (p.slots || []).forEach(s => {
+                // the processor's own cable list (_dockBuildProcCableSheet)
+                live.add(`proc:${p.id}`);
+                if (!s.card) return;
+                live.add(`card:${s.card.id}`);
+                (s.card.cvts || []).forEach(c => live.add(`cvt:${c.id}`));
+            }));
+        }
+        const patterns = [
+            [/^lrd_data_cable_sheet_(card|cvt|proc)_(.+)$/, m => `${m[1]}:${m[2]}`],
+            [/^ledRasterPanelCollapsed_hwdock-(card|box)-(.+)$/,
+             m => `${m[1] === 'box' ? 'cvt' : 'card'}:${m[2]}`],
+        ];
+        try {
+            const gone = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                for (const [re, owner] of patterns) {
+                    const m = re.exec(k || '');
+                    if (m && !live.has(owner(m))) gone.push(k);
+                }
+            }
+            gone.forEach(k => localStorage.removeItem(k));
+        } catch (_) { /* no storage: nothing was remembered */ }
+    }
+
     _dockBuildDataCableSheetButton(owner) {
         const open = this._dataCableSheetOpen(owner);
         const btn = document.createElement('button');
@@ -379,8 +474,8 @@ class _DockCableSheets {
             + (open ? ' hw-dock-cablebtn-on' : '');
         btn.textContent = '≡';
         btn.title = open
-            ? 'Cable sheet - click to show the chips again.'
-            : 'Cable sheet - snakes and home runs per port, for the '
+            ? 'Cable sheet. Click to show the chips again.'
+            : 'Cable sheet: snakes and home runs per port, for the '
                 + 'paperwork. Click to flip into the sheet.';
         btn.dataset.lrdField = `data-cable-sheet-${owner.id}`;
         btn.addEventListener('click', (e) => {
@@ -493,11 +588,11 @@ class _DockCableSheets {
             if (window.canvasRenderer) window.canvasRenderer.render();
         };
         const ftInput = (key, value, title) => {
+            // text, so "30m" in a feet show can be typed (readTypedLength)
             const ft = document.createElement('input');
-            ft.type = 'number';
-            ft.min = '0';
-            ft.step = 'any';
-            ft.placeholder = '—';
+            ft.type = 'text';
+            ft.inputMode = 'decimal';
+            ft.placeholder = '';
             ft.className = 'hw-dock-cable-ft';
             ft.value = Number(value) > 0 ? String(value) : '';
             ft.dataset.lrdField = key;
@@ -553,7 +648,7 @@ class _DockCableSheets {
             const occ = this._portOccupants(at.cardId, n);
             if (!occ.length) return '';
             return [...new Set(occ.map(o => `${o.name}${o.role === 'return'
-                ? ` p${o.number} return` : ''}`))].join(', ');
+                ? ` P${o.number} return` : ''}`))].join(', ');
         };
         // The cell wears its full text as a title too, and a row whose
         // detail says more than its cell - a return end - carries it on
@@ -576,10 +671,31 @@ class _DockCableSheets {
         // of one says the rest out loud: "+ 5, 6 on BOX B" under the name.
         // The number and the rows cannot disagree, because everything the
         // number counts is named on the row one way or the other.
+        // A row of ANOTHER box (`sheetOwner` - a loop's far box on its
+        // primary's folded sheet, _dockSheetPorts) is that box's own row:
+        // its keys, its ticks, its stored entry. `sheetCaption` names the
+        // box above its first row.
+        const sheetOwner = owner;
         ports.forEach(port => {
+            const owner = port.sheetOwner || sheetOwner;
+            if (port.sheetCaption) {
+                const cap = document.createElement('tr');
+                cap.className = 'hw-dock-cable-caption';
+                cap.dataset.lrdCableCaption = owner.id;
+                const td = document.createElement('td');
+                td.colSpan = 4;
+                td.className = 'hw-dock-cable-dim';
+                td.textContent = port.sheetCaption;
+                cap.appendChild(td);
+                table.appendChild(cap);
+            }
             const n = port.number;
             const spoken = port.localNumber || n;
-            const snake = this.dataPortSnake(owner, n);
+            // A box backing up its own outputs: the backup output's row
+            // (boxSheetPorts' `cableKey`) is a cable of its own - its own
+            // length, no snake, no tick (a snake holds the main output).
+            const own = port.cableKey || null;
+            const snake = own ? null : this.dataPortSnake(owner, n);
             if (snake && !seenSnakes.has(snake.id)) {
                 seenSnakes.add(snake.id);
                 const tr = document.createElement('tr');
@@ -594,7 +710,7 @@ class _DockCableSheets {
                     m => this._cableTickedMember(m));
                 td0.appendChild(tick(
                     `data-snake-tick-${owner.id}-s-${snake.id}`, all,
-                    'Tick the whole snake, wherever its sockets sit - for '
+                    'Tick the whole snake, wherever its sockets sit, for '
                     + 'Unsnake above.',
                     (on) => members.forEach(
                         m => this._setCableTickMember(m, on))));
@@ -614,7 +730,7 @@ class _DockCableSheets {
                 // "if we pass a threshold then grow like option B").
                 name.size = Math.max(6, (snake.name || '').length + 1);
                 name.dataset.lrdField = `data-snake-name-${owner.id}-${snake.id}`;
-                name.title = 'The snake’s name - what the packet and '
+                name.title = 'The snake’s name: what the packet and '
                     + 'the tag on the map print. Typed names win over the '
                     + 'SNAKE A default.';
                 name.addEventListener('change', () => {
@@ -650,7 +766,8 @@ class _DockCableSheets {
                 const ft = ftInput(`data-snake-ft-${owner.id}-${snake.id}`,
                                    snake.ft,
                                    `The snake’s home run in ${this.cableUnitWord()}. `
-                                   + 'Blank = no length.');
+                                   + 'Blank = no length.'
+                                   + this.cableStockHint(snake.ft, 'data'));
                 ft.addEventListener('change', () => {
                     this.setSnake(snake.id, { ft: ft.value.trim() },
                                   'Set Snake Home Run').then(after);
@@ -666,7 +783,7 @@ class _DockCableSheets {
             if (snake) tr.className = 'hw-dock-cable-member';
             else if (!occupied) tr.className = 'hw-dock-cable-free';
             const td0 = document.createElement('td');
-            td0.appendChild(tick(
+            if (!own) td0.appendChild(tick(
                 `data-snake-tick-${owner.id}-${n}`,
                 this._cableTicked(owner, n),
                 snake ? 'Tick, then Unsnake above to take this port out of '
@@ -676,8 +793,14 @@ class _DockCableSheets {
                 (on) => this._setCableTick(owner, n, on)));
             tr.appendChild(td0);
             const td1 = document.createElement('td');
-            td1.textContent = port.label
-                ? `${spoken} · ${port.label}` : String(spoken);
+            // A port-by-port backup's socket: its silkscreen, then the port
+            // it backs up ("1 · backs up port 11 on CVT4K-S A-B").
+            const backs = port.loopOf
+                ? this._dockLoopBackedName((this._dockFindCard(owner.cardId) || {}).card, port)
+                : '';
+            td1.textContent = backs
+                ? `${spoken} · backs up ${port.label || backs}`
+                : (port.label ? `${spoken} · ${port.label}` : String(spoken));
             tr.appendChild(td1);
             const td2 = document.createElement('td');
             who(td2, tr, whoOf(owner, n) || (occupied ? '' : 'free'),
@@ -689,17 +812,18 @@ class _DockCableSheets {
             // fan-out sometimes needs, 2026-09-07); the member row stays
             // dim under its snake and still ticks for Unsnake. The entry's
             // connector, if one was stored, rides the commit untouched.
-            const stored = (owner.rec.portCables || {})[String(n)] || null;
-            const ft = ftInput(`data-cable-ft-${owner.id}-${n}`,
+            const stored = (owner.rec.portCables || {})[own || String(n)] || null;
+            const ft = ftInput(`data-cable-ft-${owner.id}-${own || n}`,
                                stored && stored.ft,
-                               snake
+                               (snake
                                    ? 'Extension from the snake to this '
-                                     + `panel, in ${this.cableUnitWord()} - the shorter cable `
+                                     + `panel, in ${this.cableUnitWord()}: the shorter cable `
                                      + 'a snake’s fan-out sometimes needs. '
                                      + 'Blank = none.'
                                    : `This port’s own home run in ${this.cableUnitWord()}. `
-                                     + 'Blank = no cable.');
-            const commit = () => this.setPortCable(owner, n, {
+                                     + 'Blank = no cable.')
+                               + this.cableStockHint(stored && stored.ft, 'data'));
+            const commit = () => this.setPortCable(owner, own || n, {
                 ft: ft.value.trim(),
                 connector: (stored && stored.connector) || null,
             }).then(after);
@@ -708,6 +832,10 @@ class _DockCableSheets {
             tr.appendChild(runCell(snake ? 'ext' : '', ft));
             table.appendChild(tr);
         });
+        // The fills below write the sheet's own record only, as they always
+        // have: another box's rows are typed one by one, or filled from
+        // that box's own sheet.
+        const ownPorts = ports.filter(p => !p.sheetOwner);
 
         // With ticked: Snake / Unsnake. Quick fill: all 100' / none. On
         // TOP of the sheet, before the rows ("move snake and quick fill
@@ -745,7 +873,7 @@ class _DockCableSheets {
         // are the gesture, and the button they are pressed on is only
         // where the hand happened to be.
         ticked.appendChild(button('Snake', `data-cable-snake-${owner.id}`,
-            `Form one snake of every ticked port - on this ${this.unitWordForCard(owner.cardId)} or box or `
+            `Form one snake of every ticked port, on this ${this.unitWordForCard(owner.cardId)} or box or `
             + 'any other. One name, one home run. One undo step.',
             () => {
                 const members = this._allTickedMembers();
@@ -765,7 +893,7 @@ class _DockCableSheets {
                 });
             }));
         ticked.appendChild(button('Unsnake', `data-cable-loosen-${owner.id}`,
-            `Take every ticked port out of its snake - on this ${this.unitWordForCard(owner.cardId)} or box `
+            `Take every ticked port out of its snake, on this ${this.unitWordForCard(owner.cardId)} or box `
             + 'or any other. One undo step.',
             () => {
                 const members = this._allTickedMembers().filter(m => {
@@ -785,10 +913,10 @@ class _DockCableSheets {
         // 2026-09-24): each ticked row gets what its own field would
         // take - a loose port its home run, a snaked one its extension.
         this._cableQuickAny(ticked, `data-cable-ticked-fill-${owner.id}`, 'Fill',
-            `Every ticked port on this ${this.unitWordForCard(owner.cardId)} or box gets the typed length - `
+            `Every ticked port on this ${this.unitWordForCard(owner.cardId)} or box gets the typed length: `
             + 'a loose port as its home run, a snaked port as its extension. '
             + 'One undo step.',
-            (ft) => this.fillTickedPortCables(owner, ft, ports).then(after));
+            (ft) => this.fillTickedPortCables(owner, ft, ownPorts).then(after));
         const sp = document.createElement('span');
         sp.style.flex = '1';
         quick.appendChild(sp);
@@ -799,11 +927,11 @@ class _DockCableSheets {
         fills.appendChild(button(`all ${this.cableLengthText(fillFt)}`, `data-cable-fill-${owner.id}-${fillFt}`,
             `Every loose port here gets a ${this.cableLengthWords(fillFt)} home run; snakes keep `
             + 'theirs. One undo step.',
-            () => this.fillPortCables(owner, fillFt, ports).then(after)));
+            () => this.fillPortCables(owner, fillFt, ownPorts).then(after)));
         fills.appendChild(button('none', `data-cable-fill-${owner.id}-none`,
             'Every loose port here forgets its cable; snakes keep theirs. '
             + 'One undo step.',
-            () => this.fillPortCables(owner, null, ports).then(after)));
+            () => this.fillPortCables(owner, null, ownPorts).then(after)));
         // ...and a length of the user's own, the loose ports' fill with
         // the typed length ("this should just be for extensions for
         // individual ports or circuits", 2026-09-24): snakes keep theirs,
@@ -811,7 +939,7 @@ class _DockCableSheets {
         this._cableQuickAny(fills, `data-cable-fill-any-${owner.id}`, 'all',
             'Every loose port here gets the typed length as its home run; '
             + 'snakes keep theirs. One undo step.',
-            (ft) => this.fillPortCables(owner, ft, ports).then(after));
+            (ft) => this.fillPortCables(owner, ft, ownPorts).then(after));
         // A box's fiber is the sheet's FIRST block, above the quick fills
         // and the ports (2026-09-25) - a fact of the box, not of a port, so
         // the fills below it never reach it.
@@ -838,7 +966,11 @@ class _DockCableSheets {
     // boxes with their own links, shown as ONE section on either box's
     // sheet - "Fiber · USR A ↔ USR B (loop)", the near box's rows first,
     // each row named by its box - and drawn once where both sheets are
-    // open, on the near box's. A 1.3 typed fiber stays as a read-only
+    // open, on the near box's. A backup bound port by port is one group
+    // with every box it loops with (fiberLoopGroup): a CVT4K-S on OPT 5-6
+    // behind CVT10s on OPT 1 and 2 reads "Fiber · CVT10 A, CVT10 B ↔
+    // CVT4K-S E-F (loop)", drawn on the first primary's sheet where that
+    // is open. A 1.3 typed fiber stays as a read-only
     // note, with Clear,
     // until a link has a cable. Every commit is ONE request and ONE history
     // entry; the server refuses with the reason. The row's element keys are
@@ -876,24 +1008,41 @@ class _DockCableSheets {
         };
         const titleOf = (b) => b.displayTitle || b.name || b.deviceName;
 
-        const pair = this.fiberLoopPair(box);
+        const pair = this.fiberLoopGroup(box);
         const head = line('hw-dock-fiber-head');
         if (pair) {
+            const lead = pair.nears[0];
             head.appendChild(text('hw-dock-cable-fiber-cap',
-                `Fiber · ${titleOf(pair.near)} ↔ ${titleOf(pair.far)} (loop)`));
-            sec.dataset.lrdFiberLoop = `${pair.near.id}:${pair.far.id}`;
-            if (box.id === pair.far.id
-                    && this._dataCableSheetOpen({ kind: 'cvt', id: pair.near.id })) {
+                `Fiber · ${pair.nears.map(titleOf).join(', ')} ↔ `
+                + `${pair.fars.map(titleOf).join(', ')} (loop)`));
+            sec.dataset.lrdFiberLoop = [...pair.nears, ...pair.fars].map(b => b.id).join(':');
+            if (lead && box.id !== lead.id
+                    && this._dataCableSheetOpen({ kind: 'cvt', id: lead.id })) {
                 const row = line('hw-dock-fiber-bound');
                 row.appendChild(text('hw-dock-fiber-bound-text',
-                    `Set with ${titleOf(pair.near)} on its sheet.`));
+                    `Set with ${titleOf(lead)} on its sheet.`));
                 return sec;
             }
         } else {
-            const tag = box.duplicateOf ? ' (copy)' : '';
-            head.appendChild(text('hw-dock-cable-fiber-cap', `Fiber · ${titleOf(box)}${tag}`));
+            const tag = box.copyRole === 'mirror' ? ' (mirror)'
+                : (box.duplicateOf && !box.backupOf && !this.boxLoopMixed(box) ? ' (copy)' : '');
+            // a backup of the unit's own ports alone: which ones
+            const hit = this._fiberAllBoxes().find(b => b.box.id === box.id);
+            const loop = this.boxLoopText(box, hit ? hit.card.cvts : [], titleOf);
+            head.appendChild(text('hw-dock-cable-fiber-cap',
+                `Fiber · ${titleOf(box)}${tag}${loop ? ` (${loop})` : ''}`));
         }
-        const members = pair ? [pair.near, pair.far] : [box];
+        const members = pair ? [...pair.nears, ...pair.fars] : [box];
+        // The fiber's mode where the boxes state one (owner, 2026-11-04):
+        // "Single mode" / "Multimode" after the caption - each box's own
+        // where a pair's boxes differ.
+        const words = this.fiberModesText(members, titleOf);
+        if (words) {
+            const tag = text('hw-dock-fiber-mode', words);
+            tag.dataset.lrdField = `fiber-mode-${box.id}`;
+            tag.title = 'The fiber this box takes. Single mode and multimode never share a fiber cable.';
+            head.appendChild(tag);
+        }
         members.forEach(m => {
             if (!m.bidiAllowed) return;
             const lab = document.createElement('label');
@@ -965,7 +1114,17 @@ class _DockCableSheets {
                             this._fiberEdit = open ? null : { boxId: m.id, key: l.key };
                             this.renderHardwareDock();
                         }, row);
+                    // A TAC or an MTP may need an extension to reach the
+                    // box's port (owner, 2026-11-02): "+ Extension" adds
+                    // one to THIS link; its line follows the row.
+                    if (this.fiberCableIsStranded(l.cable) && !this.fiberLinkExtension(l)) {
+                        button('+ Extension', `fiber-ext-add-${m.id}-${l.key}`,
+                            `A fan-out or patch between ${l.cable.name}’s end and `
+                            + `${l.title}. One undo step.`,
+                            () => this.setFiberExtension(m, l.key, {}, 'Add Fiber Extension'), row);
+                    }
                 }
+                if (this.fiberLinkExtension(l)) sec.appendChild(this._dockBuildFiberExtension(m, l));
                 const wz = this._fiberWizard;
                 if (wz && wz.boxId === m.id && wz.key === l.key) {
                     sec.appendChild(this._dockBuildFiberWizard(m, l));
@@ -979,15 +1138,111 @@ class _DockCableSheets {
         return sec;
     }
 
+    // A link's EXTENSION, on its own line right under the link's row
+    // (owner, 2026-11-02): the cable between the TAC's or MTP's end and
+    // the box's port - its kind (a fan-out or a duplex patch), the
+    // connector at the trunk end (blank reads the trunk's own) and at the
+    // box end, each offered from the fiber connector list or typed, and
+    // its length in the show's unit. Remove takes it off in one click.
+    // Each commit is one request and one history entry. Nothing here says
+    // which connector the box's port takes: the user's pick is recorded.
+    _dockBuildFiberExtension(box, l) {
+        const ext = this.fiberLinkExtension(l);
+        const ends = this.fiberExtensionEnds(ext, l.cable);
+        const base = `${box.id}-${l.key}`;
+        const line = document.createElement('div');
+        line.className = 'hw-dock-fiber-ext' + (l.backup ? ' hw-dock-fiber-link-backup' : '');
+        line.dataset.lrdFiberExt = `${box.id}:${l.key}`;
+        const put = (body) => this.setFiberExtension(box, l.key, body);
+        const cap = document.createElement('span');
+        cap.className = 'hw-dock-fiber-dim hw-dock-fiber-ext-cap';
+        const mode = this.fiberModeWord(this.fiberCableMode(l.cable));
+        cap.textContent = `${l.title} extension` + (mode ? ` · ${mode}` : '');
+        line.appendChild(cap);
+        const kind = document.createElement('select');
+        kind.className = 'hw-dock-cable-connector hw-dock-fiber-select';
+        kind.dataset.lrdField = `fiber-ext-kind-${base}`;
+        kind.title = 'A fan-out (breakout harness) or a plain duplex patch.';
+        FIBER_EXTENSION_KINDS.forEach(([v, t]) => {
+            const o = document.createElement('option');
+            o.value = v;
+            o.textContent = t;
+            kind.appendChild(o);
+        });
+        kind.value = ext.kind;
+        kind.addEventListener('change', () => put({ kind: kind.value }));
+        line.appendChild(kind);
+        const listId = `hw-fiber-ext-connectors-${base}`;
+        const list = document.createElement('datalist');
+        list.id = listId;
+        FIBER_EXTENSION_CONNECTORS.forEach(c => {
+            const o = document.createElement('option');
+            o.value = c;
+            list.appendChild(o);
+        });
+        line.appendChild(list);
+        const end = (key, value, title, write) => {
+            const f = document.createElement('input');
+            f.type = 'text';
+            f.className = 'hw-dock-fiber-text hw-dock-fiber-ext-end';
+            f.dataset.lrdField = key;
+            f.value = value;
+            f.title = title;
+            f.setAttribute('list', listId);
+            f.addEventListener('change', () => write(f.value.trim()));
+            line.appendChild(f);
+            return f;
+        };
+        const own = this.fiberCableEndText(l.cable);
+        const trunk = end(`fiber-ext-trunk-${base}`, ends.trunk,
+            `The connector at ${l.cable.name}’s end.`
+            + (own ? ` Blank reads ${own}, the trunk’s own.` : ''),
+            // the trunk's own connector, typed again, is stored as blank
+            // so it keeps following the trunk
+            (v) => put({ trunkEnd: v === own ? '' : v }));
+        trunk.placeholder = own || 'trunk end';
+        line.appendChild(document.createTextNode(' to '));
+        end(`fiber-ext-box-${base}`, ends.box, `The connector at ${l.title}.`,
+            (v) => put({ boxEnd: v })).placeholder = 'box end';
+        const ft = document.createElement('input');
+        ft.type = 'text';
+        ft.inputMode = 'decimal';
+        ft.className = 'hw-dock-cable-ft';
+        ft.placeholder = this.cableUnitAbbr();
+        ft.dataset.lrdField = `fiber-ext-ft-${base}`;
+        const len = this.parseCableLength(ext.ft);
+        ft.value = len !== null ? String(len) : '';
+        ft.title = `The extension's length in ${this.cableUnitWord()}.`;
+        ft.addEventListener('change', () => {
+            // read the way every typed length is (readTypedLength)
+            const read = this.readTypedLength(ft.value.trim(), 'extension');
+            if (!read.ok) return;
+            put({ ft: read.n });
+        });
+        line.appendChild(ft);
+        line.appendChild(document.createTextNode(` ${this.cableUnitAbbr()} `));
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'btn hw-dock-btn';
+        rm.textContent = 'Remove';
+        rm.title = 'Take this extension off the link. One undo step.';
+        rm.dataset.lrdField = `fiber-ext-remove-${base}`;
+        rm.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.setFiberExtension(box, l.key, null, 'Remove Fiber Extension');
+        });
+        line.appendChild(rm);
+        return line;
+    }
+
     // A copper link's length, in the show's unit: blank is no length. Its
     // kind rides the write untouched. One request, one entry.
     _dockBuildCopperLength(box, l) {
         const wrap = document.createElement('span');
         wrap.className = 'hw-dock-fiber-field';
         const f = document.createElement('input');
-        f.type = 'number';
-        f.min = '0';
-        f.step = 'any';
+        f.type = 'text';
+        f.inputMode = 'decimal';
         f.className = 'hw-dock-cable-ft';
         f.placeholder = this.cableUnitAbbr();
         f.dataset.lrdField = `fiber-copper-ft-${box.id}-${l.key}`;
@@ -995,15 +1250,13 @@ class _DockCableSheets {
         f.value = ft !== null ? String(ft) : '';
         const max = this.copperLinkMax(l.copper.copper);
         f.title = `The ${l.copper.copper} run's length in ${this.cableUnitWord()}`
-            + (max ? ` - ${this.copperLinkMaxWords(max)} is its 10G maximum.` : '.');
+            + (max ? `. ${this.copperLinkMaxWords(max)} is its 10G maximum.` : '.');
         f.addEventListener('change', () => {
-            const raw = f.value.trim();
-            const v = raw === '' ? null : Number(raw);
-            if (v !== null && !(Number.isFinite(v) && v >= 0)) {
-                this._dockSay(`Type a length in ${this.cableUnitWord()}, or leave it blank.`);
-                return;
-            }
-            this.setFiberLink(box, l.key, { copper: l.copper.copper, ft: v }, 'Set Copper Length');
+            // read the way every typed length is (readTypedLength): the
+            // other unit converted and said, text that is no length refused
+            const read = this.readTypedLength(f.value.trim(), 'cable');
+            if (!read.ok) return;
+            this.setFiberLink(box, l.key, { copper: l.copper.copper, ft: read.n }, 'Set Copper Length');
         });
         wrap.appendChild(f);
         wrap.appendChild(document.createTextNode(` ${this.cableUnitAbbr()}`));
@@ -1055,6 +1308,14 @@ class _DockCableSheets {
         };
         const connectors = this.getFiberCables().filter(c => !this.fiberCableIsStranded(c) && fits(c));
         const stranded = this.getFiberCables().filter(c => this.fiberCableIsStranded(c));
+        // A TAC or MTP with too few strands left for this link is listed
+        // but cannot be picked, and says so ("· full"): a pick the server
+        // would only refuse is never sent (beta.4 QA: a full TAC drew a
+        // 400 and an odd toast).
+        const strandedOpt = (c, label) => {
+            opt(c.id, fits(c) ? label : `${label} · full`);
+            if (!fits(c)) sel.options[sel.options.length - 1].disabled = true;
+        };
         // An empty backup link offers its primary's cable ON TOP, named as
         // such and set off by a gap, and the full list follows in its own
         // order - "that reads as confusing ... maybe we do this with a
@@ -1066,11 +1327,11 @@ class _DockCableSheets {
                 || connectors.find(c => c.id === primary));
             if (same) {
                 const port = (box.linkTitles || {})[pKey] || 'the primary';
-                opt(same.id, `${this.fiberCableOptionText(same)} · same as ${port}`);
+                strandedOpt(same, `${this.fiberCableOptionText(same)} · same as ${port}`);
                 gap();
             }
         }
-        stranded.forEach(c => opt(c.id, this.fiberCableOptionText(c)));
+        stranded.forEach(c => strandedOpt(c, this.fiberCableOptionText(c)));
         connectors.forEach(c => opt(c.id, this.fiberCableOptionText(c)));
         if (sel.options.length) gap();
         opt('new:tac', 'New TAC…');
@@ -1110,6 +1371,19 @@ class _DockCableSheets {
         return sel;
     }
 
+    // Which strand pick a rebuild must draw open: the one the person is
+    // standing in with no choice made yet. A rebuild nobody asked for (a
+    // save's late echo, a peer's edit) put the chip back under them and the
+    // pick was gone before they could use it; _preserveEditorFocus then
+    // hands the focus to the pick drawn in its place. A pick already
+    // answered stays out: its own save closes it.
+    _fiberPickOpenKey() {
+        const a = document.activeElement;
+        const key = a && a.dataset ? a.dataset.lrdField : null;
+        return key && key.startsWith('fiber-strand-pick-')
+            && !a.dataset.lrdPicked ? key : null;
+    }
+
     // A strand as a chip: its swatch (the tracer as a stripe) and its name.
     // A click turns it into a pick of the cable's strands - the ones other
     // links hold are listed, disabled, with who holds them.
@@ -1119,15 +1393,15 @@ class _DockCableSheets {
         chip.type = 'button';
         chip.className = 'hw-dock-fiber-strand';
         chip.dataset.lrdField = `fiber-strand-${box.id}-${l.key}-${i}`;
-        chip.title = `Strand ${strand} of ${cable.name} - click to change it.`;
+        chip.title = `Strand ${strand} of ${cable.name}. Click to change it.`;
         chip.appendChild(this._fiberSwatch(strand, cable));
         chip.appendChild(document.createTextNode(this.fiberStrandName(strand, cable)));
-        chip.addEventListener('click', (e) => {
-            e.stopPropagation();
+        const pickKey = `fiber-strand-pick-${box.id}-${l.key}-${i}`;
+        const buildPick = () => {
             const users = this.fiberStrandUsers(cable.id);
             const sel = document.createElement('select');
             sel.className = 'hw-dock-cable-connector hw-dock-fiber-select';
-            sel.dataset.lrdField = `fiber-strand-pick-${box.id}-${l.key}-${i}`;
+            sel.dataset.lrdField = pickKey;
             for (let n = 1; n <= (cable.strands || 0); n++) {
                 const o = document.createElement('option');
                 o.value = String(n);
@@ -1142,15 +1416,21 @@ class _DockCableSheets {
             let changed = false;
             sel.addEventListener('change', () => {
                 changed = true;
+                sel.dataset.lrdPicked = '1';
                 const strands = (l.link.strands || []).slice();
                 strands[i] = parseInt(sel.value, 10);
                 this.setFiberLink(box, l.key, { cable: cable.id, strands }, 'Set Fiber Strands');
             });
             sel.addEventListener('blur', () => { if (!changed) sel.replaceWith(chip); });
+            return sel;
+        };
+        chip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const sel = buildPick();
             chip.replaceWith(sel);
             sel.focus();
         });
-        return chip;
+        return this._fiberPickOpen === pickKey ? buildPick() : chip;
     }
 
     _fiberSwatch(strand, cable) {
@@ -1248,16 +1528,16 @@ class _DockCableSheets {
         } else if (wz.step === 'ft') {
             cap.textContent = `New ${word} · length:`;
             const go = () => {
-                const raw = f.value.trim();
-                const v = raw === '' ? null : Number(raw);
-                if (v !== null && !(Number.isFinite(v) && v >= 0)) {
-                    this._dockSay(`Type a length in ${this.cableUnitWord()}, or leave it blank.`);
-                    return;
-                }
+                const read = this.readTypedLength(f.value.trim(), word);
+                if (!read.ok) return;
+                const v = read.n;
                 if (wz.kind === 'tac') step({ ft: v, step: 'connector' });
                 else { wz.ft = v; create(); }
             };
-            const f = field('number', `${base}-ft`, wz.ft, this.cableUnitAbbr(), go);
+            // text, so "30m" in a feet show can be typed (readTypedLength)
+            const f = field('text', `${base}-ft`, wz.ft, this.cableUnitAbbr(), go);
+            f.className = 'hw-dock-cable-ft';
+            f.inputMode = 'decimal';
             div.appendChild(document.createTextNode(` ${this.cableUnitAbbr()} `));
             button(wz.kind === 'tac' ? 'Next' : 'Create', `${base}-ft-next`,
                 wz.kind === 'tac' ? 'On to the ends.' : `Make the ${word} on this link.`, go);
@@ -1271,7 +1551,7 @@ class _DockCableSheets {
                 create();
             });
             f.setAttribute('list', `hw-fiber-connectors-${box.id}`);
-            button('Create', `${base}-create`, 'Make the TAC on this link - ends as typed, '
+            button('Create', `${base}-create`, 'Make the TAC on this link, ends as typed, '
                 + 'or none.', () => { wz.connector = f.value.trim(); create(); });
         }
         button('Cancel', `${base}-cancel`, 'Make nothing.', () => {
@@ -1324,14 +1604,15 @@ class _DockCableSheets {
                 put({ strands: v }, 'Set Fiber Strand Count');
             });
         }
-        const ft = field(this.cableUnitAbbr(), input('number', `fiber-cable-ft-${cable.id}`,
-            Number(cable.ft) > 0 ? cable.ft : ''));
-        ft.min = '0';
-        ft.step = 'any';
-        ft.placeholder = '—';
+        const ft = field(this.cableUnitAbbr(), input('text', `fiber-cable-ft-${cable.id}`,
+            Number(cable.ft) > 0 ? cable.ft : '', 'hw-dock-cable-ft'));
+        ft.inputMode = 'decimal';
+        ft.placeholder = '';
         ft.addEventListener('change', () => {
-            const v = ft.value.trim();
-            put({ ft: v === '' ? null : Number(v) }, 'Set Fiber Length');
+            // read the way every typed length is (readTypedLength)
+            const read = this.readTypedLength(ft.value.trim(), 'fiber');
+            if (!read.ok) return;
+            put({ ft: read.n }, 'Set Fiber Length');
         });
         if (cable.kind === 'tac') {
             const conn = field('ends', input('text', `fiber-cable-connector-${cable.id}`, cable.connector));
@@ -1365,7 +1646,7 @@ class _DockCableSheets {
             const f = input('text', `fiber-strand-name-${cable.id}-${n}`,
                 (cable.strandNames || {})[String(n)] || '');
             f.placeholder = fiberStrandName(n, plain);
-            f.title = `Strand ${n}'s name - blank reads ${f.placeholder}.`;
+            f.title = `Strand ${n}'s name. Blank reads ${f.placeholder}.`;
             f.addEventListener('change', () => put(
                 { strandName: { strand: n, name: f.value } }, 'Rename Strand'));
             cell.appendChild(f);

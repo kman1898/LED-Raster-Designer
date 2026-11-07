@@ -14,6 +14,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-mx",
+      "connector": "ethercon",
       "trunks": 4,
       "trunkWord": "OPT",
       "portsPerTrunk": 10,
@@ -22,9 +23,12 @@
         "defaultMode": "40-port",
         "modes": [
           {"id": "40-port", "label": "40-port mode", "count": 40, "ownPorts": 20},
-          {"id": "20-port", "label": "20-port mode", "count": 20}
+          {"id": "20-port", "label": "20-port mode", "count": 20, "copyTrunks": "per-box"}
         ]
       },
+      "copyTrunksNote": "MX40 Pro LED Display Controller User Manual V1.5.0 p.9, 20-port mode: \"OPT 3 is the copy channel of OPT 1\", \"OPT 4 is the copy channel of OPT 2\". Owner, 2026-10-30, \"Either, you pick\": a box on OPT 3/4 is set per box to Mirror (it feeds a mirror screen) or Backup (it backs up OPT 1/2). A box saved before the choice reads Backup.",
+      "plugChoice": {"ports": 20},
+      "plugChoiceNote": "MX40 Pro LED Display Controller User Manual V1.5.0 p.9: \"You can use the optical port alongside the physical Ethernet port, with priority given in the following order: OPT 1/2 > OPT 3/4 > Ethernet ports 1-20\", and never the same-numbered port both ways. So each of ports 1-20 plugs in at ONE place, chosen per port (owner, 2026-10-30, \"Per port\"): the unit's own RJ45 or the box on OPT 1/2.",
       "ownPortsNote": "Owner, 2026-09-30: \"40 port's o mx40 only works with breakouts connected. simple mx40 can only do 20 ports\". 20 RJ45s on the unit; 21-40 only through boxes on OPT 3/4, so a bare MX40 Pro reaches 20 and its halves split falls at 11.",
       "note": "40 via the 4x 10G optical outs. In 20-port mode OPT 3/4 are copies of OPT 1/2; in 40-port mode they carry ports 21-40. The summary spec sheet leads with 20, which is why two research passes both came back 20."
     },
@@ -35,12 +39,14 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-mx",
+      "connector": "ethercon",
       "trunks": 2,
       "trunkWord": "OPT",
       "portsPerTrunk": 10,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10, "copyTrunks": "mirror"}]},
+      "copyTrunksNote": "MX30 LED Display Controller Specifications V1.5.0 p.8 (User Manual V1.5.0 p.8 the same), OPT 1-2: \"OPT 1 transmits the data of Ethernet ports 1 to 10.\" \"OPT 2 is the copy channel of OPT 1.\" Copy only: no MX30 document says backup, so a box on OPT 2 feeds a mirror screen. The MX40 Pro's Mirror or Backup choice is the owner's ruling for the MX40 Pro alone.",
       "note": "2x 10G OPT at 10.3125 Gbps: OPT 1 transmits Ethernet ports 1-10 and OPT 2 is its copy channel, so both carry the unit's own copper and a box on either adds no ports."
     },
     {
@@ -50,12 +56,14 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-mx",
+      "connector": "ethercon",
       "trunks": 2,
       "trunkWord": "OPT",
       "portsPerTrunk": 6,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6, "copyTrunks": "mirror"}]},
+      "copyTrunksNote": "MX20 LED Display Controller Specifications V1.5.1 p.6 (User Manual V1.5.1 p.7 the same), OPT 1-2: \"OPT 1 transmits the data of Ethernet ports 1 to 6.\" \"OPT 2 is the copy channel of OPT 1.\" Copy only: no MX20 document says backup, so a box on OPT 2 feeds a mirror screen. The MX40 Pro's Mirror or Backup choice is the owner's ruling for the MX40 Pro alone.",
       "note": "2x 10G OPT: OPT 1 transmits Ethernet ports 1-6 and OPT 2 is its copy channel - the unit's own six ports again, never more."
     },
     {
@@ -65,6 +73,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-mx",
+      "connector": "rj45",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
       "note": "1x 10G OPT output is documented, but no sheet states what it carries - no port mapping, no copy statement - so no box hangs off it until that is settled."
     },
@@ -75,6 +84,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-cx",
+      "connector": "ethercon",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
       "note": "5GBASE-T. Its one optical port is 40Gbps - a rate the CVT8-5G takes - but no sheet states what the OPT carries, so no box hangs off it until that is settled. Same shape as the KU20."
     },
@@ -85,6 +95,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-cx",
+      "connector": "ethercon",
       "trunks": 2,
       "trunkWord": "OPT",
       "portsPerTrunk": 8,
@@ -100,6 +111,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
+      "connector": "rj45",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
       "note": "Confirmed against the hardware; one dealer page claiming 6 is wrong. Max 2.6 million px; its sheet states no per-port figure. Two fiber outputs copy / back up the four Ethernet ports, but the sheet states NO optical rate, so under the 10G rule no box hangs off it."
     },
@@ -110,12 +122,20 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
+      "connector": "rj45",
       "trunks": 2,
       "trunkWord": "OPT",
       "portsPerTrunk": 4,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 4, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 4, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "VX Pro Series All-in-One Controller User Manual (file V1.4.2) p.87-88, Table 5-7 OPT working mode: \"Copy: OPT 2 copies the output on Ethernet ports 1~4.\" \"Backup: OPT 2 backs up the output on Ethernet ports 1~4.\" VX400 Pro All-in-One Controller Specifications V1.4.0 p.12, OPT: \"OPT 2: For output with copy and backup modes or loop output\", \"Output: OPT 1 sends the output on 4 Ethernet ports, while OPT 2 copies or backs up the output on 4 Ethernet ports.\" Copy: the box on OPT 2 feeds a mirror screen. Backup: it backs up the box on OPT 1. One setting for the unit, as the menu sets it. A file saved before the modes reads Backup.",
       "note": "Max 2.6 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own four ports: in Output mode OPT 1 sends them and OPT 2 copies or backs them up; in the input modes the OPTs are video in / loop out instead. The port count is 4 in every mode, and a box adds none."
     },
     {
@@ -125,6 +145,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
+      "connector": "rj45",
       "trunks": 1,
       "trunkWord": "OPT",
       "portsPerTrunk": 6,
@@ -140,12 +161,20 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
+      "connector": "rj45",
       "trunks": 2,
       "trunkWord": "OPT",
       "portsPerTrunk": 6,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 6, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 6, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "VX Pro Series All-in-One Controller User Manual (file V1.4.2) p.87-88, Table 5-7 OPT working mode: \"Copy: OPT 2 copies the output on Ethernet ports 1~6.\" \"Backup: OPT 2 backs up the output on Ethernet ports 1~6.\" VX600 Pro All-in-One Controller Specifications V1.4.0 p.12, OPT: \"OPT 2: For output with copy and backup modes or loop output\", \"Output: OPT 1 sends the output on 6 Ethernet ports, while OPT 2 copies or backs up the output on 6 Ethernet ports.\" Copy: the box on OPT 2 feeds a mirror screen. Backup: it backs up the box on OPT 1. One setting for the unit, as the menu sets it. A file saved before the modes reads Backup.",
       "note": "Max 3.9 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own six ports (Output mode: OPT 1 sends, OPT 2 copies or backs up; input modes repurpose them). The port count is 6 in every mode."
     },
     {
@@ -155,13 +184,21 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
-      "trunks": 1,
+      "connector": "rj45",
+      "trunks": 2,
       "trunkWord": "OPT",
       "portsPerTrunk": 10,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
-      "note": "Max 6.5 million px; its sheet states no per-port figure. OPT 1 is a documented 10G output copying the ten Ethernet ports. OPT 2 also copies/backs them up but its sheet names no rate for it, so it is not counted as a trunk."
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 10, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 10, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "VX1000 All-in-One Controller Specifications V1.6.0 (2024-07-08) p.7, Optical Fiber Ports: \"OPT | 2 | 10G optical fiber ports\", \"OPT 2: For output only, with copy and backup modes\", \"OPT 2 copies or backs up the output on 10 Ethernet ports.\" p.2, Features: \"OPT 1 copies the output on 10 Ethernet ports.\" Owner's ruling 2026-11-02: Copy or Backup for the whole unit, like the VX Pros. Copy: the box on OPT 2 feeds a mirror screen. Backup: it backs up the box on OPT 1. A file saved before the modes reads Backup.",
+      "note": "Max 6.5 million px; its sheet states no per-port figure. 2x 10G OPT carrying the unit's own ten ports: OPT 1 copies them and OPT 2 copies or backs them up (OPT 1 can be a video input instead). The port count is 10 in every mode, and a box adds none."
     },
     {
       "id": "novastar-vx1000-pro",
@@ -170,12 +207,20 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
+      "connector": "rj45",
       "trunks": 2,
       "trunkWord": "OPT",
       "portsPerTrunk": 10,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 10, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 10, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "VX Pro Series All-in-One Controller User Manual (file V1.4.2) p.87-88, Table 5-7 OPT working mode: \"Copy: OPT 2 copies the output on Ethernet ports 1~10.\" \"Backup: OPT 2 backs up the output on Ethernet ports 1~10.\" VX1000 Pro All-in-One Controller Specifications V1.4.0 p.12, OPT: \"OPT 2: For output with copy and backup modes or loop output\", \"Output: OPT 1 sends the output on 10 Ethernet ports, while OPT 2 copies or backs up the output on 10 Ethernet ports.\" Copy: the box on OPT 2 feeds a mirror screen. Backup: it backs up the box on OPT 1. One setting for the unit, as the menu sets it. A file saved before the modes reads Backup.",
       "note": "Max 6.5 million px, 650,000 px per port on 8-bit. 2x 10G OPT carrying the unit's own ten ports (Output mode: OPT 1 sends, OPT 2 copies or backs up; input modes repurpose them). The port count is 10 in every mode."
     },
     {
@@ -185,12 +230,20 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
+      "connector": "rj45",
       "trunks": 4,
       "trunkWord": "OPT",
       "portsPerTrunk": 10,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 20}]},
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 20, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 20, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "VX Pro Series All-in-One Controller User Manual (file V1.4.2) p.88, Table 5-7 OPT working mode, VX2000 Pro OPT 3/4: \"Copy: OPT 3 copies the output on Ethernet ports 1~10, and OPT 4 copies the output on Ethernet ports 11~20.\" \"Backup: OPT 3 backs up the output on Ethernet ports 1~10, and OPT 4 backs up the output on Ethernet ports 11~20.\" p.14: \"You can set the working mode of OPT 3 and OPT 4 to Copy or Backup.\" VX2000 Pro All-in-One Controller Specifications V1.4.0 p.14, OPT: \"Output: OPT 1/2 sends the output on Ethernet ports, while OPT 3/4 copies or backs up the output on Ethernet ports.\" Copy: the boxes on OPT 3/4 feed a mirror screen. Backup: they back up the boxes on OPT 1/2. One setting for both OPTs, as the menu sets it. A file saved before the modes reads Backup.",
       "note": "4x 10G OPT carrying the unit's own twenty copper ports: OPT 1/2 send Ethernet 1-10 / 11-20 and OPT 3/4 copy or back them up, so no box adds a port. OPT 1/2 are self-adaptive and become video INPUTS in the input+output working modes, leaving only OPT 3/4 as outputs; the port count is 20 in every mode."
     },
     {
@@ -200,6 +253,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-vx",
+      "connector": "rj45",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]}
     },
     {
@@ -209,6 +263,7 @@
       "kind": "processor",
       "form": "legacy",
       "family": "novastar-vx",
+      "connector": "rj45",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]}
     },
     {
@@ -218,6 +273,7 @@
       "kind": "processor",
       "form": "legacy",
       "family": "novastar-vx",
+      "connector": "rj45",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
     },
     {
@@ -227,12 +283,14 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
+      "connector": "ethercon",
       "trunks": 4,
       "trunkWord": "OPT",
       "portsPerTrunk": 8,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16, "copyTrunks": "per-box"}]},
+      "copyTrunksNote": "MCTRL4K LED Display Controller Specifications V1.2.1 p.4, OPT1~OPT4: \"OPT3 is a duplicate channel of OPT1.\" \"OPT4 is a duplicate channel of OPT2.\" The novastar.tech MCTRL 4K product page: \"OPT3 and OPT4 are backup input/output ports.\" Copy and backup are both its own published words, so a box on OPT 3/4 is set per box to Mirror (it feeds a mirror screen) or Backup (it backs up OPT 1/2), as on the NovaPro UHD. Backup is the default.",
       "note": "16x Neutrik Gigabit Ethernet on the unit. 4x 10G OPT carry them again - OPT1 transmits Ethernet 1-8, OPT2 transmits 9-16, OPT3/4 are their duplicate channels - so a box on any OPT is another place to plug into the same sixteen."
     },
     {
@@ -242,12 +300,14 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
+      "connector": "ethercon",
       "trunks": 2,
       "trunkWord": "OPT",
       "portsPerTrunk": 6,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6, "copyTrunks": "backup"}]},
+      "copyTrunksNote": "MCTRL660 PRO Independent Controller Specifications V1.4.1 p.4, OPT1 OPT2: \"OPT2 is the backup input or output port of OPT1.\" The novastar.tech product page says the same: \"The OPT2 works as the backup input or output port of OPT1.\" Neither names a copy role, so a box on OPT 2 is the backup of the box on OPT 1 and nothing else.",
       "note": "2x 10G OPT: OPT1 corresponds to all 6 Gigabit Ethernet ports and OPT2 is its backup, each optical port equal to 6 Gigabit ports - the unit's own six again. In fiber converter mode the OPTs become inputs; the port count is 6 either way."
     },
     {
@@ -257,6 +317,7 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
+      "connector": "rj45",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
       "note": "Copper only: 4x RJ45 Gigabit Ethernet, 650,000 px per port. Its HDMI OUT / DVI OUT are video cascade connectors, not fiber - no box hangs off it."
     },
@@ -267,12 +328,14 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
+      "connector": "ethercon",
       "trunks": 2,
       "trunkWord": "OPT",
       "portsPerTrunk": 8,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8, "copyTrunks": "per-box"}]},
+      "copyTrunksNote": "MCTRL R5 LED Display Controller Specifications V1.0.5 p.4 and User Manual V1.0.5 p.3, OPT1-OPT2: \"OPT 2 is the copy channel of OPT 1.\" The novastar.tech MCTRL R5 product page: \"OPT2 serves as the backup for OPT1.\" Copy and backup are both its own published words, so a box on OPT 2 is set per box to Mirror (it feeds a mirror screen) or Backup (it backs up OPT 1), as on the NovaPro UHD. Backup is the default.",
       "note": "8x RJ45 Gigabit Ethernet, 650,000 px per port on 8-bit and 325,000 on 10-bit; loads up to 3840x1080@60Hz. Supports port and screen rotation (10-bit input does not rotate). 2x 10G OPT carry the same eight ports - OPT 1 copies Ethernet 1-8 and OPT 2 is the copy channel of OPT 1 - so a box adds nothing."
     },
     {
@@ -282,6 +345,7 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
+      "connector": "rj45",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 6}]},
       "note": "6x RJ45 Gigabit Ethernet, 650,000 px per port; loads up to 1920x1200@60Hz. No optical ports at all, so nothing hangs off it."
     },
@@ -292,6 +356,7 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
+      "connector": "rj45",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
       "note": "4x RJ45 Gigabit Ethernet, 650,000 px per port; input up to 1920x1200@60Hz. No optical ports. Its sheet states no device total - 4 x 650k is arithmetic, so none is claimed."
     },
@@ -302,6 +367,7 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
+      "connector": "rj45",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 2}]},
       "note": "2x RJ45 Gigabit Ethernet, 650,000 px per port; input up to 1920x1200@60Hz. No optical ports, no stated device total."
     },
@@ -312,6 +378,7 @@
       "kind": "processor",
       "form": "sender",
       "family": "novastar-mctrl",
+      "connector": "rj45",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 2}]},
       "note": "Sending card that installs in a PC rather than a boxed controller; cascades over UART like the MCTRL300. Its own sheet: 2x RJ45 Gigabit Ethernet, 650,000 px per port, input up to 1920x1200@60Hz. No optical ports, no stated device total. The MSD300-1 is a different product with its own sheet and is not this entry."
     },
@@ -322,12 +389,14 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-novapro",
+      "connector": "ethercon",
       "trunks": 4,
       "trunkWord": "OPT",
       "portsPerTrunk": 8,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16, "copyTrunks": "per-box"}]},
+      "copyTrunksNote": "NovaPro UHD All-in-One Controller Specifications V1.2.0, Output table: \"OPT 3 is the copy/hot backup channel for OPT 1.\", \"OPT 4 is the copy/hot backup channel for OPT 2.\" Owner, 2026-11-02: a box on OPT 3/4 is set per box to Mirror (it feeds a mirror screen) or Backup (it backs up OPT 1/2), as on the MX40 Pro. Backup is the default.",
       "note": "16x Neutrik Gigabit Ethernet out, max 10,400,000 px. The four 10G OPTs add no ports - OPT 1/2 carry Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup channels - so a box on any OPT is another place to plug into ports the back of the unit already has. Its spec publishes no per-port pixel figure; the Jr's numbers are the Jr's."
     },
     {
@@ -337,12 +406,14 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-novapro",
+      "connector": "ethercon",
       "trunks": 4,
       "trunkWord": "OPT",
       "portsPerTrunk": 8,
       "trunkRate": "10G",
       "trunkDelivery": "copy",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16, "copyTrunks": "per-box"}]},
+      "copyTrunksNote": "NovaPro UHD Jr All-in-One Controller Specifications V1.5.1, OPT 1-4: \"Copy and hot backup modes are available when four OPT ports are all used for output.\", \"OPT 3 serves as the copy/hot backup for OPT 1.\", \"OPT 4 serves as the copy/hot backup for OPT 2.\" Owner, 2026-11-02: a box on OPT 3/4 is set per box to Mirror (it feeds a mirror screen) or Backup (it backs up OPT 1/2), as on the MX40 Pro. Backup is the default.",
       "note": "16x Neutrik Gigabit Ethernet out, max 10,400,000 px - per port 650,000 px on an 8-bit source, 320,000 on 10/12-bit. Same OPT shape as the NovaPro UHD: OPT 1/2 transmit Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup, available when all four OPTs are used for output. The OPTs add no ports."
     },
     {
@@ -352,8 +423,26 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "novastar-novapro",
+      "connector": "ethercon",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]},
       "note": "4x Gigabit Ethernet LED outputs; max 3840 px wide, 1920 px high - its sheets publish no total or per-port pixel figure, so none is claimed. It also has 4 optical fiber outputs no document maps to any port; they are 1G per Matt and useless with the CVT line, which is why no box hangs off this device."
+    },
+    {
+      "id": "novastar-4k-prime",
+      "vendor": "NovaStar",
+      "name": "4K-Prime",
+      "kind": "processor",
+      "form": "all-in-one",
+      "family": "novastar-prime",
+      "connector": "ethercon",
+      "trunks": 4,
+      "trunkWord": "OPT",
+      "portsPerTrunk": 8,
+      "trunkRate": "10G",
+      "trunkDelivery": "copy",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16, "copyTrunks": "per-box"}]},
+      "copyTrunksNote": "4K-Prime All-in-One Controller Specifications V1.0.0, Output table, OPT 1-4: \"4 optical fiber connectors support copy and hot backup modes when used for output simultaneously.\", \"OPT 3 serves as the copy/hot backup for OPT 1.\", \"OPT 4 serves as the copy/hot backup for OPT 2.\" Owner, 2026-11-02: a box on OPT 3/4 is set per box to Mirror (it feeds a mirror screen) or Backup (it backs up OPT 1/2), as on the MX40 Pro. Backup is the default.",
+      "note": "4K-Prime All-in-One Controller Specifications V1.0.0: 16x Neutrik Gigabit Ethernet out, max 10,400,000 px, max 16K wide and 8K high; per port 650,000 px on an 8-bit source, 320,000 on 10/12-bit. Up to 4 units load one large screen. Same OPT shape as the NovaPro UHD Jr: OPT 1/2 transmit Ethernet 1-8 / 9-16 and OPT 3/4 are their copy/hot backup, available when all four OPTs are used for output. The OPTs add no ports. The sheet states no OPT line rate; the 10G is the owner's ruling. Owner, 2026-11-04: \"It's 10G, I know it\"."
     },
 
     {
@@ -459,6 +548,7 @@
       "connector": "rj45",
       "trunks": 0,
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 20}]},
+      "screenExcludes": ["novastar-card-h-4xfiber", "novastar-card-h-4xfiber-enhanced"],
       "note": "Occupies 2 chassis slots, but the documented chassis limits are card counts and are NOT halved for it - an H15 still takes 10. Copper only: no OPT, so no CVT can hang off it at all."
     },
     {
@@ -474,6 +564,9 @@
       "trunkRate": "10G",
       "trunkDelivery": "copy",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "plugChoice": {"ports": 16},
+      "plugChoiceNote": "OPT 1 copies Ethernet 1-8 and OPT 2 copies 9-16 (H15 Video Wall Splicer Specifications V1.15.0: \"two OPT ports that copy the outputs on Ethernet ports\"), and both get used on one card (owner, 2026-10-30: \"Yes, I've done it\"). Each port plugs in at ONE place, chosen per port: the card's own RJ45 or the box's socket.",
+      "screenExcludes": ["novastar-card-h-4xfiber", "novastar-card-h-4xfiber-enhanced"],
       "note": "The OPT ports copy Ethernet 1-8 / 9-16, so they add no ports - a breakout box on OPT 1 is another place to plug into ports 1-8, not eight more ports. Both deliveries are real and both get used: patch the copper on the card, or take the same ports out at a box across the room. Counted as an RJ45 sending card against the H9 Enhanced limit; no document says which side of that split a mixed card falls on."
     },
     {
@@ -493,9 +586,13 @@
         "defaultMode": "independent",
         "modes": [
           {"id": "independent", "label": "Independent", "count": 32},
-          {"id": "copy-backup", "label": "Copy / Backup", "count": 16}
+          {"id": "copy", "label": "Copy", "count": 16, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 16, "copyTrunks": "backup", "aliases": ["copy-backup"]}
         ]
       },
+      "modesNote": "H15 Video Wall Splicer Specifications V1.15.0 p.36 (H2/H5 V1.17.0 and H9 V1.16.0 say the same): \"Independent, copy and backup modes are supported.\" Independent: four OPTs, one block of 8 each. Copy: \"OPT 3 copies the output on OPT 1, while OPT 4 copies the output on OPT 2\" - the copies feed a mirror screen. Backup: \"OPT 3 serves as the backup of OPT 1, while OPT 4 serves as the backup of OPT 2.\" Files saved with the old combined mode copy-backup open as Backup, the way they behaved.",
+      "screenExcludes": ["novastar-card-h-20xrj45", "novastar-card-h-16xrj45-2xfiber", "novastar-card-h-4xfiber-enhanced"],
+      "screenRuleNote": "H15 Video Wall Splicer Specifications V1.15.0 p.2: \"The fiber sending card cannot be used together with the H_20xRJ45 sending card or H_16xRJ45+2xfiber sending card to load the same screen\", and the same page: the enhanced card \"cannot be used together with the H_4xfiber sending card to load the same screen\".",
       "note": "4x 10G OPT at 8B/10B, one OPT = 8 Ethernet ports. Max 20,800,000 px. Cannot share a screen with RJ45 cards. Needs NovaLCT 5.4.8."
     },
     {
@@ -505,14 +602,24 @@
       "kind": "card",
       "family": "novastar-h",
       "connector": "fiber",
-      "trunks": 4,
+      "trunks": 8,
       "trunkWord": "OPT",
       "portsPerTrunk": 10,
       "trunkRate": "10G",
       "requiresDistribution": true,
       "requiresDistributionNote": "Owner, 2026-10-04: \"when using quad opt or quad opt enhanced which is 8 OPT's, you cannot show it as having 32 or 40/80 with backup without having CVT's\" - and every fiber-only card the same. No port of its own: every port comes out of a breakout box on an OPT, so a bare card has none.",
-      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 40}]},
-      "note": "EIGHT 10G connectors but still four primaries - OPT 5-8 back up OPT 1-4 - and one OPT = 10 Ethernet ports. 4 x 10 = 40. Counting connectors gets this wrong in both directions: not 8, not 80. Max 26,000,000 px. Needs NovaLCT 5.8.0 or above."
+      "ports": {
+        "defaultMode": "backup",
+        "modes": [
+          {"id": "copy", "label": "Copy", "count": 40, "copyTrunks": "mirror"},
+          {"id": "backup", "label": "Backup", "count": 40, "copyTrunks": "backup", "aliases": ["default"]}
+        ]
+      },
+      "modesNote": "H15 Video Wall Splicer Specifications V1.15.0 p.37: \"8x 10G OPT Ports\", \"OPT 1 to OPT 4 serve as the primary ports, and OPT 5 to OPT 8 serve as the backup ones\", \"OPT 5 backs up or copies the output on OPT 1\" (6 on 2, 7 on 3, 8 on 4), \"Copy and backup modes are supported.\" No independent mode. A file saved before the modes reads Backup: 40 ports on OPT 1-4 and nothing on OPT 5-8 is what it always was.",
+      "screenExcludes": ["novastar-card-h-4xfiber", "novastar-card-h-20xrj45", "novastar-card-h-16xrj45-2xfiber"],
+      "screenSameMode": true,
+      "screenRuleNote": "H15 Video Wall Splicer Specifications V1.15.0 p.37-38: \"This card cannot be used together with the H_4xfiber sending card, H_20xRJ45 sending card or H_16xRJ45+2xfiber sending card to load the same screen\" and \"Only the cards set in the same modes can be used together to load a screen.\"",
+      "note": "EIGHT 10G connectors but still four primaries - OPT 5-8 back up or copy OPT 1-4 - and one OPT = 10 Ethernet ports. 4 x 10 = 40. Counting connectors gets this wrong in both directions: not 8, not 80. Max 26,000,000 px. Needs NovaLCT 5.8.0 or above."
     },
     {
       "id": "novastar-card-mx-4x10g",
@@ -552,7 +659,11 @@
       "vendor": "NovaStar",
       "name": "CVT4K-S",
       "kind": "cvt",
+      "fiberMode": "single",
+      "fiberModeNote": "NovaStar's CVT4K-S sheet: \"4x Single-mode twin-core LC optical ports\", 1310 nm, 10 km, OS1/OS2 fiber. Its multimode twin is the CVT4K-M. Owner, 2026-11-04: \"if the M variants are selected then the fiber will be multimode yes\". The -M behaves exactly as its -S twin in every other way: ports, inputs, OPTs, 10G rate, backup and copy.",
+      "fiberModeSource": "https://oss.novastar.tech/uploads/2024/10/CVT4K-S-Fiber-Converter-Specifications-V1.0.6.pdf",
       "family": "novastar",
+      "connector": "ethercon",
       "trunksIn": 2,
       "trunkRate": "10G",
       "linkPorts": {"primary": ["OPT1", "OPT2"], "backup": ["OPT3", "OPT4"]},
@@ -561,6 +672,8 @@
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
       "capAtTrunk": true,
       "singleInput": {"ports": 8},
+      "inputOutputs": 8,
+      "inputOutputsNote": "Owner, 2026-11-03: \"the cvt 1-8 is locked to opt 1 always\". Outputs 1-8 belong to input 1 and input 2 always starts at output 9, whatever processor feeds it: on 4-port OPTs the main OPT is outputs 1-4 and the copy or backup OPT 9-12 (5-8 empty), on 6-port OPTs 1-6 and 9-14.",
       "singleInputNote": "Owner, 2026-09-26: \"it is technically possible on a UHD Junior that has four optical ports that I use for CVT 4K's. And each one only uses one optical port.\" On ONE OPT the box carries only that OPT's share - 8 of its 16 outputs, fewer where the trunk carries fewer - so on a UHD Jr OPT 1 = Ethernet 1-8, OPT 2 = 9-16, OPT 3/4 copies of them. Set per box with a switch on the box (inputs: 1).",
       "note": "16x Neutrik etherCON out on 2 OPT in. Its four LC connectors are TWO optical ports - LC is duplex - and counting them as four would double the box. Two OPTs at 8 per trunk is exactly its 16, so behind an H_4xfiber it delivers the lot; one box also takes both OPTs of an H_16xRJ45+2xfiber and delivers all 16 there, where CVT10s need two boxes."
     },
@@ -568,9 +681,13 @@
     {
       "id": "novastar-cvt10",
       "vendor": "NovaStar",
-      "name": "CVT10",
+      "name": "CVT10-S",
       "kind": "cvt",
+      "fiberMode": "single",
+      "fiberModeNote": "NovaStar's CVT10 sheet: \"Models include the CVT10-S (single-mode) and the CVT10-M (multi-mode)\"; the CVT10-S is 1310 nm, 10 km, OS1/OS2 fiber. The id stays novastar-cvt10 so a show saved with a CVT10 opens as the CVT10-S. Owner, 2026-11-04: \"if the M variants are selected then the fiber will be multimode yes\". The -M behaves exactly as its -S twin in every other way: ports, inputs, OPTs, 10G rate, backup and copy.",
+      "fiberModeSource": "https://oss.novastar.tech/uploads/2025/10/CVT10-Fiber-Converter-Specifications-V1.3.5.pdf",
       "family": "novastar",
+      "connector": "rj45",
       "trunksIn": 1,
       "trunkRate": "10G",
       "linkPorts": {"primary": ["OPT 1"], "backup": ["OPT 2"]},
@@ -584,10 +701,79 @@
     {
       "id": "novastar-cvt10-pro",
       "vendor": "NovaStar",
-      "name": "CVT10 Pro",
+      "name": "CVT10 Pro-S",
       "bidi": false,
       "kind": "cvt",
+      "fiberMode": "single",
+      "fiberModeNote": "NovaStar's CVT10 Pro sheet: \"Models include the CVT10 Pro-S (single-mode) and the CVT10 Pro-M (multi-mode)\"; the Pro-S is 1310 nm, 10 km, OS1/OS2 fiber. The id stays novastar-cvt10-pro so a show saved with a CVT10 Pro opens as the CVT10 Pro-S. Owner, 2026-11-04: \"if the M variants are selected then the fiber will be multimode yes\". The -M behaves exactly as its -S twin in every other way: ports, inputs, OPTs, 10G rate, backup and copy.",
+      "fiberModeSource": "https://oss.novastar.tech/uploads/2024/10/CVT10-Pro-Fiber-Converter-Specifications-V1.1.0.pdf",
       "family": "novastar",
+      "connector": "ethercon",
+      "trunksIn": 1,
+      "trunkRate": "10G",
+      "linkPorts": {"primary": ["OPT 1"], "backup": ["OPT 2"]},
+      "linkPortsNote": "NovaStar: \"OPT 1 is the primary port and OPT 2 is the backup port.\" Spelled as the rear panel and its table print it, with a space (\"OPT 1/OPT 2 - 10G optical ports\"); the indicator table runs them together as OPT1/OPT2.",
+      "linkPortsSource": "https://oss.novastar.tech/uploads/2024/10/CVT10-Pro-Fiber-Converter-Specifications-V1.1.0.pdf",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "capAtTrunk": true,
+      "note": "Same figures as the CVT10: 1 OPT in, 10 ports on a 10.3125 Gbps 64B/66B trunk and only the first 8 from a 10G 8B/10B source."
+    },
+
+    {
+      "id": "novastar-cvt4k-m",
+      "vendor": "NovaStar",
+      "name": "CVT4K-M",
+      "kind": "cvt",
+      "fiberMode": "multi",
+      "fiberModeNote": "NovaStar's CVT4K-M sheet: \"4x Multi-mode twin-core LC optical ports\", 850 nm, 300 m, OM3/OM4 fiber. Its single mode twin is the CVT4K-S. Owner, 2026-11-04: \"if the M variants are selected then the fiber will be multimode yes\". The -M behaves exactly as its -S twin in every other way: ports, inputs, OPTs, 10G rate, backup and copy.",
+      "fiberModeSource": "https://oss.novastar.tech/uploads/2024/10/CVT4K-M-Fiber-Converter-Specifications-V1.0.5.pdf",
+      "family": "novastar",
+      "connector": "ethercon",
+      "trunksIn": 2,
+      "trunkRate": "10G",
+      "linkPorts": {"primary": ["OPT1", "OPT2"], "backup": ["OPT3", "OPT4"]},
+      "linkPortsNote": "OPT1 and OPT2 take the main processor, OPT3 and OPT4 the backup processor. Spelled as NovaStar's CVT4K-M specifications spell them, with no space: \"OPT1~OPT4 4x optical ports\", \"OPT3 is the backup of OPT1 and OPT4 is the backup of OPT2\".",
+      "linkPortsSource": "https://oss.novastar.tech/uploads/2024/10/CVT4K-M-Fiber-Converter-Specifications-V1.0.5.pdf",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 16}]},
+      "capAtTrunk": true,
+      "singleInput": {"ports": 8},
+      "inputOutputs": 8,
+      "inputOutputsNote": "Owner, 2026-11-03: \"the cvt 1-8 is locked to opt 1 always\". Outputs 1-8 belong to input 1 and input 2 always starts at output 9, whatever processor feeds it: on 4-port OPTs the main OPT is outputs 1-4 and the copy or backup OPT 9-12 (5-8 empty), on 6-port OPTs 1-6 and 9-14.",
+      "singleInputNote": "Owner, 2026-09-26: \"it is technically possible on a UHD Junior that has four optical ports that I use for CVT 4K's. And each one only uses one optical port.\" On ONE OPT the box carries only that OPT's share - 8 of its 16 outputs, fewer where the trunk carries fewer - so on a UHD Jr OPT 1 = Ethernet 1-8, OPT 2 = 9-16, OPT 3/4 copies of them. Set per box with a switch on the box (inputs: 1).",
+      "note": "16x Neutrik etherCON out on 2 OPT in. Its four LC connectors are TWO optical ports - LC is duplex - and counting them as four would double the box. Two OPTs at 8 per trunk is exactly its 16, so behind an H_4xfiber it delivers the lot; one box also takes both OPTs of an H_16xRJ45+2xfiber and delivers all 16 there, where CVT10s need two boxes."
+    },
+
+    {
+      "id": "novastar-cvt10-m",
+      "vendor": "NovaStar",
+      "name": "CVT10-M",
+      "kind": "cvt",
+      "fiberMode": "multi",
+      "fiberModeNote": "NovaStar's CVT10 sheet: \"Models include the CVT10-S (single-mode) and the CVT10-M (multi-mode)\"; the CVT10-M is 850 nm, 300 m, OM3/OM4 fiber. Owner, 2026-11-04: \"if the M variants are selected then the fiber will be multimode yes\". The -M behaves exactly as its -S twin in every other way: ports, inputs, OPTs, 10G rate, backup and copy.",
+      "fiberModeSource": "https://oss.novastar.tech/uploads/2025/10/CVT10-Fiber-Converter-Specifications-V1.3.5.pdf",
+      "family": "novastar",
+      "connector": "rj45",
+      "trunksIn": 1,
+      "trunkRate": "10G",
+      "linkPorts": {"primary": ["OPT 1"], "backup": ["OPT 2"]},
+      "linkPortsNote": "NovaStar: OPT 1 is the primary port and OPT 2 is the backup port. Spelled as the unit's panel prints it, with a space (\"OPT 1\" / \"OPT 2\" on the front indicators and the rear SFP cages, and the sheet's own \"The OPT 1 and OPT 2 come pre-installed\"); the sheet's indicator table runs them together as OPT1/OPT2.",
+      "linkPortsSource": "https://oss.novastar.tech/uploads/2025/10/CVT10-Fiber-Converter-Specifications-V1.3.5.pdf",
+      "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 10}]},
+      "capAtTrunk": true,
+      "note": "10 ports on a 10.3125 Gbps 64B/66B trunk, 8 on an 8B/10B one - the box fans out whatever the trunk carries, so its real count is capped by the card's ports per fiber."
+    },
+
+    {
+      "id": "novastar-cvt10-pro-m",
+      "vendor": "NovaStar",
+      "name": "CVT10 Pro-M",
+      "bidi": false,
+      "kind": "cvt",
+      "fiberMode": "multi",
+      "fiberModeNote": "NovaStar's CVT10 Pro sheet: \"Models include the CVT10 Pro-S (single-mode) and the CVT10 Pro-M (multi-mode)\"; the Pro-M is 850 nm, 300 m, OM3/OM4 fiber. Owner, 2026-11-04: \"if the M variants are selected then the fiber will be multimode yes\". The -M behaves exactly as its -S twin in every other way: ports, inputs, OPTs, 10G rate, backup and copy.",
+      "fiberModeSource": "https://oss.novastar.tech/uploads/2024/10/CVT10-Pro-Fiber-Converter-Specifications-V1.1.0.pdf",
+      "family": "novastar",
+      "connector": "ethercon",
       "trunksIn": 1,
       "trunkRate": "10G",
       "linkPorts": {"primary": ["OPT 1"], "backup": ["OPT 2"]},
@@ -604,6 +790,7 @@
       "name": "CVT8-5G",
       "kind": "cvt",
       "family": "novastar",
+      "connector": "rj45",
       "trunksIn": 1,
       "trunkRate": "40G",
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
@@ -618,6 +805,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "connector": "ethercon",
       "canvas": {"says": "An SX40", "presets": [[4096, 2160]], "custom": {"maxW": 4094, "maxH": 4095, "maxPixels": 9000000, "evenWidth": true}, "ull": {"maxH": 2047, "presets": false}, "source": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/06.3%20-%20Canvas%20Resolutions.htm", "sourceText": "Width: Minimum: 720 pixels Maximum: 4094 pixels It must be an even value. Height Minimum: 720 pixels Maximum: 4095 pixels. The maximum total number of supported pixels is 9,000,000. 4K DCI (4096x2160) or 4K UHD (3840x2160) can be selected as native resolutions.", "ullSource": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/12.2.4%20-%20Ultra%20Low%20Latency.htm", "ullSourceText": "Maximum (px): Height 2047, Width 4094"},
       "trunks": 4,
       "trunkRate": "10G",
@@ -636,6 +824,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "connector": "ethercon",
       "canvas": {"says": "An S8", "presets": [[4096, 2160]], "custom": {"maxW": 4094, "maxH": 4095, "maxPixels": 9000000, "evenWidth": true}, "ull": {"maxH": 2047, "presets": false}, "source": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/06.3%20-%20Canvas%20Resolutions.htm", "sourceText": "Width: Minimum: 720 pixels Maximum: 4094 pixels It must be an even value. Height Minimum: 720 pixels Maximum: 4095 pixels. The maximum total number of supported pixels is 9,000,000. 4K DCI (4096x2160) or 4K UHD (3840x2160) can be selected as native resolutions.", "ullSource": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/12.2.4%20-%20Ultra%20Low%20Latency.htm", "ullSourceText": "Maximum (px): Height 2047, Width 4094"},
       "redundancy": {"supported": true, "halvesPorts": true, "pairing": "adjacent"},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 8}]},
@@ -648,6 +837,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "connector": "ethercon",
       "canvas": {"says": "An S4", "presets": [[1920, 1080], [1080, 1920], [1600, 1200], [2880, 720], [720, 2880]], "source": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/06.3%20-%20Canvas%20Resolutions.htm", "sourceText": "The native canvas size for processors is 1920x1080 pixels. Non-standard sizes: 1080x1920, 1600x1200, 2880x720, 720x2880."},
       "redundancy": {"supported": true, "halvesPorts": true},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
@@ -659,6 +849,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "connector": "ethercon",
       "canvas": {"says": "An M2", "presets": [[1920, 1080], [1080, 1920], [1600, 1200], [2880, 720], [720, 2880]], "source": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/06.3%20-%20Canvas%20Resolutions.htm", "sourceText": "The native canvas size for processors is 1920x1080 pixels. Non-standard sizes: 1080x1920, 1600x1200, 2880x720, 720x2880."},
       "redundancy": {"supported": true, "halvesPorts": true},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 4}]}
@@ -670,6 +861,7 @@
       "kind": "processor",
       "form": "all-in-one",
       "family": "brompton",
+      "connector": "ethercon",
       "canvas": {"says": "A T1", "presets": [[1920, 1080], [1080, 1920], [1600, 1200], [2880, 720], [720, 2880]], "source": "https://www.bromptontech.com/online-help/Content/Tessera%20User%20Manual/03.%20Features/06.3%20-%20Canvas%20Resolutions.htm", "sourceText": "The native canvas size for processors is 1920x1080 pixels. Non-standard sizes: 1080x1920, 1600x1200, 2880x720, 720x2880."},
       "redundancy": {"supported": false},
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 1}]},
@@ -718,6 +910,7 @@
       "name": "XD",
       "kind": "cvt",
       "family": "brompton",
+      "connector": "ethercon",
       "capAtTrunk": true,
       "linkPorts": {"primary": ["X1"], "backup": ["X2"]},
       "linkPortsNote": "X1 takes the main processor, X2 the backup processor (owner, 2026-09-25: \"sx40 primary uses X1 and backup uses x2. x1 and 2 are on all XD boxes\").",
@@ -732,6 +925,7 @@
       "name": "XD-S",
       "kind": "cvt",
       "family": "brompton",
+      "connector": "rj45",
       "capAtTrunk": true,
       "linkPorts": {"primary": ["X1"], "backup": ["X2"]},
       "linkPortsNote": "X1 takes the main processor, X2 the backup processor (owner, 2026-09-25: \"sx40 primary uses X1 and backup uses x2. x1 and 2 are on all XD boxes\").",
@@ -744,6 +938,7 @@
       "name": "XD-T",
       "kind": "cvt",
       "family": "brompton",
+      "connector": "ethercon",
       "capAtTrunk": true,
       "linkPorts": {"primary": ["X1"], "backup": ["X2"]},
       "linkPortsNote": "X1 takes the main processor, X2 the backup processor (owner, 2026-09-25: \"sx40 primary uses X1 and backup uses x2. x1 and 2 are on all XD boxes\").",
@@ -813,6 +1008,7 @@
       "name": "RS12 / MSM4214X",
       "kind": "cvt",
       "family": "megapixel",
+      "connector": "ethercon",
       "capAtTrunk": false,
       "ports": {"defaultMode": "default", "modes": [{"id": "default", "label": "", "count": 12}]},
       "note": "12x 1/2.5Gb etherCON out; fiber ports 13/14 come IN from the HELIOS. Port 13 feeds outputs 1-6 and port 14 feeds 7-12; they are not interchangeable. 1G vs 2.5G is a per-port rate set by the tile, not a different port count. Its spare SFP slot cannot add a port."
@@ -823,6 +1019,7 @@
       "name": "GSM4210P (legacy)",
       "kind": "cvt",
       "family": "megapixel",
+      "connector": "rj45",
       "capAtTrunk": false,
       "ports": {
         "defaultMode": "base",

@@ -67,7 +67,7 @@ def _guard(server_project_guard):
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context()
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}"
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
     )
     pg = context.new_page()
     pg.goto(e2e_server, wait_until='domcontentloaded')
@@ -90,7 +90,8 @@ window.__cx = {
             panel_width_mm: 500, panel_height_mm: 500,
             offset_x: 0, offset_y: 0,
             panel_weight: 20, weight_unit: 'kg',
-            panelWatts: 200, powerVoltage: 208, powerAmperage: 20,
+            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
+            panelWatts: 200, powerVoltage: 208, powerAmperage: 25,
             processorType: 'brompton', bitDepth: 8, frameRate: 60,
             lowLatency: false,
             color1: { r: 64, g: 70, b: 128 }, color2: { r: 149, g: 156, b: 184 },
@@ -600,7 +601,7 @@ def test_a_cross_member_conflict_rejects_the_whole_apply_and_names_the_screen(pa
     # Names the cabinet's screen AND the port that holds it. R2C2 alone stops
     # meaning anything the moment two grids are in play.
     assert 'R2C2 on Half Panels' in msg, msg
-    assert 'port 2' in msg, msg
+    assert 'P2' in msg, msg
 
 
 def test_a_conflict_on_a_peers_own_port_is_seen_and_named(page):
@@ -619,7 +620,7 @@ def test_a_conflict_on_a_peers_own_port_is_seen_and_named(page):
     """)
     assert result['port1'] == [], result['port1']
     msg = result['toasts'][0]
-    assert 'port 3 on Half Panels' in msg, msg
+    assert 'P3 on Half Panels' in msg, msg
 
 
 def test_a_clean_apply_leaves_no_toast_and_one_history_step(page):

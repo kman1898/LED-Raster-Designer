@@ -25,12 +25,59 @@ Object.assign(CanvasRenderer.prototype, {
         this._lockedDragPending = null;
         this._lockedDragSaid = null;
 
+        // Rigging view: a plain left press on a header bar picks it up; the
+        // move re-orders the screen's bars and the release saves them.
+        if (this.viewMode === 'rigging' && e.button === 0 && !this.spacePressed
+                && !e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+            // An edge between two bars is checked first: dragging it widens
+            // the bar it belongs to and shortens its neighbour.
+            const edge = this.riggingEdgeAt(mouseX, mouseY);
+            const bar = edge ? null : this.riggingBarAt(mouseX, mouseY);
+            const app = window.app;
+            const hit = edge || bar;
+            const layer = hit && app && app.project
+                ? app.project.layers.find(l => l.id === hit.layerId) : null;
+            if (layer) {
+                if (app._layerLocked(layer)) {
+                    app._showLockedError([layer]);
+                    return;
+                }
+                if (!(app.selectedLayerIds && app.selectedLayerIds.has(layer.id))) {
+                    app.setSelectedLayersByIds([layer.id], layer.id);
+                }
+                // Header and footer bars are separate rows on the screen; the
+                // press says which one it is in.
+                const row = hit.row === 'footer' ? 'footer' : 'header';
+                const field = row === 'footer' ? 'riggingFooterBars' : 'riggingBars';
+                this._riggingDrag = edge ? {
+                    kind: 'edge', row, field, layerId: layer.id, boundary: edge.boundary, startX: mouseX,
+                    unitPx: edge.unitPx, dir: edge.dir,
+                    original: layer[field].slice(),
+                } : {
+                    kind: 'move', row, field, layerId: layer.id, index: bar.index, startX: mouseX,
+                    unitPx: bar.unitPx, dir: bar.dir,
+                    original: layer[field].slice(),
+                };
+                this.canvas.style.cursor = edge ? 'ew-resize' : 'grabbing';
+                this.render();
+                return;
+            }
+        }
+
         // A plain left press anywhere drops the sweep selection - the same
         // click-away every selection obeys. A RIGHT press keeps it: the
         // selection exists exactly so the right-click can deal it.
         if (e.button === 0 && !e.altKey && window.app
                 && window.app._sweepSelection) {
             window.app._sweepSelection = null;
+            this.render();
+        }
+        // The data ports picked with Shift go the same way on a plain
+        // press; Shift adds to them, and a right press is what deals them.
+        this._portPickPending = null;
+        if (e.button === 0 && !e.altKey && !e.shiftKey && window.app
+                && window.app._portPicks) {
+            window.app._portPicks = null;
             this.render();
         }
 
@@ -73,7 +120,7 @@ Object.assign(CanvasRenderer.prototype, {
                 // The name's place is part of a locked screen too: the press
                 // is held, and if it turns into a drag the error says why
                 // the label stays put (a click on it changes nothing).
-                if (window.app.currentLayer.locked) {
+                if (window.app._layerLocked(window.app.currentLayer)) {
                     this._armLockedDrag([window.app.currentLayer], e);
                     return;
                 }
@@ -95,6 +142,9 @@ Object.assign(CanvasRenderer.prototype, {
                 } else if (this.viewMode === 'power') {
                     currentOffsetX = layer.screenNameOffsetXPower || 0;
                     currentOffsetY = layer.screenNameOffsetYPower || 0;
+                } else if (this.viewMode === 'rigging') {
+                    currentOffsetX = layer.screenNameOffsetXRigging || 0;
+                    currentOffsetY = layer.screenNameOffsetYRigging || 0;
                 } else if (this.viewMode === 'show-look') {
                     currentOffsetX = layer.screenNameOffsetXShowLook || 0;
                     currentOffsetY = layer.screenNameOffsetYShowLook || 0;
@@ -222,10 +272,23 @@ Object.assign(CanvasRenderer.prototype, {
                     // the selection before its cabinets could be picked.
                     const reachGesture = this._isCustomPathGesture(layer)
                         || this._isPixelMapCabinetGesture(layer);
+                    // A press on a screen that is already selected keeps the
+                    // selection through the canvas switch: whatever the
+                    // gesture turns out to be narrows it itself (selectLayer
+                    // below, or mouse-up's click), and on Pixel Map a click
+                    // on the current screen's cabinet is a cabinet click
+                    // that keeps every selected screen. Since a cabinet
+                    // picked on another selected screen activates that
+                    // screen's canvas (mouse-up), the current screen can sit
+                    // on a canvas that is not active, and pressing its
+                    // cabinet must not cull the others.
                     if (!reachGesture && layer.canvas_id
                         && window.app.project.active_canvas_id !== layer.canvas_id
                         && typeof window.app.setActiveCanvas === 'function') {
-                        window.app.setActiveCanvas(layer.canvas_id);
+                        const pressedSelected = !!(window.app.selectedLayerIds
+                            && window.app.selectedLayerIds.has(layer.id));
+                        window.app.setActiveCanvas(layer.canvas_id,
+                            pressedSelected ? { preserveSelection: true } : {});
                     }
                     if ((!window.app.currentLayer || window.app.currentLayer.id !== layer.id)
                         && !reachGesture
@@ -256,6 +319,26 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
         
+        // Data view: Shift+press on a run PICKS ports for "Redraw ports ...
+        // as one" (the owner, 2026-11-02). Released inside the click
+        // threshold it toggles that run; dragged past it, it is a box, and
+        // every port of that run's screen the box touches is picked
+        // (app-merge-runs.js). A Shift+press off every run - empty canvas,
+        // or the screen-name label itself - is still the label drag below.
+        if (e.button === 0 && e.shiftKey && !e.altKey && !this.spacePressed
+                && this.viewMode === 'data-flow' && window.app
+                && typeof window.app.runAtPoint === 'function'
+                && !this._pressOnScreenName(worldX, worldY)) {
+            const run = window.app.runAtPoint(worldX, worldY);
+            if (run && run.kind === 'data') {
+                this._portPickPending = {
+                    worldX, worldY, rect: null, preview: null,
+                    run: { layerId: run.layer.id, num: run.num },
+                };
+                return;
+            }
+        }
+
         if (e.button === 0 && e.shiftKey) {
             // Let shift+drag behavior handle screen name move on cabinet-id /
             // data-flow / power. On pixel-map and show-look, fall through so
@@ -268,7 +351,7 @@ Object.assign(CanvasRenderer.prototype, {
                 const layerType = window.app.currentLayer.type || 'screen';
                 const isScreenLayer = layerType === 'screen';
                 if (isScreenLayer && this.viewMode !== 'pixel-map' && this.viewMode !== 'show-look') {
-                    if (window.app.currentLayer.locked) {
+                    if (window.app._layerLocked(window.app.currentLayer)) {
                         this._armLockedDrag([window.app.currentLayer], e);
                         return;
                     }
@@ -291,6 +374,9 @@ Object.assign(CanvasRenderer.prototype, {
                     } else if (this.viewMode === 'power') {
                         currentOffsetX = window.app.currentLayer.screenNameOffsetXPower || 0;
                         currentOffsetY = window.app.currentLayer.screenNameOffsetYPower || 0;
+                    } else if (this.viewMode === 'rigging') {
+                        currentOffsetX = window.app.currentLayer.screenNameOffsetXRigging || 0;
+                        currentOffsetY = window.app.currentLayer.screenNameOffsetYRigging || 0;
                     }
 
                     this.screenNameStartOffset = { x: currentOffsetX, y: currentOffsetY };
@@ -443,11 +529,11 @@ Object.assign(CanvasRenderer.prototype, {
                     // Relative offsets are preserved for free: the drag applies
                     // ONE delta to every entry in dragLayerOffsets below.
                     this._addGroupPeersToDrag(uniqueSelected);
-                    const movable = uniqueSelected.filter(layer => !layer.locked);
+                    const movable = uniqueSelected.filter(layer => !window.app._layerLocked(layer));
                     // A locked screen stays where it is; once the press is
                     // really a drag, the error names it - once per gesture,
                     // not on every move. The unlocked ones still move.
-                    const lockedInDrag = uniqueSelected.filter(layer => layer.locked);
+                    const lockedInDrag = uniqueSelected.filter(layer => window.app._layerLocked(layer));
                     if (lockedInDrag.length) this._armLockedDrag(lockedInDrag, e);
                     if (movable.length === 0) {
                         if (typeof sendClientLog === 'function') {
@@ -509,7 +595,7 @@ Object.assign(CanvasRenderer.prototype, {
                     }
                 } else {
                     // Dragging screen name on cabinet-id, data-flow, power modes
-                    if (window.app.currentLayer.locked) {
+                    if (window.app._layerLocked(window.app.currentLayer)) {
                         this._armLockedDrag([window.app.currentLayer], e);
                         return;
                     }
@@ -530,6 +616,9 @@ Object.assign(CanvasRenderer.prototype, {
                     } else if (this.viewMode === 'power') {
                         currentOffsetX = window.app.currentLayer.screenNameOffsetXPower || 0;
                         currentOffsetY = window.app.currentLayer.screenNameOffsetYPower || 0;
+                    } else if (this.viewMode === 'rigging') {
+                        currentOffsetX = window.app.currentLayer.screenNameOffsetXRigging || 0;
+                        currentOffsetY = window.app.currentLayer.screenNameOffsetYRigging || 0;
                     }
                     
                     this.screenNameStartOffset = {
@@ -575,28 +664,27 @@ Object.assign(CanvasRenderer.prototype, {
             // click it always was. Selection is session view state - never
             // a history entry (leading-underscore key, so snapshots skip it
             // by the _snapshotReplacer convention).
-            if (this.viewMode === 'power') {
+            // DATA arms the same two (the owner, 2026-11-02: "Data should
+            // match Power"): past the threshold the sweep PICKS every port
+            // it crosses, into the picks Shift makes, for "Redraw ports N-M
+            // as one" (app-merge-runs.js sweepPortPicks); released inside
+            // it, the press is the Alt+click that takes one port over for
+            // hand-redrawing (or reopens one already taken). The highlight
+            // the held Alt paints (see handleMouseMove) is the affordance.
+            if (this.viewMode === 'power' || this.viewMode === 'data-flow') {
+                const kind = this.viewMode === 'power' ? 'power' : 'data';
                 e.preventDefault();
+                this._altPressReleasesField();
                 const run = window.app
                     && typeof window.app.runAtPoint === 'function'
                     ? window.app.runAtPoint(worldX, worldY) : null;
                 this._sweepPending = {
-                    sx: e.clientX, sy: e.clientY, worldX, worldY,
+                    kind, sx: e.clientX, sy: e.clientY, worldX, worldY,
+                    lastX: worldX, lastY: worldY,
                     active: false,
-                    anchor: (run && run.kind === 'power')
+                    anchor: (run && run.kind === kind)
                         ? { ownerId: run.layer.id, num: run.num } : null,
                 };
-                return;
-            }
-            // Data: Alt+click takes the run under the cursor over for
-            // hand-redrawing (or reopens one already taken). The highlight
-            // the held Alt paints (see handleMouseMove) is the affordance;
-            // the click is the commitment.
-            if (this.viewMode === 'data-flow') {
-                if (window.app && typeof window.app.handleOverrideClick === 'function') {
-                    e.preventDefault();
-                    window.app.handleOverrideClick(worldX, worldY);
-                }
                 return;
             }
             // Alt+click/drag toggles "blank" (hidden) on the panel.
@@ -632,7 +720,7 @@ Object.assign(CanvasRenderer.prototype, {
                     // says why.
                     const paintLayer = window.app.project
                         && window.app.project.layers.find(l => l.id === clickedPanel.layerId);
-                    if (paintLayer && paintLayer.locked) {
+                    if (paintLayer && window.app._layerLocked(paintLayer)) {
                         if (typeof window.app._showLockedError === 'function') {
                             window.app._showLockedError([paintLayer]);
                         }
@@ -686,6 +774,27 @@ Object.assign(CanvasRenderer.prototype, {
         const mouseY = e.clientY - rect.top;
         const worldY = (mouseY - this.panY) / this.zoom;
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom, worldY);
+
+        // A header bar in hand (see handleMouseDown): the screen's bars
+        // re-order live as it crosses its neighbours.
+        if (this._riggingDrag) {
+            const d = this._riggingDrag;
+            const layer = window.app && window.app.project
+                ? window.app.project.layers.find(l => l.id === d.layerId) : null;
+            if (layer && d.unitPx > 0) {
+                const panels = d.dir * (mouseX - d.startX) / d.unitPx;
+                if (d.kind === 'edge') {
+                    // the edge follows the mouse a whole panel at a time
+                    layer[d.field] = RiggingMath.resizeBoundary(d.original, d.boundary, panels);
+                } else {
+                    const moved = RiggingMath.moveBarWithSlot(d.original, d.index, panels);
+                    layer[d.field] = moved.bars;
+                    d.current = moved.slot;      // the bar in hand is drawn lit, wherever it landed
+                }
+                this.render();
+            }
+            return;
+        }
 
         // A press on a locked screen that has now moved past the click
         // threshold is a drag the lock refuses: say so, once.
@@ -756,9 +865,27 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
 
-        // An armed Alt+press in Power: inside the 4px threshold it is still
-        // a click-to-be; past it, the press becomes the SWEEP and collects
-        // the contiguous run range between the anchor and the cursor.
+        // An armed Shift+press on a data run: past the click threshold it
+        // is the pick box, and the ports it touches light as it grows.
+        if (this._portPickPending) {
+            const p = this._portPickPending;
+            if (!p.rect) {
+                if (!this._pressPastClick(e)) return;
+                p.rect = { x1: p.worldX, y1: p.worldY, x2: worldX, y2: worldY };
+            }
+            p.rect.x2 = worldX;
+            p.rect.y2 = worldY;
+            if (window.app && typeof window.app.portsInWorldRect === 'function') {
+                p.preview = window.app.portsInWorldRect(p.run.layerId, p.rect);
+            }
+            this.render();
+            return;
+        }
+
+        // An armed Alt+press in Power or Data: inside the 4px threshold it
+        // is still a click-to-be; past it, the press becomes the SWEEP. In
+        // Power it collects the contiguous run range between the anchor and
+        // the cursor; in Data it picks every port it crosses.
         if (this._sweepPending) {
             const p = this._sweepPending;
             if (!p.active) {
@@ -774,7 +901,8 @@ Object.assign(CanvasRenderer.prototype, {
                     window.app.updateOverrideHover(false, 0, 0);
                 }
             }
-            this._sweepExtend(worldX, worldY, e.clientX, e.clientY);
+            if (p.kind === 'data') this._portSweepExtend(worldX, worldY);
+            else this._sweepExtend(worldX, worldY, e.clientX, e.clientY);
             return;
         }
 
@@ -871,7 +999,7 @@ Object.assign(CanvasRenderer.prototype, {
                     : [{ id: window.app.currentLayer.id, startX: this.layerStartOffset.x, startY: this.layerStartOffset.y }];
                 const movable = selected.filter(item => {
                     const layer = window.app.project.layers.find(l => l.id === item.id);
-                    return layer && !layer.locked;
+                    return layer && !window.app._layerLocked(layer);
                 });
                 if (movable.length === 0) {
                     return;
@@ -879,7 +1007,7 @@ Object.assign(CanvasRenderer.prototype, {
                 const showMode = this.dragLayerMode === 'show';
                 movable.forEach(item => {
                     const layer = window.app.project.layers.find(l => l.id === item.id);
-                    if (!layer || layer.locked) return;
+                    if (!layer || window.app._layerLocked(layer)) return;
                     const nextX = item.startX + snapDx;
                     const nextY = item.startY + snapDy;
                     if (showMode) {
@@ -995,6 +1123,9 @@ Object.assign(CanvasRenderer.prototype, {
                 } else if (this.viewMode === 'power') {
                     layer.screenNameOffsetXPower = newOffsetX;
                     layer.screenNameOffsetYPower = newOffsetY;
+                } else if (this.viewMode === 'rigging') {
+                    layer.screenNameOffsetXRigging = newOffsetX;
+                    layer.screenNameOffsetYRigging = newOffsetY;
                 } else if (this.viewMode === 'show-look') {
                     layer.screenNameOffsetXShowLook = newOffsetX;
                     layer.screenNameOffsetYShowLook = newOffsetY;
@@ -1065,13 +1196,35 @@ Object.assign(CanvasRenderer.prototype, {
             if (!e.shiftKey && !e.altKey && !this.isSelectingPanels && !this.isSelectingLayers
                 && this._canvasEdgeAtPoint(worldX, worldY)) {
                 this.canvas.style.cursor = 'move';
+            } else if (this.viewMode === 'rigging' && this.riggingEdgeAt(mouseX, mouseY)) {
+                this.canvas.style.cursor = 'ew-resize';     // an edge between header bars
+            } else if (this.viewMode === 'rigging' && this.riggingBarAt(mouseX, mouseY)) {
+                this.canvas.style.cursor = 'grab';          // a header bar
             } else {
                 this.canvas.style.cursor = 'default';
             }
         }
     },
-    
+
     handleMouseUp(e) {
+        // A header bar let go (see handleMouseDown): save the new order. The
+        // bars were re-ordered live on the layer; saving records the result
+        // as one undo step, like every other edit.
+        if (this._riggingDrag) {
+            const d = this._riggingDrag;
+            this._riggingDrag = null;
+            this.canvas.style.cursor = '';
+            const app = window.app;
+            const layer = app && app.project ? app.project.layers.find(l => l.id === d.layerId) : null;
+            if (layer) {
+                if (layer[d.field].join(',') !== d.original.join(',')) {
+                    app.updateLayers([layer], true, (d.kind === 'edge' ? 'Resize ' : 'Move ') + (d.row === 'footer' ? 'Footer Bar' : 'Header Bar'));
+                    if (typeof app.refreshRiggingPanel === 'function') app.refreshRiggingPanel();
+                }
+            }
+            this.render();
+            return;
+        }
         // A locked-screen press that never became a drag changed nothing
         // and says nothing.
         this._lockedDragPending = null;
@@ -1094,10 +1247,32 @@ Object.assign(CanvasRenderer.prototype, {
             if (rect) { rect.x2 = upX; rect.y2 = upY; }
         }
 
+        // The armed Shift+press on a data run resolves here: a click toggles
+        // the run's pick, a box picks every port it touches.
+        if (this._portPickPending) {
+            const p = this._portPickPending;
+            this._portPickPending = null;
+            if (!p.rect && !pressWasClick && e && typeof e.clientX === 'number') {
+                p.rect = { x1: p.worldX, y1: p.worldY, x2: p.worldX, y2: p.worldY };
+            }
+            if (p.rect && e && typeof e.clientX === 'number') {
+                const r = this.canvas.getBoundingClientRect();
+                p.rect.y2 = ((e.clientY - r.top) - this.panY) / this.zoom;
+                p.rect.x2 = this._unmirrorWorldX(((e.clientX - r.left) - this.panX) / this.zoom, p.rect.y2);
+            }
+            if (window.app) {
+                if (p.rect) window.app.pickPortsInRect(p.run, p.rect);
+                else window.app.togglePortPick(p.run);
+            }
+            this.render();
+            return;
+        }
+
         // The armed Alt+press resolves here: a release inside the 4px
         // threshold is the takeover click deferred at mousedown; a release
         // after sweeping keeps the selection lit for the right-click menu
-        // (the pill leaves with the cursor's gesture, the selection stays).
+        // (the pill leaves with the cursor's gesture, the selection stays;
+        // in Data the swept ports stay picked).
         if (this._sweepPending) {
             const p = this._sweepPending;
             this._sweepPending = null;
@@ -1257,7 +1432,7 @@ Object.assign(CanvasRenderer.prototype, {
                         // click adds no step and says nothing. A click on a
                         // locked screen that was already current is the
                         // draw verb, and that names it.
-                        const pickedLocked = !!(clickedLayer && clickedLayer.locked
+                        const pickedLocked = !!(clickedLayer && window.app._layerLocked(clickedLayer)
                             && this._pressPickedLayerId === clickedLayer.id);
                         if (pickedLocked) {
                             // nothing to draw - the screen is picked
@@ -1270,13 +1445,13 @@ Object.assign(CanvasRenderer.prototype, {
                                 // makePathEntry can stamp the right layerId;
                                 // it is omitted again when that layer is the
                                 // owner, which is every pre-group project.
-                                window.app.addPanelToCustomPowerPath(clickedPanel.panel, clickedLayer);
+                                window.app.addPanelToCustomPowerPath(clickedPanel.panel, clickedLayer, { click: true });
                             }
                         } else if (!isPower && window.app.isCustomFlowEditing(window.app.currentLayer) && reachable) {
                             if (window.app.customSelection.size > 0) {
                                 window.app.clearCustomSelection();
                             } else {
-                                window.app.addPanelToCustomPath(clickedPanel.panel, clickedLayer);
+                                window.app.addPanelToCustomPath(clickedPanel.panel, clickedLayer, { click: true });
                             }
                         } else if (!window.app.isCustomFlowEditing(window.app.currentLayer) && !window.app.isCustomPowerEditing(window.app.currentLayer)) {
                             window.app.togglePanelSelection(clickedPanel.panel);
@@ -1396,6 +1571,15 @@ Object.assign(CanvasRenderer.prototype, {
                         } else {
                             window.app.selectOnlyPixelMapPanel(clickedPanel.panel, clickedLayer);
                         }
+                        // A cabinet picked on another selected screen keeps
+                        // the selection (mouse-down's reachGesture) but the
+                        // canvas it sits on becomes the active one, so the
+                        // toolbar's Raster W x H shows the canvas of the
+                        // screen just clicked (owner's report, 1.6.0 beta.5).
+                        // preserveSelection: nothing is dropped.
+                        if (typeof window.app._activateCanvasForLayer === 'function') {
+                            window.app._activateCanvasForLayer(clickedLayer, { preserveSelection: true });
+                        }
                     } else if (!additive) {
                         window.app.clearPixelMapSelection();
                     }
@@ -1488,12 +1672,12 @@ Object.assign(CanvasRenderer.prototype, {
                 
                 const movable = selected.filter(item => {
                     const layer = window.app.project.layers.find(l => l.id === item.id);
-                    return layer && !layer.locked;
+                    return layer && !window.app._layerLocked(layer);
                 });
                 const showMode = this.dragLayerMode === 'show';
                 movable.forEach(item => {
                     const layer = window.app.project.layers.find(l => l.id === item.id);
-                    if (!layer || layer.locked) return;
+                    if (!layer || window.app._layerLocked(layer)) return;
                     const nextX = item.startX + snapDx;
                     const nextY = item.startY + snapDy;
                     if (showMode) {
@@ -1569,12 +1753,12 @@ Object.assign(CanvasRenderer.prototype, {
                         const peerCanvasId = (l) => isShowMode
                             ? (l.show_canvas_id || l.canvas_id)
                             : l.canvas_id;
-                        const movedIds = primary.locked ? [] : [primary.id];
+                        const movedIds = window.app._layerLocked(primary) ? [] : [primary.id];
                         if (window.app.selectedLayerIds && window.app.selectedLayerIds.size > 1) {
                             window.app.selectedLayerIds.forEach(id => {
                                 if (id === primary.id) return;
                                 const l = window.app.project.layers.find(x => x.id === id);
-                                if (!l || l.locked) return;
+                                if (!l || window.app._layerLocked(l)) return;
                                 if (peerCanvasId(l) === targetCanvas.id) return; // already there
                                 if (isShowMode) {
                                     movedIds.push(id);
@@ -1692,7 +1876,7 @@ Object.assign(CanvasRenderer.prototype, {
                 if (!crossCanvasHandled && crossRefused) {
                     const stillMoved = movable.some(item => {
                         const l = window.app.project.layers.find(x => x.id === item.id);
-                        if (!l || l.locked) return false;
+                        if (!l || window.app._layerLocked(l)) return false;
                         return showMode
                             ? (l.showOffsetX !== item.startX || l.showOffsetY !== item.startY)
                             : (l.offset_x !== item.startX || l.offset_y !== item.startY);
@@ -1738,6 +1922,9 @@ Object.assign(CanvasRenderer.prototype, {
                 } else if (this.viewMode === 'power') {
                     currentOffsetX = layer.screenNameOffsetXPower || 0;
                     currentOffsetY = layer.screenNameOffsetYPower || 0;
+                } else if (this.viewMode === 'rigging') {
+                    currentOffsetX = layer.screenNameOffsetXRigging || 0;
+                    currentOffsetY = layer.screenNameOffsetYRigging || 0;
                 } else if (this.viewMode === 'show-look') {
                     currentOffsetX = layer.screenNameOffsetXShowLook || 0;
                     currentOffsetY = layer.screenNameOffsetYShowLook || 0;
@@ -1847,7 +2034,7 @@ Object.assign(CanvasRenderer.prototype, {
             const clickedLayer = clicked
                 ? (window.app.project.layers.find(l => l.id === clicked.layerId) || null)
                 : null;
-            if (clickedLayer && !clickedLayer.locked
+            if (clickedLayer && !window.app._layerLocked(clickedLayer)
                     && (clickedLayer.id === window.app.currentLayer.id
                         || window.app.isPixelMapScopeLayer(clickedLayer))) {
                 const key = window.app.getScopedPanelKey(clickedLayer.id, clicked.panel);
@@ -1869,7 +2056,20 @@ Object.assign(CanvasRenderer.prototype, {
         // here, which counted a focused CHECKBOX as typing and swallowed
         // Cmd+J after a tick of #power-custom-toggle (end-to-end pass,
         // 2026-09-23). The finding and the rule live on the predicate.
-        const isTyping = window.isTypingTarget(document.activeElement);
+        let isTyping = window.isTypingTarget(document.activeElement);
+
+        // Esc ends an open redraw (one port taken over, or several redrawn
+        // as one) even from a field: a box in the side panel clicked while
+        // drawing kept the focus, Escape was that field's own and the
+        // redraw could not be left (QA, 1.6.0). The field lets go first,
+        // its blur committing it as a click elsewhere would; a field whose
+        // own Esc handler took the key (preventDefault) keeps it.
+        if (e.code === 'Escape' && isTyping && !e.defaultPrevented && window.app
+                && (window.app._mergeRedraw || window.app._overrideEditing)) {
+            const el = document.activeElement;
+            if (el && typeof el.blur === 'function') el.blur();
+            isTyping = window.isTypingTarget(document.activeElement);
+        }
 
         // A focused slider or radio answers the arrow keys itself (a range
         // steps, a radio group moves), so the custom-mode draw yields to
@@ -1893,6 +2093,38 @@ Object.assign(CanvasRenderer.prototype, {
 
         if (!isTyping && !arrowsOwned && window.app && window.app.handleCustomArrowKey(e)) {
             e.preventDefault();
+            return;
+        }
+
+        // Several ports being redrawn as one (app-merge-runs.js): Esc puts
+        // every port back as it was, Enter keeps the drawing. Ahead of the
+        // single redraw's Esc below, which keeps the drawing instead.
+        if (!isTyping && window.app && window.app._mergeRedraw
+                && !e.altKey && !e.metaKey && !e.ctrlKey
+                && (e.code === 'Escape' || e.code === 'Enter' || e.code === 'NumpadEnter')) {
+            e.preventDefault();
+            if (e.code === 'Escape') {
+                window.app.cancelMergeRedraw(`Ports ${window.app._portNumbersText(window.app._mergeRedraw.picks)} are back as they were.`);
+            } else {
+                window.app.finishMergeRedraw();
+            }
+            return;
+        }
+        // Esc drops the picked data ports - unless it is closing the
+        // right-click menu that was about to deal them.
+        const menuEl = document.getElementById('context-menu');
+        const menuOpen = !!(menuEl && menuEl.style.display === 'block');
+        if (e.code === 'Escape' && !isTyping && menuOpen && window.app && window.app._portPicks) {
+            e.preventDefault();
+            window.app.hideContextMenu();
+            return;
+        }
+        if (e.code === 'Escape' && !isTyping && !menuOpen && window.app && window.app._portPicks) {
+            e.preventDefault();
+            // a Data sweep still under way goes with them, or its next
+            // move would pick them all over again
+            if (this._sweepPending && this._sweepPending.kind === 'data') this._sweepPending = null;
+            window.app.clearPortPicks();
             return;
         }
 
@@ -1989,8 +2221,9 @@ Object.assign(CanvasRenderer.prototype, {
         // Cmd/Ctrl+J - Duplicate (standard)
         if ((e.metaKey || e.ctrlKey) && e.code === 'KeyJ' && !isTyping) {
             e.preventDefault();
+            // every selected screen, not just the current one
             if (window.app && window.app.currentLayer) {
-                window.app.duplicateLayer(window.app.currentLayer);
+                window.app.duplicateSelection();
             }
         }
 
@@ -2086,6 +2319,23 @@ Object.assign(CanvasRenderer.prototype, {
         }
     },
 
+    // An Alt+press on the canvas (the take-over click, the sweep) calls
+    // preventDefault, and that also keeps the browser from moving focus
+    // off the field that had it - which a plain press on the canvas does.
+    // A select or text box left focused there made Escape that field's
+    // own (isTypingTarget), so it could not end the redraw or drop the
+    // sweep (owner, 2026-10-30: "when I use alt + click to redraw we need
+    // a way to deselect like the escape key"). The press lets go of the
+    // field the way any other press on the canvas does; its blur commits
+    // the field as a click elsewhere would.
+    _altPressReleasesField() {
+        const el = document.activeElement;
+        if (el && el !== document.body && window.isTypingTarget(el)
+                && typeof el.blur === 'function') {
+            el.blur();
+        }
+    },
+
     handleKeyUp(e) {
         if (e.code === 'Space') {
             this.spacePressed = false;
@@ -2124,6 +2374,12 @@ Object.assign(CanvasRenderer.prototype, {
     // those moves unpersisted with no undo snapshot.
     _releaseTransientInput() {
         this.spacePressed = false;
+        // A Shift+press picking data ports whose release went elsewhere
+        // picks nothing.
+        if (this._portPickPending) {
+            this._portPickPending = null;
+            this.render();
+        }
         // The Alt keyup goes with the focus too, so the run highlight would
         // otherwise stay lit until the next mouse move.
         if (window.app && window.app._overrideHover
@@ -2150,6 +2406,16 @@ Object.assign(CanvasRenderer.prototype, {
         this.canvas.style.cursor = 'default';
     },
 
+    // Is this point on the current screen's name label in this view? The
+    // label is grabbed by a plain press and by Shift+press alike.
+    _pressOnScreenName(worldX, worldY) {
+        const layer = window.app && window.app.currentLayer;
+        const r = layer && layer._screenNameHitRect;
+        return !!(r && r.viewMode === this.viewMode
+            && worldX >= r.x1 && worldX <= r.x2
+            && worldY >= r.y1 && worldY <= r.y2);
+    },
+
     // Has the press moved past the click threshold? 4 screen pixels from
     // where it came down - the dock drag engine's threshold - whatever the
     // zoom. Inside it the press is still a click.
@@ -2164,7 +2430,7 @@ Object.assign(CanvasRenderer.prototype, {
     // that only picks the screen is not a change and says nothing. Said
     // once per gesture (handleMouseMove clears it), never per move.
     _armLockedDrag(layers, e) {
-        const locked = (layers || []).filter(l => l && l.locked);
+        const locked = (layers || []).filter(l => l && window.app._layerLocked(l));
         if (locked.length === 0) return;
         this._lockedDragPending = { layers: locked };
         if (e && (this._pressClientX === undefined || this._pressClientX === null)) {

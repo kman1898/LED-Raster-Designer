@@ -80,9 +80,51 @@ def _parse_version(version_str):
         return ()
 
 
+def _read_build_tag():
+    """The tag a release build was made from, when it was a prerelease.
+
+    release.yml writes BUILD_TAG.txt ("1.5.3-beta.1") next to VERSION.txt
+    only for a beta tag, so a full release and a source run have none.
+    """
+    if getattr(sys, 'frozen', False):
+        base = sys._MEIPASS
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    try:
+        with open(os.path.join(base, 'BUILD_TAG.txt'), 'r', encoding='utf-8', errors='ignore') as f:
+            tag = f.read().strip().lstrip('\ufeff').strip().lstrip('v')
+    except OSError:
+        return None
+    return tag or None
+
+
 def get_current_version():
-    """Return the current app version string."""
-    return _read_version_file() or "0.0.0"
+    """Return the current app version string.
+
+    A beta build reads as its tag, "1.5.3-beta.1", so the app says it is a
+    beta and the update check offers it the full 1.5.3 when that ships. The
+    tag only counts when it is a prerelease of the version in VERSION.txt.
+    """
+    base = _read_version_file() or "0.0.0"
+    tag = _read_build_tag()
+    if tag and '-' in tag and tag.split('-', 1)[0] == base:
+        return tag
+    return base
+
+
+def _version_key(version_str):
+    """Order versions with prereleases: 1.5.2-beta.1 < 1.5.2-beta.2 < 1.5.2.
+
+    The numbers compare as _parse_version reads them; at equal numbers a
+    full release sorts above any prerelease of it.
+    """
+    v = (version_str or '').lstrip('v')
+    base, _, pre = v.partition('-')
+    nums = _parse_version(base)
+    if not pre:
+        return (nums, 1, ())
+    tail = tuple(int(x) if x.isdigit() else x for x in re.split(r'[.]', pre))
+    return (nums, 0, tuple((0, x) if isinstance(x, int) else (1, x) for x in tail))
 
 
 def check_for_update(force=False):
@@ -141,7 +183,7 @@ def check_for_update(force=False):
                 break
 
         # Compare versions
-        if _parse_version(latest) > _parse_version(current):
+        if _version_key(latest) > _version_key(current):
             result["available"] = True
 
     except HTTPError as e:

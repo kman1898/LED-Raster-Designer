@@ -2,7 +2,7 @@
 
   * The binder prints its headings in caps (table titles, the sheet title,
     the column heads). A cable length keeps its unit as every other paper
-    prints it: "STRAND MAP · TAC A · TAC 8 · LC DUPLEX · 100 m", never
+    prints it: "STRAND MAP · TAC A · TAC 8 · LC DUPLEX · SINGLE MODE · 100 m", never
     "100 M". A feet show reads as it always has ("100'").
   * The workbook is a feet template. In a meters show the copy's GEAR LIST
     Length dropdown offers 1, 2, 3, 5, 10, 15, 20, 25, 30, 50, 75, 100,
@@ -160,10 +160,13 @@ def test_a_meters_sort_key_reads_meters_in_size_order():
 def test_a_feet_workbook_keeps_the_template_s_feet():
     """A feet show (and a show that names no unit) writes the template's
     GEAR LIST, READ ME and sort key untouched, only the lengths used
-    appended."""
+    appended - save the template's old TRUE1 spelling, which reads TRUE1
+    (2026-10-21), its " - " dashes, rewritten (2026-10-23), and its
+    Cable Type wording, which reads Gear (2026-11-02)."""
     tpl = _template()
     tpl_lengths = _gear_lengths(tpl)
-    tpl_readme = [c.value for row in tpl[README].iter_rows() for c in row]
+    tpl_readme = [pull_sheet.gear_spelling(pull_sheet.dash_spelling(pull_sheet.true1_spelling(c.value)))
+                  for row in tpl[README].iter_rows() for c in row]
     tpl_keys = [tpl[CALC].cell(r, CALC_SORTKEY_COL).value
                 for r in range(CALC_FIRST_ROW, CALC_LAST_ROW + 1)]
     for meta in ({'cable_unit': 'ft'}, {}):
@@ -258,7 +261,7 @@ PROCESSOR_SHEET_JS = """() => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -284,13 +287,13 @@ def test_the_strand_map_heading_keeps_meters_lower_case(page):
     texts = out['texts']
     assert texts is not None, out['titles']
     maps = [t for t in texts if t.startswith('STRAND MAP')]
-    assert maps == ['STRAND MAP · TAC A · TAC 8 · LC DUPLEX · 100 m'], maps
+    assert maps == ['STRAND MAP · TAC A · TAC 8 · LC DUPLEX · SINGLE MODE · 100 m'], maps
     assert not [t for t in texts if re.search(r'\d M\b', t)], [t for t in texts if re.search(r'\d M\b', t)]
 
     pg.evaluate(UNIT_JS, 'ft')
     texts = pg.evaluate(PROCESSOR_SHEET_JS)['texts']
     maps = [t for t in texts if t.startswith('STRAND MAP')]
-    assert maps == ["STRAND MAP · TAC A · TAC 8 · LC DUPLEX · 100'"], maps
+    assert maps == ["STRAND MAP · TAC A · TAC 8 · LC DUPLEX · SINGLE MODE · 100'"], maps
     assert errors == [], errors
 
 

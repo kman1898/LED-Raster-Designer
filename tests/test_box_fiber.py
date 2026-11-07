@@ -248,7 +248,7 @@ LIST_JS = """() => {
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
     context.add_init_script(
-        "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
+        "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
     errors = []
     pg.on('pageerror', lambda e: errors.append(str(e)))
@@ -347,7 +347,7 @@ def test_the_box_sheet_opens_on_its_fiber_section_with_the_typed_note_read_only(
         };
     }""", bid)
     assert out['inSheet'], out
-    assert out['caption'] == 'Fiber · CVT10 A', out['caption']
+    assert out['caption'] == 'Fiber · CVT10-S A', out['caption']
     assert out['note'] == "12 Tac Fiber 250'" and out['clear'], out
     assert out['typed'] == 0, out
     assert out['rows'] == ['OPT 1'], out
@@ -452,20 +452,23 @@ def test_the_pull_list_lists_the_boxs_fiber_once_and_nothing_is_unmodelled(page)
     pg.evaluate("async () => { await window.app.refreshPortAssignment(); }")
     out = pg.evaluate(LIST_JS)
     fiber = [r for r in out['rows'] if 'Fiber' in r[0]]
-    assert fiber == [['12 Tac Fiber', "250'", 1, 'CVT10 A', '', 'data']], out['rows']
+    assert fiber == [['12 Tac Fiber', "250'", 1, 'CVT10-S A', '', 'data']], out['rows']
     assert out['unmodelled'] == []
     # the box's own gear row (2026-09-07) rides the processor's list too
-    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT10 A', '', 'data'],
-                                ['CVT10', 'EA', 1, 'A', '', 'data'],
+    # the box's six sockets carry no home run typed: one Cat6 row, "no
+    # length" (2026-10-21), its six port labels folded as a run
+    assert out['hardware'] == [[['12 Tac Fiber', "250'", 1, 'CVT10-S A', '', 'data'],
+                                ['Cat6', '', 6, 'SR-1 … SR-6', 'no length', 'data'],
+                                ['CVT10-S', 'EA', 1, 'A', '', 'data'],
                                 ['H9', 'EA', 1, '', '', 'data']]], out['hardware']
-    assert out['ports'] == [[n, 'CVT10 A'] for n in range(1, 7)], out['ports']
+    assert out['ports'] == [[n, 'CVT10-S A'] for n in range(1, 7)], out['ports']
     pg.evaluate("""async (ids) => {
         await fetch(`/api/processors/${ids.procId}/cvts/${ids.boxId}`, {method: 'PUT',
             headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fiberType: '', name: 'SR'})});
         await window.app.refreshProcessors(); await window.app.refreshPortAssignment();
     }""", ids)
     out = pg.evaluate(LIST_JS)
-    assert [r for r in out['rows'] if 'Fiber' in r[0]] == [['Fiber', "250'", 1, 'CVT10 SR', '', 'data']], out['rows']
+    assert [r for r in out['rows'] if 'Fiber' in r[0]] == [['Fiber', "250'", 1, 'CVT10-S SR', '', 'data']], out['rows']
     pg.evaluate("""async (ids) => {
         await fetch(`/api/processors/${ids.procId}/cvts/${ids.boxId}`, {method: 'PUT',
             headers: {'Content-Type': 'application/json'}, body: JSON.stringify({fiberFt: null})});
@@ -473,5 +476,5 @@ def test_the_pull_list_lists_the_boxs_fiber_once_and_nothing_is_unmodelled(page)
     }""", ids)
     out = pg.evaluate(LIST_JS)
     assert not [r for r in out['rows'] if 'Fiber' in r[0]], out['rows']
-    assert out['ports'] == [[n, 'CVT10 SR'] for n in range(1, 7)]
+    assert out['ports'] == [[n, 'CVT10-S SR'] for n in range(1, 7)]
     assert ids['errors'] == []

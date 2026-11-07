@@ -35,7 +35,7 @@ class _ContextMenu {
         // _prepareClearMenu). The label and the title are written at open
         // time because they name the thing under the cursor; an impossible
         // clear stays on the menu, disabled, with the reason as its title.
-        const clear = (typeof this._prepareClearMenu === 'function')
+        let clear = (typeof this._prepareClearMenu === 'function')
             ? this._prepareClearMenu(x, y) : null;
         this._clearMenuAction = clear;
         // The way back from a drop-implied split, offered only where a
@@ -53,6 +53,13 @@ class _ContextMenu {
             ? this._prepareShareMenus(x, y) : { share: null, unshare: null };
         this._shareMenuAction = sharing.share;
         this._unshareMenuAction = sharing.unshare;
+        // "3fer it": a circuit drawn as one run across several columns,
+        // split into a run per column on the same circuit (app-dock-menus.js
+        // _prepareNferItMenu) - on the canvas circuit under the cursor or
+        // the one an Alt pick swept; never on the tray.
+        const nferIt = (typeof this._prepareNferItMenu === 'function')
+            ? this._prepareNferItMenu(x, y) : null;
+        this._nferItMenuAction = nferIt;
         // The batch verb (2026-08-30, "B and then right click"): with a
         // sweep selection armed the menu deals it as Nfers; with none, the
         // same entries act on the whole screen under the cursor. Canvas
@@ -64,9 +71,27 @@ class _ContextMenu {
         // and never on the dock (a chip is hardware, not a run). "Back to
         // auto" appears only where an override exists to drop - the same
         // only-what-applies rule the clears follow.
-        const ovr = (!inDock && typeof this._prepareOverrideMenu === 'function')
+        let ovr = (!inDock && typeof this._prepareOverrideMenu === 'function')
             ? this._prepareOverrideMenu(x, y) : null;
+        // Several ports picked with Shift (app-merge-runs.js): "Redraw ports
+        // 51-54 as one", armed on a run of the picks' screen in Data view.
+        const mergeRuns = (!inDock && typeof this._prepareMergeRunsMenu === 'function')
+            ? this._prepareMergeRunsMenu(x, y) : null;
+        // With several ports picked the redraw is of all of them: the
+        // single "Redraw port" is not offered beside it (the owner,
+        // 2026-11-03: "it should only allow redraw of all selected").
+        // Nor is any other item that names one port: back to auto and the
+        // clear act on every picked port (_pickedPortsMenus).
+        if (mergeRuns) {
+            const picked = this._pickedPortsMenus();
+            ovr = picked.backToAuto ? { redraw: null, backToAuto: picked.backToAuto } : null;
+            if (clear) {
+                clear = picked.clear;
+                this._clearMenuAction = clear;
+            }
+        }
         this._overrideMenuActions = ovr;
+        this._mergeRunsMenuAction = mergeRuns;
         // Distro outputs, the click path (2026-08-31): on a screen in the
         // power view - its cabinets, or its circuit chips in the tray -
         // "Add <type> from…" opens a submenu of every distro, the ones
@@ -114,7 +139,7 @@ class _ContextMenu {
         // dock they all leave, whatever their group logic below would say.
         menu.querySelectorAll(
             '.menu-option:not(.hw-clear-only):not(.hw-merge-only)'
-            + ':not(.hw-share-only):not(.hw-unshare-only)'
+            + ':not(.hw-share-only):not(.hw-unshare-only):not(.hw-nfer-it-only)'
             + ':not(.hw-batch-only):not(.hw-out-only):not(.hw-snake-only), '
             + '.menu-divider:not(.hw-clear-only):not(.hw-batch-only)'
             + ':not(.hw-out-only):not(.hw-snake-only)')
@@ -284,7 +309,9 @@ class _ContextMenu {
         }
         [['hw-share-only', 'hw-share', sharing.share],
          ['hw-unshare-only', 'hw-unshare', sharing.unshare],
+         ['hw-nfer-it-only', 'hw-nfer-it', nferIt],
          ['ovr-redraw-only', 'ovr-redraw', ovr && ovr.redraw],
+         ['ovr-merge-only', 'ovr-merge', mergeRuns],
          ['ovr-auto-only', 'ovr-auto', ovr && ovr.backToAuto],
         ].forEach(([cls, action, armed]) => {
             menu.querySelectorAll(`.${cls}`).forEach(el => {
@@ -298,6 +325,26 @@ class _ContextMenu {
                 // read, disabled with the reason (app-dock-menus.js).
                 item.classList.toggle('menu-disabled', !!armed.disabled);
             }
+        });
+
+        // On a custom screen there is no Redraw item above the merge entry,
+        // so it brings its own divider.
+        const mergeDivider = menu.querySelector('.menu-divider.ovr-merge-div');
+        if (mergeDivider) {
+            mergeDivider.style.display = (mergeRuns && !(ovr && ovr.redraw)) ? '' : 'none';
+        }
+
+        // Tab steps circuits in the Power view and ports everywhere else, so
+        // the two items say which.
+        const stepWord = (window.canvasRenderer
+            && window.canvasRenderer.viewMode === 'power') ? 'Circuit' : 'Port';
+        [['prev-port', 'Previous'], ['next-port', 'Next']].forEach(([action, word]) => {
+            const item = menu.querySelector(`[data-action="${action}"]`);
+            if (!item) return;
+            item.setAttribute('data-label', `${word} ${stepWord}`);
+            const key = item.getAttribute(this._isMacPlatform()
+                ? 'data-shortcut-mac' : 'data-shortcut-win');
+            item.textContent = key ? `${word} ${stepWord} (${key})` : `${word} ${stepWord}`;
         });
 
         menu.style.visibility = 'hidden';
@@ -478,7 +525,7 @@ class _ContextMenu {
             const centeredX = Math.round((rasterW - fpW) / 2 - fp.dx);
             const centeredY = Math.round((rasterH - fpH) / 2 - fp.dy);
 
-            if (layer.locked) {
+            if (this._layerLocked(layer)) {
                 const curX = Number(useShow ? (layer.showOffsetX ?? layer.offset_x) : layer.offset_x) || 0;
                 const curY = Number(useShow ? (layer.showOffsetY ?? layer.offset_y) : layer.offset_y) || 0;
                 const wouldMove = ((axis === 'x' || axis === 'both') && curX !== centeredX)
