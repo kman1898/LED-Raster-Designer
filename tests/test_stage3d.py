@@ -768,6 +768,22 @@ def test_the_camera_is_saved_with_the_project(page):
     assert page.evaluate("document.getElementById('s3d-mode-ortho').classList.contains('active')")
 
 
+def test_a_pending_camera_save_can_be_flushed_or_dropped(page):
+    """The guides settle a step with a flush, so the show holds the camera
+    however fast the step ran, and drop what is waiting when a restore
+    replaces the show, so the guide's camera never lands on the person's."""
+    reset(page)
+    open_3d(page, 2)
+    page.click('[data-s3d-view="left"]')
+    page.evaluate("() => { delete window.app.project.stage3dCamera; window.app._s3dSaveCameraSoon(); }")
+    page.evaluate("() => window.app._s3dFlushCamera()")
+    assert page.evaluate("() => !!window.app.project.stage3dCamera")
+    page.evaluate("() => { delete window.app.project.stage3dCamera; window.app._s3dSaveCameraSoon();"
+                  " window.app._s3dDropPendingCamera(); }")
+    page.wait_for_timeout(700)
+    assert page.evaluate("() => !window.app.project.stage3dCamera")
+
+
 def test_no_webgl_says_so_and_the_panel_still_places(e2e_server, pw_browser):
     no_gl = """(() => {
         const real = HTMLCanvasElement.prototype.getContext;

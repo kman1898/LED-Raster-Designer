@@ -2443,6 +2443,7 @@
         var a = A();
         if (!a) return Promise.resolve();
         try { if (a._flushPendingSaveState) a._flushPendingSaveState(); } catch (e) {}
+        try { if (a._s3dFlushCamera) a._s3dFlushCamera(); } catch (e) {}
         var p = null;
         try { p = a._layerSavesSettled ? a._layerSavesSettled() : null; } catch (e) { p = null; }
         return withLimit(Promise.resolve(p).catch(function () {}), SETTLE_LIMIT, null).then(painted);
@@ -3152,8 +3153,8 @@
         if (a && typeof a._idmSyncToolbar === 'function') { try { a._idmSyncToolbar(); } catch (e) {} }
     }
     function restore3d() {
-        var st = A() && A()._s3d;
-        if (st) { st.epoch = null; st.joint = null; }
+        var a = A(), st = a && a._s3d;
+        if (st) { a._s3dDropPendingCamera(); st.epoch = null; st.joint = null; }
     }
     function outputModal() { return $('#output-display-modal'); }
     function outputOpen() { var m = outputModal(); return !!m && m.style.display !== 'none'; }

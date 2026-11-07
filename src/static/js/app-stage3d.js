@@ -859,14 +859,35 @@ class _Stage3D {
     _s3dSaveCameraSoon() {
         const st = this._s3dState();
         if (st.saveTimer) clearTimeout(st.saveTimer);
-        st.saveTimer = setTimeout(() => {
-            st.saveTimer = null;
-            const cam = this._s3dCameraState();
-            if (!cam) return;
-            st.cam = cam;
-            if (this.project) this.project.stage3dCamera = JSON.parse(JSON.stringify(cam));
-            this._s3dPutView({ camera: cam });
-        }, 400);
+        st.saveTimer = setTimeout(() => this._s3dSaveCamera(), 400);
+    }
+
+    _s3dSaveCamera() {
+        const st = this._s3dState();
+        st.saveTimer = null;
+        const cam = this._s3dCameraState();
+        if (!cam) return;
+        st.cam = cam;
+        if (this.project) this.project.stage3dCamera = JSON.parse(JSON.stringify(cam));
+        this._s3dPutView({ camera: cam });
+    }
+
+    // A camera move still waiting on its timer, saved now. The guides call
+    // this as a step settles, so the show a step leaves holds the camera
+    // however fast the step ran (quickstart.js appSettled).
+    _s3dFlushCamera() {
+        const st = this._s3dState();
+        if (!st.saveTimer) return;
+        clearTimeout(st.saveTimer);
+        this._s3dSaveCamera();
+    }
+
+    // A camera move still waiting, dropped: the project it belonged to has
+    // just been replaced, and it must not land on the one that came back.
+    _s3dDropPendingCamera() {
+        const st = this._s3dState();
+        if (st.saveTimer) clearTimeout(st.saveTimer);
+        st.saveTimer = null;
     }
 
     _s3dApplyCamera(cam) {
