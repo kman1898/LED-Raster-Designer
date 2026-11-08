@@ -2134,6 +2134,13 @@ class _Binder {
     // together, so a show with no beaches (his buddy's seven walls) runs
     // A, B, C … and not the layer list. Each keeps its own position for
     // the sheet's name. [{ layer, pos }]
+    // Under the Screens panel's order ('layers', 'layers-up') a screen
+    // GROUP on no beach joins that run too: the panel draws a group inline
+    // among the loose screens, and sorting the group's position on its own
+    // printed a show with groups in the layer array's order whatever the
+    // panel showed (1.7.0: "set to top to bottom for screens order and is
+    // not printing in that order"). Its sheets then stand where the group
+    // stands in the panel (_binderBook prints a group at its first member).
     _bScreenRun(book, positions) {
         const out = [];
         let loose = [];
@@ -2143,8 +2150,11 @@ class _Binder {
             for (const layer of this._bOrderScreens(book, loose.map(e => e.layer))) out.push({ layer, pos: byId.get(layer) });
             loose = [];
         };
+        const order = (book.meta.binder && book.meta.binder.screenOrder) || 'alpha';
+        const panel = order === 'layers' || order === 'layers-up';
         for (const { pos, own } of positions) {
-            if (String(pos.key || '').startsWith('layer:')) {
+            const key = String(pos.key || '');
+            if (key.startsWith('layer:') || (panel && pos.groupId != null && !key.startsWith('beach:'))) {
                 for (const layer of own) loose.push({ layer, pos });
                 continue;
             }
@@ -2160,8 +2170,9 @@ class _Binder {
     // Delay": "i'd want raster A first, then in alphabetical order"):
     //   alpha      by name, natural - "A - …" before "B - …", 2 before 10
     //   layers     the Screens panel's order, top to bottom - the panel as
-    //              it is actually drawn (_bPanelScreenOrder: canvases, then
-    //              newest-on-top inside each, then screen groups gathered)
+    //              it is drawn in the views the sheets come from
+    //              (_bPanelScreenOrder: canvases, then newest-on-top inside
+    //              each, then screen groups gathered)
     //   layers-up  that list read bottom to top
     //   data       by the screen's first port: processor order, then card
     //              slot, then socket - a screen on card 1 socket 1 first;
@@ -2206,21 +2217,24 @@ class _Binder {
     //   1. renderLayers reverses the layer array (newest on top)
     //   2. regroupLayersByCanvas deals the rows into CANVAS groups, the
     //      canvases in their own array order, each group holding its
-    //      canvas's rows in that reversed order (a Show view groups by
-    //      show_canvas_id || canvas_id, the same as the sidebar)
+    //      canvas's rows in that reversed order
     //   3. regroupLayersByGroup lifts a screen group's rows to sit
     //      together at the FIRST member's place - only the members sharing
     //      that member's canvas move; one on another canvas stays put
+    // The canvas a row is dealt to is its SHOW canvas (show_canvas_id ||
+    // canvas_id): the panel as Show Look, Data Flow and Power draw it.
+    // The binder's sheets are those views - every map is drawn
+    // on the screen's show canvas and a group prints as one only when its
+    // members share one (_bGroupPlans) - so the order is the one the
+    // sheets' own pictures sit in, the same whichever tab is open at
+    // export (Pixel Map and Cabinet ID deal by canvas_id, which moved a
+    // screen with a show override; 1.7.0).
     // 'layers-up' is this list read the other way.
     _bPanelScreenOrder() {
         const all = (this.project && this.project.layers) || [];
         const reversed = [...all].reverse();
         const canvases = (this.project && this.project.canvases) || [];
-        const isShow = !!(window.canvasRenderer
-            && window.canvasRenderer.isShowLookView
-            && window.canvasRenderer.isShowLookView());
-        const canvasOf = (l) => ((isShow && l.show_canvas_id)
-            ? l.show_canvas_id : l.canvas_id);
+        const canvasOf = (l) => l.show_canvas_id || l.canvas_id;
         let out = [];
         if (canvases.length) {
             const placed = new Set();
