@@ -61,6 +61,8 @@
             <div class="menu-option" data-action="actual-size" data-label="Zoom to Selection" data-shortcut-mac="Cmd+Shift+2" data-shortcut-win="Ctrl+Shift+2"></div>
             <div class="menu-option" data-action="toggle-snap" data-label="Toggle Snap" data-shortcut-mac="Cmd+Shift+'" data-shortcut-win="Ctrl+Shift+'"></div>
             <div class="menu-divider"></div>
+            <div class="menu-option" data-action="output-to-display" data-label="Output to Display…"></div>
+            <div class="menu-divider"></div>
             <!-- Named panel layouts, shared by every screen (layout-dock.js
                  fills this each time the menu opens), and Reset Layout. -->
             <div class="menu-option menu-has-submenu" data-action="layouts">
@@ -138,6 +140,10 @@
                  right-click lands on a screen on the canvas. -->
             <div class="menu-divider screen-export-only"></div>
             <div class="menu-option screen-export-only" data-action="export-screen-binder" data-label="Export this screen…"></div>
+            <!-- Output to Display (app-output-display.js): the canvas under
+                 the cursor, to another monitor. Canvas area only. -->
+            <div class="menu-divider output-display-only"></div>
+            <div class="menu-option output-display-only" data-action="output-canvas-to-display" data-label="Output to Display…"></div>
             <!-- Custom mode for the tab on screen (2026-10-16, "right click
                  the screen/group to be able to enable custom mode"). Armed
                  by _prepareCustomModeMenu (app-context-menu.js) on a screen
@@ -263,6 +269,8 @@
             <button class="view-tab" data-mode="data-flow" data-tooltip="Data flow view, signal routing and ports (uses Show Look layout)">Data</button>
             <button class="view-tab" data-mode="power" data-tooltip="Power view, electrical distribution (uses Show Look layout)">Power</button>
             <button class="view-tab" data-mode="rigging" data-tooltip="Header/Footer view, header and footer bars on each screen (uses Show Look layout)">Header/Footer</button>
+            <button class="view-tab" data-mode="3d" data-tooltip="3D view, the screens standing on the stage in three dimensions. Shows the screens Show Look shows, each with its Pixel Map on the front.">3D</button>
+            <button class="view-tab" data-mode="idm" data-tooltip="IDM Locator, one solid color on every screen to find dead pixels and bad modules on the wall, a highlight on the module being pointed at, and the bad modules marked. Output to Display puts the color, the highlight and the marks on the wall.">IDM Locator</button>
         </div>
 
         <div id="main-container">
@@ -1812,6 +1820,198 @@
                     </div>
                 </div>
 
+                <!-- 3D: where each Show Look screen stands on the stage
+                     (app-stage3d.js). Placement is per screen, stored on the
+                     layer as stage3d; the camera, units and grid are the
+                     view's own and are saved with the project. The fields
+                     are built here once and only their values change, so a
+                     round trip never takes focus from a field. -->
+                <div class="panel tab-panel" data-tab="3d" style="display: none;">
+                    <div class="panel-header" data-tooltip="3D Placement, Where the selected screen stands on the stage: its position, its rotation and how far each joint between its cabinets bends.">
+                        <h2>3D Placement</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div id="s3d-none" class="s3d-note">Select a screen to place it: click it in the view or in the Screens list.</div>
+                        <div id="s3d-fields" hidden>
+                            <div id="s3d-screen-name" class="s3d-name"></div>
+                            <div id="s3d-group-note" class="s3d-note" hidden></div>
+                            <div class="s3d-sub">Position</div>
+                            <div class="info-row" data-tooltip="X, Left and right on the stage, measured to the center of the screen. Math OK (e.g., 10+2.5). In feet, 12' 6&quot; works too.">
+                                <label for="s3d-x">X</label>
+                                <input type="text" id="s3d-x" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
+                            </div>
+                            <div class="info-row" data-tooltip="Y, Height above the floor, measured to the center of the screen. Math OK.">
+                                <label for="s3d-y">Y</label>
+                                <input type="text" id="s3d-y" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
+                            </div>
+                            <div class="info-row" data-tooltip="Z, Upstage and downstage, measured to the center of the screen. Positive is towards the audience. Math OK.">
+                                <label for="s3d-z">Z</label>
+                                <input type="text" id="s3d-z" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
+                            </div>
+                            <div class="s3d-sub">Rotation</div>
+                            <div class="info-row" data-tooltip="Pitch, Tilt the screen forward or back, in degrees (about the left-right line through its center). Math OK.">
+                                <label for="s3d-pitch">Pitch</label>
+                                <input type="text" id="s3d-pitch" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div class="s3d-steps" data-s3d-axis="pitch">
+                                <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
+                            </div>
+                            <div class="info-row" data-tooltip="Yaw, Turn the screen left or right, in degrees (about the upright line through its center). Math OK.">
+                                <label for="s3d-yaw">Yaw</label>
+                                <input type="text" id="s3d-yaw" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div class="s3d-steps" data-s3d-axis="yaw">
+                                <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
+                            </div>
+                            <div class="info-row" data-tooltip="Roll, Lean the screen sideways, in degrees (about the line through its center towards the audience). Math OK.">
+                                <label for="s3d-roll">Roll</label>
+                                <input type="text" id="s3d-roll" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div class="s3d-steps" data-s3d-axis="roll">
+                                <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
+                            </div>
+                            <div class="s3d-sub">Curve</div>
+                            <div class="info-row" data-tooltip="Column joints, How far every joint between two columns bends, in degrees, -15 to 15. Positive brings the ends of the screen towards the audience (a curved wall around the audience); negative takes them away.">
+                                <label for="s3d-curve-col">Column joints</label>
+                                <input type="text" id="s3d-curve-col" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div id="s3d-arc-col" class="s3d-arc"></div>
+                            <div class="info-row" data-tooltip="Row joints, How far every joint between two rows bends, in degrees, -15 to 15. Positive brings the top and bottom of the screen towards the audience; negative takes them away.">
+                                <label for="s3d-curve-row">Row joints</label>
+                                <input type="text" id="s3d-curve-row" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div id="s3d-arc-row" class="s3d-arc"></div>
+                            <div class="s3d-sub">Joint</div>
+                            <div id="s3d-joint-label" class="s3d-note">Click a seam between two columns or two rows of the selected screen to bend that joint alone.</div>
+                            <div class="info-row" data-tooltip="Joint angle, The bend at the joint picked in the view, in degrees, -15 to 15. Leave it empty to follow the screen's own figure.">
+                                <label for="s3d-joint-angle">Joint angle</label>
+                                <input type="text" id="s3d-joint-angle" class="s3d-num" inputmode="decimal" autocomplete="off" disabled><span class="s3d-unit">&deg;</span>
+                            </div>
+                            <div class="s3d-buttons">
+                                <button type="button" id="s3d-joint-clear" class="btn btn-secondary" data-tooltip="Use screen figure, The picked joint goes back to the screen's own Column joints or Row joints figure.">Use screen figure</button>
+                                <button type="button" id="s3d-clear-joints" class="btn btn-secondary" data-tooltip="Clear joint angles, Every joint of this screen goes back to the screen's own figures.">Clear joint angles</button>
+                            </div>
+                            <div class="s3d-buttons">
+                                <button type="button" id="s3d-reset" class="btn" data-tooltip="Reset to Show Look, Put this screen (and its group) back where its Show Look position stands it: upright, flat, facing the audience.">Reset to Show Look</button>
+                            </div>
+                        </div>
+                        <div class="s3d-sub">Units</div>
+                        <div class="s3d-buttons" data-tooltip="Units, The length units the 3D panel and the floor grid use. Positions are stored in millimeters either way.">
+                            <button type="button" id="s3d-units-ft" class="btn btn-secondary s3d-toggle" data-s3d-units="ft">Feet</button>
+                            <button type="button" id="s3d-units-m" class="btn btn-secondary s3d-toggle" data-s3d-units="m">Meters</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- IDM Locator (app-idm-locator.js): the field every screen is
+                     drawn in on the wall (project.idmField, the same for all
+                     screens), the live highlight and its pad (arrows, cabinet
+                     jump, Mark - what a tablet at the wall drives), how many
+                     modules make up each cabinet of the selected screen(s),
+                     and every module marked bad. The modules and marks are
+                     stored on the layer as idm and drawn by canvas-idm.js.
+                     Fields are built once and only their values change, so a
+                     round trip never takes focus from a field. -->
+                <div class="panel tab-panel" data-tab="idm" style="display: none;">
+                    <div class="panel-header" data-tooltip="IDM Locator, One solid color on every screen to find dead pixels and bad modules, the module being pointed at, how many modules make up each cabinet, and every module marked bad. Click a module in the view to mark it; click it again to clear it.">
+                        <h2>IDM Locator</h2>
+                    </div>
+                    <div class="panel-content">
+                        <div class="idm-sub idm-sub-first">Field</div>
+                        <div class="idm-swatches" role="group" aria-label="Field color">
+                            <button type="button" class="idm-swatch" data-idm-field="#ffffff" style="--idm-sw: #ffffff" aria-label="White" data-tooltip="White, Every screen full white.">W</button>
+                            <button type="button" class="idm-swatch" data-idm-field="#ff0000" style="--idm-sw: #ff0000" aria-label="Red" data-tooltip="Red, Every screen full red.">R</button>
+                            <button type="button" class="idm-swatch" data-idm-field="#00ff00" style="--idm-sw: #00ff00" aria-label="Green" data-tooltip="Green, Every screen full green.">G</button>
+                            <button type="button" class="idm-swatch" data-idm-field="#0000ff" style="--idm-sw: #0000ff" aria-label="Blue" data-tooltip="Blue, Every screen full blue.">B</button>
+                            <button type="button" class="idm-swatch" data-idm-field="#000000" style="--idm-sw: #000000" aria-label="Black" data-tooltip="Black, Every screen black, to find pixels stuck on.">K</button>
+                            <span class="idm-swatch idm-swatch-custom" data-tooltip="Custom color, Any color for every screen.">
+                                <input type="color" id="idm-field-custom" value="#ffffff" aria-label="Custom field color">
+                            </span>
+                        </div>
+                        <div class="idm-seg" role="group" aria-label="Borders">
+                            <button type="button" class="btn idm-seg-btn" data-idm-border="shade" data-tooltip="Shade, Modules alternate full color and a little darker so every pixel stays lit; each cabinet edge is a thin darker line.">Shade</button>
+                            <button type="button" class="btn idm-seg-btn" data-idm-border="lines" data-tooltip="Lines, A thin line at every module edge, stronger at each cabinet edge.">Lines</button>
+                            <button type="button" class="btn idm-seg-btn" data-idm-border="ticks" data-tooltip="Ticks, Short corner marks at every module, bigger at each cabinet corner.">Ticks</button>
+                            <button type="button" class="btn idm-seg-btn" data-idm-border="none" data-tooltip="None, The color alone.">None</button>
+                        </div>
+                        <button type="button" id="idm-module-ids" class="btn idm-toggle idm-module-ids" aria-pressed="false" data-tooltip="Module ID, Label every module inside its cabinet in the Cabinet ID tab's style (A1, B1 ... starting again in each cabinet), in the app and on the wall. The labels sit where the Cabinet ID tab's Label Position puts the cabinet IDs.">Module ID</button>
+                        <!-- The Colours: one set for the show (project.idmField).
+                             Auto draws what the tab always drew; a swatch
+                             opens the app's colour picker. -->
+                        <div class="idm-sub">Colors</div>
+                        <div class="idm-colors">
+                            <div class="idm-color-row" data-tooltip="Module ID color, The color of the Module ID labels. Auto draws them in the field's own color at half brightness (on a color mark, the mark's).">
+                                <span class="idm-color-label">Module ID</span>
+                                <button type="button" class="btn idm-auto" data-idm-auto="labelColor" aria-pressed="true">Auto</button>
+                                <span class="idm-swatch idm-swatch-custom idm-color-swatch">
+                                    <input type="color" id="idm-label-color" data-idm-color="labelColor" value="#808080" aria-label="Module ID color">
+                                </span>
+                            </div>
+                            <div class="idm-note idm-black-note" data-idm-black="labelColor" hidden>Black pixels can look like dead pixels on the wall.</div>
+                            <div class="idm-color-row" data-tooltip="Module edges, The color of the module edges in the Lines and Ticks borders. Auto draws them in the field's own color at 70%.">
+                                <span class="idm-color-label">Module edges</span>
+                                <button type="button" class="btn idm-auto" data-idm-auto="moduleEdgeColor" aria-pressed="true">Auto</button>
+                                <span class="idm-swatch idm-swatch-custom idm-color-swatch">
+                                    <input type="color" id="idm-module-edge-color" data-idm-color="moduleEdgeColor" value="#b3b3b3" aria-label="Module edge color">
+                                </span>
+                            </div>
+                            <div class="idm-note idm-black-note" data-idm-black="moduleEdgeColor" hidden>Black pixels can look like dead pixels on the wall.</div>
+                            <div class="idm-color-row" data-tooltip="Cabinet edges, The color of the cabinet edges in the Lines and Ticks borders, and of each cabinet's edge in the Shade border. Auto draws them in the field's own color at 50% (65% in Shade).">
+                                <span class="idm-color-label">Cabinet edges</span>
+                                <button type="button" class="btn idm-auto" data-idm-auto="cabinetEdgeColor" aria-pressed="true">Auto</button>
+                                <span class="idm-swatch idm-swatch-custom idm-color-swatch">
+                                    <input type="color" id="idm-cabinet-edge-color" data-idm-color="cabinetEdgeColor" value="#a6a6a6" aria-label="Cabinet edge color">
+                                </span>
+                            </div>
+                            <div class="idm-note idm-black-note" data-idm-black="cabinetEdgeColor" hidden>Black pixels can look like dead pixels on the wall.</div>
+                            <div class="idm-color-row" data-tooltip="Shade level, The darker modules of the Shade border's checker: a color, or a percent of the field color. Auto is 85% of the field.">
+                                <span class="idm-color-label">Shade level</span>
+                                <button type="button" class="btn idm-auto" data-idm-auto="shade" aria-pressed="true">Auto</button>
+                                <span class="idm-swatch idm-swatch-custom idm-color-swatch">
+                                    <input type="color" id="idm-shade-color" data-idm-color="shade" value="#d9d9d9" aria-label="Shade level color">
+                                </span>
+                                <span class="idm-pct-wrap">
+                                    <input type="text" id="idm-shade-percent" class="idm-num idm-pct" inputmode="numeric" autocomplete="off" placeholder="85" aria-label="Shade level percent of the field">
+                                    <span class="idm-pct-sign">%</span>
+                                </span>
+                            </div>
+                            <div class="idm-note idm-black-note" data-idm-black="shade" hidden>Black pixels can look like dead pixels on the wall.</div>
+                        </div>
+                        <div class="idm-sub">Highlight</div>
+                        <div id="idm-hl-readout" class="idm-hl-readout idm-hl-none">No module highlighted</div>
+                        <div id="idm-hl-where" class="idm-note">Point at a module, tap it, or use the arrows.</div>
+                        <div id="idm-pad" class="idm-pad">
+                            <div class="idm-pad-arrows">
+                                <button type="button" class="btn idm-pad-arrow idm-pad-up" data-idm-step="up" aria-label="Up" data-tooltip="Up, Move the highlight up one module (one cabinet with Cabinet jump).">&#9650;</button>
+                                <button type="button" class="btn idm-pad-arrow idm-pad-left" data-idm-step="left" aria-label="Left" data-tooltip="Left, Move the highlight left one module (one cabinet with Cabinet jump).">&#9664;</button>
+                                <button type="button" class="btn idm-pad-arrow idm-pad-right" data-idm-step="right" aria-label="Right" data-tooltip="Right, Move the highlight right one module (one cabinet with Cabinet jump).">&#9654;</button>
+                                <button type="button" class="btn idm-pad-arrow idm-pad-down" data-idm-step="down" aria-label="Down" data-tooltip="Down, Move the highlight down one module (one cabinet with Cabinet jump).">&#9660;</button>
+                            </div>
+                            <div class="idm-pad-side">
+                                <button type="button" id="idm-pad-cabinet" class="btn idm-toggle" aria-pressed="false" data-tooltip="Cabinet jump, The arrows move a whole cabinet at a time, like Shift with the arrow keys.">Cabinet jump</button>
+                                <button type="button" id="idm-pad-clear" class="btn" data-tooltip="Clear highlight, Take the highlight off the wall (Esc).">Clear highlight</button>
+                            </div>
+                            <button type="button" id="idm-pad-mark" class="btn idm-pad-mark" data-tooltip="Mark, Mark the highlighted module, or clear its mark (Space).">Mark</button>
+                        </div>
+                        <div class="idm-sub">Modules</div>
+                        <div id="idm-none" class="idm-note">Select a screen to set its modules: click it in the view or in the Screens list.</div>
+                        <div id="idm-fields" hidden>
+                            <div id="idm-screen-name" class="idm-name"></div>
+                            <div class="info-row" data-tooltip="Modules across, How many modules make up one cabinet from left to right. 1 makes the whole cabinet one module.">
+                                <label for="idm-modules-x">Modules across</label>
+                                <input type="text" id="idm-modules-x" class="idm-num" inputmode="numeric" autocomplete="off">
+                            </div>
+                            <div class="info-row" data-tooltip="Modules down, How many modules make up one cabinet from top to bottom. 1 makes the whole cabinet one module.">
+                                <label for="idm-modules-y">Modules down</label>
+                                <input type="text" id="idm-modules-y" class="idm-num" inputmode="numeric" autocomplete="off">
+                            </div>
+                            <div id="idm-module-size" class="idm-note"></div>
+                        </div>
+                        <div class="idm-sub">Marked modules <span id="idm-count" class="idm-count"></span></div>
+                        <div id="idm-list" class="idm-list"></div>
+                    </div>
+                </div>
+
                 <!-- Colors panel - only for Pixel Map -->
                 <div class="panel tab-panel screen-only" data-tab="pixel-map">
                     <div class="panel-header" data-tooltip="Colors, Set the two alternating checkerboard colors used to distinguish cabinets in the pixel map view.">
@@ -2154,6 +2354,41 @@
                          count. canvas.js _drawActiveBadge is its only writer;
                          it hides on any frame that draws no custom run. -->
                     <span id="custom-run-readout" hidden data-tooltip="Active run, The port or circuit you are drawing, how many cabinets it holds against its capacity, and how many cabinets a pending selection would add."><span class="cr-label"></span><span class="cr-pill"></span><span class="cr-selected" hidden></span></span>
+                    <!-- The 3D view's camera bar: shown in place of the raster
+                         and zoom controls while the 3D tab is open. -->
+                    <span id="s3d-toolbar" hidden>
+                        <button type="button" id="s3d-mode-persp" class="s3d-toggle" data-tooltip="Perspective, Draw the stage the way a camera sees it.">Perspective</button>
+                        <button type="button" id="s3d-mode-ortho" class="s3d-toggle" data-tooltip="Orthographic, Draw the stage without perspective, so sizes read true across the view.">Orthographic</button>
+                        <span class="s3d-bar-gap"></span>
+                        <button type="button" data-s3d-view="front" data-tooltip="Front, Look at the stage from the audience.">Front</button>
+                        <button type="button" data-s3d-view="back" data-tooltip="Back, Look at the stage from behind the screens.">Back</button>
+                        <button type="button" data-s3d-view="left" data-tooltip="Left, Look at the stage from the left side.">Left</button>
+                        <button type="button" data-s3d-view="right" data-tooltip="Right, Look at the stage from the right side.">Right</button>
+                        <button type="button" data-s3d-view="top" data-tooltip="Top, Look straight down on the stage.">Top</button>
+                        <button type="button" data-s3d-view="iso" data-tooltip="Iso, Look at the stage from above and to one side.">Iso</button>
+                        <button type="button" id="s3d-fit" data-tooltip="Fit, Frame every screen in the view (Ctrl/Cmd+Shift+1).">Fit</button>
+                        <span class="s3d-bar-gap"></span>
+                        <button type="button" id="s3d-grid" class="s3d-toggle" data-tooltip="Floor grid, Show or hide the floor grid and the origin mark.">Grid</button>
+                        <button type="button" id="s3d-bars" class="s3d-toggle" data-tooltip="Header and footer bars, Show or hide the bars the Header/Footer tab builds above and below each screen.">Bars</button>
+                        <span class="s3d-bar-hint">Drag to orbit, right-drag to pan, wheel to zoom. Drag a selected screen to move it; Shift-drag raises or lowers it.</span>
+                    </span>
+                    <!-- The IDM Locator's marking tools: shown while that tab
+                         is open (app-idm-locator.js). The style and colour
+                         are the next mark's; each mark keeps its own. -->
+                    <span id="idm-toolbar" hidden>
+                        <span class="toolbar-label">Mark:</span>
+                        <button type="button" id="idm-style-color" class="idm-toggle" data-idm-style="color" data-tooltip="Color, The next mark fills the module with the color.">Color</button>
+                        <button type="button" id="idm-style-x" class="idm-toggle" data-idm-style="x" data-tooltip="X, The next mark draws an X corner to corner across the module, in the color.">X</button>
+                        <input type="color" id="idm-color" value="#ff1a1a" data-tooltip="Mark color, The color of the next mark.">
+                        <!-- The show's saved mark colours (project.idmField.markPresets),
+                             built by app-idm-locator.js _idmRenderPresets. -->
+                        <span id="idm-mark-presets" class="idm-presets" role="group" aria-label="Mark color presets"></span>
+                        <button type="button" id="idm-preset-add" class="idm-preset-add" aria-label="Add the mark color as a preset" data-tooltip="Add preset, Save the mark color as a preset for this show. Right-click a preset, or press its x, to remove it.">+</button>
+                        <span class="idm-bar-gap"></span>
+                        <button type="button" id="idm-clear-screen" data-tooltip="Clear screen marks, Clear every mark on the selected screens.">Clear screen marks</button>
+                        <button type="button" id="idm-clear-all" data-tooltip="Clear all marks, Clear every mark on every screen.">Clear all marks</button>
+                        <span class="idm-bar-hint">Click a module to mark or clear it; drag to paint across modules.</span>
+                    </span>
                     <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap screens to grid when dragging (Ctrl/Cmd+Shift+')">
                         <input type="checkbox" id="magnetic-snap" checked>
                         <span>🧲 Snap</span>
@@ -2161,6 +2396,11 @@
                 </div>
                 <div id="canvas-wrapper">
                     <canvas id="main-canvas"></canvas>
+                    <!-- The 3D tab's viewport, over the 2D canvas while that
+                         tab is open (app-stage3d.js puts its own canvas in). -->
+                    <div id="s3d-view" hidden>
+                        <div id="s3d-message" hidden></div>
+                    </div>
                 </div>
                 <!-- The hardware dock: the tray the Data and Power views'
                      hardware sits in, dragged from here onto the canvas to
@@ -2239,6 +2479,15 @@
                 </div>
                 <div id="notes-panel-body">
                     <textarea id="project-notes" placeholder="Add project notes here..."></textarea>
+                    <!-- The show to-do checklist, saved with the project
+                         (project.notesChecklist; app-notes-checklist.js). -->
+                    <div id="notes-checklist">
+                        <div class="notes-checklist-head">
+                            <span class="notes-checklist-title">Checklist</span>
+                            <button type="button" id="notes-checklist-add" class="btn btn-secondary">+ Add item</button>
+                        </div>
+                        <div id="notes-checklist-list"></div>
+                    </div>
                 </div>
             </div>
 
@@ -2256,6 +2505,7 @@
 
         <div id="status-bar">
             <span id="status-message">Ready</span>
+            <span id="idm-status-readout" hidden></span>
             <span id="cursor-position">X: 0, Y: 0</span>
         </div>
 
@@ -3784,6 +4034,10 @@
 
     <!-- Bundled locally (not a CDN) so the app works over a LAN without the
          client needing internet access. Must match the python-socketio server. -->
+    <!-- Bare "three" for the 3D tab's library (vendored, MIT); it has to
+         come before the first module script. app-stage3d.js imports it on
+         first use, so nothing loads until the 3D tab opens. -->
+    <script type="importmap">{"imports": {"three": "/static/vendor/three/three.module.min.js"}}</script>
     <script src="/static/js/socket.io.min.js"></script>
     <script src="/static/js/canvas.js"></script>
     <!-- CanvasRenderer mixins: classic scripts that Object.assign onto
@@ -3798,6 +4052,7 @@
     <script src="/static/js/canvas-rigging.js"></script>
     <script src="/static/js/canvas-labels.js"></script>
     <script src="/static/js/canvas-selection.js"></script>
+    <script src="/static/js/canvas-idm.js"></script>
     <script src="/static/js/color_picker.js"></script>
     <!-- The app is ES modules (main.js pulls in app-core + the app-* feature
          modules). Classic scripts above/below stay non-module: they define /

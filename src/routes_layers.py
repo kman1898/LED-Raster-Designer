@@ -157,6 +157,12 @@ def add_layer():
                 needs_rebuild = True
     if needs_rebuild:
         layer['panels'] = _build_panels(layer)
+    # The 3D placement a duplicate / paste carries (app-clipboard.js nudges
+    # it with the copy), held to its shape and its joint limit.
+    if 'stage3d' in data and (layer.get('type') or 'screen') == 'screen':
+        placed = app.sanitize_stage3d(data.get('stage3d'))
+        if placed is not None:
+            layer['stage3d'] = placed
     # A screen always carries a breakout its voltage allows (2026-09-22):
     # the payload's choice stands when eligible, else the preference, else
     # the class default - see app.normalize_power_breakout. The voltage the
@@ -205,6 +211,12 @@ def add_layer():
                 ps_dict[(r, c)] = entry
         if ps_dict:
             layer['panels'] = _build_panels(layer, ps_dict)
+
+    # The module layout a duplicate / paste / preset carries (marks only
+    # survive on the modules this screen really has - a copy sends none).
+    if 'idm' in data and (layer.get('type') or 'screen') == 'screen':
+        layer['idm'] = data.get('idm')
+        app.normalize_idm_layer(layer)
 
     app.current_project['layers'].append(layer)
     app.current_project['is_pristine'] = False
@@ -577,6 +589,18 @@ def update_layer(layer_id):
         if key in data:
             layer[key] = data[key]
 
+    # The 3D view's placement of this screen (app-stage3d.js): taken off the
+    # plain allow-list because it is held to a shape - every joint bend
+    # clamped to +/-15 degrees, stray keys dropped. null (or anything that
+    # is not a block) removes it, and the screen goes back to the place its
+    # Show Look position gives it.
+    if 'stage3d' in data:
+        placed = app.sanitize_stage3d(data.get('stage3d'))
+        if placed is None:
+            layer.pop('stage3d', None)
+        else:
+            layer['stage3d'] = placed
+
     # The voltage or the breakout may have just changed: the screen keeps a
     # breakout the new voltage allows (2026-09-22). A PUT of null, '' or an
     # ineligible id lands as the preference / class default, never bare.
@@ -652,6 +676,18 @@ def update_layer(layer_id):
                 panel['x'] = panel.get('x', 0) + dx
                 panel['y'] = panel.get('y', 0) + dy
 
+    # The IDM Locator's module layout and marks (app-idm-locator.js): taken
+    # as sent, then held to the screen as it now stands - after the panel
+    # rebuild above, so a mark on a column or row this PUT took away, or on
+    # a module a new module count no longer has, is dropped here. Runs on
+    # every PUT for that reason. null removes the block.
+    if 'idm' in data:
+        if data.get('idm') is None:
+            layer.pop('idm', None)
+        else:
+            layer['idm'] = data.get('idm')
+    app.normalize_idm_layer(layer)
+
     if edited:
         app.current_project['is_pristine'] = False
     # The echo names the PUT it answers (?seq=&client=, query only, never
@@ -684,6 +720,8 @@ def delete_layer(layer_id):
     # The same pass drops the deleted screen's data port pins
     # (port_assignment.prune_orphan_pins), so the response carries none.
     app._enforce_group_integrity(app.current_project)
+    # The IDM Locator's stored highlight goes with its screen.
+    app.normalize_idm_highlight(app.current_project)
     # ...and the sockets those pins held forget their port cables, exactly
     # as a released port does (owner, 2026-10-17): a socket another screen
     # still claims keeps its cable, the snakes stay. The response carries
@@ -832,6 +870,8 @@ def move_layer_to_canvas(layer_id):
         # none of the source's feeds (2026-09-23; app.strip_copied_feeds).
         app.normalize_power_breakout(clone)
         app.strip_copied_feeds(clone)
+        # ... and no IDM marks: a copy is another physical wall.
+        app.strip_copied_idm_marks(clone)
         app.current_project['layers'].append(clone)
         log_event('layer_duplicate_to_canvas', {
             'src_layer_id': layer_id, 'new_layer_id': clone['id'],
@@ -922,6 +962,9 @@ def toggle_panel_hidden(layer_id, panel_id):
     # the next unrelated undo/redo/file load - the panel jumps half a cabinet
     # long after the edit that caused it.
     _rebuild_layer_geometry_from_panel_states(layer)
+    # A blanked cabinet has no modules to mark; a half cabinet keeps only
+    # the modules inside it (app.sanitize_idm).
+    app.normalize_idm_layer(layer)
     log_event('toggle_panel_hidden', {'layer_id': layer_id, 'panel_id': panel_id, 'hidden': hidden})
     # The rebuild regenerates the panels array, so `panel` is now stale. Send
     # the rebuilt layer instead, matching the half-tile routes below.
@@ -948,6 +991,9 @@ def set_panels_hidden(layer_id):
     # v0.10.8.1: same as the single toggle - hidden state feeds half-tile
     # anchoring, so re-derive the geometry before anyone sees the layer.
     _rebuild_layer_geometry_from_panel_states(layer)
+    # A blanked cabinet has no modules to mark; a half cabinet keeps only
+    # the modules inside it (app.sanitize_idm).
+    app.normalize_idm_layer(layer)
     log_event('bulk_set_panels_hidden', {'layer_id': layer_id, 'count': len(updated)})
     socketio.emit('layer_updated', layer)
     # Return the rebuilt layer so the client can merge it before snapshotting,
@@ -973,6 +1019,9 @@ def set_panel_half_tile(layer_id, panel_id):
     panel['halfTile'] = value
 
     _rebuild_layer_geometry_from_panel_states(layer)
+    # A blanked cabinet has no modules to mark; a half cabinet keeps only
+    # the modules inside it (app.sanitize_idm).
+    app.normalize_idm_layer(layer)
     log_event('set_panel_half_tile', {'layer_id': layer_id, 'panel_id': panel_id, 'halfTile': value})
     socketio.emit('layer_updated', layer)
     return jsonify(layer)
@@ -1003,6 +1052,9 @@ def set_panels_half_tile(layer_id):
         updated += 1
 
     _rebuild_layer_geometry_from_panel_states(layer)
+    # A blanked cabinet has no modules to mark; a half cabinet keeps only
+    # the modules inside it (app.sanitize_idm).
+    app.normalize_idm_layer(layer)
     log_event('bulk_set_panels_half_tile', {'layer_id': layer_id, 'count': updated})
     socketio.emit('layer_updated', layer)
     # v0.10.8: return the rebuilt layer alongside the count. The rebuild

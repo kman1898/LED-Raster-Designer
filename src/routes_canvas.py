@@ -4,7 +4,7 @@ canvas helpers stay in app and are imported here.
 """
 import json
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, make_response, render_template
 
 import app
 import port_assignment
@@ -219,6 +219,9 @@ def duplicate_canvas(canvas_id):
         # end-to-end pass: the copied screens named the original's distro,
         # so two screens claimed one multi). See app.strip_copied_feeds.
         app.strip_copied_feeds(clone)
+        # The module layout carries; the IDM marks do not - the copy is
+        # another physical wall (app.strip_copied_idm_marks).
+        app.strip_copied_idm_marks(clone)
         id_map[src_layer.get('id')] = clone['id']
         clones.append(clone)
         app.current_project['layers'].append(clone)
@@ -315,3 +318,24 @@ def set_active_canvas(canvas_id):
     log_event('canvas_set_active', {'id': canvas_id})
     socketio.emit('project_updated', app.current_project)
     return jsonify(app.current_project)
+
+
+# Output to Display (View menu): a bare page holding one canvas's raster for
+# a second monitor. The page draws nothing itself - the designer window that
+# opens it renders the canvas with its own renderer and hands it each frame
+# (static/js/app-output-display.js, static/js/output-display.js) - so the
+# route serves the shell and the page reads the query string
+# (?canvas=&view=&scale=). No-store like the main page, so a rebuilt app
+# never shows a stale shell.
+@canvas_bp.route('/output')
+def output_display():
+    log_event('output_display_page', {
+        'canvas': request.args.get('canvas', ''),
+        'view': request.args.get('view', ''),
+        'scale': request.args.get('scale', ''),
+    })
+    response = make_response(render_template('output.html'))
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response

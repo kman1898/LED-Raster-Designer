@@ -135,6 +135,10 @@ def save_project():
     # Read the way PUT /api/layer/<id> reads ?edited: only true / 1 / yes
     # keep the flag. bool() took the string 'false' as true (2026-09-23).
     keep_pristine = str(data.pop('keep_pristine', False)).lower() in ('1', 'true', 'yes')
+    # The IDM Locator's live highlight is written by its socket event alone
+    # (app.handle_idm_highlight): a save carries whatever copy that client
+    # last had, which another client may have moved on since.
+    data.pop('idmHighlight', None)
     # Slice 6: source-of-truth for raster lives on the active canvas. If the
     # client sent root-level raster_* fields without a canvases payload
     # (backwards-compat clients / older tests), propagate those into the
@@ -222,6 +226,16 @@ def save_project():
     # A whole-layers payload can carry a screen with no breakout, or one its
     # voltage no longer allows: it lands eligible (2026-09-22).
     app.normalize_power_breakouts(app.current_project)
+    # The 3D placement on every screen held to its shape (joint bends within
+    # +/-15 degrees). Idempotent; see app.sanitize_stage3d.
+    app.normalize_stage3d(app.current_project)
+    # The IDM Locator's marks held to the screens as they stand (no mark on
+    # a blanked cabinet or a module that is not there). Idempotent.
+    app.normalize_idm(app.current_project)
+    # The IDM Locator's field colour and border style held to their shape.
+    app.normalize_idm_field(app.current_project)
+    # ... and its stored highlight to a module the screens still have.
+    app.normalize_idm_highlight(app.current_project)
     log_event('save_project', {'name': app.current_project.get('name')})
     return jsonify({'status': 'success'})
 
@@ -393,6 +407,19 @@ def restore_project():
     # breakout its voltage allows - a file saved before the ruling, or an
     # undo snapshot holding an ineligible id, is healed here (2026-09-22).
     app.normalize_power_breakouts(app.current_project)
+    # The 3D placement on every screen held to its shape: a hand-edited file
+    # with a 40-degree joint lands at 15. A file without it loads unchanged.
+    app.normalize_stage3d(app.current_project)
+    # The IDM Locator's module counts and marks held to the screens as they
+    # now stand (after the geometry rebuild above). A file without the key
+    # loads unchanged.
+    app.normalize_idm(app.current_project)
+    # ... and the tab's field colour and border style (a file without the
+    # key loads without it and draws white with shaded borders).
+    app.normalize_idm_field(app.current_project)
+    # ... and its live highlight, kept as the file (or the undo snapshot,
+    # which carries the one on screen) has it, on a module that is there.
+    app.normalize_idm_highlight(app.current_project)
     if release_ports:
         released = port_assignment.forget_released_port_cables(
             app.current_project, pins_before)
@@ -415,6 +442,63 @@ def restore_project():
     if did_migrate:
         response['_migration_notice'] = True
     return jsonify(response)
+
+
+@project_bp.route('/api/project/stage3d', methods=['PUT'])
+def save_stage3d_view():
+    """The 3D view's own state on the project: the last camera, the length
+    units its panel shows, the floor grid switch and the header and footer
+    bars switch. View state, not an
+    edit - nothing is broadcast, no undo entry is made on the client, and
+    the pristine startup project stays pristine (an orbit is not a change
+    to the show). Each key is optional; a camera that does not hold its
+    shape is refused and the stored one kept."""
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'expected an object'}), 400
+    proj = app.current_project
+    if 'camera' in data:
+        camera = app.sanitize_stage3d_camera(data.get('camera'))
+        if camera is not None:
+            proj['stage3dCamera'] = camera
+    if data.get('units') in app.STAGE3D_UNITS:
+        proj['stage3dUnits'] = data['units']
+    if isinstance(data.get('grid'), bool):
+        proj['stage3dGrid'] = data['grid']
+    if isinstance(data.get('bars'), bool):
+        proj['stage3dBars'] = data['bars']
+    return jsonify({
+        'stage3dCamera': proj.get('stage3dCamera'),
+        'stage3dUnits': proj.get('stage3dUnits'),
+        'stage3dGrid': proj.get('stage3dGrid'),
+        'stage3dBars': proj.get('stage3dBars'),
+    })
+
+
+@project_bp.route('/api/project/idm-field', methods=['PUT'])
+def put_idm_field():
+    """The IDM Locator's field: one solid colour for every screen and the
+    border style drawn into it, whether each module's label is drawn, and
+    the tab's Colours - labels, edges, the shade level and the saved mark
+    colours (app.sanitize_idm_field). View state, not an
+    edit - no undo entry on the client and a pristine project stays
+    pristine - but saved with the show and told to every client on the LAN
+    through `idm_field_updated`, so a tablet at the wall changes what the
+    machine driving the wall puts out. The sender's own echo carries its
+    `origin` so it can be skipped."""
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'expected an object'}), 400
+    field = app.sanitize_idm_field(data.get('field'))
+    if field is None:
+        return jsonify({'error': 'field must be an object'}), 400
+    app.current_project['idmField'] = field
+    log_event('idm_field', field)
+    socketio.emit('idm_field_updated', {
+        'field': field,
+        'origin': str(data.get('origin') or '')[:64],
+    })
+    return jsonify({'idmField': field})
 
 
 # ── Beaches ──────────────────────────────────────────────────────────────
@@ -519,3 +603,64 @@ def delete_beach(beach_id):
             cleared += 1
     log_event('beach_delete', {'id': beach_id, 'cleared': cleared})
     return _beach_response()
+
+
+# ── Notes checklist ──────────────────────────────────────────────────────
+#
+# The show to-do list under the free-text notes (app-notes-checklist.js):
+# project['notesChecklist'] = [{id, text, done}], in order. A project
+# without the key has an empty list; nothing migrates. The client writes the
+# whole list here after each edit, and every other client is told through
+# `notes_checklist_updated` (the sender's own echo carries its `origin` so
+# it can be skipped). Undo and file load ride PUT /api/project like every
+# other project field.
+
+NOTES_CHECKLIST_MAX_ITEMS = 500
+NOTES_CHECKLIST_MAX_TEXT = 500
+
+
+def _clean_notes_checklist(items):
+    """The list as stored, or None when the payload is not a list. Rows
+    that are not objects are dropped; text is a string cut to length; done
+    is a bool; a missing or repeated id gets a fresh one."""
+    if not isinstance(items, list):
+        return None
+    out, seen = [], set()
+    for n, raw in enumerate(items[:NOTES_CHECKLIST_MAX_ITEMS]):
+        if not isinstance(raw, dict):
+            continue
+        item_id = str(raw.get('id') or '')[:64]
+        if not item_id or item_id in seen:
+            item_id = f'ck{n}x{len(out)}'
+            while item_id in seen:
+                item_id += 'x'
+        seen.add(item_id)
+        text = raw.get('text')
+        out.append({
+            'id': item_id,
+            'text': (text if isinstance(text, str) else '')[:NOTES_CHECKLIST_MAX_TEXT],
+            'done': raw.get('done') is True,
+        })
+    return out
+
+
+@project_bp.route('/api/project/notes-checklist', methods=['PUT'])
+def put_notes_checklist():
+    data = request.json or {}
+    items = _clean_notes_checklist(data.get('items'))
+    if items is None:
+        return jsonify({'error': 'items must be a list'}), 400
+    # Only a real change ends a pristine project: undo, a file load or a new
+    # project re-send a list the server already holds (the client cannot tell
+    # those apart), and the broadcast still goes so every client follows.
+    if (app.current_project.get('notesChecklist') or []) != items:
+        app.current_project['is_pristine'] = False
+    # A project that never had a list keeps its shape for an empty one.
+    if items or 'notesChecklist' in app.current_project:
+        app.current_project['notesChecklist'] = items
+    log_event('notes_checklist', {'items': len(items), 'done': sum(1 for i in items if i['done'])})
+    socketio.emit('notes_checklist_updated', {
+        'items': items,
+        'origin': str(data.get('origin') or ''),
+    })
+    return jsonify({'items': items})

@@ -199,6 +199,24 @@ SKIP = {
     'route-group-as-one':
         'writes group.routeDataAsOne on the project, not the layer; driven '
         'end-to-end by tests/test_audit_cross_member.py',
+    # The 3D panel's joint field bends ONE joint - the seam picked by
+    # clicking it in the 3D view - and stays disabled until one is picked,
+    # so there is nothing for a typed value to land on here. Picked and
+    # driven end-to-end (layer, server, undo) by tests/test_stage3d.py.
+    's3d-joint-angle':
+        'bends the joint picked in the 3D view and is disabled until a seam '
+        'is clicked; driven end-to-end by tests/test_stage3d.py',
+    # The IDM Locator's field colour is the PROJECT's view state
+    # (project.idmField, its own route), the same for every screen and never
+    # an undo step - not layer state.
+    'idm-field-custom':
+        'writes project.idmField through PUT /api/project/idm-field, not the '
+        'layer; driven end-to-end by tests/test_idm_field_highlight.py',
+    # ... and so are its Colours (the same block, the same route).
+    **{key: 'writes project.idmField through PUT /api/project/idm-field, not '
+            'the layer; driven end-to-end by tests/test_idm_colours.py'
+       for key in ('idm-label-color', 'idm-module-edge-color', 'idm-cabinet-edge-color',
+                   'idm-shade-color', 'idm-shade-percent')},
     # The show's cable unit beside the jumper fields (2026-10-17): a
     # project setting (project.cableUnit through setCableUnit), the same
     # one the export dialog's Cable lengths selects write.

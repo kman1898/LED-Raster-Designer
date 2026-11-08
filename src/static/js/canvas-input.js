@@ -81,6 +81,22 @@ Object.assign(CanvasRenderer.prototype, {
             this.render();
         }
 
+        // IDM Locator: a press on a module marks or clears it and starts a
+        // paint stroke (app-idm-locator.js _idmPointerDown); the first
+        // module decides paint or clear, the way Alt-drag blanking does.
+        // The view moves nothing: Shift and Alt presses do nothing here.
+        // Space / middle-button pan, Cmd/Ctrl toggle-select and a press
+        // off every screen (selection marquee) fall through as anywhere.
+        if (this.viewMode === 'idm' && e.button === 0 && !this.spacePressed) {
+            if (e.shiftKey || e.altKey) return;
+            if (!e.metaKey && !e.ctrlKey && window.app
+                    && typeof window.app._idmPointerDown === 'function'
+                    && window.app._idmPointerDown(worldX, worldY)) {
+                this.isIdmPainting = true;
+                return;
+            }
+        }
+
         // v0.8.7.7: plain-click directly on a screen-name label starts a
         // screen-name drag (no modifier needed). This is the universal
         // "grab the label" gesture across every tab, Pixel Map, Cabinet
@@ -825,6 +841,20 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
 
+        if (this.isIdmPainting) {
+            if (window.app && typeof window.app._idmPointerMove === 'function') {
+                window.app._idmPointerMove(worldX, worldY);
+            }
+            return;
+        }
+
+        // IDM Locator: the module under the mouse is the live highlight
+        // (app-idm-locator.js _idmHover). Not while the view is panned.
+        if (this.viewMode === 'idm' && !this.isDragging && window.app
+                && typeof window.app._idmHover === 'function') {
+            window.app._idmHover(worldX, worldY);
+        }
+
         if (this.isAltPainting) {
             const clickedPanel = this.getPanelAt(worldX, worldY);
             if (clickedPanel && clickedPanel.layerId === this.altPaintLayerId && !this.altPaintedPanelIds.has(clickedPanel.panel.id)) {
@@ -1294,6 +1324,15 @@ Object.assign(CanvasRenderer.prototype, {
             this.render();
             if (typeof sendClientLog === 'function') {
                 sendClientLog('canvas_drag_end', { canvasId: id });
+            }
+            return;
+        }
+
+        // IDM Locator: the stroke ends as one layer edit, one undo step.
+        if (this.isIdmPainting) {
+            this.isIdmPainting = false;
+            if (window.app && typeof window.app._idmPointerUp === 'function') {
+                window.app._idmPointerUp();
             }
             return;
         }
@@ -2042,6 +2081,16 @@ Object.assign(CanvasRenderer.prototype, {
             return type === 'range' || type === 'radio';
         })();
 
+        // IDM Locator: the arrows move the live highlight (Shift a cabinet),
+        // Space marks the highlighted module, Esc clears the highlight
+        // (app-idm-locator.js _idmKeyDown). Ahead of Space-to-pan, which
+        // still works with no highlight.
+        if (this.viewMode === 'idm' && !isTyping && window.app
+                && typeof window.app._idmKeyDown === 'function' && window.app._idmKeyDown(e)) {
+            e.preventDefault();
+            return;
+        }
+
         if (!isTyping && !arrowsOwned && window.app && window.app.handleCustomArrowKey(e)) {
             e.preventDefault();
             return;
@@ -2339,7 +2388,7 @@ Object.assign(CanvasRenderer.prototype, {
         }
         const armed = this.isDragging || this.isDraggingLayer
             || this.isDraggingScreenName || this.isDraggingGroupName
-            || this.isDraggingCanvas || this.isAltPainting
+            || this.isDraggingCanvas || this.isAltPainting || this.isIdmPainting
             || this.isSelectingPanels || this.isSelectingPixelMapPanels
             || this.isSelectingLayers
             || this.selectionRect || this.layerSelectionRect;

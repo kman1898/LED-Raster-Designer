@@ -36,6 +36,7 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 import { stripScreenFeeds, SCREEN_FEED_KEYS } from './app-clipboard.js';
+import { s3dCopyPlacement } from './app-stage3d.js';
 
 // What the greyed "Route <group> as one screen" switch says when the
 // members' cabinet sizes differ (updateGroupRouteControl).
@@ -1277,6 +1278,12 @@ class _ScreenGroups {
             clone.offset_y = (Number(src.offset_y) || 0) + 50;
             if (src.showOffsetX != null) clone.showOffsetX = (Number(src.showOffsetX) || 0) + 50;
             if (src.showOffsetY != null) clone.showOffsetY = (Number(src.showOffsetY) || 0) + 50;
+            // Its 3D place takes the same nudge in mm on every member - the
+            // first member's 50 px - so the copied wall keeps its shape in
+            // the 3D view too (app-stage3d.js).
+            const placed = s3dCopyPlacement(src, 50, 50, members[0]);
+            if (placed) clone.stage3d = placed;
+            else delete clone.stage3d;
             // A copy claims no multi on any distro (2026-09-23) - the same
             // rule Duplicate and Paste follow; see SCREEN_FEED_KEYS.
             stripScreenFeeds(clone);

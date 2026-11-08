@@ -373,7 +373,8 @@
     // the id of the hardware the guide put in). 'export:<format>' is the
     // Export dialog on that format, 'prefs:<tab>' Preferences on that tab,
     // 'pull-sheet' the pull sheet editor, 'gear:<id>' the ⚙ popover of the
-    // header whose data-hwpop is <id>, 'picker:<mode>' the panel library.
+    // header whose data-hwpop is <id>, 'picker:<mode>' the panel library,
+    // 'output' the Output to Display dialog.
     // On Next and Back, a window both steps name stays up (S.keep, which
     // every close below reads): the step left does not close it, the step
     // entered does not open it again, and a restore between the two
@@ -1520,7 +1521,7 @@
         el.dispatchEvent(ev);
         return ev;
     }
-    var KEY_CODES = { Escape: 'Escape', Enter: 'Enter', Tab: 'Tab' };
+    var KEY_CODES = { Escape: 'Escape', Enter: 'Enter', Tab: 'Tab', ' ': 'Space' };
     function keyEvent(type, el, key, init) {
         init = init || {};
         var ev = new KeyboardEvent(type, {
@@ -2442,6 +2443,7 @@
         var a = A();
         if (!a) return Promise.resolve();
         try { if (a._flushPendingSaveState) a._flushPendingSaveState(); } catch (e) {}
+        try { if (a._s3dFlushCamera) a._s3dFlushCamera(); } catch (e) {}
         var p = null;
         try { p = a._layerSavesSettled ? a._layerSavesSettled() : null; } catch (e) { p = null; }
         return withLimit(Promise.resolve(p).catch(function () {}), SETTLE_LIMIT, null).then(painted);
@@ -2753,6 +2755,9 @@
             tray: captureTray(),
             panels: capturePanels(),
             layout: window.LRD_LAYOUT ? window.LRD_LAYOUT.rings() : null,
+            notes: notesCollapsed(),
+            idm: captureIdm(),
+            output: outputChoice(),
             // the Preferences tab the person had: the guide's steps open
             // other tabs, and the window reopened on the guide's last one
             prefsTab: a._prefsTab || null,
@@ -2768,7 +2773,8 @@
         try {
             localStorage.setItem(STASH_KEY, JSON.stringify({
                 project: w.project, mode: w.mode, sheets: w.sheets, prefs: w.prefs,
-                tray: w.tray, panels: w.panels, layout: w.layout, currentLayerId: w.currentLayerId, at: Date.now()
+                tray: w.tray, panels: w.panels, layout: w.layout, currentLayerId: w.currentLayerId,
+                notes: w.notes, idm: w.idm, at: Date.now()
             }));
         } catch (e) { /* a project too big for the stash still restores on exit */ }
     }
@@ -2797,6 +2803,7 @@
                 SHEET_PREFIXES.forEach(function (p) { lsKeys(p).forEach(function (e) { localStorage.removeItem(e.k); }); });
                 (w.sheets || []).forEach(function (e) { localStorage.setItem(e.k, e.v); });
             } catch (e) {}
+            restore3d();
             if (w.mode) switchView(w.mode);
             if (w.currentLayerId != null) {
                 var l = a.project.layers.find(function (x) { return x.id === w.currentLayerId; });
@@ -2804,7 +2811,9 @@
             }
             restoreLayout(w.layout);
             restoreTray(w.tray);
+            if (typeof w.notes === 'boolean') setNotesCollapsed(w.notes);
             restorePanels(w.panels);
+            restoreIdm(w.idm);
             a.resetHistory('Recovered');
             try { a.updateUI(); } catch (e) {}
             try { a.renderHardwareDock(); } catch (e) {}
@@ -2834,6 +2843,7 @@
         hideMenus();
         closePullSheet();
         closeExport();
+        closeOutput();
         if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     }
 
@@ -2894,6 +2904,7 @@
                 SHEET_PREFIXES.forEach(function (p) { lsKeys(p).forEach(function (e) { localStorage.removeItem(e.k); }); });
                 w.sheets.forEach(function (e) { localStorage.setItem(e.k, e.v); });
             } catch (e) {}
+            restore3d();
             if (w.mode) switchView(w.mode);
             if (w.currentLayerId != null) {
                 var l = a.project.layers.find(function (x) { return x.id === w.currentLayerId; });
@@ -2902,7 +2913,10 @@
             if (r && w.zoom) { r.zoom = w.zoom; r.panX = w.panX; r.panY = w.panY; }
             restoreLayout(w.layout);
             restoreTray(w.tray);
+            setNotesCollapsed(w.notes);
             restorePanels(w.panels);
+            restoreIdm(w.idm);
+            setOutputChoice(w.output || { view: 'pixel-map', scale: 'fit' });
             closeTransients();
             var em = $('#export-modal');
             if (em) em.style.display = w.exportOpen ? 'block' : 'none';
@@ -3106,6 +3120,162 @@
         S.ending = ending;
         return ending;
     }
+
+    // ── 1.6: the 3D tab, Output to Display, the IDM Locator, the checklist ──
+    // The person's own state these steps touch that is NOT on the project
+    // (the project itself comes back whole on exit): the Notes panel's
+    // fold, the IDM Locator's next-mark style and colour (kept per viewer
+    // in localStorage), the Output to Display dialog's view and scale (the
+    // dialog keeps them between openings), and the 3D view's camera, which
+    // is this machine's within one project - restore3d makes the next 3D
+    // sync take the restored project's own camera, units and grid again.
+    var IDM_STYLE_KEY = 'lrdIdmMarkStyle', IDM_COLOR_KEY = 'lrdIdmMarkColor';   // app-idm-locator.js
+    function notesCollapsed() { var n = $('#notes-panel'); return !n || n.classList.contains('collapsed'); }
+    // The panel's own toggle (app-wiring.js), so its arrow follows.
+    function setNotesCollapsed(v) {
+        if (notesCollapsed() === !!v) return;
+        var b = $('#notes-toggle');
+        if (b) b.click();
+    }
+    function idmState() { var a = A(); return a && typeof a._idmState === 'function' ? a._idmState() : null; }
+    function captureIdm() {
+        var st = idmState();
+        return { style: st ? st.style : null, color: st ? st.color : null,
+                 lsStyle: lsGet(IDM_STYLE_KEY), lsColor: lsGet(IDM_COLOR_KEY) };
+    }
+    function restoreIdm(v) {
+        var a = A(), st = idmState();
+        if (!v) return;
+        if (st && v.style) st.style = v.style;
+        if (st && v.color) st.color = v.color;
+        lsPut(IDM_STYLE_KEY, v.lsStyle);
+        lsPut(IDM_COLOR_KEY, v.lsColor);
+        if (a && typeof a._idmSyncToolbar === 'function') { try { a._idmSyncToolbar(); } catch (e) {} }
+    }
+    function restore3d() {
+        var a = A(), st = a && a._s3d;
+        if (st) { a._s3dDropPendingCamera(); st.epoch = null; st.joint = null; }
+    }
+    function outputModal() { return $('#output-display-modal'); }
+    function outputOpen() { var m = outputModal(); return !!m && m.style.display !== 'none'; }
+    function closeOutput() {
+        if (held('output')) return;
+        var a = A();
+        if (outputOpen() && a && typeof a.closeOutputDisplayDialog === 'function') a.closeOutputDisplayDialog();
+    }
+    function outputChoice() {
+        var m = outputModal();
+        if (!m) return null;
+        var v = m.querySelector('#output-display-view');
+        var s = m.querySelector('input[name="output-display-scale"]:checked');
+        return { view: v ? v.value : 'pixel-map', scale: s ? s.value : 'fit' };
+    }
+    function setOutputChoice(c) {
+        var m = outputModal(), a = A();
+        if (!m || !c) return;
+        var v = m.querySelector('#output-display-view');
+        if (v) v.value = c.view;
+        $$('input[name="output-display-scale"]', m).forEach(function (r) { r.checked = r.value === c.scale; });
+        if (a && typeof a._outputDisplayUpdateNote === 'function') { try { a._outputDisplayUpdateNote(); } catch (e) {} }
+    }
+    // Only this screen selected (the 3D panel and the IDM Locator's module
+    // fields edit the selection), the Screens list and the views told.
+    function only(l) {
+        var a = A();
+        if (!a || !l) return;
+        var sel = a.selectedLayerIds;
+        if (!a.currentLayer || a.currentLayer.id !== l.id || !sel || sel.size !== 1) {
+            a.selectLayer(l);
+            try { a.renderLayers(); } catch (e) {}
+        }
+        if (typeof a._s3dRefreshPanel === 'function') { try { a._s3dRefreshPanel(); } catch (e) {} }
+        if (R()) R().render();
+    }
+    function s3dDebug() { var a = A(); try { return a && a._s3dDebug ? a._s3dDebug() : null; } catch (e) { return null; } }
+    // The 3D view is up: the drawing library in and every screen on the
+    // stage (or the library in without WebGL - the panel still places).
+    function s3dReady() {
+        var d = s3dDebug();
+        if (!d || !d.active || !d.loaded) return null;
+        if (!d.webgl) return d;
+        return d.screens.length >= screens().length ? d : null;
+    }
+    function open3d() {
+        switchView('3d');
+        return T.wait(s3dReady, 10000).then(function () { return T.pause(120); });
+    }
+    function placed(l) { return (l && l.stage3d) || {}; }
+    // The client point of a screen's centre on the stage, as drawn now.
+    function stagePoint(l) {
+        var d = s3dDebug();
+        var e = d && l ? d.screens.find(function (s) { return s.id === l.id; }) : null;
+        return e && e.at ? { x: e.at[0], y: e.at[1] } : null;
+    }
+    // A press in the 3D viewport: the view listens for pointer events
+    // (app-stage3d.js _s3dWireViewport), on its own canvas and the window.
+    function stagePress(t, pt) {
+        var cv = $('#s3d-canvas');
+        if (!cv || !pt) return Promise.reject(new Error('the 3D view is not drawn'));
+        var init = { bubbles: true, cancelable: true, view: window, clientX: pt.x, clientY: pt.y,
+                     button: 0, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+        return t.hover(pt).then(function (p) {
+            press(true);
+            cv.dispatchEvent(new PointerEvent('pointerdown', Object.assign({ buttons: 1 }, init)));
+            return t.pause(70).then(function () {
+                cv.dispatchEvent(new PointerEvent('pointerup', Object.assign({ buttons: 0 }, init)));
+                ripple(p.x, p.y);
+                press(false);
+                return t.pause(PACE.rest);
+            });
+        });
+    }
+    function idmField() { var a = A(); return (a && a.project && a.project.idmField) || {}; }
+    function idmMarks(l) { return (l && l.idm && l.idm.marks) || {}; }
+    function idmText(l, key) {
+        var a = A(), d = a && a._idmDescribe ? a._idmDescribe(l, key) : null;
+        return d ? d.text : (l ? l.name : 'the screen');
+    }
+    function openIdm() {
+        switchView('idm');
+        only(wall2());
+        frameWalls();
+    }
+    // The client point of one module's centre (key "col,row,mx,my"): the
+    // module's workspace rectangle (canvas-idm.js idmModuleRects) through
+    // the view's zoom and pan, the walk cabinetPoint makes for a cabinet.
+    function modulePoint(l, key) {
+        var r = R();
+        if (!r || !l || typeof r.idmModuleRects !== 'function') return null;
+        var m = r.idmModuleRects(function (x) { return x.id === l.id; }).find(function (x) { return x.key === key; });
+        if (!m) return null;
+        var wx = m.x + m.w / 2, wy = m.y + m.h / 2;
+        var rect = r.canvas.getBoundingClientRect();
+        return { x: rect.left + wx * r.zoom + r.panX, y: rect.top + wy * r.zoom + r.panY, worldX: wx, worldY: wy };
+    }
+    // A click on a module of the IDM Locator's view: the press and release
+    // the canvas hears (canvas-input.js), so the app's own marking runs.
+    function clickModule(t, l, key) {
+        var pt = modulePoint(l, key);
+        if (!pt) return Promise.reject(new Error('module ' + key + ' is not on the view'));
+        return t.hover(pt).then(function () {
+            press(true);
+            t.canvasDown(pt);
+            return t.pause(90);
+        }).then(function () {
+            t.canvasUp(pt);
+            press(false);
+            ripple(pt.x, pt.y);
+            return t.wait(function () {
+                var live = screens().find(function (x) { return x.id === l.id; });
+                return !!idmMarks(live)[key];
+            });
+        }).then(function () { return t.pause(PACE.rest); });
+    }
+    // The modules the IDM steps mark: one in colour, one with an X, and the
+    // one the arrow keys reach (right three times, then down) and Space marks.
+    var MARK_COLOR = '1,1,0,0', MARK_X = '3,2,1,1', MARK_KEYS = '1,0,0,1';
+    function idmRows() { return $$('#idm-list .idm-row'); }
+    function checklist() { var a = A(); return (a && a.project && a.project.notesChecklist) || []; }
 
     // ── the step library ─────────────────────────────────────────────────
     // ONE action per step. `target` is the selector the spotlight rings (a
@@ -6637,6 +6807,428 @@
             body: 'Done puts your own project back. Reopen any guide from Help.',
             before: function () { hideMenus(); closeExport(); closePrefs(); }
         },
+        // The 1.7 tabs and windows, shown after Cabinets across screens: the
+        // steps need the second wall and run before the two are grouped.
+        // Each sets up the view and the selection it needs in before(), so
+        // a Go to, a Back, a replay or What's New lands ready.
+        s3dOpen: {
+            since: '1.7.0',
+            target: '[data-mode="3d"]', place: 'bottom', title: 'The 3D tab',
+            body: 'The 3D tab stands every Show Look screen on a stage, built from its cabinets with its Pixel Map on the front.',
+            before: function () { switchView('pixel-map'); },
+            act: function (t) {
+                return t.click('[data-mode="3d"]').then(function () {
+                    return t.wait(s3dReady, 10000);
+                }).then(function () { return t.pause(PACE.opened); });
+            },
+            check: function () {
+                var d = s3dDebug();
+                if (mode() !== '3d' || !d || !d.loaded) return null;
+                if (!d.webgl) return 'The 3D tab is open; without WebGL here, the panel still places each screen.';
+                return d.screens.length + ' screens stand on the stage. Drag to orbit, right-drag to pan, wheel to zoom.';
+            }
+        },
+        s3dSelect: {
+            since: '1.7.0',
+            target: '#s3d-view', place: 'left', title: 'Pick a screen',
+            avoid: [function () { return stagePoint(wall2()); }],
+            body: 'Click a screen in the view to select it. The 3D Placement panel shows where it stands and how it turns.',
+            before: function () { return open3d().then(function () { only(wall()); }); },
+            act: function (t) {
+                var w2 = wall2();
+                var d = s3dDebug();
+                var go = d && d.webgl ? stagePress(t, stagePoint(w2)) : t.click(layerRow(w2));
+                return go.then(function () {
+                    return t.wait(function () { var a = A(); return a.currentLayer && a.currentLayer.id === w2.id; }, 2000);
+                });
+            },
+            check: function () {
+                var a = A(), w2 = wall2();
+                var name = $('#s3d-screen-name');
+                return w2 && a.currentLayer && a.currentLayer.id === w2.id && name && name.textContent === w2.name
+                    ? w2.name + ' is selected; its position, rotation and curve fill the panel.' : null;
+            }
+        },
+        s3dCurve: {
+            since: '1.7.0',
+            target: '#s3d-curve-col', place: 'right', title: 'Bend the column joints',
+            body: 'Column joints bends every joint between two columns, up to 15&deg; either way. Here 5&deg; curves the screen toward the audience.',
+            before: function () { return open3d().then(function () { only(wall2()); }); },
+            act: function (t) {
+                return t.type('#s3d-curve-col', '5').then(function () {
+                    return t.wait(function () { return placed(wall2()).curveCol === 5; });
+                });
+            },
+            check: function () {
+                if (placed(wall2()).curveCol !== 5) return null;
+                var arc = $('#s3d-arc-col');
+                return 'Every column joint bends 5°' +(arc && arc.textContent ? ': ' + arc.textContent + '.' : '.');
+            }
+        },
+        s3dYaw: {
+            since: '1.7.0',
+            target: '[data-s3d-axis="yaw"] [data-s3d-step="15"]', ring: ['#s3d-yaw', '[data-s3d-axis="yaw"]'],
+            place: 'right', title: 'Turn the screen',
+            body: 'The +15 and -15 buttons turn the screen in steps, or type any angle in Pitch, Yaw or Roll.',
+            before: function () { return open3d().then(function () { only(wall2()); }); },
+            act: function (t) {
+                t.mem.yaw = Number(placed(wall2()).yaw) || 0;
+                return t.click('[data-s3d-axis="yaw"] [data-s3d-step="15"]').then(function () {
+                    return t.wait(function () { return Math.abs((Number(placed(wall2()).yaw) || 0) - t.mem.yaw - 15) < 0.01; });
+                });
+            },
+            check: function (mem) {
+                var yaw = Number(placed(wall2()).yaw) || 0;
+                return Math.abs(yaw - mem.yaw - 15) < 0.01 ? wall2().name + ' turns to a yaw of ' + Math.round(yaw) + '°.' : null;
+            }
+        },
+        s3dCamera: {
+            since: '1.7.0',
+            target: '#s3d-toolbar', place: 'bottom', title: 'Camera views',
+            avoid: ['[data-s3d-view="top"]', '[data-s3d-view="iso"]'],
+            body: 'The bar over the view looks from the Front, Back, Left, Right, Top or Iso, in Perspective or Orthographic. Top looks straight down; Iso from above and to one side.',
+            before: function () { return open3d().then(function () { only(wall2()); }); },
+            act: function (t) {
+                return t.click('[data-s3d-view="top"]', { rest: PACE.acted }).then(function () {
+                    var c = A()._s3dCameraState();
+                    t.mem.top = !!c && c.position[1] - c.target[1] > Math.abs(c.position[2] - c.target[2]) * 10;
+                    return t.click('[data-s3d-view="iso"]', { rest: PACE.acted });
+                });
+            },
+            check: function (mem) {
+                var c = A()._s3dCameraState && A()._s3dCameraState();
+                if (!c || !mem.top) return null;
+                var iso = c.position[0] > c.target[0] && c.position[1] > c.target[1] && c.position[2] > c.target[2];
+                return iso ? 'Top, then Iso: the stage seen from above and to one side.' : null;
+            }
+        },
+        // The Header/Footer tab's bars stand over DEMO WALL on the stage
+        // (its header bars came from the Auto step); Bars hides and shows
+        // them. The switch is set on first, so a Go to finds them up.
+        s3dBars: {
+            since: '1.7.0',
+            target: '#s3d-bars', place: 'bottom', title: 'Header and footer bars',
+            avoid: ['#s3d-bars', function () { return stagePoint(wall()); }],
+            body: 'The bars from the Header/Footer tab stand over each wall here too, in its colors, each with its size. Bars hides them and shows them again.',
+            before: function () {
+                return open3d().then(function () {
+                    var a = A();
+                    if (a._s3dState().bars === false) a._s3dSetBars(true);
+                });
+            },
+            act: function (t) {
+                return t.click('#s3d-bars', { rest: PACE.acted }).then(function () {
+                    t.mem.hid = A()._s3dState().bars === false;
+                    return t.click('#s3d-bars', { rest: PACE.acted });
+                }).then(function () {
+                    return t.wait(function () { return A()._s3dState().bars === true; });
+                });
+            },
+            check: function (mem) {
+                var d = s3dDebug(), w = wall();
+                var me = d && w ? d.screens.find(function (s) { return s.id === w.id; }) : null;
+                var head = me ? me.bars.find(function (r) { return r.row === 'header'; }) : null;
+                if (!mem.hid || !head || !head.shown || !d.bars) return null;
+                return 'DEMO WALL carries ' + head.bars.length + ' header bars on the stage, ' + head.bars.join(' + ')
+                    + ' panels. Bars hid them and brought them back.';
+            }
+        },
+        s3dJoint: {
+            since: '1.7.0',
+            target: '#s3d-joint-angle', ring: ['#s3d-joint-label', '#s3d-joint-angle'], place: 'right', title: 'Bend one joint',
+            avoid: ['#s3d-joint-angle', function () {
+                var w2 = wall2(), at = w2 && A()._s3dDebugSeam ? A()._s3dDebugSeam(w2.id, 'col', 2) : null;
+                return at ? { x: at[0], y: at[1] } : null;
+            }],
+            body: 'Click the seam between two columns, then give that joint its own angle. The other joints keep the screen&rsquo;s own figure.',
+            before: function () { return open3d().then(function () { only(wall2()); }); },
+            act: function (t) {
+                var w2 = wall2();
+                var at = A()._s3dDebugSeam(w2.id, 'col', 2);
+                if (!at) throw new Error('the seam is not in the view');
+                return stagePress(t, { x: at[0], y: at[1] }).then(function () {
+                    return t.wait(function () {
+                        var jt = A()._s3d && A()._s3d.joint;
+                        return jt && jt.layerId === w2.id && jt.axis === 'col' && jt.index === 2;
+                    }, 2000);
+                }).then(function (picked) {
+                    if (!picked) throw new Error('the joint was not picked');
+                    return t.type('#s3d-joint-angle', '12');
+                }).then(function () {
+                    return t.wait(function () { return (placed(wall2()).jointsCol || {})['2'] === 12; });
+                });
+            },
+            check: function () {
+                var p = placed(wall2());
+                return (p.jointsCol || {})['2'] === 12
+                    ? 'The joint between columns 3 and 4 bends 12°; the other column joints stay at ' + p.curveCol + '°.' : null;
+            }
+        },
+        outputOpen: {
+            since: '1.7.0',
+            window: 'output',
+            target: '[data-menu="view"]', place: 'bottom', title: 'Output to Display',
+            avoid: ['[data-menu="view"]', '#menu-view [data-action="output-to-display"]'],
+            body: 'View &rsaquo; Output to Display sends one canvas full screen to a second display, and it follows every edit live.',
+            before: function () { closeOutput(); },
+            act: function (t) {
+                // Up already on a Back from the next step, which shares it.
+                var open = outputOpen() ? Promise.resolve() : t.click('[data-menu="view"]').then(function () {
+                    return t.wait(function () { var m = $('#menu-view'); return m && m.style.display === 'block' ? m : null; });
+                }).then(function (m) {
+                    if (!m) throw new Error('the View menu did not open');
+                    return t.click('#menu-view [data-action="output-to-display"]', { hover: PACE.menuHover });
+                }).then(function () {
+                    return t.wait(outputOpen);
+                });
+                return open.then(function () {
+                    return t.spot($('#output-display-modal .modal-content')).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                if (!outputOpen()) return null;
+                var note = $('#output-display-note');
+                return 'Pick the canvas, the view and the scale, then Open output.' + (note && note.textContent ? ' ' + note.textContent : '');
+            },
+            after: closeOutput
+        },
+        outputChoices: {
+            since: '1.7.0',
+            window: 'output',
+            target: '#output-display-view', ring: ['#output-display-view', 'input[name="output-display-scale"][value="1to1"]'],
+            place: 'right', title: 'The view and the scale',
+            avoid: ['#output-display-view', 'input[name="output-display-scale"][value="1to1"]'],
+            body: 'Every tab but 3D can go out, the IDM Locator included. Fit to display fills the display; 1:1 pixel puts one raster pixel on each display pixel.',
+            before: function () {
+                var a = A();
+                if (!outputOpen() && a && typeof a.openOutputDisplayDialog === 'function') a.openOutputDisplayDialog();
+            },
+            act: function (t) {
+                return t.spot($('#output-display-modal .modal-content')).then(function () {
+                    return t.select('#output-display-view', 'idm');
+                }).then(function () {
+                    return t.click('input[name="output-display-scale"][value="1to1"]');
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function () {
+                var c = outputChoice();
+                if (!outputOpen() || !c || c.view !== 'idm' || c.scale !== '1to1') return null;
+                var note = $('#output-display-note');
+                return 'IDM Locator at 1:1 pixel.' + (note && note.textContent ? ' ' + note.textContent : '');
+            },
+            after: closeOutput
+        },
+        idmOpen: {
+            since: '1.7.0',
+            target: '[data-mode="idm"]', place: 'bottom', title: 'The IDM Locator tab',
+            body: 'The IDM Locator fills every screen with one solid color, so a dead pixel or a bad module stands out on the wall.',
+            before: function () { closeOutput(); },
+            act: function (t) {
+                return t.click('[data-mode="idm"]').then(function () {
+                    only(wall2());
+                    frameWalls();
+                    return t.pause(PACE.opened);
+                });
+            },
+            check: function () {
+                var bar = $('#idm-toolbar');
+                return mode() === 'idm' && bar && !bar.hidden
+                    ? 'Every screen is one solid field; the marking tools sit over the view.' : null;
+            }
+        },
+        idmModules: {
+            since: '1.7.0',
+            target: '#idm-modules-x', ring: ['#idm-modules-x', '#idm-modules-y'], place: 'right', title: 'Modules in a cabinet',
+            avoid: ['#idm-modules-x', '#idm-modules-y'],
+            body: 'Type how many modules make up one cabinet, across and down. Here each cabinet of DEMO WALL 2 is 2 &times; 2.',
+            before: openIdm,
+            act: function (t) {
+                return t.type('#idm-modules-x', '2').then(function () {
+                    return t.type('#idm-modules-y', '2');
+                }).then(function () {
+                    return t.wait(function () { var i = wall2().idm; return i && i.modulesX === 2 && i.modulesY === 2; });
+                });
+            },
+            check: function () {
+                var i = wall2().idm;
+                if (!i || i.modulesX !== 2 || i.modulesY !== 2) return null;
+                var size = $('#idm-module-size');
+                return 'Four modules a cabinet.' + (size && size.textContent ? ' ' + size.textContent + '.' : '');
+            }
+        },
+        idmMarkColor: {
+            since: '1.7.0',
+            target: '#idm-style-color', place: 'bottom', title: 'Mark a bad module',
+            avoid: ['#idm-style-color', function () { return modulePoint(wall2(), MARK_COLOR); }],
+            body: 'With the color mark picked in the toolbar, click a module to fill it with the mark color. Click it again to clear it.',
+            before: openIdm,
+            act: function (t) {
+                return t.click('#idm-style-color').then(function () {
+                    return clickModule(t, wall2(), MARK_COLOR);
+                });
+            },
+            check: function () {
+                var m = idmMarks(wall2())[MARK_COLOR];
+                return m && m.style === 'color' ? 'Marked: ' + idmText(wall2(), MARK_COLOR) + '.' : null;
+            }
+        },
+        idmMarkX: {
+            since: '1.7.0',
+            target: '#idm-style-x', place: 'bottom', title: 'Mark with an X',
+            avoid: ['#idm-style-x', function () { return modulePoint(wall2(), MARK_X); }],
+            body: 'Pick X and the next mark draws an X corner to corner instead. Each mark keeps its own style and color.',
+            before: openIdm,
+            act: function (t) {
+                return t.click('#idm-style-x').then(function () {
+                    return clickModule(t, wall2(), MARK_X);
+                });
+            },
+            check: function () {
+                var m = idmMarks(wall2())[MARK_X];
+                return m && m.style === 'x' ? 'An X on ' + idmText(wall2(), MARK_X) + '.' : null;
+            }
+        },
+        idmField: {
+            since: '1.7.0',
+            target: '.idm-swatches', ring: ['.idm-swatches', '.idm-seg'], place: 'right', title: 'The field and its borders',
+            avoid: ['[data-idm-field="#ff0000"]', '[data-idm-border="lines"]'],
+            body: 'Pick the field: white, red, green, blue, black or your own. Lines draws every module edge as a thin line in the field&rsquo;s own color, never black.',
+            before: openIdm,
+            act: function (t) {
+                return t.click('[data-idm-field="#ff0000"]').then(function () {
+                    return t.click('[data-idm-border="lines"]');
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function () {
+                var f = idmField();
+                return f.color === '#ff0000' && f.border === 'lines'
+                    ? 'A red field with Lines borders, in the app and on the wall output.' : null;
+            }
+        },
+        idmModuleIds: {
+            since: '1.7.0',
+            target: '#idm-module-ids', place: 'right', title: 'Module ID',
+            body: 'Module ID labels every module in the Cabinet ID style, A1 B1 / A2 B2, starting again in each cabinet.',
+            before: openIdm,
+            act: function (t) {
+                return t.click('#idm-module-ids').then(function () {
+                    return t.wait(function () { return idmField().moduleIds === true; });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function () {
+                return idmField().moduleIds === true ? 'Every module carries its label; the list names marks the same way.' : null;
+            }
+        },
+        idmColors: {
+            since: '1.7.0',
+            target: '.idm-colors', place: 'right', title: 'Your own colors',
+            avoid: ['#idm-label-color', '[data-idm-auto="labelColor"]'],
+            body: 'Each label and edge color can be set by hand. Auto goes back to the field&rsquo;s own color at a lower level.',
+            before: openIdm,
+            act: function (t) {
+                return t.select('#idm-label-color', '#ffff00').then(function () {
+                    t.mem.set = idmField().labelColor;
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return t.click('[data-idm-auto="labelColor"]');
+                }).then(function () {
+                    var el = document.activeElement;
+                    if (el && el.blur) el.blur();
+                    return t.wait(function () { return !idmField().labelColor; });
+                });
+            },
+            check: function (mem) {
+                return mem.set === '#ffff00' && !idmField().labelColor
+                    ? 'The Module ID labels went yellow, then back to Auto.' : null;
+            }
+        },
+        idmHighlight: {
+            since: '1.7.0',
+            target: '#idm-hl-readout', ring: ['#idm-hl-readout', '#idm-pad'], place: 'right', title: 'Point with the arrow keys',
+            avoid: [function () { return modulePoint(wall2(), MARK_KEYS); }],
+            body: 'The arrow keys move a blinking highlight from module to module, in the view and on the wall. Space marks the highlighted module.',
+            before: function () {
+                openIdm();
+                var a = A();
+                if (a && a._idmHl && a._idmHl()) a._idmClearHighlight();
+            },
+            act: function (t) {
+                var a = A(), w2 = wall2();
+                var el = document.activeElement;
+                if (el && el.blur) el.blur();
+                var keys = [['ArrowRight', 'Right arrow'], ['ArrowRight', 'Right arrow'],
+                            ['ArrowRight', 'Right arrow'], ['ArrowDown', 'Down arrow'], [' ', 'Space']];
+                return keys.reduce(function (chain, k) {
+                    return chain.then(function () {
+                        var hl = a._idmHl();
+                        var at = hl ? modulePoint(w2, hl.key) : modulePoint(w2, '0,0,0,0');
+                        return t.hover(at, { badge: k[1] });
+                    }).then(function () {
+                        t.key(k[0], {}, document.body);
+                        return t.pause(PACE.rest);
+                    });
+                }, Promise.resolve()).then(function () {
+                    return t.wait(function () { return !!idmMarks(wall2())[MARK_KEYS]; });
+                }).then(function () { return t.pause(PACE.rest); });
+            },
+            check: function () {
+                var a = A(), hl = a._idmHl && a._idmHl();
+                if (!hl || hl.key !== MARK_KEYS || !idmMarks(wall2())[MARK_KEYS]) return null;
+                return 'Highlighted and marked: ' + idmText(wall2(), MARK_KEYS) + '.';
+            }
+        },
+        idmList: {
+            since: '1.7.0',
+            target: '#idm-list', place: 'right', title: 'The marked modules',
+            avoid: [function () { return idmRows()[0] || null; }],
+            body: 'Every mark is listed by screen, cabinet ID and module. Click one and that module blinks in the view.',
+            before: openIdm,
+            act: function (t) {
+                var row = idmRows()[0];
+                if (!row) throw new Error('no marks in the list');
+                t.mem.text = row.title || row.textContent.trim();
+                return t.click(row, { rest: PACE.acted });
+            },
+            check: function (mem) {
+                var n = idmRows().length;
+                return n >= 3 && mem.text ? n + ' marks. ' + mem.text + ' blinks in the view.' : null;
+            }
+        },
+        notesChecklist: {
+            since: '1.7.0',
+            target: '#notes-panel', place: 'left', title: 'A checklist in the Notes',
+            avoid: ['#notes-checklist-add'],
+            body: 'Under the notes, + Add item starts a to-do and its box ticks it off. The list saves with the show.',
+            // The panel folds again, so the steps after it find the Screens
+            // list the height they know.
+            after: function () { setNotesCollapsed(true); },
+            act: function (t) {
+                var open = notesCollapsed() ? t.click('#notes-toggle') : Promise.resolve();
+                return open.then(function () {
+                    return t.click('#notes-checklist-add');
+                }).then(function () {
+                    return t.wait(function () { return checklist().length ? checklist()[checklist().length - 1] : null; });
+                }).then(function (item) {
+                    if (!item) throw new Error('no item was added');
+                    t.mem.id = item.id;
+                    var row = '#notes-checklist-list .notes-checklist-row[data-item-id="' + item.id + '"]';
+                    return t.type(row + ' .notes-checklist-text', 'Walk the wall').then(function () {
+                        return t.click(row + ' .notes-checklist-done');
+                    });
+                }).then(function () {
+                    return t.wait(function () {
+                        var it = checklist().find(function (i) { return i.id === t.mem.id; });
+                        return it && it.done;
+                    });
+                });
+            },
+            check: function (mem) {
+                var it = checklist().find(function (i) { return i.id === mem.id; });
+                var title = $('#notes-checklist .notes-checklist-title');
+                return it && it.done && it.text === 'Walk the wall'
+                    ? (title ? title.textContent : 'Checklist') + ': Walk the wall is ticked off.' : null;
+            }
+        },
         outroQuick: {
             title: 'You&rsquo;re all set', center: true,
             body: 'Done puts your own project back. Reopen this guide any time from Help &rsaquo; Quick Start Guide, or take the full walkthrough below.',
@@ -6696,7 +7288,12 @@
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingTotals',
-                    'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens', 'groupScreens', 'groupNames',
+                    'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
+                    's3dOpen', 's3dSelect', 's3dCurve', 's3dYaw', 's3dCamera', 's3dBars', 's3dJoint',
+                    'outputOpen', 'outputChoices',
+                    'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
+                    'idmColors', 'idmHighlight', 'idmList', 'notesChecklist',
+                    'groupScreens', 'groupNames',
                     'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
                     'redrawAsOne', 'sweepPorts', 'helpMenu', 'outroAdvanced']

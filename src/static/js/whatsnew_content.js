@@ -19,18 +19,24 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.7': {
-        title: 'Quick Palettes, and header and footer bars',
+        title: 'Quick Palettes, header and footer bars, screens in 3D, a canvas on a second display, and the IDM Locator',
         items: [
             { h: 'Quick Palettes',
-              d: 'The Pixel Map tab has a new Quick Palettes section under Colors: eight Color 1 and Color 2 checkerboard pairs. Select your screens and click one. In Tonal, Palette 1 is the screen\'s own colors, so there\'s always a way back.' },
-            { h: 'Tonal, Bold, Split and Shuffle',
-              d: 'The eight are built around the selected screen\'s color and are all equally bright, so white cabinet IDs stay easy to read. Tonal matches the shipped colors, Bold carries more color, Split pairs two nearby hues, and Shuffle builds a new eight from a random hue.' },
-            { h: 'A Hue slider',
-              d: 'Drag Hue to turn the eight and the selected screens together, one degree at a time. A drag or a run of arrow keys is one undo step, and clicking the degrees puts it back to 0.' },
-            { h: 'Your own eight',
-              d: 'Preferences > Palettes keeps eight pairs of your own, and the Pixel Map tab shows them instead of the built set.' },
+              d: 'The Pixel Map tab has a new Quick Palettes section under Colors: eight Color 1 and Color 2 checkerboard pairs built around the selected screen\'s color, all equally bright so white cabinet IDs stay easy to read. Select your screens and click one. In Tonal, Palette 1 is the screen\'s own colors, so there\'s always a way back. Bold carries more color, Split pairs two nearby hues, and Shuffle builds a new eight.' },
+            { h: 'A Hue slider, and your own eight',
+              d: 'Drag Hue to turn the eight and the selected screens together, one degree at a time. A drag or a run of arrow keys is one undo step, and clicking the degrees puts it back to 0. Preferences > Palettes keeps eight pairs of your own, and the Pixel Map tab shows them instead of the built set.' },
             { h: 'Header and footer bars',
-              d: 'The new Header/Footer tab, right of Power, builds the bars above and below each wall. Light the sizes you stock and Auto fits the fewest bars across it, then drag a bar or the edge between two. The counts go on the pull sheet, and the binder prints a sheet for each screen or group with bars.' }
+              d: 'The new Header/Footer tab, right of Power, builds the bars above and below each wall. Light the sizes you stock and Auto fits the fewest bars across it, then drag a bar or the edge between two. The counts go on the pull sheet, and the binder prints a sheet for each screen or group with bars.' },
+            { h: 'Screens on a stage in 3D',
+              d: 'The 3D tab builds every Show Look screen from its cabinets with its Pixel Map on the front. Place and turn each screen, and bend any column or row joint up to 15 degrees. The header and footer bars stand above and below each wall in their own colors, and Bars hides them.' },
+            { h: 'A canvas on a second display',
+              d: 'View > Output to Display opens a canvas in its own window, fit to the display or pixel for pixel, and follows every edit live.' },
+            { h: 'The IDM Locator',
+              d: 'The IDM Locator tab fills the wall with white, red, green, blue, black or your own color, with module edges, labels and ticks in the field\'s own color, never black. Type a screen\'s modules across and down, then click or drag to mark a bad module with a color or an X. The list names each mark by screen, cabinet ID and module.' },
+            { h: 'Point at a module, see it on the wall',
+              d: 'Hover, use the arrow keys or tap on a tablet, and the module blinks on the wall output. Space or the Mark button marks it. Module ID labels every module in the Cabinet ID style, A1 B1 / A2 B2, starting again in each cabinet.' },
+            { h: 'A checklist in the Notes',
+              d: 'Add items under the notes, tick them off and drag to reorder. The list saves with the show.' }
         ]
     },
     '1.6': {

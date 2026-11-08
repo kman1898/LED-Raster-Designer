@@ -240,7 +240,16 @@ def _indices(tour, n, every=1):
     return [i for i in range(1, n) if (i % every == 0 or i == n - 1)]
 
 
-ADVANCED_STEPS = 107
+def test_a_checklist_item_s_random_id_never_reaches_the_file():
+    """The file holds the same bytes from any two builds, and a checklist
+    item's id is the one random thing in the scratch show."""
+    one = {'notesChecklist': [{'id': 'ckabc', 'text': 'A', 'done': True}]}
+    two = {'notesChecklist': [{'id': 'ckxyz', 'text': 'A', 'done': True}]}
+    assert builder.canonical(builder.strip_volatile(one)) == builder.canonical(builder.strip_volatile(two))
+    assert builder.strip_volatile({'layers': []}) == {'layers': []}
+
+
+ADVANCED_STEPS = 126
 QUICK_STEPS = 10
 
 

@@ -749,6 +749,525 @@ def strip_copied_feeds(layer):
     return [k for k in COPIED_SCREEN_FEED_KEYS if layer.pop(k, None) is not None]
 
 
+# ── 3D view (app-stage3d.js) ─────────────────────────────────────────────
+# A screen's place on the stage lives on the layer as `stage3d`:
+#   {x, y, z}            its centre, in mm (Y up, +Z towards the audience)
+#   {pitch, yaw, roll}   degrees
+#   curveCol / curveRow  the bend at every joint between columns / rows,
+#                        degrees, one figure for the whole screen
+#   jointsCol / jointsRow  per-joint overrides {"<joint index>": degrees};
+#                        joint i sits between column (row) i and i + 1
+# Every bend is held to +/-STAGE3D_JOINT_LIMIT degrees. A layer without the
+# key is placed by the client from its Show Look position, so older files
+# load unchanged. The project keeps the last camera (`stage3dCamera`), the
+# length units the panel shows (`stage3dUnits`), the floor grid switch
+# (`stage3dGrid`) and the header and footer bars switch (`stage3dBars`);
+# those are view state and are written by their own
+# route (routes_project.py), never by the layer PUT.
+STAGE3D_JOINT_LIMIT = 15.0
+STAGE3D_UNITS = ('ft', 'm')
+
+
+def _stage3d_number(value, default=0.0):
+    """`value` as a finite float, or `default` (bools are not numbers)."""
+    if isinstance(value, bool):
+        return default
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    if math.isnan(f) or math.isinf(f):
+        return default
+    return f
+
+
+def _stage3d_joint(value):
+    f = _stage3d_number(value, 0.0)
+    return max(-STAGE3D_JOINT_LIMIT, min(STAGE3D_JOINT_LIMIT, f))
+
+
+def sanitize_stage3d(value):
+    """The `stage3d` block held to its shape: the six placement figures as
+    finite numbers, both curves and every joint override clamped to the
+    joint limit, joint keys as non-negative integer strings, anything else
+    dropped. None when `value` is not a dict (the key is then removed).
+    Idempotent - the client's own copy of this rule (app-stage3d.js
+    s3dSanitize) produces the same block, so a restore never re-adopts."""
+    if not isinstance(value, dict):
+        return None
+    out = {}
+    for key in ('x', 'y', 'z', 'pitch', 'yaw', 'roll'):
+        out[key] = _stage3d_number(value.get(key), 0.0)
+    for key in ('curveCol', 'curveRow'):
+        out[key] = _stage3d_joint(value.get(key))
+    for key in ('jointsCol', 'jointsRow'):
+        raw = value.get(key)
+        joints = {}
+        if isinstance(raw, dict):
+            for idx, deg in raw.items():
+                text = str(idx).strip()
+                if not text.isdigit():
+                    continue
+                if isinstance(deg, bool) or _stage3d_number(deg, None) is None:
+                    continue
+                joints[str(int(text))] = _stage3d_joint(deg)
+        out[key] = joints
+    return out
+
+
+def normalize_stage3d(project):
+    """Run sanitize_stage3d over every layer that carries the key (the load
+    and save funnels). Returns the ids it changed."""
+    changed = []
+    layers = project.get('layers') if isinstance(project, dict) else None
+    for layer in (layers or []):
+        if not isinstance(layer, dict) or 'stage3d' not in layer:
+            continue
+        clean = sanitize_stage3d(layer.get('stage3d'))
+        if clean is None:
+            layer.pop('stage3d', None)
+            changed.append(layer.get('id'))
+        elif clean != layer.get('stage3d'):
+            layer['stage3d'] = clean
+            changed.append(layer.get('id'))
+    return changed
+
+
+def sanitize_stage3d_camera(value):
+    """The saved 3D camera: mode ('perspective' | 'ortho'), position and
+    target as three finite numbers each, zoom a positive number. None when
+    `value` is not a dict or a vector is unusable."""
+    if not isinstance(value, dict):
+        return None
+
+    def vec(raw):
+        if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+            return None
+        nums = [_stage3d_number(v, None) for v in raw]
+        return None if any(n is None for n in nums) else nums
+
+    position = vec(value.get('position'))
+    target = vec(value.get('target'))
+    if position is None or target is None:
+        return None
+    zoom = _stage3d_number(value.get('zoom'), 1.0)
+    return {
+        'mode': 'ortho' if value.get('mode') == 'ortho' else 'perspective',
+        'position': position,
+        'target': target,
+        'zoom': zoom if zoom > 0 else 1.0,
+    }
+
+
+# ── IDM Locator (app-idm-locator.js) ──────────────────────────────────────
+# A cabinet is built from modules; the crew marks the bad one and the mark
+# shows on the wall through Output to Display. Each screen keeps it as
+#   idm: {modulesX, modulesY, marks: {"col,row,mx,my": {style, color}}}
+# modulesX / modulesY  modules across and down in ONE cabinet, 1..64 each
+#                      (1 x 1, the default: the whole cabinet is one module)
+# marks                keyed by the cabinet's grid column and row and the
+#                      module's column and row inside the FULL cabinet;
+#                      style 'color' (a fill) or 'x' (corner to corner),
+#                      color '#rrggbb'
+# A module is cabinet px / modules, the remainder spread so no module is a
+# fractional pixel (edges at floor(k * px / n)). A half cabinet keeps the
+# modules that fall inside it, laid from the side that meets the wall. A
+# blanked cabinet has no modules. A layer without the key is 1 x 1 with no
+# marks, so older files load unchanged. The client's copy of these rules
+# (app-idm-locator.js / canvas-idm.js) gives the same answer, so a restore
+# never comes back "repaired".
+IDM_MAX_MODULES = 64
+IDM_DEFAULT_COLOR = '#ff1a1a'
+_IDM_HEX6 = re.compile(r'^#?([0-9a-fA-F]{6})$')
+_IDM_HEX3 = re.compile(r'^#?([0-9a-fA-F]{3})$')
+
+
+def _idm_count(value):
+    """Modules on one axis: an integer 1..IDM_MAX_MODULES (1 when unusable)."""
+    if isinstance(value, bool) or value is None:
+        return 1
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return 1
+    if math.isnan(f) or math.isinf(f):
+        return 1
+    return max(1, min(IDM_MAX_MODULES, int(f)))
+
+
+def idm_color(value):
+    """'#rrggbb' (lower case), or None when `value` is not a colour."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    m = _IDM_HEX6.match(text)
+    if m:
+        return '#' + m.group(1).lower()
+    m = _IDM_HEX3.match(text)
+    if m:
+        return '#' + ''.join(ch * 2 for ch in m.group(1)).lower()
+    return None
+
+
+def _idm_round(value):
+    """Math.round for the non-negative sizes this deals in (Python's round
+    is banker's rounding and would disagree with the browser at .5)."""
+    try:
+        return int(math.floor(float(value or 0) + 0.5))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _idm_edges(total, n):
+    return [(total * k) // n for k in range(n + 1)]
+
+
+def _idm_blank(panel):
+    return bool(panel.get('hidden')) or bool(panel.get('blank'))
+
+
+def idm_module_cells(layer, panel, modules_x, modules_y, visible_at=None):
+    """The modules of one cabinet as [(mx, my, x, y, w, h)], in the screen's
+    own (processor) pixels, clipped to the cabinet as drawn. Empty for a
+    blanked cabinet. `visible_at(row, col)` answers whether a neighbour is a
+    shown cabinet (half-cabinet anchoring, as _build_panels decides it)."""
+    if not isinstance(panel, dict) or _idm_blank(panel):
+        return []
+    full_w = _idm_round(layer.get('cabinet_width'))
+    full_h = _idm_round(layer.get('cabinet_height'))
+    if full_w <= 0 or full_h <= 0:
+        return []
+    px = float(panel.get('x', 0) or 0)
+    py = float(panel.get('y', 0) or 0)
+    pw = float(panel.get('width', 0) or 0)
+    ph = float(panel.get('height', 0) or 0)
+    if pw <= 0 or ph <= 0:
+        return []
+    row = panel.get('row', 0) or 0
+    col = panel.get('col', 0) or 0
+    seen = visible_at or (lambda r, c: False)
+    half = panel.get('halfTile')
+    ox, oy = px, py
+    # The full cabinet the half is cut from sits on the side that meets the
+    # wall: the cut is on the free edge.
+    if half == 'width' and pw < full_w and not seen(row, col - 1) and seen(row, col + 1):
+        ox = px + pw - full_w
+    if half == 'height' and ph < full_h and not seen(row - 1, col) and seen(row + 1, col):
+        oy = py + ph - full_h
+    ex = _idm_edges(full_w, modules_x)
+    ey = _idm_edges(full_h, modules_y)
+    cells = []
+    for my in range(modules_y):
+        y0 = max(py, oy + ey[my])
+        y1 = min(py + ph, oy + ey[my + 1])
+        if y1 - y0 <= 1e-6:
+            continue
+        for mx in range(modules_x):
+            x0 = max(px, ox + ex[mx])
+            x1 = min(px + pw, ox + ex[mx + 1])
+            if x1 - x0 <= 1e-6:
+                continue
+            cells.append((mx, my, x0, y0, x1 - x0, y1 - y0))
+    return cells
+
+
+def idm_module_keys(layer, modules_x, modules_y):
+    """Every markable module of `layer` as "col,row,mx,my"."""
+    panels = [p for p in (layer.get('panels') or []) if isinstance(p, dict)]
+    shown = {(p.get('row', 0), p.get('col', 0)) for p in panels if not p.get('hidden')}
+
+    def visible_at(r, c):
+        return (r, c) in shown
+
+    keys = set()
+    for p in panels:
+        for (mx, my, _x, _y, _w, _h) in idm_module_cells(layer, p, modules_x, modules_y, visible_at):
+            keys.add(f"{p.get('col', 0)},{p.get('row', 0)},{mx},{my}")
+    return keys
+
+
+def _idm_key(value):
+    parts = str(value).split(',')
+    if len(parts) != 4:
+        return None
+    out = []
+    for part in parts:
+        text = part.strip()
+        if not text.isdigit():
+            return None
+        out.append(int(text))
+    return ','.join(str(n) for n in out)
+
+
+def sanitize_idm(value, layer):
+    """The `idm` block held to its shape against `layer`'s cabinets: module
+    counts as integers 1..64, every mark on a module that exists (inside the
+    cabinet grid, inside the module grid, not on a blanked cabinet), style
+    'color' or 'x', colour '#rrggbb'. None when `value` is not a dict or the
+    layer is not a screen (the key is then removed). Idempotent."""
+    if not isinstance(value, dict) or not isinstance(layer, dict):
+        return None
+    if (layer.get('type') or 'screen') != 'screen':
+        return None
+    modules_x = _idm_count(value.get('modulesX'))
+    modules_y = _idm_count(value.get('modulesY'))
+    marks = {}
+    raw = value.get('marks')
+    if isinstance(raw, dict) and raw:
+        valid = idm_module_keys(layer, modules_x, modules_y)
+        for key, mark in raw.items():
+            k = _idm_key(key)
+            if k is None or k not in valid or not isinstance(mark, dict):
+                continue
+            marks[k] = {
+                'style': 'x' if mark.get('style') == 'x' else 'color',
+                'color': idm_color(mark.get('color')) or IDM_DEFAULT_COLOR,
+            }
+    return {'modulesX': modules_x, 'modulesY': modules_y, 'marks': marks}
+
+
+def normalize_idm_layer(layer):
+    """sanitize_idm on one layer, in place. True when it changed anything.
+    Every route that reshapes a screen's cabinets or modules ends here, so
+    the stored IDM highlight is checked against the screen as well: one on
+    a module this screen no longer has is cleared (prune_idm_highlight_on)."""
+    prune_idm_highlight_on(layer)
+    if not isinstance(layer, dict) or 'idm' not in layer:
+        return False
+    clean = sanitize_idm(layer.get('idm'), layer)
+    if clean is None:
+        layer.pop('idm', None)
+        return True
+    if clean != layer.get('idm'):
+        layer['idm'] = clean
+        return True
+    return False
+
+
+def normalize_idm(project):
+    """normalize_idm_layer over every layer (the load and save funnels).
+    Returns the ids it changed."""
+    layers = project.get('layers') if isinstance(project, dict) else None
+    return [layer.get('id') for layer in (layers or []) if normalize_idm_layer(layer)]
+
+
+def strip_copied_idm_marks(layer):
+    """A copy of a screen is a different physical wall: it keeps the module
+    layout and starts with no marks. In place; non-screens are left alone."""
+    if not isinstance(layer, dict) or (layer.get('type') or 'screen') != 'screen':
+        return
+    idm = layer.get('idm')
+    if isinstance(idm, dict):
+        layer['idm'] = {'modulesX': _idm_count(idm.get('modulesX')),
+                        'modulesY': _idm_count(idm.get('modulesY')),
+                        'marks': {}}
+
+
+# The IDM Locator tab draws every screen in ONE solid field colour (the crew
+# puts it on the wall to find dead pixels and bad modules), with a border
+# style that says where the modules and cabinets meet. The project keeps it as
+#   idmField: {color: '#rrggbb', border: 'shade' | 'lines' | 'ticks' | 'none',
+#              moduleIds: bool}
+# moduleIds draws each module's label (the screen's Cabinet ID style over
+# the cabinet's own module grid, as seen from the front) in the app and on
+# the wall; off when false or missing.
+# View state, not an edit: written by its own route (routes_project.py), told
+# to every client on the LAN, never an undo step. A project without the key
+# draws white with shaded borders and no module numbers.
+#
+# The tab's Colours, one set for the whole show, each key present only when
+# the crew chose something (missing = Auto, drawn exactly as before):
+#   labelColor        '#rrggbb'  the Module ID labels
+#   moduleEdgeColor   '#rrggbb'  Lines and Ticks module edges
+#   cabinetEdgeColor  '#rrggbb'  Lines and Ticks cabinet edges, the Shade
+#                                style's cabinet ring
+#   shade             '#rrggbb' or a whole percent 0..100 of the field: the
+#                     Shade style's second (alternate) level
+#   markPresets       ['#rrggbb', ...] the saved mark colours beside the
+#                     mark swatch (missing = IDM_MARK_PRESETS_DEFAULT; an
+#                     empty list is the crew's own choice and stays empty)
+IDM_FIELD_BORDERS = ('shade', 'lines', 'ticks', 'none')
+IDM_FIELD_DEFAULT = {'color': '#ffffff', 'border': 'shade', 'moduleIds': False}
+IDM_FIELD_COLOUR_KEYS = ('labelColor', 'moduleEdgeColor', 'cabinetEdgeColor')
+IDM_MARK_PRESETS_DEFAULT = ('#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000')
+IDM_MARK_PRESETS_MAX = 12
+
+
+def idm_shade_level(value):
+    """The Shade style's second level: '#rrggbb', or a whole percent 0..100
+    (rounded half up, as the client rounds). None for anything else - Auto."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if not math.isfinite(value) or value < 0 or value > 100:
+            return None
+        return int(math.floor(value + 0.5))
+    return idm_color(value)
+
+
+def idm_mark_presets(value):
+    """The saved mark colours: a list of '#rrggbb', junk and repeats
+    dropped, at most IDM_MARK_PRESETS_MAX. None when `value` is not a list."""
+    if not isinstance(value, list):
+        return None
+    out = []
+    for item in value:
+        c = idm_color(item)
+        if c and c not in out:
+            out.append(c)
+        if len(out) >= IDM_MARK_PRESETS_MAX:
+            break
+    return out
+
+
+def sanitize_idm_field(value):
+    """The field block held to its shape: colour '#rrggbb' (white when it is
+    not a colour), border one of IDM_FIELD_BORDERS (shade otherwise),
+    moduleIds a bool (only a real true turns it on), and the Colours above
+    kept only when usable (anything else is Auto and leaves no key). None
+    when `value` is not a dict. Idempotent."""
+    if not isinstance(value, dict):
+        return None
+    border = value.get('border')
+    out = {
+        'color': idm_color(value.get('color')) or IDM_FIELD_DEFAULT['color'],
+        'border': border if border in IDM_FIELD_BORDERS else IDM_FIELD_DEFAULT['border'],
+        'moduleIds': value.get('moduleIds') is True,
+    }
+    for key in IDM_FIELD_COLOUR_KEYS:
+        c = idm_color(value.get(key))
+        if c:
+            out[key] = c
+    shade = idm_shade_level(value.get('shade'))
+    if shade is not None:
+        out['shade'] = shade
+    presets = idm_mark_presets(value.get('markPresets'))
+    if presets is not None:
+        out['markPresets'] = presets
+    return out
+
+
+def normalize_idm_field(project):
+    """sanitize_idm_field on the project's block, in place (the load and save
+    funnels). A block that is not a dict is removed. True when it changed."""
+    if not isinstance(project, dict) or 'idmField' not in project:
+        return False
+    clean = sanitize_idm_field(project.get('idmField'))
+    if clean is None:
+        project.pop('idmField', None)
+        return True
+    if clean != project.get('idmField'):
+        project['idmField'] = clean
+        return True
+    return False
+
+
+def sanitize_idm_highlight(value):
+    """The module the IDM Locator's live highlight sits on, as one client
+    sends it to be passed on to the others: {layerId, key, origin}, key
+    "col,row,mx,my"; {layerId: None, key: None} clears it. None when the
+    payload is not usable (nothing is passed on). What the project keeps of
+    it is idm_highlight_stored."""
+    if not isinstance(value, dict):
+        return None
+    origin = value.get('origin')
+    origin = origin[:64] if isinstance(origin, str) else ''
+    key = value.get('key')
+    layer_id = value.get('layerId')
+    if key is None and layer_id is None:
+        return {'layerId': None, 'key': None, 'origin': origin}
+    if isinstance(layer_id, bool) or not isinstance(layer_id, int):
+        return None
+    clean_key = _idm_key(key) if isinstance(key, str) else None
+    if clean_key is None:
+        return None
+    return {'layerId': layer_id, 'key': clean_key, 'origin': origin}
+
+
+# The live highlight is kept on the project too, so a client that connects
+# or reloads later - a tablet joining at the wall, the machine driving the
+# output - shows it at once, and a saved show opens with it:
+#   idmHighlight: {layerId, key: "col,row,mx,my"} | None
+# View state like idmField: written by the `idm_highlight` socket event (the
+# last mover wins) and by a file load or undo carrying the one on screen,
+# never an undo step, and it leaves a pristine project pristine. A save
+# (POST /api/project) never writes it - the socket event is its writer. It
+# only ever names a module that exists: a highlight whose screen, cabinet
+# or module goes is cleared (prune_idm_highlight_on on every route that
+# reshapes a screen, normalize_idm_highlight in the load and save funnels).
+
+
+def _idm_layer_has_module(layer, key):
+    """True when screen `layer` has the module `key` ("col,row,mx,my"): a
+    shown, unblanked cabinet at col,row and a module mx,my inside it."""
+    if not isinstance(layer, dict) or (layer.get('type') or 'screen') != 'screen':
+        return False
+    k = _idm_key(key) if isinstance(key, str) else None
+    if k is None:
+        return False
+    col, row, mx, my = (int(n) for n in k.split(','))
+    panels = [p for p in (layer.get('panels') or []) if isinstance(p, dict)]
+    panel = next((p for p in panels
+                  if (p.get('col', 0) or 0) == col and (p.get('row', 0) or 0) == row), None)
+    if panel is None:
+        return False
+    shown = {(p.get('row', 0), p.get('col', 0)) for p in panels if not p.get('hidden')}
+    idm = layer.get('idm') if isinstance(layer.get('idm'), dict) else {}
+    cells = idm_module_cells(layer, panel, _idm_count(idm.get('modulesX')),
+                             _idm_count(idm.get('modulesY')),
+                             lambda r, c: (r, c) in shown)
+    return any(c[0] == mx and c[1] == my for c in cells)
+
+
+def idm_highlight_stored(value, project):
+    """What the project keeps of a highlight: {layerId, key} on a module
+    `project` has, else None (a clear, junk, or a module that is not
+    there)."""
+    if not isinstance(value, dict):
+        return None
+    layer_id = value.get('layerId')
+    if isinstance(layer_id, bool) or not isinstance(layer_id, int):
+        return None
+    key = _idm_key(value.get('key')) if isinstance(value.get('key'), str) else None
+    if key is None:
+        return None
+    layers = project.get('layers') if isinstance(project, dict) else None
+    layer = next((l for l in (layers or [])
+                  if isinstance(l, dict) and not isinstance(l.get('id'), bool)
+                  and l.get('id') == layer_id), None)
+    if layer is None or not _idm_layer_has_module(layer, key):
+        return None
+    return {'layerId': layer_id, 'key': key}
+
+
+def normalize_idm_highlight(project):
+    """The stored highlight held to its shape and to the screens as they
+    stand, in place (the load and save funnels). A project without the key
+    is left without it. True when it changed."""
+    if not isinstance(project, dict) or 'idmHighlight' not in project:
+        return False
+    clean = idm_highlight_stored(project.get('idmHighlight'), project)
+    if clean != project.get('idmHighlight'):
+        project['idmHighlight'] = clean
+        return True
+    return False
+
+
+def prune_idm_highlight_on(layer):
+    """The current project's highlight cleared when it sits on `layer` and
+    `layer` no longer has that module. True when it cleared it."""
+    project = current_project
+    hl = project.get('idmHighlight') if isinstance(project, dict) else None
+    if not isinstance(hl, dict) or not isinstance(layer, dict):
+        return False
+    if hl.get('layerId') != layer.get('id'):
+        return False
+    if _idm_layer_has_module(layer, hl.get('key')):
+        return False
+    project['idmHighlight'] = None
+    return True
+
+
 def normalize_power_breakouts(project, at=None):
     """Run normalize_power_breakout over every layer of `project`. Returns the
     ids it wrote; logs them under `at` when given (a route naming itself), so
@@ -2038,6 +2557,21 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Client disconnected')
+
+
+@socketio.on('idm_highlight')
+def handle_idm_highlight(data):
+    """The IDM Locator's live highlight moved on one client (a mouse, the
+    arrow keys, a tablet at the wall): pass it on to every other client, so
+    the machine driving the wall shows it - and keep it on the project
+    (idmHighlight), so a client that connects or reloads later shows it at
+    once and a saved show keeps it. Never an undo step, and a pristine
+    project stays pristine; the last mover wins (sanitize_idm_highlight)."""
+    clean = sanitize_idm_highlight(data)
+    if clean is None:
+        return
+    current_project['idmHighlight'] = idm_highlight_stored(clean, current_project)
+    emit('idm_highlight', clean, broadcast=True, include_self=False)
 
 
 # ── Modularized route blueprints ──────────────────────────────────────────

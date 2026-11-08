@@ -67,10 +67,14 @@ STATE_JS = """() => {
 
 def strip_volatile(project):
     """The snapshot with everything that may differ between two identical
-    runs removed. Today nothing in the scratch show is volatile (no
-    timestamps, no random ids - every counter starts at 1 on a fresh
-    server); this is where a field would be dropped if one appeared, and
-    the comparison test strips through the same function."""
+    runs removed or fixed. One field is volatile: a Notes checklist item's
+    id is random (app-notes-checklist.js), so each takes a name from its
+    place in the list. Everything else in the scratch show repeats (no
+    timestamps, every counter starts at 1 on a fresh server). This is where
+    a field goes if another appears, and the comparison test strips through
+    the same function."""
+    for i, item in enumerate(project.get('notesChecklist') or []):
+        item['id'] = f'guide-item-{i + 1}'
     return project
 
 

@@ -2001,7 +2001,11 @@ class _ScreenInfo {
                 // by the multi's stable index. Drop the stamp here and the
                 // rekey runs a second time on reload.
                 'powerSocaNames', 'powerSocaNumber', 'powerSocaSplits',
-                'powerSocaKeying'
+                'powerSocaKeying',
+                // The 3D view's placement (app-stage3d.js), so an echo from
+                // an earlier PUT cannot put back the place before a newer
+                // edit. The client holds it to the server's shape already.
+                'stage3d'
             ];
 
             // _putLayer carries `?edited=1` when a hand caused this write -
@@ -2032,6 +2036,9 @@ class _ScreenInfo {
                 preservedKeys.forEach(key => {
                     if (live[key] !== undefined) updated[key] = live[key];
                 });
+                // The IDM Locator's marks: the browser's newest, held to the
+                // screen the server sent back (app-idm-locator.js).
+                if (typeof this._idmMergeEcho === 'function') this._idmMergeEcho(live, updated);
                 this.project.layers[index] = updated;
             });
         });

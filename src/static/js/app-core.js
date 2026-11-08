@@ -1702,6 +1702,8 @@ export class LEDRasterApp {
         // Load project notes
         const notesEl = document.getElementById('project-notes');
         if (notesEl) notesEl.value = this.project.notes || '';
+        // ...and the checklist under them (app-notes-checklist.js).
+        if (typeof this._notesChecklistRender === 'function') this._notesChecklistRender();
 
         this.renderLayers();
         this.loadTextLayerToInputs();
@@ -2152,6 +2154,8 @@ export class LEDRasterApp {
         this._wireColorsAndSizes();
         this._wireToolbarRaster();
         this._wireExportAndPrefs();
+        // The IDM Locator tab's tools and panel (app-idm-locator.js).
+        this._idmWire();
 
         this.setupMenuBar();
         this.setupPreferences();
@@ -2463,6 +2467,9 @@ export class LEDRasterApp {
         return new Set([
             'id', 'name', 'visible', 'locked',
             'offset_x', 'offset_y',
+            // Where the screen stands in the 3D view is placement, like the
+            // offsets - never a setting a preset hands another screen.
+            'stage3d',
             // v0.11.0: group membership is identity, not a setting. A preset
             // is a bag of hardware/appearance values reused across projects,
             // and a group id only means anything inside the one project that
@@ -2530,6 +2537,14 @@ export class LEDRasterApp {
             out.powerCustomPaths = this.copyPathsForNewOwner(
                 layer.powerCustomPaths, layer.id, null);
         }
+        // The IDM Locator's module layout travels with a preset; its marks
+        // never do - they name modules on one physical wall.
+        if (out.idm !== undefined) {
+            const layout = typeof this._idmPresetLayout === 'function'
+                ? this._idmPresetLayout(layer) : undefined;
+            if (layout) out.idm = layout;
+            else delete out.idm;
+        }
         return out;
     }
 
@@ -2573,6 +2588,15 @@ export class LEDRasterApp {
                     next[letter] = this.normalizeHexColor(given[letter], current[letter]);
                 });
                 layer[k] = next;
+                return;
+            }
+            if (k === 'idm') {
+                // The module layout only (app-idm-locator.js): a preset
+                // never brings marks, and a screen keeps its own marks only
+                // while the layout stays the one it has.
+                if (typeof this._idmApplyPresetLayout === 'function') {
+                    this._idmApplyPresetLayout(layer, presetData[k]);
+                }
                 return;
             }
             if (Object.prototype.hasOwnProperty.call(colorKeys, k)) {

@@ -5,6 +5,8 @@
 // carry. Undo / redo and delete stay in app-history.js.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
+import { s3dCopyPlacement } from './app-stage3d.js';
+import { idmCopyLayout } from './app-idm-locator.js';
 
 // Carry an image layer's Drop Shadow and Opacity onto its duplicate / paste.
 // /api/layer/add-image only stores what it is sent, so a field left out here
@@ -50,6 +52,15 @@ export const SCREEN_FEED_KEYS = [
 export function stripScreenFeeds(layer) {
     if (!layer || (layer.type || 'screen') !== 'screen') return layer;
     SCREEN_FEED_KEYS.forEach(k => { delete layer[k]; });
+    // The IDM Locator's marks go the same way: they name modules on ONE
+    // physical wall, and a copy is another wall. The module layout stays
+    // (app-idm-locator.js idmCopyLayout; the server's twin is
+    // app.strip_copied_idm_marks).
+    if (layer.idm !== undefined) {
+        const layout = idmCopyLayout(layer);
+        if (layout) layer.idm = layout;
+        else delete layer.idm;
+    }
     // Nor is a copy a mirror (2026-10-30): the source's copy outputs carry
     // one mirror screen, and a copy would claim the same sockets.
     delete layer.dataMirrorOf;
@@ -419,6 +430,14 @@ class _Clipboard {
             // (v0.8.6.3) so a layer dragged in Show Look is copied where it
             // sits there, not snapped back to mirror Pixel Map.
             ..._carryShow(layer, dx, dy),
+            // Its place in the 3D view, nudged the same distance so the copy
+            // does not stand inside the original (app-stage3d.js). None when
+            // the source has none: the copy then stands at its own nudged
+            // Show Look position.
+            stage3d: s3dCopyPlacement(layer, dx, dy),
+            // The IDM Locator's module layout - never its marks: the copy
+            // is another physical wall (app-idm-locator.js).
+            idm: idmCopyLayout(layer),
         };
 
         // Panel geometry. Older server builds only knew hiddenPanels; the

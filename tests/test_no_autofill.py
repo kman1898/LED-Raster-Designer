@@ -84,7 +84,22 @@ def test_no_field_can_sit_where_the_document_pass_cannot_reach():
         assert '<iframe' not in text, name
         hits = re.findall(r"window\.open\([^)]*\)", text)
         for hit in hits:
+            # Output to Display draws each frame into its window, so that
+            # window keeps its opener. It holds no field for a guard to
+            # watch: test_the_output_window_has_no_field_to_guard.
+            if name == 'app-output-display.js' and '/output?' in hit:
+                continue
             assert 'noopener' in hit, f'{name}: {hit} opens a window the page can write to'
+
+
+def test_the_output_window_has_no_field_to_guard():
+    """The one window the app can write to is a canvas and two messages.
+    A field on it would be a document with no guard, so it has none."""
+    page = _src('src', 'templates', 'output.html')
+    script = _src('src', 'static', 'js', 'output-display.js')
+    assert not re.search(r'<(input|textarea|select)\b', page, re.I)
+    assert not re.search(r"createElement\(\s*['\"](input|textarea|select)", script, re.I)
+    assert 'contenteditable' not in (page + script).lower()
 
 
 def test_no_text_field_carries_a_name_for_the_heuristics_to_read():

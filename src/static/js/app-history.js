@@ -10,6 +10,10 @@ class _History {
     // guide's 'Tutorial' and 'Recovered' are not: the recovered project
     // was never saved as it stands.
     resetHistory(initialAction = 'Initial State') {
+        // Every project load and new project comes through here: the 3D
+        // view takes the opened project's saved camera when this moves
+        // (app-stage3d.js _s3dAdoptViewState).
+        this._projectEpoch = (this._projectEpoch || 0) + 1;
         this.history = [];
         this.historyIndex = -1;
         // A new project's numbers are what it prints as opened: the commit
@@ -185,7 +189,15 @@ class _History {
             const state = this.history[this.historyIndex];
             
             
+            // The IDM Locator's field colour and live highlight are view
+            // state, never an undo step (app-idm-locator.js): the restored
+            // project keeps the ones on screen now, whatever the snapshot
+            // held.
+            const idmField = this.project ? this.project.idmField : undefined;
+            const idmHighlight = this.project ? this.project.idmHighlight : undefined;
             this.project = JSON.parse(JSON.stringify(state.project));
+            if (idmField !== undefined) this.project.idmField = JSON.parse(JSON.stringify(idmField));
+            if (idmHighlight !== undefined) this.project.idmHighlight = JSON.parse(JSON.stringify(idmHighlight));
             this.dedupeProjectLayers('undo_restore');
             // The restored entry's numbers are the ones in force now.
             if (typeof this._resetMultiBaseline === 'function') this._resetMultiBaseline();
@@ -438,7 +450,15 @@ class _History {
             const state = this.history[this.historyIndex];
             
             
+            // The IDM Locator's field colour and live highlight are view
+            // state, never an undo step (app-idm-locator.js): the restored
+            // project keeps the ones on screen now, whatever the snapshot
+            // held.
+            const idmField = this.project ? this.project.idmField : undefined;
+            const idmHighlight = this.project ? this.project.idmHighlight : undefined;
             this.project = JSON.parse(JSON.stringify(state.project));
+            if (idmField !== undefined) this.project.idmField = JSON.parse(JSON.stringify(idmField));
+            if (idmHighlight !== undefined) this.project.idmHighlight = JSON.parse(JSON.stringify(idmHighlight));
             this.dedupeProjectLayers('redo_restore');
             if (typeof this._resetMultiBaseline === 'function') this._resetMultiBaseline();
             sendClientLog('redo', {

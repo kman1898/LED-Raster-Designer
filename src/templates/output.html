@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Output to Display (View menu): one canvas's raster, nothing else, for
+         a second monitor feeding an LED processor input. The designer window
+         that opened this page draws every frame into the canvas below with
+         its own renderer (app-output-display.js); this page only holds the
+         pixels, sizes them (Fit or 1:1) and handles full screen. -->
+    <title>Output</title>
+    <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+        body { color: #d8d8d8; font: 13px 'Segoe UI', system-ui, 'Helvetica Neue', Arial, sans-serif; user-select: none; -webkit-user-select: none; }
+        body.lrd-output-idle { cursor: none; }
+        #output-canvas { position: absolute; left: 0; top: 0; display: block; }
+        #output-hint {
+            position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+            padding: 7px 14px; border-radius: 4px; background: rgba(30, 30, 30, 0.85);
+            border: 1px solid #3a3a3a; white-space: nowrap; pointer-events: none;
+            opacity: 1; transition: opacity 0.8s ease;
+        }
+        #output-hint.faded { opacity: 0; }
+        #output-message {
+            position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+            max-width: 80%; text-align: center; line-height: 1.5; color: #bbb;
+        }
+        #output-message[hidden] { display: none; }
+    </style>
+</head>
+<body>
+    <canvas id="output-canvas" width="0" height="0"></canvas>
+    <div id="output-hint">Click or press F for full screen &middot; Esc to close</div>
+    <div id="output-message" hidden></div>
+    <script src="/static/js/output-display.js"></script>
+</body>
+</html>

@@ -253,7 +253,9 @@ class CanvasRenderer {
      * real-world stage layout per the Show Look feature spec.
      */
     isShowLookView(mode = this.viewMode) {
-        return mode === 'show-look' || mode === 'data-flow' || mode === 'power' || mode === 'rigging';
+        // 3D stands the screens Show Look shows (app-stage3d.js), so the
+        // Screens list and the totals group by the Show Look canvas there.
+        return mode === 'show-look' || mode === 'data-flow' || mode === 'power' || mode === 'rigging' || mode === '3d';
     }
 
     /**
@@ -2171,6 +2173,45 @@ class CanvasRenderer {
     }
 
     render() {
+        // Output to Display (app-output-display.js): a main render may mean
+        // the picture changed, so the open output windows get a look. It only
+        // schedules; the output's own offscreen pass runs in exportMode and
+        // never comes back through here.
+        if (!this.exportMode && !this._idmPass && window.app && typeof window.app._outputDisplayOnRender === 'function') {
+            window.app._outputDisplayOnRender();
+        }
+        // The IDM Locator tab (canvas-idm.js, app-idm-locator.js) stands
+        // the cabinets where the Pixel Map does - the same raster positions,
+        // the picture Output to Display puts on the wall - but draws every
+        // screen in the tab's one field colour with its border style and the
+        // marked modules, and the live highlight over everything. The Pixel
+        // Map pass runs with _idmPass set; the per-layer loop below draws
+        // the field inside each screen's own frame instead of the Pixel
+        // Map's cabinets, labels and test pattern. An Output to Display of
+        // this view comes through here too (exportMode), and so carries the
+        // field and the marks; nothing else ever renders this view.
+        if (this.viewMode === 'idm' && !this._idmPass) {
+            this._idmPass = true;
+            this.viewMode = 'pixel-map';
+            try {
+                this.render();
+            } finally {
+                this.viewMode = 'idm';
+                this._idmPass = false;
+            }
+            if (!this.exportMode && window.app && typeof window.app._idmOnRender === 'function') {
+                window.app._idmOnRender();
+            }
+            return;
+        }
+        // The 3D tab has its own viewport over this canvas (app-stage3d.js):
+        // nothing is drawn here, and the redraw - which every edit, selection
+        // change, undo and LAN update ends in - tells the stage to catch up.
+        // An export or a 3D texture paint sets its own view first.
+        if (this.viewMode === '3d' && !this.exportMode) {
+            if (window.app && typeof window.app._s3dOnRender === 'function') window.app._s3dOnRender();
+            return;
+        }
         // v0.8.7.8: bump a per-render token so screen-fill gradients are built
         // at most once per layer per frame (cached on the layer keyed by this).
         this._renderPass = (this._renderPass || 0) + 1;
@@ -2402,6 +2443,12 @@ class CanvasRenderer {
                         this.ctx.save();
                         this.ctx.translate(dx, dy);
                     }
+                    // The IDM Locator puts the field alone on the wall: no
+                    // images, no text.
+                    if (this._idmPass && (layer.type || 'screen') !== 'screen') {
+                        if (needsShift) this.ctx.restore();
+                        return;
+                    }
                     if ((layer.type || 'screen') === 'image') {
                         this._svgGroup('Images', layer);
                         if (this._stageOn('Image')) this.renderImageLayer(layer);
@@ -2449,7 +2496,10 @@ class CanvasRenderer {
                         this._beginLayerRotation(layer);   // rotate in place (own save)
                     }
 
-                    layer.panels.forEach(panel => {
+                    // IDM Locator: the field, its borders and the marks in
+                    // place of the cabinets (canvas-idm.js).
+                    if (this._idmPass) this.renderIdmLayer(layer);
+                    else layer.panels.forEach(panel => {
                         // Cheap early skip for panels entirely outside the raster.
                         // Skip this optimization while rotating, a rotated panel
                         // may land inside the view even if its unrotated pos is out
@@ -2472,7 +2522,7 @@ class CanvasRenderer {
                     // members and the decision about which member draws it
                     // cannot be made from this layer alone.
                     this._svgGroup('Test pattern', layer);
-                    if (this._stageOn('Test pattern')) this.renderCircleWithX(layer);
+                    if (!this._idmPass && this._stageOn('Test pattern')) this.renderCircleWithX(layer);
 
                     // Render Cabinet ID numbers in world space (scales with zoom)
                     if (this.viewMode === 'cabinet-id' && this._stageOn('Cabinet IDs')) {
@@ -2522,7 +2572,7 @@ class CanvasRenderer {
                     // (Matt, 2026-09-22: "the screen 2 name on power and data
                     // tab is under the cables when grouped").
                     this._svgGroup('Screen name', layer);
-                    if (this._stageOn('Screen name')) {
+                    if (!this._idmPass && this._stageOn('Screen name')) {
                         if (this._memberLabelsDeferred(layer)) this._deferredMemberLabels.push(layer);
                         else this.renderLayerLabels(layer);
                     }
@@ -2539,7 +2589,7 @@ class CanvasRenderer {
 
                     // Render offsets / corner X,Y readouts (pixel-map only), upright
                     this._svgGroup('Screen name', layer);
-                    if (this._stageOn('Screen name')) this.renderLayerOffsets(layer);
+                    if (!this._idmPass && this._stageOn('Screen name')) this.renderLayerOffsets(layer);
 
                     if (needsShift) this.ctx.restore();
                 }
@@ -2633,6 +2683,12 @@ class CanvasRenderer {
                 }
             });
 
+            // IDM Locator: the live highlight, over every screen. The output
+            // window's frame is drawn without it (_idmNoHighlight) and has
+            // it laid on by app-output-display.js, so a blink costs that
+            // window one copy, not a render.
+            if (this._idmPass && !this._idmNoHighlight) this.renderIdmHighlight();
+
             // The custom-run readout in the canvas strip follows this frame:
             // whichever view is up, if no badge call fired (not custom mode,
             // another view, no layer) the readout hides. An export render
@@ -2648,7 +2704,7 @@ class CanvasRenderer {
                 this.renderPowerActiveCircuitBadge();
             }
             if (!this.exportMode && !this._activeBadgeShown) this._syncCustomRunReadout(null);
-            if (!this.exportMode && this.viewMode === 'pixel-map') {
+            if (!this.exportMode && this.viewMode === 'pixel-map' && !this._idmPass) {
                 this.renderPixelMapSelectionOverlay();
                 this.renderPixelMapSelectionBadge();
             }
@@ -2976,6 +3032,11 @@ class CanvasRenderer {
     }
 
     fitToView() {
+        // Fit on the 3D tab frames the stage instead (app-stage3d.js).
+        if (this.viewMode === '3d') {
+            if (window.app && typeof window.app._s3dFit === 'function') window.app._s3dFit(true);
+            return;
+        }
         // Multi-canvas (v0.8 Slice 3): fit to the union bbox of all visible
         // canvases instead of just the active canvas's raster.
         const bb = this._workspaceBounds();

@@ -324,18 +324,13 @@ Object.assign(CanvasRenderer.prototype, {
         }
     },
 
-    renderCabinetIDNumbers(layer) {
-        if (!layer.show_numbers) return;
-        
-        // Save context and clip to active raster bounds (translate-aware)
-        this.ctx.save();
-        this._clipToActiveRaster();
-
-        const numberSize = layer.number_size || 24;
+    // The Cabinet ID a screen's cabinet carries, exactly as the Cabinet ID
+    // view prints it: the screen's style, and in a screen group the wall's
+    // numbering. Returns panel -> text. The IDM Locator's list names
+    // cabinets with this too (app-idm-locator.js), so the crew reads the
+    // same ID on the list as on the cabinet.
+    cabinetIdLabeler(layer) {
         const cabinetIdStyle = layer.cabinetIdStyle || 'column-row';
-        const cabinetIdPosition = layer.cabinetIdPosition || 'center';
-        const cabinetIdColor = layer.cabinetIdColor || '#ffffff';
-
         // v0.11.0: in a screen group the IDs run across the whole wall - see
         // _groupNumberingPlan. Null for an ungrouped layer, and every line
         // below then reads exactly as it always did.
@@ -347,6 +342,52 @@ Object.assign(CanvasRenderer.prototype, {
         const idStyle = plan
             ? (plan.gridUnique ? plan.style : 'sequential')
             : cabinetIdStyle;
+        return (panel) => {
+            const col = plan ? plan.colOf(panel) : panel.col;  // 0-indexed
+            const row = plan ? plan.rowOf(panel) : panel.row;  // 0-indexed
+            // Sequential - the wall's reading order in a group, the layer's
+            // own panel numbers on their own.
+            return this.cabinetIdFormat(idStyle, row, col,
+                () => (plan ? plan.numberOf(panel) : panel.number));
+        };
+    },
+
+    // One Cabinet ID style applied to a grid position (0-indexed row and
+    // column). `sequential` is the number a style outside the three grid
+    // styles prints (a value or a function giving it). The IDM Locator's
+    // Module ID labels run a cabinet's module grid through this too
+    // (canvas-idm.js idmModuleLabeler), so a module reads in the same style
+    // as the cabinets.
+    cabinetIdFormat(style, row, col, sequential) {
+        switch (style) {
+            case 'column-row':
+                // A1, B1, C1... (column letter + row number)
+                // Reads top-to-bottom by columns
+                return this.getColumnLetter(col) + (row + 1);
+            case 'row-column':
+                // A1, A2, A3... (row letter + column number)
+                // Reads left-to-right by rows
+                return this.getColumnLetter(row) + (col + 1);
+            case 'row-col':
+                // 1,1  1,2  1,3... (row number, column number)
+                // Reads left-to-right with comma notation
+                return `${row + 1},${col + 1}`;
+            default:
+                return String(typeof sequential === 'function' ? sequential() : sequential);
+        }
+    },
+
+    renderCabinetIDNumbers(layer) {
+        if (!layer.show_numbers) return;
+        
+        // Save context and clip to active raster bounds (translate-aware)
+        this.ctx.save();
+        this._clipToActiveRaster();
+
+        const numberSize = layer.number_size || 24;
+        const cabinetIdPosition = layer.cabinetIdPosition || 'center';
+        const cabinetIdColor = layer.cabinetIdColor || '#ffffff';
+        const labelOf = this.cabinetIdLabeler(layer);
 
         const ctx = this.ctx;
         ctx.fillStyle = cabinetIdColor;
@@ -409,36 +450,7 @@ Object.assign(CanvasRenderer.prototype, {
             if (panel.x >= this.rasterWidth || panel.y >= this.rasterHeight) return;
             
             // Calculate label based on style
-            let label = '';
-            const col = plan ? plan.colOf(panel) : panel.col;  // 0-indexed
-            const row = plan ? plan.rowOf(panel) : panel.row;  // 0-indexed
-
-            switch (idStyle) {
-                case 'column-row':
-                    // A1, B1, C1... (column letter + row number)
-                    // Reads top-to-bottom by columns
-                    label = this.getColumnLetter(col) + (row + 1);
-                    break;
-                    
-                case 'row-column':
-                    // A1, A2, A3... (row letter + column number)
-                    // Reads left-to-right by rows
-                    label = this.getColumnLetter(row) + (col + 1);
-                    break;
-                    
-                case 'row-col':
-                    // 1,1  1,2  1,3... (row number, column number)
-                    // Reads left-to-right with comma notation
-                    label = `${row + 1},${col + 1}`;
-                    break;
-                    
-                default:
-                    // Fallback to sequential - the wall's reading order in a
-                    // group, the layer's own panel numbers on their own.
-                    label = plan ? plan.numberOf(panel) : panel.number;
-            }
-            
-            const text = String(label);
+            const text = labelOf(panel);
 
             // The id's box: the cabinet as DRAWN (a half-tile is half as
             // wide or tall, and its panel.width/height say so), inset by the

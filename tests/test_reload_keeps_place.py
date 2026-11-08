@@ -202,6 +202,34 @@ def test_a_reload_on_a_show_comes_back_on_its_tab_with_no_start_page(e2e_server,
         context.close()
 
 
+@pytest.mark.parametrize('tab', ['rigging', '3d', 'idm'])
+def test_a_reload_on_a_tab_past_power_comes_back_on_it(e2e_server, pw_browser, tab):
+    """Header/Footer, 3D and the IDM Locator come back like the five before
+    them, each with its panel, and 3D and the IDM Locator with their tools:
+    a tab restored by name alone would leave the 2D canvas or the Pixel Map
+    strip up."""
+    _seed_show(e2e_server)
+    context = _new_context(pw_browser, START_PAGE)
+    try:
+        pg, problems = _open_tab(context, e2e_server)
+        _wait_start(pg)
+        _close_start_page(pg)
+        _click_tab(pg, tab)
+        _reload(pg)
+        _wait_tab(pg, tab)
+        _settle(pg)
+        assert not _start_up(pg)
+        assert _tab(pg) == tab
+        assert pg.evaluate("(t) => getComputedStyle(document.querySelector("
+                           "`.tab-panel[data-tab=\"${t}\"]`)).display", tab) != 'none'
+        assert pg.evaluate("() => window.canvasRenderer.viewMode") == tab
+        assert pg.evaluate("() => !document.getElementById('s3d-toolbar').hidden") == (tab == '3d')
+        assert pg.evaluate("() => !document.getElementById('idm-toolbar').hidden") == (tab == 'idm')
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
 # ── (b) the start page up as the page goes ────────────────────────────────
 
 def test_the_start_page_up_at_a_reload_comes_back_and_once_closed_stays_closed(e2e_server, pw_browser):
