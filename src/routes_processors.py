@@ -1787,12 +1787,18 @@ def set_fiber_link(processor_id, cvt_id, key):
 
 
 def _set_copper_link(entry, key, data):
-    """A link on copper instead of fiber: {copper: 'Cat6A', ft?}. Only on a
+    """A link on copper instead of fiber: {copper: 'Cat6A', ft?, name?}. Only on a
     box whose catalog entry takes copper on its links (the XD's
     etherCON beside each opticalCON DUO); the kind is one of the 10G
     kinds (COPPER_LINK_KINDS). A length past the kind's maximum is NOT
     refused - the row and the binder say so - because the run is the
-    owner's to plan."""
+    owner's to plan.
+
+    The link's NAME (processor_catalog.copper_default_name): a name sent
+    is stored; a blank one hands the link its default back; none sent
+    keeps the name the link has - a default following the kind ("Cat6A 1"
+    switched to Cat6 reads "Cat6 1"), a typed one kept as typed. A link
+    first set to copper takes the kind's first free number show-wide."""
     res, raw = entry['res'], entry['raw']
     title = catalog.fiber_box_title(entry)
     device = catalog.get_device(res.get('deviceId'))
@@ -1808,6 +1814,9 @@ def _set_copper_link(entry, key, data):
     if catalog.copper_link_max_ft(kind) is None:
         kinds = ', '.join(k for k, _ft in catalog.COPPER_LINK_KINDS)
         return jsonify({'error': f'copper must be one of {kinds}.'}), 400
+    name = data.get('name')
+    if name is not None and not isinstance(name, str):
+        return jsonify({'error': 'name must be text.'}), 400
     link = {'copper': kind}
     ft = data.get('ft')
     if ft not in (None, ''):
@@ -1823,9 +1832,24 @@ def _set_copper_link(entry, key, data):
         stored = catalog._cable_ft(value)
         if stored is not None:
             link['ft'] = stored
+    old = catalog._fiber_link((raw.get('fiberLinks') or {}).get(key))
+    old_name = (old or {}).get('name') if old and 'copper' in old else ''
+    typed = (name or '').strip()
+    # a typed name rides every change but a blank one; a default stays
+    # while it is still this kind's
+    kept_typed = bool('name' not in data and old_name and not
+                      catalog.copper_name_is_default(old_name, old['copper']))
+    if typed:
+        link['name'] = typed
+    elif kept_typed or catalog.copper_name_is_default(old_name, kind):
+        link['name'] = old_name
+    else:
+        link['name'] = catalog.copper_default_name(app.current_project, kind,
+                                                   skip=(raw, key))
     raw.setdefault('fiberLinks', {})[key] = link
     log_event('copper_link_set', {'box': res.get('id'), 'key': key,
-                                  'copper': kind, 'ft': link.get('ft')})
+                                  'copper': kind, 'ft': link.get('ft'),
+                                  'name': link['name']})
     return _state()
 
 

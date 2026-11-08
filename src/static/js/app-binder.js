@@ -7152,7 +7152,7 @@ class _Binder {
     // A box's fiber as the binder says it - each input by its port, the
     // cable's name (its kind in brackets the first time) and the strands,
     // "X1 TAC A (TAC 8) 9-10 · X2 TAC B (TAC 6) 1-2", copper by its port
-    // "X1 Cat6A 150'" (fiberLinkSummary). With no
+    // and name "X1 Cat6A 1 150'" (fiberLinkSummary). With no
     // link: the 1.3 typed note as it always read ("12 Tac Fiber 250'", "no
     // fiber length" where only a type was typed), else "no fiber".
     _bBoxFiberText(box) {
@@ -7219,7 +7219,7 @@ class _Binder {
             if (l.copper) {
                 const ft = this.parseCableLength(l.copper.ft);
                 const over = this.copperOverText(l.copper);
-                out.push({ text: [title(l), l.copper.copper, Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
+                out.push({ text: [title(l), this.copperLinkWords(l.copper), Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
                     .filter(Boolean).join(' ') + (over ? ` (${over})` : '') });
                 continue;
             }
@@ -9431,7 +9431,8 @@ class _Binder {
     //     shared by the strand like a TAC (owner, 2026-10-08), so each
     //     link's channels are printed, then "crosses inside" at the
     //     breakout;
-    //   * copper reads its run (fiberLinkSummary's words), no strands;
+    //   * copper reads its run by its name (fiberLinkSummary's words,
+    //     "Cat6A 1 150'"), and its kind at either end, no strands;
     //   * a box input with no cable: "no fiber picked";
     //   * an output with no box on a card that feeds boxes: "not used".
     // A box taking two trunks (a CVT4K-S) has a row per link, each on its
@@ -9475,9 +9476,11 @@ class _Binder {
             if (l.copper) {
                 const ft = this.parseCableLength(l.copper.ft);
                 const over = this.copperOverText(l.copper);
-                const run = [l.copper.copper, Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
+                const run = [this.copperLinkWords(l.copper), Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
                     .filter(Boolean).join(' ') + (over ? ` (${over})` : '');
-                return { cells: [output, run, 'copper', input, 'copper'], link: l, fiber: null };
+                // each end plugs in its kind, where a fiber's reads its strands
+                const kind = l.copper.copper;
+                return { cells: [output, run, kind, input, kind], link: l, fiber: null };
             }
             const cable = l.cable;
             if (!cable) return { cells: [output, 'no fiber picked', '', input, ''], link: l, fiber: null };

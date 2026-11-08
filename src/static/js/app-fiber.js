@@ -13,8 +13,9 @@
 //     a DUO one XD input or two BiDi links;
 //   * a link takes 2 strands, 1 on a box switched to BiDi;
 //   * a link on an XD may be COPPER instead - { copper: 'Cat6A',
-//     ft } - with no cable and no strands (owner: "anything that does
-//     10Gbps max length is allowed. Cat 6A and under");
+//     ft, name } - with no cable and no strands (owner: "anything that
+//     does 10Gbps max length is allowed. Cat 6A and under"), named like
+//     a cable, "Cat6A 1" by default (copperLinkName);
 //   * a link is named by the box's own port (X1 / X2, OPT 1-4, else Link
 //     1..) - the resolved box's linkTitles;
 //   * a processor's BACKUP UNIT (an option on the processor) feeds the
@@ -369,6 +370,36 @@ class _Fiber {
         return `${copper.copper} runs ${this.copperLinkMaxWords(max)} max at 10G`;
     }
 
+    // A COPPER LINK'S NAME (owner, 2026-11-07: "I cannot label CAT6A"): a
+    // copper link carries a name the way a fiber cable does, its default
+    // the kind and the first free number among the show's copper links of
+    // that kind, "Cat6A 1", "Cat6 1" (the server names every copper link -
+    // processor_catalog.copper_default_name - so a read only falls back to
+    // the kind on a link that never reached it).
+    copperLinkName(copper) {
+        const name = String((copper && copper.name) || '').trim();
+        return name || String((copper && copper.copper) || '');
+    }
+
+    // Whether a copper link's name already says its kind as a word of its
+    // own ("Cat6A 1" says Cat6A; "Cat6A 1" does not say Cat6, nor does
+    // "Stage left").
+    copperNameSaysKind(name, kind) {
+        const k = String(kind || '');
+        if (!k) return true;
+        const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(`(^|\\s)${esc}(\\s|$)`, 'i').test(String(name || ''));
+    }
+
+    // The link as its words say it, where a fiber cable reads "TAC A (TAC
+    // 12)": its name, with the kind in brackets only where the name does
+    // not already say it - "Cat6A 1", "Stage left (Cat6A)".
+    copperLinkWords(copper) {
+        const name = this.copperLinkName(copper);
+        const kind = copper && copper.copper;
+        return this.copperNameSaysKind(name, kind) ? name : `${name} (${kind})`;
+    }
+
     // A 10G maximum as words, never rounded UP past the real limit: feet
     // print to the tenth and meters to the centimeter, floored, so the
     // figure said is always a length that fits ("196.8 ft" for Cat6A's
@@ -403,7 +434,7 @@ class _Fiber {
     // The box's links in order - its primaries (X1, OPT 1-2 ...), then
     // the backup inputs (X2, OPT 3-4 ...) its processor's backup unit
     // feeds: [{ key, title, backup, link, cable, copper, box }].
-    // `copper` is the copper link as stored ({ copper, ft }), else null.
+    // `copper` is the copper link as stored ({ copper, ft, name }), else null.
     fiberBoxLinks(box) {
         const host = box || null;
         if (!host) return [];
@@ -637,7 +668,8 @@ class _Fiber {
     // port name, and the first mention of a named cable carrying what it is
     // in brackets (owner, 2026-09-26: "i see no mention of X1 and on the
     // data pages i see no mention of Tac 8"). A copper link reads by its
-    // port too, "X1 Cat6A 150'", with the plain warning where it runs past
+    // port and its name, "X1 Cat6A 1 150'" (a typed name with its kind,
+    // "X1 Stage left (Cat6A) 150'"), with the plain warning where it runs past
     // its 10G length. '' where nothing is set.
     fiberLinkSummary(box) {
         return this.fiberLinkInputs(box).map(i => i.text).join(' · ');
@@ -648,7 +680,7 @@ class _Fiber {
     // data-sheet band and Breakout boxes table): a fiber input is
     //   { text: 'X1 TAC A (TAC 8) 1-2', head: 'X1 TAC A (TAC 8)', cable, strands: [1, 2] }
     // - `head` the summary's words before the strands, `strands` in
-    // order - and a copper one { text: "X1 Cat6A 150'" } alone.
+    // order - and a copper one { text: "X1 Cat6A 1 150'" } alone.
     fiberLinkInputs(box) {
         const sides = { p: new Map(), b: new Map() };
         for (const l of this.fiberBoxLinks(box)) {
@@ -668,7 +700,7 @@ class _Fiber {
             if (copper) {
                 const ft = this.parseCableLength(copper.ft);
                 const over = this.copperOverText(copper);
-                return { text: [titles[0], copper.copper,
+                return { text: [titles[0], this.copperLinkWords(copper),
                                 Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft) : '']
                     .filter(Boolean).join(' ') + (over ? ` (${over})` : '') };
             }

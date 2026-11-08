@@ -510,12 +510,17 @@ def test_a_legacy_pairing_that_would_lose_something_is_left_exactly_as_it_is(cli
 def test_an_xd_link_may_be_copper_and_nothing_else_takes_it(client):
     pid, xds = _sx40(client)
     _ok(_link(client, pid, xds[0], 'p1', {'copper': 'Cat6', 'ft': 150}))
-    assert _raw_box(client, xds[0])['fiberLinks'] == {'p1': {'copper': 'Cat6', 'ft': 150}}
-    assert _res_box(client, xds[0])['fiberLinks']['p1'] == {'copper': 'Cat6', 'ft': 150}
+    # named like a cable, by its kind and a number (test_copper_link_names)
+    name = _raw_box(client, xds[0])['fiberLinks']['p1']['name']
+    assert catalog.copper_name_is_default(name, 'Cat6'), name
+    assert _raw_box(client, xds[0])['fiberLinks'] == {'p1': {'copper': 'Cat6', 'ft': 150, 'name': name}}
+    assert _res_box(client, xds[0])['fiberLinks']['p1'] == {'copper': 'Cat6', 'ft': 150, 'name': name}
     assert _res_box(client, xds[0])['copperLinks'] is True
     # over its 100 ft is said, not refused; blank is no length
     _ok(_link(client, pid, xds[1], 'p1', {'copper': 'Cat6A', 'ft': None}))
-    assert _raw_box(client, xds[1])['fiberLinks'] == {'p1': {'copper': 'Cat6A'}}
+    link = _raw_box(client, xds[1])['fiberLinks']['p1']
+    assert link == {'copper': 'Cat6A', 'name': link['name']}, link
+    assert catalog.copper_name_is_default(link['name'], 'Cat6A'), link
     assert 'one of Cat6A, Cat6, Cat5e' in _refused(
         _link(client, pid, xds[0], 'p1', {'copper': 'Cat7'}))
     hid, (card,) = _h9(client, (H16,))
@@ -770,7 +775,10 @@ def test_a_loops_sheet_shows_the_pair_near_box_first_with_x1_and_x2(page):
         ('XD A · X1', False), ('XD A · X2', True),
         ('XD B · X1', False), ('XD B · X2', True)], sec
     assert [r['link'] for r in sec['rows']] == [f'{a}:p1', f'{a}:b1', f'{b}:p1', f'{b}:b1']
-    assert 'Cat6A copper' in sec['rows'][2]['options'], sec['rows'][2]['options']
+    # the copper kinds by their names alone (owner, 2026-11-07: "don't
+    # need to add copper")
+    assert {'Cat6A', 'Cat6', 'Cat5e'} <= set(sec['rows'][2]['options']), sec['rows'][2]['options']
+    assert not [o for o in sec['rows'][2]['options'] if 'copper' in o], sec['rows'][2]['options']
     # an empty X2 offers its X1's cable on top, named, with a gap under it,
     # and the rest of the list keeps its own order ("that reads as
     # confusing ... maybe we do this with a gap", owner 2026-09-25)
@@ -804,7 +812,7 @@ def test_a_loops_sheet_shows_the_pair_near_box_first_with_x1_and_x2(page):
 
 def test_the_binder_and_the_pull_sheet_name_the_ports_and_count_the_backup(page):
     """The box summary reads "X1 TAC A (TAC 12) 1-2 · X2 TAC B (TAC 12) 1-2"
-    - every input by its port, a cable's kind the first time - and "X1 Cat6 150'
+    - every input by its port, a cable's kind the first time - and "X1 Cat6 1 150'
     (…)"; a strand map names the box and its port; the loop's far box is
     marked "loop of"; the backup unit is its own column, "WALL SR BU · backup
     of WALL SR Main"; and the pull sheet lists every processor by model -
@@ -836,7 +844,7 @@ def test_the_binder_and_the_pull_sheet_name_the_ports_and_count_the_backup(page)
         };
     }""", ids)
     assert out['a'] == 'X1 TAC A (TAC 12) 1-2 · X2 TAC B (TAC 12) 1-2', out
-    assert out['c'] == "X1 Cat6 150' (Cat6 runs 100 ft max at 10G)", out
+    assert out['c'] == "X1 Cat6 1 150' (Cat6 runs 100 ft max at 10G)", out
     assert out['boxes'] == ['XD A', 'XD B · loop of XD A',
                             'XD C', 'XD D · loop of XD C'], out
     assert out['red'] == 'On · backed up by WALL SR BU', out
@@ -857,7 +865,7 @@ def test_the_binder_and_the_pull_sheet_name_the_ports_and_count_the_backup(page)
     assert ['RS12 / MSM4214X', 'EA', 2, 'RS12 / MSM4214X, HX BU', ''] in rows, rows
     xd_on = sum(r[2] for r in rows if r[0] == 'XD')
     cat6 = [r for r in rows if r[0] == 'Cat6']
-    assert cat6 == [['Cat6', "150'", 1, 'XD C (X1)', 'Cat6 runs 100 ft max at 10G']], rows
+    assert cat6 == [['Cat6', "150'", 1, 'Cat6 1', 'XD C (X1) · Cat6 runs 100 ft max at 10G']], rows
     # the backup unit off: the same XDs, and no SX40 row
     pg.evaluate("""async (sx) => { await window.app._processorRequest(
         `/api/processors/${sx}`, 'PUT', {backupUnit: null}, 'Remove Backup Processor'); }""", ids['sx'])

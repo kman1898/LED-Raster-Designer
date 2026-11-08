@@ -1669,7 +1669,8 @@ class _BinderWiring {
     // cable they are on (`sub`, _bBoxCableWords: "TAC A (TAC 12 SM)", the
     // data sheet's band word for word - "just listing the colors and
     // numbers makes no sense on a show with multiple fiber runs", owner,
-    // 2026-11-05); a copper link its run's kind. Inputs with no cable and
+    // 2026-11-05); a copper link its name, "Cat6A 1", a typed one with its
+    // kind, "Stage left (Cat6A)" (copperLinkWords). Inputs with no cable and
     // no copper are left out, and a box with none on either is null.
     _bwBoxInputs(box) {
         const links = typeof this.fiberBoxLinks === 'function' ? this.fiberBoxLinks(box) : [];
@@ -1677,7 +1678,7 @@ class _BinderWiring {
         if (!on.length) return null;
         const typed = new Set();
         return on.map(l => {
-            if (l.copper) return { head: l.title, strands: [{ text: String(l.copper.copper || 'copper'), swatch: null }] };
+            if (l.copper) return { head: l.title, strands: [{ text: this.copperLinkWords(l.copper), swatch: null }] };
             const what = this._bBoxCableWords(l.cable, typed);
             const set = this._bStrandsAtBox(l.link, l.cable);
             return set.length

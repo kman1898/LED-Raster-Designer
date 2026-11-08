@@ -801,21 +801,24 @@ class _PullList {
     }
 
     // A copper link on a box (an XD's X1 on Cat6A) as a pull row's cells:
-    // the kind, its length, one, "XD A (X1)" - the port in brackets
-    // so the name folding never reads it as a run - and the plain warning
-    // where it runs past its 10G length ("no length" where none is typed).
-    // Rows merge by kind and length like every other cable.
+    // the kind, its length, one, and under Label its NAME, the way a fiber
+    // cable's row carries the cable's ("Cat6A 1", owner 2026-11-07); Notes
+    // say where it lands, "XD A (X1)" - the port in brackets - then the
+    // plain warning where it runs past its 10G length ("no length" where
+    // none is typed). Rows merge by kind and length like every other
+    // cable, the names folding as a run ("Cat6A 1-2").
     _pullCopperCells(l) {
         const ft = this.parseCableLength(l.copper.ft);
         const has = ft !== null;
         return [l.copper.copper, has ? this.pullLengthText(ft) : '', 1,
-                `${this.pullBoxTitle(l.box)} (${l.title})`,
-                this.copperOverText(l.copper) || (has ? '' : 'no length')];
+                this.copperLinkName(l.copper),
+                [`${this.pullBoxTitle(l.box)} (${l.title})`,
+                 this.copperOverText(l.copper) || (has ? '' : 'no length')].filter(Boolean).join(' · ')];
     }
 
     // A fiber link's EXTENSION at the box end (owner, 2026-11-02) as a
     // pull row's cells: its kind and two ends, "Fan-out · MTP / MPO to LC
-    // duplex", its length, one, "XD A (X1)" as a copper link reads, and
+    // duplex", its length, one, "XD A (X1)" - the port in brackets - and
     // the trunk it extends in Notes ("ext · MTP A", "no length" where none
     // is typed). Rows merge by type and length, so identical extensions -
     // kind, both ends, length - are one row with a count.

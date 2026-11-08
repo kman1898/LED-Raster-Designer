@@ -218,7 +218,9 @@ def test_moving_strands_or_trunk_keeps_it_and_opticalcon_or_copper_drops_it(clie
     _ok(_link(client, pid, xds[0], 'p1', {'cable': mtp['id']}))
     _ok(_link(client, pid, xds[0], 'p1', {'extension': {}}))
     _ok(_link(client, pid, xds[0], 'p1', {'copper': 'Cat6A', 'ft': 50}))
-    assert _links(client, xds[0])['p1'] == {'copper': 'Cat6A', 'ft': 50}
+    link = _links(client, xds[0])['p1']
+    assert link == {'copper': 'Cat6A', 'ft': 50, 'name': link.get('name')}, link
+    assert str(link['name']).startswith('Cat6A '), link
 
 
 def test_the_delete_cascade(client):

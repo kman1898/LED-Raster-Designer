@@ -183,14 +183,17 @@ class _BinderFiber {
     // The cable's pill: "TAC A · TAC 24 · 500'" - its name, its kind (and
     // strand count), its length or "no length", and the mode of its fiber
     // where its boxes state one ("TAC A · TAC 24 · 500' · Single mode",
-    // its length out of the show's fiber stock); copper its kind and
-    // length, "Cat6A · 150'"; a link with nothing picked says so.
+    // its length out of the show's fiber stock); copper its name, its kind
+    // where the name does not say it, and its length, "Cat6A 1 · 150'",
+    // "Stage left · Cat6A · 150'"; a link with nothing picked says so.
     _bfPill(row) {
         const l = row.link;
         if (l.copper) {
             const ft = this.parseCableLength(l.copper.ft);
             const has = Number.isFinite(ft) && ft > 0;
-            return { text: [l.copper.copper, has ? this.pullLengthText(ft) : 'no length'].join(' · '),
+            const name = this.copperLinkName(l.copper);
+            const kind = this.copperNameSaysKind(name, l.copper.copper) ? '' : l.copper.copper;
+            return { text: [name, kind, has ? this.pullLengthText(ft) : 'no length'].filter(Boolean).join(' · '),
                      warn: !has || !!this.copperOverText(l.copper) };
         }
         const cable = l.cable;
@@ -219,11 +222,11 @@ class _BinderFiber {
     }
 
     // A plug's lines: the strands as they plug in there, swatched; MTP and
-    // opticalCON add "crosses inside" at the breakout; copper reads
-    // "copper"; a link with nothing picked has no plug.
+    // opticalCON add "crosses inside" at the breakout; copper reads its
+    // kind, "Cat6A"; a link with nothing picked has no plug.
     _bfPlug(row, end) {
         const f = row.fiber;
-        if (!f) return row.link.copper ? [{ text: 'copper', swatch: null, muted: true }] : [];
+        if (!f) return row.link.copper ? [{ text: row.link.copper.copper, swatch: null, muted: true }] : [];
         const list = (end === 'p' ? f.atProcessor : f.atBreakout).map(p => ({ text: p.text, swatch: p.swatch || null }));
         if (end === 'b' && f.crosses) list.push({ text: 'crosses inside', swatch: null, muted: true });
         return list;
