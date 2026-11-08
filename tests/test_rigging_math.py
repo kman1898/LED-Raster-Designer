@@ -87,15 +87,15 @@ def test_move_bar_reorders_without_resizing(bars, index, delta, expected):
 
 @needs_node
 @pytest.mark.parametrize('bars, boundary, delta, expected', [
-    ([4, 4], 0, 1, [5, 3]),                  # widen the left bar, the right gives a panel up
-    ([4, 4], 0, -1, [3, 5]),                 # drag the same edge left: the right bar grows
-    ([4, 4], 0, 1.4, [5, 3]),                # whole panels only
-    ([4, 4], 0, 0.4, [4, 4]),                # a nudge changes nothing
-    ([4, 4], 0, 9, [6, 2]),                  # stops at 6 on the growing bar
+    ([3, 3], 0, 1, [4, 2]),                  # widen the left bar, the right gives a panel up
+    ([3, 3], 0, -1, [2, 4]),                 # drag the same edge left: the right bar grows
+    ([3, 3], 0, 1.4, [4, 2]),                # whole panels only
+    ([3, 3], 0, 0.4, [3, 3]),                # a nudge changes nothing
+    ([2, 4], 0, 9, [4, 2]),                  # stops at a quad on the growing bar
     ([2, 2], 0, 5, [3, 1]),                  # the shrinking bar never goes under 1
-    ([5, 2, 5], 1, 1, [5, 3, 4]),            # only the two bars at that edge change
-    ([5, 2, 5], 1, -9, [5, 1, 6]),
-    ([6, 6], 0, 1, [6, 6]),                  # both at the limit: nothing to give
+    ([4, 2, 4], 1, 1, [4, 3, 3]),            # only the two bars at that edge change
+    ([4, 2, 4], 1, -9, [4, 2, 4]),           # the right bar is a quad already: it can take no more
+    ([4, 4], 0, 1, [4, 4]),                  # both at the limit: nothing to give
     ([8], 0, 1, [8]),                        # one bar has no edge to drag
 ])
 def test_resize_boundary_trades_panels_between_neighbours(bars, boundary, delta, expected):
@@ -120,13 +120,13 @@ def test_tally_counts_bars_across_screens():
 
 
 @needs_node
-def test_bar_names_use_single_double_triple_then_n_way():
-    assert [_node(f'R.sizeWord({n})') for n in range(1, 7)] == ['Single', 'Double', 'Triple', '4-way', '5-way', '6-way']
+def test_bar_names_use_single_double_triple_quad():
+    assert [_node(f'R.sizeWord({n})') for n in range(1, 7)] == ['Single', 'Double', 'Triple', 'Quad', '5-way', '6-way']
 
 
 @needs_node
 def test_bar_name_is_the_pull_list_type():
-    assert _node('R.barName(4)') == 'Header Bar - 4-way'
+    assert _node('R.barName(4)') == 'Header Bar - Quad'
     assert _node("R.barName(2, 'footer')") == 'Footer Bar - Double'
 
 
@@ -169,12 +169,12 @@ def test_header_bar_rows_reach_the_pull_sheet_workbook():
     import io
     import pull_sheet
     pull_list = {'positions': [{'name': 'Wall', 'rows': [
-        {'type': 'Header Bar - 4-way', 'length': 'EA', 'qty': 2, 'label': 'Wall', 'notes': '', 'side': 'rigging'},
+        {'type': 'Header Bar - Quad', 'length': 'EA', 'qty': 2, 'label': 'Wall', 'notes': '', 'side': 'rigging'},
     ]}]}
     xlsx, _warnings = pull_sheet.build_workbook(pull_list, {'project_name': 'Show'})
     wb = openpyxl.load_workbook(io.BytesIO(xlsx))
     seen = {str(c.value) for ws in wb.worksheets for row in ws.iter_rows() for c in row if c.value is not None}
-    assert 'Header Bar - 4-way' in seen
+    assert 'Header Bar - Quad' in seen
 
 
 def test_rigging_fields_save_and_come_back(client):

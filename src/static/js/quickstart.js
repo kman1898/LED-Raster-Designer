@@ -241,6 +241,17 @@
         var box = r.canvas.getBoundingClientRect();
         return { x: box.left + (hit.x0 + hit.x1) / 2, y: box.top + (hit.y0 + hit.y1) / 2, unitPx: hit.unitPx };
     }
+    // The client point of the edge between the wall's n-th and next header
+    // bar, from the renderer's edge list, or null when none is drawn.
+    function barEdgePoint(n) {
+        var r = R();
+        var w = wall();
+        if (!r || !w || !r._riggingEdges) return null;
+        var e = r._riggingEdges.find(function (h) { return h.layerId === w.id && h.row !== 'footer' && h.boundary === n; });
+        if (!e) return null;
+        var box = r.canvas.getBoundingClientRect();
+        return { x: box.left + e.x, y: box.top + (e.y0 + e.y1) / 2, unitPx: e.unitPx, dir: e.dir };
+    }
     function portsNeeded() {
         var w = wall();
         if (!w || !A().calculatePortAssignments) return 0;
@@ -5576,18 +5587,18 @@
         riggingSizes: {
             since: '1.7.0',
             target: '#rigging-size-picker', place: 'right', title: 'Pick the bar sizes',
-            body: 'Pick Header or Footer, then light the bar sizes you have; single and double show first, and the + opens 3 to 6. Say the truck holds only doubles and 5s: switch the single off, open the + and light the 5.',
+            body: 'Pick Header or Footer, then light the bar sizes you have; the + opens the triple and the quad. Say the truck holds only doubles and triples: switch the single off, open the + and light the 3.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
                 // The + is a toggle kept on the app, not in the show: an
-                // earlier run left open would close here and hide the 5.
+                // earlier run left open would close here and hide the 3.
                 A()._riggingMoreOpen = false;
                 if (w) A().setSelectedLayersByIds([w.id], w.id);
                 A().refreshRiggingPanel();
             },
             act: function (t) {
-                var picks = ['1', '#rigging-size-more', '5'];
+                var picks = ['1', '#rigging-size-more', '3'];
                 return picks.reduce(function (chain, size) {
                     return chain.then(function () {
                         var sel = size.charAt(0) === '#' ? size : '#rigging-size-picker [data-size="' + size + '"]';
@@ -5598,7 +5609,7 @@
             check: function () {
                 var w = wall();
                 var s = w && w.riggingSizes;
-                return s && s.join(',') === '2,5' ? 'Lit: the double and the 5. Auto will use only these.' : null;
+                return s && s.join(',') === '2,3' ? 'Lit: the double and the triple. Auto will use only these.' : null;
             }
         },
         riggingAuto: {
@@ -5623,14 +5634,15 @@
             since: '1.7.0',
             target: '#main-canvas', place: 'top', title: 'Drag a header bar',
             avoid: [function () { return barPoint(0); }, function () { return barPoint(1); }],
-            body: 'Press on a header bar and drag it left or right; it swaps with its neighbor once its edge crosses the neighbor&rsquo;s middle. The wall stays covered, and undo steps it back.',
+            body: 'Drag the edge between two header bars and one takes a panel from the other, up to a quad. Drag a bar&rsquo;s middle to move it past its neighbor, and undo steps either back.',
             before: function () { switchView('rigging'); },
             act: function (t) {
-                var from = barPoint(0);
+                var from = barEdgePoint(0);
                 var w = wall();
                 if (!from || !w || !w.riggingBars || w.riggingBars.length < 2) throw new Error('no header bars to drag');
                 t.mem.before = w.riggingBars.join(',');
-                var to = { x: from.x + from.unitPx * 3, y: from.y };
+                // one panel toward the first bar: it gives the panel to the second
+                var to = { x: from.x - from.dir * from.unitPx, y: from.y };
                 return t.hover(from).then(function () {
                     press(true);
                     t.canvasDown(from);
@@ -5660,7 +5672,7 @@
         riggingTotals: {
             since: '1.7.0',
             target: '#rigging-total-count', place: 'right', title: 'Total header bars',
-            body: 'The box at the foot of the panel counts the header bars on every shown screen by size: single, double, triple, then 4 and up. The same counts go to the pull sheet.',
+            body: 'The box at the foot of the panel counts the header bars on every shown screen by size: single, double, triple and quad. The same counts go to the pull sheet.',
             before: function () { switchView('rigging'); },
             act: function (t) {
                 var box = $('#rigging-total-count');

@@ -60,7 +60,9 @@ jobs:
           pip install pyinstaller rumps
 
       - name: Stamp a beta build with its tag
-        if: contains(github.ref_name, '-')
+        # Only a pushed beta tag: a hand-started build of a branch like
+        # wip/3d-for-1-7 has a '-' too, and must not name itself after it.
+        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')
         # The app reads BUILD_TAG.txt (updater.get_current_version) so a beta
         # names itself "1.5.3-beta.1" and is offered the full 1.5.3.
         run: echo "${GITHUB_REF_NAME#v}" > src/BUILD_TAG.txt
@@ -213,7 +215,9 @@ jobs:
           pip install pyinstaller pystray
 
       - name: Stamp a beta build with its tag
-        if: contains(github.ref_name, '-')
+        # Only a pushed beta tag: a hand-started build of a branch like
+        # wip/3d-for-1-7 has a '-' too, and must not name itself after it.
+        if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')
         run: Set-Content -Path src\BUILD_TAG.txt -Value ("$env:GITHUB_REF_NAME" -replace '^v','') -NoNewline -Encoding utf8
 
       - name: Build executable
@@ -356,6 +360,12 @@ jobs:
           $version = "${{ github.ref_name }}".TrimStart('v')
           if (-not $version -or $version -eq "${{ github.ref_name }}") {
             $version = "${{ github.event.inputs.version }}"
+          }
+          # The smoke tests above ran the app from this folder, and it wrote
+          # its run-time files there. A .zip carrying .lrd-unblocked would
+          # tell a fresh download it was already unblocked.
+          foreach ($f in '.lrd-unblocked', 'launcher_crash.log') {
+            Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path "LED Raster Designer App" $f)
           }
           Compress-Archive -Path "LED Raster Designer App" `
             -DestinationPath "led_raster_designer_v${version}_windows.zip"

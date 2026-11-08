@@ -199,7 +199,7 @@ const RiggingMath = (() => {
     // grows and the one beside it shrinks by the same whole number of
     // panels, so the wall stays covered. Neither bar goes under 1 panel or
     // over maxSize; the move stops at the limit.
-    function resizeBoundary(bars, boundary, deltaPanels, maxSize = 6) {
+    function resizeBoundary(bars, boundary, deltaPanels, maxSize = 4) {
         if (!Array.isArray(bars) || !Number.isInteger(boundary) || boundary < 0 || boundary >= bars.length - 1) return bars;
         const a = bars[boundary];
         const b = bars[boundary + 1];
@@ -215,9 +215,9 @@ const RiggingMath = (() => {
     }
 
     // What a bar of this many panels is called: single, double, triple,
-    // then 4-way, 5-way, 6-way.
+    // quad. A wider one, saved before the picker stopped at 4, reads 5-way.
     function sizeWord(size) {
-        return { 1: 'Single', 2: 'Double', 3: 'Triple' }[size] || `${size}-way`;
+        return { 1: 'Single', 2: 'Double', 3: 'Triple', 4: 'Quad' }[size] || `${size}-way`;
     }
 
     // The bar's name wherever it is listed: the pull list, the binder.

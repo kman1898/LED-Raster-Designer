@@ -816,6 +816,8 @@ def test_header_and_footer_bars_stand_on_the_stage_at_their_true_width(page):
     # centre): `first` is a row's top-left corner, so the header's sits a
     # bar's height over the wall's top and the footer's just under its foot
     half, h = screen(page, ids[0])['heightMm'] / 2, up['header']['heightMm']
+    # a bar's real height, 3.5 in, whatever the wall's size
+    assert h == pytest.approx(88.9) and low['header']['heightMm'] == pytest.approx(88.9)
     assert up['header']['first'][1] > half + h
     assert -half - h < up['footer']['first'][1] < -half
 

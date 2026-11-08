@@ -1,6 +1,6 @@
 // app-rigging: the Header/Footer tab's left column. A Header | Footer choice
-// (which row of bars the panel is working on), a row of bar sizes (1-6
-// panels wide, any number highlighted; 3 and up sit behind a + button) and
+// (which row of bars the panel is working on), a row of bar sizes (1-4
+// panels wide, single to quad, any number highlighted; 3 and up sit behind a + button) and
 // an Auto button that fits bars of the highlighted sizes across every
 // selected screen's width. The sizes and the resulting bars ride on each
 // screen (riggingSizes; riggingBars for the header, riggingFooterBars for
@@ -25,7 +25,8 @@
 import { LEDRasterApp } from './app-core.js';
 import { setupColorPickerWithHex } from './helpers.js';
 
-const RIGGING_SIZES = [1, 2, 3, 4, 5, 6];
+// Bars come single, double, triple and quad, 1 to 4 panels wide.
+const RIGGING_SIZES = [1, 2, 3, 4];
 const DEFAULT_SIZES = [1, 2];
 const DEFAULT_BAR_COLOR = '#000000';
 const DEFAULT_TEXT_COLOR = '#FFFFFF';
@@ -101,10 +102,12 @@ class _Rigging {
 
     // The sizes the picker shows: the current screen's. A screen nobody has
     // picked for starts on 1 and 2; a screen whose picks were all switched
-    // off keeps its empty list.
+    // off keeps its empty list. A size past a quad, lit before the picker
+    // stopped at 4, is left out, so Auto never fits a bar nobody stocks.
     _riggingSizesOf(layer) {
         if (!layer) return [];
-        return Array.isArray(layer.riggingSizes) ? layer.riggingSizes : [...DEFAULT_SIZES];
+        return Array.isArray(layer.riggingSizes)
+            ? layer.riggingSizes.filter(s => RIGGING_SIZES.includes(s)) : [...DEFAULT_SIZES];
     }
 
     toggleRiggingSize(size) {
@@ -209,7 +212,7 @@ class _Rigging {
         picker.querySelectorAll('.rigging-size-btn[data-size]').forEach(btn => {
             btn.classList.toggle('active', sizes.includes(parseInt(btn.dataset.size, 10)));
         });
-        // 3-6 show once the + is open, or at once when one of them is lit
+        // 3 and 4 show once the + is open, or at once when one of them is lit
         // (a lit size is never hidden).
         const extra = document.getElementById('rigging-size-extra');
         const more = document.getElementById('rigging-size-more');

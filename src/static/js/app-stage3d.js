@@ -285,11 +285,12 @@ function s3dBuild(layer, placement) {
 // of bar is a panel of wall: bars that no longer add up to the wall stop
 // short of it or run past its last column at the wall's average column
 // width, at their true width and never stretched, as the tab draws them.
-// The bar's height is a picture, not a measured part: a fifth of the
-// wall's height, held between 150 and 600 mm, so the sizes read.
+// A bar stands at its real height, 3.5 in (a bar is 3 to 4 in tall), on
+// every wall whatever its size.
 const BAR_GAP_MM = 40;
+const BAR_HEIGHT_MM = 88.9;
 function s3dBarHeight(built) {
-    return Math.max(150, Math.min(600, (built.heightMm || 0) * 0.18));
+    return BAR_HEIGHT_MM;
 }
 function s3dBarRows(layer, built) {
     const out = [];

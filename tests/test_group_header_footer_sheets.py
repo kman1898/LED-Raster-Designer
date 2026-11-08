@@ -161,7 +161,7 @@ def test_group_prints_one_header_footer_sheet_for_the_wall(page):
     group and both members, its map both walls (an 8 x 3 picture), its
     Header bars table every member's header bars together - 2 + 2 on
     WALL-L and 2 + 1 + 1 on WALL-R: three doubles, two singles, 5 in all -
-    and its Footer bars WALL-L's one 4-way. LONE keeps its own sheet."""
+    and its Footer bars WALL-L's one quad. LONE keeps its own sheet."""
     pg, ids, errors = page
     out = _run(pg, {'rigging': 'group'}, titles=['WALL - Header/Footer - Front View'])
     assert _rig(out) == ['WALL - Header/Footer - Front View', 'LONE - Header/Footer - Front View'], _rig(out)
@@ -178,7 +178,7 @@ def test_group_prints_one_header_footer_sheet_for_the_wall(page):
     assert _qty_after(header, 'Header Bar - Double') == ['2', '3'], header
     assert _qty_after(header, 'Header Bar - Single') == ['1', '2'], header
     assert header[header.index('Total') + 2] == '5', header
-    assert _qty_after(footer, 'Footer Bar - 4-way') == ['4', '1'], footer
+    assert _qty_after(footer, 'Footer Bar - Quad') == ['4', '1'], footer
     assert footer[footer.index('Total') + 2] == '1', footer
     assert all(out['visible']), out
     assert not errors, errors

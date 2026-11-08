@@ -112,6 +112,28 @@ def test_runtime_files_beside_the_exe_are_handled():
     assert 'Type: files; Name: "{app}\\launcher_crash.log"' in undel
 
 
+def _step(name):
+    text = RELEASE_YML.read_text(encoding="utf-8").replace("\r\n", "\n")
+    m = re.search(r"- name: " + re.escape(name) + r"\n(.*?)(?=\n      - name: |\Z)", text, re.S)
+    assert m, f"step {name!r} missing from {RELEASE_YML.name}"
+    return m.group(1)
+
+
+def test_the_zip_leaves_out_the_smoke_test_files():
+    """The smoke tests run the app from the folder the .zip is made from. A
+    .lrd-unblocked in the .zip would tell a fresh download it was unblocked."""
+    body = _step("Create release ZIP")
+    assert body.index("'.lrd-unblocked', 'launcher_crash.log'") < body.index("Compress-Archive")
+
+
+def test_only_a_beta_tag_stamps_a_beta_build():
+    """A hand-started build of a branch with a '-' in its name (wip/3d-for-1-7)
+    must not name itself after the branch."""
+    text = RELEASE_YML.read_text(encoding="utf-8").replace("\r\n", "\n")
+    stamps = re.findall(r"- name: Stamp a beta build with its tag\n(?:\s*#.*\n)*\s*if: (.*)", text)
+    assert stamps == ["startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-')"] * 2, stamps
+
+
 def test_a_running_copy_is_closed_first():
     text = _iss()
     assert _setup_value("CloseApplications") == "force"
