@@ -229,8 +229,16 @@ ${cabinetBtn}
                 e.dataTransfer.setData('text/plain', String(layer.id));
                 e.dataTransfer.effectAllowed = 'move';
                 this.dragLayerId = layer.id;
+                this.dragGroupId = null;
             };
             layerDiv.addEventListener('dragstart', handleDragStart);
+            // The drag is over once it ends, dropped or not: a screen id
+            // left behind read as a screen still being dragged, and the
+            // group drags in this list ask which kind is under way.
+            layerDiv.addEventListener('dragend', () => {
+                this.dragLayerId = null;
+                if (typeof this._endListDrag === 'function') this._endListDrag();
+            });
             const headerEl = layerDiv.querySelector('.layer-header');
             const infoEl = layerDiv.querySelector('.layer-info');
             if (headerEl) {
@@ -242,6 +250,13 @@ ${cabinetBtn}
                 infoEl.addEventListener('dragstart', handleDragStart);
             }
             layerDiv.addEventListener('dragover', (e) => {
+                // A group dragged over the row lands beside this screen, or
+                // beside the group this screen is a member of; from another
+                // canvas the canvas block takes it (app-screen-groups).
+                if (this.dragGroupId != null) {
+                    this._groupDragOverRow(e, layer, layerDiv);
+                    return;
+                }
                 e.preventDefault();
                 const rect = layerDiv.getBoundingClientRect();
                 const midpoint = rect.top + rect.height / 2;
@@ -255,6 +270,10 @@ ${cabinetBtn}
                 layerDiv.classList.remove('drag-over', 'drag-over-top', 'drag-over-bottom');
             });
             layerDiv.addEventListener('drop', (e) => {
+                if (this.dragGroupId != null) {
+                    this._groupDropOnRow(e, layer, layerDiv);
+                    return;
+                }
                 e.preventDefault();
                 layerDiv.classList.remove('drag-over', 'drag-over-top', 'drag-over-bottom');
                 const draggedId = this.dragLayerId || parseInt(e.dataTransfer.getData('text/plain'), 10);

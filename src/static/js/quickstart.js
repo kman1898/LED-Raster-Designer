@@ -1862,6 +1862,63 @@
                 });
             });
         },
+        // A drag in the Screens list. The rows move by the browser's own
+        // drag and drop (dragstart on the row, dragover and drop where it is
+        // let go, dragend), not by mouse moves, so those are the events the
+        // hand sends: dragstart on the row it pressed, dragover on the rows
+        // it passes and on the target, then drop on the target and dragend
+        // on the row. `o.half` 'top' or 'bottom' lets go on that half of
+        // the target (the list's above / below rule); `o.init` carries
+        // modifier keys.
+        listDrag: function (from, to, o) {
+            o = o || {};
+            var dt = null, src = null, dest = null;
+            var fire = function (type, el, x, y) {
+                if (!el) return;
+                el.dispatchEvent(new DragEvent(type, Object.assign({
+                    bubbles: true, cancelable: true, view: window,
+                    clientX: x, clientY: y, dataTransfer: dt
+                }, o.init || {})));
+            };
+            var list = function () { return document.getElementById('layers-list'); };
+            var under = function (x, y) {
+                var el = document.elementFromPoint(x, y);
+                return el && list() && list().contains(el) ? el : null;
+            };
+            return T.hover(from, o).then(function (p) {
+                src = live(p.el);
+                if (!src) throw new Error('listDrag: nothing at ' + describe(from));
+                return prepare(to).then(function (d) {
+                    if (!d || !d.el) throw new Error('listDrag: no destination');
+                    dest = d;
+                    if (o.half) {
+                        var r = d.el.getBoundingClientRect();
+                        dest.y = r.top + r.height * (o.half === 'top' ? 0.25 : 0.75);
+                    }
+                    return p;
+                });
+            }).then(function (p) {
+                press(true);
+                mouse('mousedown', src, p.x, p.y, { buttons: 1 });
+                dt = new DataTransfer();
+                return T.pause(PACE.dragPress).then(function () {
+                    fire('dragstart', src, p.x, p.y + 6);
+                    keepClear(dest);
+                    return animateTo(dest.x, dest.y, function (x, y) {
+                        fire('dragover', under(x, y), x, y);
+                    }, PACE.dragTravel);
+                }).then(function () {
+                    fire('dragover', under(dest.x, dest.y) || live(dest.el), dest.x, dest.y);
+                    return T.pause(o.dropHover == null ? PACE.dragHover : o.dropHover);
+                }).then(function () {
+                    fire('drop', under(dest.x, dest.y) || live(dest.el), dest.x, dest.y);
+                    fire('dragend', src, dest.x, dest.y);
+                    press(false);
+                    ripple(dest.x, dest.y);
+                    return T.pause(PACE.dragRest);
+                });
+            });
+        },
         // The app's own menu at the point, with the ghost parked there: the
         // hover, the press, then the menu held open long enough to read
         // before pickMenu moves onto an item.
@@ -6154,6 +6211,76 @@
                 return g.name + ' now names each screen on Pixel Map; the other tabs and groups keep their own.';
             }
         },
+        // A group's row drags like a screen's (1.7.0, owner's report: a
+        // group could not be dragged onto another canvas nor up and down
+        // the list). + Add Canvas gives the wall somewhere to go, its row is
+        // dragged onto the new canvas and back, and the canvas goes again,
+        // so the steps after this one find the show as it was.
+        groupDrag: {
+            since: '1.7.0',
+            target: '#layers-list', place: 'left', title: 'Drag a group',
+            avoid: ['#layers-list', '#btn-add-canvas'],
+            body: 'Drag a group\'s row onto another canvas to move the whole wall there, or up and down the list to change its order. Here it goes to a new canvas and back.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('pixel-map'); },
+            act: function (t) {
+                var a = A();
+                var w = wall(), g = w ? a.getGroupOfLayer(w) : null;
+                if (!g) return Promise.reject(new Error('the demo walls are not grouped'));
+                t.mem.group = g.id;
+                t.mem.home = w.canvas_id;
+                var canvases = function () { return (a.project && a.project.canvases) || []; };
+                var before = canvases().map(function (c) { return c.id; });
+                var on = function (cid) {
+                    return function () {
+                        var ms = a.getGroupMembers(a.resolveGroup(t.mem.group));
+                        return ms.length > 1 && !a._groupCommitDepth
+                            && ms.every(function (l) { return l.canvas_id === cid; })
+                            && $('#layers-list .canvas-group[data-canvas-id="' + cid + '"] .screen-group[data-group-id="' + t.mem.group + '"]');
+                    };
+                };
+                var row = function () { return '#layers-list .screen-group[data-group-id="' + t.mem.group + '"] .screen-group-row'; };
+                var header = function (cid) { return '#layers-list .canvas-group[data-canvas-id="' + cid + '"] .canvas-group-header'; };
+                return t.click('#btn-add-canvas').then(function () {
+                    return t.wait(function () {
+                        var made = canvases().find(function (c) { return before.indexOf(c.id) < 0; });
+                        return made && $(header(made.id)) ? made : null;
+                    });
+                }).then(function (made) {
+                    if (!made) throw new Error('+ Add Canvas made no canvas');
+                    t.mem.second = made.id;
+                    return t.listDrag(row(), header(t.mem.second));
+                }).then(function () {
+                    return t.wait(on(t.mem.second), 6000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the group did not move to the new canvas');
+                    t.mem.went = true;
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return t.listDrag(row(), header(t.mem.home));
+                }).then(function () {
+                    return t.wait(on(t.mem.home), 6000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the group did not come back');
+                    return a.deleteCanvas(t.mem.second);
+                }).then(function () {
+                    return t.wait(function () {
+                        return canvases().every(function (c) { return c.id !== t.mem.second; });
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the new canvas was not removed');
+                    a.setActiveCanvas(t.mem.home);
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var a = A(), g = mem && a.resolveGroup(mem.group);
+                if (!g || !mem.went) return null;
+                var ms = a.getGroupMembers(g);
+                if (ms.length < 2 || !ms.every(function (l) { return l.canvas_id === mem.home; })) return null;
+                if (((a.project && a.project.canvases) || []).some(function (c) { return c.id === mem.second; })) return null;
+                return g.name + ' went to the new canvas whole and came back as one group.';
+            }
+        },
         exportBinder: {
             window: 'export:binder',
             target: '#btn-export', place: 'bottom', title: 'Export the binder',
@@ -7305,7 +7432,7 @@
                     'outputOpen', 'outputChoices',
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
                     'idmColors', 'idmHighlight', 'idmList', 'notesChecklist',
-                    'groupScreens', 'groupNames',
+                    'groupScreens', 'groupNames', 'groupDrag',
                     'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
                     'redrawAsOne', 'sweepPorts', 'helpMenu', 'outroAdvanced']

@@ -34,7 +34,7 @@
 // _enforce_group_integrity, so the SERVER decides what a membership that
 // disagrees with itself repairs to - none of that logic is repeated here.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, holdDragOff } from './helpers.js';
 import { stripScreenFeeds, SCREEN_FEED_KEYS } from './app-clipboard.js';
 import { s3dCopyPlacement } from './app-stage3d.js';
 
@@ -1330,11 +1330,31 @@ class _ScreenGroups {
     // helpers work in DISPLAY order and treat each group as a single unit, so
     // the row the user sees moving is the thing that actually moves.
 
-    _displayUnits() {
-        const layers = (this.project && this.project.layers) || [];
+    // The canvas a layer is listed under in the current view: Show Look,
+    // Data and Power list by show_canvas_id (falling back to canvas_id),
+    // Pixel Map and Cabinet ID by canvas_id (regroupLayersByCanvas).
+    _listCanvasIdOf(layer) {
+        if (!layer) return null;
         const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
             && window.canvasRenderer.isShowLookView());
-        const effCid = (l) => (isShowView && l.show_canvas_id) ? l.show_canvas_id : l.canvas_id;
+        return (isShowView && layer.show_canvas_id) ? layer.show_canvas_id : layer.canvas_id;
+    }
+
+    // The canvas a group's row is drawn under: the first canvas in the list
+    // holding one of its members (regroupLayersByGroup puts the row with the
+    // first member row on the page). Members on one canvas, the usual case,
+    // make that their canvas.
+    _groupListCanvasId(group) {
+        const members = this.getGroupMembers(group);
+        if (members.length === 0) return null;
+        const here = new Set(members.map(l => this._listCanvasIdOf(l)));
+        const canvases = (this.project && this.project.canvases) || [];
+        const first = canvases.find(c => c && here.has(c.id));
+        return first ? first.id : this._listCanvasIdOf(members[0]);
+    }
+
+    _displayUnits() {
+        const layers = (this.project && this.project.layers) || [];
         const units = [];
         const byKey = new Map();
         [...layers].reverse().forEach(layer => {
@@ -1343,7 +1363,12 @@ class _ScreenGroups {
                 const key = `group:${group.id}`;
                 let unit = byKey.get(key);
                 if (!unit) {
-                    unit = { key, groupId: group.id, ids: [], canvasId: effCid(layer) };
+                    // The canvas the group's ROW sits under, so the ▲▼
+                    // arrows step among the rows they are drawn beside.
+                    // Taken from the newest member instead, it named the
+                    // wrong canvas once a Show Look move had put that
+                    // member on a later canvas than the row.
+                    unit = { key, groupId: group.id, ids: [], canvasId: this._groupListCanvasId(group) };
                     byKey.set(key, unit);
                     units.push(unit);
                 }
@@ -1352,10 +1377,151 @@ class _ScreenGroups {
             }
             units.push({
                 key: `layer:${layer.id}`, groupId: null,
-                ids: [layer.id], canvasId: effCid(layer),
+                ids: [layer.id], canvasId: this._listCanvasIdOf(layer),
             });
         });
         return units;
+    }
+
+    // Move the unit `draggedKey` (a group 'group:<id>' or a loose screen
+    // 'layer:<id>') to just before or after the unit `targetKey`, both in
+    // the same canvas of the list. The Screens list drag's reorder, in the
+    // same units the ▲▼ arrows step through, so a group always moves whole
+    // and lands whole. False when nothing would change (no undo step).
+    moveUnitBeside(draggedKey, targetKey, after, historyAction) {
+        if (!draggedKey || !targetKey || draggedKey === targetKey) return false;
+        const units = this._displayUnits();
+        const dragged = units.find(u => u.key === draggedKey);
+        const target = units.find(u => u.key === targetKey);
+        if (!dragged || !target || dragged.canvasId !== target.canvasId) return false;
+        const before = units.reduce((acc, u) => acc.concat(u.ids), []);
+        const rest = units.filter(u => u !== dragged);
+        rest.splice(rest.indexOf(target) + (after ? 1 : 0), 0, dragged);
+        const displayIds = rest.reduce((acc, u) => acc.concat(u.ids), []);
+        if (displayIds.every((id, i) => id === before[i])) return false;
+        this.applyDisplayOrder(displayIds, historyAction);
+        return true;
+    }
+
+    // Drop a whole group onto another canvas from the Screens list: the
+    // group's screens go together, through the same routes a screen dropped
+    // on a canvas takes, so the view rule is the screens' own (Show Look,
+    // Data and Power move the Show Look canvas, Pixel Map and Cabinet ID the
+    // canvas itself) and so is the lock rule. A locked group stays put and
+    // says so; it never goes in part. Alt/Option on Pixel Map or Cabinet ID
+    // copies the group instead, as it copies a screen: the batch route makes
+    // the copies a new group of their own (moveLayersCrossCanvas). Show Look
+    // has no copy for a screen, so none for a group. One undo step either way.
+    async moveGroupToCanvas(groupId, canvasId, mode = 'move') {
+        const group = this.resolveGroup(groupId);
+        if (!group || !canvasId) return false;
+        const members = this.getGroupMembers(group);
+        if (members.length === 0) return false;
+        const isShowView = !!(window.canvasRenderer && window.canvasRenderer.isShowLookView
+            && window.canvasRenderer.isShowLookView());
+        const ids = members.map(l => l.id);
+        if (isShowView) {
+            if (members.every(l => (l.show_canvas_id || l.canvas_id) === canvasId)) return false;
+            if (this._lockedRefused(members)) return false;
+            await this.moveLayersShowCanvas(ids, canvasId);
+            sendClientLog('group_move_to_canvas', { group: group.id, canvasId, show: true });
+            return true;
+        }
+        const copy = mode === 'duplicate';
+        if (!copy && members.every(l => l.canvas_id === canvasId)) return false;
+        if (!copy && this._lockedRefused(members)) return false;
+        await this.moveLayersCrossCanvas(ids, canvasId, copy ? 'duplicate' : 'move');
+        sendClientLog('group_move_to_canvas', { group: group.id, canvasId, mode: copy ? 'duplicate' : 'move' });
+        return true;
+    }
+
+    // ── the Screens list drag, for groups and beside them ────────────────
+    //
+    // What is being dragged in the list, as a unit key: a group by its row
+    // ('group:<id>'), or a loose screen ('layer:<id>'). A member screen
+    // dragged on its own keeps the screen rows' rules and is not a unit
+    // here (null), and neither is a canvas.
+    _listDragKey() {
+        if (this._dragCanvasId) return null;
+        if (this.dragGroupId != null) return `group:${this.dragGroupId}`;
+        if (this.dragLayerId == null) return null;
+        const layer = ((this.project && this.project.layers) || []).find(l => l.id === this.dragLayerId);
+        if (!layer || this.getGroupOfLayer(layer)) return null;
+        return `layer:${layer.id}`;
+    }
+
+    // The unit key the list's drag would move beside `targetKey`, or null
+    // when this drop is not a reorder: nothing of ours is dragged, it is
+    // dropped on itself, or it comes from another canvas (the canvas block
+    // takes that one, and moves it there).
+    _listReorderKey(targetKey) {
+        const draggedKey = this._listDragKey();
+        if (!draggedKey || draggedKey === targetKey) return null;
+        const units = this._displayUnits();
+        const dragged = units.find(u => u.key === draggedKey);
+        const target = units.find(u => u.key === targetKey);
+        if (!dragged || !target || dragged.canvasId !== target.canvasId) return null;
+        return draggedKey;
+    }
+
+    // Where a drop on `el` lands: after it on its lower half (the screen
+    // rows' midpoint rule).
+    _listDropsAfter(e, el) {
+        const r = el.getBoundingClientRect();
+        return e.clientY >= r.top + r.height / 2;
+    }
+
+    // The insertion line, on one row or group at a time.
+    _clearListDropMarks() {
+        document.querySelectorAll('#layers-list .drag-over-top, #layers-list .drag-over-bottom, #layers-list .layer-item.drag-over')
+            .forEach(el => el.classList.remove('drag-over', 'drag-over-top', 'drag-over-bottom'));
+    }
+
+    _markListDrop(el, after) {
+        if (!el) return;
+        const already = el.classList.contains(after ? 'drag-over-bottom' : 'drag-over-top');
+        if (already) return;
+        this._clearListDropMarks();
+        el.classList.add(after ? 'drag-over-bottom' : 'drag-over-top');
+    }
+
+    // A group dragged over a screen row (loose or a member): a reorder
+    // beside that screen, or beside the group the member belongs to. The
+    // screen rows hand group drags here (app-layers-panel). True when the
+    // row took it; false leaves the event to the canvas block.
+    _groupDragOverRow(e, layer, rowEl) {
+        const group = this.getGroupOfLayer(layer);
+        const targetKey = group ? `group:${group.id}` : `layer:${layer.id}`;
+        if (!this._listReorderKey(targetKey)) return false;
+        const markEl = group ? (rowEl.closest('.screen-group') || rowEl) : rowEl;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        this._markListDrop(markEl, this._listDropsAfter(e, markEl));
+        return true;
+    }
+
+    _groupDropOnRow(e, layer, rowEl) {
+        const group = this.getGroupOfLayer(layer);
+        const targetKey = group ? `group:${group.id}` : `layer:${layer.id}`;
+        const draggedKey = this._listReorderKey(targetKey);
+        if (!draggedKey) return false;
+        const markEl = group ? (rowEl.closest('.screen-group') || rowEl) : rowEl;
+        e.preventDefault();
+        const after = this._listDropsAfter(e, markEl);
+        this._endListDrag();
+        this.moveUnitBeside(draggedKey, targetKey, after, 'Reorder Group');
+        return true;
+    }
+
+    // The end of any list drag a group took part in: no drag state is left
+    // behind for the next one, and no mark.
+    _endListDrag() {
+        this.dragGroupId = null;
+        this._clearListDropMarks();
+        document.querySelectorAll('#layers-list .screen-group.dragging')
+            .forEach(el => el.classList.remove('dragging'));
+        document.querySelectorAll('#layers-list .canvas-group.drag-target')
+            .forEach(el => el.classList.remove('drag-target'));
     }
 
     // Re-emit a display-order id list with every group's members collected
@@ -2036,13 +2202,28 @@ class _ScreenGroups {
         // another group re-renders it once saved), and Firefox sends no
         // dblclick when the two clicks land on different elements.
         // Whichever comes first opens it; the other finds it open.
+        //
+        // The row drags the group (below), and the read-only name is most of
+        // it, so the name is draggable too and its dragstart reaches the
+        // row's, as on the canvas headers. While the name is edited neither
+        // is draggable, so a drag in the field selects text (helpers.js
+        // holdDragOff).
+        row.draggable = true;
+        nameInput.draggable = true;
+        let releaseDrag = null;
+        const endRenameHold = () => {
+            if (releaseDrag) { releaseDrag(); releaseDrag = null; }
+        };
         const startRename = () => {
             if (!nameInput.readOnly) return;
             nameInput.readOnly = false;
+            releaseDrag = holdDragOff(nameInput, row);
             nameInput.classList.add('editing');
             nameInput.focus();
             nameInput.select();
         };
+        // The menu's Rename opens the same edit.
+        wrap._startRename = startRename;
         nameInput.addEventListener('click', (e) => {
             if (nameInput.readOnly && e.detail >= 2) startRename();
         });
@@ -2053,6 +2234,7 @@ class _ScreenGroups {
         const commitName = () => {
             if (nameInput.readOnly) return;
             nameInput.readOnly = true;
+            endRenameHold();
             nameInput.classList.remove('editing');
             const newName = nameInput.value.trim();
             if (newName && newName !== group.name) {
@@ -2067,10 +2249,55 @@ class _ScreenGroups {
             else if (e.key === 'Escape') {
                 nameInput.value = group.name || '';
                 nameInput.readOnly = true;
+                endRenameHold();
                 nameInput.classList.remove('editing');
                 nameInput.blur();
             }
             if (!nameInput.readOnly) e.stopPropagation();
+        });
+
+        // -- Drag & drop (owner's report, 1.7.0: a group could not be
+        // dragged onto another canvas nor up and down the list) --
+        // Drag the row => move the whole group. Dropped on another canvas's
+        // block it goes to that canvas (the canvas block takes the drop,
+        // app-canvas-ui), dropped on a row of its own canvas it moves above
+        // or below that row (the rows take it, _groupDragOverRow).
+        row.addEventListener('dragstart', (e) => {
+            // A drag from a name being edited is not a group drag.
+            if (!nameInput.readOnly) { e.preventDefault(); return; }
+            e.dataTransfer.effectAllowed = 'copyMove';
+            e.dataTransfer.setData('application/x-group-id', group.id);
+            e.dataTransfer.setData('text/plain', `group:${group.id}`);
+            this.dragGroupId = group.id;
+            this.dragLayerId = null;
+            wrap.classList.add('dragging');
+        });
+        row.addEventListener('dragend', () => this._endListDrag());
+
+        // A drop on this group (its row, or the room around its member
+        // rows; a member row takes its own): the dragged group or loose
+        // screen of the same canvas lands above or below the whole group.
+        const onAMember = (e) => !!(e.target.closest && e.target.closest('.layer-item'));
+        wrap.addEventListener('dragover', (e) => {
+            if (onAMember(e)) return;
+            if (!this._listReorderKey(`group:${group.id}`)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            this._markListDrop(wrap, this._listDropsAfter(e, wrap));
+        });
+        wrap.addEventListener('dragleave', (e) => {
+            if (!wrap.contains(e.relatedTarget)) wrap.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+        wrap.addEventListener('drop', (e) => {
+            if (onAMember(e)) return;
+            const targetKey = `group:${group.id}`;
+            const draggedKey = this._listReorderKey(targetKey);
+            if (!draggedKey) return;
+            e.preventDefault();
+            const after = this._listDropsAfter(e, wrap);
+            const label = draggedKey.startsWith('group:') ? 'Reorder Group' : 'Reorder Layers';
+            this._endListDrag();
+            this.moveUnitBeside(draggedKey, targetKey, after, label);
         });
 
         visBtn.addEventListener('click', (e) => {
@@ -2147,14 +2374,11 @@ class _ScreenGroups {
 
     _handleScreenGroupMenuAction(group, action) {
         if (action === 'rename') {
-            const input = document.querySelector(
-                `.screen-group[data-group-id="${group.id}"] .screen-group-name-input`);
-            if (input) {
-                input.readOnly = false;
-                input.classList.add('editing');
-                input.focus();
-                input.select();
-            }
+            // The row's own rename, which also holds the row's drag off
+            // while the name is edited.
+            const wrap = document.querySelector(
+                `#layers-list .screen-group[data-group-id="${group.id}"]`);
+            if (wrap && typeof wrap._startRename === 'function') wrap._startRename();
         } else if (action === 'duplicate') {
             this.duplicateGroup(group.id);
         } else if (action === 'lock') {
