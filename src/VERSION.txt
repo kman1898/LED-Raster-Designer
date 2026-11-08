@@ -126,7 +126,8 @@ FIXES
 - FIX: Screen order Top to bottom prints the binder's screens and groups
   in the order the Screens list shows them in Show Look, Data and Power,
   whichever tab is open when you export, and Bottom to top prints them the
-  other way.
+  other way. Alphabetical, by port and by circuit sort a group in with the
+  other screens too, where its first screen falls.
 - FIX: A group's up and down arrows move it among the rows of the canvas
   it is listed under, also when Show Look has one of its screens on
   another canvas.

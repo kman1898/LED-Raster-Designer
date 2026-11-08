@@ -164,7 +164,8 @@ def test_group_prints_one_header_footer_sheet_for_the_wall(page):
     and its Footer bars WALL-L's one quad. LONE keeps its own sheet."""
     pg, ids, errors = page
     out = _run(pg, {'rigging': 'group'}, titles=['WALL - Header/Footer - Front View'])
-    assert _rig(out) == ['WALL - Header/Footer - Front View', 'LONE - Header/Footer - Front View'], _rig(out)
+    # alphabetical, the group sorted in with LONE (2026-11-08)
+    assert _rig(out) == ['LONE - Header/Footer - Front View', 'WALL - Header/Footer - Front View'], _rig(out)
     sheet = next(p for p in out['plan'] if p['title'] == 'WALL - Header/Footer - Front View')
     assert sheet['sheetTitle'] == 'WALL · HEADER/FOOTER · FRONT VIEW', sheet
     assert sheet['groupId'] == 'g1' and sorted(sheet['layerIds']) == sorted([ids['l'], ids['r']]), sheet
@@ -189,8 +190,8 @@ def test_screens_prints_a_sheet_per_member(page):
     before, each its own wall."""
     pg, ids, errors = page
     out = _run(pg, {'rigging': 'screens'})
-    assert _rig(out) == ['WALL-L - Header/Footer - Front View', 'WALL-R - Header/Footer - Front View',
-                         'LONE - Header/Footer - Front View'], _rig(out)
+    assert _rig(out) == ['LONE - Header/Footer - Front View', 'WALL-L - Header/Footer - Front View',
+                         'WALL-R - Header/Footer - Front View'], _rig(out)
     assert not errors, errors
 
 
@@ -205,7 +206,7 @@ def test_the_group_sheet_needs_no_routing_as_one(page):
     assert 'WALL - Header/Footer - Front View' in t, t
     wall = [x for x in t if x.startswith('WALL')]
     assert wall[-1] == 'WALL - Header/Footer - Front View', wall
-    assert t.index('WALL - Header/Footer - Front View') < t.index('LONE - Header/Footer - Front View'), t
+    assert t.index('LONE - Header/Footer - Front View') < t.index('WALL-L - Power - Front View'), t
     assert not errors, errors
 
 
@@ -286,10 +287,11 @@ def test_both_asks_at_export_and_remembers_the_answer(page):
     assert b['shown'] and 'WALL' in b['text'] and 'Header/Footer:' in b['text'], b
     assert 'Power:' not in b['text'] and 'Data:' not in b['text'], b
     assert b['active'] == ['rigging:group'], b
-    assert b['plan'][0] == 'WALL - Header/Footer - Front View', b
+    assert b['plan'] == ['LONE - Header/Footer - Front View', 'WALL - Header/Footer - Front View'], b
     assert a['saved'] == {'g1': {'rigging': 'screens'}}, a
     assert a['active'] == ['rigging:screens'], a
-    assert a['plan'][:2] == ['WALL-L - Header/Footer - Front View', 'WALL-R - Header/Footer - Front View'], a
+    assert a['plan'] == ['LONE - Header/Footer - Front View', 'WALL-L - Header/Footer - Front View',
+                         'WALL-R - Header/Footer - Front View'], a
     assert a['undo'] == 'Set Group Sheets', a
     assert not errors, errors
 

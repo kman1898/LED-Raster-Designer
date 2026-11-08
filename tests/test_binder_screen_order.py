@@ -5,8 +5,8 @@ screens order and is not printing in that order").
 The sheets ran in the layer ARRAY's order: the pull list keeps a position
 per group and per loose screen in layer order, and the set sorted each
 position on its own, so a group between two loose screens split the run
-and nothing was ever sorted across it. Under the panel's orders every
-screen on no beach is now one run:
+and nothing was ever sorted across it. Under every order each screen on
+no beach is now one run:
 
   * 'layers' is the Screens panel read top to bottom as the Show views
     (Show Look, Data Flow, Power) draw it - each screen dealt to its SHOW
@@ -19,8 +19,9 @@ screen on no beach is now one run:
     its members' sheets in the panel's member order.
   * 'layers-up' is the same list read bottom to top.
   * The CONTENTS on the overview and the sheet numbers follow the plan.
-  * Alphabetical, by port and by circuit are as before: a group on no
-    beach is still a pull position of its own and runs as one.
+  * Alphabetical, by port and by circuit sort a group in with the loose
+    screens too (the owner, 2026-11-08), its sheets standing where its
+    first member sorts.
 
 Run locally:
     python -m pytest tests/test_binder_screen_order.py -v --browser chromium
@@ -294,6 +295,13 @@ def test_the_other_orders_keep_every_sheet_and_each_group_together(page):
                                    ('UPSTAGE', ['US LEFT', 'US RIGHT'])):
                 at = got.index(group)
                 assert sorted(got[at + 1:at + 1 + len(members)]) == members, (order, got)
+            if order == 'alpha':
+                # a group sorts in with the loose screens at its first
+                # member's name (2026-11-08): CTR LEFT after CTR IMAG and
+                # before SL COL, US LEFT after SR COL - not a run of its
+                # own in array order
+                assert got == ['CTR IMAG', 'MIDDLE', 'CTR LEFT', 'CTR MAIN', 'CTR RIGHT', 'SL COL', 'SR COL',
+                               'UPSTAGE', 'US LEFT', 'US RIGHT'], got
     finally:
         pg.evaluate("() => window.app.setBinderField('screenOrder', 'alpha', 'Set Screen Order')")
     assert errors == [], errors

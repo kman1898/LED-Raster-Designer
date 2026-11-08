@@ -418,8 +418,10 @@ BLOCK_JSON = _SHOW_JSON.replace('"titleBlock": false', '"titleBlock": true')
 PLAIN = SHOW.replace('titleBlock: true', 'titleBlock: false')
 BLOCK = SHOW.replace('titleBlock: false', 'titleBlock: true')
 
-# The set on two positions: 16 sheets - the screens in beach order, each
-# screen's POWER and its POWER WIRING, its DATA and its DATA WIRING, grouped
+# The set on two positions: 16 sheets - the screens in the project's screen
+# order, alphabetical by default, the SR Beach group sorted in with the
+# loose CENTER (2026-11-08: groups sort across the screens under every
+# order), so CENTER, WALL-A, WALL-B; each screen's POWER and its POWER WIRING, its DATA and its DATA WIRING, grouped
 # by system so each wiring sheet sits right behind the map it wires
 # (2026-09-12: "or better yet we just should split them up"); the two
 # positions side by side on one pull sheet; the distro; the processor with
@@ -429,12 +431,12 @@ DISTRO = 'Distro - SR'
 PROC = 'Processor - H9 · Pull list'
 PLAN = [
     ['overview', '1.1', 'Overview'],
-    ['power', '2.1', 'WALL-A - Power - Front View'], ['wiring', '2.2', 'WALL-A - Power Wiring'],
-    ['data', '2.3', 'WALL-A - Data - Front View'], ['wiring', '2.4', 'WALL-A - Data Wiring'],
-    ['power', '2.5', 'WALL-B - Power - Front View'], ['wiring', '2.6', 'WALL-B - Power Wiring'],
-    ['data', '2.7', 'WALL-B - Data - Front View'], ['wiring', '2.8', 'WALL-B - Data Wiring'],
-    ['power', '2.9', 'CENTER - Power - Front View'], ['wiring', '2.10', 'CENTER - Power Wiring'],
-    ['data', '2.11', 'CENTER - Data - Front View'], ['wiring', '2.12', 'CENTER - Data Wiring'],
+    ['power', '2.1', 'CENTER - Power - Front View'], ['wiring', '2.2', 'CENTER - Power Wiring'],
+    ['data', '2.3', 'CENTER - Data - Front View'], ['wiring', '2.4', 'CENTER - Data Wiring'],
+    ['power', '2.5', 'WALL-A - Power - Front View'], ['wiring', '2.6', 'WALL-A - Power Wiring'],
+    ['data', '2.7', 'WALL-A - Data - Front View'], ['wiring', '2.8', 'WALL-A - Data Wiring'],
+    ['power', '2.9', 'WALL-B - Power - Front View'], ['wiring', '2.10', 'WALL-B - Power Wiring'],
+    ['data', '2.11', 'WALL-B - Data - Front View'], ['wiring', '2.12', 'WALL-B - Data Wiring'],
     ['pull', '3.1', PULL],
     ['distro', '4.1', DISTRO],
     ['processor', '4.2', PROC],
@@ -560,15 +562,15 @@ def test_the_sheets_come_in_series_by_subject(page):
     assert all((p['w'], p['h'], p['sheet']) == (W, H, 'tabloid') for p in full), full
     assert [p['view'] for p in full] == list(range(1, 14)) + [None, None, None]
     assert all(p['sheetTitle'] == p['sheetTitle'].upper() for p in full)
-    assert [p['sheetTitle'] for p in full][:6] == ['OVERVIEW', 'WALL-A · POWER · FRONT VIEW', 'WALL-A · POWER WIRING · FRONT VIEW',
-                                                   'WALL-A · DATA · FRONT VIEW', 'WALL-A · DATA WIRING · FRONT VIEW', 'WALL-B · POWER · FRONT VIEW']
+    assert [p['sheetTitle'] for p in full][:6] == ['OVERVIEW', 'CENTER · POWER · FRONT VIEW', 'CENTER · POWER WIRING · FRONT VIEW',
+                                                   'CENTER · DATA · FRONT VIEW', 'CENTER · DATA WIRING · FRONT VIEW', 'WALL-A · POWER · FRONT VIEW']
     assert [p['sheetTitle'] for p in full][-3:] == ['PULL · SR BEACH, CENTER', 'DISTRO · SR', 'PROCESSOR · H9 · PULL LIST']
     assert [p['names'] for p in full][-3:] == [['SR Beach', 'CENTER'], ['SR'], ['H9', 'All positions']]
     assert ids['errors'] == []
     # power only, no extras, the Wiring tick off: just the maps, 2.1 - 2.3
     only = _plan(pg, SHOW.replace("data: true", "data: false")
                  .replace("cover: true, pull: true, hardware: true", "cover: false, pull: false, hardware: false, wiring: false"))
-    assert only == [['power', '2.1', 'WALL-A - Power - Front View'], ['power', '2.2', 'WALL-B - Power - Front View'], ['power', '2.3', 'CENTER - Power - Front View']]
+    assert only == [['power', '2.1', 'CENTER - Power - Front View'], ['power', '2.2', 'WALL-A - Power - Front View'], ['power', '2.3', 'WALL-B - Power - Front View']]
 
 
 def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(page):
@@ -578,7 +580,7 @@ def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(
     # painted at 2x, the Tabloid sheet
     assert out['width'] == W * SCALE and out['height'] == H * SCALE
     assert out['sheet']['key'] == 'tabloid' and out['sheet']['pt'] == PT
-    _title_block(texts, 'WALL-A · POWER · FRONT VIEW', '2.1')
+    _title_block(texts, 'WALL-A · POWER · FRONT VIEW', '2.5')
     assert 'rev 1.0' in texts
     bands = _bands(texts)
     # the type is Multi, and the length stands alone - "125' home run"
@@ -603,8 +605,8 @@ def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(
     assert 'TRUE1 Breakout' in texts
     assert 'SHARED CIRCUITS' not in texts
     assert not [t for t in texts if 'Palette' in t]
-    # the view bubble under the map: view 2, the sheet's name
-    assert out['bubble']['number'] == 2 and out['bubble']['name'] == 'WALL-A · POWER · FRONT VIEW'
+    # the view bubble under the map: view 6, the sheet's name
+    assert out['bubble']['number'] == 6 and out['bubble']['name'] == 'WALL-A · POWER · FRONT VIEW'
     # a squat wall over three short tables: the stack covers most
     assert out['page']['layout'] == 'stack' and out['page']['cols'] == 3
 
@@ -729,7 +731,7 @@ def test_every_sheet_is_the_picked_size(page):
         assert all((p['w'], p['h'], p['sheet']) == (w, h, key) for p in full), (key, full[:2])
         out = pg.evaluate("""(o) => {
             const app = window.app;
-            const r = app.renderBinderPage(o, 1);
+            const r = app.renderBinderPage(o, 5);
             return { w: r.canvas.width, h: r.canvas.height, rec: [r.record.width, r.record.height, r.record.page_size],
                      sizes: [...new Set(r.record.ops.filter(x => x.op === 'text').map(x => x.size))].sort((a, b) => a - b),
                      texts: r.texts };
@@ -737,10 +739,10 @@ def test_every_sheet_is_the_picked_size(page):
         scale = 1 if key == 'archd' else 2
         assert (out['w'], out['h']) == (w * scale, h * scale), (key, out)
         assert out['rec'] == [w, h, pt], (key, out['rec'])
-        s = full[1]['scale']
+        s = full[5]['scale']
         assert 1 <= s <= 2.4 and (s == 2.4 if key == 'archd' else True), (key, s)
         assert round(25 * s, 2) in out['sizes'] and round(24 * s, 2) in out['sizes'] and 56 in out['sizes'], (key, s, out['sizes'])
-        _title_block(out['texts'], 'WALL-A · POWER · FRONT VIEW', '2.1')
+        _title_block(out['texts'], 'WALL-A · POWER · FRONT VIEW', '2.5')
     opts = json.loads(_SHOW_JSON)
     opts['sheet'] = 'napkin'
     assert pg.evaluate("(o) => window.app.planBinder(o)[0].sheet", opts) == 'tabloid'
@@ -2057,7 +2059,7 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
         assert out['info']['drafter'] == '' and out['info']['revisions'] == []
         r = _render(pg, SHOW, 'WALL-B - Data - Front View')
         texts = r['texts']
-        _title_block(texts, 'WALL-B · DATA · FRONT VIEW', '2.7')
+        _title_block(texts, 'WALL-B · DATA · FRONT VIEW', '2.11')
         for t in ('HARBOR FIELD', '9/4/26 - 9/6/26', 'Northlight Design', 'Jordan Reyes', '(555) 010-2030',
                   'jreyes@example.com', 'Morgan Keller'):
             assert t in texts, (t, texts[:60])
@@ -2108,7 +2110,7 @@ def test_the_title_block_prints_the_projects_fields_and_they_ride_the_project(pa
     # blank again: the labels print, no invented text - and no app name
     # in a wordmark, there being no wordmark
     texts = _render(pg, SHOW, 'WALL-B - Data - Front View')['texts']
-    _title_block(texts, 'WALL-B · DATA · FRONT VIEW', '2.7')
+    _title_block(texts, 'WALL-B · DATA · FRONT VIEW', '2.11')
     assert texts[texts.index('Designer:') + 1] == '' and texts[texts.index('Drafter:') + 1] == ''
     assert 'LED RASTER DESIGNER' not in texts
     assert not [t for t in texts if 'Harbor' in t or 'Northlight' in t or 'Sam' in t]
@@ -2200,7 +2202,7 @@ def test_a_revision_is_logged_on_export_and_the_log_edits_in_the_dialog(page):
         # the sheets print the log: No. · Date · By · Description, in order
         r = _render(pg, SHOW, 'WALL-B - Data - Front View')
         texts = r['texts']
-        _title_block(texts, 'WALL-B · DATA · FRONT VIEW', '2.7')
+        _title_block(texts, 'WALL-B · DATA · FRONT VIEW', '2.11')
         i = texts.index('Description')
         assert texts[i + 1:i + 9] == ['1', today, 'MK', 'Overview issued', '2', today, 'MK', 'Patch & circuit'], texts[i:i + 10]
         assert r['titleBlock']['sections']['revisions']['rows'] == 2

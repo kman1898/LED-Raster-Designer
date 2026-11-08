@@ -2134,13 +2134,13 @@ class _Binder {
     // together, so a show with no beaches (his buddy's seven walls) runs
     // A, B, C … and not the layer list. Each keeps its own position for
     // the sheet's name. [{ layer, pos }]
-    // Under the Screens panel's order ('layers', 'layers-up') a screen
-    // GROUP on no beach joins that run too: the panel draws a group inline
-    // among the loose screens, and sorting the group's position on its own
-    // printed a show with groups in the layer array's order whatever the
-    // panel showed (1.7.0: "set to top to bottom for screens order and is
-    // not printing in that order"). Its sheets then stand where the group
-    // stands in the panel (_binderBook prints a group at its first member).
+    // A screen GROUP on no beach joins that run too, under every order:
+    // sorting the group's position on its own printed a show with groups
+    // in the layer array's order whatever the order said (1.7.0: "set to
+    // top to bottom for screens order and is not printing in that order";
+    // the owner, 2026-11-08: alphabetical, port and circuit order too).
+    // Its sheets then stand where its first member sorts (_binderBook
+    // prints a group at its first member).
     _bScreenRun(book, positions) {
         const out = [];
         let loose = [];
@@ -2150,11 +2150,9 @@ class _Binder {
             for (const layer of this._bOrderScreens(book, loose.map(e => e.layer))) out.push({ layer, pos: byId.get(layer) });
             loose = [];
         };
-        const order = (book.meta.binder && book.meta.binder.screenOrder) || 'alpha';
-        const panel = order === 'layers' || order === 'layers-up';
         for (const { pos, own } of positions) {
             const key = String(pos.key || '');
-            if (key.startsWith('layer:') || (panel && pos.groupId != null && !key.startsWith('beach:'))) {
+            if (key.startsWith('layer:') || (pos.groupId != null && !key.startsWith('beach:'))) {
                 for (const layer of own) loose.push({ layer, pos });
                 continue;
             }
