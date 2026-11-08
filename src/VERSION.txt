@@ -109,6 +109,10 @@ ALSO NEW
   connected window.
 - NEW: Help > License > Third-party notices lists three.js, which draws
   the 3D view.
+- NEW: A copper link on an XD gets a name like a fiber cable, Cat6A 1,
+  Cat6A 2 and so on, and you can type your own. The name prints on the
+  box's cable sheet, in the binder and on the pull sheet, and the link's
+  list now reads just Cat6A, Cat6 and Cat5e.
 
 v1.6.0 - November 6, 2026
 ----------------------------

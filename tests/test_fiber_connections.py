@@ -222,7 +222,7 @@ def test_an_sx40_lists_its_backup_output_by_output(page):
         ['WALL SR · trunk A', 'TAC A (TAC 12 · ST)', '1 Blue · 2 Orange', 'X1 on XD A', '2 Orange · 1 Blue'],
         ['WALL SR BU · trunk A', 'TAC B (TAC 12 · ST)', '1 Blue · 2 Orange', 'X2 on XD A', '2 Orange · 1 Blue'],
         ['WALL SR · trunk B', 'TAC A', '3 Green · 4 Brown', 'X1 on XD B', '4 Brown · 3 Green'],
-        ['WALL SR BU · trunk B', "Cat6 150' (Cat6 runs 100 ft max at 10G)", 'copper', 'X2 on XD B', 'copper'],
+        ['WALL SR BU · trunk B', "Cat6 1 150' (Cat6 runs 100 ft max at 10G)", 'Cat6', 'X2 on XD B', 'Cat6'],
         # the DUO has no length: flagged here as on every surface (2026-10-21)
         ['WALL SR · trunk C', f'{duo} (opticalCON DUO) · no length', '1 Blue · 2 Orange', 'X1 on XD C',
          '1 Blue · 2 Orange · crosses inside'],
@@ -373,7 +373,9 @@ FIT_JS = """() => {
     const plan = app.planBinder(opts);
     const out = [];
     plan.forEach((p, i) => {
-        if (!p.title.startsWith('Processors')) return;
+        // a processor's own sheet or a shared one, "Processor - WALL SR"
+        // where its table grows to a sheet of its own
+        if (!p.title.startsWith('Processor')) return;
         out.push({title: p.title, texts: app.renderBinderPage(opts, i).textInfo});
     });
     return out;
@@ -414,7 +416,7 @@ def test_the_painted_table_is_titled_headed_and_never_cut(page):
             parts = row['parts'] or {}
             cells.update(' '.join(p['text'] for p in parts[str(i)]) if str(i) in parts else c
                          for i, c in enumerate(row['cells']) if c)
-    assert "Cat6 150' (Cat6 runs 100 ft max at 10G)" in cells and '1 Blue Rack A crosses inside' in cells
+    assert "Cat6 1 150' (Cat6 runs 100 ft max at 10G)" in cells and '1 Blue Rack A crosses inside' in cells
     for cell in sorted(cells):
         assert size.get(cell) == 24, (cell, size.get(cell))
     # nothing of the table is cut anywhere it is painted

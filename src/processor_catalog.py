@@ -2120,7 +2120,8 @@ def resolved_show_snakes(project):
 #   documented backup input (_apply_backup_unit) - named by the box's own
 #   ports, X1 / X2, OPT 1-4 (fiber_link_title). A link takes 2 strands, 1
 #   on a box switched to BiDi; an XD's link may be copper instead
-#   ({copper, ft} - COPPER_LINK_KINDS), with no cable and no strands.
+#   ({copper, ft, name} - COPPER_LINK_KINDS), with no cable and no
+#   strands, named like a cable ("Cat6A 1" - copper_default_name).
 # - A strand is used by one link show-wide.
 # - The list is absent when empty, and a read never creates it. A cable
 #   no link uses any more goes, the way an emptied snake goes: when the
@@ -2301,6 +2302,54 @@ def copper_links():
     return [{'kind': k, 'maxFt': ft} for k, ft in COPPER_LINK_KINDS]
 
 
+# A COPPER LINK'S NAME (owner, 2026-11-07: "we are able to label the fiber
+# that is connecting via a tac snake or MTP. But I cannot label CAT6A ...
+# Just Cat5 6 and A are fine for base names"): a copper link carries a
+# name the way a fiber cable does - {copper, ft?, name} - printed wherever
+# the link is. Its default is the kind and the first number free among
+# the show's copper links of that kind, "Cat6A 1", "Cat6A 2", "Cat6 1",
+# given when the link is first set to copper (copper_default_name) and,
+# for a link saved before names, by settle_fiber in tree order - so the
+# numbers are stable and never handed out twice. A typed name is kept
+# whatever the kind becomes; a default follows the kind ("Cat6A 1" picked
+# as Cat6 reads "Cat6 1"), and a blank name hands the link its default
+# back. app-fiber.js copperLinkWords prints it.
+def copper_name_is_default(name, kind):
+    """Whether `name` is a default name of `kind` ("Cat6A 3")."""
+    return bool(isinstance(name, str) and kind
+                and re.fullmatch(rf'{re.escape(kind)} \d+', name.strip()))
+
+
+def show_copper_link_names(project, skip=None):
+    """Every stored copper link name, show-wide. `skip` is (record, key)
+    - a link left out (the one being renamed)."""
+    names = set()
+    for rec in _link_records((project or {}).get('processors') or []):
+        links = rec.get('fiberLinks')
+        if not isinstance(links, dict):
+            continue
+        for key, raw in links.items():
+            if skip is not None and rec is skip[0] and key == skip[1]:
+                continue
+            if not isinstance(raw, dict) or 'copper' not in raw:
+                continue
+            name = raw.get('name')
+            if isinstance(name, str) and name.strip():
+                names.add(name.strip())
+    return names
+
+
+def copper_default_name(project, kind, skip=None, taken=None):
+    """The first free default name for a copper link of `kind`, show-wide:
+    "Cat6A 1", then "Cat6A 2" ..."""
+    if taken is None:
+        taken = show_copper_link_names(project, skip)
+    n = 1
+    while f'{kind} {n}' in taken:
+        n += 1
+    return f'{kind} {n}'
+
+
 def fiber_strand_name(n, cable=None):
     """One strand as the paper says it (TIA-598-D).
 
@@ -2462,7 +2511,7 @@ def merge_fiber_extension(old, body, cable):
 
 def _fiber_link(raw):
     """One stored link, shaped: {cable, strands: [int, ...], extension?} -
-    or a copper link, {copper: 'Cat6A', ft?} - else None."""
+    or a copper link, {copper: 'Cat6A', ft?, name?} - else None."""
     if not isinstance(raw, dict):
         return None
     if 'copper' in raw:
@@ -2472,6 +2521,9 @@ def _fiber_link(raw):
         ft = _cable_ft(raw.get('ft'))
         if ft is not None:
             link['ft'] = ft
+        name = raw.get('name')
+        if isinstance(name, str) and name.strip():
+            link['name'] = name.strip()
         return link
     cable = raw.get('cable')
     strands = raw.get('strands')
@@ -2850,6 +2902,21 @@ def settle_fiber(project, used_before=None):
             raw['fiberLinks'] = kept
         else:
             raw.pop('fiberLinks', None)
+    # A copper link saved before links had names takes its default, in
+    # tree order, numbered past every name already held (copper_default_name).
+    taken = show_copper_link_names(project)
+    for _bid, entry in sorted(boxes.items(), key=lambda kv: kv[1]['order']):
+        raw, res = entry['raw'], entry['res']
+        links = raw.get('fiberLinks')
+        if not isinstance(links, dict):
+            continue
+        for key in res.get('fiberLinkKeys') or []:
+            link = links.get(key)
+            if isinstance(link, dict) and 'copper' in link and not link.get('name'):
+                link['name'] = copper_default_name(project, link['copper'],
+                                                   taken=taken)
+                taken.add(link['name'])
+                changed = True
     used = fiber_cables_in_use(project)
     out = []
     for cable in show_fiber_cables(project):

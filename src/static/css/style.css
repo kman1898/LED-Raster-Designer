@@ -2434,6 +2434,8 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
     font: 10.5px ui-monospace, Menlo, monospace;
 }
 .hw-dock-fiber-text:focus { outline: none; border-color: var(--ps-accent, #ef3340); }
+/* a copper link's name, beside its kind and length on the link's row */
+.hw-dock-fiber-text.hw-dock-fiber-copper-name { width: 11ch; }
 .hw-dock-fiber-wizard,
 .hw-dock-fiber-editor {
     margin-left: 7.5ch; padding: 3px 5px; border-left: 2px solid #444;

@@ -1090,6 +1090,7 @@ class _DockCableSheets {
                 row.appendChild(text('hw-dock-fiber-role', pair ? `${titleOf(m)} · ${l.title}` : l.title));
                 row.appendChild(this._dockBuildFiberSelect(m, l));
                 if (l.copper) {
+                    row.appendChild(this._dockBuildCopperName(m, l));
                     row.appendChild(this._dockBuildCopperLength(m, l));
                     const over = this.copperOverText(l.copper);
                     if (over) row.appendChild(text('hw-dock-fiber-warn', over));
@@ -1235,8 +1236,29 @@ class _DockCableSheets {
         return line;
     }
 
+    // A copper link's NAME, its label the way a fiber cable has one (owner,
+    // 2026-11-07): "Cat6A 1" until another is typed; a blank hands the
+    // link its default back. Its kind and length ride the write untouched.
+    // One request, one entry.
+    _dockBuildCopperName(box, l) {
+        const f = document.createElement('input');
+        f.type = 'text';
+        f.className = 'hw-dock-fiber-text hw-dock-fiber-copper-name';
+        f.dataset.lrdField = `fiber-copper-name-${box.id}-${l.key}`;
+        f.value = l.copper.name || '';
+        f.placeholder = l.copper.copper;
+        f.title = `The name this ${l.copper.copper} run is labeled by, on the box's sheet, `
+            + 'the binder and the pull sheet. Blank gives it its default name back.';
+        f.addEventListener('change', () => {
+            const ft = l.copper.ft;
+            this.setFiberLink(box, l.key, { copper: l.copper.copper, ft: ft == null ? null : ft,
+                                            name: f.value.trim() }, 'Rename Copper Link');
+        });
+        return f;
+    }
+
     // A copper link's length, in the show's unit: blank is no length. Its
-    // kind rides the write untouched. One request, one entry.
+    // kind and name ride the write untouched. One request, one entry.
     _dockBuildCopperLength(box, l) {
         const wrap = document.createElement('span');
         wrap.className = 'hw-dock-fiber-field';
@@ -1342,7 +1364,9 @@ class _DockCableSheets {
         // opticalCON DUO) - the 10G kinds, Cat6A and under.
         if (box.copperLinks) {
             gap();
-            COPPER_LINK_KINDS.forEach(([kind]) => opt(`cu:${kind}`, `${kind} copper`));
+            // each by its kind alone (owner, 2026-11-07: "don't need to
+            // add copper")
+            COPPER_LINK_KINDS.forEach(([kind]) => opt(`cu:${kind}`, kind));
         }
         gap();
         opt('', 'None');

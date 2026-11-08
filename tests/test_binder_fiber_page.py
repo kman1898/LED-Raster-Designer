@@ -320,8 +320,10 @@ def test_every_link_is_a_row_of_the_processor_pages_table(page):
         for link, row in zip(mine['links'], theirs['rows']):
             assert link['output'] == row['cells'][0], (link, row)
             assert link['breakout'] == row['cells'][3], (link, row)
-            if row['cells'][2] == 'copper':
-                assert link['atProcessor'] == ['copper'] and link['atBreakout'] == ['copper'], link
+            if row['cells'][2] in ('Cat6A', 'Cat6', 'Cat5e'):
+                # copper plugs in its kind at either end, as the table has it
+                kind = row['cells'][2]
+                assert link['atProcessor'] == [kind] and link['atBreakout'] == [kind], link
                 continue
             assert link['atProcessor'] == row['p'], (link, row)
             # the breakout end is the table's, without the extension's
