@@ -397,6 +397,14 @@ class _ProjectIo {
             if (typeof this.decidePowerPerMemberOnOpen === 'function') {
                 this.decidePowerPerMemberOnOpen(this.project);
             }
+            // A show saved before the binder's logo was the show's
+            // (1.7.0) takes the logo the old preference holds, read
+            // off the same stamp (app-binder.js
+            // adoptPreferenceBinderLogo), so the PUT below and the
+            // first undo snapshot carry it.
+            if (typeof this.adoptPreferenceBinderLogo === 'function') {
+                this.adoptPreferenceBinderLogo(this.project);
+            }
             // The migrations above have run against the file's
             // own stamp; from here the project is this build's.
             // Stamped BEFORE the PUT below, because a load never

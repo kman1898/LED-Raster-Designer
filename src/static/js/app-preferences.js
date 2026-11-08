@@ -89,12 +89,13 @@ class _Preferences {
             // not a project field: the same person show after show, and a
             // file handed to another engineer prints theirs (app-pull-list).
             engineerName: '',
-            // The binder's sheet size and the logo its title block heads
-            // with - a PNG / JPEG as a data URL, downscaled to 1200 px on
-            // its long side before it is stored (app-binder): the same
-            // shop show after show, so preferences like the engineer's
-            // name.
+            // The binder's sheet size: the same shop show after show, so
+            // a preference like the engineer's name.
             binderSheet: 'tabloid',
+            // The logo every show printed until 1.7.0 (a PNG / JPEG data
+            // URL). Each show keeps its own logo since (app-binder
+            // project.binder.logo) and nothing sets this; a show saved
+            // before then takes it once as it opens.
             binderLogo: '',
             // Whether a binder sheet wears its border, its title block
             // column and its rev line at all. On: the sheet as it has
@@ -118,7 +119,8 @@ class _Preferences {
             // ---- Binder: what the export dialog's Binder block opens with
             // where the project has no value of its own (app-binder
             // getBinderInfo fills the blanks; the palette, maps and sheet
-            // ticks are seeded on open).
+            // ticks are seeded on open where the show has kept none from a
+            // whole-show export, binderChoices).
             binderScreenOrder: 'alpha',
             binderPalette: 'colour',
             binderMaps: 'both',
@@ -484,24 +486,6 @@ class _Preferences {
         return sel.value;
     }
 
-    // The Binder tab's logo row: the preview and Remove when one is
-    // pending, "None" when not. The pending logo is what Save stores;
-    // Cancel forgets it like any other edit.
-    _syncPreferenceLogoRow() {
-        const src = this._prefsPendingLogo || '';
-        const show = (id, v) => { const el = document.getElementById(id); if (el) el.style.display = v ? '' : 'none'; };
-        const prev = document.getElementById('pref-binder-logo-preview');
-        if (prev && prev.getAttribute('src') !== src) prev.src = src;
-        show('pref-binder-logo-preview', !!src);
-        show('pref-binder-logo-remove', !!src);
-        show('pref-binder-logo-none', !src);
-    }
-
-    _sayPreferenceLogoStatus(msg) {
-        const el = document.getElementById('pref-binder-logo-status');
-        if (el) { el.textContent = msg || ''; el.style.display = msg ? '' : 'none'; }
-    }
-
     setupPreferences() {
         this.renderPreferencePatternButtons('pref-data-flow-pattern-grid', 'pref-data-flow-pattern-btn',
             FLOW_AUTO_PATTERNS);
@@ -593,8 +577,6 @@ class _Preferences {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(prefs)
                 });
-                // the binder logo changed: the decoded copy is stale
-                this._binderLogoImage = null;
                 // the Quick Palettes may now come from the user's own eight
                 if (typeof this.renderQuickPalettes === 'function') this.renderQuickPalettes();
                 sendClientLog('preferences_saved', {
@@ -642,7 +624,6 @@ class _Preferences {
                     { id: 'preferences-reset-modal', title: 'Reset Defaults', okLabel: 'Reset' });
                 if (!yes) return;
                 const defaults = this.getPreferencesDefaults();
-                this._prefsPendingLogo = '';
                 this.fillPreferencesUI(defaults);
                 this._prefsResetPending = true;
                 sendClientLog('preferences_reset', {
@@ -687,29 +668,6 @@ class _Preferences {
                 btn.classList.add('active');
             });
         });
-        // The binder logo: a PNG / JPEG read and downscaled the way the
-        // export dialog reads one (app-binder), held until Save.
-        const logo = document.getElementById('pref-binder-logo');
-        if (logo) {
-            logo.addEventListener('change', async () => {
-                const file = logo.files && logo.files[0];
-                logo.value = '';
-                if (!file || typeof this.readBinderLogoDataUrl !== 'function') return;
-                const r = await this.readBinderLogoDataUrl(file);
-                if (r.error) { this._sayPreferenceLogoStatus(r.error); return; }
-                this._sayPreferenceLogoStatus('');
-                this._prefsPendingLogo = r.dataUrl;
-                this._syncPreferenceLogoRow();
-            });
-        }
-        const logoRemove = document.getElementById('pref-binder-logo-remove');
-        if (logoRemove) {
-            logoRemove.addEventListener('click', () => {
-                this._prefsPendingLogo = '';
-                this._sayPreferenceLogoStatus('');
-                this._syncPreferenceLogoRow();
-            });
-        }
         if (typeof this.setupCableStockPreferences === 'function') this.setupCableStockPreferences();
         syncVoltageCustom();
         syncAmperageCustom();
@@ -718,8 +676,6 @@ class _Preferences {
     openPreferencesModal() {
         const prefs = this.getPreferences();
         this._prefsResetPending = false;
-        this._prefsPendingLogo = (typeof this.getBinderLogo === 'function') ? this.getBinderLogo() : (prefs.binderLogo || '');
-        this._sayPreferenceLogoStatus('');
         this._fillPreferenceCatalogs();
         this.fillPreferencesUI(prefs);
         // The Cable stock tab: the open show's lists and the presets.
@@ -857,7 +813,6 @@ class _Preferences {
         setVal('pref-binder-pm-phone', prefs.binderPmPhone);
         setVal('pref-binder-pm-email', prefs.binderPmEmail);
         setVal('pref-binder-drafter', prefs.binderDrafter);
-        this._syncPreferenceLogoRow();
         // Pull sheet & cables
         setVal('pref-pull-engineer', prefs.engineerName);
         setVal('pref-pull-rev', prefs.pullRev);
@@ -1031,9 +986,12 @@ class _Preferences {
             binderPmPhone: readText('pref-binder-pm-phone', stored.binderPmPhone != null ? stored.binderPmPhone : defaults.binderPmPhone),
             binderPmEmail: readText('pref-binder-pm-email', stored.binderPmEmail != null ? stored.binderPmEmail : defaults.binderPmEmail),
             binderDrafter: readText('pref-binder-drafter', stored.binderDrafter != null ? stored.binderDrafter : defaults.binderDrafter),
-            // the logo chosen in the dialog, else the one stored (the
-            // dialog opens with it pending, so Remove clears it on Save)
-            binderLogo: this._prefsPendingLogo != null ? this._prefsPendingLogo : (stored.binderLogo || defaults.binderLogo),
+            // The logo a show saved before 1.7.0 takes as it opens (each
+            // show keeps its own since: app-binder.js
+            // adoptPreferenceBinderLogo). No field sets it any more; it is
+            // carried as stored, a Reset included, so no older show loses
+            // its logo.
+            binderLogo: typeof stored.binderLogo === 'string' ? stored.binderLogo : defaults.binderLogo,
             // Pull sheet & cables
             engineerName: readText('pref-pull-engineer', stored.engineerName != null ? stored.engineerName : defaults.engineerName),
             pullRev: readStr('pref-pull-rev', defaults.pullRev),

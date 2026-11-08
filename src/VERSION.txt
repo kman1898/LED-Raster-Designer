@@ -109,6 +109,10 @@ ALSO NEW
   connected window.
 - NEW: Help > License > Third-party notices lists three.js, which draws
   the 3D view.
+- NEW: The binder remembers what you export for each show: the sheets you
+  tick, Color or Printer, the maps and the logo. A new show starts from
+  your Preferences with no logo, and a show saved before this keeps the
+  logo it printed.
 
 v1.6.0 - November 6, 2026
 ----------------------------

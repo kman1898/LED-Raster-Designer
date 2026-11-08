@@ -2550,7 +2550,9 @@ class _Wiring {
                 document.getElementById('export-modal').style.display = 'none';
                 document.getElementById('status-message').textContent = 'Exporting binder...';
                 try {
-                    await this.exportBinder(projectName);
+                    // the dialog's own export: a whole-show one keeps its
+                    // palette, maps and sheet ticks on the show
+                    await this.exportBinder(projectName, { remember: true });
                     document.getElementById('status-message').textContent = 'Export complete!';
                     setTimeout(() => { document.getElementById('status-message').textContent = 'Ready'; }, 3000);
                 } catch (error) {

@@ -45,6 +45,17 @@ class _History {
             ? undefined : value;
     }
 
+    // The show's binder logo (project.binder.logo, app-binder.js) rides
+    // every snapshot. A parse makes a new string each time, so fifty
+    // entries of an unchanged logo held fifty copies of it; this points
+    // `into`'s logo at `from`'s when the two are equal, so they share one
+    // (strings are immutable: sharing is safe).
+    _shareBinderLogo(into, from) {
+        const a = into && into.binder, b = from && from.binder;
+        if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return;
+        if (typeof a.logo === 'string' && a.logo.length > 256 && a.logo === b.logo) a.logo = b.logo;
+    }
+
     saveState(action) {
         // v0.10.7.2: history isn't allocated until resetHistory() runs, which is
         // after setupEventListeners(). Guard against any save that fires before
@@ -99,9 +110,14 @@ class _History {
         }
 
         // Save current project state
+        const snapshot = JSON.parse(json);
+        // The show's binder logo (a data URL up to a few hundred KB) is
+        // one string shared by every entry that holds the same logo, not
+        // a fresh copy per entry (_shareBinderLogo).
+        this._shareBinderLogo(snapshot, current ? current.project : this.project);
         const state = {
             action: action,
-            project: JSON.parse(json),
+            project: snapshot,
             timestamp: Date.now(),
             // A circuit redraw open as this entry is taken: the project reads
             // right only with its hold (app-run-overrides _powerRedrawRecord).
@@ -196,6 +212,7 @@ class _History {
             const idmField = this.project ? this.project.idmField : undefined;
             const idmHighlight = this.project ? this.project.idmHighlight : undefined;
             this.project = JSON.parse(JSON.stringify(state.project));
+            this._shareBinderLogo(this.project, state.project);
             if (idmField !== undefined) this.project.idmField = JSON.parse(JSON.stringify(idmField));
             if (idmHighlight !== undefined) this.project.idmHighlight = JSON.parse(JSON.stringify(idmHighlight));
             this.dedupeProjectLayers('undo_restore');
@@ -358,6 +375,7 @@ class _History {
         this.project = JSON.parse(healed);
         this.dedupeProjectLayers('restore_repair');
         entry.project = JSON.parse(healed);
+        this._shareBinderLogo(entry.project, this.project);
         this._reconcileSelectionAfterRestore();
         this._refreshPowerPanelsAfterRestore();
         if (typeof this.loadLayerToInputs === 'function') {
@@ -457,6 +475,7 @@ class _History {
             const idmField = this.project ? this.project.idmField : undefined;
             const idmHighlight = this.project ? this.project.idmHighlight : undefined;
             this.project = JSON.parse(JSON.stringify(state.project));
+            this._shareBinderLogo(this.project, state.project);
             if (idmField !== undefined) this.project.idmField = JSON.parse(JSON.stringify(idmField));
             if (idmHighlight !== undefined) this.project.idmHighlight = JSON.parse(JSON.stringify(idmHighlight));
             this.dedupeProjectLayers('redo_restore');

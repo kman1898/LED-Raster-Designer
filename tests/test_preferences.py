@@ -57,7 +57,7 @@ TABS = {
                'pref-binder-side-both', 'pref-binder-cover', 'pref-binder-pull',
                'pref-binder-hardware', 'pref-binder-wiring', 'pref-binder-fiber', 'pref-binder-rigging', 'pref-binder-title-block',
                'pref-binder-designer', 'pref-binder-pm-name', 'pref-binder-pm-phone',
-               'pref-binder-pm-email', 'pref-binder-drafter', 'pref-binder-logo'],
+               'pref-binder-pm-email', 'pref-binder-drafter'],
     'pull': ['pref-pull-engineer', 'pref-pull-rev', 'pref-pull-power-jump-name-true1',
              'pref-pull-power-jump-name-powercon',
              'pref-pull-power-jump-length', 'pref-pull-power-jump-length-h',
@@ -82,8 +82,9 @@ TABS = {
 ALL_IDS = [i for ids in TABS.values() for i in ids]
 # 1.5 audit: the distro voltage + phase pair became one system picker.
 # Quick palettes: the source and sixteen pickers (105 + 17), and the
-# binder's Header/Footer default.
-assert len(ALL_IDS) == 123
+# binder's Header/Footer default. The logo row went in 1.7.0: each show
+# keeps its own logo (test_binder_remembers.py).
+assert len(ALL_IDS) == 122
 
 # Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
 # the dialog is given, the preference key, the layer property it lands on).
@@ -477,46 +478,35 @@ def test_every_new_preference_round_trips(page):
     pg.locator('#preferences-cancel').click()
 
 
-def test_the_binder_logo_rides_the_save_and_not_the_cancel(page):
-    """A logo chosen in the dialog is stored on Save (the same data URL the
-    export dialog reads), not before; the Remove button clears it."""
+def test_the_binder_tab_has_no_logo_and_save_keeps_the_old_one(page):
+    """Each show keeps its own logo since 1.7.0 (the export dialog sets
+    it, test_binder_remembers.py), so the Binder tab has no logo row. The
+    logo the preference held before then is what an older show takes as
+    it opens: a Save carries it as stored, and the open show's logo is
+    not the preference's."""
     pg, ids = page
     png = ('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAD0lEQVQI12P4'
            'z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==')
-    _open(pg)
-    _tab(pg, 'binder')
-    pg.evaluate("""(png) => {
-        const bin = atob(png.split(',')[1]);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        const file = new File([bytes], 'logo.png', { type: 'image/png' });
-        const input = document.getElementById('pref-binder-logo');
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        input.files = dt.files;
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-    }""", png)
-    pg.wait_for_timeout(600)
-    assert pg.locator('#pref-binder-logo-preview').is_visible()
-    assert _served(pg).get('binderLogo', '') == '', 'nothing stored before Save'
-    _save(pg)
-    stored = _served(pg).get('binderLogo', '')
-    assert stored.startswith('data:image/png;base64,'), stored[:40]
-    assert pg.evaluate("() => window.app.getBinderLogo()") == stored
-    _open(pg)
-    _tab(pg, 'binder')
-    assert pg.locator('#pref-binder-logo-preview').is_visible()
-    pg.locator('#pref-binder-logo-remove').click()
-    pg.wait_for_timeout(200)
-    assert not pg.locator('#pref-binder-logo-preview').is_visible()
-    pg.locator('#preferences-cancel').click()
-    pg.wait_for_timeout(200)
-    assert _served(pg).get('binderLogo', '') == stored, 'Cancel keeps the logo'
-    _open(pg)
-    _tab(pg, 'binder')
-    pg.locator('#pref-binder-logo-remove').click()
-    _save(pg)
-    assert _served(pg).get('binderLogo', '') == ''
+    put = """async (logo) => {
+        const app = window.app;
+        const prefs = { ...app.getPreferences(), binderLogo: logo };
+        app._serverPreferences = prefs;
+        await fetch('/api/preferences', { method: 'PUT', headers: {'Content-Type': 'application/json'},
+                                          body: JSON.stringify(prefs) });
+    }"""
+    pg.evaluate(put, png)
+    try:
+        _open(pg)
+        _tab(pg, 'binder')
+        rows = pg.evaluate("""() => [...document.querySelectorAll('#pm-sec-binder .pm-row > label')]
+            .map(l => l.textContent.trim())""")
+        assert 'Logo' not in rows, rows
+        assert pg.evaluate("() => document.querySelectorAll('#preferences-modal [id^=\"pref-binder-logo\"]').length") == 0
+        _save(pg)
+        assert _served(pg).get('binderLogo', '') == png, 'Save keeps the logo an older show takes'
+        assert pg.evaluate("() => window.app.getBinderLogo()") == '', 'the open show has none of its own'
+    finally:
+        pg.evaluate(put, '')
 
 
 # ── the defaults, honoured at creation ────────────────────────────────────
