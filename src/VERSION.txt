@@ -110,6 +110,13 @@ ALSO NEW
 - NEW: Help > License > Third-party notices lists three.js, which draws
   the 3D view.
 
+FIXES
+
+- FIX: Screen order Top to bottom prints the binder's screens and groups
+  in the order the Screens list shows them in Show Look, Data and Power,
+  whichever tab is open when you export, and Bottom to top prints them the
+  other way.
+
 v1.6.0 - November 6, 2026
 ----------------------------
 
