@@ -806,9 +806,10 @@ def _drop_pdf(pg, opts, title, name):
 
 def test_each_side_is_a_sheet_behind_its_own_map_and_runs_its_port_and_its_circuits(page):
     """WALL-A (4 x 3, one port on card SR's socket 1 - no unit, no backup -
-    two circuits on SR1 at 125'): four sheets, grouped by system - 2.1
-    WALL-A · POWER, 2.2 WALL-A · POWER WIRING right behind it, 2.3 WALL-A ·
-    DATA, 2.4 WALL-A · DATA WIRING right behind that - views 2 to 5.
+    two circuits on SR1 at 125'): four sheets, grouped by system - 2.5
+    WALL-A · POWER, 2.6 WALL-A · POWER WIRING right behind it, 2.7 WALL-A ·
+    DATA, 2.8 WALL-A · DATA WIRING right behind that - views 6 to 9, after
+    CENTER's four (alphabetical, the SR Beach group sorted in, 2026-11-08).
 
     Each wiring sheet is ONE side on the whole drawing area: no rule, no
     SIGNAL / POWER head, one wall. DATA WIRING: the wall's own disc "SR-1"
@@ -823,11 +824,11 @@ def test_each_side_is_a_sheet_behind_its_own_map_and_runs_its_port_and_its_circu
     opts = json.loads(_SHOW_JSON)
     pw = _sheet(pg, opts, 'WALL-A - Power Wiring')
     dw = _sheet(pg, opts, 'WALL-A - Data Wiring')
-    assert pw['plan'][:5] == [['overview', '1.1', 'Overview', 1],
-                              ['power', '2.1', 'WALL-A - Power - Front View', 2], ['wiring', '2.2', 'WALL-A - Power Wiring', 3],
-                              ['data', '2.3', 'WALL-A - Data - Front View', 4], ['wiring', '2.4', 'WALL-A - Data Wiring', 5]]
-    for out, sheet_title, number, view in ((pw, 'WALL-A · POWER WIRING · FRONT VIEW', '2.2', 3),
-                                           (dw, 'WALL-A · DATA WIRING · FRONT VIEW', '2.4', 5)):
+    assert pw['plan'][0] == ['overview', '1.1', 'Overview', 1]
+    assert pw['plan'][5:9] == [['power', '2.5', 'WALL-A - Power - Front View', 6], ['wiring', '2.6', 'WALL-A - Power Wiring', 7],
+                               ['data', '2.7', 'WALL-A - Data - Front View', 8], ['wiring', '2.8', 'WALL-A - Data Wiring', 9]]
+    for out, sheet_title, number, view in ((pw, 'WALL-A · POWER WIRING · FRONT VIEW', '2.6', 7),
+                                           (dw, 'WALL-A · DATA WIRING · FRONT VIEW', '2.8', 9)):
         assert out['width'] == W * SCALE and out['height'] == H * SCALE
         _title_block(out['texts'], sheet_title, number)
         assert out['page']['view'] == view and out['page']['sheetTitle'] == sheet_title
@@ -1109,42 +1110,42 @@ def test_the_wiring_tick_takes_both_sheets_and_they_follow_the_maps_choice(page)
                         ('data', name + ' - Data - Front View'), ('wiring', name + ' - Data Wiring')], mine
         at = [i for i, p in enumerate(both) if p[2].startswith(name + ' - ')]
         assert at == list(range(at[0], at[0] + 4)), ('the four run together', at)
-    assert [p[2] for p in both if p[0] == 'wiring'] == _wiring('WALL-A') + _wiring('WALL-B') + _wiring('CENTER')
+    assert [p[2] for p in both if p[0] == 'wiring'] == _wiring('CENTER') + _wiring('WALL-A') + _wiring('WALL-B')
     # the tick off: both wiring sheets gone, nothing else
     without = out['without']
     numbered(without)
     assert [p[2] for p in without] == [p[2] for p in both if p[0] != 'wiring'], without
     assert without == [
         ['overview', '1.1', 'Overview', 1],
-        ['power', '2.1', 'WALL-A - Power - Front View', 2], ['data', '2.2', 'WALL-A - Data - Front View', 3],
-        ['power', '2.3', 'WALL-B - Power - Front View', 4], ['data', '2.4', 'WALL-B - Data - Front View', 5],
-        ['power', '2.5', 'CENTER - Power - Front View', 6], ['data', '2.6', 'CENTER - Data - Front View', 7],
+        ['power', '2.1', 'CENTER - Power - Front View', 2], ['data', '2.2', 'CENTER - Data - Front View', 3],
+        ['power', '2.3', 'WALL-A - Power - Front View', 4], ['data', '2.4', 'WALL-A - Data - Front View', 5],
+        ['power', '2.5', 'WALL-B - Power - Front View', 6], ['data', '2.6', 'WALL-B - Data - Front View', 7],
         ['pull', '3.1', 'Pull - SR Beach, CENTER', None], ['distro', '4.1', 'Distro - SR', None],
         ['processor', '4.2', 'Processor - H9 · Pull list', None]]
     listed = out['contentsWithout']
-    assert listed[:6] == ['1.1', 'OVERVIEW', '2.1', 'WALL-A · POWER · FRONT VIEW', '2.2', 'WALL-A · DATA · FRONT VIEW']
+    assert listed[:6] == ['1.1', 'OVERVIEW', '2.1', 'CENTER · POWER · FRONT VIEW', '2.2', 'CENTER · DATA · FRONT VIEW']
     assert not [t for t in listed if 'WIRING' in t or 'SIGNAL' in t], listed
     # the Maps choice: Power alone, no Data Wiring sheet - and the mirror
     power = out['power']
     numbered(power)
     assert [p[2] for p in power if p[0] in ('power', 'data', 'wiring')] == [
-        'WALL-A - Power - Front View', 'WALL-A - Power Wiring', 'WALL-B - Power - Front View', 'WALL-B - Power Wiring',
-        'CENTER - Power - Front View', 'CENTER - Power Wiring'], power
+        'CENTER - Power - Front View', 'CENTER - Power Wiring',
+        'WALL-A - Power - Front View', 'WALL-A - Power Wiring', 'WALL-B - Power - Front View', 'WALL-B - Power Wiring'], power
     assert out['powerSides'] == [{'power': True, 'data': False}] * 3
     data = out['data']
     numbered(data)
     assert [p[2] for p in data if p[0] in ('power', 'data', 'wiring')] == [
-        'WALL-A - Data - Front View', 'WALL-A - Data Wiring', 'WALL-B - Data - Front View', 'WALL-B - Data Wiring',
-        'CENTER - Data - Front View', 'CENTER - Data Wiring'], data
+        'CENTER - Data - Front View', 'CENTER - Data Wiring',
+        'WALL-A - Data - Front View', 'WALL-A - Data Wiring', 'WALL-B - Data - Front View', 'WALL-B - Data Wiring'], data
     assert out['dataSides'] == [{'power': False, 'data': True}] * 3
     # a screen with one side: that map and its one wiring sheet
     one = out['oneSided']
     numbered(one)
     assert [(p[0], p[2]) for p in one if p[0] in ('power', 'data', 'wiring')] == [
+        ('power', 'CENTER - Power - Front View'), ('wiring', 'CENTER - Power Wiring'),
         ('power', 'WALL-A - Power - Front View'), ('wiring', 'WALL-A - Power Wiring'),
         ('data', 'WALL-A - Data - Front View'), ('wiring', 'WALL-A - Data Wiring'),
-        ('data', 'WALL-B - Data - Front View'), ('wiring', 'WALL-B - Data Wiring'),
-        ('power', 'CENTER - Power - Front View'), ('wiring', 'CENTER - Power Wiring')], one
+        ('data', 'WALL-B - Data - Front View'), ('wiring', 'WALL-B - Data Wiring')], one
     # the sheet the Maps choice keeps is the very sheet Both draws
     base = json.loads(_SHOW_JSON)
     alone = _sheet(pg, {**base, 'sides': {'power': True, 'data': False}}, 'WALL-A - Power Wiring')

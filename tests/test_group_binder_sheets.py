@@ -190,8 +190,8 @@ def test_group_prints_one_sheet_per_side_drawing_every_member(page):
     FACTS the group's."""
     pg, ids, errors = page
     out = _run(pg, ids, GROUP, titles=['WALL - Data - Front View', 'WALL - Power - Front View'])
-    assert _titles(out) == ['WALL - Power - Front View', 'WALL - Data - Front View',
-                            'LONE - Power - Front View', 'LONE - Data - Front View'], _titles(out)
+    assert _titles(out) == ['LONE - Power - Front View', 'LONE - Data - Front View',
+                            'WALL - Power - Front View', 'WALL - Data - Front View'], _titles(out)
     sheet = next(p for p in out['plan'] if p['title'] == 'WALL - Data - Front View')
     assert sheet['sheetTitle'] == 'WALL · DATA · FRONT VIEW'
     assert sheet['groupId'] == 'g1' and sorted(sheet['layerIds']) == sorted([ids['l'], ids['r']]), sheet
@@ -216,9 +216,9 @@ def test_screens_prints_every_member_with_its_own_wall(page):
     pg, ids, errors = page
     titles = ['WALL-L - Data - Front View', 'WALL-R - Data - Front View', 'WALL-R - Power - Front View']
     out = _run(pg, ids, SCREENS, titles=titles)
-    assert _titles(out) == ['WALL-L - Power - Front View', 'WALL-L - Data - Front View',
-                            'WALL-R - Power - Front View', 'WALL-R - Data - Front View',
-                            'LONE - Power - Front View', 'LONE - Data - Front View'], _titles(out)
+    assert _titles(out) == ['LONE - Power - Front View', 'LONE - Data - Front View',
+                            'WALL-L - Power - Front View', 'WALL-L - Data - Front View',
+                            'WALL-R - Power - Front View', 'WALL-R - Data - Front View'], _titles(out)
     for t in titles:
         assert _aspect(out['sheets'][t]) == pytest.approx(4 / 3, rel=0.02), (t, out['sheets'][t]['map'])
     l_texts = out['sheets']['WALL-L - Data - Front View']['texts']
@@ -241,13 +241,13 @@ def test_mixed_sides_power_by_group_data_by_screens(page):
     different")."""
     pg, ids, errors = page
     out = _run(pg, ids, {'power': 'group', 'data-flow': 'screens'})
-    assert _titles(out) == ['WALL - Power - Front View', 'WALL-L - Data - Front View',
-                            'WALL-R - Data - Front View',
-                            'LONE - Power - Front View', 'LONE - Data - Front View'], _titles(out)
+    assert _titles(out) == ['LONE - Power - Front View', 'LONE - Data - Front View',
+                            'WALL - Power - Front View', 'WALL-L - Data - Front View',
+                            'WALL-R - Data - Front View'], _titles(out)
     out = _run(pg, ids, {'power': 'screens', 'data-flow': 'group'})
-    assert _titles(out) == ['WALL-L - Power - Front View', 'WALL-R - Power - Front View',
-                            'WALL - Data - Front View',
-                            'LONE - Power - Front View', 'LONE - Data - Front View'], _titles(out)
+    assert _titles(out) == ['LONE - Power - Front View', 'LONE - Data - Front View',
+                            'WALL-L - Power - Front View', 'WALL-R - Power - Front View',
+                            'WALL - Data - Front View'], _titles(out)
     assert not errors, errors
 
 
@@ -279,9 +279,9 @@ def test_a_group_not_routed_as_one_keeps_its_member_sheets(page):
         return () => { if (was === undefined) delete g.routeDataAsOne; else g.routeDataAsOne = was; };
     """
     out = _run(pg, ids, GROUP, setup)
-    assert _titles(out) == ['WALL - Power - Front View', 'WALL-L - Data - Front View',
-                            'WALL-R - Data - Front View',
-                            'LONE - Power - Front View', 'LONE - Data - Front View'], _titles(out)
+    assert _titles(out) == ['LONE - Power - Front View', 'LONE - Data - Front View',
+                            'WALL - Power - Front View', 'WALL-L - Data - Front View',
+                            'WALL-R - Data - Front View'], _titles(out)
     assert not errors, errors
 
 
