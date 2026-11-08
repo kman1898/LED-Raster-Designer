@@ -30,9 +30,9 @@ real Playwright double-click) is kept beside it.
 The second report (Safari / Mac app, same beta): a drag inside a name being
 edited moved the screen instead of selecting text. Only the field was made
 undraggable in edit mode; now everything above it that is draggable (the
-screen row's header, info line and row; the canvas header; the beach row)
-is turned off for the edit and back on when it ends. The group header sits
-in nothing draggable. WebKit cannot run here either, so the attributes are
+screen row's header, info line and row; the canvas header; the beach row;
+the group's row since 1.7.0, when groups began to drag) is turned off for
+the edit and back on when it ends. WebKit cannot run here either, so the attributes are
 asserted directly beside the drag.
 
 The third (1.6.0 QA, beta.6): the first drag after the double-click selected
@@ -100,6 +100,7 @@ def test_every_dblclick_rename_also_opens_on_the_second_click():
     assert "releaseDrag = holdDragOff(nameInput, headerEl, infoEl, layerDiv);" in rows
     assert "releaseDrag = holdDragOff(nameInput, header);" in _src('src', 'static', 'js', 'app-canvas-ui.js')
     assert "releaseDrag = holdDragOff(nameInput, row);" in _src('src', 'static', 'js', 'app-beaches.js')
+    assert "releaseDrag = holdDragOff(nameInput, row);" in _src('src', 'static', 'js', 'app-screen-groups.js')
 
 
 # ── the browser ───────────────────────────────────────────────────────────
@@ -1024,15 +1025,23 @@ def test_a_rename_after_the_first_drag_saves_and_undoes(page):
     _server_name(pg, 'layers', ids['b'], name)
 
 
-def test_a_group_name_has_nothing_draggable_above_it(page):
-    """The audit's finding for groups: the group header is not draggable and
-    sits in no draggable element, so WebKit has no drag to start from it."""
+def test_a_group_name_being_edited_has_nothing_draggable_above_it(page, closes_the_edit):
+    """Since 1.7.0 a group's row drags the group (tests/test_group_drag.py),
+    and the read-only name with it. While the name is edited neither drags,
+    so WebKit has no drag to start from it, and both drag again after."""
     pg, ids = page
+    chain = """(s) => { const out = [];
+        for (let el = document.querySelector(s); el; el = el.parentElement) if (el.draggable) out.push(el.className.split(' ')[0]);
+        return out; }"""
     for gid in ids['groups']:
-        up = pg.evaluate("""(s) => { const out = [];
-            for (let el = document.querySelector(s); el; el = el.parentElement) if (el.draggable) out.push(el.className);
-            return out; }""", _group(gid))
-        assert up == [], (gid, up)
+        sel = _group(gid)
+        assert pg.evaluate(chain, sel) == ['screen-group-name-input', 'screen-group-row'], gid
+        pg.locator(sel).dblclick()
+        _assert_editing(pg, sel)
+        assert pg.evaluate(chain, sel) == [], gid
+        pg.keyboard.press('Escape')
+        settled(pg, lambda: _field(pg, sel), lambda v: v['readOnly'])
+        assert pg.evaluate(chain, sel) == ['screen-group-name-input', 'screen-group-row'], gid
 
 
 def test_no_page_errors(page):

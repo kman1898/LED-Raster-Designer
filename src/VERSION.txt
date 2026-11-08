@@ -109,6 +109,12 @@ ALSO NEW
   connected window.
 - NEW: Help > License > Third-party notices lists three.js, which draws
   the 3D view.
+- NEW: Drag a group in the Screens list onto another canvas to move the
+  whole group, or up and down to change its order. Hold Alt (Option on a
+  Mac) on Pixel Map or Cabinet ID to copy it instead.
+- FIX: A group's up and down arrows move it among the rows of the canvas
+  it is listed under, also when Show Look has one of its screens on
+  another canvas.
 
 v1.6.0 - November 6, 2026
 ----------------------------

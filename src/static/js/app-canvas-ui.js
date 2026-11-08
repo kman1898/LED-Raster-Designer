@@ -226,6 +226,19 @@ class _CanvasUi {
         wrap.addEventListener('dragover', (e) => {
             // Layer being dragged onto this canvas => indicate cross-canvas drop.
             const isCanvas = !!this._dragCanvasId;
+            // A group dragged onto another canvas => the whole group goes
+            // there (moveGroupToCanvas). Its own canvas takes no drop: a
+            // reorder there is made on the rows.
+            if (!isCanvas && this.dragGroupId != null) {
+                if (this._groupListCanvasId(this.dragGroupId) === canvas.id) return;
+                e.preventDefault();
+                const copies = (e.metaKey || e.altKey) && !(window.canvasRenderer
+                    && window.canvasRenderer.isShowLookView && window.canvasRenderer.isShowLookView());
+                e.dataTransfer.dropEffect = copies ? 'copy' : 'move';
+                if (typeof this._clearListDropMarks === 'function') this._clearListDropMarks();
+                wrap.classList.add('drag-target');
+                return;
+            }
             const isLayer = this.dragLayerId != null && !isCanvas;
             if (!isCanvas && !isLayer) return;
             e.preventDefault();
@@ -251,6 +264,19 @@ class _CanvasUi {
             if (draggedCanvasId && draggedCanvasId !== canvas.id) {
                 e.preventDefault();
                 this.reorderCanvasBeforeTarget(draggedCanvasId, canvas.id, dropsAfter(e));
+                return;
+            }
+            // A group from another canvas, dropped anywhere on this block:
+            // the whole group comes here, in the view's own canvas (Show
+            // Look, Data, Power: the Show Look canvas; Pixel Map, Cabinet
+            // ID: the canvas), Alt/Option copying it where a screen copies.
+            if (this.dragGroupId != null) {
+                const groupId = this.dragGroupId;
+                if (typeof this._endListDrag === 'function') this._endListDrag();
+                if (this._groupListCanvasId(groupId) === canvas.id) return;
+                e.preventDefault();
+                const mode = (e.metaKey || e.altKey) ? 'duplicate' : 'move';
+                this.moveGroupToCanvas(groupId, canvas.id, mode);
                 return;
             }
             // Cross-canvas layer drop?

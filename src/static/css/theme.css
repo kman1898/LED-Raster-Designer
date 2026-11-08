@@ -408,6 +408,12 @@ select, .info-select {
   box-shadow:inset 0 3px 0 0 var(--ps-accent), 0 1px 3px rgba(0,0,0,0.45) !important; }
 .layer-item.drag-over-bottom {
   box-shadow:inset 0 -3px 0 0 var(--ps-accent), 0 1px 3px rgba(0,0,0,0.45) !important; }
+/* A group dragged in the list (or a screen dragged onto a group) lands above
+   or below the WHOLE group, members and all, so the line runs outside the
+   group's block rather than inside its row (app-screen-groups _markListDrop). */
+.screen-group.drag-over-top { box-shadow:0 -3px 0 0 var(--ps-accent) !important; }
+.screen-group.drag-over-bottom { box-shadow:0 3px 0 0 var(--ps-accent) !important; }
+.screen-group.dragging { opacity:0.4 !important; }
 /* A canvas dragged over another lands before it (upper half) or after it
    (lower half), app-canvas-ui.js dropsAfter; the line shows which. */
 .canvas-group.drag-before { box-shadow:inset 0 3px 0 0 var(--ps-accent) !important; }
