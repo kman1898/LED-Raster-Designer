@@ -444,7 +444,12 @@ class _PullSheetEditor {
         const label = kind === 'binder' ? 'binder' : 'pull sheet';
         if (status) status.textContent = `Exporting ${label}...`;
         try {
-            if (kind === 'binder') await this.exportBinder(name);
+            if (kind === 'binder') {
+                // the sheets the show keeps (app-binder.js binderChoices),
+                // not whatever the Export dialog last showed
+                if (typeof this.seedBinderChoicesForScope === 'function') this.seedBinderChoicesForScope();
+                await this.exportBinder(name);
+            }
             else await this.exportPullSheet(name);
             if (status) {
                 status.textContent = 'Export complete!';

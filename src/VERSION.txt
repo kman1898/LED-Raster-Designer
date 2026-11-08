@@ -113,6 +113,10 @@ ALSO NEW
   Cat6A 2 and so on, and you can type your own. The name prints on the
   box's cable sheet, in the binder and on the pull sheet, and the link's
   list now reads just Cat6A, Cat6 and Cat5e.
+- NEW: The binder remembers what you export for each show: the sheets you
+  tick, Color or Printer, the maps and the logo. A new show starts from
+  your Preferences with no logo, and a show saved before this keeps the
+  logo it printed.
 
 v1.6.0 - November 6, 2026
 ----------------------------

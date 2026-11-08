@@ -6341,7 +6341,7 @@
         preferences: {
             target: '#btn-preferences', place: 'bottom', title: 'Preferences',
             avoid: ['#btn-preferences', '#preferences-modal .pm-tabstrip'],
-            body: 'App-wide defaults in nine tabs. The Binder tab holds the sheet size, the logo, the screen order and the title block default.',
+            body: 'App-wide defaults in nine tabs. The Binder tab holds the sheet size, the screen order, the sheets a new show prints and the title block default.',
             before: function () { closeExport(); },
             act: function (t) {
                 return t.click('#btn-preferences').then(function () {

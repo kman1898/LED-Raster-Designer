@@ -59,8 +59,9 @@ text and the map bitmap in page units - which /api/export/pdf-from-pages
 replays in points, the text set in Helvetica as real PDF text.
 
 The title block's fields live in project.binder (the export dialog edits
-them, one undo entry per field; the routes keep them like pullSheet), the
-sheet size and the logo in the preferences. A revision is LOGGED ON
+them, one undo entry per field; the routes keep them like pullSheet), with
+the logo since 1.7.0 (test_binder_remembers.py); the sheet size in the
+preferences. A revision is LOGGED ON
 EXPORT: an export at a Rev no row carries yet adds a row (the date, the
 engineer's initials, the Revision note); the same rev again logs nothing.
 
@@ -2309,7 +2310,8 @@ def _logo_png(size, color=(20, 60, 140, 255)):
 
 
 def test_a_logo_heads_the_title_block_on_every_sheet_and_reaches_the_pdf(page):
-    """The logo is a preference read from a PNG / JPEG file in the dialog
+    """The logo is the show's (project.binder.logo since 1.7.0), read from a
+    PNG / JPEG file in the dialog
     (an SVG is refused with a message - the PDF draws bitmaps), downscaled
     to 1200 px on its long side before it is stored as a data URL. Set, a
     box at the top of every sheet's title block holds it fitted and
@@ -2349,7 +2351,8 @@ def test_a_logo_heads_the_title_block_on_every_sheet_and_reaches_the_pdf(page):
         const src = app.getBinderLogo();
         const img = await app._binderLoadImage(src);
         return { before, refused, size: [img.naturalWidth, img.naturalHeight], prefix: src.slice(0, 22),
-                 pref: app.getPreferences().binderLogo === src, bytes: src.length,
+                 own: (app.project.binder || {}).logo === src, pref: app.getPreferences().binderLogo || '',
+                 bytes: src.length,
                  ui: { preview: preview.getAttribute('src') === src, remove: remove.style.display !== 'none',
                        none: none.style.display === 'none', status: status.textContent } };
     }""", [png64, svg])
@@ -2358,7 +2361,8 @@ def test_a_logo_heads_the_title_block_on_every_sheet_and_reaches_the_pdf(page):
         assert 'SVG' in out['refused']['status'] and 'PNG or JPEG' in out['refused']['status'] and out['refused']['shown']
         assert out['refused']['logo'] == ''
         assert out['size'] == [1200, 300], out['size']                      # downscaled on read
-        assert out['prefix'] == 'data:image/png;base64,' and out['pref'] and out['bytes'] < 400_000
+        assert out['prefix'] == 'data:image/png;base64,' and out['own'] and out['bytes'] < 400_000
+        assert out['pref'] == '', 'the show keeps it, never the preference'
         assert out['ui'] == {'preview': True, 'remove': True, 'none': True, 'status': ''}, out['ui']
         # every sheet: the logo box at the top of the block, the image
         # fitted inside it, REVISIONS under it; the map sheets carry the
@@ -2411,7 +2415,7 @@ def test_a_logo_heads_the_title_block_on_every_sheet_and_reaches_the_pdf(page):
         xobjects = pdf_page['/Resources'].get('/XObject', {})
         images = [x for x in xobjects.values() if x.get_object().get('/Subtype') == '/Image']
         assert len(images) == 2, len(images)
-        # Remove: the preference cleared, no box, no image on a pull sheet
+        # Remove: the show's logo cleared, no box, no image on a pull sheet
         gone = pg.evaluate("""async () => {
             const app = window.app;
             document.getElementById('export-binder-logo-remove').click();
@@ -2421,7 +2425,7 @@ def test_a_logo_heads_the_title_block_on_every_sheet_and_reaches_the_pdf(page):
             const opts = JSON.parse(%r);
             const idx = app.planBinder(opts).findIndex(p => p.kind === 'pull');
             const r = app.renderBinderPage(opts, idx);
-            return { logo: app.getBinderLogo(), pref: app.getPreferences().binderLogo,
+            return { logo: app.getBinderLogo(), pref: (app.project.binder || {}).logo,
                      none: document.getElementById('export-binder-logo-none').style.display !== 'none',
                      preview: document.getElementById('export-binder-logo-preview').style.display !== 'none',
                      sections: Object.keys(r.titleBlock.sections), images: r.record.ops.filter(o => o.op === 'image').length,

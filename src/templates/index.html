@@ -2672,7 +2672,8 @@
                  presets it), the sheet size (a preference; Tabloid 17 x 11 by
                  default, any size), the palette (Color, or Printer: greys and
                  black runs told apart by dash), which maps, which extra
-                 sheets, and the title block's fields (project.binder). Shown/
+                 sheets (the show's last whole-show export, else the
+                 preferences), and the title block's fields (project.binder). Shown/
                  hidden by syncBinderControls in app-binder.js. -->
             <div id="export-binder-section" style="margin-bottom: 18px; display: none;">
                 <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;" data-tooltip="A drawing set: numbered sheets with a title block, the maps as numbered views, the tables beside them.">Binder:</label>
@@ -2745,7 +2746,7 @@
                          box keeps its own words on one line - a two-word box once broke
                          mid-phrase and hung off the right edge. -->
                     <div style="display: flex; gap: 14px; align-items: flex-start; font-size: 12px; color: #aaa;">
-                        <span style="flex: none; width: 92px; line-height: 20px;">Sheets</span>
+                        <span style="flex: none; width: 92px; line-height: 20px;" data-tooltip="Saved with the project when you export the whole show, with the palette and the maps, so the next export opens the same way. A new show starts from Preferences.">Sheets</span>
                         <div style="flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 14px;">
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="Sheet 1.1: the show map with the positions, the show totals and the contents."><input type="checkbox" id="export-binder-cover" checked> Overview</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A pull sheet per position with tick boxes (3.x, or 4.x after a Fiber sheet), and the show-wide pull list at the back."><input type="checkbox" id="export-binder-pull" checked> Pull sheets</label>
@@ -2770,7 +2771,7 @@
                     </div>
                 </div>
                 <!-- The title block's fields: project.binder (one undo entry
-                     per field), the logo a preference, the revision log
+                     per field), the logo the show's too, the revision log
                      written on export. -->
                 <label style="display: block; margin: 10px 0 8px; color: #ccc; font-size: 13px;" data-tooltip="The column down every sheet's right edge: your logo, the revision log, the show, the venue and dates, who designed, managed and drafted it.">Title block:</label>
                 <div class="export-views" style="display: flex; flex-direction: column; gap: 8px;">
@@ -2803,7 +2804,7 @@
                         <span style="flex: none; width: 92px;">Logo</span>
                         <img id="export-binder-logo-preview" alt="" style="display: none; flex: none; max-height: 36px; max-width: 120px; background: #1a1a1a; border: 1px solid #3a3a3a; border-radius: 3px; padding: 2px;">
                         <span id="export-binder-logo-none" style="flex: none; color: #777;">None</span>
-                        <label for="export-binder-logo" class="btn" style="flex: none; padding: 3px 10px; font-size: 12px; cursor: pointer;" data-tooltip="A PNG or JPEG at the top of every sheet's title block (an SVG is refused: the PDF draws bitmaps). Downscaled to 1200 px on its long side before it is stored. Remembered as a preference.">Choose…</label>
+                        <label for="export-binder-logo" class="btn" style="flex: none; padding: 3px 10px; font-size: 12px; cursor: pointer;" data-tooltip="A PNG or JPEG at the top of every sheet's title block (an SVG is refused: the PDF draws bitmaps). Downscaled to 1200 px on its long side. Saved with the project: a new show starts with none.">Choose…</label>
                         <input type="file" id="export-binder-logo" accept="image/png,image/jpeg" style="display: none;">
                         <button type="button" id="export-binder-logo-remove" class="btn" style="display: none; flex: none; padding: 3px 10px; font-size: 12px;" data-tooltip="Take the logo off the sheets.">Remove</button>
                     </div>
@@ -3316,17 +3317,6 @@
                             <label>Drafter</label>
                             <div class="prefs-row">
                                 <input type="text" id="pref-binder-drafter" placeholder="Name" class="pm-wide">
-                            </div>
-                        </div>
-                        <div class="pm-row">
-                            <label>Logo</label>
-                            <div class="prefs-row">
-                                <img id="pref-binder-logo-preview" alt="" style="display: none;">
-                                <span id="pref-binder-logo-none" class="pm-logo-none">None</span>
-                                <label for="pref-binder-logo" class="btn" style="cursor: pointer;">Choose…</label>
-                                <input type="file" id="pref-binder-logo" accept="image/png,image/jpeg" style="display: none;">
-                                <button type="button" id="pref-binder-logo-remove" class="btn" style="display: none;">Remove</button>
-                                <span id="pref-binder-logo-status" class="pm-logo-status" style="display: none;"></span>
                             </div>
                         </div>
                     </div>

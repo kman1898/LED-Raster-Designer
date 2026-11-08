@@ -302,9 +302,10 @@ class _ExportIo {
         }
         if (typeof this.syncPullSheetControls === 'function') this.syncPullSheetControls();
         // The Binder block's palette, maps and sheet ticks start from the
-        // preferences each time the dialog OPENS - not on every later
-        // sync, which would undo what was ticked in this dialog.
-        this._binderSeedFromPrefs = true;
+        // show's remembered choices (else the preferences) each time the
+        // dialog OPENS - not on every later sync, which would undo what
+        // was ticked in this dialog (app-binder.js binderChoices).
+        this._binderSeedChoices = true;
         if (typeof this.syncBinderControls === 'function') this.syncBinderControls();
         this.updateExportPreview();
     }

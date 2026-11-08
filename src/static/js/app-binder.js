@@ -92,9 +92,10 @@
 // manager, drafter, revisions - the export dialog edits them, one undo
 // entry per field; a revision is LOGGED ON EXPORT, 2026-09-08: an export
 // at a rev no row carries yet adds a row - and, 2026-10-17, as soon as a
-// new Rev is committed in the dialog) and in preferences (the sheet
-// size, the logo, and the engineer's name, which prints as Engineer and
-// stands in for a blank Drafter).
+// new Rev is committed in the dialog), with the logo and the choices the
+// last whole-show export printed (1.7.0, BINDER CHOICES below), and in
+// preferences (the sheet size, and the engineer's name, which prints as
+// Engineer and stands in for a blank Drafter).
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
@@ -293,6 +294,27 @@ const PERSPECTIVE_KEYS = ['data_flow_perspective', 'power_perspective', 'rigging
 const SCREEN_ORDERS = ['alpha', 'layers', 'layers-up', 'data', 'power'];
 // The logo is stored no larger than this on its long side.
 const LOGO_MAX_PX = 1200;
+// THE LOGO IS THE SHOW'S (owner, 1.7.0: "Same thing when using logos added
+// to binders"): project.binder.logo, a PNG / JPEG data URL or '' for none.
+// Until 1.7.0 it was one preference every show printed; a show written
+// before then takes that preference's logo into its own binder as it
+// opens (adoptPreferenceBinderLogo), once, so no existing show loses it.
+// A new show starts with none.
+const LOGO_PER_SHOW_SINCE = '1.7.0';
+const LOGO_DATA_URL = /^data:image\/(png|jpeg);base64,/;
+// BINDER CHOICES (owner, 1.7.0: "the options I select like hardware and
+// fiber need to be remembered ... New projects reset these check boxes"):
+// the palette, the maps and the six sheet ticks a WHOLE-SHOW export
+// printed, kept as project.binder.sheets = { palette, maps, cover, pull,
+// hardware, wiring, fiber, rigging }. The dialog opens on them; a show
+// with none (a new one, one saved before 1.7.0) opens on the Binder
+// preferences. Written at the export, never per tick, so ticking and
+// cancelling leaves the show as it was; a single-screen export writes
+// nothing (its show sheets start unticked whatever the show keeps).
+const BINDER_TICKS = ['cover', 'pull', 'hardware', 'wiring', 'fiber', 'rigging'];
+// the ticks a single screen's export starts unticked: the show's own sheets
+const SHOW_TICKS = ['cover', 'pull', 'hardware', 'fiber'];
+const BINDER_MAPS = ['power', 'data', 'both'];
 // Each sheet kind's SUBJECT, the series it numbers in. The overview and
 // the screens hold series 1 and 2 (SERIES) whatever prints; every subject
 // after them takes the next number as its first sheet prints - the Fiber
@@ -319,13 +341,15 @@ class _Binder {
         if (scope) {
             scope.addEventListener('change', () => {
                 // A single screen is that screen's sheets and nothing else
-                // unless asked; the whole show is the whole set.
+                // unless asked; the whole show is the set the show keeps
+                // (binderChoices: its last whole-show export, else the
+                // preferences).
                 const single = scope.value !== 'show';
-                ['export-binder-cover', 'export-binder-pull', 'export-binder-hardware', 'export-binder-fiber']
-                    .forEach(id => {
-                        const el = document.getElementById(id);
-                        if (el) el.checked = !single;
-                    });
+                const choices = this.binderChoices();
+                for (const k of SHOW_TICKS) {
+                    const el = document.getElementById(`export-binder-${k}`);
+                    if (el) el.checked = !single && choices[k];
+                }
                 if (typeof this.updateExportPreview === 'function') this.updateExportPreview();
             });
         }
@@ -383,7 +407,7 @@ class _Binder {
         }
         const revNote = document.getElementById('export-binder-revision-note');
         if (revNote) revNote.addEventListener('change', () => { this.noteBinderRevision(revNote.value); });
-        // The logo: a preference read from a PNG / JPEG file.
+        // The logo: the show's, read from a PNG / JPEG file.
         const logo = document.getElementById('export-binder-logo');
         if (logo) {
             logo.addEventListener('change', () => {
@@ -460,26 +484,13 @@ class _Binder {
         show('export-options-section', false);
         show('export-pull-sheet-section', false);
         // On open (openExportModal raises the flag): the palette, the
-        // maps and the sheet ticks start from the Binder preferences, the
-        // way the sheet size does. Ahead of the scope logic below, which
-        // still unticks the show sheets for a single screen.
-        if (this._binderSeedFromPrefs) {
-            this._binderSeedFromPrefs = false;
-            const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
-            const tick = (id, on) => { const el = document.getElementById(id); if (el) el.checked = !!on; };
-            const printer = prefs.binderPalette === 'printer';
-            tick('export-binder-printer', printer);
-            tick('export-binder-colour', !printer);
-            const maps = prefs.binderMaps === 'power' || prefs.binderMaps === 'data' ? prefs.binderMaps : 'both';
-            tick('export-binder-side-power', maps === 'power');
-            tick('export-binder-side-data', maps === 'data');
-            tick('export-binder-side-both', maps === 'both');
-            tick('export-binder-cover', prefs.binderCover !== false);
-            tick('export-binder-pull', prefs.binderPull !== false);
-            tick('export-binder-hardware', prefs.binderHardware !== false);
-            tick('export-binder-wiring', prefs.binderWiring !== false);
-            tick('export-binder-fiber', prefs.binderFiber !== false);
-            tick('export-binder-rigging', prefs.binderRigging !== false);
+        // maps and the sheet ticks start from what the show's last
+        // whole-show export printed, else from the Binder preferences
+        // (binderChoices). Ahead of the scope logic below, which still
+        // unticks the show sheets for a single screen.
+        if (this._binderSeedChoices) {
+            this._binderSeedChoices = false;
+            this._seedBinderChoices();
         }
         // The Fiber tick is offered only to a show that uses fiber: the
         // page prints for nothing else (app-binder-fiber.js).
@@ -500,11 +511,10 @@ class _Binder {
             for (const l of this._pullScreens()) opt(`screen:${l.id}`, `Screen: ${l.name || l.id}`);
             scope.value = [...scope.options].some(o => o.value === want) ? want : 'show';
             if (want !== 'show' && scope.value === want) {
-                ['export-binder-cover', 'export-binder-pull', 'export-binder-hardware', 'export-binder-fiber']
-                    .forEach(id => {
-                        const el = document.getElementById(id);
-                        if (el) el.checked = false;
-                    });
+                for (const k of SHOW_TICKS) {
+                    const el = document.getElementById(`export-binder-${k}`);
+                    if (el) el.checked = false;
+                }
             }
         }
         const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
@@ -532,6 +542,96 @@ class _Binder {
         // the Revision note is this export's and stays as typed
         this._renderBinderRevisionRows();
         this._renderBinderGroupRows();
+    }
+
+    // The dialog's palette, maps and sheet ticks set to the show's choices
+    // (binderChoices). The scope is left alone: a single screen's show
+    // sheets are unticked by the caller, as before.
+    _seedBinderChoices() {
+        const c = this.binderChoices();
+        const tick = (id, on) => { const el = document.getElementById(id); if (el) el.checked = !!on; };
+        tick('export-binder-printer', c.palette === 'printer');
+        tick('export-binder-colour', c.palette !== 'printer');
+        for (const m of BINDER_MAPS) tick(`export-binder-side-${m}`, c.maps === m);
+        for (const k of BINDER_TICKS) tick(`export-binder-${k}`, c[k]);
+        return c;
+    }
+
+    // The same, then a single screen's show sheets unticked when that is
+    // the scope the dialog holds: the pull sheet editor's Export Binder,
+    // which reads the dialog's controls without opening it.
+    seedBinderChoicesForScope() {
+        const c = this._seedBinderChoices();
+        const scope = document.getElementById('export-binder-scope');
+        if (scope && scope.value && scope.value !== 'show') {
+            for (const k of SHOW_TICKS) {
+                const el = document.getElementById(`export-binder-${k}`);
+                if (el) el.checked = false;
+            }
+        }
+        return c;
+    }
+
+    // The choices the dialog opens on: the show's own (project.binder
+    // .sheets, written by its last whole-show export) where it has them,
+    // else the Binder preferences. { palette, maps, cover, pull, hardware,
+    // wiring, fiber, rigging, saved }, `saved` true when they are the
+    // show's.
+    binderChoices() {
+        const own = this._binderStoredChoices(this._binderStored().sheets);
+        if (own) return { ...own, saved: true };
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+        const out = {
+            palette: prefs.binderPalette === 'printer' ? 'printer' : 'colour',
+            maps: prefs.binderMaps === 'power' || prefs.binderMaps === 'data' ? prefs.binderMaps : 'both',
+        };
+        const pref = { cover: 'binderCover', pull: 'binderPull', hardware: 'binderHardware',
+                       wiring: 'binderWiring', fiber: 'binderFiber', rigging: 'binderRigging' };
+        for (const k of BINDER_TICKS) out[k] = prefs[pref[k]] !== false;
+        return { ...out, saved: false };
+    }
+
+    // project.binder as stored, or {} (never created here).
+    _binderStored(project = this.project) {
+        const b = project && project.binder;
+        return b && typeof b === 'object' && !Array.isArray(b) ? b : {};
+    }
+
+    // A stored set as the dialog reads it, or null when there is none to
+    // read: an absent or broken entry falls back to the preferences whole.
+    _binderStoredChoices(raw) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+        const out = {
+            palette: raw.palette === 'printer' ? 'printer' : 'colour',
+            maps: BINDER_MAPS.includes(raw.maps) ? raw.maps : 'both',
+        };
+        for (const k of BINDER_TICKS) out[k] = raw[k] !== false;
+        return out;
+    }
+
+    // The choices an export printed, as project.binder.sheets keeps them.
+    _binderChoicesOf(opts) {
+        const sides = opts.sides || {};
+        const out = {
+            palette: opts.palette === 'printer' ? 'printer' : 'colour',
+            maps: sides.power === false ? 'data' : sides.data === false ? 'power' : 'both',
+        };
+        for (const k of BINDER_TICKS) out[k] = opts[k] !== false;
+        return out;
+    }
+
+    // A whole-show export's choices written onto the show, with no history
+    // entry here: exportBinder takes the one entry, with the revision it
+    // logs. True when they changed.
+    _stageBinderChoices(opts) {
+        if (!this.project || !opts || !opts.scope || opts.scope.kind !== 'show') return false;
+        const next = this._binderChoicesOf(opts);
+        const had = this._binderStoredChoices(this._binderStored().sheets);
+        if (had && JSON.stringify(had) === JSON.stringify(next)) return false;
+        if (!this.project.binder || typeof this.project.binder !== 'object') this.project.binder = {};
+        this.project.binder.sheets = next;
+        sendClientLog('binder_choices_remembered', next);
+        return true;
     }
 
     // The logo row: the preview and Remove when one is set, "None" when not.
@@ -982,10 +1082,10 @@ class _Binder {
             .filter(Boolean).map(w => w[0].toUpperCase()).join('');
     }
 
-    // ---- the preferences: the sheet size, the logo ---------------------------
+    // ---- the preferences: the sheet size, the frame -------------------------
 
-    // The sheet size and the logo are preferences (the same shop show
-    // after show), like the engineer's name.
+    // The sheet size is a preference (the same shop show after show), like
+    // the engineer's name.
     getBinderSheet() {
         const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
         return SHEETS[prefs.binderSheet] ? prefs.binderSheet : DEFAULT_SHEET;
@@ -1008,21 +1108,55 @@ class _Binder {
         return this._setBinderPreference('binderTitleBlock', on !== false);
     }
 
-    // The logo as stored: a PNG / JPEG data URL, or ''.
+    // ---- the logo: the show's -----------------------------------------------
+
+    // The show's logo as stored: a PNG / JPEG data URL, or ''.
     getBinderLogo() {
-        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
-        return typeof prefs.binderLogo === 'string' && /^data:image\/(png|jpeg);base64,/.test(prefs.binderLogo)
-            ? prefs.binderLogo : '';
+        const v = this._binderStored().logo;
+        return typeof v === 'string' && LOGO_DATA_URL.test(v) ? v : '';
     }
 
-    // Stores the logo ('' removes it) and has it decoded before resolving,
-    // so the next sheet drawn carries it.
+    // Stores the show's logo ('' removes it): one undo entry, the same
+    // project POST as the title block's fields. Resolves once it is
+    // decoded, so the next sheet drawn carries it. A removal keeps the key
+    // ('' is "none", chosen), so an older show that drops its logo never
+    // takes the old preference's back on its next open.
     setBinderLogo(dataUrl) {
-        const v = String(dataUrl == null ? '' : dataUrl);
+        const raw = String(dataUrl == null ? '' : dataUrl);
+        const v = LOGO_DATA_URL.test(raw) ? raw : '';
+        const had = this.getBinderLogo();
+        if (this.project && had !== v) {
+            if (!this.project.binder || typeof this.project.binder !== 'object') this.project.binder = {};
+            this.project.binder.logo = v;
+            this._binderLogoImage = null;
+            this.saveState(v ? 'Set Binder Logo' : 'Remove Binder Logo');
+            this._persistBinderInfo();
+            sendClientLog(v ? 'binder_logo_set_on_show' : 'binder_logo_removed', { bytes: v.length });
+        }
+        return this._ensureBinderLogo().then(() => true);
+    }
+
+    // A show written before the logo was the show's (below 1.7.0, or
+    // unstamped) with no logo of its own takes the one the old preference
+    // holds, as it opens: before the open's PUT and its first undo
+    // snapshot, so the server, the history and the next save all carry
+    // it. Runs once: the show then has the key, and its next save stamps
+    // it this build's. Returns true when it took one.
+    adoptPreferenceBinderLogo(project = this.project) {
+        if (!project || typeof project !== 'object') return false;
+        if (typeof this.projectPredatesVersion !== 'function'
+                || !this.projectPredatesVersion(LOGO_PER_SHOW_SINCE, project)) return false;
+        const binder = this._binderStored(project);
+        if ('logo' in binder) return false;
+        const prefs = (typeof this.getPreferences === 'function') ? this.getPreferences() : {};
+        const logo = typeof prefs.binderLogo === 'string' && LOGO_DATA_URL.test(prefs.binderLogo)
+            ? prefs.binderLogo : '';
+        if (!logo) return false;
+        project.binder = { ...binder, logo };
         this._binderLogoImage = null;
-        return Promise.resolve(this._setBinderPreference('binderLogo', v))
-            .then(() => this._ensureBinderLogo())
-            .then(() => true);
+        sendClientLog('binder_logo_adopted_from_preference', {
+            name: project.name || null, appVersion: project.app_version || null, bytes: logo.length });
+        return true;
     }
 
     // A file from the dialog: PNG or JPEG only - an SVG is refused with a
@@ -1045,9 +1179,9 @@ class _Binder {
         return true;
     }
 
-    // The file read, checked and downscaled - what the export dialog
-    // stores at once and the Preferences dialog holds until Save. Resolves
-    // to { dataUrl, type, width, height } or { error }.
+    // The file read, checked and downscaled: what the export dialog stores
+    // on the show at once. Resolves to { dataUrl, type, width, height } or
+    // { error }.
     async readBinderLogoDataUrl(file) {
         const type = String(file && file.type || '').toLowerCase();
         const name = String(file && file.name || '');
@@ -1145,18 +1279,29 @@ class _Binder {
 
     // Sheets rendered, one PDF back, saved straight to disk through the
     // same picker path every export takes - no window, no print dialog.
-    async exportBinder(projectName) {
+    // `run.remember` (the Export dialog's own export): a whole-show export
+    // keeps its palette, maps and sheet ticks on the show (BINDER
+    // CHOICES); any other caller prints and writes nothing.
+    async exportBinder(projectName, run = {}) {
         const name = projectName || (this.project && this.project.name) || 'Project';
         const opts = this.readBinderOptions();
         if (typeof this.refreshPortAssignment === 'function') {
             try { await this.refreshPortAssignment(); } catch (_) {}
         }
         await this._ensureBinderLogo();
+        // The choices are staged on the show first, so the revision logged
+        // below takes them into its one undo entry and its one POST; with
+        // no revision to log they take an entry of their own.
+        const remembered = !!(run && run.remember) && this._stageBinderChoices(opts);
         // The revision this export wears is logged before the sheets
         // render, so the REVISIONS table on every sheet carries it.
         const noteEl = document.getElementById('export-binder-revision-note');
         const logged = this.logBinderRevision(this.getPullSheetSettings().rev, noteEl ? noteEl.value : '');
         if (logged && noteEl) noteEl.value = '';
+        if (remembered && !logged) {
+            this.saveState('Remember Binder Sheets');
+            this._persistBinderInfo();
+        }
         // The sheets as display lists - no bitmaps of the sheets themselves
         // (encoding seventeen 6800-px PNGs nobody reads is seconds of
         // work); the maps ride along as images inside each record.

@@ -1272,17 +1272,6 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
 #preferences-modal .prefs-row span.pm-unit { min-width: 14px; }
 #preferences-modal .prefs-flow-grid { grid-template-columns: repeat(8, 40px); gap: 4px; }
 #preferences-modal .pref-flow-pattern-btn { min-height: 38px; }
-#preferences-modal .pm-logo-none { color: #777; font-size: 12px; }
-#preferences-modal .pm-logo-status { font-size: 11px; color: #e0a060; }
-#preferences-modal #pref-binder-logo-preview {
-    flex: none;
-    max-height: 36px;
-    max-width: 120px;
-    background: #1a1a1a;
-    border: 1px solid #3a3a3a;
-    border-radius: 3px;
-    padding: 2px;
-}
 /* the Appearance box theme.js drops after this anchor sits flush in the
    Look tab; the anchor itself takes no room */
 #preferences-modal .pm-appearance-anchor { display: none; }
