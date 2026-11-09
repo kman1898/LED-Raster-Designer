@@ -2301,7 +2301,7 @@ Object.assign(CanvasRenderer.prototype, {
         // Cmd/Ctrl+Shift+1 - Fit to view
         if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Digit1' && !isTyping) {
             e.preventDefault();
-            this.fitToView();
+            this.fitToView(true);
         }
 
         // Cmd/Ctrl+Shift+2 - Zoom to selection (actual size 1:1)

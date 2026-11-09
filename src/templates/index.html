@@ -2355,20 +2355,24 @@
                     <!-- The 3D view's camera bar: shown in place of the raster
                          and zoom controls while the 3D tab is open. -->
                     <span id="s3d-toolbar" hidden>
+                        <button type="button" id="s3d-tool-move" class="s3d-toggle" data-tooltip="Move handles (W), Arrows on the selected screens slide them along one axis: X red, Y green, Z blue. Hold Ctrl (Cmd on a Mac) while dragging to snap to 6 in steps, or 0.1 m in meters.">Move</button>
+                        <button type="button" id="s3d-tool-rotate" class="s3d-toggle" data-tooltip="Rotate handles (E), Rings on the selected screens turn them: Pitch red, Yaw green, Roll blue. Hold Ctrl (Cmd on a Mac) while dragging to snap to 15&deg; steps.">Rotate</button>
+                        <span class="s3d-bar-gap"></span>
                         <button type="button" id="s3d-mode-persp" class="s3d-toggle" data-tooltip="Perspective, Draw the stage the way a camera sees it.">Perspective</button>
                         <button type="button" id="s3d-mode-ortho" class="s3d-toggle" data-tooltip="Orthographic, Draw the stage without perspective, so sizes read true across the view.">Orthographic</button>
                         <span class="s3d-bar-gap"></span>
-                        <button type="button" data-s3d-view="front" data-tooltip="Front, Look at the stage from the audience.">Front</button>
-                        <button type="button" data-s3d-view="back" data-tooltip="Back, Look at the stage from behind the screens.">Back</button>
-                        <button type="button" data-s3d-view="left" data-tooltip="Left, Look at the stage from the left side.">Left</button>
-                        <button type="button" data-s3d-view="right" data-tooltip="Right, Look at the stage from the right side.">Right</button>
-                        <button type="button" data-s3d-view="top" data-tooltip="Top, Look straight down on the stage.">Top</button>
-                        <button type="button" data-s3d-view="iso" data-tooltip="Iso, Look at the stage from above and to one side.">Iso</button>
-                        <button type="button" id="s3d-fit" data-tooltip="Fit, Frame every screen in the view (Ctrl/Cmd+Shift+1).">Fit</button>
+                        <button type="button" data-s3d-view="front" data-tooltip="Front (1), Look at the stage from the audience.">Front</button>
+                        <button type="button" data-s3d-view="back" data-tooltip="Back (2), Look at the stage from behind the screens.">Back</button>
+                        <button type="button" data-s3d-view="left" data-tooltip="Left (3), Look at the stage from the left side.">Left</button>
+                        <button type="button" data-s3d-view="right" data-tooltip="Right (4), Look at the stage from the right side.">Right</button>
+                        <button type="button" data-s3d-view="top" data-tooltip="Top (5), Look straight down on the stage.">Top</button>
+                        <button type="button" data-s3d-view="iso" data-tooltip="Iso (6), Look at the stage from above and to one side.">Iso</button>
+                        <button type="button" id="s3d-fit" data-tooltip="Fit, Frame every screen in the view (Ctrl/Cmd+Shift+1). Press F to frame the selected screens, or double-click a screen to focus on it.">Fit</button>
+                        <button type="button" id="s3d-home" data-tooltip="Home (Home key), Go back to the starting view: in perspective, from the front and a little to one side, every screen in frame.">Home</button>
                         <span class="s3d-bar-gap"></span>
                         <button type="button" id="s3d-grid" class="s3d-toggle" data-tooltip="Floor grid, Show or hide the floor grid and the origin mark.">Grid</button>
                         <button type="button" id="s3d-bars" class="s3d-toggle" data-tooltip="Header and footer bars, Show or hide the bars the Header/Footer tab builds above and below each screen.">Bars</button>
-                        <span class="s3d-bar-hint">Drag to orbit, right-drag to pan, wheel to zoom. Drag a selected screen to move it; Shift-drag raises or lowers it.</span>
+                        <span class="s3d-bar-hint" data-tooltip="Getting around, Middle-drag orbits around the point under the cursor; Shift+middle-drag or right-drag pans; the wheel zooms toward the cursor. On a trackpad, drag with two fingers to orbit, add Shift to pan, and pinch to zoom. With no middle button, Alt+drag orbits and Alt+Shift+drag pans. Click a screen to select it, Shift+click or Ctrl+click to add one, or drag across empty space to box-select. The arrow keys nudge the selection, Page Up and Page Down raise and lower it, and Shift makes the step bigger.">Middle-drag orbits, Shift+middle-drag pans, wheel zooms. Trackpad: two fingers orbit, pinch zooms.</span>
                     </span>
                     <!-- The IDM Locator's marking tools: shown while that tab
                          is open (app-idm-locator.js). The style and colour
@@ -3606,6 +3610,26 @@
                     <tr><td class="sc-key">Shift+drag a screen onto another canvas</td><td>Move it there; hold <span data-sc-mod>Ctrl</span> or Alt as well to duplicate it there</td></tr>
                     <tr><td class="sc-key">Drag a canvas's dashed outline</td><td>Move the canvas</td></tr>
                     <tr><td class="sc-key">Right-click a screen</td><td>Center on Canvas (X / Y / both) and the rest of the screen menu</td></tr>
+                </table>
+            </section>
+            <section class="sc-group">
+                <h3>3D</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key">Middle-drag</td><td>Orbit around the point under the cursor</td></tr>
+                    <tr><td class="sc-key">Shift+middle-drag / right-drag</td><td>Pan the view</td></tr>
+                    <tr><td class="sc-key">Scroll wheel</td><td>Zoom toward the cursor</td></tr>
+                    <tr><td class="sc-key">Alt+drag / Alt+Shift+drag</td><td>Orbit / pan with a mouse that has no middle button</td></tr>
+                    <tr><td class="sc-key">Two-finger drag / Shift+two-finger drag / pinch</td><td>Orbit / pan / zoom on a trackpad</td></tr>
+                    <tr><td class="sc-key">Click a screen</td><td>Select it; Shift+click or <span data-sc-mod>Ctrl</span>+click adds it or takes it out</td></tr>
+                    <tr><td class="sc-key">Drag across empty space</td><td>Box-select the screens it touches; hold Shift or <span data-sc-mod>Ctrl</span> to add them</td></tr>
+                    <tr><td class="sc-key">Drag a selected screen</td><td>Move it across the floor; Shift+drag raises or lowers it</td></tr>
+                    <tr><td class="sc-key">Double-click a screen</td><td>Focus the camera on it</td></tr>
+                    <tr><td class="sc-key">F / Home</td><td>Frame the selected screens (every screen with none) / go back to the starting view</td></tr>
+                    <tr><td class="sc-key">1 to 6</td><td>Front, Back, Left, Right, Top, Iso views</td></tr>
+                    <tr><td class="sc-key">W / E</td><td>Move arrows / Rotate rings on the selected screens</td></tr>
+                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span> while dragging</td><td>Snap moves to 6 in (0.1 m) and turns to 15&deg;</td></tr>
+                    <tr><td class="sc-key">Arrow keys / Page Up, Page Down</td><td>Nudge the selection across the floor / up and down; Shift for bigger steps</td></tr>
+                    <tr><td class="sc-key">Esc while dragging</td><td>Put the screens back where the drag started</td></tr>
                 </table>
             </section>
             <section class="sc-group">

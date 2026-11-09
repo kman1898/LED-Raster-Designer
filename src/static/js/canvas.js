@@ -3031,10 +3031,18 @@ class CanvasRenderer {
         return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
     }
 
-    fitToView() {
-        // Fit on the 3D tab frames the stage instead (app-stage3d.js).
+    fitToView(byUser = false) {
+        // Fit on the 3D tab frames the stage instead (app-stage3d.js), when
+        // the person asks for it (the shortcut, View > Fit). The fits the
+        // app makes by itself - at launch, on a load, on a new screen -
+        // leave the 3D camera where it is: a reload into the tab kept its
+        // saved camera only when the fit happened to look the same way,
+        // and the camera never moves by surprise. The tab frames itself the
+        // first time a show with no saved camera opens it.
         if (this.viewMode === '3d') {
-            if (window.app && typeof window.app._s3dFit === 'function') window.app._s3dFit(true);
+            if (byUser && window.app && typeof window.app._s3dFit === 'function') {
+                window.app._s3dFit(true, null, { animate: true });
+            }
             return;
         }
         // Multi-canvas (v0.8 Slice 3): fit to the union bbox of all visible
