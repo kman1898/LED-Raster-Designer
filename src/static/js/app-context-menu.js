@@ -362,15 +362,21 @@ class _ContextMenu {
                 ? 'data-shortcut-mac' : 'data-shortcut-win');
             item.textContent = key ? `${word} ${stepWord} (${key})` : `${word} ${stepWord}`;
         });
-        // The Del key deletes no screen on the 3D tab or the Header/Footer
-        // tab (canvas-input.js), so Delete Screen does not offer it there.
+        // Delete Screen (Matt, 2026-11-08): on the canvas only on the Pixel
+        // Map tab, the one tab where the Del key deletes a screen too
+        // (canvas-input.js); the Screens list's own right-click offers it on
+        // every tab, with the (Del) hint only where the key does it. It
+        // sits among Copy, Paste and Duplicate, so no divider is left
+        // hanging when it goes.
         const deleteItem = menu.querySelector('[data-action="delete"]');
         if (deleteItem) {
             const label = deleteItem.getAttribute('data-label') || 'Delete Screen';
             const key = deleteItem.getAttribute(this._isMacPlatform()
                 ? 'data-shortcut-mac' : 'data-shortcut-win');
-            const noDelKey = window.canvasRenderer && ['3d', 'rigging'].includes(window.canvasRenderer.viewMode);
-            deleteItem.textContent = (key && !noDelKey) ? `${label} (${key})` : label;
+            const pixelMap = !!(window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map');
+            const inList = !!(under && under.closest && under.closest('#layers-list'));
+            deleteItem.style.display = !inDock && (pixelMap || inList) ? '' : 'none';
+            deleteItem.textContent = (key && pixelMap) ? `${label} (${key})` : label;
         }
 
         menu.style.visibility = 'hidden';

@@ -686,8 +686,10 @@ def test_one_gesture_after_another(page):
 
 # ── Delete and the right-click menu on the 3D tab ───────────────────────
 # Matt, 2026-11-08: Delete and Backspace on the 3D tab do nothing (too easy
-# to hit there by accident); the right-click Delete Screen stays. Previous
-# and Next Port mean nothing in 3D, so the menu drops them there.
+# to hit there by accident). The canvas right-click Delete Screen is on the
+# Pixel Map tab only (the later ruling the same day); the Screens list's
+# right-click still deletes here. Previous and Next Port mean nothing in 3D,
+# so the menu drops them there.
 
 def layer_ids(page):
     return page.evaluate("window.app.project.layers.map(l => l.id).sort((a, b) => a - b)")
@@ -764,14 +766,15 @@ def test_the_3d_menu_has_no_port_steps_and_pixel_map_keeps_them(page):
         assert not menu_shows(page, 'prev-port')
         assert not menu_shows(page, 'next-port')
         assert not page.evaluate(PORT_DIVIDER_JS)
-        # Delete Screen stays, without a Del key it would not answer to here.
-        assert menu_shows(page, 'delete')
-        assert page.inner_text('#context-menu [data-action="delete"]') == 'Delete Screen'
+        # The canvas menu has no Delete Screen off Pixel Map.
+        assert not menu_shows(page, 'delete')
     finally:
         page.evaluate("window.app.hideContextMenu()")
-    # Delete Screen from the menu still deletes on 3D.
-    page.mouse.click(*at, button='right')
+    # The Screens list's right-click still deletes on 3D, with no Del hint.
+    page.locator(f'#layers-list .layer-item[data-layer-id="{ids[0]}"] .layer-info').click(button='right')
     page.wait_for_selector('#context-menu', state='visible')
+    assert menu_shows(page, 'delete')
+    assert page.inner_text('#context-menu [data-action="delete"]') == 'Delete Screen'
     page.click('#context-menu [data-action="delete"]')
     got = settled(page, lambda: layer_ids(page), lambda v: v == [ids[1]], 5000)
     assert got == [ids[1]], got

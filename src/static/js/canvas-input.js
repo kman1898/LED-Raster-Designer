@@ -2254,26 +2254,28 @@ Object.assign(CanvasRenderer.prototype, {
             if (!this.isDragging) this.canvas.style.cursor = 'grab';
         }
         
-        // Delete key - only delete layer if NOT typing. A delete clears the
-        // selection the moment it starts, so a press while one is landing
-        // goes through too: deleteCurrentLayer holds it for when it lands.
-        // On the 3D tab the keys do nothing (Matt, 2026-11-08: too easy to
-        // hit there by accident). On the Header/Footer tab they take off the
-        // picked bar (a click on it) and nothing else: with no bar picked
-        // they do nothing, and never delete a screen (owner, 2026-11-08,
-        // the same ruling). On both, the right-click Delete Screen and the
-        // Screens list's own delete still work. A focused field is never
-        // reached here, so it keeps its own keys.
-        if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping && this.viewMode === '3d') {
-            e.preventDefault();
-        } else if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping
-                && this.viewMode === 'rigging') {
-            e.preventDefault();
-            if (window.app && window.app._riggingPicked) window.app.removePickedRiggingBar();
-        } else if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping) {
-            if (window.app && (window.app.currentLayer || window.app.deletionInProgress)) {
+        // Delete and Backspace (Matt, 2026-11-08): Pixel Map is the only
+        // tab where the key deletes a screen, so a stray key never costs
+        // one. On Header/Footer it takes off the picked bar, or with none
+        // picked the selected screens' bars (app-rigging.js
+        // riggingDeleteKey); the IDM Locator clears its mark before this is
+        // reached (app-idm-locator.js _idmKeyDown); every other tab, 3D
+        // included, does nothing. The Screens list's right-click Delete
+        // Screen works on every tab. A focused field is never reached here,
+        // so it keeps its own keys.
+        //
+        // On Pixel Map a delete clears the selection the moment it starts,
+        // so a press while one is landing goes through too:
+        // deleteCurrentLayer holds it for when it lands.
+        if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping) {
+            if (this.viewMode === 'pixel-map') {
+                if (window.app && (window.app.currentLayer || window.app.deletionInProgress)) {
+                    e.preventDefault();
+                    window.app.deleteCurrentLayer();
+                }
+            } else {
                 e.preventDefault();
-                window.app.deleteCurrentLayer();
+                if (this.viewMode === 'rigging' && window.app && !e.repeat) window.app.riggingDeleteKey();
             }
         }
         

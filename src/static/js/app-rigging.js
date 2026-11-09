@@ -624,6 +624,17 @@ class _Rigging {
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
+    // Delete or Backspace on this tab (canvas-input.js; Matt, 2026-11-08):
+    // the picked bar goes; with none picked, the selected screens' bars go,
+    // as Clear takes them (both rows on an older show's screen with both),
+    // one undo step, a locked screen named and left as it is. Never a
+    // screen.
+    riggingDeleteKey() {
+        if (this._riggingPicked) return this.removePickedRiggingBar();
+        this.clearRiggingBars();
+        return true;
+    }
+
     removePickedRiggingBar() {
         const p = this._riggingPicked;
         this._riggingPicked = null;

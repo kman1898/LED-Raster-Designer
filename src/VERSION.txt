@@ -47,9 +47,8 @@ Thanks to kcikcreative33 for this one.
   where it will land, a new bar replaces any it covers, and gaps are fine,
   say over a truss leg. A press on the wall itself still selects and drags
   the screen. Auto or Custom is saved with the show.
-- NEW: Click a bar and press Delete, or right-click it, to take it off. On
-  this tab Delete never deletes a screen; right-click it and pick Delete
-  Screen instead.
+- NEW: Click a bar and press Delete, or right-click it, to take it off.
+  With no bar clicked, Delete clears the selected screens' bars.
 - NEW: Grouped screens standing edge to edge in Show Look share one row of
   bars, and a bar can run across the seam. Two 11 wide walls take eleven
   doubles between them. A bar across a seam is counted once, on the screen
@@ -193,6 +192,11 @@ FIXES
   other screens too, where its first screen falls.
 - FIX: Delete pressed twice quickly deletes twice, or says the last screen
   cannot be deleted. The second press used to be lost without a word.
+- FIX: Delete removes a screen only on the Pixel Map tab, so a stray key
+  never costs a screen. On Header/Footer it clears the bars, on the IDM
+  Locator the mark, and elsewhere it does nothing. The canvas right-click
+  Delete Screen is on Pixel Map only; the Screens list's right-click still
+  deletes on every tab.
 - FIX: A group's up and down arrows move it among the rows of the canvas
   it is listed under, also when Show Look has one of its screens on
   another canvas.

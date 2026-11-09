@@ -797,43 +797,96 @@ def test_auto_or_custom_is_saved_with_the_show(pg):
         assert _tool(p) == [shown], (saved, _tool(p))
 
 
-def test_delete_on_this_tab_never_deletes_a_screen(pg):
+def _has(p, name):
+    return p.evaluate("(id) => window.app.project.layers.some(l => l.id === id)", p.ids[name])
+
+
+def test_delete_takes_off_the_picked_bar_or_the_selected_screens_bars_never_a_screen(pg):
+    """Matt, 2026-11-08: on this tab Delete and Backspace take off the
+    picked bar; with none picked they clear the selected screens' bars, as
+    Clear does, one undo step; a locked screen is named and kept; a screen
+    is never deleted. Delete Screen is on the Screens list's right-click
+    only."""
     p = pg
     tab(p)
     view(p)
     sel(p, 'A')
     n = steps(p)
+    # no bars yet: nothing to take off, and the screen stays
     for key in ('Delete', 'Backspace'):
         p.keyboard.press(key)
         p.wait_for_timeout(400)
-        assert p.evaluate("(id) => window.app.project.layers.some(l => l.id === id)", p.ids['A']), key
+        assert _has(p, 'A'), key
     assert steps(p) == n
-    # a picked bar still goes with Delete or Backspace, and the screen stays
+    # a picked bar goes with Backspace, one step
     auto(p, 'A', size=2)
     custom(p, 2)
+    n = steps(p)
     click_at(p, bar_point(p, 'A', 0))
     p.keyboard.press('Backspace')
     p.wait_for_timeout(300)
-    assert bars(p, 'A') == [[2, 2], [4, 2], [6, 2], [8, 2], [10, 2]]
-    # nothing picked now: a second press takes nothing more off
+    assert bars(p, 'A') == [[2, 2], [4, 2], [6, 2], [8, 2], [10, 2]] and steps(p) == n + 1
+    # nothing picked: Delete clears the selected screen's bars, one step
     p.keyboard.press('Delete')
     p.wait_for_timeout(300)
-    assert len(bars(p, 'A')) == 5
-    assert p.evaluate("(id) => window.app.project.layers.some(l => l.id === id)", p.ids['A'])
-    # the right-click Delete Screen still deletes, without the Del hint it
-    # would not answer to here
+    assert bars(p, 'A') == [] and steps(p) == n + 2 and _has(p, 'A')
+    undo(p)
+    assert bars(p, 'A') == [[2, 2], [4, 2], [6, 2], [8, 2], [10, 2]]
+    redo(p)
+    assert bars(p, 'A') == []
+    # a group's row goes whole, both members, from either one
+    p.locator('.rigging-tool-btn[data-tool="auto"]').click()
+    auto(p, 'PL', size=2)
+    sel(p, 'PR')
+    p.keyboard.press('Delete')
+    p.wait_for_timeout(300)
+    assert bars(p, 'PL') == [] and bars(p, 'PR') == [] and _has(p, 'PL') and _has(p, 'PR')
+    # a locked screen is named and stays as it is
+    auto(p, 'A', size=2)
+    p.evaluate("() => window.app.setLockOnSelected(true)")
+    p.wait_for_timeout(200)
+    clear_toasts(p)
+    n = steps(p)
+    p.keyboard.press('Delete')
+    p.wait_for_timeout(300)
+    assert len(bars(p, 'A')) == 6 and steps(p) == n
+    assert any('A is locked' in t for t in toasts(p)), toasts(p)
+    p.evaluate("() => window.app.setLockOnSelected(false)")
+    p.wait_for_timeout(200)
+    # the canvas right-click has no Delete Screen on this tab
     pt = wall_point(p, 'A', 5, row=2)
     p.mouse.click(pt['x'], pt['y'], button='right')
+    p.wait_for_timeout(250)
+    assert not p.locator('#context-menu [data-action="delete"]').is_visible()
+    p.keyboard.press('Escape')
+    p.evaluate("() => window.app.hideContextMenu()")
+    # the Screens list's does, without the Del hint, and it deletes
+    p.locator(f'#layers-list .layer-item[data-layer-id="{p.ids["A"]}"] .layer-info').click(button='right')
     p.wait_for_timeout(250)
     item = p.locator('#context-menu [data-action="delete"]')
     assert item.is_visible() and item.inner_text() == 'Delete Screen'
     item.click()
     p.wait_for_timeout(500)
-    assert not p.evaluate("(id) => window.app.project.layers.some(l => l.id === id)", p.ids['A'])
+    assert not _has(p, 'A')
     # and Keyboard Shortcuts says so
     row = p.evaluate("""() => [...document.querySelectorAll('tr')].map(t => t.textContent)
         .find(t => t.startsWith('Delete / Backspace'))""")
-    assert 'not on the 3D or Header/Footer tab' in row, row
+    assert 'on the Pixel Map tab' in row and 'Header/Footer' in row and 'IDM Locator' in row, row
+
+
+def test_delete_on_an_older_screen_with_both_rows_clears_both(pg):
+    p = pg
+    p.evaluate(SAVE_BOTH_JS, p.ids['A'])
+    reopen(p)
+    tab(p)
+    sel(p, 'A')
+    n = steps(p)
+    p.keyboard.press('Delete')
+    p.wait_for_timeout(300)
+    assert lay(p, 'A', 'riggingBars', 'riggingFooterBars') == {'riggingBars': [], 'riggingFooterBars': []}
+    assert steps(p) == n + 1 and _has(p, 'A')
+    undo(p)
+    assert lay(p, 'A', 'riggingBars', 'riggingFooterBars') == {'riggingBars': [4, 4, 4], 'riggingFooterBars': [2] * 6}
 
 
 def _new_layer(p, js, *args):
