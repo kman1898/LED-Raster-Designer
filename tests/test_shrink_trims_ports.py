@@ -242,7 +242,12 @@ def type_columns(page, n):
         el.value = String(n);
         el.dispatchEvent(new Event('change', { bubbles: true }));
     }""", n)
-    page.wait_for_timeout(700)
+    # the commit lands, then everything it sent: the screen's save and the
+    # cards following its ports (_layerSavesSettled waits on the pin
+    # follows too). A fixed 700 ms read the pins before they had moved on
+    # a loaded CI runner.
+    page.wait_for_function("(n) => window.app.currentLayer && window.app.currentLayer.columns === n", arg=n)
+    page.evaluate("async () => { await window.app._layerSavesSettled(); await window.app._layerSavesSettled(); }")
 
 
 def row_ports_across(columns):

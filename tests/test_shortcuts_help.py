@@ -45,6 +45,7 @@ GROUP_HEADINGS = [
     'Everywhere',
     'Pixel Map',
     'Show Look',
+    '3D',
     'Data view & the tray',
     'Power view & the tray',
     'Screens & Beaches panels',

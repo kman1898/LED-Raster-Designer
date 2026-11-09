@@ -1518,6 +1518,12 @@ export class LEDRasterApp {
         const sheet = typeof this._pullSheetStateSettled === 'function'
             ? this._pullSheetStateSettled() : null;
         if (sheet) pending.push(sheet);
+        // and the pin follows (app-merge-runs _queuePinFollow): a shrink's
+        // ports closing up move the cards on the server a moment after the
+        // screen's own save. Left out, New or Open could go ahead with one
+        // still on its way, and it would move the pins of the show just
+        // opened (1.7.0 CI: a shrink read before its pins had moved).
+        if (this._pinFollowTail) pending.push(this._pinFollowTail);
         return Promise.all(pending.map(p => Promise.resolve(p).catch(() => {})));
     }
 
