@@ -132,19 +132,23 @@ W, H, PT = SHEETS['tabloid']
 SCALE = 2
 MAP_SCALE = 1.5
 # The frame: the border PAD in, the title block TB_W wide inside it on the
-# right, the drawing area DA_PAD in from both.
-PAD, TB_W, DA_PAD = 50, 480, 30
+# right, the drawing area DA_PAD in from both at the top and the sides and
+# DA_FOOT in at the foot, where the rev line prints (2026-11-08: 0.05 in,
+# was 0.15 in all round).
+PAD, TB_W, DA_PAD, DA_FOOT = 50, 480, 10, 30
 
 
 def _da(w, h, block=True):
     """The drawing area on a sheet of `w` x `h` page pixels, with the title
     block column standing or not. With it, DA_PAD inside the border; without
     it there is no border to clear and the drawing runs to the quarter inch,
-    PAD (2026-11-08: "there is just a ton of room in the margins")."""
+    PAD (2026-11-08: "there is just a ton of room in the margins"). With
+    it, DA_PAD clears the rule and DA_FOOT keeps the rev line's strip."""
     inset = DA_PAD if block else 0
+    foot = DA_FOOT if block else 0
     return {'x': PAD + inset, 'y': PAD + inset,
             'w': w - PAD * 2 - (TB_W if block else 0) - inset * 2,
-            'h': h - PAD * 2 - inset * 2}
+            'h': h - PAD * 2 - inset - foot}
 
 
 # The title block switch (the export dialog's Binder block, default ON).
@@ -1464,9 +1468,10 @@ def test_the_packer_lays_blocks_whole_splits_only_the_tall_and_repeats_the_heads
     """Four tables into columns: with room, a block follows the one before
     it (a gap between) and moves whole to the next column where it would
     not fit under; a block taller than a column is split at a line, its
-    title and heading repeated where it continues, and a band never ends
-    a column; what no column holds comes back as the rest, the split
-    block's remainder headed, for the next sheet."""
+    title and heading repeated where it continues - and the band its
+    first rows stand under (2026-11-08) - and a band never ends a column;
+    what no column holds comes back as the rest, the split block's
+    remainder headed, for the next sheet."""
     pg, ids = page
     t1 = H4_H + TH_H + 3 * BAND_H + 15 * ROW_H          # 794
     t2 = H4_H + TH_H + BAND_H + 2 * ROW_H               # 208
@@ -1492,13 +1497,14 @@ def test_the_packer_lays_blocks_whole_splits_only_the_tall_and_repeats_the_heads
             assert b[1] in (a[1] + a[2], a[1] + a[2] + BLOCK_GAP), (a, b)
     # too little room: T1 is split - column 1 holds its heads, band A and
     # its rows, band B and the rows that fit; column 2 opens with the
-    # heads again over the rest of band B and band C; T2 - T4 are the rest
+    # heads again, band B repeated over the rest of its rows (they are
+    # still band B's), then band C; T2 - T4 are the rest
     out = pg.evaluate(PACK_JS, [500, 2])
     c1, c2 = out['cols']
     assert [i[0] for i in c1['items']] == ['T1', 'A', 'BAND A'] + [f'BAND A-{i}' for i in range(1, 6)] \
         + ['BAND B', 'BAND B-1', 'BAND B-2', 'BAND B-3']
     assert c1['h'] <= 500
-    assert [i[0] for i in c2['items']] == ['T1', 'A', 'BAND B-4', 'BAND B-5', 'BAND B-6', 'BAND B-7', 'BAND C'] \
+    assert [i[0] for i in c2['items']] == ['T1', 'A', 'BAND B', 'BAND B-4', 'BAND B-5', 'BAND B-6', 'BAND B-7', 'BAND C'] \
         + [f'BAND C-{i}' for i in range(1, 4)]
     assert c2['h'] <= 500
     assert out['rest'] == [['T2', 'A', 'BAND D', 'BAND D-1', 'BAND D-2'], ['T3', 'A', 'BAND E', 'BAND E-1'],
@@ -1511,10 +1517,10 @@ def test_the_packer_lays_blocks_whole_splits_only_the_tall_and_repeats_the_heads
     assert [i[0] for i in c1['items']] == ['T1', 'A', 'BAND A'] + [f'BAND A-{i}' for i in range(1, 6)]
     assert [i[0] for i in c2['items']][:4] == ['T1', 'A', 'BAND B', 'BAND B-1']
     # a column too short for even a row still takes the heads and one row,
-    # so nothing loops
+    # so nothing loops; the rest repeats band A over its remaining rows
     out = pg.evaluate(PACK_JS, [10, 1])
     assert [i[0] for i in out['cols'][0]['items']] == ['T1', 'A', 'BAND A', 'BAND A-1']
-    assert out['rest'][0][:4] == ['T1', 'A', 'BAND A-2', 'BAND A-3']
+    assert out['rest'][0][:4] == ['T1', 'A', 'BAND A', 'BAND A-2']
 
 
 def test_a_sheet_whose_tables_do_not_fit_continues_on_the_next_number(page):
@@ -3427,7 +3433,7 @@ NINE_BY_FIVE_JS = """async () => {
 
 # ARCH C: 24 x 18 in at 200 px/in, its drawing area by the same frame.
 ARCHC_W, ARCHC_H = 4800, 3600
-DA_ARCHC = {'x': PAD + DA_PAD, 'y': PAD + DA_PAD, 'w': ARCHC_W - PAD - TB_W - PAD - DA_PAD * 2, 'h': ARCHC_H - PAD * 2 - DA_PAD * 2}
+DA_ARCHC = {'x': PAD + DA_PAD, 'y': PAD + DA_PAD, 'w': ARCHC_W - PAD - TB_W - PAD - DA_PAD * 2, 'h': ARCHC_H - PAD * 2 - DA_PAD - DA_FOOT}
 def test_the_fill_picks_the_layout_that_covers_most(page):
     """Coverage decides (2026-09-08, on his buddy's 9 x 5 IMAG walls: the map
     filled the width, the tables sat at 1x in one column and the lower

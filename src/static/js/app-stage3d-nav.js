@@ -101,6 +101,22 @@ class _Stage3DNav {
         this._s3dNudgeCommit();
         this._s3dEndCameraMove(true);
         const touch = ev.pointerType === 'touch';
+        // On a Mac, Ctrl+click is the right click (a one-button mouse, a
+        // trackpad): it opens the menu on release, like the right button,
+        // and never draws a box or moves the camera. Cmd+click adds to the
+        // selection there; on Windows Ctrl+click still adds.
+        if (!touch && ev.button === 0 && ev.ctrlKey && !ev.altKey && !ev.metaKey
+                && typeof this._isMacPlatform === 'function' && this._isMacPlatform()) {
+            ev.preventDefault();
+            this._s3dReleaseField();
+            st.nav = {
+                kind: 'menu', id: ev.pointerId, x: ev.clientX, y: ev.clientY,
+                lastX: ev.clientX, lastY: ev.clientY, moved: false,
+            };
+            if (st.controls) st.controls.enabled = false;
+            try { st.renderer.domElement.setPointerCapture(ev.pointerId); } catch (e) { /* a dispatched press */ }
+            return;
+        }
         const camera = !touch && (ev.button === 1 || ev.button === 2 || (ev.button === 0 && ev.altKey));
         if (camera) {
             ev.preventDefault();
@@ -250,6 +266,18 @@ class _Stage3DNav {
             } else if (n.button === 2 && !cancelled) {
                 // A right click that did not pan: the app's menu, as before.
                 if (typeof this.showContextMenu === 'function') this.showContextMenu(ev.clientX, ev.clientY);
+            }
+            return;
+        }
+        if (n.kind === 'menu') {
+            // A Mac's Ctrl+click: the app's menu, as a right click opens it.
+            // The left button's click that may follow would close it again
+            // (the document's click shuts menus), so that one click is held.
+            if (!cancelled && typeof this.showContextMenu === 'function') {
+                const hold = (e) => { e.stopPropagation(); e.preventDefault(); };
+                window.addEventListener('click', hold, { capture: true, once: true });
+                setTimeout(() => window.removeEventListener('click', hold, true), 300);
+                this.showContextMenu(ev.clientX, ev.clientY);
             }
             return;
         }

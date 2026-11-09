@@ -201,6 +201,13 @@ FIXES
   side and the wall draws bigger.
 - FIX: With the title block off, binder sheets print to a quarter inch
   from the edge of the paper instead of leaving 0.4 in of blank margin.
+  With it on, the drawing now starts just inside the border line instead
+  of 0.15 in in from it, so the wall and tables get that room too.
+- FIX: When a binder table runs on into a second column, the second part
+  repeats the band its rows belong to (like "H9 Card 1 · 16 ports"), not
+  just the title and the column headings.
+- FIX: Cabinet ID, Data and Power no longer show a move cursor on a
+  canvas edge. The edge only moves on Pixel Map and Show Look.
 
 v1.6.0 - November 6, 2026
 ----------------------------

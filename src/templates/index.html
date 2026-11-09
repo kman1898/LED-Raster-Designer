@@ -2413,7 +2413,6 @@
                         <span class="s3d-bar-gap"></span>
                         <button type="button" id="s3d-grid" class="s3d-toggle" data-tooltip="Floor grid, Show or hide the floor grid and the origin mark.">Grid</button>
                         <button type="button" id="s3d-bars" class="s3d-toggle" data-tooltip="Header and footer bars, Show or hide the bars the Header/Footer tab builds above and below each screen.">Bars</button>
-                        <span class="s3d-bar-hint" data-tooltip="Getting around, Middle-drag orbits around the point under the cursor; Shift+middle-drag or right-drag pans; the wheel zooms toward the cursor. On a trackpad, drag with two fingers to orbit, add Shift to pan, and pinch to zoom. With no middle button, Alt+drag orbits and Alt+Shift+drag pans. Click a screen to select it, Shift+click or Ctrl+click to add one, or drag across empty space to box-select. The arrow keys nudge the selection, Page Up and Page Down raise and lower it, and Shift makes the step bigger.">Middle-drag orbits, Shift+middle-drag pans, wheel zooms. Trackpad: two fingers orbit, pinch zooms.</span>
                     </span>
                     <!-- The IDM Locator's marking tools: shown while that tab
                          is open (app-idm-locator.js). The style and colour
@@ -2443,6 +2442,10 @@
                          tab is open (app-stage3d.js puts its own canvas in). -->
                     <div id="s3d-view" hidden>
                         <div id="s3d-message" hidden></div>
+                        <!-- How to get around, one line in the view's corner: it never
+                             takes a line of the camera bar, and a narrow view cuts it
+                             short (the tooltip and Keyboard Shortcuts hold the rest). -->
+                        <span id="s3d-hint" class="s3d-bar-hint" data-tooltip="Getting around, Middle-drag orbits around the point under the cursor; Shift+middle-drag or right-drag pans; the wheel zooms toward the cursor. On a trackpad, drag with two fingers to orbit, add Shift to pan, and pinch to zoom. With no middle button, Alt+drag orbits and Alt+Shift+drag pans. Click a screen to select it, Shift+click or Ctrl+click (Cmd+click on a Mac) to add one, or drag across empty space to box-select. Right-click, or Control+click on a Mac, opens the screen menu. The arrow keys nudge the selection, Page Up and Page Down raise and lower it, and Shift makes the step bigger. Help > Keyboard Shortcuts lists every gesture.">Middle-drag orbits, Shift+middle-drag pans, wheel zooms. Trackpad: two fingers orbit, pinch zooms.</span>
                     </div>
                 </div>
                 <!-- The hardware dock: the tray the Data and Power views'
@@ -3664,6 +3667,7 @@
                     <tr><td class="sc-key">Alt+drag / Alt+Shift+drag</td><td>Orbit / pan with a mouse that has no middle button</td></tr>
                     <tr><td class="sc-key">Two-finger drag / Shift+two-finger drag / pinch</td><td>Orbit / pan / zoom on a trackpad</td></tr>
                     <tr><td class="sc-key">Click a screen</td><td>Select it; Shift+click or <span data-sc-mod>Ctrl</span>+click adds it or takes it out</td></tr>
+                    <tr><td class="sc-key">Right-click (Control+click on a Mac)</td><td>Open the screen menu</td></tr>
                     <tr><td class="sc-key">Drag across empty space</td><td>Box-select the screens it touches; hold Shift or <span data-sc-mod>Ctrl</span> to add them</td></tr>
                     <tr><td class="sc-key">Drag a selected screen</td><td>Move it across the floor; Shift+drag raises or lowers it</td></tr>
                     <tr><td class="sc-key">Double-click a screen</td><td>Focus the camera on it</td></tr>

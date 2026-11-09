@@ -1225,13 +1225,13 @@ Object.assign(CanvasRenderer.prototype, {
         } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingGroupName && !this.isDraggingCanvas) {
             // Slice 5: hovering a canvas's outline edge → show 'move' so
             // the user knows they can grab it. Skip when a modifier is
-            // held (other actions own those gestures). On the
-            // Header/Footer tab the bars and the Custom strip come first,
-            // as they do for a press (handleMouseDown): a wall standing on
-            // the canvas's edge has its strip there.
-            const canvasEdge = () => !e.shiftKey && !e.altKey && !this.isSelectingPanels
-                && !this.isSelectingLayers && this._canvasEdgeAtPoint(worldX, worldY);
-            if (this.viewMode !== 'rigging' && canvasEdge()) {
+            // held (other actions own those gestures). Only on the tabs
+            // where the press really drags the canvas (handleMouseDown's
+            // canvasDragAllowed: Pixel Map and Show Look); on Cabinet ID,
+            // Data, Power and Header/Footer the edge does not move.
+            if ((this.viewMode === 'pixel-map' || this.viewMode === 'show-look')
+                && !e.shiftKey && !e.altKey && !this.isSelectingPanels && !this.isSelectingLayers
+                && this._canvasEdgeAtPoint(worldX, worldY)) {
                 this.canvas.style.cursor = 'move';
             } else if (this.viewMode === 'rigging' && this.riggingEdgeAt(mouseX, mouseY)) {
                 this._riggingHover(null);
@@ -1241,8 +1241,6 @@ Object.assign(CanvasRenderer.prototype, {
                 this.canvas.style.cursor = 'grab';          // a bar
             } else if (this.viewMode === 'rigging' && this._riggingHover(mouseX, mouseY)) {
                 this.canvas.style.cursor = 'copy';          // Custom: where a click drops a bar
-            } else if (canvasEdge()) {
-                this.canvas.style.cursor = 'move';
             } else {
                 this.canvas.style.cursor = 'default';
             }

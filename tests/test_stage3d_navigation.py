@@ -25,6 +25,12 @@ What this file pins, each with real mouse, wheel and key events:
   drag back, one undo step per drag, a locked screen refuses and is named, a
   group moves as one, W and E switch, and the arrow keys nudge in one undo
   step per burst.
+* The how-to-get-around hint is one line in the view's corner: the camera
+  bar keeps one row from a 1280 px window up, a narrow view cuts the hint
+  short, and the tooltip holds every gesture.
+* On a Mac, Ctrl+click is the right click: it opens the menu and never
+  selects, box-selects or moves the camera; Cmd+click adds there. On
+  Windows Ctrl+click still adds and opens no menu.
 
 Run locally:
     python -m pytest tests/test_stage3d_navigation.py -v -p no:cacheprovider
@@ -782,4 +788,122 @@ def test_the_3d_menu_has_no_port_steps_and_pixel_map_keeps_them(page):
         assert page.inner_text('#context-menu [data-action="delete"]').startswith('Delete Screen (')
     finally:
         page.evaluate("window.app.hideContextMenu()")
+    assert page.errors == []
+
+
+# ── the hint, and a Mac's Ctrl+click ─────────────────────────────────────
+
+HINT_JS = """() => {
+    const h = document.getElementById('s3d-hint');
+    const bar = document.getElementById('s3d-toolbar');
+    const btn = bar.querySelector('button').getBoundingClientRect();
+    const tops = new Set([...bar.querySelectorAll('button')].filter(c => c.offsetParent)
+        .map(c => Math.round(c.getBoundingClientRect().top)));
+    const lh = parseFloat(getComputedStyle(h).lineHeight);
+    return {inView: !!h.closest('#s3d-view'), inBar: !!h.closest('#s3d-toolbar'),
+            height: h.getBoundingClientRect().height, lineH: lh, rects: h.getClientRects().length,
+            clipped: h.scrollWidth > h.clientWidth, barRows: tops.size,
+            barH: bar.getBoundingClientRect().height, btnH: btn.height,
+            text: h.textContent, tip: h.getAttribute('data-tooltip')};
+}"""
+
+
+def test_the_hint_takes_one_line_and_no_height_from_the_view(page):
+    fresh(page)
+    try:
+        for w in (1280, 1440, 1920):
+            page.set_viewport_size({'width': w, 'height': 900})
+            page.wait_for_timeout(250)
+            got = page.evaluate(HINT_JS)
+            # in the view's corner, never a line of the camera bar
+            assert got['inView'] and not got['inBar'], got
+            assert got['barRows'] == 1 and got['barH'] < got['btnH'] * 1.5, (w, got)
+            assert got['height'] < got['lineH'] * 2, (w, got)
+            assert not got['clipped'], (w, got)
+            assert 'Middle-drag orbits' in got['text']
+        # the whole gesture list rides the tooltip
+        for words in ('Alt+drag', 'Right-click, or Control+click on a Mac', 'Page Up', 'Keyboard Shortcuts'):
+            assert words in got['tip'], words
+        # a narrow view cuts it short on its one line
+        page.set_viewport_size({'width': 900, 'height': 900})
+        page.wait_for_timeout(250)
+        got = page.evaluate(HINT_JS)
+        assert got['clipped'] and got['height'] < got['lineH'] * 2, got
+    finally:
+        page.set_viewport_size({'width': 1500, 'height': 900})
+        page.wait_for_timeout(250)
+
+
+MAC_INIT = """Object.defineProperty(Navigator.prototype, 'platform', {get: () => 'MacIntel'});"""
+
+
+def menu_open(pg):
+    return pg.evaluate("getComputedStyle(document.getElementById('context-menu')).display") != 'none'
+
+
+def test_a_mac_ctrl_click_opens_the_menu_and_selects_nothing(e2e_server, pw_browser):
+    context = _context(pw_browser, init=MAC_INIT)
+    pg = context.new_page()
+    pg.errors = []
+    pg.on('pageerror', lambda err: pg.errors.append(str(err)))
+    try:
+        pg.goto(e2e_server, wait_until='domcontentloaded')
+        pg.wait_for_timeout(2000)
+        assert pg.evaluate("window.app._isMacPlatform()") is True
+        ids = fresh(pg)
+        view(pg, 'front')
+        lower = screen(pg, ids[1])['at']
+        upper = screen(pg, ids[0])['at']
+        pg.mouse.click(*lower)
+        pg.wait_for_timeout(300)
+        assert selected(pg) == [ids[1]]
+        cam = camera(pg)
+        # Ctrl+click on the other screen: the menu, and the selection stays
+        pg.keyboard.down('Control')
+        pg.mouse.click(*upper)
+        pg.keyboard.up('Control')
+        pg.wait_for_selector('#context-menu', state='visible')
+        assert selected(pg) == [ids[1]], 'a Mac Ctrl+click added to the selection'
+        assert camera(pg) == cam, 'a Mac Ctrl+click moved the camera'
+        pg.evaluate("window.app.hideContextMenu()")
+        # Ctrl+drag across empty space: no box, no camera move
+        rect = pg.evaluate("document.getElementById('s3d-canvas').getBoundingClientRect().toJSON()")
+        corner = (rect['left'] + 20, rect['top'] + 20)
+        boxes = []
+        drag(pg, corner, (upper[0] + 5, lower[1] + 5), keys=('Control',),
+             before_up=lambda: boxes.append(pg.evaluate(
+                 "(() => { const b = document.getElementById('s3d-box'); return !!b && !b.hidden; })()")))
+        assert boxes == [False], 'a Mac Ctrl+drag drew a selection box'
+        assert selected(pg) == [ids[1]]
+        assert camera(pg) == cam, 'a Mac Ctrl+drag moved the camera'
+        pg.evaluate("window.app.hideContextMenu()")
+        # Cmd+click adds there, and the right button still opens the menu
+        pg.keyboard.down('Meta')
+        pg.mouse.click(*upper)
+        pg.keyboard.up('Meta')
+        pg.wait_for_timeout(300)
+        assert selected(pg) == sorted(ids)
+        assert not menu_open(pg)
+        pg.mouse.click(*upper, button='right')
+        pg.wait_for_selector('#context-menu', state='visible')
+        pg.evaluate("window.app.hideContextMenu()")
+        assert pg.errors == []
+    finally:
+        context.close()
+
+
+def test_ctrl_click_on_windows_still_adds_and_opens_no_menu(page):
+    ids = fresh(page)
+    assert page.evaluate("window.app._isMacPlatform()") is False
+    view(page, 'front')
+    lower = screen(page, ids[1])['at']
+    upper = screen(page, ids[0])['at']
+    page.mouse.click(*lower)
+    page.wait_for_timeout(300)
+    page.keyboard.down('Control')
+    page.mouse.click(*upper)
+    page.keyboard.up('Control')
+    page.wait_for_timeout(300)
+    assert selected(page) == sorted(ids)
+    assert not menu_open(page)
     assert page.errors == []
