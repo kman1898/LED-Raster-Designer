@@ -194,6 +194,9 @@ FIXES
   side and the wall draws bigger.
 - FIX: With the title block off, binder sheets print to a quarter inch
   from the edge of the paper instead of leaving 0.4 in of blank margin.
+- FIX: A screen dragged straight after another change stays under the
+  mouse. The save of that change could land mid-drag and put the screen
+  back where the drag began until the mouse moved again.
 
 v1.6.0 - November 6, 2026
 ----------------------------

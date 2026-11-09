@@ -69,6 +69,9 @@ export class LEDRasterApp {
         // Half-typed field text rides a panel rebuild (app-naming.js
         // _preserveEditorFocus).
         this._trackEditorDrafts();
+        // An echo of this page's own save waits out a gesture
+        // (_holdForGesture).
+        this._wireGestureHold();
         // The Signal and Power panels' markup ships hidden, which is right for
         // the pixel-map view the app opens on. Reconcile anyway so neither can
         // be left behind if the renderer ever boots on another view.
@@ -812,57 +815,9 @@ export class LEDRasterApp {
         });
         this.socket.on('layer_updated', (layer) => {
             console.log('WEBSOCKET layer_updated received for layer:', layer.id);
-            // Undo audit: while an undo/redo restore PUT is on its way to the
-            // server, a layer_updated broadcast describes the PRE-restore
-            // server state (typically the very edit being undone - e.g. the
-            // just-committed drag's offsets). Applying it re-imposed the
-            // undone edit on the restored client project; the restore PUT's
-            // own adopted response is the reconciliation for this window.
-            if (this._restorePutPending) {
-                sendClientLog('socket_layer_updated_suppressed_during_restore',
-                              { id: layer.id });
-                return;
-            }
-            // The echo of this page's own PUT. An older one would put a
-            // stale copy back over a newer edit. The newest one usually
-            // holds exactly what the page already has, and applying it
-            // anyway rebuilt the whole tray at whatever moment it landed -
-            // under load, mid-drag, so a drag back to the tray missed its
-            // drop (full suite, 2026-10-19). Other windows' echoes apply.
             const echo = layer && layer._echo;
             if (layer) delete layer._echo;
-            if (echo && echo.client === this._echoClientId) {
-                const latest = (this._layerPutSeq && this._layerPutSeq.get(layer.id)) || 0;
-                if (echo.seq < latest) {
-                    sendClientLog('socket_layer_updated_suppressed_older_put', { id: layer.id });
-                    return;
-                }
-                // The newest one: applied only when the server changed
-                // something the page does not already hold (a normalized
-                // path, a derived field); the same copy is let go.
-                const mine = (this.project && this.project.layers || []).find(l => l.id === layer.id);
-                // A screen this page has taken out since (deleted, or its
-                // project replaced): the echo landed after the delete.
-                // Applying it put the screen back on this page only, the
-                // server no longer holding it; a reload over the emptied
-                // launch project came back with its startup screen (CI,
-                // 2026-11-04). The server holds socket sends while the
-                // socket upgrades from polling, so an echo can land well
-                // after its PUT's own answer and the DELETE's.
-                if (!mine) {
-                    sendClientLog('socket_layer_updated_suppressed_gone', { id: layer.id });
-                    return;
-                }
-                this._keepLiveFillColors(mine, layer);
-                if (typeof this._canonicalJson === 'function'
-                        && this._canonicalJson(mine) === this._canonicalJson(layer)) {
-                    sendClientLog('socket_layer_updated_suppressed_same_copy', { id: layer.id });
-                    return;
-                }
-            }
-            sendClientLog('socket_layer_updated', { id: layer.id });
-            this.applyServerLayer(layer, 'socket_layer_updated');
-            this.updateUI();
+            this._onSocketLayerUpdated(layer, echo);
         });
         this.socket.on('preferences_updated', (prefs) => {
             console.log('WEBSOCKET preferences_updated received');
@@ -870,6 +825,70 @@ export class LEDRasterApp {
             // the Quick Palettes may now come from the user's own eight
             if (typeof this.renderQuickPalettes === 'function') this.renderQuickPalettes();
         });
+    }
+
+    // layer_updated: a screen as the server now holds it. `echo` names the
+    // PUT it answers when it was one of this page's own (routes_layers
+    // update_layer stamps it; the socket handler takes it off the layer).
+    _onSocketLayerUpdated(layer, echo) {
+        // Undo audit: while an undo/redo restore PUT is on its way to the
+        // server, a layer_updated broadcast describes the PRE-restore
+        // server state (typically the very edit being undone - e.g. the
+        // just-committed drag's offsets). Applying it re-imposed the
+        // undone edit on the restored client project; the restore PUT's
+        // own adopted response is the reconciliation for this window.
+        if (this._restorePutPending) {
+            sendClientLog('socket_layer_updated_suppressed_during_restore',
+                          { id: layer.id });
+            return;
+        }
+        // The echo of this page's own PUT. An older one would put a
+        // stale copy back over a newer edit. The newest one usually
+        // holds exactly what the page already has, and applying it
+        // anyway rebuilt the whole tray at whatever moment it landed -
+        // under load, mid-drag, so a drag back to the tray missed its
+        // drop (full suite, 2026-10-19). Other windows' echoes apply.
+        const own = !!(echo && echo.client === this._echoClientId);
+        // The echo of this page's own save, while a hand is still on a
+        // gesture (a drag, a slider, a picker): held until it lets go,
+        // then run as it would have (_holdForGesture).
+        if (own && this._holdForGesture(`echo:${layer.id}`,
+                () => this._onSocketLayerUpdated(layer, echo))) {
+            sendClientLog('socket_layer_updated_held_for_gesture', { id: layer.id });
+            return;
+        }
+        if (own) {
+            const latest = (this._layerPutSeq && this._layerPutSeq.get(layer.id)) || 0;
+            if (echo.seq < latest) {
+                sendClientLog('socket_layer_updated_suppressed_older_put', { id: layer.id });
+                return;
+            }
+            // The newest one: applied only when the server changed
+            // something the page does not already hold (a normalized
+            // path, a derived field); the same copy is let go.
+            const mine = (this.project && this.project.layers || []).find(l => l.id === layer.id);
+            // A screen this page has taken out since (deleted, or its
+            // project replaced): the echo landed after the delete.
+            // Applying it put the screen back on this page only, the
+            // server no longer holding it; a reload over the emptied
+            // launch project came back with its startup screen (CI,
+            // 2026-11-04). The server holds socket sends while the
+            // socket upgrades from polling, so an echo can land well
+            // after its PUT's own answer and the DELETE's.
+            if (!mine) {
+                sendClientLog('socket_layer_updated_suppressed_gone', { id: layer.id });
+                return;
+            }
+            this._keepUnsavedEdits(mine, layer);
+            if (typeof this._canonicalJson === 'function'
+                    && this._canonicalJson(mine) === this._canonicalJson(layer)) {
+                sendClientLog('socket_layer_updated_suppressed_same_copy', { id: layer.id });
+                return;
+            }
+        }
+        sendClientLog('socket_layer_updated', { id: layer.id });
+        this.applyServerLayer(layer, 'socket_layer_updated', { ownEcho: own });
+        this.updateUI();
     }
 
     // Extract client-side only properties from a layer.
@@ -1039,8 +1058,12 @@ export class LEDRasterApp {
     // socket `layer_updated` handler and by fetch callers whose response
     // carries the rebuilt layer, so both paths merge identically. Returns
     // false when there is nothing to apply (no layer / no project yet).
-    applyServerLayer(layer, reason = 'apply_server_layer') {
+    // `ownEcho`: the layer is the echo of this page's own newest PUT, its
+    // unsaved edits already kept (_keepUnsavedEdits); anything else is
+    // the server's word, and the page's note of what it sent gives way.
+    applyServerLayer(layer, reason = 'apply_server_layer', opts = {}) {
         if (!layer || !this.project || !this.project.layers) return false;
+        if (!(opts && opts.ownEcho)) this._noteLayerHeld(layer);
         const index = this.project.layers.findIndex(l => l.id === layer.id);
         if (index >= 0) {
             // Preserve client-side properties when server sends layer update
@@ -1545,7 +1568,7 @@ export class LEDRasterApp {
         this._layerPutSeq.set(id, seq);
         const marker = (this._layerPutIsAnEdit() ? '?edited=1&' : '?')
             + `seq=${seq}&client=${this._echoClientId}`;
-        const payload = JSON.stringify(body);
+        const payload = this._noteLayerSent(id, body);
         // A PUT still waiting its turn when the whole project is replaced
         // (file open, New, undo, redo) describes a screen that no longer
         // exists - and the new project's screen may carry the same id - so
@@ -1592,19 +1615,142 @@ export class LEDRasterApp {
         return !!(this._layerPutsPending && (this._layerPutsPending.get(id) || 0) > 0);
     }
 
-    // An echo of this page's own PUT (its reply, or the socket's
-    // layer_updated) takes Color 1 and Color 2 from the screen as the page
-    // holds it now. The Hue slider and the color pickers change them on
-    // every move and PUT only when the move ends, so an echo of the PUT
-    // before landing mid-move put that older pair back: the slider then
-    // turned from it, and the screen ended the drag off by however far it
-    // had moved before the echo (2026-11-08). The server keeps the colors
-    // as sent, so the page's pair is never older than the echo's.
-    _keepLiveFillColors(live, echo) {
-        if (!live || !echo) return;
-        ['color1', 'color2'].forEach(key => {
-            if (live[key] !== undefined) echo[key] = live[key];
+    // WHAT THE SERVER HOLDS, AS THIS PAGE KNOWS IT (2026-11-08).
+    //
+    // A gesture changes a screen on every move and saves only when it lets
+    // go: a drag moves offset_x/y (and the cabinets), the Hue slider and
+    // the color pickers turn color1/color2, a bar drag rewrites the bars,
+    // a module stroke marks idm. The reply or the echo of the save BEFORE
+    // it, landing mid-move, carried the screen as that save left it, and
+    // put the older value back: the screen jumped back under the hand, the
+    // slider turned from the old colors, a stroke lost its first marks.
+    //
+    // So a PUT of the screen the page holds notes, per key, the JSON it
+    // sent (`_noteLayerSent`, which also builds the body, so nothing is
+    // stringified twice): the screen as the server will have it. An echo
+    // of the page's own newest PUT then keeps every field the page has
+    // changed since: its value differs from the noted one, so the echo
+    // cannot know of it (`_keepUnsavedEdits`). A field the page has not
+    // touched since takes the server's value, as before, and is noted as
+    // the server's. A PUT of any other object (a few fields, or a copy of
+    // the screen the page has since replaced) says nothing of the screen
+    // the page holds, and notes nothing. While a hand is on a gesture the
+    // echo is held as well (`_holdForGesture`): replacing the screen
+    // object mid-drag cut it off from the gesture still writing into it.
+    _noteLayerSent(id, body) {
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return JSON.stringify(body);
+        const live = this.project && (this.project.layers || []).find(l => l.id === id);
+        const keys = live === body ? new Map() : null;
+        // JSON.stringify of a plain object, one key at a time: the same
+        // text, keys in the same order, undefined values left out.
+        const parts = [];
+        Object.keys(body).forEach(key => {
+            const json = JSON.stringify(body[key]);
+            if (json === undefined) return;
+            if (keys) keys.set(key, json);
+            parts.push(JSON.stringify(key) + ':' + json);
         });
+        if (keys) {
+            if (!this._layerSent) this._layerSent = new Map();
+            this._layerSent.set(id, { project: this.project, keys });
+        }
+        return '{' + parts.join(',') + '}';
+    }
+
+    // The server's own copy of a screen arrived (another window's echo, an
+    // endpoint's answer) and replaces the page's: nothing noted holds now.
+    _noteLayerHeld(layer) {
+        if (layer && this._layerSent) this._layerSent.delete(layer.id);
+    }
+
+    // An echo of this page's own newest PUT (its reply, or the socket's
+    // layer_updated), about to land on `live`: every field the page has
+    // changed since it sent it keeps the page's value, a field it has
+    // added since included (a screen's first bars, marks, 3D place). The
+    // rest are the server's, and noted so.
+    _keepUnsavedEdits(live, echo) {
+        if (!live || !echo) return;
+        const rec = this._layerSent && this._layerSent.get(live.id);
+        if (!rec || rec.project !== this.project) return;
+        const keys = new Set([...rec.keys.keys(), ...Object.keys(live), ...Object.keys(echo)]);
+        keys.forEach(key => {
+            if (key === 'id' || key === '_echo') return;
+            const mine = live[key];
+            if (JSON.stringify(mine) !== rec.keys.get(key)) {
+                if (mine === undefined) delete echo[key];
+                else echo[key] = mine;
+                return;
+            }
+            const json = JSON.stringify(echo[key]);
+            if (json === undefined) rec.keys.delete(key);
+            else rec.keys.set(key, json);
+        });
+    }
+
+    // GESTURES. A hand is on one from a trusted pointer press anywhere on
+    // the page until its release (a move with no button down, or the
+    // window losing focus, ends it too: a release outside the window may
+    // never arrive). Untrusted presses (a guide's scripted ones) do not
+    // count.
+    _wireGestureHold() {
+        if (this._gesturePointers) return;
+        this._gesturePointers = new Set();
+        const down = (e) => {
+            if (!e.isTrusted) return;
+            this._gesturePointers.add(e.pointerId);
+        };
+        const up = (e) => {
+            if (!this._gesturePointers.delete(e.pointerId)) return;
+            this._gestureLetGo();
+        };
+        const move = (e) => {
+            if (e.buttons === 0 && this._gesturePointers.size) {
+                this._gesturePointers.clear();
+                this._gestureLetGo();
+            }
+        };
+        document.addEventListener('pointerdown', down, true);
+        window.addEventListener('pointerup', up, true);
+        window.addEventListener('pointercancel', up, true);
+        window.addEventListener('pointermove', move, true);
+        window.addEventListener('blur', () => {
+            if (!this._gesturePointers.size) return;
+            this._gesturePointers.clear();
+            this._gestureLetGo();
+        });
+    }
+
+    _gestureHeld() {
+        return !!(this._gesturePointers && this._gesturePointers.size);
+    }
+
+    // Holds `run` (keyed: the newest of a kind replaces the one before)
+    // while a gesture is on, and answers true; answers false, and holds
+    // nothing, when no gesture is.
+    _holdForGesture(key, run) {
+        if (!this._gestureHeld()) return false;
+        if (!this._gestureHeldRuns) this._gestureHeldRuns = new Map();
+        this._gestureHeldRuns.delete(key);
+        this._gestureHeldRuns.set(key, run);
+        return true;
+    }
+
+    // The gesture let go. Its own release (mouseup, change, click) runs in
+    // the same input task and sends its save first, so by the time the
+    // held echoes run they answer an older save and go, as they would
+    // have; one with nothing newer lands then.
+    _gestureLetGo() {
+        if (this._gestureHeld()) return;
+        if (!this._gestureHeldRuns || !this._gestureHeldRuns.size) return;
+        setTimeout(() => {
+            if (this._gestureHeld() || !this._gestureHeldRuns) return;
+            const runs = [...this._gestureHeldRuns.values()];
+            this._gestureHeldRuns.clear();
+            runs.forEach(run => {
+                try { run(); } catch (e) { console.error('held echo failed', e); }
+            });
+            if (window.canvasRenderer) window.canvasRenderer.render();
+        }, 0);
     }
 
     // The breakout the pristine startup screen is re-made with, from a

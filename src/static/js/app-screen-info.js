@@ -1689,6 +1689,7 @@ class _ScreenInfo {
         // _layerPutIsAnEdit (app-core). A query marker, never in the body, so
         // the layer's keys round-trip untouched (test_all_fields_sweep).
         const req = this._putLayer(this.currentLayer.id, this.currentLayer);
+        const sentSeq = this._layerPutSeq && this._layerPutSeq.get(this.currentLayer.id);
         // Same server-side sequencing registry as updateLayers': undo/redo
         // wait for this PUT before restoring the project on the server.
         const tracked = req.catch(() => {});
@@ -1697,8 +1698,16 @@ class _ScreenInfo {
         req
         .then(res => res.json())
         .then(layer => {
+            // Held while a hand is on a gesture (app-core _holdForGesture),
+            // then run as it would have been.
+            if (layer && this._holdForGesture(`reply:${layer.id}`, () => mergeReply(layer))) return;
+            mergeReply(layer);
+        });
+        const mergeReply = (layer) => {
             if (this.project !== sentProject) return;  // stale echo
             if (this._layerHasNewerPut(layer.id)) return;  // a newer edit is on its way
+            // a newer PUT went out (and came back) while this one was held
+            if ((this._layerPutSeq && this._layerPutSeq.get(layer.id)) !== sentSeq) return;
             const index = this.project.layers.findIndex(l => l.id === layer.id);
             if (index >= 0) {
                 // Preserve client-side only properties that server might not return
@@ -1829,8 +1838,9 @@ class _ScreenInfo {
                         layer[key] = preservedProps[key];
                     }
                 });
-                // the screen this reply is for, as the page holds it now
-                this._keepLiveFillColors(this.project.layers[index], layer);
+                // the screen this reply is for, as the page holds it now:
+                // what it changed since this PUT went out stays
+                this._keepUnsavedEdits(this.project.layers[index], layer);
                 
                 console.log('AFTER MERGE - layer.dataFlowColor:', layer.dataFlowColor);
                 console.log('AFTER MERGE - layer.screenNameSize:', layer.screenNameSize);
@@ -1840,7 +1850,7 @@ class _ScreenInfo {
                 this.currentLayer = layer;
                 this.updateUI();
             }
-        });
+        };
     }
 
     updateLayers(layers, saveHistory = false, historyAction = 'Update Layers') {
@@ -2013,9 +2023,9 @@ class _ScreenInfo {
             // _putLayer carries `?edited=1` when a hand caused this write -
             // see _layerPutIsAnEdit (app-core). A query marker, never in
             // the body.
-            return this._putLayer(layer.id, layer)
-            .then(res => res.json())
-            .then(updated => {
+            const sent = this._putLayer(layer.id, layer);
+            const sentSeq = this._layerPutSeq && this._layerPutSeq.get(layer.id);
+            const merge = (updated) => {
                 // Undo audit: an echo from before a whole-project swap
                 // (undo/redo restore, repaired-body adoption, file load)
                 // describes a project that no longer exists - dropping it is
@@ -2026,6 +2036,8 @@ class _ScreenInfo {
                 // A newer edit of this screen is still on its way; its own
                 // reply carries the screen as it now is (_layerHasNewerPut).
                 if (this._layerHasNewerPut(updated.id)) return;
+                // a newer PUT went out (and came back) while this one was held
+                if ((this._layerPutSeq && this._layerPutSeq.get(updated.id)) !== sentSeq) return;
                 const index = this.project.layers.findIndex(l => l.id === updated.id);
                 // Deleted while this request was in flight - there is nothing
                 // to merge into, and stamping a copy we then drop would just
@@ -2038,11 +2050,23 @@ class _ScreenInfo {
                 preservedKeys.forEach(key => {
                     if (live[key] !== undefined) updated[key] = live[key];
                 });
-                this._keepLiveFillColors(live, updated);
+                // and whatever the page changed since this PUT went out
+                this._keepUnsavedEdits(live, updated);
                 // The IDM Locator's marks: the browser's newest, held to the
                 // screen the server sent back (app-idm-locator.js).
                 if (typeof this._idmMergeEcho === 'function') this._idmMergeEcho(live, updated);
                 this.project.layers[index] = updated;
+            };
+            return sent
+            .then(res => res.json())
+            .then(updated => {
+                // Held while a hand is on a gesture (app-core
+                // _holdForGesture), then run as it would have been.
+                if (updated && this._holdForGesture(`reply:${updated.id}`, () => {
+                    merge(updated);
+                    this.updateUI();
+                })) return;
+                merge(updated);
             });
         });
 
