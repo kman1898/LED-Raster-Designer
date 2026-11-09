@@ -5899,6 +5899,42 @@
                     ? n.textContent + ' header bars in the show: ' + String((list && list.textContent) || '').replace(/\n/g, ', ') + '.' : null;
             }
         },
+        // The Header/Footer tab's Curve (1.7.0, app-curve.js): ticked, the
+        // curve calculator lays the wall's bars from the lit sizes and sets
+        // the angle at every join between them. Left on, so the 3D steps
+        // show the wall curved.
+        riggingCurve: {
+            since: '1.7.0',
+            target: '#rigging-curve', place: 'right', title: 'Curve a wall',
+            body: 'Tick Curve and it lays the lit bar sizes and sets the angle at every join for the curve you ask. Drag the red dot on the plan to build from any panel, or pick another way below.',
+            before: function () {
+                switchView('rigging');
+                var w = wall();
+                if (w) A().setSelectedLayersByIds([w.id], w.id);
+                A().refreshRiggingPanel();
+            },
+            act: function (t) {
+                t.mem.before = headerBars();
+                return t.click('#rigging-curve-on').then(function () {
+                    return t.wait(function () {
+                        var w = wall();
+                        var j = w && w.stage3d && w.stage3d.jointsCol;
+                        return w && w.riggingCurve && w.riggingCurve.on && j && Object.keys(j).length === w.columns - 1;
+                    }, 10000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the curve was not laid');
+                    return t.spot($('#rigging-curve-result')).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var w = wall();
+                var j = (w && w.stage3d && w.stage3d.jointsCol) || {};
+                var bent = Object.keys(j).filter(function (k) { return j[k]; }).length;
+                var head = $('#rigging-curve-head');
+                return w && w.riggingCurve && w.riggingCurve.on && bent && headerBars()
+                    ? 'DEMO WALL curves 20% of a circle on ' + headerBars().split(',').join(' + ') + ': ' + ((head && head.textContent) || '') + '.' : null;
+            }
+        },
         // Services (1.5.3, app-services.js): the house power several
         // distros are fed from. One step adds the Service card, the next
         // drags the distro's header bar onto it.
@@ -6619,6 +6655,42 @@
             },
             check: function (mem) {
                 return mem.svg && !exportOpen() ? 'Export SVG opened the Export dialog with SVG picked; Cancel closed it and nothing was saved.' : null;
+            },
+            after: function () { hideMenus(); closeExport(); }
+        },
+        // Export OBJ (1.7.0, app-obj-export.js): the File menu opens the
+        // Export dialog on OBJ, and its preview lists every file.
+        objExport: {
+            since: '1.7.0',
+            target: '[data-menu="file"]', place: 'bottom', title: 'Export a 3D model',
+            avoid: ['#menu-file [data-action="export-obj"]', '#export-preview', '#export-cancel'],
+            body: 'Export OBJ saves each screen as it stands on the 3D stage, in meters, mapped to its canvas, with the Pixel Map PNG beside it. The dialog lists every file it writes.',
+            before: function () { closeExport(); hideMenus(); },
+            act: function (t) {
+                return t.click('[data-menu="file"]').then(function () {
+                    return t.wait(function () { var m = $('#menu-file'); return m && m.style.display === 'block' ? m : null; });
+                }).then(function (m) {
+                    if (!m) throw new Error('the File menu did not open');
+                    return t.click('#menu-file [data-action="export-obj"]');
+                }).then(function () {
+                    return t.wait(function () {
+                        var f = $('#export-format'), p = $('#export-preview');
+                        return exportOpen() && f && f.value === 'obj' && p && /\.obj/.test(p.textContent);
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Export dialog did not open on OBJ');
+                    t.mem.files = ($('#export-preview').innerText || '').split(/\s+/).filter(Boolean);
+                    return t.spot($('#export-preview')).then(function () { return t.pause(PACE.opened); });
+                }).then(function () {
+                    return t.click('#export-cancel');
+                }).then(function () {
+                    return t.wait(function () { return !exportOpen(); });
+                });
+            },
+            check: function (mem) {
+                var objs = (mem.files || []).filter(function (f) { return /\.obj$/.test(f); });
+                return objs.length && !exportOpen()
+                    ? 'OBJ would write ' + mem.files.length + ' files, ' + objs.length + ' model' + (objs.length === 1 ? '' : 's') + ' among them; Cancel closed it and nothing was saved.' : null;
             },
             after: function () { hideMenus(); closeExport(); }
         },
@@ -7776,7 +7848,7 @@
                     'cableStockPieces', 'powerCableTags',
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
-                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals',
+                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurve',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
                     's3dOpen', 's3dSelect', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
                     's3dBars', 's3dJoint',
@@ -7784,7 +7856,7 @@
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
                     'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist',
                     'groupScreens', 'groupNames', 'groupDrag',
-                    'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
+                    'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'objExport', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
                     'redrawAsOne', 'sweepPorts', 'helpMenu', 'checkUpdates', 'outroAdvanced']
         }

@@ -206,14 +206,15 @@ function s3dChain(lengths, joints) {
 
 // The cabinets of one screen as rigid flat quads in the screen's own frame
 // (mm, origin at its centre, X right, Y up, the front facing +Z). Pure data:
-// no drawing library, so the debug hook and the tests read it as it is.
+// no drawing library, so the debug hook, the tests and the OBJ export
+// (app-obj-export.js) read it as it is.
 //
 // Columns and rows are the panels' own slots. The column chain bends the
 // screen about the upright (a curved wall), the row chain about the
 // left-right line (an arch, a ceiling, a kick); a cabinet is placed on its
 // row first and the result carried by its column, so a screen curved both
 // ways opens small gaps at the corners rather than warping a cabinet.
-function s3dBuild(layer, placement) {
+export function s3dBuild(layer, placement) {
     const panels = Array.isArray(layer.panels) ? layer.panels : [];
     const mx = mmPerPx(layer, 'x'), my = mmPerPx(layer, 'y');
     const colSpan = new Map(), rowSpan = new Map();
