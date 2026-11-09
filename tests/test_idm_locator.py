@@ -866,6 +866,8 @@ def test_the_output_window_shows_a_mark_as_it_is_made(page, e2e_server):
         page.evaluate("""() => { const c = document.getElementById('idm-color');
             c.value = '#00ff00'; c.dispatchEvent(new Event('input', {bubbles: true})); }""")
         click_module(page, 'IdmA', 1, 0, 1, 1)
+        # the mouse off the view: its arrow on the wall would cover the module
+        page.mouse.move(3, 3)
         got = settled(out, lambda: pixel(224, 96), green, 6000)
         assert green(got), got
         # and an X on another module, another colour, from another machine

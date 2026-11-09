@@ -87,6 +87,12 @@ Object.assign(CanvasRenderer.prototype, {
         // The view moves nothing: Shift and Alt presses do nothing here.
         // Space / middle-button pan, Cmd/Ctrl toggle-select and a press
         // off every screen (selection marquee) fall through as anywhere.
+        // A press while Space is down is a pan, so that Space is no tap
+        // and marks nothing when it is let go (_idmSpacePan).
+        if (this.viewMode === 'idm' && (this.spacePressed || e.button === 1) && window.app
+                && typeof window.app._idmSpacePan === 'function') {
+            window.app._idmSpacePan();
+        }
         if (this.viewMode === 'idm' && e.button === 0 && !this.spacePressed) {
             if (e.shiftKey || e.altKey) return;
             if (!e.metaKey && !e.ctrlKey && window.app
@@ -775,6 +781,12 @@ Object.assign(CanvasRenderer.prototype, {
         const worldY = (mouseY - this.panY) / this.zoom;
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom, worldY);
 
+        // IDM Locator: the mouse shows on the wall output of the canvas it
+        // is over (app-idm-locator.js _idmPointerAt), whatever the gesture.
+        if (this.viewMode === 'idm' && window.app && typeof window.app._idmPointerAt === 'function') {
+            window.app._idmPointerAt(worldX, worldY);
+        }
+
         // A header bar in hand (see handleMouseDown): the screen's bars
         // re-order live as it crosses its neighbours.
         if (this._riggingDrag) {
@@ -849,8 +861,10 @@ Object.assign(CanvasRenderer.prototype, {
         }
 
         // IDM Locator: the module under the mouse is the live highlight
-        // (app-idm-locator.js _idmHover). Not while the view is panned.
-        if (this.viewMode === 'idm' && !this.isDragging && window.app
+        // (app-idm-locator.js _idmHover). Not while the view is panned, nor
+        // while Space is held for a pan: a tap then marks the module that
+        // was highlighted when Space went down.
+        if (this.viewMode === 'idm' && !this.isDragging && !this.spacePressed && window.app
                 && typeof window.app._idmHover === 'function') {
             window.app._idmHover(worldX, worldY);
         }
@@ -1189,6 +1203,11 @@ Object.assign(CanvasRenderer.prototype, {
 
         if (this.spacePressed && !this.isDragging) {
             this.canvas.style.cursor = 'grab';
+        } else if (this.viewMode === 'idm' && !this.isDragging && window.app
+                && typeof window.app._idmCursorAt === 'function') {
+            // IDM Locator: plus where a click marks, minus where it clears
+            // (a canvas edge does not move on this tab).
+            this.canvas.style.cursor = window.app._idmCursorAt(worldX, worldY);
         } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingGroupName && !this.isDraggingCanvas) {
             // Slice 5: hovering a canvas's outline edge → show 'move' so
             // the user knows they can grab it. Skip when a modifier is
@@ -2000,6 +2019,17 @@ Object.assign(CanvasRenderer.prototype, {
         e.preventDefault();
         e.stopPropagation();
         if (!window.app) return;
+        // IDM Locator: a right-click on a marked module clears the mark
+        // (app-idm-locator.js _idmContextClear); anywhere else the menu.
+        if (this.viewMode === 'idm' && typeof window.app._idmContextClear === 'function') {
+            const rect = this.canvas.getBoundingClientRect();
+            const worldY = ((e.clientY - rect.top) - this.panY) / this.zoom;
+            const worldX = this._unmirrorWorldX(((e.clientX - rect.left) - this.panX) / this.zoom, worldY);
+            if (window.app._idmContextClear(worldX, worldY)) {
+                if (typeof window.app.hideContextMenu === 'function') window.app.hideContextMenu();
+                return;
+            }
+        }
         // In Pixel Map view: if right-click lands on a panel of currentLayer
         // and the panel is not already in the selection, treat it as a
         // single-panel selection so the menu actions target it.
@@ -2082,9 +2112,10 @@ Object.assign(CanvasRenderer.prototype, {
         })();
 
         // IDM Locator: the arrows move the live highlight (Shift a cabinet),
-        // Space marks the highlighted module, Esc clears the highlight
-        // (app-idm-locator.js _idmKeyDown). Ahead of Space-to-pan, which
-        // still works with no highlight.
+        // Esc ends a drag or clears the highlight (app-idm-locator.js
+        // _idmKeyDown). Space is never taken here: it goes on to arm the
+        // pan below, and a tap marks the highlighted module on its release
+        // (handleKeyUp).
         if (this.viewMode === 'idm' && !isTyping && window.app
                 && typeof window.app._idmKeyDown === 'function' && window.app._idmKeyDown(e)) {
             e.preventDefault();
@@ -2340,6 +2371,11 @@ Object.assign(CanvasRenderer.prototype, {
         if (e.code === 'Space') {
             this.spacePressed = false;
             if (!this.isDragging) this.canvas.style.cursor = 'default';
+            // IDM Locator: a Space tap (no drag, let go at once) marks the
+            // highlighted module (app-idm-locator.js _idmSpaceUp).
+            if (this.viewMode === 'idm' && window.app && typeof window.app._idmSpaceUp === 'function') {
+                if (window.app._idmSpaceUp()) e.preventDefault();
+            }
         }
         if (e.key === 'Alt') {
             this._overrideHoverFromClient(false);
@@ -2374,6 +2410,8 @@ Object.assign(CanvasRenderer.prototype, {
     // those moves unpersisted with no undo snapshot.
     _releaseTransientInput() {
         this.spacePressed = false;
+        // A Space held when the focus went is no IDM Locator tap.
+        if (window.app && typeof window.app._idmSpacePan === 'function') window.app._idmSpacePan();
         // A Shift+press picking data ports whose release went elsewhere
         // picks nothing.
         if (this._portPickPending) {

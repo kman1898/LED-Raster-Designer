@@ -2950,7 +2950,7 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
 .idm-seg .idm-seg-btn:last-child { border-radius: 0 4px 4px 0; }
 .idm-seg .idm-seg-btn.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
     color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }
-.idm-module-ids { display: block; width: 100%; margin: 4px 0 2px; padding: 4px 6px; }
+.idm-module-ids, .idm-pointer { display: block; width: 100%; margin: 4px 0 2px; padding: 4px 6px; }
 /* The Colours: one row per setting - its name, Auto, the swatch (and the
    shade's percent) - with the black note under a row that needs it. */
 .idm-colors { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
@@ -3015,7 +3015,7 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
     body.idm-tab .idm-swatches { grid-template-columns: repeat(6, minmax(0, 1fr)); }
     body.idm-tab .idm-swatch-custom input[type="color"] { width: 28px; height: 28px; }
     body.idm-tab .idm-seg .idm-seg-btn { min-height: 40px; font-size: 13px !important; }
-    body.idm-tab .idm-module-ids { min-height: 40px; font-size: 13px !important; }
+    body.idm-tab .idm-module-ids, body.idm-tab .idm-pointer { min-height: 40px; font-size: 13px !important; }
     body.idm-tab .idm-color-row { gap: 8px; }
     body.idm-tab .idm-color-label { font-size: 13px; }
     body.idm-tab .idm-color-row .idm-auto { min-height: 36px; font-size: 13px !important; }

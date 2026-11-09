@@ -54,7 +54,13 @@
 // (canvas-idm.js renderIdmHighlight); the blink refreshes the output window by
 // laying the highlight over its last frame (app-output-display.js), not by
 // rendering it again. It stays until Esc or Clear highlight, and goes when
-// its screen or module does.
+// its screen or module does. A tap of Space marks it; Space held with a
+// drag pans the view like every other tab and marks nothing.
+//
+// The MOUSE ON THE WALL: while the mouse is over a canvas of this view, an
+// arrow sits at the same point on every IDM output of that canvas, laid on
+// with the highlight (never a render). Per viewer, on unless Show mouse on
+// wall is off; the tablet's tap is the highlight, so it sends no arrow.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog, isTypingTarget } from './helpers.js';
 
@@ -64,6 +70,11 @@ const FLASH_MS = 1800;
 const BLINK_MS = 250;
 const STYLE_KEY = 'lrdIdmMarkStyle';
 const COLOR_KEY = 'lrdIdmMarkColor';
+// Show the mouse on the wall (per viewer, on unless turned off).
+const POINTER_KEY = 'lrdIdmPointer';
+// A Space press held longer than this, or with a press of the mouse in it,
+// is a pan (or nothing), never a mark: only a tap marks.
+const SPACE_TAP_MS = 500;
 // The field's border styles; white with shaded borders when unset.
 const FIELD_BORDERS = ['shade', 'lines', 'ticks', 'none'];
 const FIELD_DEFAULT = { color: '#ffffff', border: 'shade', moduleIds: false };
@@ -80,6 +91,19 @@ const SEND_MS = 40;
 // The tablet layout: the IDM Locator tab on a narrow window or a touch
 // screen (style.css carries the same query).
 const COMPACT_QUERY = '(max-width: 1100px), (pointer: coarse)';
+// The cursor over a module: a crosshair with a plus (a click marks) or a
+// minus (a click clears), white edged in black so it reads on any field.
+function idmCursor(minus) {
+    const sign = minus ? 'M15 20h9' : 'M15 20h9M19.5 15.5v9';
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">'
+        + '<g fill="none" stroke-linecap="round">'
+        + `<path d="M9 1v16M1 9h16 ${sign}" stroke="#000" stroke-width="4"/>`
+        + `<path d="M9 1v16M1 9h16 ${sign}" stroke="#fff" stroke-width="2"/>`
+        + '</g></svg>';
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 9 9, ${minus ? 'cell' : 'crosshair'}`;
+}
+const IDM_CURSOR_MARK = idmCursor(false);
+const IDM_CURSOR_CLEAR = idmCursor(true);
 const ARROWS = {
     ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
 };
@@ -225,9 +249,11 @@ class _IdmLocator {
         if (!this._idmS) {
             let style = 'color';
             let color = DEFAULT_COLOR;
+            let pointerOn = true;
             try {
                 style = localStorage.getItem(STYLE_KEY) === 'x' ? 'x' : 'color';
                 color = idmColor(localStorage.getItem(COLOR_KEY)) || DEFAULT_COLOR;
+                pointerOn = localStorage.getItem(POINTER_KEY) !== '0';
             } catch (_) { /* storage blocked: the defaults */ }
             this._idmS = {
                 active: false, wired: false, style, color,
@@ -241,6 +267,12 @@ class _IdmLocator {
                 sendTimer: null, lastSend: 0, cabinetJump: false,
                 // the last pointer's kind ('mouse', 'touch', 'pen') and when
                 lastPointer: '', lastPointerAt: 0,
+                // a Space press that may yet be a tap (_idmKeyDown): {at}
+                spaceTap: null,
+                // the mouse on the wall: {canvasId, x, y} in workspace
+                // coordinates or null, its switch, the frame it waits for
+                // and the canvases that frame redraws
+                pointer: null, pointerOn, pointerFrame: 0, pointerCanvases: null, leaveBound: false,
                 origin: 'idm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
             };
         }
@@ -357,6 +389,10 @@ class _IdmLocator {
             this._idmClearHighlight();
             this._idmBlurButton(e.currentTarget);
         });
+        on('idm-pointer', 'click', (e) => {
+            this._idmSetPointerOn(!this._idmState().pointerOn);
+            this._idmBlurButton(e.currentTarget);
+        });
         // What kind of pointer pressed last: a tap on a touch screen moves
         // the highlight, it never marks (_idmPointerDown).
         document.addEventListener('pointerdown', (e) => {
@@ -401,7 +437,9 @@ class _IdmLocator {
         if (was !== st.active) this._idmRelayout();
         if (!st.active) {
             st.stroke = null;
+            st.spaceTap = null;
             if (window.canvasRenderer) window.canvasRenderer.isIdmPainting = false;
+            this._idmPointerAt(null);
             this._idmRefreshReadout();
             return;
         }
@@ -912,7 +950,7 @@ class _IdmLocator {
         return true;
     }
 
-    // Space or the Mark button: the highlighted module marked or cleared,
+    // A Space tap or the Mark button: the highlighted module marked or cleared,
     // the same rules and the same single undo step a click makes.
     _idmMarkHighlight() {
         const t = this._idmHighlightTarget();
@@ -950,17 +988,173 @@ class _IdmLocator {
             this._idmStep(e.key, e.shiftKey);
             return true;
         }
+        // Space is the pan every tab has: held with a drag it moves the
+        // view. Only a tap - let go within SPACE_TAP_MS with no press of
+        // the mouse in it - marks the highlighted module, on the release
+        // (_idmSpaceUp), so a press never marks and pans at once. The key
+        // goes on to canvas-input, which arms the pan.
         if (e.code === 'Space') {
-            if (!this._idmHl()) return false;
-            if (!e.repeat) this._idmMarkHighlight();
-            return true;
+            const el = document.activeElement;
+            const owned = !!(el && el.tagName === 'INPUT');
+            if (!e.repeat && !st.spaceTap && !owned && !st.stroke && this._idmHl()) {
+                st.spaceTap = { at: Date.now() };
+            }
+            return false;
         }
         if (e.key === 'Escape') {
+            // Esc in the middle of a drag puts every module it touched
+            // back and makes no edit.
+            if (st.stroke) {
+                this._idmCancelStroke();
+                return true;
+            }
             if (!this._idmHl()) return false;
             this._idmClearHighlight();
             return true;
         }
         return false;
+    }
+
+    // Space let go (canvas-input handleKeyUp): a tap marks or clears the
+    // highlighted module, the same single undo step a click makes.
+    _idmSpaceUp() {
+        const st = this._idmState();
+        const tap = st.spaceTap;
+        st.spaceTap = null;
+        if (!tap || !st.active || Date.now() - tap.at > SPACE_TAP_MS) return false;
+        if (isTypingTarget(document.activeElement)) return false;
+        return this._idmMarkHighlight();
+    }
+
+    // A press of the mouse while Space is down is a pan: no tap.
+    _idmSpacePan() {
+        if (this._idmS) this._idmS.spaceTap = null;
+    }
+
+    // Esc during a drag: the screen's modules as they were before it.
+    _idmCancelStroke() {
+        const st = this._idmState();
+        const stroke = st.stroke;
+        st.stroke = null;
+        const r = window.canvasRenderer;
+        if (r) r.isIdmPainting = false;
+        if (!stroke || !this.project) return;
+        const layer = (this.project.layers || []).find(l => l.id === stroke.layerId);
+        if (layer) {
+            const before = JSON.parse(stroke.before);
+            if (before) layer.idm = before;
+            else delete layer.idm;
+        }
+        sendClientLog('idm_mark_cancel', { id: stroke.layerId, modules: [...stroke.touched] });
+        if (r) r.render();
+    }
+
+    // A right-click on a marked module clears that mark (one undo step);
+    // anywhere else the app's own menu opens. True when it was this view's.
+    _idmContextClear(worldX, worldY) {
+        const st = this._idmState();
+        const r = window.canvasRenderer;
+        if (!st.active || st.stroke || !r || this._idmTouchPress()) return false;
+        const hit = r.idmHitAt(worldX, worldY);
+        if (!hit || !hit.cell) return false;
+        const layer = hit.layer;
+        const key = r.idmCellKey(hit.panel, hit.cell);
+        if (!(layer.idm && layer.idm.marks && layer.idm.marks[key])) return false;
+        if (this._layerLocked(layer)) {
+            this._showLockedError([layer]);
+            return true;
+        }
+        const before = JSON.stringify(layer.idm || null);
+        this._idmEnsureBlock(layer);
+        st.stroke = { layerId: layer.id, mode: 'clear', touched: new Set(), before };
+        this._idmApply(layer, key);
+        this._idmPointerUp();
+        this._idmSetHighlight(layer.id, key);
+        r.render();
+        return true;
+    }
+
+    // The cursor over the view: a plus where a click marks, a minus where
+    // it clears, no-entry on a locked screen or a blanked cabinet, the
+    // arrow off every screen.
+    _idmCursorAt(worldX, worldY) {
+        const r = window.canvasRenderer;
+        const hit = r && typeof r.idmHitAt === 'function' ? r.idmHitAt(worldX, worldY) : null;
+        if (!hit) return 'default';
+        if (!hit.cell || this._layerLocked(hit.layer)) return 'not-allowed';
+        const marks = hit.layer.idm && hit.layer.idm.marks;
+        return marks && marks[r.idmCellKey(hit.panel, hit.cell)] ? IDM_CURSOR_CLEAR : IDM_CURSOR_MARK;
+    }
+
+    // ── the mouse on the wall ─────────────────────────────────────────────
+
+    // canvas-input handleMouseMove, in this view: the point under the
+    // mouse in workspace coordinates; null, or a point off every canvas,
+    // takes it off the wall. Every IDM output of the canvas it is on, and
+    // of the one it left, lays it over its last frame on the next animation
+    // frame (_outputDisplayBlink): a copy, never a render.
+    _idmPointerAt(worldX, worldY) {
+        const st = this._idmState();
+        const r = window.canvasRenderer;
+        let next = null;
+        if (st.active && st.pointerOn && r && Number.isFinite(worldX) && Number.isFinite(worldY)) {
+            const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
+            if (canvases.length) {
+                const c = typeof r._canvasAtPoint === 'function' ? r._canvasAtPoint(worldX, worldY) : null;
+                if (c) next = { canvasId: c.id, x: worldX, y: worldY };
+            } else if (worldX >= 0 && worldY >= 0
+                    && worldX <= (Number(r.rasterWidth) || 0) && worldY <= (Number(r.rasterHeight) || 0)) {
+                next = { canvasId: '', x: worldX, y: worldY };
+            }
+        }
+        const cur = st.pointer;
+        if (!next && !cur) return;
+        if (next && cur && next.canvasId === cur.canvasId && next.x === cur.x && next.y === cur.y) return;
+        this._idmBindLeave();
+        st.pointer = next;
+        if (!st.pointerCanvases) st.pointerCanvases = new Set();
+        if (cur) st.pointerCanvases.add(cur.canvasId);
+        if (next) st.pointerCanvases.add(next.canvasId);
+        if (st.pointerFrame) return;
+        const flush = () => {
+            st.pointerFrame = 0;
+            const ids = st.pointerCanvases;
+            st.pointerCanvases = null;
+            if (ids && typeof this._outputDisplayBlink === 'function') this._outputDisplayBlink(ids);
+        };
+        // A hidden designer gets no animation frames: a timer then.
+        st.pointerFrame = (document.visibilityState !== 'hidden' && typeof requestAnimationFrame === 'function')
+            ? requestAnimationFrame(flush) : setTimeout(flush, 16);
+    }
+
+    // The mouse leaving the view takes the pointer off the wall.
+    _idmBindLeave() {
+        const st = this._idmState();
+        const r = window.canvasRenderer;
+        if (st.leaveBound || !r || !r.canvas) return;
+        st.leaveBound = true;
+        r.canvas.addEventListener('mouseleave', () => this._idmPointerAt(null));
+    }
+
+    // The pointer an IDM output of `canvasId` draws: {x, y} in workspace
+    // coordinates, or null (app-output-display.js _outputDisplayCompose).
+    _idmPointerFor(canvasId) {
+        const st = this._idmS;
+        const p = st && st.active && st.pointerOn ? st.pointer : null;
+        if (!p) return null;
+        const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
+        if (canvases.length && p.canvasId !== canvasId) return null;
+        return { x: p.x, y: p.y };
+    }
+
+    // The Show mouse on wall switch (per viewer).
+    _idmSetPointerOn(on) {
+        const st = this._idmState();
+        st.pointerOn = !!on;
+        try { localStorage.setItem(POINTER_KEY, st.pointerOn ? '1' : '0'); } catch (_) { /* per-viewer only */ }
+        sendClientLog('idm_pointer', { on: st.pointerOn });
+        if (!st.pointerOn) this._idmPointerAt(null);
+        this._idmSyncPad();
     }
 
     // Screen · Cabinet ID · Module label for one module - the locator list's
@@ -1022,6 +1216,11 @@ class _IdmLocator {
         if (cab) {
             cab.classList.toggle('active', !!st.cabinetJump);
             cab.setAttribute('aria-pressed', st.cabinetJump ? 'true' : 'false');
+        }
+        const ptr = document.getElementById('idm-pointer');
+        if (ptr) {
+            ptr.classList.toggle('active', !!st.pointerOn);
+            ptr.setAttribute('aria-pressed', st.pointerOn ? 'true' : 'false');
         }
         const has = !!this._idmHl();
         ['idm-pad-mark', 'idm-pad-clear'].forEach(id => {
@@ -1095,6 +1294,7 @@ class _IdmLocator {
             mode: block.marks[key] ? 'clear' : 'mark',
             touched: new Set(),
             before,
+            last: { x: worldX, y: worldY },
         };
         this._idmApply(layer, key);
         r.render();
@@ -1103,17 +1303,34 @@ class _IdmLocator {
 
     // The drag: every module the pointer crosses on the stroke's screen
     // takes the stroke's mode - the first module decided paint or clear.
+    // The line from the last point is walked in steps of half a module, so
+    // a quick drag leaves no module out between two mouse moves.
     _idmPointerMove(worldX, worldY) {
         const st = this._idmState();
         const stroke = st.stroke;
         const r = window.canvasRenderer;
         if (!stroke || !r) return;
-        const hit = r.idmHitAt(worldX, worldY);
-        if (!hit || !hit.cell || hit.layer.id !== stroke.layerId) return;
-        const key = r.idmCellKey(hit.panel, hit.cell);
-        if (stroke.touched.has(key)) return;
-        this._idmApply(hit.layer, key);
-        r.render();
+        const last = stroke.last || { x: worldX, y: worldY };
+        stroke.last = { x: worldX, y: worldY };
+        const layer = ((this.project && this.project.layers) || []).find(l => l.id === stroke.layerId);
+        let stepLen = 1;
+        if (layer) {
+            const counts = r.idmCounts(layer);
+            const mw = (Number(layer.cabinet_width) || 1) / counts.x;
+            const mh = (Number(layer.cabinet_height) || 1) / counts.y;
+            stepLen = Math.max(1, Math.min(mw, mh) / 2);
+        }
+        const n = Math.min(4000, Math.max(1, Math.ceil(Math.hypot(worldX - last.x, worldY - last.y) / stepLen)));
+        let changed = false;
+        for (let i = 1; i <= n; i++) {
+            const hit = r.idmHitAt(last.x + (worldX - last.x) * i / n, last.y + (worldY - last.y) * i / n);
+            if (!hit || !hit.cell || hit.layer.id !== stroke.layerId) continue;
+            const key = r.idmCellKey(hit.panel, hit.cell);
+            if (stroke.touched.has(key)) continue;
+            this._idmApply(hit.layer, key);
+            changed = true;
+        }
+        if (changed) r.render();
     }
 
     // The stroke ends: one layer edit, one undo step.

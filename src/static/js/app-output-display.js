@@ -114,9 +114,10 @@ class _OutputDisplay {
                 </div>
                 <div class="od-row" id="output-display-screen-row"${canPickScreen ? '' : ' hidden'}>
                     <label for="output-display-screen">Display</label>
-                    <select id="output-display-screen"></select>
-                    <button type="button" class="btn" id="output-display-find-screens">Find displays</button>
+                    <select id="output-display-screen" data-tooltip="Display, The display the output opens on. A display that already has an output is picked last."></select>
+                    <button type="button" class="btn" id="output-display-find-screens" data-tooltip="Find displays, Ask the browser for the displays connected to this computer, so each output can open on its own.">Find displays</button>
                 </div>
+                <div class="od-note" id="output-display-place-note"${canPickScreen ? ' hidden' : ''}>This browser opens each output as a window. Drag it onto its display, then click it for full screen.</div>
                 <div class="od-note" id="output-display-note"></div>
                 <div class="od-open" id="output-display-open-section">
                     <div class="od-open-title">Open outputs</div>
@@ -124,7 +125,7 @@ class _OutputDisplay {
                 </div>
                 <div class="od-actions">
                     <button type="button" class="btn" id="output-display-close">Close</button>
-                    <button type="button" class="btn btn-primary" id="output-display-open">Open output</button>
+                    <button type="button" class="btn btn-primary" id="output-display-open" data-tooltip="Open output, Open the canvas, view and scale above on the chosen display. Open as many as you need: each display gets its own output, and every one follows your edits live.">Open output</button>
                 </div>
             </div>`;
         document.body.appendChild(modal);
@@ -231,7 +232,9 @@ class _OutputDisplay {
         this._outputDisplayFillScreens();
     }
 
-    _outputDisplayFillScreens() {
+    // `keepChoice`: a display picked by hand stays picked (false after an
+    // output opened, so the next pick moves on to a free display).
+    _outputDisplayFillScreens(keepChoice = true) {
         const sel = document.getElementById('output-display-screen');
         if (!sel) return;
         const screens = this._outputDisplayScreens || [];
@@ -245,20 +248,48 @@ class _OutputDisplay {
             sel.appendChild(opt);
             return;
         }
+        // The displays an open output is on now.
+        const used = new Set(this.listOutputDisplays().map(e => e.screenIndex).filter(i => i >= 0));
         let firstOther = -1;
+        let firstFree = -1;
         screens.forEach((s, i) => {
             const opt = document.createElement('option');
             opt.value = String(i);
-            const name = s.label || `Display ${i + 1}`;
             const tags = [];
             if (s.isPrimary) tags.push('main');
             if (s === current) tags.push('this window');
-            opt.textContent = `${name} (${s.width} × ${s.height}${tags.length ? ', ' + tags.join(', ') : ''})`;
+            if (used.has(i)) tags.push('has an output');
+            opt.textContent = `${this._outputDisplayScreenName(i)} (${s.width} × ${s.height}${tags.length ? ', ' + tags.join(', ') : ''})`;
             sel.appendChild(opt);
             if (firstOther < 0 && s !== current) firstOther = i;
+            if (firstFree < 0 && s !== current && !used.has(i)) firstFree = i;
         });
-        // Another display than this window's is the usual point of it.
-        sel.value = (prev !== '' && screens[Number(prev)]) ? prev : String(firstOther >= 0 ? firstOther : 0);
+        // Another display than this window's is the usual point of it, and
+        // one without an output yet is the next one to feed. A display the
+        // crew picked stays picked while nothing is opened on it.
+        const keep = keepChoice && prev !== '' && screens[Number(prev)] && !used.has(Number(prev));
+        const pick = firstFree >= 0 ? firstFree : (firstOther >= 0 ? firstOther : 0);
+        sel.value = keep ? prev : String(pick);
+    }
+
+    _outputDisplayScreenName(i) {
+        const s = (this._outputDisplayScreens || [])[i];
+        return (s && s.label) || `Display ${i + 1}`;
+    }
+
+    // The display a window is on now: the index of the display (of those
+    // the browser listed) holding the window's middle, or -1 (no list, or
+    // the window cannot be read).
+    _outputDisplayScreenOf(win) {
+        const screens = this._outputDisplayScreens || [];
+        if (!screens.length || !win || win.closed) return -1;
+        try {
+            const x = (win.screenX || 0) + (win.outerWidth || 0) / 2;
+            const y = (win.screenY || 0) + (win.outerHeight || 0) / 2;
+            return screens.findIndex(s => x >= s.left && x < s.left + s.width && y >= s.top && y < s.top + s.height);
+        } catch (_) {
+            return -1;
+        }
     }
 
     // ---- opening, listing, closing -----------------------------------------
@@ -272,6 +303,8 @@ class _OutputDisplay {
             return;
         }
         this._outputDisplayRenderList();
+        // The next output goes to a display that has none yet.
+        this._outputDisplayFillScreens(false);
     }
 
     // Open one output. choice: { canvasId, view, scale, screen }. Returns
@@ -293,12 +326,16 @@ class _OutputDisplay {
         }
         this._outputDisplaySeq = (this._outputDisplaySeq || 0) + 1;
         const id = this._outputDisplaySeq;
-        const win = window.open(`/output?${qs.toString()}`, `lrd-output-${id}`, features);
+        // Each output its own window: a name no earlier session's window
+        // still holds, so an open never lands in another output's window.
+        if (!this._outputDisplayTag) this._outputDisplayTag = Date.now().toString(36);
+        const win = window.open(`/output?${qs.toString()}`, `lrd-output-${this._outputDisplayTag}-${id}`, features);
         if (!win) {
             sendClientLog('output_display_blocked', { canvasId, view, scale });
             return null;
         }
-        const entry = { id, win, canvasId, view, scale, lastSig: null };
+        const chosen = s ? (this._outputDisplayScreens || []).indexOf(s) : -1;
+        const entry = { id, win, canvasId, view, scale, lastSig: null, chosenScreen: chosen };
         this._outputDisplayTrack(entry);
         sendClientLog('output_display_open', { id, canvasId, view, scale, screen: !!s });
         return entry;
@@ -319,10 +356,23 @@ class _OutputDisplay {
     listOutputDisplays() {
         const all = Array.isArray(this._outputDisplayWindows) ? this._outputDisplayWindows : [];
         this._outputDisplayWindows = all.filter(e => e.win && !e.win.closed);
-        return this._outputDisplayWindows.map(e => ({
-            id: e.id, canvasId: e.canvasId, view: e.view, scale: e.scale,
-            label: this._outputDisplayLabel(e),
-        }));
+        return this._outputDisplayWindows.map(e => {
+            const screenIndex = this._outputDisplayEntryScreen(e);
+            return {
+                id: e.id, canvasId: e.canvasId, view: e.view, scale: e.scale, screenIndex,
+                display: screenIndex >= 0 ? this._outputDisplayScreenName(screenIndex) : '',
+                label: this._outputDisplayLabel(e, screenIndex),
+            };
+        });
+    }
+
+    // The display an output is on: where its window is now, else the one it
+    // was opened on; -1 when the browser lists no displays.
+    _outputDisplayEntryScreen(entry) {
+        const now = this._outputDisplayScreenOf(entry.win);
+        if (now >= 0) return now;
+        const n = (this._outputDisplayScreens || []).length;
+        return (entry.chosenScreen >= 0 && entry.chosenScreen < n) ? entry.chosenScreen : -1;
     }
 
     closeOutputDisplay(id) {
@@ -341,10 +391,14 @@ class _OutputDisplay {
         this._outputDisplayWindows = [];
     }
 
-    _outputDisplayLabel(entry) {
+    // Canvas · view · scale, and the display it is on when the browser
+    // can say (`screenIndex`, worked out when not given).
+    _outputDisplayLabel(entry, screenIndex) {
         const c = this._outputDisplayCanvases().find(x => x.id === entry.canvasId);
         const v = OUTPUT_VIEWS.find(([k]) => k === entry.view);
-        return `${c ? c.name : 'Missing canvas'} · ${v ? v[1] : entry.view} · ${OUTPUT_SCALES[entry.scale] || entry.scale}`;
+        const i = screenIndex === undefined ? this._outputDisplayEntryScreen(entry) : screenIndex;
+        const on = i >= 0 ? ` · on ${this._outputDisplayScreenName(i)}` : '';
+        return `${c ? c.name : 'Missing canvas'} · ${v ? v[1] : entry.view} · ${OUTPUT_SCALES[entry.scale] || entry.scale}${on}`;
     }
 
     // `quiet`: the once-a-second poll - rewrite only when the list changed.
@@ -358,6 +412,9 @@ class _OutputDisplay {
         host.dataset.key = key;
         host.innerHTML = '';
         section.hidden = list.length === 0;
+        // With one up, the button opens another beside it.
+        const open = document.getElementById('output-display-open');
+        if (open) open.textContent = list.length ? 'Open another output' : 'Open output';
         list.forEach(e => {
             const row = document.createElement('div');
             row.className = 'od-open-row';
@@ -369,6 +426,7 @@ class _OutputDisplay {
             btn.className = 'btn od-open-close';
             btn.dataset.outputId = String(e.id);
             btn.textContent = 'Close';
+            btn.dataset.tooltip = 'Close output, Close this output window. The other outputs stay up.';
             row.appendChild(name);
             row.appendChild(btn);
             host.appendChild(row);
@@ -589,6 +647,13 @@ class _OutputDisplay {
             ctx.save();
             ctx.translate(-ws.wx, -ws.wy);
             r.renderIdmHighlight(ctx, { exportMode: true, canvasId: hasCanvases ? entry.canvasId : undefined });
+            // The designer's mouse over this canvas, over everything
+            // (app-idm-locator.js _idmPointerFor), sized to the raster so
+            // it reads on the wall: 6% of its shorter side, 24 px at least.
+            const p = typeof this._idmPointerFor === 'function' ? this._idmPointerFor(entry.canvasId) : null;
+            if (p && typeof r.renderIdmPointer === 'function') {
+                r.renderIdmPointer(ctx, p.x, p.y, Math.max(24, Math.round(Math.min(base.width, base.height) * 0.06)));
+            }
             ctx.restore();
         } finally {
             r.viewMode = savedView;
@@ -603,13 +668,16 @@ class _OutputDisplay {
     }
 
     // The IDM Locator's highlight moved or blinked (app-idm-locator.js
-    // _idmRepaint): every IDM output with a frame gets the highlight laid
-    // over that frame again - a copy, never a render. An output without a
-    // frame yet gets one from the next refresh.
-    _outputDisplayBlink() {
+    // _idmRepaint), or the designer's mouse moved on the wall
+    // (_idmPointerAt, which names the canvases in `canvasIds`): every IDM
+    // output with a frame (of those canvases) gets the highlight and the
+    // mouse laid over that frame again - a copy, never a render. An output
+    // without a frame yet gets one from the next refresh.
+    _outputDisplayBlink(canvasIds) {
         const all = Array.isArray(this._outputDisplayWindows) ? this._outputDisplayWindows : [];
         for (const e of all) {
             if (e.view !== 'idm' || !e.base || e.lastSig === null || !e.win || e.win.closed) continue;
+            if (canvasIds && !canvasIds.has(e.canvasId)) continue;
             const page = this._outputDisplayPage(e);
             if (page) this._outputDisplayCompose(e, page);
         }

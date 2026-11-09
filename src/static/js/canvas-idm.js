@@ -729,6 +729,32 @@ Object.assign(CanvasRenderer.prototype, {
         ctx.restore();
     },
 
+    // The designer's mouse on the wall (Show mouse on wall): an arrow with
+    // its tip at (x, y) in `ctx`'s coordinates, `size` pixels tall. Black
+    // edged in white on a light field, white edged in black on a dark one,
+    // so it reads on the field, on a mark and on either half of the blink.
+    renderIdmPointer(ctx, x, y, size) {
+        const rgb = this.idmFieldSpec().rgb || [255, 255, 255];
+        const light = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] > 140;
+        const s = Math.max(8, size);
+        // the arrow, tip at (0, 0), one unit tall
+        const pts = [[0, 0], [0, 0.86], [0.21, 0.67], [0.36, 1], [0.5, 0.94], [0.35, 0.62], [0.62, 0.62]];
+        ctx.save();
+        ctx.beginPath();
+        pts.forEach(([px, py], i) => {
+            const X = x + px * s, Y = y + py * s;
+            if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+        });
+        ctx.closePath();
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(2, s * 0.16);
+        ctx.strokeStyle = light ? '#ffffff' : '#000000';
+        ctx.stroke();
+        ctx.fillStyle = light ? '#000000' : '#ffffff';
+        ctx.fill();
+        ctx.restore();
+    },
+
     // The screen, cabinet and module under a point in workspace coordinates:
     // {layer, panel, cell} for a module, {layer, panel, cell: null} for a
     // blanked cabinet, null off every screen. Topmost screen first; the

@@ -71,8 +71,11 @@ View > Output to Display opens one canvas in its own window, Pixel Map,
 Cabinet ID, Show Look, Data, Power, Header/Footer or IDM Locator, scaled to
 fit the display or at one raster pixel to one display pixel. In Chrome and
 Edge the dialog picks the display. Click, F or a double-click goes full
-screen, Esc leaves it. The window follows every edit as you make it,
-and each canvas can have its own window on its own display.
+screen, Esc leaves it. The window follows every edit as you make it.
+Output to Display can feed several displays at once: open another output
+for each one, any canvas in any view, and the dialog lists each output
+with the display it is on. Where the browser can't pick the display, drag
+each window onto its own.
 
 FINDING BAD MODULES ON THE WALL
 
@@ -91,9 +94,16 @@ black, so they can't pass for dead pixels; a Colors section sets
 each of them, the shade level and a row of mark colors.
 
 Point at a module, step with the arrow keys (Shift jumps a cabinet) or
-tap it on a tablet, and the module blinks on the wall output; Space or
-the Mark button marks it. The highlight follows from any computer or
-tablet connected to the app and is kept with the show.
+tap it on a tablet, and the module blinks on the wall output; a tap of
+Space or the Mark button marks it. The highlight follows from any
+computer or tablet connected to the app and is kept with the show.
+
+Your mouse shows on the wall: while it is over a canvas, an arrow sits
+at the same spot on that canvas's IDM Locator output, black or white to
+stand out on the field. Show mouse on wall turns it off. The cursor
+shows a plus where a click marks and a minus where it clears,
+right-click a mark to clear it, and Esc in the middle of a drag puts
+the modules back.
 
 A SETUP FILE FOR WINDOWS
 
@@ -123,6 +133,11 @@ ALSO NEW
 
 FIXES
 
+- FIX: Space and drag pans the IDM Locator like every other tab. Space
+  used to mark the module under the mouse instead, and the drag marked
+  or cleared the modules it crossed.
+- FIX: A quick drag on the IDM Locator marks every module it crosses,
+  not only the ones the mouse happened to stop on.
 - FIX: Screen order Top to bottom prints the binder's screens and groups
   in the order the Screens list shows them in Show Look, Data and Power,
   whichever tab is open when you export, and Bottom to top prints them the

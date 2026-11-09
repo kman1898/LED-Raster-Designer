@@ -3198,6 +3198,7 @@
     // is this machine's within one project - restore3d makes the next 3D
     // sync take the restored project's own camera, units and grid again.
     var IDM_STYLE_KEY = 'lrdIdmMarkStyle', IDM_COLOR_KEY = 'lrdIdmMarkColor';   // app-idm-locator.js
+    var IDM_POINTER_KEY = 'lrdIdmPointer';
     function notesCollapsed() { var n = $('#notes-panel'); return !n || n.classList.contains('collapsed'); }
     // The panel's own toggle (app-wiring.js), so its arrow follows.
     function setNotesCollapsed(v) {
@@ -3209,16 +3210,20 @@
     function captureIdm() {
         var st = idmState();
         return { style: st ? st.style : null, color: st ? st.color : null,
-                 lsStyle: lsGet(IDM_STYLE_KEY), lsColor: lsGet(IDM_COLOR_KEY) };
+                 pointerOn: st ? st.pointerOn : null,
+                 lsStyle: lsGet(IDM_STYLE_KEY), lsColor: lsGet(IDM_COLOR_KEY), lsPointer: lsGet(IDM_POINTER_KEY) };
     }
     function restoreIdm(v) {
         var a = A(), st = idmState();
         if (!v) return;
         if (st && v.style) st.style = v.style;
         if (st && v.color) st.color = v.color;
+        if (st && typeof v.pointerOn === 'boolean') st.pointerOn = v.pointerOn;
         lsPut(IDM_STYLE_KEY, v.lsStyle);
         lsPut(IDM_COLOR_KEY, v.lsColor);
+        lsPut(IDM_POINTER_KEY, v.lsPointer);
         if (a && typeof a._idmSyncToolbar === 'function') { try { a._idmSyncToolbar(); } catch (e) {} }
+        if (a && typeof a._idmSyncPad === 'function') { try { a._idmSyncPad(); } catch (e) {} }
     }
     function restore3d() {
         var a = A(), st = a && a._s3d;
@@ -7108,7 +7113,7 @@
             window: 'output',
             target: '[data-menu="view"]', place: 'bottom', title: 'Output to Display',
             avoid: ['[data-menu="view"]', '#menu-view [data-action="output-to-display"]'],
-            body: 'View &rsaquo; Output to Display sends one canvas full screen to a second display, and it follows every edit live.',
+            body: 'View &rsaquo; Output to Display sends a canvas full screen to another display, and it follows every edit live. Open one for each display you need.',
             before: function () { closeOutput(); },
             act: function (t) {
                 // Up already on a Back from the next step, which shares it.
@@ -7285,7 +7290,7 @@
             since: '1.7.0',
             target: '#idm-hl-readout', ring: ['#idm-hl-readout', '#idm-pad'], place: 'right', title: 'Point with the arrow keys',
             avoid: [function () { return modulePoint(wall2(), MARK_KEYS); }],
-            body: 'The arrow keys move a blinking highlight from module to module, in the view and on the wall. Space marks the highlighted module.',
+            body: 'The arrow keys move a blinking highlight from module to module, in the view and on the wall. Tap Space to mark it; hold Space and drag to pan.',
             before: function () {
                 openIdm();
                 var a = A();
@@ -7314,6 +7319,31 @@
                 var a = A(), hl = a._idmHl && a._idmHl();
                 if (!hl || hl.key !== MARK_KEYS || !idmMarks(wall2())[MARK_KEYS]) return null;
                 return 'Highlighted and marked: ' + idmText(wall2(), MARK_KEYS) + '.';
+            }
+        },
+        idmPointer: {
+            since: '1.7.0',
+            target: '#idm-pointer', place: 'right', title: 'Your mouse on the wall',
+            avoid: ['#idm-pointer', function () { return modulePoint(wall2(), MARK_COLOR); }],
+            body: 'With Show mouse on wall on, your mouse shows as an arrow on the wall output, so the crew sees where you point. Turn it off to keep the wall clean.',
+            before: openIdm,
+            act: function (t) {
+                var a = A();
+                var on = a && a._idmState().pointerOn ? Promise.resolve() : t.click('#idm-pointer');
+                return on.then(function () {
+                    var pt = modulePoint(wall2(), MARK_COLOR);
+                    if (!pt) throw new Error('the module is not on the view');
+                    return t.hover(pt).then(function () {
+                        // the mouse travels over the canvas, as a real one does
+                        return t.canvasGlide({ x: pt.x + 6, y: pt.y + 4 }, { buttons: 0 }, 120);
+                    });
+                }).then(function () {
+                    return t.wait(function () { var st = A()._idmState(); return st.pointerOn && st.pointer; });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function () {
+                var st = A()._idmState();
+                return st.pointerOn && st.pointer ? 'The arrow follows your mouse on the wall output of this canvas.' : null;
             }
         },
         idmList: {
@@ -7431,7 +7461,7 @@
                     's3dOpen', 's3dSelect', 's3dCurve', 's3dYaw', 's3dCamera', 's3dBars', 's3dJoint',
                     'outputOpen', 'outputChoices',
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
-                    'idmColors', 'idmHighlight', 'idmList', 'notesChecklist',
+                    'idmColors', 'idmHighlight', 'idmPointer', 'idmList', 'notesChecklist',
                     'groupScreens', 'groupNames', 'groupDrag',
                     'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
