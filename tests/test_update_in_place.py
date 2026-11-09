@@ -129,6 +129,27 @@ def test_only_the_installed_windows_copy_installs(monkeypatch, registered, exe, 
     assert updater.is_installed_copy(platform=platform, frozen=frozen, executable=exe) is expected
 
 
+INSTALLED_CASES = [
+    (INSTALL_DIR + '\\', True), (INSTALL_DIR.lower(), True), ('"' + INSTALL_DIR + '"', True),
+    (' ' + INSTALL_DIR + ' ', True), (INSTALL_DIR.replace('\\', '/'), True),
+    (r'C:\Users\crew\Desktop\LED Raster Designer App', False),
+    (INSTALL_DIR + r'\Old', False),
+]
+
+
+@pytest.mark.parametrize(('registered', 'expected'), INSTALLED_CASES)
+def test_the_folder_check_reads_windows_paths_on_any_os(monkeypatch, registered, expected):
+    """CI runs this on Linux and macOS, where os.path is posixpath: no
+    backslashes, case matters. The check must not lean on it. updater's own
+    os.path is posixpath here, wherever this runs."""
+    import posixpath
+    import types
+    monkeypatch.setattr(updater, 'os', types.SimpleNamespace(path=posixpath, sep='/', environ={}))
+    monkeypatch.setattr(updater, '_registered_install_dir', lambda: registered)
+    exe = INSTALL_DIR + r'\LED Raster Designer.exe'
+    assert updater.is_installed_copy(platform='win32', frozen=True, executable=exe) is expected
+
+
 def test_the_registry_key_is_the_setups_own():
     iss = open(os.path.join(ROOT, 'build', 'led_raster_designer.iss'), encoding='utf-8').read()
     assert 'AppId={' + updater.APP_ID + '\n' in iss.replace('\r\n', '\n')

@@ -386,15 +386,23 @@ def _registered_install_dir():
     return value if isinstance(value, str) and value.strip() else None
 
 
-def _same_folder(a, b):
-    import ntpath
+# Both sides are Windows paths, so they are read with ntpath whatever runs
+# this (the tests run it on Linux and macOS too): os.path there is posixpath,
+# which knows neither backslashes nor that Windows ignores case.
 
-    def norm(p):
-        return ntpath.normcase(ntpath.normpath(p.strip().strip('"')))
-    return norm(a) == norm(b)
+def _windows_folder(p):
+    """A Windows folder path in one comparable form: no quotes, one kind of
+    separator, no trailing separator, lower case."""
+    import ntpath
+    return ntpath.normcase(ntpath.normpath(p.strip().strip('"').strip()))
+
+
+def _same_folder(a, b):
+    return _windows_folder(a) == _windows_folder(b)
 
 
 def is_installed_copy(platform=None, frozen=None, executable=None):
+    import ntpath
     platform = sys.platform if platform is None else platform
     frozen = getattr(sys, 'frozen', False) if frozen is None else frozen
     executable = sys.executable if executable is None else executable
@@ -403,7 +411,7 @@ def is_installed_copy(platform=None, frozen=None, executable=None):
     where = _registered_install_dir()
     if not where:
         return False
-    return _same_folder(where, os.path.dirname(executable))
+    return _same_folder(where, ntpath.dirname(_windows_folder(executable)))
 
 
 # ── The setup asset ─────────────────────────────────────────────────────
