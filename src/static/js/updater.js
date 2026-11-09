@@ -26,6 +26,26 @@
 
     if (!banner) return;
 
+    // The banner sits in the page's flow above the menu bar (style.css), so
+    // showing it, hiding it or a line wrapping in it changes the height the
+    // app has. Whatever measures (the canvas, the panels' fold tabs and
+    // resize strips) re-measures then, as on a window resize.
+    var bannerHeight = 0;
+    var relayoutQueued = false;
+    function relayout() {
+        var h = banner.offsetHeight;
+        if (h === bannerHeight || relayoutQueued) return;
+        relayoutQueued = true;
+        requestAnimationFrame(function () {
+            relayoutQueued = false;
+            bannerHeight = banner.offsetHeight;
+            try { window.dispatchEvent(new Event('resize')); } catch (_) { /* old browser */ }
+            var app = window.app;
+            if (app && typeof app.settleLayout === 'function') app.settleLayout();
+        });
+    }
+    if (typeof ResizeObserver === 'function') new ResizeObserver(relayout).observe(banner);
+
     var shown = null;        // the check answer the banner shows
     var pollTimer = null;
     var installing = false;

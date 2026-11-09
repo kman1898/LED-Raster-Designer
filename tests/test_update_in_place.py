@@ -45,6 +45,7 @@ def _fresh_updater_state(tmp_path, monkeypatch):
         updater._dl.update(state='idle', percent=0, version=None, error=None, path=None, sha256=None)
     monkeypatch.setattr(updater.tempfile, 'tempdir', str(tmp_path))
     monkeypatch.setattr(updater, '_clean_old_downloads', lambda: None)
+    monkeypatch.setattr(updater, '_page_waiting_path', lambda: str(tmp_path / 'update-page-waiting'))
     spawned, quits = [], []
     monkeypatch.setattr(updater, '_spawn_installer', lambda cmd: spawned.append(cmd))
     monkeypatch.setattr(updater, '_schedule_quit', lambda delay=1.0: quits.append(delay))
@@ -357,6 +358,47 @@ def test_the_real_launcher_is_detached(monkeypatch):
     assert flags & 0x00000008 and flags & 0x00000200    # DETACHED_PROCESS, CREATE_NEW_PROCESS_GROUP
     assert kw['stdin'] == subprocess.DEVNULL and kw['close_fds'] is True
     assert kw['env']['PYINSTALLER_RESET_ENVIRONMENT'] == '1'
+
+
+# ── One browser tab across the restart ────────────────────────────────
+
+def test_install_leaves_a_note_for_the_next_launch(monkeypatch, tmp_path):
+    _ready(monkeypatch, tmp_path)
+    assert updater.install_update()['ok'] is True
+    assert (tmp_path / 'update-page-waiting').is_file()
+
+
+@pytest.mark.parametrize(('setting', 'note_age', 'opens'), [
+    (True, None, True),      # an ordinary launch with Open Browser on Launch
+    (False, None, False),    # the setting off
+    (True, 20, False),       # the relaunch: the old page is waiting and reloads
+    (True, 590, False),      # a slow install still counts
+    (True, 601, True),       # a stale note (setup failed, opened by hand later)
+    (True, -5, True),        # a clock that went backwards: no promise of a page
+    (False, 20, False),
+])
+def test_the_relaunch_opens_no_second_tab(tmp_path, setting, note_age, opens):
+    now = 1_000_000.0
+    if note_age is not None:
+        updater.mark_page_waiting(now=now - note_age)
+    with patch.object(updater.time, 'time', return_value=now):
+        assert updater.open_browser_on_launch({'open_browser_on_launch': setting}) is opens
+    # Read once: the launch after that opens the browser as usual.
+    assert not (tmp_path / 'update-page-waiting').exists()
+    assert updater.open_browser_on_launch({'open_browser_on_launch': setting}) is setting
+
+
+def test_a_garbled_note_is_dropped(tmp_path):
+    (tmp_path / 'update-page-waiting').write_text('not a time', encoding='utf-8')
+    assert updater.open_browser_on_launch({'open_browser_on_launch': True}) is True
+    assert not (tmp_path / 'update-page-waiting').exists()
+
+
+def test_both_launchers_ask_before_opening_the_browser():
+    for name in ('launcher_window.py', 'launcher_pc.py'):
+        src = open(os.path.join(ROOT, 'src', name), encoding='utf-8').read()
+        assert 'if updater.open_browser_on_launch(settings):' in src, name
+        assert "if settings.get('open_browser_on_launch', False):\n        open_url" not in src, name
 
 
 # ── The routes ────────────────────────────────────────────────────────

@@ -18,7 +18,11 @@ import pytest
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
-NO_GUIDE = "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}"
+# The startup check (3 s after load) would show the banner by itself; 9.9.9
+# dismissed keeps it quiet, so only Help > Check for Updates shows it here
+# (a user's check ignores a dismiss).
+NO_GUIDE = ("try{localStorage.setItem('lrd_quickstart_first_run_done','1');"
+            "localStorage.setItem('lrd-update-dismissed-9.9.9','1');}catch(e){}")
 
 CHECK = {
     'available': True, 'current_version': '1.7.0', 'latest_version': '9.9.9',
@@ -85,6 +89,9 @@ def test_an_installed_copy_updates_from_the_banner(e2e_server, pw_browser):
         {'state': 'downloading', 'percent': 42, 'version': '9.9.9', 'error': None},
         {'state': 'downloading', 'percent': 42, 'version': '9.9.9', 'error': None},
         {'state': 'downloading', 'percent': 42, 'version': '9.9.9', 'error': None},
+        {'state': 'downloading', 'percent': 42, 'version': '9.9.9', 'error': None},
+        {'state': 'downloading', 'percent': 42, 'version': '9.9.9', 'error': None},
+        {'state': 'downloading', 'percent': 42, 'version': '9.9.9', 'error': None},
         {'state': 'verifying', 'percent': 100, 'version': '9.9.9', 'error': None},
         {'state': 'ready', 'percent': 100, 'version': '9.9.9', 'error': None},
     ]
@@ -103,9 +110,11 @@ def test_an_installed_copy_updates_from_the_banner(e2e_server, pw_browser):
         assert pg.evaluate("() => document.getElementById('update-banner-progress-bar').style.width") == '42%'
         assert not action.is_visible()   # no second download while one runs
         # A second click on Update cannot happen: the button is gone while
-        # it downloads. Check for Updates again keeps the progress. (The
-        # banner sits over the menu bar, so the option is clicked directly.)
-        pg.evaluate("() => document.querySelector('#menu-help .menu-option[data-action=\"check-updates\"]').click()")
+        # it downloads. Check for Updates again, through the real Help menu
+        # (the banner sits above the menu bar, never over it), keeps the
+        # progress.
+        pg.locator('#menu-bar .menu-item[data-menu="help"]').click()
+        pg.locator('#menu-help .menu-option[data-action="check-updates"]').click()
         pg.wait_for_timeout(300)
         assert _text(pg).startswith('Downloading') or _text(pg) == 'Checking the download', _text(pg)
 
@@ -154,6 +163,78 @@ def test_a_refused_download_says_why_and_offers_update_again(e2e_server, pw_brow
         link = pg.locator('#update-banner-link')
         assert link.is_visible() and link.get_attribute('href') == CHECK['download_url']
         assert seen['install'] == []
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
+LAYOUT_JS = """() => {
+    const r = (sel) => { const e = document.querySelector(sel); if (!e) return null;
+        const b = e.getBoundingClientRect(); return {top: b.top, bottom: b.bottom, height: b.height}; };
+    const banner = document.getElementById('update-banner');
+    const shown = banner.style.display !== 'none';
+    const bb = banner.getBoundingClientRect();
+    // Fixed-position bits pinned by measurement (fold tabs, resize strips).
+    const pinned = [...document.querySelectorAll('#app *')].filter(e => {
+        if (banner.contains(e)) return false;
+        const cs = getComputedStyle(e);
+        if (cs.position !== 'fixed' || cs.display === 'none' || cs.visibility === 'hidden') return false;
+        const b = e.getBoundingClientRect();
+        return b.width > 0 && b.height > 0;
+    }).map(e => ({id: e.id || e.className, top: e.getBoundingClientRect().top}));
+    return {
+        vh: window.innerHeight, scroll: document.documentElement.scrollHeight,
+        banner: shown ? {top: bb.top, bottom: bb.bottom, height: bb.height} : null,
+        menu: r('#menu-bar'), status: r('#status-bar'),
+        container: r('#canvas-container'), canvas: r('#main-canvas'),
+        canvasPx: (() => { const c = document.getElementById('main-canvas');
+            return c ? c.height / (window.devicePixelRatio || 1) : null; })(),
+        pinned,
+    };
+}"""
+
+
+@pytest.mark.parametrize(('width', 'height'), [(1600, 950), (1280, 800), (1024, 768)])
+def test_the_banner_pushes_the_app_down_and_gives_it_back(e2e_server, pw_browser, width, height):
+    """The banner never covers the menu bar: while it shows, the app sits
+    under it, nothing hangs off the bottom, the canvas is re-measured to
+    the room left; dismissed, every figure is what it was."""
+    context, pg, seen, problems = _open(pw_browser, e2e_server, CHECK, [])
+    try:
+        pg.set_viewport_size({'width': width, 'height': height})
+        pg.wait_for_timeout(600)
+        before = pg.evaluate(LAYOUT_JS)
+        assert before['banner'] is None and before['menu']['top'] == 0
+
+        _check_for_updates(pg)   # through the real Help menu
+        pg.wait_for_timeout(600)
+        on = pg.evaluate(LAYOUT_JS)
+        b = on['banner']
+        assert b['top'] == 0 and b['height'] > 20, on
+        assert abs(on['menu']['top'] - b['bottom']) < 1, on        # menus under it, not under it
+        assert abs(on['status']['bottom'] - on['vh']) < 1, on      # the status bar still at the bottom
+        assert on['scroll'] <= on['vh'], on                        # nothing pushed off the page
+        shrunk = before['container']['height'] - on['container']['height']
+        assert abs(shrunk - b['height']) < 1.5, (before, on)       # the canvas area gave up the banner's height
+        assert on['canvas']['bottom'] <= on['container']['bottom'] + 1, on   # canvas not clipped
+        assert abs(on['canvasPx'] - on['canvas']['height']) < 1.5, on        # and re-measured to it
+        assert all(p['top'] >= b['bottom'] - 1 for p in on['pinned']), on['pinned']
+        # The menus work with the banner up: Help opens below it.
+        pg.locator('#menu-bar .menu-item[data-menu="help"]').click()
+        assert pg.locator('#menu-help').is_visible()
+        assert pg.locator('#menu-help').bounding_box()['y'] >= b['bottom']
+        pg.keyboard.press('Escape')
+        if pg.locator('#menu-help').is_visible():
+            pg.locator('#menu-bar .menu-item[data-menu="help"]').click()
+
+        pg.locator('#update-banner-dismiss').click()
+        pg.wait_for_timeout(600)
+        after = pg.evaluate(LAYOUT_JS)
+        assert after['banner'] is None
+        for key in ('menu', 'status', 'container', 'canvas'):
+            for edge in ('top', 'bottom', 'height'):
+                assert abs(after[key][edge] - before[key][edge]) < 1, (key, before[key], after[key])
+        assert abs(after['canvasPx'] - before['canvasPx']) < 1.5
         assert problems == [], problems
     finally:
         context.close()

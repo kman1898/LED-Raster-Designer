@@ -923,7 +923,10 @@ def main():
     # already imported, and before the window so it lands even if that fails.
     _log_startup_environment()
 
-    if settings.get('open_browser_on_launch', False):
+    # Not when the page from before an update is waiting to reload: that
+    # would be a second tab (updater.open_browser_on_launch).
+    import updater
+    if updater.open_browser_on_launch(settings):
         open_url(get_display_url(settings), settings)
 
     run_window(settings)

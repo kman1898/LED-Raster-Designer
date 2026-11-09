@@ -684,5 +684,63 @@ def install_update():
         return {'ok': False, 'error': f'The update could not be started: {e}'}
     _set(state='installing')
     _event('update_install_started', {'version': version, 'args': cmd[1:]})
+    mark_page_waiting()
     _schedule_quit()
     return {'ok': True, 'version': version}
+
+
+# ── One browser tab across the restart ──────────────────────────────────
+#
+# The page that clicked Install and restart waits for the new version and
+# reloads itself (updater.js reloadWhenUpdated). So the launch the setup
+# makes must not open a second tab, even with Open Browser on Launch on.
+# install_update leaves a time-stamped note beside the settings; the next
+# launch reads it once, deletes it, and skips its browser open while it is
+# fresh. Ten minutes, as long as the page waits: a slow install still
+# counts, and a stale note (setup failed, the app opened by hand next
+# week) opens the browser as usual.
+
+PAGE_WAITING_FILE = 'update-page-waiting'
+PAGE_WAITING_SECONDS = 600
+
+
+def _page_waiting_path():
+    from launcher_settings import get_config_dir
+    return os.path.join(get_config_dir(), PAGE_WAITING_FILE)
+
+
+def mark_page_waiting(now=None):
+    try:
+        with open(_page_waiting_path(), 'w', encoding='utf-8') as fh:
+            fh.write(repr(time.time() if now is None else now))
+    except Exception as e:
+        logger.warning('Could not note the waiting page: %s', e)
+
+
+def take_page_waiting(now=None):
+    """True when a page was left waiting for this launch. Reads the note
+    once and deletes it, fresh or not."""
+    try:
+        path = _page_waiting_path()
+        with open(path, 'r', encoding='utf-8') as fh:
+            text = fh.read().strip()
+    except Exception:
+        return False          # no note: the usual launch
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    try:
+        stamp = float(text)
+    except ValueError:
+        return False
+    age = (time.time() if now is None else now) - stamp
+    return 0 <= age <= PAGE_WAITING_SECONDS
+
+
+def open_browser_on_launch(settings):
+    """The launchers' "open the browser now?" (launcher_window.main,
+    launcher_pc.main): the setting, unless the page from before an update
+    is already waiting to reload."""
+    waiting = take_page_waiting()
+    return bool(settings.get('open_browser_on_launch', False)) and not waiting
