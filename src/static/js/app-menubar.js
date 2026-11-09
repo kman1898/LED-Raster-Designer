@@ -363,6 +363,9 @@ class _MenuBar {
             case 'export-resolume-xml':
                 this.openExportModal('resolume-xml');
                 break;
+            case 'export-obj':
+                this.openExportModal('obj');
+                break;
             case 'pull-sheet':
                 // The in-app editor over the pull list (app-pull-sheet-editor.js).
                 this.openPullSheetEditor();

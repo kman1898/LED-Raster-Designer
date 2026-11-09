@@ -37,6 +37,7 @@
             <div class="menu-option" data-action="export-svg" data-label="Export SVG"></div>
             <div class="menu-option" data-action="export-pdf" data-label="Export PDF"></div>
             <div class="menu-option" data-action="export-resolume-xml" data-label="Export Resolume XML"></div>
+            <div class="menu-option" data-action="export-obj" data-label="Export OBJ"></div>
             <div class="menu-option" data-action="pull-sheet" data-label="Pull Sheet…"></div>
             <div class="menu-option" data-action="export-pull-sheet" data-label="Export Pull Sheet"></div>
             <div class="menu-option" data-action="export-binder" data-label="Export Binder"></div>
@@ -2717,6 +2718,7 @@
                     <option value="resolume-xml">Resolume XML (Advanced Output)</option>
                     <option value="pull-sheet">Pull Sheet (Excel workbook, gear list by position)</option>
                     <option value="binder">Binder (PDF)</option>
+                    <option value="obj">OBJ (3D model of each screen, mapped to its canvas)</option>
                     <!-- NovaStar SCR export is parked, not gone: the .scr file
                          layer lives in src/scr_project.py / scr_encoder.py /
                          scr_decoder.py with a working CLI in
@@ -2725,6 +2727,7 @@
                          export-confirm handler, and a route that calls
                          scr_project.build_sections. -->
                 </select>
+                <div id="export-obj-note" style="display: none; margin-top: 6px; font-size: 11px; color: #888;" data-tooltip="OBJ, a 3D model of every screen on the 3D stage in meters, bent and curved as it stands there, with each cabinet mapped to where it sits in its canvas, the canvas's Pixel Map PNG and the .mtl that points at it. A group is one model; set its Names switch on Show Look to Screens to get a model per screen.">One model per screen as it stands on the 3D stage, in meters. A group is one model unless its Names switch on Show Look is Screens.</div>
             </div>
 
             <!-- Pull Sheet (format pull-sheet only): the project's jumper names

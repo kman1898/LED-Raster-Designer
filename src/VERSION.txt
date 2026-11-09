@@ -103,6 +103,37 @@ other edit.
   Page Down raise and lower it, and Esc puts a drag back. A show reopened
   on the 3D tab keeps its camera where you left it.
 
+CURVED WALLS
+
+Tick Curve on the Header/Footer tab and the app works out how to curve the
+selected screen with the bars you have. Say how much of a circle the wall
+covers, as a % or in degrees of sweep, concave or convex, and the angles
+your bars lock at. The sizes you have lit are the stock: the Curve decides
+where each bar goes and the angle to set at every join between bars, then
+lays them as the screen's real bars, so the totals, the pull sheet and the
+binder count them, and the 3D view bends the wall to match. A joint inside
+a bar never bends, and any joint can stay flat.
+
+Under the form, a strip shows the bars left to right with the angle on
+every join that bends, a small plan shows the wall from above against the
+drawn curve, and the readouts give the sweep, the radius to the front
+face, the width, the depth and how far off the drawing it lands at worst.
+Simplest uses the fewest different angles that land close enough, Even
+sets one angle at a regular spacing, and Tightest gets as close as the
+angles allow. Close enough is 25 mm, about an inch, unless you change it.
+
+- NEW: Change any setting, or the lit sizes, and the curve is laid again
+  in one undo step. Auto lays it again too. While Curve is on, the bars are
+  the Curve's: Custom and Remove Bar leave that screen alone, and Clear
+  takes the bars off and turns the Curve off.
+- NEW: File > Export OBJ saves each screen as a 3D model in meters, bent
+  and curved as it stands on the 3D stage, with every cabinet mapped to
+  where it sits in its canvas, so content mapped to that canvas lands on
+  the right cabinets. A PNG of the canvas's Pixel Map and the .mtl that
+  points at it go in the same folder. A group is one model, with each
+  screen in it by name, unless its Names switch on Show Look is Screens.
+  The dialog lists every file before it saves.
+
 A CANVAS ON A SECOND DISPLAY
 
 View > Output to Display sends one canvas, Pixel Map, Cabinet ID, Show
