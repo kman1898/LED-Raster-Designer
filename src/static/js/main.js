@@ -20,6 +20,7 @@ import './app-logs-recent.js';
 import './app-start-page.js';
 import './app-power.js';
 import './app-rigging.js';
+import './app-curve.js';
 import './app-context-menu.js';
 import './app-distros.js';
 import './app-distro-systems.js';

@@ -110,6 +110,8 @@ class _Rigging {
         setupColorPickerWithHex('rigging-text-color', 'rigging-text-color-hex', (val, isFinal) => {
             this._setRiggingColor('riggingTextColor', val, isFinal, 'Bar Text Color');
         });
+        // The Curve's checkbox and form (app-curve.js).
+        if (typeof this._wireRiggingCurve === 'function') this._wireRiggingCurve();
     }
 
     _setRiggingColor(field, val, isFinal, action) {
@@ -323,6 +325,9 @@ class _Rigging {
         const screens = this._writableLayers(selected);
         if (screens.length) {
             screens.forEach(l => { l.riggingSizes = [...sizes]; });
+            // The lit sizes are a curved screen's stock: its curve is laid
+            // again from them, in this undo step (app-curve.js).
+            if (typeof this.riggingCurveRelay === 'function') this.riggingCurveRelay(screens);
             this.updateLayers(screens, true, 'Bar Sizes');
         }
         this.refreshRiggingPanel();
@@ -465,6 +470,11 @@ class _Rigging {
         const changed = [];
         rows.forEach(row => {
             row.layers.forEach(m => { m.riggingSizes = [...sizes]; if (!changed.includes(m)) changed.push(m); });
+            // A curved screen's Auto lays its curve again (app-curve.js).
+            if (row.layers.length === 1 && typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(row.layers[0])) {
+                if (!this.riggingCurveRelay(row.layers).length) misses.push(this._riggingRowName(row));
+                return;
+            }
             // Across the wall as it stands (a wall turned a quarter is its
             // rows wide), and across every member of a group in line with it.
             if (!this._riggingFitRow(row, sizes)) misses.push(this._riggingRowName(row));
@@ -488,6 +498,11 @@ class _Rigging {
             const row = this.riggingRow(m.layers[0], m.kind);
             const held = row.layers.filter(l => this._layerLocked(l));
             if (held.length) { held.forEach(l => { if (!locked.includes(l)) locked.push(l); }); return; }
+            if (row.layers.length === 1 && typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(row.layers[0])) {
+                if (this.riggingCurveRelay(row.layers).length) changed.push(row.layers[0]);
+                else misses.push(this._riggingRowName(row));
+                return;
+            }
             if (!this._riggingFitRow(row, this._riggingSizesOf(row.layers[0]))) {
                 misses.push(this._riggingRowName(row));
                 return;
@@ -517,6 +532,12 @@ class _Rigging {
             });
             l.riggingSide = side === 'footer' ? 'footer' : 'header';
             l.riggingCustom = false;
+            // A curve with its bars taken off is a curve no more: Clear
+            // turns it off and the joints go back to flat (app-curve.js).
+            if (typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(l)) {
+                l.riggingCurve = { ...this.riggingCurveOf(l), on: false };
+                this._curveUnlay(l);
+            }
         });
         const word = kinds.size === 1 ? `${KIND_WORD[[...kinds][0]]} ` : '';
         this.updateLayers(screens, true, `Clear ${word}Bars`);
@@ -544,6 +565,8 @@ class _Rigging {
         const row = this.riggingRow(layer, kind);
         const locked = row.layers.filter(l => this._layerLocked(l));
         if (locked.length) { this._showLockedError(locked); return null; }
+        // A curved screen's bars are the Curve's (app-curve.js).
+        if (typeof this.riggingCurveRefusesHand === 'function' && this.riggingCurveRefusesHand(row.layers)) return null;
         // Pressing on one member presses on its group: the side and the
         // rows are the group's.
         const ids = this._riggingWithGroups([layer]).map(l => l.id);
@@ -643,6 +666,7 @@ class _Rigging {
         const row = this.riggingRow(layer, p.kind);
         const locked = row.layers.filter(l => this._layerLocked(l));
         if (locked.length) { this._showLockedError(locked); return false; }
+        if (typeof this.riggingCurveRefusesHand === 'function' && this.riggingCurveRefusesHand(row.layers)) return false;
         const at = row.offsets[row.layers.indexOf(layer)] + p.start;
         const rest = row.placed.filter(b => !(b.owner === layer && b.start === at));
         if (rest.length === row.placed.length) return false;
@@ -729,6 +753,7 @@ class _Rigging {
             hint.textContent = `Click in the bar strip ${where} a wall to drop a ${RiggingMath.sizeWord(this.riggingCustomSize()).toLowerCase()}, or drag along it to lay a row. Click a bar and press Delete to take it off.`;
         }
         if (clear) clear.disabled = !this._riggingWithGroups(screens).some(l => KINDS.some(k => this.riggingBarsOf(l, k).length));
+        if (typeof this.refreshRiggingCurve === 'function') this.refreshRiggingCurve();
 
         const status = document.getElementById('rigging-status');
         if (!status) return;
