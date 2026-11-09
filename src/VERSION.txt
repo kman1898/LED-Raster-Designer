@@ -201,6 +201,9 @@ FIXES
   just the title and the column headings.
 - FIX: Cabinet ID, Data and Power no longer show a move cursor on a
   canvas edge. The edge only moves on Pixel Map and Show Look.
+- FIX: A screen dragged straight after another change stays under the
+  mouse. The save of that change could land mid-drag and put the screen
+  back where the drag began until the mouse moved again.
 
 v1.6.0 - November 6, 2026
 ----------------------------
