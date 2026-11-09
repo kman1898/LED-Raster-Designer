@@ -3136,12 +3136,17 @@ def test_smoke_live_show_b(page):
     # one Tabloid sheet, painted at 2x
     assert main['width'] == W * SCALE and main['height'] == H * SCALE
     # the map: the wall 28 x 11 of 60 x 120 px, uniformly, in the width the
-    # one table column leaves at its scale - at least 45 % of the area
+    # one table column leaves at its scale - at least 45 % of the area. The
+    # column is the tables' own width since 2026-11-08 (_bMapLayout: it gave
+    # this wall 8 per cent more than a 3.5 in column), so the room is never
+    # less than a COL_W column would leave
     m = main['map']
     want_main = (28 * 60) / (11 * 120)
     assert abs(m['w'] / m['h'] - want_main) / want_main < 0.01, m
-    room_w = DA['w'] - (COL_W + COL_GAP) * main_s
-    assert room_w >= round(DA['w'] * MAP_MIN_FRAC) and abs(m['area']['w'] - room_w) < 0.01 and m['area']['x'] == DA['x'], (m['area'], room_w)
+    room_w = m['area']['w']
+    col = (DA['w'] - room_w) / main_s - COL_GAP
+    assert 500 < col < COL_W, (m['area'], col)
+    assert room_w >= round(DA['w'] * MAP_MIN_FRAC) and room_w > DA['w'] - (COL_W + COL_GAP) * main_s and m['area']['x'] == DA['x'], (m['area'], room_w)
     zoom = _fit(room_w, DA['h'] - BUBBLE_H * main_s, 28 * 60, 11 * 120)
     assert abs(m['zoom'] - zoom) < 0.01 and abs(m['w'] - 28 * 60 * zoom) <= 2, (m, zoom)
     assert m['w'] / room_w > 0.75 and m['scale'] == main_s, m
@@ -3152,7 +3157,7 @@ def test_smoke_live_show_b(page):
     heads = {t: (x, y) for t, x, y in main['headings'] if t in ('CIRCUITS', 'CABLES THIS SCREEN', 'FACTS')}
     assert 'CIRCUITS' in heads and 'CABLES THIS SCREEN' in heads and 'FACTS' in heads, heads
     assert all(x >= m['area']['x'] + m['area']['w'] + COL_GAP * main_s - 1 for x, _y in heads.values()), (heads, m['area'])
-    assert all(x + COL_W * main_s <= DA['x'] + DA['w'] + 1 for x, _y in heads.values()), heads
+    assert all(x + col * main_s <= DA['x'] + DA['w'] + 1 for x, _y in heads.values()), heads
     assert heads['CIRCUITS'][1] < heads['CABLES THIS SCREEN'][1] < heads['FACTS'][1]
     # the view bubble under the map
     b = main['bubble']
