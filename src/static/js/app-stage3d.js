@@ -277,14 +277,18 @@ function s3dBuild(layer, placement) {
     };
 }
 
-// The Header/Footer tab's bars (layer.riggingBars above the wall,
-// layer.riggingFooterBars below it, sizes in panels left to right) as flat
-// quads in the screen's own frame, one per panel slot they cover, built
-// on the same column chain as the cabinets: a bar follows the screen's
-// curve and every joint, and leans with the top (or bottom) row. A panel
-// of bar is a panel of wall: bars that no longer add up to the wall stop
+// The Header/Footer tab's bars (header above the wall, footer below it) as
+// flat quads in the screen's own frame, one per panel slot they cover,
+// built on the same column chain as the cabinets: a bar follows the
+// screen's curve and every joint, and leans with the top (or bottom) row.
+// A panel of bar is a panel of wall: bars that no longer fit the wall stop
 // short of it or run past its last column at the wall's average column
-// width, at their true width and never stretched, as the tab draws them.
+// width, at their true width and never stretched, as the tab draws them;
+// a gap in a custom row is a gap here too.
+// `slices` (app-rigging riggingStageSlices) are the bars over THIS screen
+// in its own panels: across a group's seam each member stands the part of
+// a bar over itself, so the two halves meet at the seam. Without them, the
+// screen's own bars end to end, as before.
 // A bar stands at its real height, 3.5 in (a bar is 3 to 4 in tall), on
 // every wall whatever its size.
 const BAR_GAP_MM = 40;
@@ -292,24 +296,40 @@ const BAR_HEIGHT_MM = 88.9;
 function s3dBarHeight(built) {
     return BAR_HEIGHT_MM;
 }
-function s3dBarRows(layer, built) {
+function s3dBarRows(layer, built, slices) {
     const out = [];
     const n = built.colLen.length, last = built.rowLen.length - 1;
     if (!n || last < 0) return out;
     const avg = built.widthMm / n;
     const h = s3dBarHeight(built);
     const below = built.rowLen[last] + BAR_GAP_MM;
-    const defs = [
-        ['header', layer.riggingBars, 0, -(BAR_GAP_MM + h), -BAR_GAP_MM],
-        ['footer', layer.riggingFooterBars, last, below, below + h],
+    const at = { header: [0, -(BAR_GAP_MM + h), -BAR_GAP_MM], footer: [last, below, below + h] };
+    const own = (raw) => {
+        let x = 0;
+        return (Array.isArray(raw) ? raw : []).map(Number).filter(v => Number.isInteger(v) && v > 0)
+            .map(size => { const b = { start: x, size }; x += size; return b; });
+    };
+    const rows = slices || [
+        { row: 'header', bars: own(layer.riggingBars), end: true, fits: null },
+        { row: 'footer', bars: own(layer.riggingFooterBars), end: true, fits: null },
     ];
-    for (const [row, raw, k, wTop, wBot] of defs) {
-        const bars = (Array.isArray(raw) ? raw : []).map(Number).filter(v => Number.isInteger(v) && v > 0);
-        const slots = bars.reduce((a, b) => a + b, 0);
-        if (!slots) continue;
+    for (const sl of rows) {
+        const [k, wTop, wBot] = at[sl.row === 'footer' ? 'footer' : 'header'];
+        const bars = (sl.bars || []).filter(b => Number.isInteger(b.size) && b.size > 0);
+        // The slots this screen stands: the ones a bar covers on the wall,
+        // and past its last column only at the row's own end.
+        const covered = new Set();
+        for (const b of bars) {
+            const hi = sl.end ? b.start + b.size : Math.min(b.start + b.size, n);
+            for (let s = Math.max(0, b.start); s < hi; s++) covered.add(s);
+        }
+        const list = [...covered].sort((a, b) => a - b);
+        if (!list.length) continue;
+        const from = list[0];
+        const span = list[list.length - 1] + 1 - from;
         const quads = [];
         let lengthMm = 0;
-        for (let s = 0; s < slots; s++) {
+        for (const s of list) {
             let i = s, ua = 0, ub = built.colLen[s];
             if (s >= n) {
                 i = n - 1;
@@ -323,7 +343,10 @@ function s3dBarRows(layer, built) {
                 br: built.point(i, ub, k, wBot), bl: built.point(i, ua, k, wBot),
             });
         }
-        out.push({ row, bars, slots, wallSlots: n, fits: slots === n, heightMm: h, lengthMm, quads });
+        const slots = list.length;
+        const fits = sl.fits == null ? (bars.reduce((a, b) => a + b.size, 0) === n) : !!sl.fits;
+        out.push({ row: sl.row, bars: bars.map(b => b.size), starts: bars.map(b => b.start), from, span,
+                   slots, wallSlots: n, fits, heightMm: h, lengthMm, quads });
     }
     return out;
 }
@@ -1173,11 +1196,14 @@ class _Stage3D {
             e.geoKey = geoKey;
             this._s3dBuildMesh(e, layer, placement);
         }
-        const barsKey = JSON.stringify([geoKey, layer.riggingBars, layer.riggingFooterBars,
+        // A neighbor's bar across a group's seam stands partly on this
+        // screen: the slices (riggingStageSlices) carry it.
+        const slices = typeof this.riggingStageSlices === 'function' ? this.riggingStageSlices(layer) : null;
+        const barsKey = JSON.stringify([geoKey, slices, layer.riggingBars, layer.riggingFooterBars,
             layer.riggingColor, layer.riggingTextColor]);
         if (e.barsKey !== barsKey) {
             e.barsKey = barsKey;
-            this._s3dBuildBars(e, layer);
+            this._s3dBuildBars(e, layer, slices);
         }
         if (e.barGroup) e.barGroup.visible = st.bars !== false;
         const texKey = this._s3dTexKey(layer);
@@ -1258,11 +1284,11 @@ class _Stage3D {
     // size on it, the back the cabinets' dark grey. Children of the
     // screen's group, so they move, turn and curve with it; never picked,
     // so a click on a bar does not land on a cabinet or a seam.
-    _s3dBuildBars(e, layer) {
+    _s3dBuildBars(e, layer, slices) {
         const st = this._s3dState();
         const T = st.T;
         this._s3dDropBars(e);
-        e.barRows = e.built ? s3dBarRows(layer, e.built) : [];
+        e.barRows = e.built ? s3dBarRows(layer, e.built, slices || null) : [];
         if (!e.barRows.length) return;
         const hex = /^#[0-9a-f]{6}$/i;
         const fill = hex.test(layer.riggingColor || '') ? layer.riggingColor : '#000000';
@@ -1275,7 +1301,7 @@ class _Stage3D {
             const pos = new Float32Array(n * 12), uv = new Float32Array(n * 8), idx = new Uint32Array(n * 6);
             row.quads.forEach((q, i) => {
                 [q.tl, q.tr, q.br, q.bl].forEach((c, k) => pos.set(c, i * 12 + k * 3));
-                const u0 = q.slot / row.slots, u1 = (q.slot + 1) / row.slots;
+                const u0 = (q.slot - row.from) / row.span, u1 = (q.slot + 1 - row.from) / row.span;
                 uv.set([u0, 1, u1, 1, u1, 0, u0, 0], i * 8);
                 const base = i * 4;
                 idx.set([base + 3, base + 2, base + 1, base + 3, base + 1, base], i * 6);
@@ -1300,17 +1326,21 @@ class _Stage3D {
 
     // One row of bars drawn the way the Header/Footer tab draws it: each
     // bar filled, outlined in the text color, its size in the middle.
+    // The texture spans the row's slots on this screen from its first
+    // (row.from, row.span), so a bar across a seam is painted at its full
+    // width and cut where this screen ends: its two halves meet.
     _s3dPaintBars(row, fill, ink) {
         const texH = 128;
         const avg = row.lengthMm / row.slots;
-        const slotPx = Math.max(8, Math.min(Math.round(texH * avg / row.heightMm), Math.floor(4096 / row.slots)));
+        const slotPx = Math.max(8, Math.min(Math.round(texH * avg / row.heightMm), Math.floor(4096 / row.span)));
         const canvas = document.createElement('canvas');
-        canvas.width = slotPx * row.slots;
+        canvas.width = slotPx * row.span;
         canvas.height = texH;
         const ctx = canvas.getContext('2d', { alpha: false });
         const line = Math.max(2, Math.round(texH * 0.04));
-        let x = 0;
-        for (const span of row.bars) {
+        for (let b = 0; b < row.bars.length; b++) {
+            const span = row.bars[b];
+            const x = (row.starts[b] - row.from) * slotPx;
             const w = span * slotPx;
             ctx.fillStyle = fill;
             ctx.fillRect(x, 0, w, texH);
@@ -1323,7 +1353,6 @@ class _Stage3D {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(String(span), x + w / 2, texH / 2);
-            x += w;
         }
         return canvas;
     }
@@ -1805,7 +1834,7 @@ class _Stage3D {
                 widthMm: e.built ? round(e.built.widthMm, 3) : 0, heightMm: e.built ? round(e.built.heightMm, 3) : 0,
                 placement: e.placement, stored: e.stored, tex: e.texSize || null, at,
                 bars: (e.barRows || []).map(r => ({
-                    row: r.row, bars: r.bars.slice(), slots: r.slots, wallSlots: r.wallSlots, fits: r.fits,
+                    row: r.row, bars: r.bars.slice(), starts: r.starts.slice(), slots: r.slots, wallSlots: r.wallSlots, fits: r.fits,
                     heightMm: round(r.heightMm, 3), lengthMm: round(r.lengthMm, 3),
                     first: r.quads[0].tl.map(v => round(v, 3)), last: r.quads[r.quads.length - 1].tr.map(v => round(v, 3)),
                     tex: r.canvas ? [r.canvas.width, r.canvas.height] : null,

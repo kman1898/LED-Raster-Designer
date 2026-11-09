@@ -25,42 +25,52 @@ Object.assign(CanvasRenderer.prototype, {
         this._lockedDragPending = null;
         this._lockedDragSaid = null;
 
-        // Rigging view: a plain left press on a header bar picks it up; the
-        // move re-orders the screen's bars and the release saves them.
+        // Header/Footer view: a plain left press on a bar picks it up (a
+        // drag moves it past its neighbors, a click picks it for Delete);
+        // on the edge between two bars it widens one and shortens the
+        // other. In Custom, a press along a wall's bar edge lays bars of the
+        // picked size there and the drag that follows lays a row of them.
+        // Every one works on the whole row, across a group's seams
+        // (app-rigging.js riggingBeginDrag), and the release saves it.
         if (this.viewMode === 'rigging' && e.button === 0 && !this.spacePressed
                 && !e.altKey && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-            // An edge between two bars is checked first: dragging it widens
-            // the bar it belongs to and shortens its neighbour.
+            const app = window.app;
+            // An edge between two bars is checked first.
             const edge = this.riggingEdgeAt(mouseX, mouseY);
             const bar = edge ? null : this.riggingBarAt(mouseX, mouseY);
-            const app = window.app;
             const hit = edge || bar;
             const layer = hit && app && app.project
                 ? app.project.layers.find(l => l.id === hit.layerId) : null;
             if (layer) {
-                if (app._layerLocked(layer)) {
-                    app._showLockedError([layer]);
-                    return;
-                }
-                if (!(app.selectedLayerIds && app.selectedLayerIds.has(layer.id))) {
-                    app.setSelectedLayersByIds([layer.id], layer.id);
-                }
-                // Header and footer bars are separate rows on the screen; the
-                // press says which one it is in.
-                const row = hit.row === 'footer' ? 'footer' : 'header';
-                const field = row === 'footer' ? 'riggingFooterBars' : 'riggingBars';
-                this._riggingDrag = edge ? {
-                    kind: 'edge', row, field, layerId: layer.id, boundary: edge.boundary, startX: mouseX,
-                    unitPx: edge.unitPx, dir: edge.dir,
-                    original: layer[field].slice(),
-                } : {
-                    kind: 'move', row, field, layerId: layer.id, index: bar.index, startX: mouseX,
-                    unitPx: bar.unitPx, dir: bar.dir,
-                    original: layer[field].slice(),
-                };
+                const d = app.riggingBeginDrag(layer, hit.row);
+                if (!d) { this.render(); return; }
+                Object.assign(d, edge
+                    ? { kind: 'edge', boundary: edge.runBoundary }
+                    : { kind: 'move', index: bar.runIndex, hit: bar },
+                    { startX: mouseX, unitPx: hit.unitPx, dir: hit.dir });
+                this._riggingDrag = d;
+                if (app._riggingGhost) app._riggingGhost = null;
                 this.canvas.style.cursor = edge ? 'ew-resize' : 'grabbing';
                 this.render();
                 return;
+            }
+            const zone = app && app._riggingTool === 'custom' ? this.riggingZoneAt(mouseX, mouseY) : null;
+            const zoneLayer = zone ? app.project.layers.find(l => l.id === zone.layerId) : null;
+            if (zoneLayer) {
+                app._riggingGhost = null;
+                app._riggingPicked = null;
+                const d = app.riggingBeginPlace(zoneLayer, zone.kind, zone.panel);
+                if (d) {
+                    d.zone = zone;
+                    this._riggingDrag = d;
+                }
+                this.render();
+                return;
+            }
+            // A press anywhere else lets go of a picked bar.
+            if (app && app._riggingPicked) {
+                app._riggingPicked = null;
+                this.render();
             }
         }
 
@@ -775,21 +785,20 @@ Object.assign(CanvasRenderer.prototype, {
         const worldY = (mouseY - this.panY) / this.zoom;
         const worldX = this._unmirrorWorldX((mouseX - this.panX) / this.zoom, worldY);
 
-        // A header bar in hand (see handleMouseDown): the screen's bars
-        // re-order live as it crosses its neighbours.
+        // A bar in hand (see handleMouseDown): the row changes live as the
+        // mouse moves - a bar re-orders past its neighbors, an edge trades
+        // a panel, a Custom drag lays bars of the picked size along it.
         if (this._riggingDrag) {
             const d = this._riggingDrag;
-            const layer = window.app && window.app.project
-                ? window.app.project.layers.find(l => l.id === d.layerId) : null;
-            if (layer && d.unitPx > 0) {
-                const panels = d.dir * (mouseX - d.startX) / d.unitPx;
-                if (d.kind === 'edge') {
-                    // the edge follows the mouse a whole panel at a time
-                    layer[d.field] = RiggingMath.resizeBoundary(d.original, d.boundary, panels);
-                } else {
-                    const moved = RiggingMath.moveBarWithSlot(d.original, d.index, panels);
-                    layer[d.field] = moved.bars;
-                    d.current = moved.slot;      // the bar in hand is drawn lit, wherever it landed
+            const app = window.app;
+            if (app) {
+                if (d.kind === 'place') {
+                    app.riggingPreviewPlace(d, this.riggingZoneRowPanel(d.zone, mouseX));
+                } else if (d.unitPx > 0) {
+                    const panels = d.dir * (mouseX - d.startX) / d.unitPx;
+                    if (Math.abs(mouseX - d.startX) > 3) d.moved = true;
+                    if (d.kind === 'edge') app.riggingPreviewEdge(d, panels);
+                    else app.riggingPreviewMove(d, panels);
                 }
                 this.render();
             }
@@ -1197,9 +1206,13 @@ Object.assign(CanvasRenderer.prototype, {
                 && this._canvasEdgeAtPoint(worldX, worldY)) {
                 this.canvas.style.cursor = 'move';
             } else if (this.viewMode === 'rigging' && this.riggingEdgeAt(mouseX, mouseY)) {
-                this.canvas.style.cursor = 'ew-resize';     // an edge between header bars
+                this._riggingHover(null);
+                this.canvas.style.cursor = 'ew-resize';     // an edge between bars
             } else if (this.viewMode === 'rigging' && this.riggingBarAt(mouseX, mouseY)) {
-                this.canvas.style.cursor = 'grab';          // a header bar
+                this._riggingHover(null);
+                this.canvas.style.cursor = 'grab';          // a bar
+            } else if (this.viewMode === 'rigging' && this._riggingHover(mouseX, mouseY)) {
+                this.canvas.style.cursor = 'copy';          // Custom: where a click drops a bar
             } else {
                 this.canvas.style.cursor = 'default';
             }
@@ -1207,19 +1220,20 @@ Object.assign(CanvasRenderer.prototype, {
     },
 
     handleMouseUp(e) {
-        // A header bar let go (see handleMouseDown): save the new order. The
-        // bars were re-ordered live on the layer; saving records the result
-        // as one undo step, like every other edit.
+        // A bar let go (see handleMouseDown): the row is saved as one undo
+        // step, like every other edit. A press on a bar that never moved is
+        // a click: it picks the bar (Delete or Remove Bar takes it off).
         if (this._riggingDrag) {
             const d = this._riggingDrag;
             this._riggingDrag = null;
             this.canvas.style.cursor = '';
             const app = window.app;
-            const layer = app && app.project ? app.project.layers.find(l => l.id === d.layerId) : null;
-            if (layer) {
-                if (layer[d.field].join(',') !== d.original.join(',')) {
-                    app.updateLayers([layer], true, (d.kind === 'edge' ? 'Resize ' : 'Move ') + (d.row === 'footer' ? 'Footer Bar' : 'Header Bar'));
-                    if (typeof app.refreshRiggingPanel === 'function') app.refreshRiggingPanel();
+            if (app) {
+                if (d.kind === 'move' && !d.moved) {
+                    app.riggingEndDrag(d, false);
+                    app.pickRiggingBar(d.hit);
+                } else {
+                    app.riggingEndDrag(d, true);
                 }
             }
             this.render();
@@ -1996,6 +2010,31 @@ Object.assign(CanvasRenderer.prototype, {
         this.render();
     },
 
+    // Custom on the Header/Footer tab: the see-through bar a click would
+    // drop, under the mouse (canvas-rigging _drawRiggingGhost). No
+    // arguments take it away. True when the mouse is over a wall's bar edge.
+    _riggingHover(mouseX, mouseY) {
+        const app = window.app;
+        if (!app) return false;
+        let ghost = null;
+        let over = false;
+        if (mouseX != null && app._riggingTool === 'custom' && !this._riggingDrag) {
+            const z = this.riggingZoneAt(mouseX, mouseY);
+            over = !!z;
+            if (z && z.kind !== 'both') {
+                const size = app.riggingCustomSize();
+                const bar = RiggingMath.barsForClick(z.offset + z.panel, size, z.rowWidth)[0];
+                if (bar) ghost = { layerId: z.layerId, rowKey: z.rowKey, start: bar.start, size };
+            }
+        }
+        const was = app._riggingGhost;
+        const same = (!was && !ghost) || (was && ghost && was.layerId === ghost.layerId
+            && was.rowKey === ghost.rowKey && was.start === ghost.start && was.size === ghost.size);
+        app._riggingGhost = ghost;
+        if (!same) this.render();
+        return over;
+    },
+
     handleContextMenu(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -2174,8 +2213,13 @@ Object.assign(CanvasRenderer.prototype, {
             if (!this.isDragging) this.canvas.style.cursor = 'grab';
         }
         
-        // Delete key - only delete layer if NOT typing
-        if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping) {
+        // Delete key - only delete layer if NOT typing. On the Header/Footer
+        // tab with a bar picked (a click on it), the bar goes instead.
+        if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping
+                && this.viewMode === 'rigging' && window.app && window.app._riggingPicked) {
+            e.preventDefault();
+            window.app.removePickedRiggingBar();
+        } else if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping) {
             if (window.app && window.app.currentLayer) {
                 e.preventDefault();
                 window.app.deleteCurrentLayer();

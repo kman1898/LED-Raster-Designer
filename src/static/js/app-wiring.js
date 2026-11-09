@@ -187,8 +187,10 @@ class _Wiring {
         viewTabs().forEach(tab => {
             tab.addEventListener('click', () => {
                 const mode = tab.getAttribute('data-mode');
-                // Header/Footer opens on Header: the footer row is a choice made each time.
-                if (mode === 'rigging') this._riggingMode = 'header';
+                // A bar picked on the Header/Footer tab, and Custom's
+                // see-through bar, stay on that tab.
+                this._riggingPicked = null;
+                this._riggingGhost = null;
                 // The patch bay opens over the workspace from Data Settings;
                 // switching to any view closes it and shows that view.
                 if (this.closePatchBay) this.closePatchBay();

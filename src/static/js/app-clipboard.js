@@ -316,6 +316,11 @@ class _Clipboard {
             riggingSizes: Array.isArray(layer.riggingSizes) ? layer.riggingSizes.slice() : undefined,
             riggingBars: Array.isArray(layer.riggingBars) ? layer.riggingBars.slice() : undefined,
             riggingFooterBars: Array.isArray(layer.riggingFooterBars) ? layer.riggingFooterBars.slice() : undefined,
+            riggingBarStarts: Array.isArray(layer.riggingBarStarts) ? layer.riggingBarStarts.slice() : layer.riggingBarStarts,
+            riggingFooterBarStarts: Array.isArray(layer.riggingFooterBarStarts)
+                ? layer.riggingFooterBarStarts.slice() : layer.riggingFooterBarStarts,
+            riggingSide: layer.riggingSide,
+            riggingCustom: layer.riggingCustom,
             riggingColor: layer.riggingColor,
             riggingTextColor: layer.riggingTextColor,
             showLabelNameRigging: layer.showLabelNameRigging,

@@ -225,8 +225,207 @@ const RiggingMath = (() => {
         return `${kind === 'footer' ? 'Footer' : 'Header'} Bar - ${sizeWord(size)}`;
     }
 
+    // ---- placed bars --------------------------------------------------------
+    //
+    // A row of bars is stored as its sizes (riggingBars) and, only when the
+    // bars do not run end to end from the wall's left edge, the panel each
+    // one starts at (riggingBarStarts, the same length). A show saved before
+    // Custom has no starts, so it reads exactly as it did. In here a row is
+    // a list of { start, size }, start in panels from the row's left edge,
+    // sorted left to right.
+
+    // The stored arrays as placed bars. Starts that do not match the sizes
+    // (missing, the wrong length, not whole panels) are ignored: the bars
+    // then run end to end from panel 0, as every row did before.
+    function placedOf(bars, starts) {
+        const sizes = Array.isArray(bars) ? bars : [];
+        const ok = Array.isArray(starts) && starts.length === sizes.length
+            && starts.every(s => Number.isInteger(s) && s >= 0);
+        let at = 0;
+        const out = [];
+        sizes.forEach((raw, i) => {
+            const size = Number(raw);
+            const start = ok ? starts[i] : at;
+            at = start + (Number.isFinite(size) ? size : 0);
+            if (Number.isInteger(size) && size > 0) out.push({ start, size });
+        });
+        return out.sort((a, b) => a.start - b.start);
+    }
+
+    // Placed bars as the two stored arrays: { bars, starts }, starts null
+    // when the bars run end to end from panel 0 (the shape every older show
+    // has, so it saves the way it always did).
+    function storeOf(placed) {
+        const list = (placed || []).filter(b => b && Number.isInteger(b.size) && b.size > 0)
+            .map(b => ({ start: Math.round(b.start), size: b.size }))
+            .sort((a, b) => a.start - b.start);
+        let at = 0;
+        let flush = true;
+        for (const b of list) {
+            if (b.start !== at) flush = false;
+            at = b.start + b.size;
+        }
+        return { bars: list.map(b => b.size), starts: flush ? null : list.map(b => b.start) };
+    }
+
+    // `adds` laid into the row: every bar they overlap goes, the rest stay.
+    function placeBars(placed, adds) {
+        const fresh = (adds || []).filter(b => Number.isInteger(b.size) && b.size > 0);
+        const hits = (b) => fresh.some(n => n.start < b.start + b.size && b.start < n.start + n.size);
+        return [...(placed || []).filter(b => !hits(b)), ...fresh.map(b => ({ start: b.start, size: b.size }))]
+            .sort((a, b) => a.start - b.start);
+    }
+
+    // A click on panel `panel`: one bar of `size` starting there, moved in
+    // just far enough to stay on a row `width` panels wide. None when the
+    // bar is wider than the row.
+    function barsForClick(panel, size, width) {
+        if (!Number.isInteger(size) || size <= 0 || !(width >= size)) return [];
+        const start = Math.max(0, Math.min(Math.round(panel), width - size));
+        return [{ start, size }];
+    }
+
+    // A drag from panel `from` to panel `to`: as many whole bars of `size`
+    // as the dragged span holds, laid from the panel the drag started on
+    // toward the mouse. A leftover shorter than a bar stays empty. A drag
+    // shorter than one bar is a click.
+    function barsForDrag(from, to, size, width) {
+        if (!Number.isInteger(size) || size <= 0 || !(width >= size)) return [];
+        const a = Math.max(0, Math.min(width - 1, Math.round(from)));
+        const b = Math.max(0, Math.min(width - 1, Math.round(to)));
+        const n = Math.floor((Math.abs(b - a) + 1) / size);
+        if (n < 1) return barsForClick(a, size, width);
+        const out = [];
+        for (let k = 0; k < n; k++) {
+            out.push(b >= a ? { start: a + k * size, size } : { start: a + 1 - (k + 1) * size, size });
+        }
+        return out.sort((x, y) => x.start - y.start);
+    }
+
+    // The index of the bar covering panel `panel`, or -1.
+    function barAtPanel(placed, panel) {
+        return (placed || []).findIndex(b => panel >= b.start && panel < b.start + b.size);
+    }
+
+    // The edge between bar i and bar i + 1 dragged by `deltaPanels`: the
+    // same trade as resizeBoundary, for two bars that touch. Bars with a
+    // gap between them have no shared edge and stay as they are.
+    function resizeEdgeAt(placed, i, deltaPanels, maxSize = 4) {
+        const list = placed || [];
+        if (!Number.isInteger(i) || i < 0 || i >= list.length - 1) return list;
+        const a = list[i], b = list[i + 1];
+        if (a.start + a.size !== b.start) return list;
+        const sizes = resizeBoundary([a.size, b.size], 0, deltaPanels, maxSize);
+        if (sizes[0] === a.size) return list;
+        const out = list.map(x => ({ start: x.start, size: x.size }));
+        out[i].size = sizes[0];
+        out[i + 1] = { start: a.start + sizes[0], size: sizes[1] };
+        return out;
+    }
+
+    // Bar i dragged by its middle: it swaps places with its neighbours the
+    // way moveBarWithSlot does, among the bars that touch it end to end, so
+    // a gap in a custom row stays where it is. { placed, index } with where
+    // the bar landed.
+    function moveInBlock(placed, i, deltaPanels) {
+        const list = (placed || []).map(x => ({ start: x.start, size: x.size }));
+        if (!Number.isInteger(i) || i < 0 || i >= list.length) return { placed: list, index: i };
+        let lo = i, hi = i;
+        while (lo > 0 && list[lo - 1].start + list[lo - 1].size === list[lo].start) lo--;
+        while (hi < list.length - 1 && list[hi].start + list[hi].size === list[hi + 1].start) hi++;
+        const block = list.slice(lo, hi + 1).map(b => b.size);
+        const moved = moveBarWithSlot(block, i - lo, deltaPanels);
+        let at = list[lo].start;
+        moved.bars.forEach((size, k) => { list[lo + k] = { start: at, size }; at += size; });
+        return { placed: list, index: lo + moved.slot };
+    }
+
+    // ---- rows across grouped screens -----------------------------------------
+    //
+    // Members of a group that stand edge to edge in a row, the same panel
+    // width, their bar edges lined up (the top edges for a header, the
+    // bottom edges for a footer), carry ONE row of bars: a bar may straddle
+    // the seam. `rects` are [{ id, x, y, w, h, panels }] in one frame (Show
+    // Look workspace pixels). Returns the runs, each left to right:
+    // [{ ids, offsets, panels, width }].
+    function runsOf(rects, side, tol = 1) {
+        const list = (rects || []).filter(r => r && r.panels > 0 && r.w > 0)
+            .slice().sort((a, b) => a.x - b.x || a.y - b.y);
+        const edgeY = (r) => (side === 'footer' ? r.y + r.h : r.y);
+        const runs = [];
+        for (const r of list) {
+            const unit = r.w / r.panels;
+            const run = runs.find(u => {
+                const last = u.rects[u.rects.length - 1];
+                return Math.abs(last.x + last.w - r.x) <= tol
+                    && Math.abs(edgeY(last) - edgeY(r)) <= tol
+                    && Math.abs(last.w / last.panels - unit) <= tol;
+            });
+            if (run) run.rects.push(r); else runs.push({ rects: [r] });
+        }
+        return runs.map(u => {
+            let at = 0;
+            const offsets = u.rects.map(r => { const o = at; at += r.panels; return o; });
+            return { ids: u.rects.map(r => r.id), offsets, panels: u.rects.map(r => r.panels), width: at };
+        });
+    }
+
+    // Which member of a run a bar starting at `start` belongs to (it is
+    // stored, and counted, on the member it starts on): the member's index.
+    function ownerIndex(run, start) {
+        let k = 0;
+        for (let i = 0; i < run.offsets.length; i++) if (start >= run.offsets[i]) k = i;
+        return k;
+    }
+
+    // A run's placed bars handed back to its members, each in the member's
+    // own panels: [placed per member, in run order].
+    function distribute(run, placed) {
+        const out = run.ids.map(() => []);
+        for (const b of placed || []) {
+            const k = ownerIndex(run, b.start);
+            out[k].push({ start: b.start - run.offsets[k], size: b.size });
+        }
+        return out;
+    }
+
+    // What is wrong with a row, or null when nothing is. `spans` are the
+    // members' [offset, panels]; `custom` a row laid by hand.
+    //   Auto row    every member with a bar over it is covered edge to edge,
+    //               nothing overlaps or runs past the row's end (one screen
+    //               alone: the bars add up to the wall, the old rule).
+    //   Custom row  gaps are fine; only a bar past the row's end, or two
+    //               bars on one panel, is wrong.
+    // { have, wall, past, overlap, gap }: `have` the bars' panels, `wall`
+    // the panels of the members they claim, `past` panels past the end.
+    function rowProblem(placed, width, spans, custom) {
+        const list = (placed || []).slice().sort((a, b) => a.start - b.start);
+        if (!list.length) return null;
+        const end = Math.max(...list.map(b => b.start + b.size));
+        const past = Math.max(0, end - width);
+        let overlap = false;
+        for (let i = 1; i < list.length; i++) {
+            if (list[i].start < list[i - 1].start + list[i - 1].size) overlap = true;
+        }
+        const have = list.reduce((s, b) => s + b.size, 0);
+        const covers = (p) => list.some(b => p >= b.start && p < b.start + b.size);
+        const claimed = (spans && spans.length ? spans : [[0, width]])
+            .filter(([o, n]) => list.some(b => b.start < o + n && o < b.start + b.size));
+        const wall = claimed.reduce((s, [, n]) => s + n, 0);
+        let gap = false;
+        if (!custom) {
+            for (const [o, n] of claimed) {
+                for (let p = o; p < o + n; p++) if (!covers(p)) { gap = true; break; }
+            }
+        }
+        if (!past && !overlap && !gap) return null;
+        return { have, wall, past, overlap, gap, custom: !!custom };
+    }
+
     return { cleanSizes, arrangeSymmetric, isSymmetric, fitBars, moveBar, moveBarWithSlot, resizeBoundary, tally, sizeWord, barName,
-             wallPanels, barPanels, barsFit };
+             wallPanels, barPanels, barsFit,
+             placedOf, storeOf, placeBars, barsForClick, barsForDrag, barAtPanel, resizeEdgeAt, moveInBlock,
+             runsOf, ownerIndex, distribute, rowProblem };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = RiggingMath;

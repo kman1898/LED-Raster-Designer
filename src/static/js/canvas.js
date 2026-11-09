@@ -2742,6 +2742,7 @@ class CanvasRenderer {
             if (this.viewMode === 'rigging') {
                 this._riggingHits = [];     // refilled by renderRiggingBars: what the mouse can grab
                 this._riggingEdges = [];    // ... and the edges between bars
+                this._riggingZones = [];    // ... and where a Custom click or drag lays bars
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
                         this._svgGroup('Rigging', layer);
