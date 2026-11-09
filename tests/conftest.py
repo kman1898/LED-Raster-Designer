@@ -170,6 +170,46 @@ def settled(page, read, ok, timeout_ms=5000):
     return value
 
 
+# ── The server's own errors in a failing test's report ────────────────────
+#
+# The test server runs in this process, and an exception in a route ends
+# as a bare 500 in the request log: the traceback goes to the app's log
+# file, which a CI runner throws away. (1.7.0 CI: a test failed on a 500
+# from /api/port-assignments/remap that no run on the PC ever reproduced,
+# with nothing to say why.) So every unhandled_exception the server logs
+# during a test is kept, and a failing test's report carries them.
+_SERVER_ERRORS = []
+
+
+def _capture_server_errors(app_module):
+    real = app_module.log_event
+    if getattr(real, '_keeps_server_errors', False):
+        return
+
+    def log_event(action, details=None, *args, **kwargs):
+        if action == 'unhandled_exception':
+            _SERVER_ERRORS.append(details)
+        return real(action, details, *args, **kwargs)
+
+    log_event._keeps_server_errors = True
+    app_module.log_event = log_event
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    if call.when == 'setup':
+        _SERVER_ERRORS.clear()
+    outcome = yield
+    report = outcome.get_result()
+    if report.failed and _SERVER_ERRORS:
+        lines = []
+        for d in _SERVER_ERRORS:
+            d = d or {}
+            lines.append(f"{d.get('method')} {d.get('path')}: {d.get('type')}: {d.get('error')}")
+            lines.append(d.get('traceback') or '')
+        report.sections.append(('server errors during this test', '\n'.join(lines)))
+
+
 def pytest_collection_modifyitems(config, items):
     """LRD_CI_SHARD="k/n" keeps only the modules of shard k (ci_shard.py);
     CI's browser job runs the shards as parallel jobs. Unset, nothing is
@@ -254,6 +294,7 @@ def e2e_server():
     app_module.current_project = _build_initial_project()
     app_module.next_layer_id = 1
     app.config['TESTING'] = True
+    _capture_server_errors(app_module)
     # The browser tests never reach GitHub for the panel catalog. The app
     # applies a newer catalog by itself on launch, so a live answer that
     # differed from the checkout (GitHub's cache lagging a push) "updated"

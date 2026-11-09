@@ -277,18 +277,35 @@ def test_cmd_z_undoes_with_a_checkbox_focused(page):
     assert after['focus'] == 'power-custom-toggle', after
 
 
-@pytest.mark.parametrize('control', ['#shortcut-probe-range', '#power-custom-toggle'])
-def test_delete_removes_the_selected_screen_with_a_control_focused(page, control):
+def test_delete_removes_the_selected_screen_with_a_control_focused(page):
+    """On the Pixel Map tab - the one tab where Delete removes a screen (the
+    owner, 2026-11-08) - a focused slider does not swallow it."""
     state = reset(page)
+    page.evaluate("() => { window.canvasRenderer.viewMode = 'pixel-map'; window.canvasRenderer.render(); }")
+    page.evaluate(PROBE_RANGE_JS)
+    try:
+        focus(page, '#shortcut-probe-range')
+        after = press(page, 'Delete', settle=900)
+        assert after['layers'] == 2, (
+            f'Delete with #shortcut-probe-range focused did not delete the screen: {after}')
+        assert state['current'] not in [
+            *(page.evaluate("() => window.app.project.layers.map(l => l.id)"))], (
+            'the wrong screen went')
+    finally:
+        page.evaluate(UNPROBE_JS)
+
+
+@pytest.mark.parametrize('control', ['#shortcut-probe-range', '#power-custom-toggle'])
+def test_delete_keeps_the_screen_on_the_power_tab_with_a_control_focused(page, control):
+    """Off the Pixel Map tab Delete never removes a screen (the owner,
+    2026-11-08), with a control focused or not."""
+    reset(page)
     page.evaluate(PROBE_RANGE_JS)
     try:
         focus(page, control)
         after = press(page, 'Delete', settle=900)
-        assert after['layers'] == 2, (
-            f'Delete with {control} focused did not delete the screen: {after}')
-        assert state['current'] not in [
-            *(page.evaluate("() => window.app.project.layers.map(l => l.id)"))], (
-            'the wrong screen went')
+        assert after['layers'] == 3, (
+            f'Delete with {control} focused on Power removed a screen: {after}')
     finally:
         page.evaluate(UNPROBE_JS)
 

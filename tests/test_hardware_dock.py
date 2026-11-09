@@ -287,8 +287,11 @@ MENU_ITEMS_JS = """() => {
 
 # The layer/canvas actions the menu carries everywhere ON the canvas - and
 # which have no business appearing over dock hardware: "Delete Layer" beside
-# "Clear port 3" reads as an offer to delete the chip.
-LAYER_ITEMS = ['undo', 'redo', 'copy', 'paste', 'duplicate', 'delete',
+# "Clear port 3" reads as an offer to delete the chip. Delete Screen is not
+# one of them in the Data and Power views: the canvas menu offers it on the
+# Pixel Map tab only (the owner, 2026-11-08: "delete, to remove screen,
+# should only work on the pixel map tab"), and these views never show it.
+LAYER_ITEMS = ['undo', 'redo', 'copy', 'paste', 'duplicate',
                'prev-port', 'next-port']
 
 POWER_STATE_JS = """(layerId) => {
@@ -2492,6 +2495,7 @@ def test_right_click_on_nothing_clearable_keeps_the_item_off_the_menu(dock_page)
     for action in LAYER_ITEMS:
         assert action in state['items'], (
             f'the canvas menu lost its {action} item: {state}')
+    assert 'delete' not in state['items'], state
     close_menu(page)
 
 
@@ -2608,6 +2612,7 @@ def test_the_canvas_run_menu_keeps_layer_items_beside_the_clear(dock_page):
     for action in LAYER_ITEMS + ['hw-clear']:
         assert action in state['items'], (
             f'the data run menu lost its {action} item: {state}')
+    assert 'delete' not in state['items'], state
     close_menu(page)
 
     open_view(page, 'power')
@@ -2629,6 +2634,7 @@ def test_the_canvas_run_menu_keeps_layer_items_beside_the_clear(dock_page):
     for action in LAYER_ITEMS + ['hw-clear']:
         assert action in state['items'], (
             f'the circuit menu lost its {action} item: {state}')
+    assert 'delete' not in state['items'], state
     close_menu(page)
 
 
