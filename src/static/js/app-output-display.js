@@ -15,13 +15,29 @@
 // whatever this window shows - its own edits, undo, and the layer edits
 // other LAN clients push to it.
 //
-// Every output is 1:1: one raster pixel on one display pixel, from the
-// top-left corner (Matt, 2026-11-08: "1:1 is the only output option we
-// should have"). There is no scale to pick; an old ?scale= on an output's
-// address is ignored.
+// Every output is 1:1: one canvas pixel per display pixel, at the
+// resolution the OS shows for that display, from the top-left corner (Matt,
+// 2026-11-09: "one to one means pixel pixel ... a 1920 canvas on a 4K
+// display would fill the top left quadrant"). What the canvas leaves unused
+// stays black on the output, and a canvas bigger than the display is not
+// shown at all: the output says so (output-display.js). There is no scale
+// to pick; an old ?scale= on an output's address is ignored.
 //
-// The windows are kept in _outputDisplayWindows (references, not ids), the
-// dialog lists and closes them, and they close with this window.
+// Where an output opens:
+// * In the desktop app the server lists every display (GET
+//   /api/output/native) and opens each output as a native window, full
+//   screen on the display picked here, with no dragging and no click
+//   (output_native.py). A native window is no child of this browser, so its
+//   frames go through the server (routes_output.py): the same offscreen
+//   render, sent as a PNG, latest frame wins.
+// * In a plain browser the output is a browser window this page opened
+//   (window.open) and feeds directly.
+//   Chromium's Window Management API lets the dialog pick its display;
+//   elsewhere the dialog says to drag it there and click for full screen.
+//
+// The outputs are kept in _outputDisplayWindows (window references, or a
+// native output's feed id), the dialog lists and closes them, and they close
+// with this window.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
@@ -61,15 +77,20 @@ class _OutputDisplay {
         this._outputDisplayFillScreens();
         this._outputDisplayRenderList();
         modal.style.display = 'block';
-        // Screens are listed without a prompt when the browser already has
-        // the permission; otherwise "Find displays" asks for it.
-        this._outputDisplayProbeScreens(false);
+        // The desktop app lists every display and opens on any of them.
+        // Otherwise the browser's own list: without a prompt when it already
+        // has the permission, else "Find displays" asks for it.
+        this._outputDisplayProbeNative().then((native) => {
+            if (!native) this._outputDisplayProbeScreens(false);
+        });
+        this._outputDisplayNativeSync();
         clearInterval(this._outputDisplayListTimer);
         this._outputDisplayListTimer = setInterval(() => {
             if (modal.style.display === 'none') {
                 clearInterval(this._outputDisplayListTimer);
                 return;
             }
+            this._outputDisplayNativeSync();
             this._outputDisplayRenderList(true);
         }, 1000);
         sendClientLog('output_display_dialog', { canvases: canvases.length });
@@ -111,7 +132,7 @@ class _OutputDisplay {
                 </div>
                 <div class="od-row" id="output-display-screen-row"${canPickScreen ? '' : ' hidden'}>
                     <label for="output-display-screen">Display</label>
-                    <select id="output-display-screen" data-tooltip="Display, The display the output opens on. A display that already has an output is picked last."></select>
+                    <select id="output-display-screen" data-tooltip="Display, The display the output opens on, full screen. Each is listed with its name, its resolution and its place on the desktop. A display that already has an output is picked last."></select>
                     <button type="button" class="btn" id="output-display-find-screens" data-tooltip="Find displays, Ask the browser for the displays connected to this computer, so each output can open on its own.">Find displays</button>
                 </div>
                 <div class="od-note" id="output-display-place-note"${canPickScreen ? ' hidden' : ''}>This browser opens each output as a window. Drag it onto its display, then click it for full screen.</div>
@@ -122,7 +143,7 @@ class _OutputDisplay {
                 </div>
                 <div class="od-actions">
                     <button type="button" class="btn" id="output-display-close">Close</button>
-                    <button type="button" class="btn btn-primary" id="output-display-open" data-tooltip="Open output, Open the canvas and view above on the chosen display, one raster pixel to one display pixel. Open as many as you need: each display gets its own output, and every one follows your edits live.">Open output</button>
+                    <button type="button" class="btn btn-primary" id="output-display-open" data-tooltip="Open output, Open the canvas and view above full screen on the chosen display, one canvas pixel per display pixel from the top-left corner. Open as many as you need: each display gets its own output, and every one follows your edits live.">Open output</button>
                 </div>
             </div>`;
         document.body.appendChild(modal);
@@ -141,6 +162,8 @@ class _OutputDisplay {
         modal.querySelector('#output-display-canvas')
             .addEventListener('change', () => this._outputDisplayUpdateNote());
         modal.querySelector('#output-display-view')
+            .addEventListener('change', () => this._outputDisplayUpdateNote());
+        modal.querySelector('#output-display-screen')
             .addEventListener('change', () => this._outputDisplayUpdateNote());
         modal.querySelector('#output-display-open-list').addEventListener('click', (e) => {
             const btn = e.target.closest('[data-output-id]');
@@ -165,14 +188,37 @@ class _OutputDisplay {
         };
     }
 
-    // The raster the choice would show, so the note says what 1:1 needs.
+    // The canvas the choice would show, so the note says what 1:1 needs, and
+    // warns before opening when the chosen display is smaller than it.
     _outputDisplayUpdateNote() {
         const note = document.getElementById('output-display-note');
         if (!note) return;
-        const { canvasId, view } = this._outputDisplayChoice();
+        const { canvasId, view, screen } = this._outputDisplayChoice();
         const size = this._outputDisplayRasterSize(canvasId, view);
-        note.textContent = !size ? ''
-            : `Raster ${size.width} × ${size.height}, output at 1:1, one raster pixel per display pixel from the top-left corner. A display smaller than the raster cuts off the rest.`;
+        let text = !size ? ''
+            : `Canvas ${size.width} × ${size.height} at 1:1: one canvas pixel per display pixel, at the display's resolution, from the top-left corner. What the canvas leaves unused stays black.`;
+        let tooBig = false;
+        if (size && screen) {
+            const d = this._outputDisplayResolution(screen);
+            if (d && (size.width > d.width || size.height > d.height)) {
+                tooBig = true;
+                const i = (this._outputDisplayScreens || []).indexOf(screen);
+                text = `This canvas is ${size.width} × ${size.height}; ${this._outputDisplayScreenName(i)} is ${d.width} × ${d.height}. Set the display to the canvas size, or use a smaller canvas. Until then its output stays black.`;
+            }
+        }
+        note.textContent = text;
+        note.classList.toggle('od-warn', tooBig);
+    }
+
+    // A display's resolution as its OS shows it (see output-display.js): a
+    // native display's own figures; a browser-listed one is in CSS pixels,
+    // which is points on a Mac and the display's pixels / its scale elsewhere.
+    _outputDisplayResolution(s) {
+        if (!s || !s.width || !s.height) return null;
+        if (s.native) return { width: s.width, height: s.height };
+        const mac = /Mac/i.test(String(navigator.platform || ''));
+        const k = mac ? 1 : (Number(s.devicePixelRatio) || 1);
+        return { width: Math.round(s.width * k), height: Math.round(s.height * k) };
     }
 
     _outputDisplayRasterSize(canvasId, view) {
@@ -192,10 +238,57 @@ class _OutputDisplay {
         return (w && h) ? { width: w, height: h } : null;
     }
 
-    // ---- displays (the Window Management API, where the browser has it) ----
+    // ---- displays: the desktop app's, or the browser's ---------------------
+
+    // The desktop app's displays (output_native.py). True when outputs open
+    // as native full-screen windows; the dialog then lists those displays
+    // and needs no browser permission.
+    async _outputDisplayProbeNative() {
+        let res = null;
+        try {
+            const r = await fetch('/api/output/native', { cache: 'no-store' });
+            res = r.ok ? await r.json() : null;
+        } catch (_) { res = null; }
+        const on = !!(res && res.available && Array.isArray(res.displays) && res.displays.length);
+        const was = !!this._outputDisplayNative;
+        this._outputDisplayNative = on;
+        if (on) {
+            this._outputDisplayScreenDetails = null;
+            this._outputDisplayScreens = res.displays.map(d => ({
+                native: true, index: d.index, label: d.name,
+                left: d.x, top: d.y, width: d.width, height: d.height,
+                isPrimary: !!d.main, scale: d.scale,
+            }));
+        } else if (was) {
+            this._outputDisplayScreens = null;
+        }
+        this._outputDisplayShowPlacement();
+        if (on || was) {
+            this._outputDisplayFillScreens();
+            this._outputDisplayUpdateNote();
+        }
+        if (on && !this._outputDisplayNativeLogged) {
+            this._outputDisplayNativeLogged = true;
+            sendClientLog('output_display_native_displays', { displays: res.displays });
+        }
+        return on;
+    }
+
+    // Which of the display row, Find displays and the drag note show.
+    _outputDisplayShowPlacement() {
+        const row = document.getElementById('output-display-screen-row');
+        const find = document.getElementById('output-display-find-screens');
+        const note = document.getElementById('output-display-place-note');
+        const native = !!this._outputDisplayNative;
+        const canPick = native || typeof window.getScreenDetails === 'function';
+        if (row) row.hidden = !canPick;
+        if (find) find.hidden = native;
+        if (note) note.hidden = canPick;
+    }
 
     async _outputDisplayProbeScreens(ask) {
         if (typeof window.getScreenDetails !== 'function') return;
+        if (this._outputDisplayNative) return;
         if (!ask) {
             let granted = false;
             try {
@@ -211,6 +304,7 @@ class _OutputDisplay {
             if (!this._outputDisplayScreensWatched && details.addEventListener) {
                 this._outputDisplayScreensWatched = true;
                 details.addEventListener('screenschange', () => {
+                    if (this._outputDisplayNative) return;
                     this._outputDisplayScreens = Array.from(details.screens || []);
                     this._outputDisplayFillScreens();
                 });
@@ -242,6 +336,9 @@ class _OutputDisplay {
         const used = new Set(this.listOutputDisplays().map(e => e.screenIndex).filter(i => i >= 0));
         let firstOther = -1;
         let firstFree = -1;
+        // The desktop app cannot say which display this browser is on; the
+        // main one is the likely one.
+        const here = (s) => (s === current) || (!current && !!s.native && !!s.isPrimary);
         screens.forEach((s, i) => {
             const opt = document.createElement('option');
             opt.value = String(i);
@@ -249,10 +346,11 @@ class _OutputDisplay {
             if (s.isPrimary) tags.push('main');
             if (s === current) tags.push('this window');
             if (used.has(i)) tags.push('has an output');
-            opt.textContent = `${this._outputDisplayScreenName(i)} (${s.width} × ${s.height}${tags.length ? ', ' + tags.join(', ') : ''})`;
+            const d = this._outputDisplayResolution(s) || { width: s.width, height: s.height };
+            opt.textContent = `${this._outputDisplayScreenName(i)}: ${d.width} × ${d.height} at ${Math.round(s.left || 0)}, ${Math.round(s.top || 0)}${tags.length ? ' (' + tags.join(', ') + ')' : ''}`;
             sel.appendChild(opt);
-            if (firstOther < 0 && s !== current) firstOther = i;
-            if (firstFree < 0 && s !== current && !used.has(i)) firstFree = i;
+            if (firstOther < 0 && !here(s)) firstOther = i;
+            if (firstFree < 0 && !here(s) && !used.has(i)) firstFree = i;
         });
         // Another display than this window's is the usual point of it, and
         // one without an output yet is the next one to feed. A display the
@@ -260,6 +358,7 @@ class _OutputDisplay {
         const keep = keepChoice && prev !== '' && screens[Number(prev)] && !used.has(Number(prev));
         const pick = firstFree >= 0 ? firstFree : (firstOther >= 0 ? firstOther : 0);
         sel.value = keep ? prev : String(pick);
+        this._outputDisplayUpdateNote();
     }
 
     _outputDisplayScreenName(i) {
@@ -302,6 +401,7 @@ class _OutputDisplay {
     openOutputDisplay(choice) {
         const view = OUTPUT_VIEWS.some(([v]) => v === choice.view) ? choice.view : 'pixel-map';
         const canvasId = choice.canvasId || '';
+        if (choice.screen && choice.screen.native) return this._outputDisplayOpenNative(canvasId, view, choice.screen);
         const qs = new URLSearchParams({ canvas: canvasId, view });
         const s = choice.screen;
         let features;
@@ -326,8 +426,152 @@ class _OutputDisplay {
         const chosen = s ? (this._outputDisplayScreens || []).indexOf(s) : -1;
         const entry = { id, win, canvasId, view, lastSig: null, chosenScreen: chosen };
         this._outputDisplayTrack(entry);
-        sendClientLog('output_display_open', { id, canvasId, view, screen: !!s });
+        sendClientLog('output_display_open', {
+            id, canvasId, view, native: false, screen: !!s,
+            display: s ? { left: s.left, top: s.top, width: s.width, height: s.height, dpr: s.devicePixelRatio } : null,
+            raster: this._outputDisplayRasterSize(canvasId, view),
+        });
         return entry;
+    }
+
+    // The desktop app opens this output as a native window, full screen on
+    // display `s` (output_native.py). The entry is back at once; its feed id
+    // follows when the window is up, and the first frame goes out then.
+    _outputDisplayOpenNative(canvasId, view, s) {
+        this._outputDisplaySeq = (this._outputDisplaySeq || 0) + 1;
+        const id = this._outputDisplaySeq;
+        const entry = {
+            id, win: null, native: true, feed: '', closed: false, canvasId, view,
+            lastSig: null, chosenScreen: (this._outputDisplayScreens || []).indexOf(s),
+            displayIndex: s.index, displayName: s.label || `Display ${s.index + 1}`,
+        };
+        this._outputDisplayTrack(entry);
+        const raster = this._outputDisplayRasterSize(canvasId, view);
+        entry.opening = fetch('/api/output/native/open', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ canvas: canvasId, view, display: s.index, title: `${this._outputDisplayLabel(entry)} · Output` }),
+        }).then(r => r.json().catch(() => ({})).then(j => {
+            if (!r.ok || !j.ok || !j.id) throw new Error(j.error || `HTTP ${r.status}`);
+            entry.feed = j.id;
+            entry.lastSig = null;
+            sendClientLog('output_display_open', {
+                id, canvasId, view, native: true, feed: j.id, display: j.display, raster,
+            });
+            if (entry.closed) {
+                this._outputDisplayNativeClose([entry.feed]);
+                return;
+            }
+            this._outputDisplayRefresh();
+            this._outputDisplayRenderList();
+        })).catch(err => {
+            entry.closed = true;
+            const note = document.getElementById('output-display-note');
+            if (note) note.textContent = 'The output window could not be opened. Try again, or restart the app.';
+            sendClientLog('output_display_native_failed', { id, message: String(err && err.message || err) });
+            this._outputDisplayRenderList();
+        });
+        return entry;
+    }
+
+    // Is this output still up? A native one until it is closed or the
+    // server says its window went; a browser one while its window is open.
+    _outputDisplayLive(e) {
+        if (!e) return false;
+        if (e.native) return !e.closed;
+        return !!(e.win && !e.win.closed);
+    }
+
+    // Close native outputs by feed id. A beacon, so it still goes out while
+    // this page is being unloaded.
+    _outputDisplayNativeClose(feeds) {
+        const ids = (feeds || []).filter(Boolean);
+        if (!ids.length) return;
+        const body = JSON.stringify({ ids });
+        try {
+            if (navigator.sendBeacon && navigator.sendBeacon('/api/output/native/close', new Blob([body], { type: 'text/plain' }))) return;
+        } catch (_) { /* fall through */ }
+        fetch('/api/output/native/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true })
+            .catch(() => {});
+    }
+
+    // A native output closed in its own window (Esc) or by the OS: the
+    // server no longer lists it.
+    _outputDisplayNativeSync() {
+        const natives = (this._outputDisplayWindows || []).filter(e => e.native && !e.closed && e.feed);
+        if (!natives.length || this._outputDisplaySyncing) return;
+        this._outputDisplaySyncing = true;
+        fetch('/api/output/native/list', { cache: 'no-store' })
+            .then(r => (r.ok ? r.json() : null))
+            .then(j => {
+                if (!j || !Array.isArray(j.open)) return;
+                const open = new Set(j.open);
+                let gone = false;
+                natives.forEach(e => {
+                    if (!open.has(e.feed)) { e.closed = true; gone = true; }
+                });
+                if (gone) this._outputDisplayRenderList();
+            })
+            .catch(() => {})
+            .finally(() => { this._outputDisplaySyncing = false; });
+    }
+
+    // The stand-in for a native output's page: each frame goes to the
+    // server as a PNG at the raster size. One send at a time; a frame that
+    // comes while one is on its way replaces any other waiting, so a slow
+    // display skips frames instead of falling behind.
+    _outputDisplayNativePage(entry) {
+        if (!entry.remote) {
+            entry.remote = {
+                present: (src, meta) => {
+                    entry.sendSrc = src;
+                    entry.sendTitle = (meta && meta.title) || '';
+                    this._outputDisplayNativeSend(entry);
+                },
+                missing: (text) => {
+                    fetch(`/api/output/feed/${encodeURIComponent(entry.feed)}/message`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: text, title: entry.sendTitle || '' }),
+                    }).then(r => { if (r.status === 404) this._outputDisplayNativeGone(entry); })
+                        .catch(() => {});
+                },
+            };
+        }
+        return entry.remote;
+    }
+
+    _outputDisplayNativeSend(entry) {
+        if (entry.sending) { entry.dirty = true; return; }
+        const src = entry.sendSrc;
+        if (!src || entry.closed || !entry.feed) return;
+        entry.sending = true;
+        entry.dirty = false;
+        const done = () => {
+            entry.sending = false;
+            if (entry.dirty && !entry.closed) this._outputDisplayNativeSend(entry);
+        };
+        try {
+            src.toBlob((blob) => {
+                if (!blob || entry.closed) { done(); return; }
+                fetch(`/api/output/feed/${encodeURIComponent(entry.feed)}/frame`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'image/png', 'X-Output-Title': encodeURIComponent(entry.sendTitle || '') },
+                    body: blob,
+                }).then(r => { if (r.status === 404) this._outputDisplayNativeGone(entry); })
+                    .catch(() => {})
+                    .finally(done);
+            }, 'image/png');
+        } catch (err) {
+            sendClientLog('output_display_present_failed', { message: String(err && err.message || err) });
+            done();
+        }
+    }
+
+    _outputDisplayNativeGone(entry) {
+        if (entry.closed) return;
+        entry.closed = true;
+        this._outputDisplayRenderList();
     }
 
     _outputDisplayTrack(entry) {
@@ -344,7 +588,7 @@ class _OutputDisplay {
     // The open outputs, oldest first; a window the user closed is dropped.
     listOutputDisplays() {
         const all = Array.isArray(this._outputDisplayWindows) ? this._outputDisplayWindows : [];
-        this._outputDisplayWindows = all.filter(e => e.win && !e.win.closed);
+        this._outputDisplayWindows = all.filter(e => this._outputDisplayLive(e));
         return this._outputDisplayWindows.map(e => {
             const screenIndex = this._outputDisplayEntryScreen(e);
             return {
@@ -358,6 +602,9 @@ class _OutputDisplay {
     // The display an output is on: where its window is now, else the one it
     // was opened on; -1 when the browser lists no displays.
     _outputDisplayEntryScreen(entry) {
+        if (entry.native) {
+            return (this._outputDisplayScreens || []).findIndex(s => s && s.native && s.index === entry.displayIndex);
+        }
         const now = this._outputDisplayScreenOf(entry.win);
         if (now >= 0) return now;
         const n = (this._outputDisplayScreens || []).length;
@@ -367,16 +614,28 @@ class _OutputDisplay {
     closeOutputDisplay(id) {
         const all = Array.isArray(this._outputDisplayWindows) ? this._outputDisplayWindows : [];
         const entry = all.find(e => e.id === id);
-        if (entry && entry.win && !entry.win.closed) entry.win.close();
+        if (entry && entry.native) {
+            entry.closed = true;
+            this._outputDisplayNativeClose([entry.feed]);
+        } else if (entry && entry.win && !entry.win.closed) {
+            entry.win.close();
+        }
         this._outputDisplayWindows = all.filter(e => e !== entry);
         this._outputDisplayRenderList();
-        sendClientLog('output_display_close', { id });
+        sendClientLog('output_display_close', { id, native: !!(entry && entry.native) });
     }
 
     closeAllOutputDisplays() {
+        const feeds = [];
         (this._outputDisplayWindows || []).forEach(e => {
+            if (e.native) {
+                e.closed = true;
+                feeds.push(e.feed);
+                return;
+            }
             try { if (e.win && !e.win.closed) e.win.close(); } catch (_) { /* gone */ }
         });
+        this._outputDisplayNativeClose(feeds);
         this._outputDisplayWindows = [];
     }
 
@@ -386,7 +645,8 @@ class _OutputDisplay {
         const c = this._outputDisplayCanvases().find(x => x.id === entry.canvasId);
         const v = OUTPUT_VIEWS.find(([k]) => k === entry.view);
         const i = screenIndex === undefined ? this._outputDisplayEntryScreen(entry) : screenIndex;
-        const on = i >= 0 ? ` · on ${this._outputDisplayScreenName(i)}` : '';
+        const on = entry.native ? ` · on ${entry.displayName}`
+            : (i >= 0 ? ` · on ${this._outputDisplayScreenName(i)}` : '');
         return `${c ? c.name : 'Missing canvas'} · ${v ? v[1] : entry.view}${on}`;
     }
 
@@ -521,6 +781,7 @@ class _OutputDisplay {
     }
 
     _outputDisplayPage(entry) {
+        if (entry.native) return (entry.closed || !entry.feed) ? null : this._outputDisplayNativePage(entry);
         try {
             const win = entry.win;
             if (!win || win.closed) return null;
@@ -581,8 +842,12 @@ class _OutputDisplay {
             r.exportTransparentBg = false;
             r.renderStages = null;
             r.viewMode = entry.view;
-            const w = Math.max(1, Math.round(Number(r.rasterWidth) || 1920));
-            const h = Math.max(1, Math.round(Number(r.rasterHeight) || 1080));
+            // The TARGET canvas's raster for this view (pixel or Show Look),
+            // read from the canvas itself rather than through the renderer's
+            // active-canvas getters.
+            const size = target ? this._outputDisplayRasterSize(target.id, entry.view) : null;
+            const w = Math.max(1, Math.round(Number(size ? size.width : r.rasterWidth) || 1920));
+            const h = Math.max(1, Math.round(Number(size ? size.height : r.rasterHeight) || 1080));
             if (off.width !== w) off.width = w;
             if (off.height !== h) off.height = h;
             const ws = target ? r._canvasWorkspace(target) : { wx: 0, wy: 0 };
@@ -667,7 +932,7 @@ class _OutputDisplay {
     _outputDisplayBlink(canvasIds) {
         const all = Array.isArray(this._outputDisplayWindows) ? this._outputDisplayWindows : [];
         for (const e of all) {
-            if (e.view !== 'idm' || !e.base || e.lastSig === null || !e.win || e.win.closed) continue;
+            if (e.view !== 'idm' || !e.base || e.lastSig === null || !this._outputDisplayLive(e)) continue;
             if (canvasIds && !canvasIds.has(e.canvasId)) continue;
             const page = this._outputDisplayPage(e);
             if (page) this._outputDisplayCompose(e, page);

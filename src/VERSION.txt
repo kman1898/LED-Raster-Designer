@@ -105,15 +105,25 @@ other edit.
 
 A CANVAS ON A SECOND DISPLAY
 
-View > Output to Display opens one canvas in its own window, Pixel Map,
-Cabinet ID, Show Look, Data, Power, Header/Footer or IDM Locator, at 1:1,
-one raster pixel to one display pixel. In Chrome and Edge the dialog picks
-the display. Click, F or a double-click goes full screen, Esc leaves it.
-The window follows every edit as you make it.
+View > Output to Display sends one canvas, Pixel Map, Cabinet ID, Show
+Look, Data, Power, Header/Footer or IDM Locator, to a display at 1:1: one
+canvas pixel per display pixel, at the resolution the computer shows for
+that display, from the top-left corner. A 1920 x 1080 canvas fills a
+display set to 1920 x 1080 and the top-left quarter of one set to
+3840 x 2160. What the canvas leaves unused stays black on the display
+too. A canvas bigger than the display is never cut down or shrunk: the
+dialog warns before it opens, and the output stays black and says to set
+the display to the canvas size or use a smaller canvas.
+In the app, the dialog lists every display by name, resolution and
+position; pick one and Open output puts the canvas full screen on it,
+with nothing to drag or click. Esc on the output closes it, and so does
+Close in the dialog's list.
+The output follows every edit as you make it.
 Output to Display can feed several displays at once: open another output
 for each one, any canvas in any view, and the dialog lists each output
-with the display it is on. Where the browser can't pick the display, drag
-each window onto its own.
+with the display it is on. In a browser, Chrome and Edge pick the display
+themselves; elsewhere drag each window onto its own display and click it
+for full screen.
 
 FINDING BAD MODULES ON THE WALL
 

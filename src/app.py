@@ -2645,6 +2645,7 @@ from routes_panel_catalog import panel_catalog_bp  # noqa: E402
 from routes_preferences import preferences_bp  # noqa: E402
 from routes_project import project_bp  # noqa: E402
 from routes_canvas import canvas_bp  # noqa: E402
+from routes_output import output_bp  # noqa: E402
 from routes_layers import layers_bp  # noqa: E402
 from routes_processors import processors_bp  # noqa: E402
 from routes_port_assignment import port_assignment_bp  # noqa: E402
@@ -2661,6 +2662,7 @@ app.register_blueprint(panel_catalog_bp)
 app.register_blueprint(preferences_bp)
 app.register_blueprint(project_bp)
 app.register_blueprint(canvas_bp)
+app.register_blueprint(output_bp)
 app.register_blueprint(layers_bp)
 app.register_blueprint(processors_bp)
 app.register_blueprint(port_assignment_bp)

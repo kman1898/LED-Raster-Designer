@@ -3214,7 +3214,7 @@
     // The person's own state these steps touch that is NOT on the project
     // (the project itself comes back whole on exit): the Notes panel's
     // fold, the IDM Locator's next-mark style and colour (kept per viewer
-    // in localStorage), the Output to Display dialog's view and scale (the
+    // in localStorage), the Output to Display dialog's view (the
     // dialog keeps them between openings), and the 3D view's camera, which
     // is this machine's within one project - restore3d makes the next 3D
     // sync take the restored project's own camera, units and grid again.
@@ -7396,7 +7396,7 @@
             window: 'output',
             target: '[data-menu="view"]', place: 'bottom', title: 'Output to Display',
             avoid: ['[data-menu="view"]', '#menu-view [data-action="output-to-display"]'],
-            body: 'View &rsaquo; Output to Display sends a canvas full screen to another display, and it follows every edit live. Open one for each display you need.',
+            body: 'View &rsaquo; Output to Display sends a canvas full screen to another display, and it follows every edit live. Pick the canvas, the view and the display, then Open output: it goes full screen there by itself. Open one for each display you need.',
             before: function () { closeOutput(); },
             act: function (t) {
                 // Up already on a Back from the next step, which shares it.
@@ -7425,7 +7425,7 @@
             target: '#output-display-view', ring: ['#output-display-view', '#output-display-note'],
             place: 'right', title: 'The view, at 1:1',
             avoid: ['#output-display-view', '#output-display-note'],
-            body: 'Every tab but 3D can go out, the IDM Locator included. Every output is 1:1: one raster pixel on each display pixel, from the top-left corner.',
+            body: 'Every tab but 3D can go out, the IDM Locator included. Every output is 1:1: one canvas pixel per display pixel, at the display&rsquo;s resolution, from the top-left corner. What the canvas leaves unused stays black, and a canvas bigger than the display stays black until the display is set to its size.',
             before: function () {
                 var a = A();
                 if (!outputOpen() && a && typeof a.openOutputDisplayDialog === 'function') a.openOutputDisplayDialog();
