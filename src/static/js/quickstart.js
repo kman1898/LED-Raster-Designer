@@ -3297,6 +3297,45 @@
             });
         });
     }
+    // A drag in the 3D viewport with any button (0 left, 1 middle) and
+    // modifiers: pointerdown on its canvas, the moves and the release
+    // reaching the window as a mouse's do (app-stage3d-nav.js).
+    function stageDrag(t, from, to, init, badgeText) {
+        var cv = $('#s3d-canvas');
+        if (!cv || !from || !to) return Promise.reject(new Error('the 3D view is not drawn'));
+        init = init || {};
+        var button = init.button || 0;
+        var held = button === 1 ? 4 : (button === 2 ? 2 : 1);
+        var ev = function (x, y, b, btn) {
+            return { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y,
+                     button: btn, buttons: b, pointerId: 1, pointerType: 'mouse', isPrimary: true,
+                     shiftKey: !!init.shiftKey, ctrlKey: !!init.ctrlKey, altKey: !!init.altKey, metaKey: !!init.metaKey };
+        };
+        return t.hover(from, { badge: badgeText || '' }).then(function (p) {
+            press(true);
+            cv.dispatchEvent(new PointerEvent('pointerdown', ev(p.x, p.y, held, button)));
+            return t.pause(PACE.dragPress).then(function () {
+                return animateTo(to.x, to.y, function (x, y) {
+                    cv.dispatchEvent(new PointerEvent('pointermove', ev(x, y, held, -1)));
+                }, PACE.dragTravel);
+            }).then(function () {
+                cv.dispatchEvent(new PointerEvent('pointerup', ev(to.x, to.y, 0, button)));
+                press(false);
+                ripple(to.x, to.y);
+                return t.pause(PACE.dragRest);
+            });
+        });
+    }
+    // The camera has landed: no glide (a view button, F, Home, a
+    // double-click) still under way.
+    function s3dLanded() { var a = A(), st = a && a._s3d; return !!st && !st.glide; }
+    function s3dHandles() { var a = A(); try { return a && a._s3dHandlesDebug ? a._s3dHandlesDebug() : null; } catch (e) { return null; } }
+    function camAngle(c) {
+        return c ? Math.atan2(c.position[0] - c.target[0], c.position[2] - c.target[2]) * 180 / Math.PI : null;
+    }
+    function camDist(c) {
+        return c ? Math.hypot(c.position[0] - c.target[0], c.position[1] - c.target[1], c.position[2] - c.target[2]) : null;
+    }
     function idmField() { var a = A(); return (a && a.project && a.project.idmField) || {}; }
     function idmMarks(l) { return (l && l.idm && l.idm.marks) || {}; }
     function idmText(l, key) {
@@ -6964,7 +7003,7 @@
                 var d = s3dDebug();
                 if (mode() !== '3d' || !d || !d.loaded) return null;
                 if (!d.webgl) return 'The 3D tab is open; without WebGL here, the panel still places each screen.';
-                return d.screens.length + ' screens stand on the stage. Drag to orbit, right-drag to pan, wheel to zoom.';
+                return d.screens.length + ' screens stand on the stage. Middle-drag orbits, Shift+middle-drag pans, the wheel zooms.';
             }
         },
         s3dSelect: {
@@ -6986,6 +7025,89 @@
                 var name = $('#s3d-screen-name');
                 return w2 && a.currentLayer && a.currentLayer.id === w2.id && name && name.textContent === w2.name
                     ? w2.name + ' is selected; its position, rotation and curve fill the panel.' : null;
+            }
+        },
+        // Getting around with standard 3D navigation: a middle drag
+        // round DEMO WALL 2, then the wheel toward it.
+        s3dLook: {
+            since: '1.7.0',
+            target: '#s3d-view', place: 'left', title: 'Look around',
+            avoid: [function () { return stagePoint(wall2()); }],
+            body: 'Middle-drag orbits around the point under the cursor, Shift+middle-drag pans and the wheel zooms toward the cursor. On a trackpad, drag with two fingers to orbit and pinch to zoom.',
+            before: function () { return open3d().then(function () { only(wall2()); }); },
+            act: function (t) {
+                var d = s3dDebug();
+                if (!d || !d.webgl) return t.pause(PACE.rest);
+                var at = stagePoint(wall2());
+                if (!at) throw new Error('the 3D view is not drawn');
+                t.mem.from = camAngle(A()._s3dCameraState());
+                return stageDrag(t, at, { x: at.x - 140, y: at.y }, { button: 1 }, 'Middle').then(function () {
+                    var cv = $('#s3d-canvas'), p = stagePoint(wall2());
+                    t.mem.dist = camDist(A()._s3dCameraState());
+                    return t.hover(p, { badge: 'Wheel' }).then(function (q) {
+                        var i = 0;
+                        return new Promise(function (res) {
+                            (function spin() {
+                                if (i++ >= 3) return res();
+                                cv.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true,
+                                    view: window, clientX: q.x, clientY: q.y, deltaY: -100, deltaMode: 0 }));
+                                setTimeout(spin, 150);
+                            })();
+                        });
+                    });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function (mem) {
+                var d = s3dDebug();
+                if (d && !d.webgl) return 'Without WebGL here, the panel still places each screen.';
+                var c = A()._s3dCameraState && A()._s3dCameraState();
+                if (!c || mem.from == null || mem.dist == null) return null;
+                var turned = Math.abs(camAngle(c) - mem.from);
+                return turned > 5 && camDist(c) < mem.dist
+                    ? 'The camera turned around ' + wall2().name + ', then the wheel zoomed in toward it.' : null;
+            }
+        },
+        // The handles on the selected screen: the X arrow dragged with Ctrl
+        // held, two 6 in steps along the stage.
+        s3dHandles: {
+            since: '1.7.0',
+            target: '#s3d-tool-move', ring: ['#s3d-tool-move', '#s3d-tool-rotate'], place: 'bottom', title: 'Move with the handles',
+            avoid: [function () { var h = s3dHandles(); return h && h.grips && h.grips.x ? { x: h.grips.x[0], y: h.grips.x[1] } : null; }],
+            body: 'Drag a colored arrow to slide the screen along one axis; hold Ctrl (Cmd on a Mac) to snap to 6 in steps. Press E for rings that turn it, W for the arrows again.',
+            before: function () {
+                return open3d().then(function () {
+                    only(wall2());
+                    var a = A();
+                    if (a._s3dSetTool) a._s3dSetTool('move');
+                    return T.wait(function () {
+                        var h = s3dHandles(), w2 = wall2();
+                        return h && h.shown && w2 && h.ids.indexOf(w2.id) >= 0 && h.grips.x ? h : null;
+                    }, 4000);
+                });
+            },
+            act: function (t) {
+                var d = s3dDebug();
+                if (!d || !d.webgl) return t.pause(PACE.rest);
+                var h = s3dHandles(), a = A();
+                if (!h || !h.grips || !h.grips.x) throw new Error('the handles are not drawn');
+                t.mem.x = Number(a._s3dPlacementOf(wall2()).x);
+                // two 6 in steps past the point of the arrow gripped
+                var reach = h.perPx * h.gripPx + 2 * 152.4;
+                var end = a._s3dDebugWhere([h.pivot[0] + reach, h.pivot[1], h.pivot[2]]);
+                return stageDrag(t, { x: h.grips.x[0], y: h.grips.x[1] }, { x: end[0], y: end[1] },
+                                 { ctrlKey: true }, 'Ctrl').then(function () {
+                    return t.wait(function () {
+                        var x = placed(wall2()).x;
+                        return x != null && x !== t.mem.x;
+                    }, 2000);
+                });
+            },
+            check: function (mem) {
+                var d = s3dDebug();
+                if (d && !d.webgl) return 'Without WebGL here, the X, Y and Z fields move the screen the same way.';
+                var x = placed(wall2()).x;
+                if (x == null || Math.abs(x - mem.x - 304.8) > 0.01) return null;
+                return wall2().name + ' slid 1 ft along X, in two snapped steps of 6 in.';
             }
         },
         s3dCurve: {
@@ -7025,13 +7147,17 @@
             since: '1.7.0',
             target: '#s3d-toolbar', place: 'bottom', title: 'Camera views',
             avoid: ['[data-s3d-view="top"]', '[data-s3d-view="iso"]'],
-            body: 'The bar over the view looks from the Front, Back, Left, Right, Top or Iso, in Perspective or Orthographic. Top looks straight down; Iso from above and to one side.',
+            body: 'The bar over the view looks from the Front, Back, Left, Right, Top or Iso (keys 1 to 6), in Perspective or Orthographic. Home goes back to the starting view.',
             before: function () { return open3d().then(function () { only(wall2()); }); },
             act: function (t) {
                 return t.click('[data-s3d-view="top"]', { rest: PACE.acted }).then(function () {
+                    return t.wait(s3dLanded, 3000);
+                }).then(function () {
                     var c = A()._s3dCameraState();
                     t.mem.top = !!c && c.position[1] - c.target[1] > Math.abs(c.position[2] - c.target[2]) * 10;
                     return t.click('[data-s3d-view="iso"]', { rest: PACE.acted });
+                }).then(function () {
+                    return t.wait(s3dLanded, 3000);
                 });
             },
             check: function (mem) {
@@ -7039,6 +7165,37 @@
                 if (!c || !mem.top) return null;
                 var iso = c.position[0] > c.target[0] && c.position[1] > c.target[1] && c.position[2] > c.target[2];
                 return iso ? 'Top, then Iso: the stage seen from above and to one side.' : null;
+            }
+        },
+        // Frame and focus: a double-click on DEMO WALL 2 turns the camera
+        // to it and fills the view with it.
+        s3dFocus: {
+            since: '1.7.0',
+            target: '#s3d-view', place: 'left', title: 'Frame and focus',
+            avoid: [function () { return stagePoint(wall2()); }],
+            body: 'Double-click a screen to focus the camera on it, or press F to frame the selected screens. Home goes back to the starting view.',
+            before: function () { return open3d().then(function () { only(wall2()); }); },
+            act: function (t) {
+                var d = s3dDebug();
+                if (!d || !d.webgl) return t.pause(PACE.rest);
+                var at = stagePoint(wall2()), cv = $('#s3d-canvas');
+                if (!at || !cv) throw new Error('the 3D view is not drawn');
+                return t.hover(at, { badge: 'Double-click' }).then(function (p) {
+                    ripple(p.x, p.y);
+                    cv.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window,
+                        clientX: p.x, clientY: p.y, button: 0, detail: 2 }));
+                    return t.wait(function () { return s3dLanded() && A()._s3dCameraState(); }, 3000);
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function () {
+                var d = s3dDebug();
+                if (d && !d.webgl) return 'Without WebGL here, the panel still places each screen.';
+                var c = A()._s3dCameraState && A()._s3dCameraState();
+                var me = d && d.screens.find(function (s) { return s.id === wall2().id; });
+                if (!c || !me || !me.world || !s3dLanded()) return null;
+                var mid = [0, 1, 2].map(function (i) { return (me.world.min[i] + me.world.max[i]) / 2; });
+                var off = Math.hypot(c.target[0] - mid[0], c.target[1] - mid[1], c.target[2] - mid[2]);
+                return off < 1 ? 'The camera turned to ' + wall2().name + ' and framed it.' : null;
             }
         },
         // The Header/Footer tab's bars stand over DEMO WALL on the stage
@@ -7428,7 +7585,8 @@
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingTotals',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
-                    's3dOpen', 's3dSelect', 's3dCurve', 's3dYaw', 's3dCamera', 's3dBars', 's3dJoint',
+                    's3dOpen', 's3dSelect', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
+                    's3dBars', 's3dJoint',
                     'outputOpen', 'outputChoices',
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
                     'idmColors', 'idmHighlight', 'idmList', 'notesChecklist',

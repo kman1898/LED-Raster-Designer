@@ -1,7 +1,7 @@
 // app-stage3d-nav: getting around the 3D tab, and picking screens in it.
 //
-// Standard 3D navigation (the owner's ruling, 2026-11-08: "the 3D interface
-// needs to work like other 3D model software"):
+// Standard 3D navigation (the owner's ruling, 2026-11-08), for ease of
+// interaction:
 //
 //   middle-drag          orbit, round the point under the cursor when the
 //                        press lands on a screen (else the view's centre),
@@ -95,7 +95,9 @@ class _Stage3DNav {
 
     _s3dPointerDown(ev) {
         const st = this._s3dState();
-        if (!st.renderer || !st.active || st.nav) return;
+        if (!st.renderer || !st.active) return;
+        // A gesture whose release never came (the window lost it) ends here.
+        if (st.nav) this._s3dCancelDrag();
         this._s3dNudgeCommit();
         this._s3dEndCameraMove(true);
         const touch = ev.pointerType === 'touch';
@@ -273,12 +275,11 @@ class _Stage3DNav {
     _s3dRevertPreview(d) {
         const st = this._s3dState();
         if (!d || !d.starts) return;
-        const DEGR = Math.PI / 180;
         for (const [id, p] of d.starts) {
             const e = st.entries.get(id);
             if (!e) continue;
             e.obj.position.set(p.x, p.y, p.z);
-            e.obj.rotation.set(p.pitch * DEGR, p.yaw * DEGR, p.roll * DEGR, 'YXZ');
+            e.obj.rotation.set(p.pitch * DEG, p.yaw * DEG, p.roll * DEG, 'YXZ');
         }
         this._s3dRefreshPanel(true);
         this._s3dRequestRender();

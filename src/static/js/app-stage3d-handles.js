@@ -26,7 +26,7 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 import {
-    DEG, FT_MM, round, wrap180, quatFromPlacement, quatMul, quatRotate, anglesFromQuat, s3dSanitize,
+    DEG, round, wrap180, quatFromPlacement, quatMul, quatRotate, anglesFromQuat, s3dSanitize,
 } from './app-stage3d.js';
 
 const RED = 0xe5484d, GREEN = 0x4cbb5a, BLUE = 0x3d7ef2, HOT = 0xffd200;
@@ -34,8 +34,8 @@ const AXES = { x: [1, 0, 0, RED], y: [0, 1, 0, GREEN], z: [0, 0, 1, BLUE] };
 const RINGS = { pitch: RED, yaw: GREEN, roll: BLUE };
 const ANGLE_NAMES = { pitch: 'Pitch', yaw: 'Yaw', roll: 'Roll' };
 // Sizes on the page, px.
-const SHAFT_FROM = 24, SHAFT_TO = 92, TIP = 22, SHAFT_R = 1.8, TIP_R = 7, ARROW_PICK_R = 10;
-const RING_R = 86, RING_TUBE = 1.8, RING_PICK = 9;
+const SHAFT_FROM = 24, SHAFT_TO = 92, TIP = 22, SHAFT_R = 2.2, TIP_R = 8, ARROW_PICK_R = 10;
+const RING_R = 86, RING_TUBE = 2, RING_PICK = 9;
 const NUDGE_SETTLE_MS = 700;     // a burst of nudges ends this long after the last
 
 class _Stage3DHandles {
@@ -233,13 +233,17 @@ class _Stage3DHandles {
         if (!pose) return { shown: false, ids: [] };
         const s = this._s3dPxToWorld(pose.pivot);
         const at = (v, px) => this._s3dDebugWhere(pose.pivot.clone().add(v.clone().multiplyScalar(px * s)).toArray());
-        const out = { shown: true, ids: pose.ids, tool: st.tool === 'rotate' ? 'rotate' : 'move', centre: at(new st.T.Vector3(), 0), grips: {} };
+        const gripPx = SHAFT_FROM + (SHAFT_TO - SHAFT_FROM) * 0.66;
+        const out = {
+            shown: true, ids: pose.ids, tool: st.tool === 'rotate' ? 'rotate' : 'move',
+            centre: at(new st.T.Vector3(), 0), pivot: pose.pivot.toArray(), perPx: s, gripPx, grips: {},
+        };
         // A point on each handle a person would grab: an arrow's shaft two
         // thirds out, a ring's far side from the camera's right.
         for (const name of Object.keys(AXES)) {
             const p = h.parts[name];
             if (Math.abs(p.dir.dot(st.camera.getWorldDirection(new st.T.Vector3()))) < 0.97) {
-                out.grips[name] = at(p.dir, SHAFT_FROM + (SHAFT_TO - SHAFT_FROM) * 0.66);
+                out.grips[name] = at(p.dir, gripPx);
             }
         }
         // A ring's grip lies midway between the places the other two rings

@@ -367,6 +367,8 @@ class _Stage3D {
         if (view) view.hidden = !st.active;
         if (bar) bar.hidden = !st.active;
         if (!st.active) {
+            // Nudges already made land; a drag under way goes back.
+            this._s3dNudgeCommit();
             this._s3dCancelDrag();
             this._s3dEndCameraMove(true);
             return;

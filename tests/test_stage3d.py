@@ -239,6 +239,13 @@ def open_3d(page, count):
     return got
 
 
+# A view button glides the camera there over a moment (app-stage3d-nav.js
+# _s3dCameraTo): the test waits for it to land, not for a fixed time.
+def view_from(page, name):
+    page.click(f'[data-s3d-view="{name}"]')
+    return settled(page, lambda: dbg(page), lambda d: not d['gliding'], 3000)
+
+
 def stored(page, layer_id):
     return page.evaluate("""(id) => {
         const l = window.app.project.layers.find(x => x.id === id);
@@ -431,8 +438,7 @@ def test_curves_and_joints_clamp_and_a_seam_click_picks_its_joint(page):
 
     # the joint field waits for a seam
     assert page.evaluate("document.getElementById('s3d-joint-angle').disabled")
-    page.click('[data-s3d-view="front"]')
-    page.wait_for_timeout(500)
+    view_from(page, 'front')
     at = page.evaluate(f"window.app._s3dDebugSeam({wall}, 'col', 2)")
     assert at, 'the seam is not on the page'
     page.mouse.click(at[0], at[1])
@@ -466,8 +472,7 @@ def test_curves_and_joints_clamp_and_a_seam_click_picks_its_joint(page):
 def test_click_selects_and_selection_follows_the_screens_list(page):
     ids = reset(page)
     open_3d(page, 2)
-    page.click('[data-s3d-view="front"]')
-    page.wait_for_timeout(500)
+    view_from(page, 'front')
     at = screen(page, ids[1])['at']
     page.mouse.click(at[0], at[1])
     page.wait_for_timeout(400)
@@ -483,8 +488,7 @@ def test_click_selects_and_selection_follows_the_screens_list(page):
 def test_dragging_a_selected_screen_moves_it_in_one_step(page):
     ids = reset(page)
     open_3d(page, 2)
-    page.click('[data-s3d-view="top"]')
-    page.wait_for_timeout(500)
+    view_from(page, 'top')
     before = screen(page, ids[0])['placement']
     camera = dbg(page)['camera']
     start = history_len(page)
@@ -643,8 +647,7 @@ def test_a_locked_screen_stays_put_on_the_stage_and_says_why(page):
     assert stored(page, ids[0]) == placed
     clear_toasts(page)
 
-    page.click('[data-s3d-view="top"]')
-    page.wait_for_timeout(500)
+    view_from(page, 'top')
     at = screen(page, ids[0])['at']
     camera = dbg(page)['camera']
     page.mouse.move(at[0], at[1])
@@ -671,8 +674,7 @@ def test_a_click_on_a_locked_screen_only_selects_it(page):
     ids = reset(page)
     set_locked(page, ids[1])
     open_3d(page, 2)
-    page.click('[data-s3d-view="front"]')
-    page.wait_for_timeout(500)
+    view_from(page, 'front')
     clear_toasts(page)
     at = screen(page, ids[1])['at']
     page.mouse.click(at[0], at[1])
@@ -712,8 +714,7 @@ def test_a_group_with_a_locked_member_refuses_as_a_whole(page):
     assert said in toast_says(page, said)
     clear_toasts(page)
 
-    page.click('[data-s3d-view="top"]')
-    page.wait_for_timeout(500)
+    view_from(page, 'top')
     at = screen(page, ids[0])['at']
     page.mouse.move(at[0], at[1])
     page.mouse.down()
@@ -756,8 +757,7 @@ def test_the_camera_is_saved_with_the_project(page):
     open_3d(page, 2)
     steps = history_len(page)
     page.click('#s3d-mode-ortho')
-    page.click('[data-s3d-view="top"]')
-    page.wait_for_timeout(900)
+    view_from(page, 'top')
     cam = dbg(page)['camera']
     assert cam['mode'] == 'ortho'
     saved = settled(page, lambda: page.evaluate(
@@ -872,7 +872,9 @@ def test_a_hidden_screen_shows_no_bars(page):
 def test_a_pending_camera_save_can_be_flushed_or_dropped(page):
     """The guides settle a step with a flush, so the show holds the camera
     however fast the step ran, and drop what is waiting when a restore
-    replaces the show, so the guide's camera never lands on the person's."""
+    replaces the show, so the guide's camera never lands on the person's.
+    A view button glides the camera there: the flush lands the glide and
+    saves where it ends; the drop lands it and saves nothing."""
     reset(page)
     open_3d(page, 2)
     page.evaluate("() => { document.querySelector('[data-s3d-view=\"left\"]').click();"

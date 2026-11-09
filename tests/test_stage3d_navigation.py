@@ -1,7 +1,7 @@
 """Getting around the 3D tab, and moving screens with its handles.
 
-The owner's rulings (2026-11-08): the 3D view navigates the way 3D modeling
-programs do, and screens are moved and turned with on-screen handles.
+The owner's rulings (2026-11-08): the 3D view uses standard 3D navigation,
+and screens are moved and turned with on-screen handles.
 
 What this file pins, each with real mouse, wheel and key events:
 
