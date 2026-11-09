@@ -2115,8 +2115,9 @@ Object.assign(CanvasRenderer.prototype, {
         })();
 
         // IDM Locator: the arrows move the live highlight (Shift a cabinet),
-        // Esc ends a drag or clears the highlight (app-idm-locator.js
-        // _idmKeyDown). Space is never taken here: it goes on to arm the
+        // Esc ends a drag or clears the highlight, Delete and Backspace
+        // clear the highlighted module's mark and never reach the screen
+        // delete below (app-idm-locator.js _idmKeyDown). Space is never taken here: it goes on to arm the
         // pan below, and a tap marks the highlighted module on its release
         // (handleKeyUp).
         if (this.viewMode === 'idm' && !isTyping && window.app

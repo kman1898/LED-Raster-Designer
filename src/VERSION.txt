@@ -165,6 +165,8 @@ FIXES
   or cleared the modules it crossed.
 - FIX: A quick drag on the IDM Locator marks every module it crosses,
   not only the ones the mouse happened to stop on.
+- FIX: Delete on the IDM Locator clears the mark under the highlight and
+  never deletes the screen.
 - FIX: On the IDM Locator a half cabinet numbers its modules from its
   own first module, A1, like any other cabinet. A half first row used to
   read A2. Marks already made stay on the same modules.

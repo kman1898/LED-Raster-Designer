@@ -219,6 +219,56 @@ def test_esc_cancels_a_drag_mark(page):
     assert hl(page) is None
 
 
+def test_delete_clears_the_highlighted_mark_and_never_deletes_the_screen(page):
+    reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    names = lambda _pg=None: page.evaluate("() => window.app.project.layers.map(l => l.name)")  # noqa: E731
+    a = point(page, 'IdmA', 1, 0, 0, 1)
+    page.mouse.click(a['x'], a['y'])
+    settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,0,1' in v['marks'])
+    assert hl(page) == ['IdmA', '1,0,0,1']
+    page.mouse.move(3, 3)
+    h0 = history_index(page)
+    page.keyboard.press('Delete')
+    got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and v['marks'] == {})
+    assert got['marks'] == {}, got
+    assert history_index(page) == h0 + 1
+    assert names(page) == ['IdmA', 'IdmB']
+    # undo puts it back; the screen is still there
+    page.keyboard.press('Control+z')
+    settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '1,0,0,1' in v)
+    assert '1,0,0,1' in marks_of(page, 'IdmA')
+    # Backspace and Ctrl+Delete too; an unmarked module or no highlight: nothing
+    page.keyboard.press('Backspace')
+    settled(page, lambda: marks_of(page, 'IdmA'), lambda v: v == {})
+    h1 = history_index(page)
+    page.keyboard.press('Control+Delete')
+    page.keyboard.press('Delete')
+    page.evaluate("() => window.app._idmClearHighlight()")
+    page.keyboard.press('Delete')
+    page.wait_for_timeout(300)
+    assert history_index(page) == h1
+    assert names(page) == ['IdmA', 'IdmB']
+    # a field keeps its Delete
+    page.evaluate("() => window.app.selectLayer(window.app.project.layers.find(x => x.name === 'IdmA'))")
+    page.click('#idm-modules-x')
+    page.keyboard.press('End')
+    page.keyboard.press('Backspace')
+    assert page.input_value('#idm-modules-x') == ''
+    page.evaluate("() => { document.activeElement.blur(); window.app._idmRevertFields(); }")
+    assert names(page) == ['IdmA', 'IdmB']
+    # another tab: Delete still deletes the selected screen
+    page.click('.view-tab[data-mode="pixel-map"]')
+    page.wait_for_function("() => window.canvasRenderer.viewMode === 'pixel-map'")
+    page.evaluate("() => window.app.selectLayer(window.app.project.layers.find(x => x.name === 'IdmB'))")
+    page.evaluate("() => document.activeElement && document.activeElement.blur && document.activeElement.blur()")
+    page.keyboard.press('Delete')
+    got = settled(page, names, lambda v: v == ['IdmA'])
+    assert got == ['IdmA'], got
+    page.click('.view-tab[data-mode="idm"]')
+    assert not page._errors, page._errors
+
+
 def test_a_quick_drag_marks_every_module_it_crosses_and_moves_nothing(page):
     reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
