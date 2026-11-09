@@ -64,6 +64,24 @@ other edit.
   wall in 3D, in the bar and text colors you set, each with its size, and
   follow the wall's curve. Bars that no longer fit show at their true
   width. The Bars button hides them, and the show remembers it.
+- NEW: The 3D view moves the standard 3D way. Middle-drag orbits around
+  the point under the cursor, Shift+middle-drag or right-drag pans, and
+  the wheel zooms toward the cursor. On a trackpad, drag with two fingers
+  to orbit, add Shift to pan, and pinch to zoom. With no middle button,
+  Alt+drag orbits and Alt+Shift+drag pans.
+- NEW: A left click only selects: Shift or Ctrl adds a screen, a click on
+  empty space lets go, and a drag across empty space selects every screen
+  it touches. The camera never moves on a left click.
+- NEW: F frames the selected screens, a double-click focuses on one, keys
+  1 to 6 pick the views and Home goes back to the starting view. The
+  camera glides there.
+- NEW: Move arrows and turn rings on the selected screens: W shows the
+  arrows, E the rings. Hold Ctrl (Cmd on a Mac) to snap to 6 in steps
+  (0.1 m in meters) and 15 degree turns; the figure rides beside the
+  cursor. The arrow keys nudge the selection across the floor, Page Up and
+  Page Down raise and lower it, and Esc puts a drag back.
+- FIX: A show reopened on the 3D tab keeps its saved camera; the fits the
+  app makes by itself no longer move it.
 
 A CANVAS ON A SECOND DISPLAY
 

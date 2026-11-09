@@ -22,11 +22,11 @@ import { LEDRasterApp } from './app-core.js';
 import { evaluateMathExpression, sendClientLog } from './helpers.js';
 
 const JOINT_LIMIT = 15;          // degrees, either way, at any joint
-const FT_MM = 304.8;
+export const FT_MM = 304.8;
 const TEX_MAX = 4096;            // a screen's texture, longest side
 const TEX_MIN = 1024;            // small screens are drawn up to this
 const SYNC_MS = 120;             // edits settle this long before a rebuild
-const DEG = Math.PI / 180;
+export const DEG = Math.PI / 180;
 
 // ── The placement block ─────────────────────────────────────────────────
 
@@ -95,13 +95,13 @@ function jointAt(p, axis, j) {
     return clampJoint(axis === 'col' ? p.curveCol : p.curveRow);
 }
 
-function wrap180(deg) {
+export function wrap180(deg) {
     let d = ((deg + 180) % 360 + 360) % 360 - 180;
     if (d <= -180) d += 360;
     return Math.abs(d) < 1e-9 ? 0 : d;
 }
 
-const round = (v, places) => {
+export const round = (v, places) => {
     const f = Math.pow(10, places);
     return Math.round(v * f) / f;
 };
@@ -109,7 +109,7 @@ const round = (v, places) => {
 // ── Rotation arithmetic (Euler order Y, X, Z: yaw, then pitch, then roll -
 // three.js's 'YXZ', which is how the view turns each screen) ──────────────
 
-function quatFromPlacement(p) {
+export function quatFromPlacement(p) {
     const x = finite(p.pitch, 0) * DEG / 2, y = finite(p.yaw, 0) * DEG / 2, z = finite(p.roll, 0) * DEG / 2;
     const c1 = Math.cos(x), c2 = Math.cos(y), c3 = Math.cos(z);
     const s1 = Math.sin(x), s2 = Math.sin(y), s3 = Math.sin(z);
@@ -121,7 +121,7 @@ function quatFromPlacement(p) {
     ];
 }
 
-function quatMul(a, b) {
+export function quatMul(a, b) {
     const [ax, ay, az, aw] = a, [bx, by, bz, bw] = b;
     return [
         ax * bw + aw * bx + ay * bz - az * by,
@@ -131,9 +131,9 @@ function quatMul(a, b) {
     ];
 }
 
-const quatInv = (q) => [-q[0], -q[1], -q[2], q[3]];
+export const quatInv = (q) => [-q[0], -q[1], -q[2], q[3]];
 
-function quatRotate(q, v) {
+export function quatRotate(q, v) {
     const [qx, qy, qz, qw] = q, [vx, vy, vz] = v;
     const tx = 2 * (qy * vz - qz * vy), ty = 2 * (qz * vx - qx * vz), tz = 2 * (qx * vy - qy * vx);
     return [
@@ -143,7 +143,7 @@ function quatRotate(q, v) {
     ];
 }
 
-function anglesFromQuat(q) {
+export function anglesFromQuat(q) {
     const [x, y, z, w] = q;
     const x2 = x + x, y2 = y + y, z2 = z + z;
     const xx = x * x2, xy = x * y2, xz = x * z2, yy = y * y2, yz = y * z2, zz = z * z2;
@@ -346,6 +346,10 @@ class _Stage3D {
                 units: 'ft', grid: true, bars: true, timer: null, frame: 0, gridKey: '',
                 wired: false, drag: null, down: null, needsFit: false, saveTimer: null,
                 orthoHalf: 5000,
+                // app-stage3d-nav.js and app-stage3d-handles.js: the gesture
+                // under way, a camera glide, the handles and their mode.
+                nav: null, glide: null, wheel: null, tool: 'move', handles: null,
+                nudge: null, hover: null,
             };
         }
         return this._s3d;
@@ -363,7 +367,10 @@ class _Stage3D {
         if (view) view.hidden = !st.active;
         if (bar) bar.hidden = !st.active;
         if (!st.active) {
+            // Nudges already made land; a drag under way goes back.
+            this._s3dNudgeCommit();
             this._s3dCancelDrag();
+            this._s3dEndCameraMove(true);
             return;
         }
         this._s3dWire();
@@ -435,6 +442,11 @@ class _Stage3D {
             st.controls = new st.Orbit(st.camera, st.renderer.domElement);
             st.controls.enableDamping = false;
             st.controls.screenSpacePanning = true;
+            // The mouse, the wheel and the trackpad are the view's own
+            // (app-stage3d-nav.js): standard 3D navigation with the middle
+            // button, and a left press that never moves the camera. The
+            // orbit controls keep touch: one finger orbits, two pinch and pan.
+            st.controls.mouseButtons = { LEFT: -1, MIDDLE: -1, RIGHT: -1 };
             st.controls.addEventListener('change', () => this._s3dRequestRender());
             st.controls.addEventListener('end', () => this._s3dSaveCameraSoon());
             this._s3dWireViewport(view);
@@ -747,7 +759,10 @@ class _Stage3D {
         document.querySelectorAll('[data-s3d-view]').forEach(btn => {
             btn.addEventListener('click', () => this._s3dPreset(btn.dataset.s3dView));
         });
-        on('s3d-fit', 'click', () => this._s3dFit(true));
+        on('s3d-fit', 'click', () => this._s3dFit(true, null, { animate: true }));
+        on('s3d-home', 'click', () => this._s3dHome());
+        on('s3d-tool-move', 'click', () => this._s3dSetTool('move'));
+        on('s3d-tool-rotate', 'click', () => this._s3dSetTool('rotate'));
         on('s3d-grid', 'click', () => this._s3dSetGrid(!this._s3dState().grid));
         on('s3d-bars', 'click', () => this._s3dSetBars(!this._s3dState().bars));
     }
@@ -770,6 +785,10 @@ class _Stage3D {
         if (grid) grid.classList.toggle('active', st.grid !== false);
         const bars = byId('s3d-bars');
         if (bars) bars.classList.toggle('active', st.bars !== false);
+        const tool = st.tool === 'rotate' ? 'rotate' : 'move';
+        const move = byId('s3d-tool-move'), turn = byId('s3d-tool-rotate');
+        if (move) move.classList.toggle('active', tool === 'move');
+        if (turn) turn.classList.toggle('active', tool === 'rotate');
         const none = byId('s3d-none'), fields = byId('s3d-fields');
         if (none) none.hidden = !!layer;
         if (fields) fields.hidden = !layer;
@@ -946,6 +965,8 @@ class _Stage3D {
     // however fast the step ran (quickstart.js appSettled).
     _s3dFlushCamera() {
         const st = this._s3dState();
+        // A camera still gliding to a view lands there first.
+        this._s3dEndCameraMove(true);
         if (!st.saveTimer) return;
         clearTimeout(st.saveTimer);
         this._s3dSaveCamera();
@@ -955,6 +976,7 @@ class _Stage3D {
     // just been replaced, and it must not land on the one that came back.
     _s3dDropPendingCamera() {
         const st = this._s3dState();
+        this._s3dEndCameraMove(false);
         if (st.saveTimer) clearTimeout(st.saveTimer);
         st.saveTimer = null;
     }
@@ -962,6 +984,7 @@ class _Stage3D {
     _s3dApplyCamera(cam) {
         const st = this._s3dState();
         if (!st.T || !cam) return;
+        this._s3dEndCameraMove(false);
         const ortho = cam.mode === 'ortho';
         const pos = cam.position, tgt = cam.target;
         st.camera = ortho ? st.ortho : st.persp;
@@ -985,6 +1008,7 @@ class _Stage3D {
         if (!st.T || !st.controls) return;
         const want = mode === 'ortho' ? st.ortho : st.persp;
         if (st.camera === want) return;
+        this._s3dEndCameraMove(true);
         const tgt = st.controls.target.clone();
         const from = st.camera.position.clone();
         let dir = from.clone().sub(tgt);
@@ -1034,29 +1058,34 @@ class _Stage3D {
         this._s3dRequestRender();
     }
 
-    // Every screen's world box, or a 10 m stage round the origin with none.
-    _s3dWorldBox() {
+    // Every screen's world box (or only the screens in `ids`), or a 10 m
+    // stage round the origin with none.
+    _s3dWorldBox(ids = null) {
         const st = this._s3dState();
         const T = st.T;
         const box = new T.Box3();
         st.root.updateMatrixWorld(true);
         for (const e of st.entries.values()) {
+            if (ids && !ids.has(e.id)) continue;
             if (e.front && e.front.geometry) box.expandByObject(e.front);
         }
         if (box.isEmpty()) box.set(new T.Vector3(-5000, 0, -5000), new T.Vector3(5000, 3000, 5000));
         return box;
     }
 
-    // Frame every screen, looking along `dir` (from the target towards the
-    // camera) - the current direction when none is given.
-    _s3dFit(save = false, dir = null) {
+    // Frame every screen (or only `opts.ids`), looking along `dir` (from the
+    // target towards the camera) - the current direction when none is given.
+    // `opts.animate` glides there (app-stage3d-nav.js _s3dCameraTo); the
+    // opening fit and a restored show jump.
+    _s3dFit(save = false, dir = null, opts = {}) {
         const st = this._s3dState();
         if (!st.T || !st.controls) {
             if (st.T) st.needsFit = true;
             return;
         }
         const T = st.T;
-        const box = this._s3dWorldBox();
+        this._s3dEndCameraMove(false);
+        const box = this._s3dWorldBox(opts.ids || null);
         const centre = box.getCenter(new T.Vector3());
         const radius = Math.max(500, box.getSize(new T.Vector3()).length() / 2);
         let look = dir ? dir.clone() : st.camera.position.clone().sub(st.controls.target);
@@ -1065,15 +1094,13 @@ class _Stage3D {
         const fov = st.persp.fov * DEG;
         const aspect = st.persp.aspect || 1;
         const fit = radius / Math.sin(Math.min(fov, 2 * Math.atan(Math.tan(fov / 2) * aspect)) / 2);
-        st.controls.target.copy(centre);
-        st.camera.position.copy(centre).add(look.multiplyScalar(fit * 0.9));
-        st.orthoHalf = radius * 0.95;
-        st.ortho.zoom = 1;
-        st.camera.lookAt(centre);
-        this._s3dFrameCameras();
-        st.controls.update();
-        this._s3dRequestRender();
-        if (save) this._s3dSaveCameraSoon();
+        const pose = {
+            target: centre.clone(),
+            position: centre.clone().add(look.multiplyScalar(fit * 0.9)),
+            orthoHalf: radius * 0.95, zoom: 1,
+        };
+        st.camera.up.set(0, 1, 0);
+        this._s3dCameraTo(pose, { animate: !!opts.animate, save });
     }
 
     _s3dPreset(name) {
@@ -1086,8 +1113,8 @@ class _Stage3D {
         };
         const d = dirs[name];
         if (!d) return;
-        st.camera.up.set(0, 1, 0);
-        this._s3dFit(true, new T.Vector3(d[0], d[1], d[2]));
+        sendClientLog('stage3d_view', { view: name });
+        this._s3dFit(true, new T.Vector3(d[0], d[1], d[2]), { animate: true });
     }
 
     // ── the stage ─────────────────────────────────────────────────────────
@@ -1124,6 +1151,7 @@ class _Stage3D {
         const tokens = this._s3dTokens();
         if (st.renderer) st.renderer.setClearColor(tokens.canvas, 1);
         this._s3dHighlight(tokens);
+        this._s3dHandlesSync();
         this._s3dGrid(tokens);
         if (st.needsCam) {
             st.needsCam = false;
@@ -1555,20 +1583,13 @@ class _Stage3D {
         st.frame = requestAnimationFrame(() => {
             st.frame = 0;
             if (!st.active) return;
+            // The move and turn handles keep their size on the page.
+            this._s3dHandlesFrame();
             st.renderer.render(st.scene, st.camera);
         });
     }
 
     // ── picking, clicking and dragging in the viewport ────────────────────
-
-    _s3dWireViewport(view) {
-        if (!view) return;
-        // Capture: this runs before the orbit controls hear the press, so a
-        // press on a selected screen can take the pointer for a move.
-        view.addEventListener('pointerdown', (ev) => this._s3dPointerDown(ev), true);
-        window.addEventListener('pointermove', (ev) => this._s3dPointerMove(ev));
-        window.addEventListener('pointerup', (ev) => this._s3dPointerUp(ev));
-    }
 
     _s3dPick(clientX, clientY) {
         const st = this._s3dState();
@@ -1637,6 +1658,13 @@ class _Stage3D {
         const layers = (this.project && this.project.layers) || [];
         if (!hit) {
             if (st.joint) this._s3dSelectJoint(null);
+            // A click on empty space lets go of the selection, as in any 3D
+            // view; with Shift or Ctrl / Cmd held it keeps it.
+            const keep = ev && (ev.shiftKey || ev.metaKey || ev.ctrlKey);
+            if (!keep && this._s3dSelectedIds().size) {
+                this.setSelectedLayersByIds([], null);
+                this._s3dRefreshPanel();
+            }
             return;
         }
         const layer = layers.find(l => l.id === hit.layerId);
@@ -1672,98 +1700,6 @@ class _Stage3D {
             this._s3dGroupPeers(layer).forEach(p => out.set(p.id, p));
         }
         return [...out.values()];
-    }
-
-    _s3dPointerDown(ev) {
-        const st = this._s3dState();
-        st.down = null;
-        if (ev.button !== 0 || !st.renderer) return;
-        const hit = this._s3dPick(ev.clientX, ev.clientY);
-        st.down = { x: ev.clientX, y: ev.clientY, hit, moved: false, shift: ev.shiftKey, meta: ev.metaKey || ev.ctrlKey };
-        const sel = this._s3dSelectedIds();
-        if (!hit || !sel.has(hit.layerId) || ev.altKey || ev.ctrlKey || ev.metaKey) return;
-        const T = st.T;
-        // This press moves the screen, not the camera.
-        st.controls.enabled = false;
-        const layout = this._s3dLayout();
-        // A locked screen stays put. It is named once the press becomes a
-        // drag, not on a click that only selects; the unlocked ones move.
-        const moveSet = this._s3dMoveSet(sel.size ? [...sel] : [hit.layerId]);
-        const movers = moveSet.filter(l => !this._layerLocked(l));
-        const held = moveSet.filter(l => this._layerLocked(l));
-        const starts = new Map(movers.map(l => [l.id, this._s3dPlacementOf(l, layout)]));
-        const vertical = ev.shiftKey;
-        let normal;
-        if (vertical) {
-            normal = st.camera.position.clone().sub(hit.point);
-            normal.y = 0;
-            if (normal.lengthSq() < 1e-6) normal.set(0, 0, 1);
-            normal.normalize();
-        } else {
-            normal = new T.Vector3(0, 1, 0);
-        }
-        st.drag = {
-            plane: new T.Plane().setFromNormalAndCoplanarPoint(normal, hit.point),
-            from: hit.point.clone(), vertical, movers, held, starts, active: false, delta: [0, 0, 0],
-        };
-        const view = document.getElementById('s3d-view');
-        if (view) view.classList.add('s3d-grab');
-    }
-
-    _s3dPointerMove(ev) {
-        const st = this._s3dState();
-        if (st.down && !st.down.moved
-                && Math.hypot(ev.clientX - st.down.x, ev.clientY - st.down.y) > 4) {
-            st.down.moved = true;
-        }
-        const d = st.drag;
-        if (!d || !st.down) return;
-        if (!d.active && !st.down.moved) return;
-        if (!d.active && d.held.length) this._showLockedError(d.held);
-        d.active = true;
-        const rect = st.renderer.domElement.getBoundingClientRect();
-        const ndc = new st.T.Vector2(((ev.clientX - rect.left) / rect.width) * 2 - 1,
-            -((ev.clientY - rect.top) / rect.height) * 2 + 1);
-        st.raycaster.setFromCamera(ndc, st.camera);
-        const at = st.raycaster.ray.intersectPlane(d.plane, new st.T.Vector3());
-        if (!at) return;
-        const delta = at.sub(d.from);
-        d.delta = d.vertical ? [0, delta.y, 0] : [delta.x, 0, delta.z];
-        for (const [id, p] of d.starts) {
-            const e = st.entries.get(id);
-            if (e) e.obj.position.set(p.x + d.delta[0], p.y + d.delta[1], p.z + d.delta[2]);
-        }
-        this._s3dRequestRender();
-    }
-
-    _s3dPointerUp(ev) {
-        const st = this._s3dState();
-        const down = st.down;
-        const d = st.drag;
-        st.down = null;
-        st.drag = null;
-        const view = document.getElementById('s3d-view');
-        if (view) view.classList.remove('s3d-grab');
-        if (st.controls) st.controls.enabled = true;
-        if (!down) return;
-        if (d && d.active) {
-            this._s3dCommitMove(d);
-            return;
-        }
-        if (!down.moved) this._s3dClick(down.hit, ev);
-    }
-
-    _s3dCancelDrag() {
-        const st = this._s3dState();
-        if (st.drag && st.drag.active) {
-            for (const [id, p] of st.drag.starts) {
-                const e = st.entries.get(id);
-                if (e) e.obj.position.set(p.x, p.y, p.z);
-            }
-        }
-        st.drag = null;
-        st.down = null;
-        if (st.controls) st.controls.enabled = true;
     }
 
     _s3dCommitMove(d) {
@@ -1822,6 +1758,9 @@ class _Stage3D {
             units: this._s3dUnits(), grid: st.grid, bars: st.bars,
             joint: st.joint ? { ...st.joint } : null,
             camera: this._s3dCameraState(),
+            gliding: !!st.glide, wheel: st.wheel ? st.wheel.kind : null,
+            tool: st.tool === 'rotate' ? 'rotate' : 'move',
+            handles: this._s3dHandlesDebug(),
             gridLines: st.gridGroup ? st.gridGroup.children.length : 0,
             screens,
         };

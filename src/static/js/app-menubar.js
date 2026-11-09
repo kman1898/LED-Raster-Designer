@@ -553,7 +553,7 @@ class _MenuBar {
                 this.setPanelsHalfTileBulk(this.getPixelMapSelectedPanels(), 'none');
                 break;
             case 'fit':
-                if (window.canvasRenderer) window.canvasRenderer.fitToView();
+                if (window.canvasRenderer) window.canvasRenderer.fitToView(true);
                 break;
             case 'actual-size':
                 if (window.canvasRenderer) {

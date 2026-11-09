@@ -249,7 +249,7 @@ def test_a_checklist_item_s_random_id_never_reaches_the_file():
     assert builder.strip_volatile({'layers': []}) == {'layers': []}
 
 
-ADVANCED_STEPS = 129
+ADVANCED_STEPS = 132
 QUICK_STEPS = 10
 
 
