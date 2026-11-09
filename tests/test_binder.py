@@ -138,16 +138,19 @@ PAD, TB_W, DA_PAD = 50, 480, 30
 
 def _da(w, h, block=True):
     """The drawing area on a sheet of `w` x `h` page pixels, with the title
-    block column standing or not."""
-    return {'x': PAD + DA_PAD, 'y': PAD + DA_PAD,
-            'w': w - PAD * 2 - (TB_W if block else 0) - DA_PAD * 2,
-            'h': h - PAD * 2 - DA_PAD * 2}
+    block column standing or not. With it, DA_PAD inside the border; without
+    it there is no border to clear and the drawing runs to the quarter inch,
+    PAD (2026-11-08: "there is just a ton of room in the margins")."""
+    inset = DA_PAD if block else 0
+    return {'x': PAD + inset, 'y': PAD + inset,
+            'w': w - PAD * 2 - (TB_W if block else 0) - inset * 2,
+            'h': h - PAD * 2 - inset * 2}
 
 
 # The title block switch (the export dialog's Binder block, default ON).
 # OFF, the sheet loses its border, the whole title block column and the rev
-# line, and the drawing area takes the sheet inside the same small margin -
-# exactly TB_W wider. A run with LRD_BINDER_NO_TITLE_BLOCK=1 puts the SHOW
+# line, and the drawing area takes the sheet to the quarter inch - TB_W
+# wider, and the border's inset (DA_PAD) back on every side. A run with LRD_BINDER_NO_TITLE_BLOCK=1 puts the SHOW
 # options and the drawing area below into that state, so the suites that
 # import them (test_binder_ink, test_binder_wiring,
 # test_map_label_collisions) can be run the other way without a second copy
@@ -2831,17 +2834,18 @@ def test_the_plain_sheet_drops_the_block_and_keeps_its_naming(page):
 
 def test_the_plain_sheet_gives_the_drawing_the_blocks_width(page):
     """The room is real: with the block off the drawing area is the sheet
-    inside the same small margin - exactly TB_W (480 page px, 2.4 in)
-    wider than with it on - and a map sheet spends it, its map area the
-    full width and its extent covering more of the sheet than before."""
+    to the quarter inch - TB_W (480 page px, 2.4 in) wider than with it on,
+    and the border's inset DA_PAD back on every side (2026-11-08) - and a
+    map sheet spends it, its map area the full width and its extent
+    covering more of the sheet than before."""
     pg, ids = page
-    assert DA_PLAIN['w'] - DA_BLOCK['w'] == TB_W
+    assert DA_PLAIN['w'] - DA_BLOCK['w'] == TB_W + DA_PAD * 2
     # the drawing area itself, read off the sheet: the overview lays its
     # map across the whole of it
     a = _map_of(_render(pg, BLOCK, 'Overview'))['area']
     b = _map_of(_render(pg, PLAIN, 'Overview'))['area']
     assert a['w'] == DA_BLOCK['w'] and b['w'] == DA_PLAIN['w'], (a, b)
-    assert b['w'] - a['w'] == TB_W and b['x'] == a['x'] == DA_PLAIN['x'], (a, b)
+    assert b['w'] - a['w'] == TB_W + DA_PAD * 2 and a['x'] == DA_BLOCK['x'] and b['x'] == DA_PLAIN['x'] == PAD, (a, b)
     # and a map sheet spends the room: WALL-A's wall is never drawn
     # smaller (it is stopped by the sheet's HEIGHT, so the width goes to
     # the tables beside it) and the sheet's own content covers more of the
@@ -3132,12 +3136,17 @@ def test_smoke_live_show_b(page):
     # one Tabloid sheet, painted at 2x
     assert main['width'] == W * SCALE and main['height'] == H * SCALE
     # the map: the wall 28 x 11 of 60 x 120 px, uniformly, in the width the
-    # one table column leaves at its scale - at least 45 % of the area
+    # one table column leaves at its scale - at least 45 % of the area. The
+    # column is the tables' own width since 2026-11-08 (_bMapLayout: it gave
+    # this wall 8 per cent more than a 3.5 in column), so the room is never
+    # less than a COL_W column would leave
     m = main['map']
     want_main = (28 * 60) / (11 * 120)
     assert abs(m['w'] / m['h'] - want_main) / want_main < 0.01, m
-    room_w = DA['w'] - (COL_W + COL_GAP) * main_s
-    assert room_w >= round(DA['w'] * MAP_MIN_FRAC) and abs(m['area']['w'] - room_w) < 0.01 and m['area']['x'] == DA['x'], (m['area'], room_w)
+    room_w = m['area']['w']
+    col = (DA['w'] - room_w) / main_s - COL_GAP
+    assert 500 < col < COL_W, (m['area'], col)
+    assert room_w >= round(DA['w'] * MAP_MIN_FRAC) and room_w > DA['w'] - (COL_W + COL_GAP) * main_s and m['area']['x'] == DA['x'], (m['area'], room_w)
     zoom = _fit(room_w, DA['h'] - BUBBLE_H * main_s, 28 * 60, 11 * 120)
     assert abs(m['zoom'] - zoom) < 0.01 and abs(m['w'] - 28 * 60 * zoom) <= 2, (m, zoom)
     assert m['w'] / room_w > 0.75 and m['scale'] == main_s, m
@@ -3148,7 +3157,7 @@ def test_smoke_live_show_b(page):
     heads = {t: (x, y) for t, x, y in main['headings'] if t in ('CIRCUITS', 'CABLES THIS SCREEN', 'FACTS')}
     assert 'CIRCUITS' in heads and 'CABLES THIS SCREEN' in heads and 'FACTS' in heads, heads
     assert all(x >= m['area']['x'] + m['area']['w'] + COL_GAP * main_s - 1 for x, _y in heads.values()), (heads, m['area'])
-    assert all(x + COL_W * main_s <= DA['x'] + DA['w'] + 1 for x, _y in heads.values()), heads
+    assert all(x + col * main_s <= DA['x'] + DA['w'] + 1 for x, _y in heads.values()), heads
     assert heads['CIRCUITS'][1] < heads['CABLES THIS SCREEN'][1] < heads['FACTS'][1]
     # the view bubble under the map
     b = main['bubble']

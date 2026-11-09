@@ -62,9 +62,11 @@ BEFORE = (1499, 598)
 
 
 def _da(w, h, block=True):
-    return {'x': PAD + DA_PAD, 'y': PAD + DA_PAD,
-            'w': w - PAD * 2 - (TB_W if block else 0) - DA_PAD * 2,
-            'h': h - PAD * 2 - DA_PAD * 2}
+    # (no block, no border to clear: the drawing runs to the quarter inch)
+    inset = DA_PAD if block else 0
+    return {'x': PAD + inset, 'y': PAD + inset,
+            'w': w - PAD * 2 - (TB_W if block else 0) - inset * 2,
+            'h': h - PAD * 2 - inset * 2}
 
 
 SEED_JS = """async () => {
