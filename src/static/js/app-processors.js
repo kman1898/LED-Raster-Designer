@@ -135,6 +135,8 @@ class _Processors {
             if (data.fiberCables.length) this.project.fiberCables = data.fiberCables;
             else delete this.project.fiberCables;
         }
+        // The show's subnet and gateway, the same way (app-network.js).
+        if (typeof this._adoptShowNetwork === 'function') this._adoptShowNetwork(data);
         // Only stamp the key onto the project once there is something to
         // store. Writing an empty array here would put `processors: []` into
         // every saved file of every user who never opens this panel, and the
@@ -529,6 +531,13 @@ class _Processors {
         // bar is redundancy INSIDE the unit, this is a second unit - an
         // option on this one, named here and otherwise automatic.
         wrap.appendChild(this._buildProcBackupBlock(proc));
+        // NETWORK (owner, 2026-11-09): this unit's IP, subnet, gateway and
+        // note, its backup unit's under them, and the show's subnet and
+        // gateway (app-network.js) - right under the backup switch, so
+        // switching the backup on puts its fields in view.
+        if (typeof this._buildProcNetworkBlock === 'function') {
+            wrap.appendChild(this._buildProcNetworkBlock(proc));
+        }
 
         // The chassis's slots: which card sits in each. A fixed card (an
         // all-in-one's own outputs) is a fact, not a pick, so it draws no

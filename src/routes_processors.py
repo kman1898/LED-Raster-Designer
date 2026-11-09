@@ -325,7 +325,12 @@ def _set_backup_unit(proc, value):
     name = value.get('name', (proc.get('backupUnit') or {}).get('name', ''))
     if name is not None and not isinstance(name, str):
         return 'The backup processor’s name must be text.'
+    # A rename keeps the unit's network settings: they are the unit's,
+    # not its name's (catalog.set_network).
+    network = catalog.network_of(proc.get('backupUnit'))
     proc['backupUnit'] = {'name': (name or '').strip()}
+    if network:
+        proc['backupUnit']['network'] = network
     return None
 
 
@@ -498,6 +503,10 @@ def _state(status=200, extra=None):
         # The show's fiber cables ride it for the same reason: a TAC is
         # shared by several boxes, on several processors.
         'fiberCables': catalog.resolved_fiber_cables(app.current_project),
+        # The show's subnet and gateway, which every unit reads where its
+        # own are blank ({} with none).
+        'network': catalog.network_of(app.current_project,
+                                      catalog.NETWORK_SHOW_FIELDS),
     }
     if g.get('mirrors_cleared'):
         # The mirror screens this edit unplugged: the client drops their
@@ -556,7 +565,25 @@ def get_processors():
         'dataCableConnectors': catalog.data_cable_connectors(),
         'snakes': catalog.resolved_show_snakes(app.current_project),
         'fiberCables': catalog.resolved_fiber_cables(app.current_project),
+        'network': catalog.network_of(app.current_project,
+                                      catalog.NETWORK_SHOW_FIELDS),
     })
+
+
+@processors_bp.route('/api/processors/network', methods=['PUT'])
+def set_show_network():
+    """The show's subnet mask and gateway (owner, 2026-11-09: "set once
+    for the whole show and overridden per unit"): a patch of the fields it
+    names, stored on project['network'] as typed - a blank one taken away,
+    the key with its last field. A unit whose own field is blank reads
+    these. A static rule, so it is matched ahead of /api/processors/<id>."""
+    data = request.json or {}
+    why = catalog.set_network({}, data, catalog.NETWORK_SHOW_FIELDS)
+    if why:
+        return jsonify({'error': why}), 400
+    catalog.set_network(app.current_project, data, catalog.NETWORK_SHOW_FIELDS)
+    log_event('show_network_update', {'changed': sorted(data)})
+    return _state()
 
 
 @processors_bp.route('/api/processors', methods=['POST'])
@@ -635,6 +662,24 @@ def update_processor(processor_id):
         why = _set_backup_unit(proc, data.get('backupUnit'))
         if why:
             return jsonify({'error': why}), 400
+    # NETWORK SETTINGS (owner, 2026-11-09): the unit's IP, subnet,
+    # gateway and note, and its backup unit's - each a patch of the fields
+    # it names, stored as typed. Checked for shape only: an address that
+    # is not one is the field's red mark, never a refusal. Both are read
+    # before either is written, so a refusal stores nothing.
+    if 'backupNetwork' in data and not isinstance(proc.get('backupUnit'), dict):
+        return jsonify({'error': (
+            'This processor has no backup processor. Switch one on '
+            'before giving it an IP.')}), 400
+    for key in ('network', 'backupNetwork'):
+        if key in data:
+            why = catalog.set_network({}, data.get(key))
+            if why:
+                return jsonify({'error': why}), 400
+    if 'network' in data:
+        catalog.set_network(proc, data.get('network'))
+    if 'backupNetwork' in data:
+        catalog.set_network(proc['backupUnit'], data.get('backupNetwork'))
     if 'redundancyMixed' in data:
         _set_redundancy_mixed(proc, data.get('redundancyMixed'))
     changed = _apply(proc, data, ('name', 'mode', 'redundancy'))
@@ -642,7 +687,7 @@ def update_processor(processor_id):
         # Off is another segment: the Mixed pick goes with it.
         proc.pop('redundancyMixed', None)
     for key in ('backupUnit', 'redundancyPairs', 'cardsRedundancyMode',
-                'redundancyMixed'):
+                'redundancyMixed', 'network', 'backupNetwork'):
         if key in data:
             changed[key] = data.get(key)
     log_event('processor_update', {'id': processor_id, 'changed': list(changed)})

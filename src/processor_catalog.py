@@ -2632,6 +2632,68 @@ def box_backup_ports(cvt_device):
                 or [])
 
 
+# NETWORK SETTINGS (owner, 2026-11-09: "add to the processors the ability
+# to IP addresses and that would be represented on the binder"). Each unit
+# - a processor, and its backup unit when one is on - keeps its own IP,
+# subnet mask, gateway and a short note, stored as typed:
+#   proc['network'] = {ip, subnet, gateway, note}
+#   proc['backupUnit']['network'] = {ip, subnet, gateway, note}
+# and the show keeps one subnet and gateway every unit reads where its own
+# is blank: project['network'] = {subnet, gateway}. A blank field is no
+# key, and a unit with none is no `network` key at all, so a show that
+# never met the feature stays byte for byte what it was. Nothing is
+# checked here: an address that is not one is marked red in the field and
+# printed as typed (network-ip.js reads them; nothing is ever refused).
+NETWORK_UNIT_FIELDS = ('ip', 'subnet', 'gateway', 'note')
+NETWORK_SHOW_FIELDS = ('subnet', 'gateway')
+NETWORK_MAX_CHARS = 200
+
+
+def network_of(node, fields=NETWORK_UNIT_FIELDS):
+    """The network fields a stored node holds, in their stored shape:
+    {field: text} for each non-blank text field, {} for none (a missing,
+    broken or hand-edited entry reads as none)."""
+    raw = (node or {}).get('network') if isinstance(node, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for key in fields:
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            out[key] = value.strip()
+    return out
+
+
+def set_network(node, patch, fields=NETWORK_UNIT_FIELDS):
+    """Write a patch of network fields onto a stored node: each field named
+    in `patch` is set to its text, trimmed, or taken away when blank or
+    null; fields not named are kept. The `network` key goes with its last
+    field. Returns the reason a patch cannot be taken (nothing written), or
+    None."""
+    if not isinstance(patch, dict):
+        return 'Network settings must be an object.'
+    unknown = [k for k in patch if k not in fields]
+    if unknown:
+        return f'Unknown network field: {unknown[0]}.'
+    for key, value in patch.items():
+        if value is not None and not isinstance(value, str):
+            return f'The {key} must be text.'
+        if isinstance(value, str) and len(value.strip()) > NETWORK_MAX_CHARS:
+            return f'The {key} is longer than {NETWORK_MAX_CHARS} characters.'
+    current = network_of(node, fields)
+    for key, value in patch.items():
+        text = (value or '').strip()
+        if text:
+            current[key] = text
+        else:
+            current.pop(key, None)
+    if current:
+        node['network'] = current
+    else:
+        node.pop('network', None)
+    return None
+
+
 def backup_unit_name(proc):
     """The backup unit's name: the one typed on it, else "<main> BU" - the
     main's name, or its model where nobody named it."""
@@ -2708,6 +2770,8 @@ def _apply_backup_unit(processors, resolved):
                                              or '').strip()
                                if isinstance(raw['backupUnit'].get('name'),
                                              str) else '',
+                               # its own IP, subnet, gateway and note
+                               'network': network_of(raw['backupUnit']),
                                'boxes': twins}
 
 
@@ -4881,6 +4945,10 @@ def resolve_processor(proc):
         # Independent of the in-unit redundancy above - the owner's "full
         # redundancy" is both.
         'backupUnit': None,
+        # The unit's IP, subnet, gateway and note as typed (network_of);
+        # {} with none. The show's subnet and gateway stand in for blank
+        # ones on the client (network-ip.js).
+        'network': network_of(proc),
         'requiresDistribution': bool(device.get('requiresDistribution')),
         # The processing canvas everything this unit drives must fit
         # (canvas_fit) - the catalog's record, None where none is published.

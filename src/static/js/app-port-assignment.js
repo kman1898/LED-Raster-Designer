@@ -533,6 +533,11 @@ class _PortAssignment {
         if (mode !== 'data-flow') return;
         this._preserveEditorFocus();
         strip.innerHTML = '';
+        // Two units on one IP (app-network.js): a red row naming both,
+        // whatever the ports say.
+        if (typeof this.networkIssueRows === 'function') {
+            this.networkIssueRows().forEach(row => strip.appendChild(row));
+        }
 
         const res = this._assignment;
         if (!res) return;

@@ -2804,6 +2804,7 @@
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A wiring sheet behind each map (2.x): Power Wiring right after a screen's Power sheet, every circuit wired to its breakout; Data Wiring right after its Data sheet, every port wired to its socket. Each follows its own map: Maps on Power gives no Data Wiring sheet, and the other way round."><input type="checkbox" id="export-binder-wiring" checked> Wiring</label>
                         <label id="export-binder-fiber-label" style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="One Fiber sheet right after the screens, before the pull sheets (3.x), offered when the show uses fiber: every processor to its breakout boxes, a row per link, with the strand maps and the fiber cables to pull."><input type="checkbox" id="export-binder-fiber" checked> Fiber</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="A Header/Footer sheet for each screen or group that has header or footer bars (2.x): the wall with its bars drawn above and below it, and a table of the bars it needs. A group follows the Header/Footer tab's Names switch. Screens with none print no Header/Footer sheet."><input type="checkbox" id="export-binder-rigging" checked> Header/Footer</label>
+                        <label id="export-binder-network-label" style="display: flex; align-items: center; gap: 5px; cursor: pointer; flex: none; white-space: nowrap; line-height: 20px;" data-tooltip="Network page, one table of every processor and backup unit with its IP, subnet, gateway and note, after the processor sheets. Offered once a processor has an IP."><input type="checkbox" id="export-binder-network" checked> Network</label>
                         </div>
                     </div>
                     <!-- The border, the title block column and the rev line, or
@@ -3336,6 +3337,7 @@
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-wiring"> Wiring</label>
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-fiber"> Fiber</label>
                                 <label class="pm-check"><input type="checkbox" id="pref-binder-rigging"> Header/Footer</label>
+                                <label class="pm-check"><input type="checkbox" id="pref-binder-network"> Network</label>
                             </div>
                         </div>
                         <div class="pm-row">
@@ -4108,6 +4110,7 @@
     <script src="/static/js/canvas-data.js"></script>
     <script src="/static/js/canvas-power.js"></script>
     <script src="/static/js/rigging-math.js"></script>
+    <script src="/static/js/network-ip.js"></script>
     <script src="/static/js/canvas-rigging.js"></script>
     <script src="/static/js/canvas-labels.js"></script>
     <script src="/static/js/canvas-selection.js"></script>
