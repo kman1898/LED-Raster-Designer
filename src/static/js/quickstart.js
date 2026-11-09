@@ -7346,6 +7346,30 @@
                 return st.pointerOn && st.pointer ? 'The arrow follows your mouse on the wall output of this canvas.' : null;
             }
         },
+        idmController: {
+            since: '1.7.0',
+            target: '#idm-pad-help', place: 'right', title: 'Walk the wall with a controller',
+            body: 'Pair a PlayStation or Xbox controller with this computer: the D-pad steps one module at a time and A or Cross marks. This list of its buttons shows while one is connected.',
+            // No controller in a guide: the list is shown as it shows with one.
+            before: function () {
+                openIdm();
+                var a = A();
+                if (a && typeof a._idmPadPreviewHelp === 'function') a._idmPadPreviewHelp(true);
+            },
+            act: function (t) {
+                return t.wait(function () { var c = $('#idm-pad-help'); return c && !c.hidden ? c : null; }).then(function (c) {
+                    return t.spot(c).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var c = $('#idm-pad-help');
+                return c && !c.hidden ? 'B or Circle undoes, Y or Triangle goes to the next screen; keep this window in front.' : null;
+            },
+            after: function () {
+                var a = A();
+                if (a && typeof a._idmPadPreviewHelp === 'function') a._idmPadPreviewHelp(false);
+            }
+        },
         idmList: {
             since: '1.7.0',
             target: '#idm-list', place: 'right', title: 'The marked modules',
@@ -7461,7 +7485,7 @@
                     's3dOpen', 's3dSelect', 's3dCurve', 's3dYaw', 's3dCamera', 's3dBars', 's3dJoint',
                     'outputOpen', 'outputChoices',
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
-                    'idmColors', 'idmHighlight', 'idmPointer', 'idmList', 'notesChecklist',
+                    'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist',
                     'groupScreens', 'groupNames', 'groupDrag',
                     'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',

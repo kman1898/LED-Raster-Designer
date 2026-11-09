@@ -417,6 +417,8 @@ class _IdmLocator {
         }
         this._idmSyncToolbar();
         this._idmSyncPad();
+        // A game controller (app-idm-gamepad.js).
+        if (typeof this._idmPadWire === 'function') this._idmPadWire();
     }
 
     // A button that took focus from a click lets it go, so Space and the
@@ -441,6 +443,8 @@ class _IdmLocator {
             if (window.canvasRenderer) window.canvasRenderer.isIdmPainting = false;
             this._idmPointerAt(null);
             this._idmRefreshReadout();
+            // a controller is read only on this tab
+            if (typeof this._idmPadRun === 'function') this._idmPadRun();
             return;
         }
         st.fieldsKey = '';
@@ -449,6 +453,7 @@ class _IdmLocator {
         st.readoutKey = '';
         this._idmSyncToolbar();
         this._idmSyncPad();
+        if (typeof this._idmPadRun === 'function') this._idmPadRun();
     }
 
     // The tablet layout hides the side panels it does not need, so the

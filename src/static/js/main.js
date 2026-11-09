@@ -57,6 +57,7 @@ import './app-history.js';
 import './app-clipboard.js';
 import './app-stage3d.js';
 import './app-idm-locator.js';
+import './app-idm-gamepad.js';
 import './app-output-display.js';
 import './app-notes-checklist.js';
 import { registerGlobalClientLogging, sendClientLog, installFieldGuard } from './helpers.js';

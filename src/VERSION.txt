@@ -107,6 +107,13 @@ shows a plus where a click marks and a minus where it clears,
 right-click a mark to clear it, and Esc in the middle of a drag puts
 the modules back.
 
+Find bad modules with a game controller: pair a PlayStation or Xbox
+controller with the computer and the D-pad steps the highlight one
+module at a time (hold LB or RB for a cabinet), A or Cross marks or
+clears, held while moving it paints, B or Circle undoes, X or Square
+changes the field color and Y or Triangle goes to the next screen. The
+panel lists the buttons while one is connected.
+
 A SETUP FILE FOR WINDOWS
 
 - NEW: Windows gets a setup file. Run it and LED Raster Designer is in your

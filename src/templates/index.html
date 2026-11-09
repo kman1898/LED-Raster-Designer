@@ -1996,6 +1996,21 @@
                             <button type="button" id="idm-pad-mark" class="btn idm-pad-mark" data-tooltip="Mark, Mark the highlighted module, or clear its mark (tap Space).">Mark</button>
                         </div>
                         <button type="button" id="idm-pointer" class="btn idm-toggle idm-pointer active" aria-pressed="true" data-tooltip="Show mouse on wall, Your mouse shows as an arrow on the wall output while it is over that canvas. Turn it off to keep the wall clean.">Show mouse on wall</button>
+                        <!-- A game controller (app-idm-gamepad.js): its buttons,
+                             listed while one is connected. -->
+                        <div id="idm-pad-help" class="idm-pad-help" hidden data-tooltip="Controller, A PlayStation or Xbox controller paired with this computer walks the wall: the D-pad steps module by module and A or Cross marks. It works only while this window has the focus.">
+                            <div class="idm-pad-help-title">Controller <span id="idm-pad-help-name" class="idm-pad-help-name"></span></div>
+                            <dl class="idm-pad-help-map">
+                                <dt>D-pad, left stick</dt><dd>Move one module</dd>
+                                <dt>Hold LB / L1 or RB / R1</dt><dd>Move one cabinet</dd>
+                                <dt>A / Cross</dt><dd>Mark or clear; hold and move to paint</dd>
+                                <dt>B / Circle</dt><dd>Undo</dd>
+                                <dt>X / Square</dt><dd>Next field color</dd>
+                                <dt>Y / Triangle</dt><dd>Next screen</dd>
+                                <dt>View / Share</dt><dd>Clear the highlight</dd>
+                            </dl>
+                            <div class="idm-note">Keep this window in front: the controller works only while the app has the focus.</div>
+                        </div>
                         <div class="idm-sub">Modules</div>
                         <div id="idm-none" class="idm-note">Select a screen to set its modules: click it in the view or in the Screens list.</div>
                         <div id="idm-fields" hidden>
