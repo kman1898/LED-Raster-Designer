@@ -493,7 +493,9 @@ class _OutputDisplay {
         const r = window.canvasRenderer;
         const flags = [];
         for (const k of Object.keys(r)) {
-            if (/^_|mouse|drag|hover|cursor|select|pan|zoom|^is[A-Z]|viewMode|export|render|probe|pulse/i.test(k)) continue;
+            // (spacePressed among them: holding Space to pan changes nothing
+            // on the wall)
+            if (/^_|mouse|drag|hover|cursor|select|pan|zoom|^is[A-Z]|viewMode|export|render|probe|pulse|pressed/i.test(k)) continue;
             const v = r[k];
             if (typeof v === 'boolean' || typeof v === 'string') flags.push(`${k}=${v}`);
         }

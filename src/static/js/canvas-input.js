@@ -783,7 +783,10 @@ Object.assign(CanvasRenderer.prototype, {
 
         // IDM Locator: the mouse shows on the wall output of the canvas it
         // is over (app-idm-locator.js _idmPointerAt), whatever the gesture.
-        if (this.viewMode === 'idm' && window.app && typeof window.app._idmPointerAt === 'function') {
+        // Not while the view is panned: the point under the mouse stays the
+        // same through a pan (and this one is read before the pan moves).
+        if (this.viewMode === 'idm' && !this.isDragging && window.app
+                && typeof window.app._idmPointerAt === 'function') {
             window.app._idmPointerAt(worldX, worldY);
         }
 

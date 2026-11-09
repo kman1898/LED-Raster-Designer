@@ -350,6 +350,36 @@ def test_the_mouse_shows_on_the_output_and_hides_on_leave_and_switch(page):
         out.close()
 
 
+def test_a_space_pan_with_the_output_open_never_renders_it_and_keeps_the_arrow(page):
+    cid = reset_project(page)
+    page.click('[data-idm-field="#0000ff"]')
+    out = open_output(page, cid)
+    try:
+        gap = client_of(page, 470, 120)
+        page.mouse.move(gap['x'], gap['y'])
+        p = settled(page, lambda: pointer(page), lambda v: v is not None)
+        wait_pixel(out, *arrow_px(p), (255, 255, 255))
+        page.wait_for_timeout(300)
+        page.evaluate("""() => { const r = window.canvasRenderer; r.__n = 0; const o = r.render; r.__o = o;
+            r.render = function () { if (this.exportMode) r.__n++; return o.apply(this, arguments); }; }""")
+        p0 = pan(page)
+        page.keyboard.down('Space')
+        page.mouse.down()
+        page.mouse.move(gap['x'] + 150, gap['y'] + 60, steps=10)
+        page.mouse.up()
+        page.keyboard.up('Space')
+        page.wait_for_timeout(400)
+        renders = page.evaluate("() => { const r = window.canvasRenderer; r.render = r.__o; return r.__n; }")
+        assert pan(page) != p0
+        assert renders == 0, renders
+        # the grab keeps the same point under the mouse, so the arrow stays
+        p1 = pointer(page)
+        assert abs(p1['x'] - p['x']) < 1 and abs(p1['y'] - p['y']) < 1, (p, p1)
+        wait_pixel(out, *arrow_px(p1), (255, 255, 255))
+    finally:
+        out.close()
+
+
 def test_on_a_light_field_the_arrow_is_black_over_a_screen(page):
     cid = reset_project(page)
     out = open_output(page, cid)

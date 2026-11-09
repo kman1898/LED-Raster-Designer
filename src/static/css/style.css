@@ -3010,9 +3010,12 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
 .idm-pad-help[hidden] { display: none; }
 .idm-pad-help-title { font-size: 11px; font-weight: 600; color: var(--ps-text, #f0f0f0); margin-bottom: 4px; }
 .idm-pad-help-name { font-weight: 400; color: var(--ps-faint, #969696); }
-.idm-pad-help-map { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; margin: 0 0 4px; font-size: 11px; }
-.idm-pad-help-map dt { color: var(--ps-text, #f0f0f0); }
-.idm-pad-help-map dd { margin: 0; color: var(--ps-dim, #c0c0c0); min-width: 0; }
+/* one line per button: the button, then what it does */
+.idm-pad-help-map { margin: 0 0 4px; font-size: 11px; line-height: 1.45; }
+.idm-pad-help-map dt { display: inline; font-weight: 600; color: var(--ps-text, #f0f0f0); }
+.idm-pad-help-map dt::after { content: ' '; }
+.idm-pad-help-map dd { display: inline; margin: 0; color: var(--ps-dim, #c0c0c0); }
+.idm-pad-help-map dd::after { content: ''; display: block; }
 .idm-pad-help .idm-note { margin: 0; }
 #idm-status-readout { color: var(--ps-text, #f0f0f0); font-weight: 600; }
 #idm-status-readout[hidden] { display: none; }
