@@ -999,10 +999,18 @@ class _IdmLocator {
     // a dialog is open. True when the key was this view's.
     _idmKeyDown(e) {
         const st = this._idmState();
-        if (!st.active || e.metaKey || e.ctrlKey || e.altKey) return false;
+        if (!st.active) return false;
         if (isTypingTarget(document.activeElement)) return false;
+        // Delete and Backspace clear the mark under the highlight (the
+        // owner's ruling, 2026-11-08) and never delete a screen on this tab,
+        // with or without a modifier; other tabs keep their Delete.
         const modalOpen = Array.from(document.querySelectorAll('.modal'))
             .some(m => getComputedStyle(m).display !== 'none');
+        if (e.code === 'Delete' || e.code === 'Backspace') {
+            if (!modalOpen && !e.repeat && !st.stroke) this._idmDeleteMark();
+            return true;
+        }
+        if (e.metaKey || e.ctrlKey || e.altKey) return false;
         if (modalOpen) return false;
         if (ARROWS[e.key]) {
             this._idmStep(e.key, e.shiftKey);
@@ -1033,6 +1041,26 @@ class _IdmLocator {
             return true;
         }
         return false;
+    }
+
+    // Delete / Backspace: the highlighted module's mark cleared, one undo
+    // step. Nothing when no module is highlighted or it has no mark.
+    _idmDeleteMark() {
+        const t = this._idmHighlightTarget();
+        const marks = t && t.layer.idm && t.layer.idm.marks;
+        if (!t || !marks || !marks[t.key]) return false;
+        if (this._layerLocked(t.layer)) {
+            this._showLockedError([t.layer]);
+            return true;
+        }
+        const st = this._idmState();
+        const before = JSON.stringify(t.layer.idm || null);
+        this._idmEnsureBlock(t.layer);
+        st.stroke = { layerId: t.layer.id, mode: 'clear', touched: new Set(), before };
+        this._idmApply(t.layer, t.key);
+        this._idmPointerUp();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        return true;
     }
 
     // Space let go (canvas-input handleKeyUp): a tap marks or clears the
