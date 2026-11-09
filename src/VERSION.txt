@@ -94,9 +94,8 @@ other edit.
   arrows, E the rings. Hold Ctrl (Cmd on a Mac) to snap to 6 in steps
   (0.1 m in meters) and 15 degree turns; the figure rides beside the
   cursor. The arrow keys nudge the selection across the floor, Page Up and
-  Page Down raise and lower it, and Esc puts a drag back.
-- FIX: A show reopened on the 3D tab keeps its saved camera; the fits the
-  app makes by itself no longer move it.
+  Page Down raise and lower it, and Esc puts a drag back. A show reopened
+  on the 3D tab keeps its camera where you left it.
 
 A CANVAS ON A SECOND DISPLAY
 
@@ -121,7 +120,8 @@ The wall shows one solid field color, white, red, green, blue, black
 or your own, so a dead pixel stands out. Module edges show as an
 alternating shade, so every pixel stays lit, or as thin lines, corner
 ticks or nothing. Module ID labels each module in the Cabinet ID
-style, A1 B1 / A2 B2, starting again in each cabinet. Labels, lines and
+style, A1 B1 / A2 B2, starting again in each cabinet, a half cabinet
+too. Labels, lines and
 ticks are drawn in the field's own color at a lower level, never
 black, so they can't pass for dead pixels; a Colors section sets
 each of them, the shade level and a row of mark colors. It lists only
@@ -137,8 +137,9 @@ Your mouse shows on the wall: while it is over a canvas, an arrow sits
 at the same spot on that canvas's IDM Locator output, black or white to
 stand out on the field. Show mouse on wall turns it off. The cursor
 shows a plus where a click marks and a minus where it clears,
-right-click a mark to clear it, and Esc in the middle of a drag puts
-the modules back.
+right-click a mark or press Delete to clear it, and Esc in the middle
+of a drag puts the modules back. Hold Space and drag to pan, as on
+every tab.
 
 Find bad modules with a game controller: pair a PlayStation or Xbox
 controller with the computer and the D-pad steps the highlight one
@@ -178,16 +179,6 @@ ALSO NEW
 
 FIXES
 
-- FIX: Space and drag pans the IDM Locator like every other tab. Space
-  used to mark the module under the mouse instead, and the drag marked
-  or cleared the modules it crossed.
-- FIX: A quick drag on the IDM Locator marks every module it crosses,
-  not only the ones the mouse happened to stop on.
-- FIX: Delete on the IDM Locator clears the mark under the highlight and
-  never deletes the screen.
-- FIX: On the IDM Locator a half cabinet numbers its modules from its
-  own first module, A1, like any other cabinet. A half first row used to
-  read A2. Marks already made stay on the same modules.
 - FIX: Screen order Top to bottom prints the binder's screens and groups
   in the order the Screens list shows them in Show Look, Data and Power,
   whichever tab is open when you export, and Bottom to top prints them the
@@ -203,10 +194,6 @@ FIXES
   side and the wall draws bigger.
 - FIX: With the title block off, binder sheets print to a quarter inch
   from the edge of the paper instead of leaving 0.4 in of blank margin.
-- FIX: A Hue slider drag made straight after another color change turns
-  the screen exactly as far as the slider says. A save of the change
-  before could land mid-drag and put its colors back, so the screen
-  ended the drag a few degrees short.
 
 v1.6.0 - November 6, 2026
 ----------------------------
