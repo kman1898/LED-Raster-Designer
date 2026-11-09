@@ -2249,13 +2249,16 @@ Object.assign(CanvasRenderer.prototype, {
         }
         
         // Delete key - only delete layer if NOT typing. On the Header/Footer
-        // tab with a bar picked (a click on it), the bar goes instead.
+        // tab with a bar picked (a click on it), the bar goes instead. A
+        // delete clears the selection the moment it starts, so a press while
+        // one is landing goes through too: deleteCurrentLayer holds it for
+        // when it lands.
         if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping
                 && this.viewMode === 'rigging' && window.app && window.app._riggingPicked) {
             e.preventDefault();
             window.app.removePickedRiggingBar();
         } else if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping) {
-            if (window.app && window.app.currentLayer) {
+            if (window.app && (window.app.currentLayer || window.app.deletionInProgress)) {
                 e.preventDefault();
                 window.app.deleteCurrentLayer();
             }

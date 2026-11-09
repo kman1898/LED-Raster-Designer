@@ -526,8 +526,16 @@ class _History {
     // ===== DELETE LAYER =====
     
     deleteCurrentLayer() {
-        
-        if (!this.currentLayer || this.deletionInProgress) {
+        // A Delete pressed while the last one is still landing is not
+        // dropped: it is held and played once that delete is done, on the
+        // screen it left selected - or, with one screen left, says the last
+        // screen cannot be deleted. Dropped, two quick Deletes on two
+        // screens removed one and said nothing (1.7.0 QA).
+        if (this.deletionInProgress) {
+            this._deletesQueued = (this._deletesQueued || 0) + 1;
+            return;
+        }
+        if (!this.currentLayer) {
             return;
         }
         
@@ -626,6 +634,16 @@ class _History {
                     })
                     .finally(() => {
                         this.deletionInProgress = false;
+                        // Play one held Delete; the rest wait on the delete
+                        // it starts. One that starts none (the last screen,
+                        // a locked one) says so once and the rest go with
+                        // it - never left to fire on a later delete.
+                        const held = this._deletesQueued || 0;
+                        this._deletesQueued = 0;
+                        if (held > 0) {
+                            this.deleteCurrentLayer();
+                            if (this.deletionInProgress) this._deletesQueued = held - 1;
+                        }
                     });
                 return;
             }

@@ -430,6 +430,92 @@ def test_delete_with_two_screens_still_deletes(e2e_server, pw_browser):
         context.close()
 
 
+def _two_fast_deletes(pg, n=2):
+    """Press Delete `n` times while the first delete is still landing: its
+    request to the server is held in the page until every press is in, so
+    the later presses always arrive mid-delete, however fast the machine."""
+    pg.evaluate("""() => {
+        const real = window.fetch;
+        let open;
+        const gate = new Promise(r => { open = r; });
+        window.__openDeletes = () => { window.fetch = real; open(); };
+        window.fetch = (url, opts) => (opts && opts.method === 'DELETE' && String(url).includes('/api/layer/'))
+            ? gate.then(() => real(url, opts)) : real(url, opts);
+    }""")
+    for _ in range(n):
+        pg.keyboard.press('Delete')
+    assert pg.evaluate("() => [window.app.deletionInProgress, window.app._deletesQueued]") == [True, n - 1]
+    pg.evaluate("() => window.__openDeletes()")
+
+
+def test_a_delete_pressed_while_one_lands_is_not_dropped(e2e_server, pw_browser):
+    """Two Deletes with no pause on two screens: the first removes the
+    selected screen and the second, held until it lands, says the last
+    screen cannot be deleted. It used to vanish without a word."""
+    _fresh_project(e2e_server)
+    _post(e2e_server, '/api/layer/add', json.dumps(
+        {'name': 'Second', 'columns': 2, 'rows': 2, 'cabinet_width': 128, 'cabinet_height': 128,
+         'offset_x': 1200, 'offset_y': 0}).encode('utf-8'))
+    context, pg, problems = _open_page(pw_browser, e2e_server)
+    try:
+        layer = pg.evaluate("() => window.app.project.layers[1].id")
+        pg.locator(f'#layers-list .layer-item[data-layer-id="{layer}"] .layer-info').click()
+        pg.wait_for_function("(id) => window.app.currentLayer && window.app.currentLayer.id === id", arg=layer)
+        _two_fast_deletes(pg)
+        pg.wait_for_function("() => window.app.project.layers.length === 1 && !window.app.deletionInProgress")
+        _toast_up(pg)
+        assert _names(pg) == ['Screen1']
+        assert pg.evaluate("() => window.app._deletesQueued || 0") == 0
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
+def test_two_fast_deletes_on_three_screens_remove_two(e2e_server, pw_browser):
+    """Each held Delete acts on the screen the one before left selected."""
+    _fresh_project(e2e_server)
+    for i, name in enumerate(('Second', 'Third')):
+        _post(e2e_server, '/api/layer/add', json.dumps(
+            {'name': name, 'columns': 2, 'rows': 2, 'cabinet_width': 128, 'cabinet_height': 128,
+             'offset_x': 1200 + 400 * i, 'offset_y': 0}).encode('utf-8'))
+    context, pg, problems = _open_page(pw_browser, e2e_server)
+    try:
+        layer = pg.evaluate("() => window.app.project.layers[2].id")
+        pg.locator(f'#layers-list .layer-item[data-layer-id="{layer}"] .layer-info').click()
+        pg.wait_for_function("(id) => window.app.currentLayer && window.app.currentLayer.id === id", arg=layer)
+        _two_fast_deletes(pg)
+        pg.wait_for_function("() => window.app.project.layers.length === 1 && !window.app.deletionInProgress")
+        assert len(_names(pg)) == 1
+        assert pg.evaluate("() => document.querySelectorAll('#app-toast-host > div').length") == 0
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
+def test_extra_held_deletes_never_fire_later(e2e_server, pw_browser):
+    """Three Deletes on two screens: one delete, one last-screen message,
+    and the third goes with it. None is left held to fire on the next
+    delete the user makes."""
+    _fresh_project(e2e_server)
+    _post(e2e_server, '/api/layer/add', json.dumps(
+        {'name': 'Second', 'columns': 2, 'rows': 2, 'cabinet_width': 128, 'cabinet_height': 128,
+         'offset_x': 1200, 'offset_y': 0}).encode('utf-8'))
+    context, pg, problems = _open_page(pw_browser, e2e_server)
+    try:
+        layer = pg.evaluate("() => window.app.project.layers[1].id")
+        pg.locator(f'#layers-list .layer-item[data-layer-id="{layer}"] .layer-info').click()
+        pg.wait_for_function("(id) => window.app.currentLayer && window.app.currentLayer.id === id", arg=layer)
+        _two_fast_deletes(pg, 3)
+        pg.wait_for_function("() => window.app.project.layers.length === 1 && !window.app.deletionInProgress")
+        _toast_up(pg)
+        assert pg.evaluate("() => window.app._deletesQueued || 0") == 0
+        assert pg.evaluate("() => document.querySelectorAll('#app-toast-host > div').length") == 1
+        assert _names(pg) == ['Screen1']
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
 def test_recent_files_count_screens(e2e_server, pw_browser):
     context, pg, problems = _open_page(pw_browser, e2e_server)
     try:
