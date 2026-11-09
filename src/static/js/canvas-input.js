@@ -1223,8 +1223,12 @@ Object.assign(CanvasRenderer.prototype, {
         } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingGroupName && !this.isDraggingCanvas) {
             // Slice 5: hovering a canvas's outline edge → show 'move' so
             // the user knows they can grab it. Skip when a modifier is
-            // held (other actions own those gestures).
-            if (!e.shiftKey && !e.altKey && !this.isSelectingPanels && !this.isSelectingLayers
+            // held (other actions own those gestures). Only on the tabs
+            // where the press really drags the canvas (handleMouseDown's
+            // canvasDragAllowed: Pixel Map and Show Look); on Cabinet ID,
+            // Data, Power and Header/Footer the edge does not move.
+            if ((this.viewMode === 'pixel-map' || this.viewMode === 'show-look')
+                && !e.shiftKey && !e.altKey && !this.isSelectingPanels && !this.isSelectingLayers
                 && this._canvasEdgeAtPoint(worldX, worldY)) {
                 this.canvas.style.cursor = 'move';
             } else if (this.viewMode === 'rigging' && this.riggingEdgeAt(mouseX, mouseY)) {
