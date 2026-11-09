@@ -210,6 +210,9 @@ FIXES
 - FIX: When a binder table runs on into a second column, the second part
   repeats the band its rows belong to (like "H9 Card 1 · 16 ports"), not
   just the title and the column headings.
+- FIX: Two edits landing at the same moment, from one computer or from a
+  tablet beside it, no longer make the app refuse one of them. The second
+  could fail with a server error while the screens were sent out.
 - FIX: Cabinet ID, Data and Power no longer show a move cursor on a
   canvas edge. The edge only moves on Pixel Map and Show Look.
 - FIX: A screen dragged straight after another change stays under the

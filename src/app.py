@@ -34,6 +34,32 @@ app = Flask(__name__,
             static_folder=os.path.join(BASE_DIR, 'static'))
 app.config['SECRET_KEY'] = 'led-raster-designer-secret'
 socketio = SocketIO(app, cors_allowed_origins="*")
+
+
+# Every socket message goes out as a SNAPSHOT of what it carries. The
+# routes emit the live project (or a live layer of it), and Socket.IO walks
+# that structure in Python before it encodes it (packet.data_is_binary).
+# Requests run on threads, so a layer save landing during that walk changed
+# a dict mid-iteration: "RuntimeError: dictionary changed size during
+# iteration", and the route that emitted answered 500 with its own work
+# already stored (1.7.0 CI: a pin release after Custom went on, raced by
+# the screen's save, left the pins in place). json.dumps encodes in C
+# without letting another thread in, so its text is one consistent moment;
+# the copy read back from it belongs to this emit alone. Data JSON cannot
+# carry (none today) goes out as it was.
+_socketio_emit = socketio.emit
+
+
+def _emit_snapshot(event, *args, **kwargs):
+    if args:
+        try:
+            args = (json.loads(json.dumps(args[0])),) + args[1:]
+        except (TypeError, ValueError):
+            pass
+    return _socketio_emit(event, *args, **kwargs)
+
+
+socketio.emit = _emit_snapshot
 APP_NAME = 'LED Raster Designer'
 
 
@@ -332,6 +358,15 @@ def log_request():
 def handle_unhandled_exception(e):
     """Catch all unhandled exceptions and log them to the log file."""
     import traceback
+    from werkzeug.exceptions import HTTPException
+    # A request the server refused on purpose (405 a wrong method, 400 a
+    # body that is not JSON, 415 ...) keeps its own status: answered as a
+    # 500 it read as the server breaking, and a page that sent a request
+    # the wrong way could not tell that from a crash.
+    if isinstance(e, HTTPException):
+        if request and request.path.startswith('/api/'):
+            return jsonify({'error': e.description or e.name}), e.code
+        return e
     error_detail = traceback.format_exc()
     log_event('unhandled_exception', {
         'error': str(e),
@@ -2552,7 +2587,9 @@ def _rebuild_layer_geometry_from_panel_states(layer):
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
-    emit('project_data', current_project)
+    # A snapshot, for the reason _emit_snapshot gives: a tablet joining while
+    # a save lands must not walk the live project.
+    emit('project_data', json.loads(json.dumps(current_project)))
 
 @socketio.on('disconnect')
 def handle_disconnect():
