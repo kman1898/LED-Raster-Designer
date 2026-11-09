@@ -745,7 +745,13 @@ def test_a_slider_locked_after_it_moved_keeps_its_place(page):
     _catch_toasts(pg)
     _mouse_drag(pg, 40)
     shift, turned = _hue(pg), _pair_of(pg, a)
-    pg.evaluate("(id) => { window.app.project.layers.find(l => l.id === id).locked = true; }", a)
+    # Locked the way the Lock button does it (setLockOnSelected: the flag and
+    # its PUT). A bare `locked = true` with the drag's PUT still out was put
+    # back by that PUT's reply, which carries the screen unlocked.
+    pg.evaluate("""async () => {
+        window.app.setLockOnSelected(true);
+        await window.app._layerSavesSettled();
+    }""")
     try:
         before = _steps(pg)
         pg.locator('#quick-palette-hue-reset').click()
@@ -769,9 +775,12 @@ def test_a_mixed_selection_turns_the_unlocked_screen_only(page):
     pg, errors = page
     a, b = _two_screens(pg)
     _catch_toasts(pg)
-    pg.evaluate("""([a, b]) => {
+    pg.evaluate("""async ([a, b]) => {
         const app = window.app;
-        app.project.layers.find(l => l.id === b).locked = true;
+        // locked as the Lock button does it, the flag with its PUT
+        app.setSelectedLayersByIds([b], b);
+        app.setLockOnSelected(true);
+        await app._layerSavesSettled();
         app.setSelectedLayersByIds([a, b], a);
         app.resetHistory('Palette Seed');
     }""", [a, b])

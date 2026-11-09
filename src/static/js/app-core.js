@@ -853,6 +853,7 @@ export class LEDRasterApp {
                     sendClientLog('socket_layer_updated_suppressed_gone', { id: layer.id });
                     return;
                 }
+                this._keepLiveFillColors(mine, layer);
                 if (typeof this._canonicalJson === 'function'
                         && this._canonicalJson(mine) === this._canonicalJson(layer)) {
                     sendClientLog('socket_layer_updated_suppressed_same_copy', { id: layer.id });
@@ -1583,6 +1584,21 @@ export class LEDRasterApp {
     // screen up to date, so the older ones are let go.
     _layerHasNewerPut(id) {
         return !!(this._layerPutsPending && (this._layerPutsPending.get(id) || 0) > 0);
+    }
+
+    // An echo of this page's own PUT (its reply, or the socket's
+    // layer_updated) takes Color 1 and Color 2 from the screen as the page
+    // holds it now. The Hue slider and the color pickers change them on
+    // every move and PUT only when the move ends, so an echo of the PUT
+    // before landing mid-move put that older pair back: the slider then
+    // turned from it, and the screen ended the drag off by however far it
+    // had moved before the echo (2026-11-08). The server keeps the colors
+    // as sent, so the page's pair is never older than the echo's.
+    _keepLiveFillColors(live, echo) {
+        if (!live || !echo) return;
+        ['color1', 'color2'].forEach(key => {
+            if (live[key] !== undefined) echo[key] = live[key];
+        });
     }
 
     // The breakout the pristine startup screen is re-made with, from a
