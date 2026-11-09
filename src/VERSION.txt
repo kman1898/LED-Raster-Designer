@@ -91,7 +91,9 @@ ticks or nothing. Module ID labels each module in the Cabinet ID
 style, A1 B1 / A2 B2, starting again in each cabinet. Labels, lines and
 ticks are drawn in the field's own color at a lower level, never
 black, so they can't pass for dead pixels; a Colors section sets
-each of them, the shade level and a row of mark colors.
+each of them, the shade level and a row of mark colors. It lists only
+the colors on the wall right now, one line each, a change shows in the
+app at once, and Default puts a color back.
 
 Point at a module, step with the arrow keys (Shift jumps a cabinet) or
 tap it on a tablet, and the module blinks on the wall output; a tap of

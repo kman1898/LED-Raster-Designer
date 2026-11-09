@@ -578,6 +578,17 @@ Object.assign(CanvasRenderer.prototype, {
         const unit = onScreen ? Math.max(1, 1 / (this.zoom || 1)) : 1;
         const flash = (onScreen && window.app && typeof window.app._idmFlashFor === 'function')
             ? window.app._idmFlashFor(layer) : null;
+        // The on-screen grid sits over the wall's own 1 px edges, so an edge
+        // colour the crew CHOSE colours the grid's light core where the
+        // border draws that edge (module edges in Lines and Ticks, cabinet
+        // edges in those and Shade): the choice shows in the designer at
+        // once, not only on the output. On Default the core stays light, so
+        // the grid reads on any field.
+        const edged = field.border === 'lines' || field.border === 'ticks';
+        const moduleCore = onScreen && edged && field.moduleEdgeColor
+            ? field.moduleEdgeColor : 'rgba(255, 255, 255, 0.75)';
+        const cabinetCore = onScreen && field.border !== 'none' && field.cabinetEdgeColor
+            ? field.cabinetEdgeColor : 'rgba(255, 255, 255, 0.95)';
         ctx.save();
         this._clipToActiveRaster();
         for (const { panel, cells } of this.idmLayerCells(layer)) {
@@ -623,7 +634,7 @@ Object.assign(CanvasRenderer.prototype, {
                     ctx.lineWidth = 3 * unit;
                     ctx.stroke();
                     path();
-                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+                    ctx.strokeStyle = moduleCore;
                     ctx.lineWidth = unit;
                     ctx.stroke();
                 }
@@ -633,7 +644,7 @@ Object.assign(CanvasRenderer.prototype, {
                 ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
                 ctx.lineWidth = 3 * unit;
                 ctx.strokeRect(...rect);
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+                ctx.strokeStyle = cabinetCore;
                 ctx.lineWidth = 1.5 * unit;
                 ctx.strokeRect(...rect);
                 // A module picked from the locator list blinks in the accent.

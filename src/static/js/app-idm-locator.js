@@ -324,7 +324,7 @@ class _IdmLocator {
             this._idmSetField({ moduleIds: !this._idmFieldNow().moduleIds });
             this._idmBlurButton(e.currentTarget);
         });
-        // The Colours: each row's Auto button and swatch (the app's colour
+        // The Colours: each row's Default button and swatch (the app's colour
         // picker opens on it), the shade's percent.
         document.querySelectorAll('[data-idm-auto]').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -613,6 +613,21 @@ class _IdmLocator {
                 swatch: typeof f.shade === 'string',
             },
         };
+        // A row shows only while what it colors is drawn: the labels with
+        // Module ID on, module edges in Lines and Ticks, cabinet edges in
+        // every border but None, the shade level in Shade.
+        const applies = {
+            labelColor: f.moduleIds,
+            moduleEdgeColor: f.border === 'lines' || f.border === 'ticks',
+            cabinetEdgeColor: f.border !== 'none',
+            shade: f.border === 'shade',
+        };
+        Object.keys(applies).forEach(k => {
+            const el = document.querySelector(`[data-idm-row="${k}"]`);
+            if (el) el.hidden = !applies[k];
+        });
+        const none = document.getElementById('idm-colors-none');
+        if (none) none.hidden = Object.values(applies).some(Boolean);
         Object.keys(rows).forEach(k => {
             const row = rows[k];
             const btn = document.querySelector(`[data-idm-auto="${k}"]`);
@@ -627,7 +642,7 @@ class _IdmLocator {
                 if (wrap) wrap.classList.toggle('active', row.swatch !== undefined ? row.swatch : row.set);
             }
             const note = document.querySelector(`[data-idm-black="${k}"]`);
-            if (note) note.hidden = !(row.set && row.value === '#000000');
+            if (note) note.hidden = !(applies[k] && row.set && row.value === '#000000');
         });
         const pct = document.getElementById('idm-shade-percent');
         if (pct) {

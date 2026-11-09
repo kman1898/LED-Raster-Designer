@@ -13,7 +13,8 @@ held to its shape by the server (app.sanitize_idm_field):
                     percent of the field
 * markPresets       the saved mark colours beside the toolbar's mark swatch
 
-Each key is there only when the crew chose something; missing is Auto,
+Each key is there only when the crew chose something; missing is Default
+(Auto in the code),
 drawn exactly as before (labels the field's hue at 50%, the mark's on a
 colour mark, a lit grey on black; module edges 70%, cabinet edges 50%;
 shade 85%, the ring 65%), and a show without them has the five default
@@ -21,7 +22,10 @@ presets. What this file pins: every setting changes the output window's
 pixels as chosen, Auto puts back the exact previous values, a chosen black
 is drawn (never blocked) with a note under its swatch, the settings and
 the presets survive save, load and a reload and reach a second client, the
-presets pick, add and remove, and an older show draws on Auto.
+presets pick, add and remove, and an older show draws on Default. In the
+panel each row is one tight line - swatch, name, Default (lit while the
+default is in use) - shown only while what it colors is drawn, and every
+change shows in the designer at once, not only on the output.
 
 Run locally:
     python -m pytest tests/test_idm_colours.py -v -p no:cacheprovider --browser chromium
@@ -360,7 +364,10 @@ def test_a_black_choice_is_drawn_and_carries_the_note(page):
         # (sampled clear of module (1,0)'s centred label)
         set_percent(page, 0)
         wait_pixel(out, 68, 6, (0, 0, 0), tol=0)
-        assert notes_shown(page) == {k: True for k in ROWS}
+        # every note of a row on show; Shade draws no module edges, so that
+        # row (and its note) is off until Lines or Ticks
+        assert notes_shown(page) == {'labelColor': True, 'moduleEdgeColor': False,
+                                     'cabinetEdgeColor': True, 'shade': True}
         set_percent(page, 40)
         wait_pixel(out, 68, 6, (102, 102, 102), tol=0)
         assert notes_shown(page)['shade'] is False
@@ -369,9 +376,12 @@ def test_a_black_choice_is_drawn_and_carries_the_note(page):
         # a near-black that is not pure black: no note
         set_colour(page, 'labelColor', '#010101')
         assert notes_shown(page)['labelColor'] is False
-        # Auto clears every note
-        for k in ROWS:
+        # Default clears every note
+        for k in ('labelColor', 'cabinetEdgeColor', 'shade'):
             set_auto(page, k)
+        click_field(page, None, 'lines')
+        assert notes_shown(page)['moduleEdgeColor'] is True
+        set_auto(page, 'moduleEdgeColor')
         assert notes_shown(page) == {k: False for k in ROWS}
     finally:
         out.close()
@@ -382,17 +392,18 @@ def test_the_colours_reach_a_second_client_survive_save_and_load_and_are_never_u
     reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
     context, other = _new_page(pw_browser, e2e_server)
-    want = {'color': '#ffffff', 'border': 'lines', 'moduleIds': False,
+    want = {'color': '#ffffff', 'border': 'lines', 'moduleIds': True,
             'labelColor': '#112233', 'moduleEdgeColor': '#445566', 'cabinetEdgeColor': '#778899',
             'shade': 70}
     try:
         wait_layers(other)
         before = page.evaluate("() => window.app.historyIndex")
+        set_percent(page, 70)                  # its row is on show in Shade
         click_field(page, None, 'lines')
+        set_ids(page, True)
         set_colour(page, 'labelColor', '#112233')
         set_colour(page, 'moduleEdgeColor', '#445566')
         set_colour(page, 'cabinetEdgeColor', '#778899')
-        set_percent(page, 70)
         assert served_field(page) == want
         got = settled(other, lambda: other.evaluate("() => window.app.project.idmField || null"),
                       lambda v: v == want)
@@ -522,6 +533,135 @@ def test_the_mark_presets_pick_add_remove_and_persist(page, e2e_server, pw_brows
     got = settled(page, lambda: (served_field(page) or {}).get('markPresets'), lambda v: v == [])
     assert got == []
     assert presets(page) == []
+    assert not page._errors, page._errors
+
+
+# ── the Colors section in the panel and in the designer ────────────────────
+
+def rows_shown(pg):
+    return {k: pg.is_visible(f'[data-idm-row="{k}"]') for k in ROWS}
+
+
+def test_a_row_shows_only_while_what_it_colors_is_drawn(page):
+    reset_project(page)
+    set_ids(page, False)
+    click_field(page, None, 'none')
+    assert rows_shown(page) == {k: False for k in ROWS}
+    assert page.is_visible('#idm-colors-none')
+    assert 'turn on Module ID' in page.inner_text('#idm-colors-none')
+    click_field(page, None, 'shade')
+    assert rows_shown(page) == {'labelColor': False, 'moduleEdgeColor': False,
+                                'cabinetEdgeColor': True, 'shade': True}
+    assert not page.is_visible('#idm-colors-none')
+    click_field(page, None, 'lines')
+    assert rows_shown(page) == {'labelColor': False, 'moduleEdgeColor': True,
+                                'cabinetEdgeColor': True, 'shade': False}
+    click_field(page, None, 'ticks')
+    assert rows_shown(page) == {'labelColor': False, 'moduleEdgeColor': True,
+                                'cabinetEdgeColor': True, 'shade': False}
+    set_ids(page, True)
+    assert rows_shown(page)['labelColor'] is True
+    click_field(page, None, 'none')
+    assert rows_shown(page) == {'labelColor': True, 'moduleEdgeColor': False,
+                                'cabinetEdgeColor': False, 'shade': False}
+    set_ids(page, False)
+    # each row is one tight line
+    click_field(page, None, 'shade')
+    heights = page.evaluate("""() => [...document.querySelectorAll('.idm-color-row')]
+        .filter(r => !r.hidden).map(r => r.getBoundingClientRect().height)""")
+    assert heights and all(h <= 22 for h in heights), heights
+
+
+def test_default_is_lit_while_in_use_and_puts_the_color_back(page):
+    reset_project(page)
+    click_field(page, '#ffffff', 'lines')
+    btn = '[data-idm-auto="moduleEdgeColor"]'
+    assert page.inner_text(btn) == 'Default'
+    assert page.get_attribute(btn, 'aria-pressed') == 'true'
+    assert 'active' in page.get_attribute(btn, 'class')
+    set_colour(page, 'moduleEdgeColor', '#ff00ff')
+    assert page.get_attribute(btn, 'aria-pressed') == 'false'
+    assert 'active' not in page.get_attribute(btn, 'class')
+    set_auto(page, 'moduleEdgeColor')
+    assert page.get_attribute(btn, 'aria-pressed') == 'true'
+    assert page.input_value('#idm-module-edge-color') == '#b3b3b3'
+    # every row says Default, never Auto
+    texts = page.evaluate("() => [...document.querySelectorAll('[data-idm-auto]')].map(b => b.textContent.trim())")
+    assert texts == ['Default'] * 4, texts
+
+
+# The designer canvas's pixel at a workspace point, the view zoomed to 4
+# with IdmA's top-left at (20, 20).
+ZOOM_JS = """() => { const r = window.canvasRenderer; r.zoom = 4; r.panX = 20; r.panY = 20; r.render(); }"""
+DESIGNER_PX_JS = """([wx, wy]) => {
+    const r = window.canvasRenderer;
+    const x = Math.round(r.panX + wx * r.zoom), y = Math.round(r.panY + wy * r.zoom);
+    return Array.from(r.ctx.getImageData(x, y, 1, 1).data.slice(0, 3));
+}"""
+COUNT_JS = """(rgb) => { const r = window.canvasRenderer;
+    const d = r.ctx.getImageData(Math.round(r.panX), Math.round(r.panY), 256, 256).data; let n = 0;
+    for (let i = 0; i < d.length; i += 4) {
+        if (Math.abs(d[i] - rgb[0]) < 30 && Math.abs(d[i + 1] - rgb[1]) < 30 && Math.abs(d[i + 2] - rgb[2]) < 30) n++;
+    }
+    return n; }"""
+
+
+def designer_px(pg, wx, wy):
+    pg.evaluate(ZOOM_JS)
+    return pg.evaluate(DESIGNER_PX_JS, [wx, wy])
+
+
+def wait_designer(pg, wx, wy, want, tol=3):
+    ok = lambda px: all(abs(a - b) <= tol for a, b in zip(px, want))  # noqa: E731
+    got = settled(pg, lambda: designer_px(pg, wx, wy), ok, 4000)
+    assert ok(got), (wx, wy, got, want)
+
+
+def label_ink(pg, rgb):
+    pg.evaluate(ZOOM_JS)
+    return pg.evaluate(COUNT_JS, list(rgb))
+
+
+def test_every_color_shows_in_the_designer_at_once(page):
+    reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    page.mouse.move(3, 3)
+    page.evaluate("() => window.app._idmClearHighlight()")
+    # Shade: the checker's second level (module (1,0) of cabinet (0,0))
+    click_field(page, '#ffffff', 'shade')
+    wait_designer(page, 96, 32, (217, 217, 217))
+    set_percent(page, 50)
+    wait_designer(page, 96, 32, (128, 128, 128))
+    set_colour(page, 'shade', '#00ff00')
+    wait_designer(page, 96, 32, (0, 255, 0))
+    set_auto(page, 'shade')
+    wait_designer(page, 96, 32, (217, 217, 217))
+    # Shade: the cabinet edge (the designer's cabinet outline, 1.5 px in)
+    before = designer_px(page, 129.5, 32)
+    set_colour(page, 'cabinetEdgeColor', '#0000ff')
+    wait_designer(page, 129.5, 32, (0, 0, 255))
+    set_auto(page, 'cabinetEdgeColor')
+    wait_designer(page, 129.5, 32, tuple(before))
+    for border in ('lines', 'ticks'):
+        click_field(page, None, border)
+        # the module edge between modules (0,0) and (1,0) at x = 64
+        set_colour(page, 'moduleEdgeColor', '#ff00ff')
+        wait_designer(page, 64.1, 40, (255, 0, 255))
+        set_colour(page, 'cabinetEdgeColor', '#00ffff')
+        wait_designer(page, 129.5, 40, (0, 255, 255))
+        set_auto(page, 'moduleEdgeColor')
+        set_auto(page, 'cabinetEdgeColor')
+        px = designer_px(page, 64.1, 40)
+        assert px != [255, 0, 255], (border, px)
+    # Module ID: the labels take the chosen color in the designer
+    click_field(page, None, 'none')
+    set_ids(page, True)
+    assert label_ink(page, (255, 0, 0)) == 0
+    set_colour(page, 'labelColor', '#ff0000')
+    got = settled(page, lambda: label_ink(page, (255, 0, 0)), lambda n: n > 50)
+    assert got > 50, got
+    set_auto(page, 'labelColor')
+    set_ids(page, False)
     assert not page._errors, page._errors
 
 

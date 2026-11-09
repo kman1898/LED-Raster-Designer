@@ -7267,7 +7267,7 @@
             since: '1.7.0',
             target: '.idm-colors', place: 'right', title: 'Your own colors',
             avoid: ['#idm-label-color', '[data-idm-auto="labelColor"]'],
-            body: 'Each label and edge color can be set by hand. Auto goes back to the field&rsquo;s own color at a lower level.',
+            body: 'Each color that is on the wall right now has a row: pick a color by hand, and Default puts back the field&rsquo;s own color at a lower level.',
             before: openIdm,
             act: function (t) {
                 return t.select('#idm-label-color', '#ffff00').then(function () {
@@ -7283,7 +7283,7 @@
             },
             check: function (mem) {
                 return mem.set === '#ffff00' && !idmField().labelColor
-                    ? 'The Module ID labels went yellow, then back to Auto.' : null;
+                    ? 'The Module ID labels went yellow, then back to Default.' : null;
             }
         },
         idmHighlight: {

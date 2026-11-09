@@ -1933,47 +1933,51 @@
                             <button type="button" class="btn idm-seg-btn" data-idm-border="none" data-tooltip="None, The color alone.">None</button>
                         </div>
                         <button type="button" id="idm-module-ids" class="btn idm-toggle idm-module-ids" aria-pressed="false" data-tooltip="Module ID, Label every module inside its cabinet in the Cabinet ID tab's style (A1, B1 ... starting again in each cabinet), in the app and on the wall. The labels sit where the Cabinet ID tab's Label Position puts the cabinet IDs.">Module ID</button>
-                        <!-- The Colours: one set for the show (project.idmField).
-                             Auto draws what the tab always drew; a swatch
-                             opens the app's colour picker. -->
+                        <!-- The Colours: one set for the show (project.idmField),
+                             one tight line each: the swatch (the app's colour
+                             picker opens on it), the name, Default (lit while
+                             the default is in use). A row shows only while
+                             what it colors is on the wall (app-idm-locator.js
+                             _idmSyncColours). -->
                         <div class="idm-sub">Colors</div>
                         <div class="idm-colors">
-                            <div class="idm-color-row" data-tooltip="Module ID color, The color of the Module ID labels. Auto draws them in the field's own color at half brightness (on a color mark, the mark's).">
-                                <span class="idm-color-label">Module ID</span>
-                                <button type="button" class="btn idm-auto" data-idm-auto="labelColor" aria-pressed="true">Auto</button>
+                            <div class="idm-color-row" data-idm-row="labelColor" data-tooltip="Module ID color, The color of the Module ID labels. Default: the field color at half brightness (on a color mark, the mark's color at half).">
                                 <span class="idm-swatch idm-swatch-custom idm-color-swatch">
                                     <input type="color" id="idm-label-color" data-idm-color="labelColor" value="#808080" aria-label="Module ID color">
                                 </span>
+                                <span class="idm-color-label">Module ID</span>
+                                <button type="button" class="btn idm-default" data-idm-auto="labelColor" aria-pressed="true" data-tooltip="Default, Put the Module ID color back to the default: the field color at half brightness.">Default</button>
                             </div>
                             <div class="idm-note idm-black-note" data-idm-black="labelColor" hidden>Black pixels can look like dead pixels on the wall.</div>
-                            <div class="idm-color-row" data-tooltip="Module edges, The color of the module edges in the Lines and Ticks borders. Auto draws them in the field's own color at 70%.">
-                                <span class="idm-color-label">Module edges</span>
-                                <button type="button" class="btn idm-auto" data-idm-auto="moduleEdgeColor" aria-pressed="true">Auto</button>
+                            <div class="idm-color-row" data-idm-row="moduleEdgeColor" data-tooltip="Module edges, The color of the module edges in the Lines and Ticks borders. Default: the field color at 70%.">
                                 <span class="idm-swatch idm-swatch-custom idm-color-swatch">
                                     <input type="color" id="idm-module-edge-color" data-idm-color="moduleEdgeColor" value="#b3b3b3" aria-label="Module edge color">
                                 </span>
+                                <span class="idm-color-label">Module edges</span>
+                                <button type="button" class="btn idm-default" data-idm-auto="moduleEdgeColor" aria-pressed="true" data-tooltip="Default, Put the module edge color back to the default: the field color at 70%.">Default</button>
                             </div>
                             <div class="idm-note idm-black-note" data-idm-black="moduleEdgeColor" hidden>Black pixels can look like dead pixels on the wall.</div>
-                            <div class="idm-color-row" data-tooltip="Cabinet edges, The color of the cabinet edges in the Lines and Ticks borders, and of each cabinet's edge in the Shade border. Auto draws them in the field's own color at 50% (65% in Shade).">
-                                <span class="idm-color-label">Cabinet edges</span>
-                                <button type="button" class="btn idm-auto" data-idm-auto="cabinetEdgeColor" aria-pressed="true">Auto</button>
+                            <div class="idm-color-row" data-idm-row="cabinetEdgeColor" data-tooltip="Cabinet edges, The color of the cabinet edges in the Lines and Ticks borders, and of each cabinet's outer edge in the Shade border. Default: the field color at 50% (65% in Shade).">
                                 <span class="idm-swatch idm-swatch-custom idm-color-swatch">
                                     <input type="color" id="idm-cabinet-edge-color" data-idm-color="cabinetEdgeColor" value="#a6a6a6" aria-label="Cabinet edge color">
                                 </span>
+                                <span class="idm-color-label">Cabinet edges</span>
+                                <button type="button" class="btn idm-default" data-idm-auto="cabinetEdgeColor" aria-pressed="true" data-tooltip="Default, Put the cabinet edge color back to the default: the field color at 50% (65% in Shade).">Default</button>
                             </div>
                             <div class="idm-note idm-black-note" data-idm-black="cabinetEdgeColor" hidden>Black pixels can look like dead pixels on the wall.</div>
-                            <div class="idm-color-row" data-tooltip="Shade level, The darker modules of the Shade border's checker: a color, or a percent of the field color. Auto is 85% of the field.">
-                                <span class="idm-color-label">Shade level</span>
-                                <button type="button" class="btn idm-auto" data-idm-auto="shade" aria-pressed="true">Auto</button>
+                            <div class="idm-color-row" data-idm-row="shade" data-tooltip="Shade level, The darker modules of the Shade border's checker: a color, or a percent of the field color. Default: 85% of the field color.">
                                 <span class="idm-swatch idm-swatch-custom idm-color-swatch">
                                     <input type="color" id="idm-shade-color" data-idm-color="shade" value="#d9d9d9" aria-label="Shade level color">
                                 </span>
+                                <span class="idm-color-label">Shade level</span>
                                 <span class="idm-pct-wrap">
                                     <input type="text" id="idm-shade-percent" class="idm-num idm-pct" inputmode="numeric" autocomplete="off" placeholder="85" aria-label="Shade level percent of the field">
                                     <span class="idm-pct-sign">%</span>
                                 </span>
+                                <button type="button" class="btn idm-default" data-idm-auto="shade" aria-pressed="true" data-tooltip="Default, Put the shade level back to the default: 85% of the field color.">Default</button>
                             </div>
                             <div class="idm-note idm-black-note" data-idm-black="shade" hidden>Black pixels can look like dead pixels on the wall.</div>
+                            <div id="idm-colors-none" class="idm-note" hidden>Pick Shade, Lines or Ticks, or turn on Module ID, to set their colors.</div>
                         </div>
                         <div class="idm-sub">Highlight</div>
                         <div id="idm-hl-readout" class="idm-hl-readout idm-hl-none">No module highlighted</div>
