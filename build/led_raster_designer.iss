@@ -89,6 +89,10 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; The app's own Update runs setup with /RELAUNCH (src/updater.py
+; INSTALLER_ARGS) and quits; this reopens it when the install is done. An
+; ordinary silent install has no /RELAUNCH, so the app stays closed.
+Filename: "{app}\{#AppExeName}"; Flags: nowait; Check: RelaunchRequested
 
 [UninstallDelete]
 ; Only files the app writes beside itself. User data lives elsewhere and stays.
@@ -99,6 +103,22 @@ Type: dirifempty; Name: "{app}"
 [Code]
 const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
+
+{ True when setup was started with /RELAUNCH, which only the app's own
+  Update passes. Setup ignores a switch it does not know, so this reads the
+  command line itself. }
+function RelaunchRequested(): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/RELAUNCH') = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+end;
 
 { How many copies of the app are running from THIS install folder. A copy
   run from anywhere else (an old unzipped folder) is left alone. With

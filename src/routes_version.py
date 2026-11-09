@@ -8,10 +8,19 @@ import sys
 
 from flask import Blueprint, Response, request, jsonify
 
+import updater
 from updater import check_for_update, get_current_version
 from app import log_event
 
 version_bp = Blueprint('version', __name__)
+updater.set_event_logger(log_event)
+
+
+def _from_host():
+    """Only the machine running the app may download or run its update: a
+    tablet on the show network must not close the app on the host."""
+    from routes_dialog import _is_same_machine
+    return _is_same_machine(request.remote_addr or '')
 
 
 @version_bp.route('/api/update/check', methods=['GET'])
@@ -19,7 +28,8 @@ def api_check_update():
     """Check for a newer release on GitHub."""
     try:
         force = request.args.get('force', '').lower() in ('1', 'true', 'yes')
-        result = check_for_update(force=force)
+        result = dict(check_for_update(force=force))
+        result['can_install'] = bool(result.get('can_install')) and _from_host()
         if result.get('error'):
             log_event('update_check_error', {'error': result['error'], 'force': force})
         elif result.get('available'):
@@ -45,8 +55,54 @@ def api_check_update():
             "download_url": None,
             "release_notes": None,
             "checksums": None,
+            "installer": None,
+            "can_install": False,
             "error": f"Internal error: {type(e).__name__}: {e}",
         })
+
+
+# ── Update in place (installed Windows copies; updater.py does the work) ──
+
+def _not_host():
+    log_event('update_rejected_remote', {'remote_addr': request.remote_addr, 'path': request.path})
+    return jsonify({'ok': False, 'error': 'Only the computer running the app can update it.'}), 403
+
+
+@version_bp.route('/api/update/download', methods=['POST'])
+def api_update_download():
+    """Start downloading the offered setup; a repeat call starts nothing."""
+    if not _from_host():
+        return _not_host()
+    return jsonify(updater.start_download())
+
+
+@version_bp.route('/api/update/status', methods=['GET'])
+def api_update_status():
+    """Where the download is: the banner polls this."""
+    return jsonify(updater.download_status())
+
+
+@version_bp.route('/api/update/install', methods=['POST'])
+def api_update_install():
+    """Run the downloaded setup, then quit; the setup reopens the app.
+
+    Unsaved changes are never dropped here: the page asks Save, Don't Save
+    or Cancel first (confirmUnsavedChanges, the same question New and Open
+    ask) and says {"discard": true} only once the user answered. Any page
+    still holding unsaved changes otherwise refuses the install (409), so
+    the page can ask about them.
+    """
+    if not _from_host():
+        return _not_host()
+    import routes_project
+    data = request.get_json(silent=True) or {}
+    if routes_project.project_unsaved() and data.get('discard') is not True:
+        log_event('update_install_unsaved', {})
+        return jsonify({'ok': False, 'unsaved': True,
+                        'error': 'The show has changes that are not saved.'}), 409
+    result = updater.install_update()
+    log_event('update_install', {'ok': result.get('ok'), 'error': result.get('error')})
+    return jsonify(result), (200 if result.get('ok') else 400)
 
 
 @version_bp.route('/api/version', methods=['GET'])

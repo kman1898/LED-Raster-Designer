@@ -28,6 +28,11 @@ GITHUB_REPO = "LED-Raster-Designer"
 RELEASES_URL = (
     f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 )
+# A beta reads the whole list: /releases/latest never returns a prerelease,
+# and a beta tester is offered the next beta (owner, 2026-11-08).
+RELEASES_LIST_URL = (
+    f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases?per_page=30"
+)
 
 # Cache update checks for this many seconds (default: 1 hour)
 _CHECK_INTERVAL = 3600
@@ -127,9 +132,48 @@ def _version_key(version_str):
     return (nums, 0, tuple((0, x) if isinstance(x, int) else (1, x) for x in tail))
 
 
+def is_prerelease(version_str):
+    """A beta build's version carries a '-': "1.7.0-beta.2"."""
+    return '-' in (version_str or '').lstrip('v')
+
+
+def pick_release(releases, current):
+    """The release a beta is offered, from the GitHub releases list.
+
+    The highest non-draft release above `current` by _version_key, beta or
+    full: 1.7.0-beta.2 is offered 1.7.0-beta.3, and 1.7.0 once it ships.
+    None when nothing is newer.
+    """
+    best = None
+    for rel in releases or []:
+        if not isinstance(rel, dict) or rel.get('draft'):
+            continue
+        tag = (rel.get('tag_name') or '').lstrip('v')
+        if not _parse_version(tag.partition('-')[0]):
+            continue
+        if _version_key(tag) <= _version_key(current):
+            continue
+        if best is None or _version_key(tag) > _version_key(best['tag_name'].lstrip('v')):
+            best = rel
+    return best
+
+
+def _get_json(url, ctx, current):
+    req = Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": f"LED-Raster-Designer/{current}",
+    })
+    with urlopen(req, timeout=10, context=ctx) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def check_for_update(force=False):
     """
     Check GitHub for a newer release.
+
+    A full release reads /releases/latest, which never names a beta. A beta
+    build reads the releases list and is offered the highest release above
+    it, beta or full (pick_release).
 
     Returns dict with keys:
         available (bool): True if a newer version exists
@@ -138,6 +182,10 @@ def check_for_update(force=False):
         download_url (str): Browser URL for the release (or None)
         release_notes (str): Release body text (or None)
         checksums (dict): {filename: sha256} from checksums.txt asset (or None)
+        installer (dict): the release's Windows setup asset, {name, url,
+            size}, or None
+        can_install (bool): this copy can download and run that setup
+            itself (an installed Windows copy and a setup to run)
         error (str): Error message if check failed (or None)
 
     Results are cached for _CHECK_INTERVAL seconds unless force=True.
@@ -155,18 +203,20 @@ def check_for_update(force=False):
         "download_url": None,
         "release_notes": None,
         "checksums": None,
+        "installer": None,
+        "can_install": False,
         "error": None,
     }
 
     try:
         ctx = _get_ssl_context()
-        req = Request(RELEASES_URL, headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": f"LED-Raster-Designer/{current}",
-        })
-
-        with urlopen(req, timeout=10, context=ctx) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        if is_prerelease(current):
+            data = pick_release(_get_json(RELEASES_LIST_URL, ctx, current), current)
+        else:
+            data = _get_json(RELEASES_URL, ctx, current)
+        if not data:
+            # A beta with nothing newer published: it is the latest.
+            data = {"tag_name": current}
 
         tag = data.get("tag_name", "")
         latest = tag.lstrip("v")
@@ -180,11 +230,14 @@ def check_for_update(force=False):
                 checksums = _fetch_checksums(asset["browser_download_url"], ctx)
                 if checksums:
                     result["checksums"] = checksums
+                result["checksums_url"] = asset["browser_download_url"]
                 break
 
         # Compare versions
         if _version_key(latest) > _version_key(current):
             result["available"] = True
+            result["installer"] = installer_asset(data, latest)
+            result["can_install"] = bool(result["installer"]) and is_installed_copy()
 
     except HTTPError as e:
         if e.code == 404:
@@ -224,7 +277,9 @@ def _fetch_checksums(url, ssl_context):
             parts = line.split()
             if len(parts) >= 2:
                 sha256 = parts[0]
-                filename = parts[-1].lstrip('*')
+                # release.yml runs sha256sum over windows-build/<file>, so
+                # a line names the folder too; the asset is the file name.
+                filename = parts[-1].lstrip('*').replace('\\', '/').rsplit('/', 1)[-1]
                 checksums[filename] = sha256
         return checksums
     except Exception as e:
@@ -247,3 +302,387 @@ def verify_download(file_path, expected_sha256):
     except (OSError, IOError) as e:
         logger.error("Failed to verify download: %s", e)
         return False
+
+
+# ── Installing an update on Windows (owner, 2026-11-08) ─────────────────
+#
+# An installed Windows copy downloads the release's setup itself, checks it
+# against the release's checksums.txt, and on "Install and restart" runs it
+# with /RELAUNCH and quits; the setup reopens the app when it is done
+# (build/led_raster_designer.iss). macOS, the Windows .zip copy and a source
+# run keep the link to the release page.
+#
+# The setup is fetched with urllib into a folder under %TEMP%. Only a
+# browser (or a zip tool) writes the Zone.Identifier stream that makes
+# Windows warn about a downloaded file; nothing here writes one, so the
+# setup runs without the "Windows protected your PC" prompt. release.yml
+# proves a file fetched this way carries no Zone.Identifier.
+
+APP_ID = '{7D7BC445-209D-4629-A5D7-1C0B7EDC0C94}'   # build/led_raster_designer.iss
+UNINSTALL_KEY = (r'Software\Microsoft\Windows\CurrentVersion\Uninstall'
+                 '\\' + APP_ID + '_is1')
+
+INSTALLER_NAME_RE = re.compile(
+    r'^led_raster_designer_v(\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?)_windows_setup\.exe$')
+# The asset link the API names, and the hosts GitHub redirects it to.
+_ASSET_HOST = 'github.com'
+_REDIRECT_HOSTS = ('github.com', 'objects.githubusercontent.com',
+                   'release-assets.githubusercontent.com')
+_MAX_SETUP_BYTES = 1024 * 1024 * 1024
+# Inno Setup: a progress window only, no questions, no reboot. RELAUNCH is
+# our own flag; the .iss reopens the app only when it is given.
+INSTALLER_ARGS = ('/SILENT', '/SP-', '/SUPPRESSMSGBOXES', '/NORESTART', '/RELAUNCH')
+
+MSG_NETWORK = 'The update could not be downloaded. Check the internet connection and try again.'
+# Each says what happened and what to do next. "Could not be verified"
+# is a missing checksum; "did not match the release" a wrong one.
+MSG_NO_CHECKSUM = ('The update was not installed because it could not be verified, so the '
+                   'download was deleted. Click Download to get it from the release page.')
+MSG_BAD_CHECKSUM = ('The update was not installed because the download did not match the '
+                    'release, so it was deleted. Click Update to try again.')
+MSG_CANNOT_INSTALL = 'This copy cannot update itself. Click Download to get the new version from the release page.'
+MSG_NO_UPDATE = 'There is no update to download.'
+MSG_NOT_READY = 'The update has not finished downloading. Click Update to try again.'
+
+_event_logger = None
+
+
+def set_event_logger(fn):
+    """routes_version hands in the app's log_event."""
+    global _event_logger
+    _event_logger = fn
+
+
+def _event(name, details=None):
+    fn = _event_logger
+    if fn:
+        try:
+            fn(name, details or {})
+        except Exception:
+            pass
+
+
+# ── Is this an installed copy? ──────────────────────────────────────────
+#
+# Setup records the folder it installed to in the uninstall key Settings >
+# Apps reads (InstallLocation). This copy is "installed" when it is a frozen
+# Windows build running from exactly that folder. The registry, not a file
+# beside the exe, because it is the record setup itself keeps and reuses
+# (UsePreviousAppDir): the update lands where the running copy is. A .zip
+# copy unpacked anywhere else, or an install folder copied somewhere, does
+# not match it and keeps the link to the release page.
+
+def _registered_install_dir():
+    """InstallLocation from the setup's uninstall key, or None."""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY) as key:
+            value, _kind = winreg.QueryValueEx(key, 'InstallLocation')
+    except OSError:
+        return None
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _same_folder(a, b):
+    import ntpath
+
+    def norm(p):
+        return ntpath.normcase(ntpath.normpath(p.strip().strip('"')))
+    return norm(a) == norm(b)
+
+
+def is_installed_copy(platform=None, frozen=None, executable=None):
+    platform = sys.platform if platform is None else platform
+    frozen = getattr(sys, 'frozen', False) if frozen is None else frozen
+    executable = sys.executable if executable is None else executable
+    if platform != 'win32' or not frozen:
+        return False
+    where = _registered_install_dir()
+    if not where:
+        return False
+    return _same_folder(where, os.path.dirname(executable))
+
+
+# ── The setup asset ─────────────────────────────────────────────────────
+
+def _asset_url_ok(url, name):
+    """The API's browser_download_url for `name` on this repo, over HTTPS."""
+    from urllib.parse import urlparse
+    try:
+        p = urlparse(url or '')
+        port = p.port
+    except ValueError:
+        return False
+    return (p.scheme == 'https' and p.hostname == _ASSET_HOST and port in (None, 443)
+            and not p.username and not p.query
+            and p.path.startswith(f'/{GITHUB_OWNER}/{GITHUB_REPO}/releases/download/')
+            and p.path.rsplit('/', 1)[-1] == name)
+
+
+def installer_asset(release, version):
+    """{name, url, size} for the release's Windows setup, or None."""
+    name = f'led_raster_designer_v{version}_windows_setup.exe'
+    if not INSTALLER_NAME_RE.match(name):
+        return None
+    for asset in (release or {}).get('assets') or []:
+        if asset.get('name') != name:
+            continue
+        url = asset.get('browser_download_url') or ''
+        if not _asset_url_ok(url, name):
+            return None
+        try:
+            size = int(asset.get('size') or 0)
+        except (TypeError, ValueError):
+            size = 0
+        return {'name': name, 'url': url, 'size': size}
+    return None
+
+
+# ── Downloading it (one at a time, on a background thread) ──────────────
+
+_dl_lock = threading.Lock()
+_dl = {'state': 'idle', 'percent': 0, 'version': None, 'error': None,
+       'path': None, 'sha256': None}
+_BUSY = ('downloading', 'verifying', 'installing')
+
+
+def _public():
+    return {k: _dl[k] for k in ('state', 'percent', 'version', 'error')}
+
+
+def download_status():
+    """What the banner shows: idle, downloading, verifying, ready,
+    installing or error, with a percent and a plain error."""
+    with _dl_lock:
+        return _public()
+
+
+def _set(**kw):
+    with _dl_lock:
+        _dl.update(kw)
+
+
+def _remove_download(path):
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    try:
+        os.rmdir(os.path.dirname(path))
+    except OSError:
+        pass
+
+
+def _clean_old_downloads():
+    """Setups left in %TEMP% by earlier updates."""
+    import shutil
+    base = tempfile.gettempdir()
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return
+    for name in names:
+        if name.startswith('lrd-update-'):
+            shutil.rmtree(os.path.join(base, name), ignore_errors=True)
+
+
+def _download_opener(ctx):
+    from urllib.request import build_opener, HTTPSHandler, HTTPRedirectHandler
+    from urllib.parse import urlparse
+
+    class _GitHubRedirectsOnly(HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            p = urlparse(newurl)
+            if p.scheme != 'https' or p.hostname not in _REDIRECT_HOSTS:
+                raise HTTPError(newurl, code, 'redirected away from GitHub', headers, fp)
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+    return build_opener(HTTPSHandler(context=ctx), _GitHubRedirectsOnly())
+
+
+def start_download():
+    """Start downloading the offered setup. A repeat call while one runs,
+    or once one is ready, starts nothing and says where it is."""
+    with _dl_lock:
+        if _dl['state'] in _BUSY:
+            return _public()
+    result = check_for_update()
+    if not result.get('available'):
+        return {'state': 'error', 'percent': 0, 'version': None, 'error': MSG_NO_UPDATE}
+    inst = result.get('installer')
+    if not inst or not is_installed_copy():
+        return {'state': 'error', 'percent': 0, 'version': None, 'error': MSG_CANNOT_INSTALL}
+    version = result.get('latest_version')
+    with _dl_lock:
+        if _dl['state'] in _BUSY:
+            return _public()
+        if (_dl['state'] == 'ready' and _dl['version'] == version
+                and _dl['path'] and os.path.isfile(_dl['path'])):
+            return _public()
+        _dl.update(state='downloading', percent=0, version=version, error=None,
+                   path=None, sha256=None)
+        started = _public()
+    _event('update_download_started', {'version': version, 'asset': inst['name']})
+    threading.Thread(target=_download_worker, name='lrd-update-download',
+                     args=(inst, version, dict(result.get('checksums') or {}),
+                           result.get('checksums_url')),
+                     daemon=True).start()
+    return started
+
+
+def _fail(path, message, event, details=None):
+    _remove_download(path)
+    _set(state='error', error=message, path=None, sha256=None)
+    _event(event, details or {})
+
+
+def _download_worker(inst, version, checksums, checksums_url):
+    _clean_old_downloads()
+    path = None
+    got = 0
+    try:
+        folder = tempfile.mkdtemp(prefix='lrd-update-')
+        path = os.path.join(folder, inst['name'])
+        ctx = _get_ssl_context()
+        req = Request(inst['url'], headers={
+            'Accept': 'application/octet-stream',
+            'User-Agent': f'LED-Raster-Designer/{get_current_version()}',
+        })
+        with _download_opener(ctx).open(req, timeout=30) as resp:
+            try:
+                total = int(resp.headers.get('Content-Length') or 0)
+            except (TypeError, ValueError):
+                total = 0
+            total = total or inst.get('size') or 0
+            if total > _MAX_SETUP_BYTES:
+                raise OSError(f'the setup is {total} bytes')
+            # A plain file write: no Zone.Identifier stream is ever made.
+            with open(path, 'wb') as out:
+                while True:
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        break
+                    got += len(chunk)
+                    if got > _MAX_SETUP_BYTES:
+                        raise OSError('the setup is larger than any release')
+                    out.write(chunk)
+                    if total:
+                        _set(percent=min(99, int(got * 100 / total)))
+        _set(state='verifying', percent=100)
+        expected = checksums.get(inst['name'])
+        if not expected and checksums_url:
+            expected = (_fetch_checksums(checksums_url, ctx) or {}).get(inst['name'])
+        if not expected:
+            _fail(path, MSG_NO_CHECKSUM, 'update_download_refused',
+                  {'reason': 'no checksum', 'asset': inst['name']})
+            return
+        if not verify_download(path, expected):
+            _fail(path, MSG_BAD_CHECKSUM, 'update_download_refused',
+                  {'reason': 'checksum mismatch', 'asset': inst['name']})
+            return
+        _set(state='ready', percent=100, path=path, sha256=expected.lower(), error=None)
+        _event('update_download_ready', {'version': version, 'bytes': got})
+    except Exception as e:
+        logger.warning('Update download failed: %s', e)
+        _fail(path, MSG_NETWORK, 'update_download_failed',
+              {'error': f'{type(e).__name__}: {e}'})
+
+
+# ── Running it ──────────────────────────────────────────────────────────
+
+_quit_handler = None
+
+
+def set_quit_handler(fn):
+    """The launcher's own Quit, so an update closes the app the way the
+    tray's Quit does (launcher_window.run_window, launcher_pc.run_tray)."""
+    global _quit_handler
+    _quit_handler = fn
+
+
+def _quit_app():
+    fn = _quit_handler
+    try:
+        if fn:
+            fn()
+    finally:
+        os._exit(0)
+
+
+def _schedule_quit(delay=1.0):
+    """Quit once the route has answered the page."""
+    def later():
+        time.sleep(delay)
+        _quit_app()
+    threading.Thread(target=later, name='lrd-update-quit', daemon=True).start()
+
+
+def _installer_env():
+    """This process's environment without the frozen bundle's own entries,
+    so the app the setup reopens starts as clean as one from the Start menu."""
+    env = dict(os.environ)
+    for key in list(env):
+        if key.startswith(('_PYI_', '_MEIPASS')) or key == '_LRD_LOG_DIR':
+            del env[key]
+    bundle = getattr(sys, '_MEIPASS', None)
+    if bundle:
+        low = os.path.normcase(bundle)
+        for key in list(env):
+            if key.upper() == 'PATH':
+                parts = [p for p in env[key].split(os.pathsep)
+                         if not os.path.normcase(p).startswith(low)]
+                env[key] = os.pathsep.join(parts)
+            elif low in os.path.normcase(env[key]):
+                del env[key]
+    env['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
+    return env
+
+
+def installer_command(path):
+    log = os.path.join(os.path.dirname(path), 'install.log')
+    return [path, *INSTALLER_ARGS, f'/LOG={log}']
+
+
+def _spawn_installer(cmd):
+    """Start the setup detached, so it outlives the app it is replacing."""
+    import subprocess
+    detached = getattr(subprocess, 'DETACHED_PROCESS', 0x00000008)
+    group = getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x00000200)
+    breakaway = getattr(subprocess, 'CREATE_BREAKAWAY_FROM_JOB', 0x01000000)
+    kw = dict(cwd=os.path.dirname(cmd[0]), env=_installer_env(), close_fds=True,
+              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+              stderr=subprocess.DEVNULL)
+    try:
+        subprocess.Popen(cmd, creationflags=detached | group | breakaway, **kw)
+    except OSError:
+        # A job that does not allow breakaway: detached is enough there.
+        subprocess.Popen(cmd, creationflags=detached | group, **kw)
+
+
+def install_update():
+    """Run the downloaded setup and quit. The file is checked again first:
+    a setup that no longer matches its checksum is deleted, never run."""
+    with _dl_lock:
+        state, path, sha, version = _dl['state'], _dl['path'], _dl['sha256'], _dl['version']
+    if state != 'ready' or not path or not sha:
+        return {'ok': False, 'error': MSG_NOT_READY}
+    if not is_installed_copy():
+        return {'ok': False, 'error': MSG_CANNOT_INSTALL}
+    if not os.path.isfile(path) or not verify_download(path, sha):
+        _fail(path, MSG_BAD_CHECKSUM, 'update_install_refused', {'reason': 'checksum mismatch'})
+        return {'ok': False, 'error': MSG_BAD_CHECKSUM}
+    cmd = installer_command(path)
+    try:
+        _spawn_installer(cmd)
+    except OSError as e:
+        _event('update_install_failed', {'error': f'{type(e).__name__}: {e}'})
+        return {'ok': False, 'error': f'The update could not be started: {e}'}
+    _set(state='installing')
+    _event('update_install_started', {'version': version, 'args': cmd[1:]})
+    _schedule_quit()
+    return {'ok': True, 'version': version}

@@ -210,13 +210,15 @@ class _ProjectIo {
     // Resolves true when the project may be replaced: nothing unsaved,
     // Don't Save, or Save and the file was written. Cancel, Esc, or a Save
     // whose dialog was cancelled resolve false and nothing changes.
-    // `what` finishes the question: 'open' or 'new'.
+    // `what` finishes the question: 'open', 'new' or 'update' (Install and
+    // restart, updater.js).
     async confirmUnsavedChanges(what) {
         if (typeof navigator !== 'undefined' && navigator.webdriver
                 && !(typeof window !== 'undefined' && window.__lrdAskUnsaved === true)) return true;
         if (!this.projectHasUnsavedChanges()) return true;
         const name = (this.project && this.project.name) || 'this project';
-        const doing = what === 'new' ? 'starting a new project' : 'opening another show';
+        const doing = what === 'new' ? 'starting a new project'
+            : what === 'update' ? 'the app closes to install the update' : 'opening another show';
         sendClientLog('unsaved_changes_asked', { what: what || null });
         const answer = await this.appAsk({
             id: 'unsaved-changes-modal',

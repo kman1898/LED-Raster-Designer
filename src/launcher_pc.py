@@ -257,6 +257,11 @@ def run_tray(settings):
     )
     icon_ref[0] = icon
 
+    # Install and restart (updater.install_update) closes the app the same
+    # way Quit does.
+    import updater
+    updater.set_quit_handler(lambda: quit_app(icon, None))
+
     # icon.run() blocks on the main thread
     icon.run()
 

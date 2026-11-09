@@ -657,6 +657,20 @@ def run_window(settings):
 
     window.events.closing += on_closing
 
+    # Install and restart (updater.install_update) closes the app the way the
+    # tray's Quit does: the icon goes, the window goes, the process exits.
+    def quit_for_update():
+        icon = getattr(api, '_tray_icon', None)
+        try:
+            if icon is not None:
+                icon.stop()
+        except Exception:
+            pass
+        api.quit()
+
+    import updater
+    updater.set_quit_handler(quit_for_update)
+
     # A failure in any of this used to escape main() entirely. With no console
     # on the frozen Windows build the traceback went nowhere, and because
     # pystray's detached icon runs on a non-daemon thread the process then sat
@@ -665,7 +679,7 @@ def run_window(settings):
     try:
         if sys.platform == 'win32':
             try:
-                _start_tray_windows(api)
+                api._tray_icon = _start_tray_windows(api)
             except Exception as exc:
                 _launcher_log('launcher_tray_failed', {
                     'error': f'{type(exc).__name__}: {exc}',

@@ -6941,6 +6941,34 @@
             },
             after: function () { hideMenus(); }
         },
+        // Help > Check for Updates (1.7.0, updater.js; owner, 2026-11-08):
+        // a copy installed with the Windows setup updates itself from the
+        // banner. The step points at the option and never clicks it, which
+        // would ask GitHub.
+        checkUpdates: {
+            since: '1.7.0',
+            target: '[data-menu="help"]', place: 'bottom', title: 'Update in one click',
+            avoid: ['#menu-help [data-action="check-updates"]'],
+            body: 'Help &rsaquo; Check for Updates offers Update when a new version is out. Installed on Windows, it downloads, checks and installs it, then reopens the app.',
+            before: function () { closePrefs(); hideMenus(); },
+            act: function (t) {
+                return t.click('[data-menu="help"]').then(function () {
+                    return t.wait(function () {
+                        var m = $('#menu-help');
+                        return m && m.style.display === 'block' ? $('#menu-help [data-action="check-updates"]') : null;
+                    });
+                }).then(function (opt) {
+                    if (!opt) throw new Error('the Help menu did not open');
+                    return t.spot(opt).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var m = $('#menu-help');
+                return m && m.style.display === 'block' && $('#menu-help [data-action="check-updates"]')
+                    ? 'Check for Updates is here; the banner it opens says Update when one is out.' : null;
+            },
+            after: function () { hideMenus(); }
+        },
         outroAdvanced: {
             title: 'That&rsquo;s the guide', center: true,
             body: 'Done puts your own project back. Reopen any guide from Help.',
@@ -7435,7 +7463,7 @@
                     'groupScreens', 'groupNames', 'groupDrag',
                     'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
-                    'redrawAsOne', 'sweepPorts', 'helpMenu', 'outroAdvanced']
+                    'redrawAsOne', 'sweepPorts', 'helpMenu', 'checkUpdates', 'outroAdvanced']
         }
     };
 
