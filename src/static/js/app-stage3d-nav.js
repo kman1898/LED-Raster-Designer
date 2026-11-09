@@ -34,7 +34,13 @@ import { DEG } from './app-stage3d.js';
 
 const DRAG_PX = 4;               // a press that travels this far is a drag
 const GLIDE_MS = 320;            // frame, focus, Home and the view buttons
-const NEAR_MM = 150;             // the wheel stops this close to what it nears
+// The wheel stops this close to what it nears: near enough that one LED
+// pixel of the finest screen fills a good part of the view (2026-11-09,
+// "pixel level zoom"); the near plane follows the camera in
+// (app-stage3d.js _s3dFitNear), so nothing is cut away on the way.
+const NEAR_MM = 2;
+// Orthographic zoom goes in until the view is this many mm tall.
+const ORTHO_MIN_MM = 4;
 const FAR_MM = 400000;           // and backs off no further than this
 const PAD_GAP_MS = 250;          // trackpad events closer than this are one gesture
 const VIEW_KEYS = ['front', 'back', 'left', 'right', 'top', 'iso'];
@@ -431,7 +437,8 @@ class _Stage3DNav {
                 -((clientY - rect.top) / rect.height) * 2 + 1, 0);
             cam.updateMatrixWorld();
             const before = ndc.clone().unproject(cam);
-            cam.zoom = clamp((cam.zoom || 1) / scale, 0.02, 500);
+            const tallest = Math.max(1, (cam.top - cam.bottom) / ORTHO_MIN_MM);
+            cam.zoom = clamp((cam.zoom || 1) / scale, 0.02, Math.max(500, tallest));
             cam.updateProjectionMatrix();
             const after = ndc.clone().unproject(cam);
             const shift = before.sub(after);

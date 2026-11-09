@@ -3,11 +3,18 @@
 // mm, blanked cabinets left out, half cabinets at half size - with its Pixel
 // Map drawing on the front and plain dark grey behind.
 //
-// Each screen keeps its place on the layer as `stage3d` (centre in mm, Y up,
-// +Z towards the audience; pitch / yaw / roll in degrees; the bend at every
+// Each screen keeps its place on the layer as `stage3d` (mm, Y up, +Z
+// towards the audience; pitch / yaw / roll in degrees; the bend at every
 // joint between columns and rows - the server's app.sanitize_stage3d holds
-// the shape). A screen without one stands where its Show Look position puts
-// it, so older files open unchanged. Every edit goes through updateLayers
+// the shape). X, Y and Z are the middle of the screen's bottom edge (the
+// owner's ruling, 2026-11-09): Y is how high the bottom edge stands, so a
+// screen on the floor reads 0, and the screen turns about that point, so a
+// screen on the floor stays on it. The block says so with `pivot:
+// 'bottom'`; a block without it (the first 1.7.0 betas stored the screen's
+// centre) is read as the centre and moved to the bottom middle on read
+// (s3dResolve), the screen standing exactly where it stood. A screen
+// without one stands where its Show Look position puts it, so older files
+// open unchanged. Every edit goes through updateLayers
 // like any other layer edit: it saves, reaches the other machines on the LAN
 // and undoes. The camera, the units and the floor grid are the view's own
 // state, saved with the project through PUT /api/project/stage3d and kept out
@@ -23,8 +30,24 @@ import { evaluateMathExpression, sendClientLog } from './helpers.js';
 
 const JOINT_LIMIT = 15;          // degrees, either way, at any joint
 export const FT_MM = 304.8;
+// X, Y and Z measure the middle of the bottom edge (the block's marker).
+export const PIVOT = 'bottom';
 const TEX_MAX = 4096;            // a screen's texture, longest side
 const TEX_MIN = 1024;            // small screens are drawn up to this
+// Up close, the one screen whose texture is coarser than its own pixels is
+// drawn again at one texel per pixel (2026-11-09, "pixel level zoom"): at
+// most this long a side and this many texels, one screen at a time, with
+// no mipmaps (it is only ever seen magnified) - 128 MB of video memory at
+// the most, on top of the ordinary textures.
+const DETAIL_SIDE = 8192;
+const DETAIL_TEXELS = 8192 * 4096;
+const DETAIL_AT = 1.5;           // a texel this many page px wide asks for it
+const DETAIL_SETTLE_MS = 250;    // after the camera stops
+// The near plane follows the camera in: a thousandth of the way to what it
+// looks at, never past a quarter of the way to the nearest screen, 0.05 mm
+// to 20 mm (the depth buffer is logarithmic, so the far end keeps its
+// precision).
+const NEAR_MIN = 0.05, NEAR_MAX = 20;
 const SYNC_MS = 120;             // edits settle this long before a rebuild
 export const DEG = Math.PI / 180;
 
@@ -47,6 +70,7 @@ export function s3dSanitize(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const out = {};
     ['x', 'y', 'z', 'pitch', 'yaw', 'roll'].forEach(k => { out[k] = finite(value[k], 0); });
+    if (value.pivot === PIVOT) out.pivot = PIVOT;
     out.curveCol = clampJoint(value.curveCol);
     out.curveRow = clampJoint(value.curveRow);
     ['jointsCol', 'jointsRow'].forEach(k => {
@@ -80,7 +104,7 @@ function mmPerPx(layer, axis) {
 // nudges every member by the first member's, so the wall keeps its shape).
 export function s3dCopyPlacement(layer, dxPx, dyPx, ref = null) {
     if (!layer || (layer.type || 'screen') !== 'screen') return undefined;
-    const p = s3dSanitize(layer.stage3d);
+    const p = s3dResolve(layer, layer.stage3d);
     if (!p) return undefined;
     const scale = ref || layer;
     p.x = round(p.x + (Number(dxPx) || 0) * mmPerPx(scale, 'x'), 3);
@@ -205,8 +229,18 @@ function s3dChain(lengths, joints) {
 }
 
 // The cabinets of one screen as rigid flat quads in the screen's own frame
-// (mm, origin at its centre, X right, Y up, the front facing +Z). Pure data:
-// no drawing library, so the debug hook and the tests read it as it is.
+// (mm, X right, Y up, the front facing +Z), its origin at the middle of the
+// bottom edge - the point stage3d's X, Y and Z place and the screen turns
+// about. Pure data: no drawing library, so the debug hook and the tests
+// read it as it is.
+//
+// The middle of the bottom edge is on the screen itself: the middle of the
+// column chain (half its length along the cabinets, so on a curved wall the
+// middle of the curve, not of the chord across it) at the foot of the row
+// chain. A screen curved only across keeps it straight under its middle;
+// one bent along its rows (an arch, a kick) has it at the foot of the
+// bottom row, as bent. `base` is that point in the frame centred on the
+// screen (the chains' own middle) - what an old block's centre is moved by.
 //
 // Columns and rows are the panels' own slots. The column chain bends the
 // screen about the upright (a curved wall), the row chain about the
@@ -240,7 +274,17 @@ function s3dBuild(layer, placement) {
     const cc = s3dChain(colLen, colJ);
     const rc = s3dChain(rowLen, rowJ);
 
-    // a point at `u` mm across chain column i and `w` mm down chain row k
+    // The foot of the row chain under the middle of the column chain (which
+    // the chain puts at the origin, heading straight across, its front +Z).
+    let base = [0, 0, 0];
+    const lastRow = rowLen.length - 1;
+    if (lastRow >= 0) {
+        const g = rc.heads[lastRow] || 0, q = rc.starts[lastRow] || [0, 0];
+        base = [0, -(q[0] + rowLen[lastRow] * Math.cos(g)), q[1] + rowLen[lastRow] * Math.sin(g)];
+    }
+
+    // a point at `u` mm across chain column i and `w` mm down chain row k,
+    // from the middle of the bottom edge
     const point = (i, u, k, w) => {
         const h = cc.heads[i] || 0, o = cc.starts[i] || [0, 0];
         const g = rc.heads[k] || 0, q = rc.starts[k] || [0, 0];
@@ -249,7 +293,7 @@ function s3dBuild(layer, placement) {
         const yy = -down;
         const dX = Math.cos(h), dZ = Math.sin(h);  // the column's across direction
         const nX = -Math.sin(h), nZ = Math.cos(h); // the column's front
-        return [o[0] + u * dX + fwd * nX, yy, o[1] + u * dZ + fwd * nZ];
+        return [o[0] + u * dX + fwd * nX - base[0], yy - base[1], o[1] + u * dZ + fwd * nZ - base[2]];
     };
 
     const quads = [];
@@ -270,11 +314,92 @@ function s3dBuild(layer, placement) {
         });
     }
     return {
-        quads, point, colLen, rowLen, colJ, rowJ,
+        quads, point, colLen, rowLen, colJ, rowJ, base,
         colHeads: cc.heads, rowHeads: rc.heads,
         bounds: { x: bx0, y: by0, w: Math.max(1, bx1 - bx0), h: Math.max(1, by1 - by0) },
         widthMm: cc.total, heightMm: rc.total,
     };
+}
+
+// The middle of the bottom edge in the frame centred on the screen (see
+// s3dBuild): it hangs on the screen's cabinets and its row bends only.
+export function s3dBaseOffset(layer, placement) {
+    return s3dBuild(layer || {}, s3dSanitize(placement) || {}).base;
+}
+
+// `block` as the placement it stands for: X, Y and Z the middle of the
+// bottom edge. A block saved before the marker held the screen's centre:
+// the centre is moved to the bottom middle by the screen's own turn, so
+// every cabinet stands exactly where it stood. Null with no block.
+export function s3dResolve(layer, block) {
+    const p = s3dSanitize(block);
+    if (!p || p.pivot === PIVOT) return p;
+    const off = quatRotate(quatFromPlacement(p), s3dBaseOffset(layer, p));
+    return { ...p, x: p.x + off[0], y: p.y + off[1], z: p.z + off[2], pivot: PIVOT };
+}
+
+// The world corners [tl, tr, br, bl] of every cabinet of `layer` placed by
+// `block` (resolved as above), with the cabinet's row and column. Pure: the
+// tests hold the stage's own drawing to it.
+export function s3dWorldCorners(layer, block) {
+    const p = s3dResolve(layer, block);
+    if (!p) return [];
+    const q = quatFromPlacement(p);
+    const at = (c) => { const r = quatRotate(q, c); return [p.x + r[0], p.y + r[1], p.z + r[2]]; };
+    return s3dBuild(layer, p).quads.map(k => ({ row: k.row, col: k.col, corners: [k.tl, k.tr, k.br, k.bl].map(at) }));
+}
+
+// The point the panel's X, Y and Z show and the screen turns about, from
+// the middle of the panels' bottom edge (the stored point), in the
+// screen's own frame: the bottom middle of whatever is lowest - the
+// footer's foot, `footerMm` down the bottom row as it leans, when there is
+// one; the panels' own edge (no offset) when there is none. The stored
+// point stays the panels' edge, so a footer added or taken away leaves the
+// panels where they stand and moves the zero instead.
+export function s3dDatumOffset(layer, placement, footerMm) {
+    if (!(footerMm > 0)) return [0, 0, 0];
+    const built = s3dBuild(layer || {}, s3dSanitize(placement) || {});
+    const g = built.rowHeads[built.rowLen.length - 1] || 0;
+    return [0, -footerMm * Math.cos(g), footerMm * Math.sin(g)];
+}
+
+// Stored placement -> what the panel shows (the datum), and back.
+export function s3dShown(layer, placement, footerMm) {
+    const off = quatRotate(quatFromPlacement(placement), s3dDatumOffset(layer, placement, footerMm));
+    return { ...placement, x: placement.x + off[0], y: placement.y + off[1], z: placement.z + off[2] };
+}
+export function s3dStoredFrom(layer, shown, footerMm) {
+    const off = quatRotate(quatFromPlacement(shown), s3dDatumOffset(layer, shown, footerMm));
+    return { ...shown, x: shown.x - off[0], y: shown.y - off[1], z: shown.z - off[2] };
+}
+
+// A length typed in the panel, in mm, or null. A figure with its own unit
+// is taken in it whatever the panel shows - 2m, 250 mm, 6'6", 6 ft 6 in, 18
+// in - and a plain figure or sum (10+2.5) is in the panel's unit.
+const LENGTH_UNITS = { mm: 1, cm: 10, m: 1000, ft: FT_MM, "'": FT_MM, '′': FT_MM, in: 25.4, '"': 25.4, '″': 25.4 };
+const LENGTH_PART = /\s*(\d*\.?\d+)\s*(mm|cm|m|ft|in|'|′|"|″)\s*/y;
+export function s3dParseLength(raw, units, evaluate = null) {
+    const text = String(raw == null ? '' : raw).trim();
+    if (text === '') return null;
+    // 12' 6 - feet, then inches without their mark
+    const ftIn = text.match(/^([-+]?)\s*(\d*\.?\d+)\s*['′]\s*(\d*\.?\d+)$/);
+    if (ftIn) return (ftIn[1] === '-' ? -1 : 1) * (parseFloat(ftIn[2]) * FT_MM + parseFloat(ftIn[3]) * 25.4);
+    if (/(mm|cm|m|ft|in|'|′|"|″)$/.test(text)) {
+        let body = text, sign = 1;
+        if (body[0] === '-' || body[0] === '+') { sign = body[0] === '-' ? -1 : 1; body = body.slice(1); }
+        let at = 0, total = 0;
+        while (at < body.length) {
+            LENGTH_PART.lastIndex = at;
+            const m = LENGTH_PART.exec(body);
+            if (!m) return null;
+            total += parseFloat(m[1]) * LENGTH_UNITS[m[2]];
+            at = LENGTH_PART.lastIndex;
+        }
+        return sign * total;
+    }
+    const v = typeof evaluate === 'function' ? evaluate(text) : Number(text);
+    if (!Number.isFinite(v)) return null;
+    return v * (units === 'm' ? 1000 : FT_MM);
 }
 
 // The Header/Footer tab's bars (header above the wall, footer below it) as
@@ -289,32 +414,42 @@ function s3dBuild(layer, placement) {
 // in its own panels: across a group's seam each member stands the part of
 // a bar over itself, so the two halves meet at the seam. Without them, the
 // screen's own bars end to end, as before.
-// A bar stands at its real height, 3.5 in (a bar is 3 to 4 in tall), on
+// A bar stands at its real height against the panels, with no gap (the
+// owner, 2026-11-09): a header 3.5 in, a footer 6 in, floor to panel, on
 // every wall whatever its size.
-const BAR_GAP_MM = 40;
-const BAR_HEIGHT_MM = 88.9;
-function s3dBarHeight(built) {
-    return BAR_HEIGHT_MM;
+export const HEADER_BAR_MM = 88.9;
+export const FOOTER_BAR_MM = 152.4;
+function s3dBarHeight(row) {
+    return row === 'footer' ? FOOTER_BAR_MM : HEADER_BAR_MM;
+}
+function s3dOwnBars(raw) {
+    let x = 0;
+    return (Array.isArray(raw) ? raw : []).map(Number).filter(v => Number.isInteger(v) && v > 0)
+        .map(size => { const b = { start: x, size }; x += size; return b; });
+}
+// How far the footer stands below the panels: 6 in when the screen has a
+// footer row on the stage (its own, or its part of a group's row across
+// the seam - the same rows s3dBarRows stands), else 0. A header never
+// counts.
+export function s3dFooterMm(layer, slices = null) {
+    const rows = slices || [{ row: 'footer', bars: s3dOwnBars(layer && layer.riggingFooterBars) }];
+    return rows.some(r => r && r.row === 'footer' && (r.bars || []).some(b => Number.isInteger(b.size) && b.size > 0))
+        ? FOOTER_BAR_MM : 0;
 }
 function s3dBarRows(layer, built, slices) {
     const out = [];
     const n = built.colLen.length, last = built.rowLen.length - 1;
     if (!n || last < 0) return out;
     const avg = built.widthMm / n;
-    const h = s3dBarHeight(built);
-    const below = built.rowLen[last] + BAR_GAP_MM;
-    const at = { header: [0, -(BAR_GAP_MM + h), -BAR_GAP_MM], footer: [last, below, below + h] };
-    const own = (raw) => {
-        let x = 0;
-        return (Array.isArray(raw) ? raw : []).map(Number).filter(v => Number.isInteger(v) && v > 0)
-            .map(size => { const b = { start: x, size }; x += size; return b; });
-    };
+    const hHead = s3dBarHeight('header'), hFoot = s3dBarHeight('footer');
+    const foot = built.rowLen[last];
+    const at = { header: [0, -hHead, 0, hHead], footer: [last, foot, foot + hFoot, hFoot] };
     const rows = slices || [
-        { row: 'header', bars: own(layer.riggingBars), end: true, fits: null },
-        { row: 'footer', bars: own(layer.riggingFooterBars), end: true, fits: null },
+        { row: 'header', bars: s3dOwnBars(layer.riggingBars), end: true, fits: null },
+        { row: 'footer', bars: s3dOwnBars(layer.riggingFooterBars), end: true, fits: null },
     ];
     for (const sl of rows) {
-        const [k, wTop, wBot] = at[sl.row === 'footer' ? 'footer' : 'header'];
+        const [k, wTop, wBot, h] = at[sl.row === 'footer' ? 'footer' : 'header'];
         const bars = (sl.bars || []).filter(b => Number.isInteger(b.size) && b.size > 0);
         // The slots this screen stands: the ones a bar covers on the wall,
         // and past its last column only at the row's own end.
@@ -538,7 +673,8 @@ class _Stage3D {
 
     // The screens on the stage (Show Look's: visible screens whose Show Look
     // canvas is not hidden) and the one figure the defaults share - how far
-    // up everything goes so the lowest screen's bottom edge is on the floor.
+    // up everything goes so the lowest screen's bottom edge, or its
+    // footer's when it has one, is on the floor.
     _s3dLayout() {
         const p = this.project || {};
         const canvases = Array.isArray(p.canvases) ? p.canvases : [];
@@ -551,23 +687,49 @@ class _Stage3D {
             const canvas = cid ? byId.get(cid) : null;
             if (canvas && canvas.visible === false) continue;
             const rect = this._s3dShowRect(layer, byId);
-            floor = Math.min(floor, rect.bottom);
+            floor = Math.min(floor, rect.bottom - this._s3dFooterMm(layer));
             items.push({ layer, rect });
         }
         return { items, lift: Number.isFinite(floor) ? -floor : 0, byId };
     }
 
-    // Where `layer` stands: its own stage3d, or - with none - upright and
-    // flat at its Show Look position, facing the audience, Z 0.
+    // Where `layer` stands: its own stage3d (an old centre block moved to
+    // the bottom middle, s3dResolve), or - with none - upright and flat at
+    // its Show Look position, facing the audience, Z 0: X the middle of its
+    // bottom edge, Y that edge's height (0 for the lowest screen, which
+    // stands on the floor).
     _s3dPlacementOf(layer, layout) {
-        const own = s3dSanitize(layer && layer.stage3d);
+        const own = layer ? s3dResolve(layer, layer.stage3d) : null;
         if (own) return own;
         const lay = layout || this._s3dLayout();
         const rect = this._s3dShowRect(layer, lay.byId);
         return {
-            x: round(rect.left + rect.w / 2, 3), y: round(rect.top - rect.h / 2 + lay.lift, 3), z: 0,
-            pitch: 0, yaw: 0, roll: 0, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {},
+            x: round(rect.left + rect.w / 2, 3), y: round(rect.bottom + lay.lift, 3), z: 0,
+            pitch: 0, yaw: 0, roll: 0, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {}, pivot: PIVOT,
         };
+    }
+
+    // 6 in when `layer` stands a footer on the stage, else 0 (s3dFooterMm).
+    _s3dFooterMm(layer) {
+        let slices = null;
+        try {
+            slices = typeof this.riggingStageSlices === 'function' ? this.riggingStageSlices(layer) : null;
+        } catch (err) { slices = null; }
+        return s3dFooterMm(layer, slices);
+    }
+
+    // What the panel shows for `layer` placed at `p` (stored form): X, Y
+    // and Z at the bottom middle of whatever is lowest - the footer's foot
+    // when there is one (s3dDatumOffset).
+    _s3dShownOf(layer, p) {
+        return s3dShown(layer, p, this._s3dFooterMm(layer));
+    }
+
+    // An edit made in the panel's terms, committed: that point stays where
+    // the edit puts it (a turn or a curve leaves it where it was, so a
+    // footer on the floor stays on the floor).
+    _s3dCommitShown(layer, shown, action) {
+        this._s3dCommit(layer, s3dStoredFrom(layer, shown, this._s3dFooterMm(layer)), action);
     }
 
     // The other screens of `layer`'s group: a group stands, moves and turns
@@ -599,7 +761,7 @@ class _Stage3D {
 
     // `next` is the edited screen's new placement. Its group follows
     // rigidly: every peer is carried by the same move and turn about the
-    // edited screen's centre (a peer with no 3D place yet starts from its
+    // edited screen's bottom middle (a peer with no 3D place yet starts from its
     // Show Look one). Curves stay each screen's own. One updateLayers call,
     // one undo step.
     //
@@ -643,24 +805,15 @@ class _Stage3D {
     }
 
     _s3dParseLength(raw) {
-        const text = String(raw == null ? '' : raw).trim();
-        if (text === '') return null;
-        const units = this._s3dUnits();
-        if (units === 'ft' && /['"]/.test(text)) {
-            const neg = /^-/.test(text);
-            const ft = text.match(/(\d+(?:\.\d+)?)\s*'/);
-            const inch = text.match(/(\d+(?:\.\d+)?)\s*"/);
-            const total = (ft ? parseFloat(ft[1]) : 0) * FT_MM + (inch ? parseFloat(inch[1]) : 0) * 25.4;
-            return neg ? -total : total;
-        }
-        const v = evaluateMathExpression(text);
-        if (!Number.isFinite(v)) return null;
-        return v * (units === 'm' ? 1000 : FT_MM);
+        return s3dParseLength(raw, this._s3dUnits(), evaluateMathExpression);
     }
 
+    // Feet to the hundredth, meters to the mm. A hair under zero (a turn
+    // rounded to the stored thousandth of a mm) reads 0, never -0.00.
     _s3dFormatLength(mm) {
         const v = Number(mm) || 0;
-        return this._s3dUnits() === 'm' ? (v / 1000).toFixed(3) : (v / FT_MM).toFixed(2);
+        const text = this._s3dUnits() === 'm' ? (v / 1000).toFixed(3) : (v / FT_MM).toFixed(2);
+        return /^-0\.0+$/.test(text) ? text.slice(1) : text;
     }
 
     _s3dParseAngle(raw) {
@@ -676,23 +829,23 @@ class _Stage3D {
         const layer = this._s3dCurrentScreen();
         const el = document.getElementById(`s3d-${key}`);
         if (!layer || !el) return;
-        const prev = this._s3dPlacementOf(layer);
+        const prev = this._s3dShownOf(layer, this._s3dPlacementOf(layer));
         const next = { ...prev, jointsCol: { ...prev.jointsCol }, jointsRow: { ...prev.jointsRow } };
         if (key === 'x' || key === 'y' || key === 'z') {
             const mm = this._s3dParseLength(el.value);
             if (mm === null) { this._s3dRefreshPanel(true); return; }
             next[key] = mm;
-            this._s3dCommit(layer, next, 'Move Screen (3D)');
+            this._s3dCommitShown(layer, next, 'Move Screen (3D)');
         } else if (key === 'pitch' || key === 'yaw' || key === 'roll') {
             const deg = this._s3dParseAngle(el.value);
             if (deg === null) { this._s3dRefreshPanel(true); return; }
             next[key] = deg;
-            this._s3dCommit(layer, next, 'Rotate Screen (3D)');
+            this._s3dCommitShown(layer, next, 'Rotate Screen (3D)');
         } else if (key === 'curve-col' || key === 'curve-row') {
             const deg = this._s3dParseAngle(el.value);
             if (deg === null) { this._s3dRefreshPanel(true); return; }
             next[key === 'curve-col' ? 'curveCol' : 'curveRow'] = clampJoint(deg);
-            this._s3dCommit(layer, next, 'Curve Screen (3D)');
+            this._s3dCommitShown(layer, next, 'Curve Screen (3D)');
         } else if (key === 'joint-angle') {
             const st = this._s3dState();
             const jt = st.joint;
@@ -701,35 +854,35 @@ class _Stage3D {
             const deg = this._s3dParseAngle(el.value);
             if (deg === null) delete table[String(jt.index)];
             else table[String(jt.index)] = clampJoint(deg);
-            this._s3dCommit(layer, next, 'Bend Joint (3D)');
+            this._s3dCommitShown(layer, next, 'Bend Joint (3D)');
         }
     }
 
     _s3dRotateBy(axis, step) {
         const layer = this._s3dCurrentScreen();
         if (!layer || !['pitch', 'yaw', 'roll'].includes(axis) || !Number.isFinite(step)) return;
-        const prev = this._s3dPlacementOf(layer);
-        this._s3dCommit(layer, { ...prev, [axis]: prev[axis] + step }, 'Rotate Screen (3D)');
+        const prev = this._s3dShownOf(layer, this._s3dPlacementOf(layer));
+        this._s3dCommitShown(layer, { ...prev, [axis]: prev[axis] + step }, 'Rotate Screen (3D)');
     }
 
     _s3dClearJoint() {
         const layer = this._s3dCurrentScreen();
         const jt = this._s3dState().joint;
         if (!layer || !jt || jt.layerId !== layer.id) return;
-        const prev = this._s3dPlacementOf(layer);
+        const prev = this._s3dShownOf(layer, this._s3dPlacementOf(layer));
         const next = { ...prev, jointsCol: { ...prev.jointsCol }, jointsRow: { ...prev.jointsRow } };
         const table = jt.axis === 'col' ? next.jointsCol : next.jointsRow;
         if (!(String(jt.index) in table)) return;
         delete table[String(jt.index)];
-        this._s3dCommit(layer, next, 'Bend Joint (3D)');
+        this._s3dCommitShown(layer, next, 'Bend Joint (3D)');
     }
 
     _s3dClearAllJoints() {
         const layer = this._s3dCurrentScreen();
         if (!layer) return;
-        const prev = this._s3dPlacementOf(layer);
+        const prev = this._s3dShownOf(layer, this._s3dPlacementOf(layer));
         if (!Object.keys(prev.jointsCol).length && !Object.keys(prev.jointsRow).length) return;
-        this._s3dCommit(layer, { ...prev, jointsCol: {}, jointsRow: {} }, 'Clear Joint Angles (3D)');
+        this._s3dCommitShown(layer, { ...prev, jointsCol: {}, jointsRow: {} }, 'Clear Joint Angles (3D)');
     }
 
     // Back to the Show Look place: the screen and its group lose their 3D
@@ -748,10 +901,20 @@ class _Stage3D {
 
     // ── the panel ─────────────────────────────────────────────────────────
 
+    // The 3D panel's own length unit (ft | m beside Position): the show's
+    // pick when it made one, else the show's unit (its cable unit) - a new
+    // show and an old one start there. Nothing else in the show follows it.
     _s3dUnits() {
         const st = this._s3dState();
         if (st.epoch !== null && st.epoch === (this._projectEpoch || 0)) return st.units;
-        return (this.project && this.project.stage3dUnits === 'm') ? 'm' : 'ft';
+        return this._s3dShowUnits();
+    }
+
+    _s3dShowUnits() {
+        const p = this.project || {};
+        if (p.stage3dUnits === 'm' || p.stage3dUnits === 'ft') return p.stage3dUnits;
+        const unit = typeof this.cableUnit === 'function' ? this.cableUnit() : p.cableUnit;
+        return unit === 'm' ? 'm' : 'ft';
     }
 
     _s3dWire() {
@@ -817,6 +980,7 @@ class _Stage3D {
         if (fields) fields.hidden = !layer;
         if (!layer) return;
         const p = this._s3dPlacementOf(layer);
+        const shown = this._s3dShownOf(layer, p);
         const set = (id, value) => {
             const el = byId(id);
             if (!el) return;
@@ -832,9 +996,9 @@ class _Stage3D {
             note.hidden = !group;
             note.textContent = group ? `Moves and turns with its group, ${group.name || 'Group'}. The curve is this screen's own.` : '';
         }
-        set('s3d-x', this._s3dFormatLength(p.x));
-        set('s3d-y', this._s3dFormatLength(p.y));
-        set('s3d-z', this._s3dFormatLength(p.z));
+        set('s3d-x', this._s3dFormatLength(shown.x));
+        set('s3d-y', this._s3dFormatLength(shown.y));
+        set('s3d-z', this._s3dFormatLength(shown.z));
         set('s3d-pitch', String(round(p.pitch, 2)));
         set('s3d-yaw', String(round(p.yaw, 2)));
         set('s3d-roll', String(round(p.roll, 2)));
@@ -891,7 +1055,7 @@ class _Stage3D {
         const epoch = this._projectEpoch || 0;
         if (st.epoch !== epoch) {
             st.epoch = epoch;
-            st.units = p.stage3dUnits === 'm' ? 'm' : 'ft';
+            st.units = this._s3dShowUnits();
             st.grid = p.stage3dGrid !== false;
             st.bars = p.stage3dBars !== false;
             st.joint = null;
@@ -905,7 +1069,7 @@ class _Stage3D {
         if (st.cam && JSON.stringify(p.stage3dCamera) !== JSON.stringify(st.cam)) {
             p.stage3dCamera = JSON.parse(JSON.stringify(st.cam));
         }
-        if (p.stage3dUnits !== undefined && p.stage3dUnits !== st.units) p.stage3dUnits = st.units;
+        if ((p.stage3dUnits === 'm' || p.stage3dUnits === 'ft') && p.stage3dUnits !== st.units) p.stage3dUnits = st.units;
         if (p.stage3dGrid !== undefined && p.stage3dGrid !== st.grid) p.stage3dGrid = st.grid;
         if (p.stage3dBars !== undefined && p.stage3dBars !== st.bars) p.stage3dBars = st.bars;
     }
@@ -1240,6 +1404,8 @@ class _Stage3D {
             this._s3dPaint(e, layer);
         }
         e.placement = placement;
+        e.footerMm = this._s3dFooterMm(layer);
+        e.datumOff = s3dDatumOffset(layer, placement, e.footerMm);
         e.stored = !!s3dSanitize(layer.stage3d);
         e.name = layer.name;
         if (!(st.drag && st.drag.active && st.drag.starts.has(layer.id))) {
@@ -1422,8 +1588,14 @@ class _Stage3D {
         if (!r || !e.built) return;
         const b = e.built.bounds;
         const side = Math.max(b.w, b.h);
-        const cap = Math.min(TEX_MAX, st.renderer ? st.renderer.capabilities.maxTextureSize : TEX_MAX);
-        const scale = Math.min(cap / side, Math.max(1, TEX_MIN / side));
+        const maxTex = st.renderer ? st.renderer.capabilities.maxTextureSize : TEX_MAX;
+        const cap = Math.min(TEX_MAX, maxTex);
+        const baseScale = Math.min(cap / side, Math.max(1, TEX_MIN / side));
+        // Up close (_s3dDetailCheck): one texel per pixel, within the caps.
+        const detailScale = Math.min(1, Math.min(DETAIL_SIDE, maxTex) / side, Math.sqrt(DETAIL_TEXELS / (b.w * b.h)));
+        e.baseScale = baseScale;
+        e.detail = !!e.detail && detailScale > baseScale;
+        const scale = e.detail ? detailScale : baseScale;
         const w = Math.max(1, Math.round(b.w * scale)), h = Math.max(1, Math.round(b.h * scale));
         if (!e.canvas) e.canvas = document.createElement('canvas');
         e.canvas.width = w;
@@ -1481,18 +1653,103 @@ class _Stage3D {
             r.panX = saved.panX;
             r.panY = saved.panY;
         }
+        // A texel seen bigger than a page pixel is drawn as a crisp
+        // square, the way Pixel Map shows its pixels at high zoom.
         if (!e.tex) {
             e.tex = new T.CanvasTexture(e.canvas);
             e.tex.colorSpace = T.SRGBColorSpace;
             if (st.renderer) e.tex.anisotropy = st.renderer.capabilities.getMaxAnisotropy();
+            e.tex.magFilter = T.NearestFilter;
             e.frontMat.map = e.tex;
             e.frontMat.needsUpdate = true;
         } else if (e.tex.image !== e.canvas || e.tex.image.width !== w || e.tex.image.height !== h) {
             e.tex.dispose();
             e.tex.image = e.canvas;
         }
+        e.tex.generateMipmaps = !e.detail;
+        e.tex.minFilter = e.detail ? T.LinearFilter : T.LinearMipmapLinearFilter;
         e.tex.needsUpdate = true;
         e.texSize = [w, h];
+        e.texScale = scale;
+    }
+
+    // ── up close ──────────────────────────────────────────────────────────
+
+    // Page px per stage mm at `point`, as the camera draws it now.
+    _s3dPagePxPerMm(point) {
+        const st = this._s3dState();
+        const cam = st.camera;
+        const h = (st.renderer && st.renderer.domElement.clientHeight) || 600;
+        if (cam.isOrthographicCamera) return h * (cam.zoom || 1) / Math.max(1e-9, cam.top - cam.bottom);
+        const fwd = cam.getWorldDirection(new st.T.Vector3());
+        const d = point.clone().sub(cam.position).dot(fwd);
+        return d > 0 ? h / (2 * d * Math.tan(cam.fov * DEG / 2)) : 0;
+    }
+
+    // Before every frame: the near plane follows the camera in, so a screen
+    // seen from a few mm is not cut away.
+    _s3dFitNear() {
+        const st = this._s3dState();
+        const cam = st.camera;
+        if (!cam || !cam.isPerspectiveCamera || !st.controls) return;
+        let d = cam.position.distanceTo(st.controls.target) / 1000;
+        const sphere = new st.T.Sphere();
+        for (const e of st.entries.values()) {
+            if (!e.geo || !e.geo.boundingSphere) continue;
+            e.obj.updateMatrixWorld();
+            sphere.copy(e.geo.boundingSphere).applyMatrix4(e.obj.matrixWorld);
+            d = Math.min(d, Math.max(0, sphere.distanceToPoint(cam.position)) / 4);
+        }
+        const near = Math.max(NEAR_MIN, Math.min(NEAR_MAX, d));
+        if (Math.abs(near - cam.near) > cam.near * 0.05) {
+            cam.near = near;
+            cam.updateProjectionMatrix();
+        }
+    }
+
+    // Which screen, if any, is seen so close that its texture shows its
+    // texels (one wider than DETAIL_AT page px) while it could be drawn
+    // finer: the closest such screen is drawn again at one texel per pixel
+    // once the camera settles, and the one drawn so before goes back to
+    // its ordinary texture. One at a time, so a big show never holds more
+    // than one such texture.
+    _s3dDetailCheck() {
+        const st = this._s3dState();
+        if (!st.T || !st.camera || !st.controls) return;
+        let best = null, bestRatio = DETAIL_AT;
+        const box = new st.T.Box3(), near = new st.T.Vector3();
+        const from = st.camera.isOrthographicCamera ? st.controls.target : st.camera.position;
+        for (const e of st.entries.values()) {
+            if (!e.geo || !e.geo.boundingBox || !e.built || !e.texSize) continue;
+            if (!(e.baseScale < 1)) continue;
+            box.copy(e.geo.boundingBox).applyMatrix4(e.obj.matrixWorld);
+            box.clampPoint(from, near);
+            const mmPerTexel = (e.built.bounds.w > 0 ? e.built.widthMm / e.built.bounds.w : 1) / e.baseScale;
+            const ratio = mmPerTexel * this._s3dPagePxPerMm(near);
+            if (ratio > bestRatio) { bestRatio = ratio; best = e; }
+        }
+        const want = best ? best.id : null;
+        if (want === st.detailWant) return;
+        st.detailWant = want;
+        clearTimeout(st.detailTimer);
+        st.detailTimer = setTimeout(() => this._s3dDetailApply(), DETAIL_SETTLE_MS);
+    }
+
+    _s3dDetailApply() {
+        const st = this._s3dState();
+        st.detailTimer = null;
+        if (!st.active) return;
+        const layers = (this.project && this.project.layers) || [];
+        for (const e of st.entries.values()) {
+            const on = e.id === st.detailWant;
+            if (!!e.detail === on) continue;
+            const layer = layers.find(l => l.id === e.id);
+            if (!layer) continue;
+            e.detail = on;
+            this._s3dPaint(e, layer);
+            sendClientLog('stage3d_detail', { id: e.id, on: !!e.detail, tex: e.texSize });
+        }
+        this._s3dRequestRender();
     }
 
     // The selected screens' seams in the accent colour, and the picked
@@ -1614,6 +1871,8 @@ class _Stage3D {
             if (!st.active) return;
             // The move and turn handles keep their size on the page.
             this._s3dHandlesFrame();
+            this._s3dFitNear();
+            this._s3dDetailCheck();
             st.renderer.render(st.scene, st.camera);
         });
     }
@@ -1769,6 +2028,9 @@ class _Stage3D {
                 cols: e.built ? e.built.colLen.length : 0, rows: e.built ? e.built.rowLen.length : 0,
                 widthMm: e.built ? round(e.built.widthMm, 3) : 0, heightMm: e.built ? round(e.built.heightMm, 3) : 0,
                 placement: e.placement, stored: e.stored, tex: e.texSize || null, at,
+                footerMm: e.footerMm || 0,
+                shown: e.placement ? this._s3dShownOf(((this.project && this.project.layers) || []).find(l => l.id === e.id) || {}, e.placement) : null,
+                datum: this._s3dDatumWorld(e),
                 bars: (e.barRows || []).map(r => ({
                     row: r.row, bars: r.bars.slice(), starts: r.starts.slice(), slots: r.slots, wallSlots: r.wallSlots, fits: r.fits,
                     heightMm: round(r.heightMm, 3), lengthMm: round(r.lengthMm, 3),
@@ -1793,6 +2055,33 @@ class _Stage3D {
             gridLines: st.gridGroup ? st.gridGroup.children.length : 0,
             screens,
         };
+    }
+
+    // The point the screen turns about and the panel's X, Y and Z show, in
+    // stage mm, as drawn now (its group placed, a drag under way included).
+    _s3dDatumWorld(e) {
+        const st = this._s3dState();
+        if (!e || !e.obj || !st.T) return null;
+        e.obj.updateMatrixWorld(true);
+        const off = e.datumOff || [0, 0, 0];
+        return new st.T.Vector3(off[0], off[1], off[2]).applyMatrix4(e.obj.matrixWorld).toArray().map(n => round(n, 4));
+    }
+
+    // Every cabinet's four corners [tl, tr, br, bl] in stage mm as the
+    // stage draws them now (the screen's own mesh through its placed
+    // group), with its row and column. Changes nothing.
+    _s3dDebugCorners(layerId) {
+        const st = this._s3dState();
+        const e = st.entries.get(layerId);
+        if (!e || !e.built || !e.geo) return null;
+        e.obj.updateMatrixWorld(true);
+        const pos = e.geo.getAttribute('position');
+        const v = new st.T.Vector3();
+        return e.built.quads.map((q, i) => ({
+            row: q.row, col: q.col,
+            corners: [0, 1, 2, 3].map(k => v.fromBufferAttribute(pos, i * 4 + k)
+                .applyMatrix4(e.obj.matrixWorld).toArray().map(n => round(n, 4))),
+        }));
     }
 
     // Where on the page one joint's seam is drawn (client px): a point on

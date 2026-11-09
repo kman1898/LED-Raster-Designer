@@ -1854,35 +1854,39 @@
                         <div id="s3d-fields" hidden>
                             <div id="s3d-screen-name" class="s3d-name"></div>
                             <div id="s3d-group-note" class="s3d-note" hidden></div>
-                            <div class="s3d-sub">Position</div>
-                            <div class="info-row" data-tooltip="X, Left and right on the stage, measured to the center of the screen. Math OK (e.g., 10+2.5). In feet, 12' 6&quot; works too.">
+                            <div class="s3d-sub s3d-sub-row"><span>Position</span>
+                                <span class="s3d-seg" role="group" aria-label="3D units" data-tooltip="Units, Feet or meters for X, Y and Z, the snap, the figures shown while dragging and the arrow-key steps. Saved with the show; nothing else in the show changes.">
+                                    <button type="button" id="s3d-units-ft" class="btn s3d-seg-btn" data-s3d-units="ft">ft</button><button type="button" id="s3d-units-m" class="btn s3d-seg-btn" data-s3d-units="m">m</button>
+                                </span>
+                            </div>
+                            <div class="info-row" data-tooltip="X, Left and right on the stage, measured to the middle of the screen's bottom edge. Math OK (e.g., 10+2.5). A figure with its unit works in either: 12' 6&quot; or 3.5m.">
                                 <label for="s3d-x">X</label>
                                 <input type="text" id="s3d-x" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
                             </div>
-                            <div class="info-row" data-tooltip="Y, Height above the floor, measured to the center of the screen. Math OK.">
+                            <div class="info-row" data-tooltip="Y, Height of the screen's bottom edge above the floor: 0 stands it on the floor. Math OK.">
                                 <label for="s3d-y">Y</label>
                                 <input type="text" id="s3d-y" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
                             </div>
-                            <div class="info-row" data-tooltip="Z, Upstage and downstage, measured to the center of the screen. Positive is towards the audience. Math OK.">
+                            <div class="info-row" data-tooltip="Z, Upstage and downstage, measured to the middle of the screen's bottom edge. Positive is towards the audience. Math OK.">
                                 <label for="s3d-z">Z</label>
                                 <input type="text" id="s3d-z" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
                             </div>
                             <div class="s3d-sub">Rotation</div>
-                            <div class="info-row" data-tooltip="Pitch, Tilt the screen forward or back, in degrees (about the left-right line through its center). Math OK.">
+                            <div class="info-row" data-tooltip="Pitch, Tilt the screen forward or back, in degrees, about the left-right line along its bottom edge. Math OK.">
                                 <label for="s3d-pitch">Pitch</label>
                                 <input type="text" id="s3d-pitch" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
                             </div>
                             <div class="s3d-steps" data-s3d-axis="pitch">
                                 <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
                             </div>
-                            <div class="info-row" data-tooltip="Yaw, Turn the screen left or right, in degrees (about the upright line through its center). Math OK.">
+                            <div class="info-row" data-tooltip="Yaw, Turn the screen left or right, in degrees, about the upright line through the middle of its bottom edge. Math OK.">
                                 <label for="s3d-yaw">Yaw</label>
                                 <input type="text" id="s3d-yaw" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
                             </div>
                             <div class="s3d-steps" data-s3d-axis="yaw">
                                 <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
                             </div>
-                            <div class="info-row" data-tooltip="Roll, Lean the screen sideways, in degrees (about the line through its center towards the audience). Math OK.">
+                            <div class="info-row" data-tooltip="Roll, Lean the screen sideways, in degrees, about the line towards the audience through the middle of its bottom edge. Math OK.">
                                 <label for="s3d-roll">Roll</label>
                                 <input type="text" id="s3d-roll" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
                             </div>
@@ -1913,11 +1917,6 @@
                             <div class="s3d-buttons">
                                 <button type="button" id="s3d-reset" class="btn" data-tooltip="Reset to Show Look, Put this screen (and its group) back where its Show Look position stands it: upright, flat, facing the audience.">Reset to Show Look</button>
                             </div>
-                        </div>
-                        <div class="s3d-sub">Units</div>
-                        <div class="s3d-buttons" data-tooltip="Units, The length units the 3D panel and the floor grid use. Positions are stored in millimeters either way.">
-                            <button type="button" id="s3d-units-ft" class="btn btn-secondary s3d-toggle" data-s3d-units="ft">Feet</button>
-                            <button type="button" id="s3d-units-m" class="btn btn-secondary s3d-toggle" data-s3d-units="m">Meters</button>
                         </div>
                     </div>
                 </div>

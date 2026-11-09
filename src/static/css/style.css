@@ -2919,6 +2919,14 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
 .s3d-buttons .btn { flex: 1; min-width: 0; padding: 4px 6px; font-size: 11px; }
 .s3d-toggle.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
     color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }
+/* Position's heading carries the 3D tab's own ft | m switch on its right. */
+.s3d-sub-row { display: flex; align-items: center; justify-content: space-between; }
+.s3d-seg { display: inline-flex; text-transform: none; letter-spacing: 0; }
+.s3d-seg .s3d-seg-btn { min-width: 30px; padding: 1px 8px; font-size: 11px; line-height: 16px; border-radius: 0; }
+.s3d-seg .s3d-seg-btn:first-child { border-radius: 4px 0 0 4px; }
+.s3d-seg .s3d-seg-btn:last-child { border-radius: 0 4px 4px 0; }
+.s3d-seg .s3d-seg-btn.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
+    color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }
 
 /* ── IDM Locator tab (app-idm-locator.js) ─────────────────────────────────
    The marking tools sit in the canvas strip beside the raster and zoom
