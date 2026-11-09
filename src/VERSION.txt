@@ -199,6 +199,8 @@ FIXES
 - FIX: When a binder table runs on into a second column, the second part
   repeats the band its rows belong to (like "H9 Card 1 · 16 ports"), not
   just the title and the column headings.
+- FIX: Cabinet ID, Data and Power no longer show a move cursor on a
+  canvas edge. The edge only moves on Pixel Map and Show Look.
 
 v1.6.0 - November 6, 2026
 ----------------------------
