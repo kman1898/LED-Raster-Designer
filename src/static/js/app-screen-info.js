@@ -1829,6 +1829,8 @@ class _ScreenInfo {
                         layer[key] = preservedProps[key];
                     }
                 });
+                // the screen this reply is for, as the page holds it now
+                this._keepLiveFillColors(this.project.layers[index], layer);
                 
                 console.log('AFTER MERGE - layer.dataFlowColor:', layer.dataFlowColor);
                 console.log('AFTER MERGE - layer.screenNameSize:', layer.screenNameSize);
@@ -2036,6 +2038,7 @@ class _ScreenInfo {
                 preservedKeys.forEach(key => {
                     if (live[key] !== undefined) updated[key] = live[key];
                 });
+                this._keepLiveFillColors(live, updated);
                 // The IDM Locator's marks: the browser's newest, held to the
                 // screen the server sent back (app-idm-locator.js).
                 if (typeof this._idmMergeEcho === 'function') this._idmMergeEcho(live, updated);

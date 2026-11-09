@@ -203,6 +203,10 @@ FIXES
   side and the wall draws bigger.
 - FIX: With the title block off, binder sheets print to a quarter inch
   from the edge of the paper instead of leaving 0.4 in of blank margin.
+- FIX: A Hue slider drag made straight after another color change turns
+  the screen exactly as far as the slider says. A save of the change
+  before could land mid-drag and put its colors back, so the screen
+  ended the drag a few degrees short.
 
 v1.6.0 - November 6, 2026
 ----------------------------
