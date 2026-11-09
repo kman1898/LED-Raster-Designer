@@ -362,15 +362,15 @@ class _ContextMenu {
                 ? 'data-shortcut-mac' : 'data-shortcut-win');
             item.textContent = key ? `${word} ${stepWord} (${key})` : `${word} ${stepWord}`;
         });
-        // The Del key deletes nothing on the 3D tab (canvas-input.js), so
-        // Delete Screen does not offer it there.
+        // The Del key deletes no screen on the 3D tab or the Header/Footer
+        // tab (canvas-input.js), so Delete Screen does not offer it there.
         const deleteItem = menu.querySelector('[data-action="delete"]');
         if (deleteItem) {
             const label = deleteItem.getAttribute('data-label') || 'Delete Screen';
             const key = deleteItem.getAttribute(this._isMacPlatform()
                 ? 'data-shortcut-mac' : 'data-shortcut-win');
-            const in3dView = window.canvasRenderer && window.canvasRenderer.viewMode === '3d';
-            deleteItem.textContent = (key && !in3dView) ? `${label} (${key})` : label;
+            const noDelKey = window.canvasRenderer && ['3d', 'rigging'].includes(window.canvasRenderer.viewMode);
+            deleteItem.textContent = (key && !noDelKey) ? `${label} (${key})` : label;
         }
 
         menu.style.visibility = 'hidden';

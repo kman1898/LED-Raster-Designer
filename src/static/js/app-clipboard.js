@@ -321,6 +321,9 @@ class _Clipboard {
                 ? layer.riggingFooterBarStarts.slice() : layer.riggingFooterBarStarts,
             riggingSide: layer.riggingSide,
             riggingCustom: layer.riggingCustom,
+            // ...but a member of a row that crosses a group's seam keeps
+            // only the bars over it, cut at its edges (riggingCopyFields).
+            ...((typeof this.riggingCopyFields === 'function' && this.riggingCopyFields(layer)) || {}),
             riggingColor: layer.riggingColor,
             riggingTextColor: layer.riggingTextColor,
             showLabelNameRigging: layer.showLabelNameRigging,
@@ -698,6 +701,11 @@ class _Clipboard {
         if (!this.currentLayer) return;
         
         this.clipboard = JSON.parse(JSON.stringify(this.currentLayer));
+        // Header/Footer bars as a copy of this screen alone keeps them, read
+        // now, while its group is still there to read the row from.
+        if (typeof this.riggingCopyFields === 'function') {
+            Object.assign(this.clipboard, this.riggingCopyFields(this.currentLayer) || {});
+        }
         sendClientLog('copy_layer', {
             id: this.currentLayer.id,
             name: this.currentLayer.name,

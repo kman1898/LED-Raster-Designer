@@ -28,8 +28,10 @@ Object.assign(CanvasRenderer.prototype, {
         // Header/Footer view: a plain left press on a bar picks it up (a
         // drag moves it past its neighbors, a click picks it for Delete);
         // on the edge between two bars it widens one and shortens the
-        // other. In Custom, a press along a wall's bar edge lays bars of the
-        // picked size there and the drag that follows lays a row of them.
+        // other. In Custom, a press in a wall's bar strip (outside the wall)
+        // lays bars of the picked size there and the drag that follows lays
+        // a row of them; a press on the wall itself selects the screen and
+        // drags as it does with Auto.
         // Every one works on the whole row, across a group's seams
         // (app-rigging.js riggingBeginDrag), and the release saves it.
         if (this.viewMode === 'rigging' && e.button === 0 && !this.spacePressed
@@ -54,7 +56,7 @@ Object.assign(CanvasRenderer.prototype, {
                 this.render();
                 return;
             }
-            const zone = app && app._riggingTool === 'custom' ? this.riggingZoneAt(mouseX, mouseY) : null;
+            const zone = app && app._riggingToolNow() === 'custom' ? this.riggingZoneAt(mouseX, mouseY) : null;
             const zoneLayer = zone ? app.project.layers.find(l => l.id === zone.layerId) : null;
             if (zoneLayer) {
                 app._riggingGhost = null;
@@ -1223,9 +1225,13 @@ Object.assign(CanvasRenderer.prototype, {
         } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingGroupName && !this.isDraggingCanvas) {
             // Slice 5: hovering a canvas's outline edge → show 'move' so
             // the user knows they can grab it. Skip when a modifier is
-            // held (other actions own those gestures).
-            if (!e.shiftKey && !e.altKey && !this.isSelectingPanels && !this.isSelectingLayers
-                && this._canvasEdgeAtPoint(worldX, worldY)) {
+            // held (other actions own those gestures). On the
+            // Header/Footer tab the bars and the Custom strip come first,
+            // as they do for a press (handleMouseDown): a wall standing on
+            // the canvas's edge has its strip there.
+            const canvasEdge = () => !e.shiftKey && !e.altKey && !this.isSelectingPanels
+                && !this.isSelectingLayers && this._canvasEdgeAtPoint(worldX, worldY);
+            if (this.viewMode !== 'rigging' && canvasEdge()) {
                 this.canvas.style.cursor = 'move';
             } else if (this.viewMode === 'rigging' && this.riggingEdgeAt(mouseX, mouseY)) {
                 this._riggingHover(null);
@@ -1235,6 +1241,8 @@ Object.assign(CanvasRenderer.prototype, {
                 this.canvas.style.cursor = 'grab';          // a bar
             } else if (this.viewMode === 'rigging' && this._riggingHover(mouseX, mouseY)) {
                 this.canvas.style.cursor = 'copy';          // Custom: where a click drops a bar
+            } else if (canvasEdge()) {
+                this.canvas.style.cursor = 'move';
             } else {
                 this.canvas.style.cursor = 'default';
             }
@@ -2040,7 +2048,7 @@ Object.assign(CanvasRenderer.prototype, {
         if (!app) return false;
         let ghost = null;
         let over = false;
-        if (mouseX != null && app._riggingTool === 'custom' && !this._riggingDrag) {
+        if (mouseX != null && app._riggingToolNow() === 'custom' && !this._riggingDrag) {
             const z = this.riggingZoneAt(mouseX, mouseY);
             over = !!z;
             if (z && z.kind !== 'both') {
@@ -2248,20 +2256,22 @@ Object.assign(CanvasRenderer.prototype, {
             if (!this.isDragging) this.canvas.style.cursor = 'grab';
         }
         
-        // Delete key - only delete layer if NOT typing. On the Header/Footer
-        // tab with a bar picked (a click on it), the bar goes instead. A
-        // delete clears the selection the moment it starts, so a press while
-        // one is landing goes through too: deleteCurrentLayer holds it for
-        // when it lands. On the 3D tab the keys do nothing (Matt,
-        // 2026-11-08: too easy to hit there by accident); the right-click
-        // Delete Screen and the Screens list's own delete still work. A
-        // focused field is never reached here, so it keeps its own keys.
+        // Delete key - only delete layer if NOT typing. A delete clears the
+        // selection the moment it starts, so a press while one is landing
+        // goes through too: deleteCurrentLayer holds it for when it lands.
+        // On the 3D tab the keys do nothing (Matt, 2026-11-08: too easy to
+        // hit there by accident). On the Header/Footer tab they take off the
+        // picked bar (a click on it) and nothing else: with no bar picked
+        // they do nothing, and never delete a screen (owner, 2026-11-08,
+        // the same ruling). On both, the right-click Delete Screen and the
+        // Screens list's own delete still work. A focused field is never
+        // reached here, so it keeps its own keys.
         if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping && this.viewMode === '3d') {
             e.preventDefault();
         } else if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping
-                && this.viewMode === 'rigging' && window.app && window.app._riggingPicked) {
+                && this.viewMode === 'rigging') {
             e.preventDefault();
-            window.app.removePickedRiggingBar();
+            if (window.app && window.app._riggingPicked) window.app.removePickedRiggingBar();
         } else if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping) {
             if (window.app && (window.app.currentLayer || window.app.deletionInProgress)) {
                 e.preventDefault();
