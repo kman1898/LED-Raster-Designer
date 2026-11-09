@@ -71,8 +71,10 @@ SCREENS ON A STAGE, IN THREE DIMENSIONS
 
 The 3D tab, right of Header/Footer, builds every Show Look screen from its
 real cabinets, with its Pixel Map on the front face and blanked cabinets
-left out. Each screen takes a position and a pitch, yaw and roll, typed
-in feet or meters or dragged in the view, and the 15 and 90 degree
+left out. Its name and sizes sit on top of the seams between cabinets,
+and a screen standing in front still hides them. Each screen takes a
+position and a pitch, yaw and roll, typed in feet or meters or dragged
+in the view, and the 15 and 90 degree
 buttons turn it in steps. Every joint between two columns or two rows
 of cabinets bends up to 15 degrees either way: set one figure for the
 whole screen, or click a joint and give it its own. A screen group
@@ -228,6 +230,12 @@ FIXES
 - FIX: A screen dragged straight after another change stays under the
   mouse. The save of that change could land mid-drag and put the screen
   back where the drag began until the mouse moved again.
+- FIX: Labels draw on top of the lines on every tab and on Output to
+  Display. Screen names and sizes, the corner X,Y readouts, Cabinet IDs,
+  IDM module IDs and the port and circuit labels are no longer crossed by
+  the pixel grid when zoomed in close, the outline of selected cabinets, a
+  group's circle and X or the canvas outline. A screen lying over another
+  still covers it.
 
 v1.6.0 - November 6, 2026
 ----------------------------
