@@ -2188,7 +2188,10 @@ export const CURVE_DEFAULTS = Object.freeze({
   goal: 'simplest',      // 'simplest' | 'even' | 'tightest'
   toleranceMm: 25,       // close enough to the drawing
   angles: [2.5, 5, 7.5, 10],
-  from: 'center',        // the datum: 'center' | 'left' | 'right'
+  from: 'center',        // the datum: 'center' | 'left' | 'right', or a spot
+                         // along the wall in half panels (8 = the middle of
+                         // panel 8, 8.5 = the joint between panels 8 and 9)
+  pick: null,            // a build picked by hand: { id, key } (curvePickKey)
 });
 
 const finiteOr = (v, fallback) => {
@@ -2212,8 +2215,41 @@ export function cleanCurve(raw) {
     goal: pick(src.goal, ['simplest', 'even', 'tightest'], CURVE_DEFAULTS.goal),
     toleranceMm: Math.max(0, finiteOr(src.toleranceMm, CURVE_DEFAULTS.toleranceMm)),
     angles,
-    from: pick(src.from, ['center', 'left', 'right'], CURVE_DEFAULTS.from),
+    from: typeof src.from === 'number' && Number.isFinite(src.from) && src.from > 0
+      ? Math.round(src.from * 2) / 2
+      : pick(src.from, ['center', 'left', 'right'], CURVE_DEFAULTS.from),
+    pick: src.pick && typeof src.pick === 'object' && typeof src.pick.id === 'string' && typeof src.pick.key === 'string'
+      ? { id: src.pick.id, key: src.pick.key } : null,
   };
+}
+
+/**
+ * What a hand-picked build was picked against: everything the joints
+ * depend on. Change any of it and the pick goes back to the app's own, as
+ * in the curve calculator (where the datum does not reset it either).
+ */
+export function curvePickKey({ panels, panelWidthM, sizes, settings }) {
+  const s = cleanCurve(settings);
+  const stock = [...new Set((sizes || []).map((n) => Math.round(finiteOr(n, 0))).filter((n) => n >= 1))].sort((a, b) => a - b);
+  return JSON.stringify([Math.round(finiteOr(panels, 0)), finiteOr(panelWidthM, 0), stock,
+    s.entry, s.value, s.bend, s.goal, s.toleranceMm, s.angles]);
+}
+
+/**
+ * How the stock covers the wall: the most panels the sizes can cover
+ * exactly without passing the wall's edge. Equal to `panels` when they
+ * tile it.
+ */
+export function stockCovers(panels, sizes) {
+  const n = Math.max(0, Math.round(finiteOr(panels, 0)));
+  const stock = (sizes || []).map((k) => Math.round(finiteOr(k, 0))).filter((k) => k >= 1);
+  const fills = [true];
+  let best = 0;
+  for (let r = 1; r <= n; r++) {
+    fills[r] = stock.some((k) => r - k >= 0 && fills[r - k]);
+    if (fills[r]) best = r;
+  }
+  return best;
 }
 
 /** The angle list as typed: "2.5, 5, 7.5 10" -> [2.5, 5, 7.5, 10]; null when nothing reads. */
@@ -2233,6 +2269,20 @@ export function parseAngles(text) {
  */
 export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'metric' }) {
   const s = cleanCurve(settings);
+  const pickKey = curvePickKey({ panels, panelWidthM, sizes, settings: s });
+  // Leftover stock is refused, never hung past the edge (owner, 2026-11-09):
+  // a wall the lit sizes cannot cover exactly lays nothing.
+  const count = Math.round(finiteOr(panels, 0));
+  const lit = (sizes || []).filter((k) => Math.round(finiteOr(k, 0)) >= 1);
+  if (count >= 2 && lit.length) {
+    const gap = count - stockCovers(count, lit);
+    if (gap > 0) {
+      return {
+        errors: [`These bar sizes leave ${gap} panel${gap === 1 ? '' : 's'} uncovered on a ${count}-panel wall. Light another size.`],
+        warnings: [], result: null, bars: [], joints: [], pickKey,
+      };
+    }
+  }
   const config = makeCurve('Screen');
   config.panel.count = Math.round(finiteOr(panels, 0));
   config.panel.width_m = finiteOr(panelWidthM, 0);
@@ -2243,17 +2293,17 @@ export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'me
     ? { mode: 'sweep_deg', value: s.value, radius_ref: 'face' }
     : { mode: 'percent_circle', value: s.value, radius_ref: 'face' };
   config.direction = s.bend;
-  config.build_from = s.from;
+  config.build_from = typeof s.from === 'number' ? snapDatum(s.from, config.panel.count) : s.from;
   config.fit_goal = s.goal;
   config.tolerance_m = s.toleranceMm / 1000;
+  // A build picked by hand holds while nothing the joints depend on changed.
+  config.pattern_choice = s.pick && s.pick.key === pickKey ? s.pick.id : 'auto';
   const result = solveCurve(config, system);
   if (result.errors.length) {
-    return { errors: result.errors, warnings: [], result, bars: [], joints: [] };
+    return { errors: result.errors, warnings: [], result, bars: [], joints: [], pickKey };
   }
-  // Each bar at its stock size: a part bar the wall runs out under is still
-  // a whole bar on the truck, hanging past the edge (the warning says so).
-  const bars = result.footers.map((f) => panelsUnder(f.width_m, config.panel.width_m));
+  const bars = result.footers.map((f) => f.panels);
   const sign = s.bend === 'concave' ? 1 : -1;
   const joints = result.joints.map((j) => (j.angle_deg === 0 ? 0 : sign * j.angle_deg));
-  return { errors: [], warnings: result.warnings, result, bars, joints };
+  return { errors: [], warnings: result.warnings, result, bars, joints, pickKey };
 }

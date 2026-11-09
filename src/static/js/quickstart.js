@@ -5891,7 +5891,7 @@
         riggingCurve: {
             since: '1.7.0',
             target: '#rigging-curve', place: 'right', title: 'Curve a wall',
-            body: 'Tick Curve and the lit sizes are the bars you have: it lays them and sets the angle at every join for the curve you ask. The strip and readouts show what it builds.',
+            body: 'Tick Curve and it lays the lit bar sizes and sets the angle at every join for the curve you ask. Drag the red dot on the plan to build from any panel, or pick another way below.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -5905,7 +5905,7 @@
                         var w = wall();
                         var j = w && w.stage3d && w.stage3d.jointsCol;
                         return w && w.riggingCurve && w.riggingCurve.on && j && Object.keys(j).length === w.columns - 1;
-                    });
+                    }, 10000);
                 }).then(function (ok) {
                     if (!ok) throw new Error('the curve was not laid');
                     return t.spot($('#rigging-curve-result')).then(function () { return t.pause(PACE.opened); });

@@ -326,9 +326,11 @@ class _Rigging {
         if (screens.length) {
             screens.forEach(l => { l.riggingSizes = [...sizes]; });
             // The lit sizes are a curved screen's stock: its curve is laid
-            // again from them, in this undo step (app-curve.js).
-            if (typeof this.riggingCurveRelay === 'function') this.riggingCurveRelay(screens);
-            this.updateLayers(screens, true, 'Bar Sizes');
+            // again from them in the background, and the sizes land with it
+            // as one undo step (app-curve.js).
+            const later = typeof this.riggingCurveRelayLater === 'function'
+                && this.riggingCurveRelayLater(screens, 'Bar Sizes', screens);
+            if (!later) this.updateLayers(screens, true, 'Bar Sizes');
         }
         this.refreshRiggingPanel();
     }
@@ -468,11 +470,12 @@ class _Rigging {
         const rows = this._riggingRowsToChange(selected);
         if (rows.length === 0) { this.refreshRiggingPanel(); return; }
         const changed = [];
+        const curved = [];
         rows.forEach(row => {
             row.layers.forEach(m => { m.riggingSizes = [...sizes]; if (!changed.includes(m)) changed.push(m); });
             // A curved screen's Auto lays its curve again (app-curve.js).
             if (row.layers.length === 1 && typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(row.layers[0])) {
-                if (!this.riggingCurveRelay(row.layers).length) misses.push(this._riggingRowName(row));
+                curved.push(row.layers[0]);
                 return;
             }
             // Across the wall as it stands (a wall turned a quarter is its
@@ -480,7 +483,14 @@ class _Rigging {
             if (!this._riggingFitRow(row, sizes)) misses.push(this._riggingRowName(row));
         });
         const kinds = new Set(rows.map(r => r.kind));
-        this.updateLayers(changed, true, kinds.size === 1 ? `Auto ${KIND_WORD[rows[0].kind]} Bars` : 'Auto Bars');
+        const action = kinds.size === 1 ? `Auto ${KIND_WORD[rows[0].kind]} Bars` : 'Auto Bars';
+        // With a curved screen among them, everything lands as one step
+        // once its curve is worked out (app-curve.js).
+        if (curved.length && this.riggingCurveRelayLater(curved, action, changed, { misses })) {
+            this.refreshRiggingPanel();
+            return;
+        }
+        this.updateLayers(changed, true, action);
         this.refreshRiggingPanel(misses);
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
@@ -494,13 +504,13 @@ class _Rigging {
         const misses = [];
         const changed = [];
         const locked = [];
+        const curved = [];
         misfits.forEach(m => {
             const row = this.riggingRow(m.layers[0], m.kind);
             const held = row.layers.filter(l => this._layerLocked(l));
             if (held.length) { held.forEach(l => { if (!locked.includes(l)) locked.push(l); }); return; }
             if (row.layers.length === 1 && typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(row.layers[0])) {
-                if (this.riggingCurveRelay(row.layers).length) changed.push(row.layers[0]);
-                else misses.push(this._riggingRowName(row));
+                curved.push(row.layers[0]);
                 return;
             }
             if (!this._riggingFitRow(row, this._riggingSizesOf(row.layers[0]))) {
@@ -510,6 +520,10 @@ class _Rigging {
             row.layers.forEach(l => { if (!changed.includes(l)) changed.push(l); });
         });
         if (locked.length) this._showLockedError(locked);
+        if (curved.length && this.riggingCurveRelayLater(curved, 'Auto Bars', changed, { misses })) {
+            this.refreshRiggingPanel();
+            return;
+        }
         if (changed.length) this.updateLayers(changed, true, 'Auto Bars');
         this.refreshRiggingPanel(misses);
         if (window.canvasRenderer) window.canvasRenderer.render();

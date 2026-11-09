@@ -10,6 +10,11 @@ What this file pins:
   the Curve off.
 * A show without the Curve opens unchanged, and looking at the tab writes
   nothing.
+* Lit sizes that cannot cover the wall exactly lay nothing and name the
+  gap. The datum drags onto any panel middle or joint. Ways to build it
+  lists every build, and a pick holds until the curve changes. The math
+  runs in a worker: the page keeps running, the newest edit wins, and an
+  undo while it works takes back that edit.
 * The OBJ export: one file per physical screen (a group is one file unless
   its Show Look Names switch is Screens; an ungrouped screen is its own),
   read back: the vertex count, a face per cabinet, texture coordinates
@@ -57,6 +62,15 @@ def page(e2e_server, pw_browser):
 
 RESET_JS = """async (specs) => {
     const app = window.app;
+    // The last test's writes land first: a layer PUT still on its way
+    // would otherwise reach the server after this reset and write an old
+    // screen over the new one that took its id.
+    for (let i = 0; i < 600; i++) {
+        const out = (app._inflightLayerPuts && app._inflightLayerPuts.size)
+            || (typeof app.riggingCurveBusy === 'function' && app.riggingCurveBusy());
+        if (!out) break;
+        await new Promise(r => setTimeout(r, 25));
+    }
     let project = await (await fetch('/api/project')).json();
     project.layers = [];
     project.groups = [];
@@ -140,6 +154,18 @@ def history_len(page):
     return page.evaluate('window.app.history.length')
 
 
+def idle(page, timeout=15000):
+    """The Curve works in the background (curve-worker.js): wait until it
+    has answered and its edit has landed, on the app's own state."""
+    assert settled(page, lambda: page.evaluate('window.app.riggingCurveBusy()'), lambda b: not b, timeout) is False
+
+
+def act(page, fn):
+    """One Curve edit, then the wait for it to land."""
+    fn()
+    idle(page)
+
+
 def toast_says(page, text):
     host = '#app-toast-host'
     return settled(page, lambda: page.inner_text(host) if page.query_selector(host) else '',
@@ -156,8 +182,10 @@ def test_the_curve_checkbox_lays_the_bars_and_the_angles(page):
     assert page.is_visible('#rigging-curve-on')
     assert not page.is_visible('#rigging-curve-fields')
     page.check('#rigging-curve-on')
-    lay = settled(page, lambda: layer(page, ids[0]),
-                  lambda l: (l.get('riggingCurve') or {}).get('on') and l.get('stage3d'))
+    idle(page)
+    lay = layer(page, ids[0])
+    assert (lay.get('riggingCurve') or {}).get('on') and lay.get('stage3d')
+    assert not page.is_visible('#rigging-curve-working')
     want = expected(page, ids[0])
     assert want['errors'] == []
     # the calculator's headline case: sixteen 500 mm tiles at 20%
@@ -174,7 +202,7 @@ def test_the_curve_checkbox_lays_the_bars_and_the_angles(page):
     assert page.locator('#rigging-curve-sheet svg rect[data-bar]').count() == 16
     assert page.locator('#rigging-curve-sheet svg text[data-angle]').count() == 9
     # the server holds the same
-    srv = settled(page, lambda: served(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('on'))
+    srv = settled(page, lambda: served(page, ids[0]), lambda l: l.get('riggingBars') == [1] * 16)
     assert srv['riggingCurve']['on'] is True and srv['riggingBars'] == [1] * 16
     assert joints_of(srv) == want['joints']
     assert page.errors == []
@@ -184,36 +212,37 @@ def test_each_edit_lays_it_again_and_undoes_one_step_at_a_time(page):
     ids = reset(page)
     open_rigging(page)
     singles_only(page)
-    page.check('#rigging-curve-on')
-    settled(page, lambda: layer(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('on'))
+    act(page, lambda: page.check('#rigging-curve-on'))
     first = layer(page, ids[0])
     n = history_len(page)
 
-    page.click('#rigging-curve-bend [data-value="convex"]')
-    convex = settled(page, lambda: layer(page, ids[0]), lambda l: l['riggingCurve']['bend'] == 'convex')
+    act(page, lambda: page.click('#rigging-curve-bend [data-value="convex"]'))
+    convex = layer(page, ids[0])
+    assert convex['riggingCurve']['bend'] == 'convex'
     assert joints_of(convex) == [-a if a else 0 for a in joints_of(first)]
 
-    page.click('#rigging-curve-goal [data-value="even"]')
-    even = settled(page, lambda: layer(page, ids[0]), lambda l: l['riggingCurve']['goal'] == 'even')
+    act(page, lambda: page.click('#rigging-curve-goal [data-value="even"]'))
+    even = layer(page, ids[0])
     bent = [a for a in joints_of(even) if a]
     assert len(set(bent)) == 1, joints_of(even)
 
     # % to degrees says the same curve: 20% is 72 degrees, nothing moves
-    page.click('#rigging-curve-entry [data-value="degrees"]')
-    deg = settled(page, lambda: layer(page, ids[0]), lambda l: l['riggingCurve']['entry'] == 'degrees')
+    act(page, lambda: page.click('#rigging-curve-entry [data-value="degrees"]'))
+    deg = layer(page, ids[0])
     assert deg['riggingCurve']['value'] == 72
     assert joints_of(deg) == joints_of(even)
     assert page.input_value('#rigging-curve-value') == '72'
 
     page.fill('#rigging-curve-angles', '5')
-    page.press('#rigging-curve-angles', 'Enter')
-    five = settled(page, lambda: layer(page, ids[0]), lambda l: l['riggingCurve']['angles'] == [5])
+    act(page, lambda: page.press('#rigging-curve-angles', 'Enter'))
+    five = layer(page, ids[0])
+    assert five['riggingCurve']['angles'] == [5]
     assert set(joints_of(five)) <= {0, -5}
 
-    # the lit sizes are the stock: doubles laid again in the same step
-    page.click('#rigging-size-picker .rigging-size-btn[data-size="2"]')
-    page.click('#rigging-size-picker .rigging-size-btn[data-size="1"]')
-    doubles = settled(page, lambda: layer(page, ids[0]), lambda l: l['riggingBars'] == [2] * 8)
+    # the lit sizes are the stock: laid again, the sizes in the same step
+    act(page, lambda: page.click('#rigging-size-picker .rigging-size-btn[data-size="2"]'))
+    act(page, lambda: page.click('#rigging-size-picker .rigging-size-btn[data-size="1"]'))
+    doubles = layer(page, ids[0])
     assert doubles['riggingBars'] == [2] * 8
     assert all(joints_of(doubles)[j] == 0 for j in range(0, 15, 2)), joints_of(doubles)
 
@@ -242,8 +271,8 @@ def test_a_reload_keeps_the_curve_and_the_tab_shows_it(page, e2e_server):
     ids = reset(page)
     open_rigging(page)
     singles_only(page)
-    page.check('#rigging-curve-on')
-    page.click('#rigging-curve-goal [data-value="tightest"]')
+    act(page, lambda: page.check('#rigging-curve-on'))
+    act(page, lambda: page.click('#rigging-curve-goal [data-value="tightest"]'))
     laid = settled(page, lambda: served(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('goal') == 'tightest')
     page.reload(wait_until='domcontentloaded')
     page.wait_for_timeout(2000)
@@ -261,8 +290,8 @@ def test_custom_and_remove_bar_leave_a_curved_screen_alone_and_clear_turns_it_of
     ids = reset(page)
     open_rigging(page)
     singles_only(page)
-    page.check('#rigging-curve-on')
-    lay = settled(page, lambda: layer(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('on'))
+    act(page, lambda: page.check('#rigging-curve-on'))
+    lay = layer(page, ids[0])
     n = history_len(page)
     page.click('#rigging-tool-picker [data-tool="custom"]')
     assert 'Custom does not' in page.inner_text('#rigging-curve-note')
@@ -275,8 +304,7 @@ def test_custom_and_remove_bar_leave_a_curved_screen_alone_and_clear_turns_it_of
     assert history_len(page) == n
     page.click('#rigging-tool-picker [data-tool="auto"]')
     # Auto on a curved screen lays the curve again, not a plain fit
-    page.click('#rigging-auto-btn')
-    page.wait_for_timeout(300)
+    act(page, lambda: page.click('#rigging-auto-btn'))
     assert layer(page, ids[0])['riggingBars'] == lay['riggingBars']
     page.click('#rigging-clear-btn')
     off = settled(page, lambda: layer(page, ids[0]), lambda l: not l.get('riggingBars'))
@@ -331,6 +359,190 @@ def test_an_old_show_opens_unchanged_and_looking_writes_nothing(page):
     now = served(page, ids[1])
     assert now == old
     assert history_len(page) == n
+    assert page.errors == []
+
+
+def test_leftover_stock_is_named_and_lays_nothing(page):
+    """Matt, 2026-11-09: lit sizes that cannot cover the wall exactly warn
+    and lay nothing; the screen's bars and joints stay as they were."""
+    ids = reset(page, [{'name': 'ODD', 'columns': 15, 'rows': 2, 'offset_x': 0, 'offset_y': 0}])
+    open_rigging(page)
+    singles_only(page)
+    page.click('#rigging-auto-btn')
+    before = settled(page, lambda: layer(page, ids[0]), lambda l: l.get('riggingBars') == [1] * 15)
+    assert before['riggingBars'] == [1] * 15
+    # doubles only: 15 panels leave one over
+    page.click('#rigging-size-picker .rigging-size-btn[data-size="2"]')
+    page.click('#rigging-size-picker .rigging-size-btn[data-size="1"]')
+    act(page, lambda: page.check('#rigging-curve-on'))
+    now = layer(page, ids[0])
+    assert now['riggingCurve']['on'] is True
+    assert page.inner_text('#rigging-curve-errors') == \
+        'These bar sizes leave 1 panel uncovered on a 15-panel wall. Light another size.'
+    assert not page.is_visible('#rigging-curve-result')
+    assert now['riggingBars'] == [1] * 15
+    assert not now.get('stage3d')
+    # Auto says so too, and still lays nothing
+    act(page, lambda: page.click('#rigging-auto-btn'))
+    assert 'No exact fit with these sizes: ODD' in page.inner_text('#rigging-status')
+    assert layer(page, ids[0])['riggingBars'] == [1] * 15 and not layer(page, ids[0]).get('stage3d')
+    # light singles again and it lays
+    n = history_len(page)
+    act(page, lambda: page.click('#rigging-size-picker .rigging-size-btn[data-size="1"]'))
+    laid = layer(page, ids[0])
+    assert laid.get('stage3d') and len(joints_of(laid)) == 14
+    assert not page.is_visible('#rigging-curve-errors')
+    assert history_len(page) == n + 1
+    assert page.errors == []
+
+
+def plan_spot(page, at):
+    """The client point of the plan's spot `at` (half panels along the wall)."""
+    return page.evaluate("""(at) => {
+        const host = document.getElementById('rigging-curve-plan');
+        // the plan sits low in the sidebar: bring it into view as a
+        // person would scroll to it
+        host.scrollIntoView({ block: 'center' });
+        const plan = host._curvePlan;
+        const s = plan.spots.find(x => x.at === at);
+        const b = plan.svg.getBoundingClientRect();
+        return { x: b.left + s.x, y: b.top + s.y };
+    }""", at)
+
+
+def solve_now(page, layer_id):
+    return page.evaluate("""(id) => {
+        const out = window.app.riggingCurveSolve(window.app.project.layers.find(x => x.id === id));
+        return { joints: out.joints, datum: out.result.datum_at,
+                 chosen: out.result.chosen_option_id, app: out.result.recommended_option_id,
+                 options: out.result.options.map(o => o.id) };
+    }""", layer_id)
+
+
+def test_the_datum_drags_onto_any_panel_or_joint(page):
+    ids = reset(page)
+    open_rigging(page)
+    singles_only(page)
+    act(page, lambda: page.check('#rigging-curve-on'))
+    assert page.get_attribute('#rigging-curve-plan circle', 'data-datum') == '8.5'
+    n = history_len(page)
+    a, b = plan_spot(page, 8.5), plan_spot(page, 4)
+    page.mouse.move(a['x'], a['y'])
+    page.mouse.down()
+    page.mouse.move((a['x'] + b['x']) / 2, (a['y'] + b['y']) / 2, steps=4)
+    page.mouse.move(b['x'], b['y'], steps=4)
+    # the mark follows the pointer before anything is laid
+    assert page.get_attribute('#rigging-curve-plan circle', 'data-datum') == '4'
+    assert history_len(page) == n
+    act(page, lambda: page.mouse.up())
+    now = layer(page, ids[0])
+    assert now['riggingCurve']['from'] == 4
+    assert history_len(page) == n + 1
+    want = solve_now(page, ids[0])
+    assert want['datum'] == 4 and joints_of(now) == want['joints']
+    assert page.get_attribute('#rigging-curve-sheet path[data-datum]', 'data-datum') == '4'
+    assert 'From panel 4' in page.inner_text('#rigging-curve-from-label')
+    # dragging selected no text on the page
+    assert page.evaluate('String(window.getSelection())') == ''
+    # a joint, in half steps
+    c = plan_spot(page, 11.5)
+    page.mouse.move(c['x'], c['y'])
+    page.mouse.down()
+    act(page, lambda: page.mouse.up())
+    assert layer(page, ids[0])['riggingCurve']['from'] == 11.5
+    assert 'between panels 11 and 12' in page.inner_text('#rigging-curve-from-label')
+    # the quick picks still work, and undo walks back through the drags
+    act(page, lambda: page.click('#rigging-curve-from [data-value="left"]'))
+    assert layer(page, ids[0])['riggingCurve']['from'] == 'left'
+    page.evaluate('window.app.undo()')
+    assert settled(page, lambda: layer(page, ids[0])['riggingCurve']['from'], lambda f: f == 11.5) == 11.5
+    assert page.errors == []
+
+
+def test_ways_to_build_it_lists_every_build_and_a_pick_holds_until_the_curve_changes(page):
+    ids = reset(page)
+    open_rigging(page)
+    singles_only(page)
+    act(page, lambda: page.check('#rigging-curve-on'))
+    want = solve_now(page, ids[0])
+    shown = page.evaluate("[...document.querySelectorAll('#rigging-curve-ways [data-way]')].map(e => e.dataset.way)")
+    assert shown == want['options'] and shown[0] == '7.5'
+    assert '2.5+7.5' in shown
+    # the closest even build is always offered
+    assert any(w.endswith(' even') for w in shown), shown
+    assert page.is_visible('#rigging-curve-ways')
+    assert 'in use' in page.inner_text('#rigging-curve-ways [data-way="7.5"]')
+    # Use this: the wall is built that way, one undo step
+    n = history_len(page)
+    act(page, lambda: page.click('#rigging-curve-ways [data-pick="2.5+7.5"]'))
+    picked = layer(page, ids[0])
+    assert picked['riggingCurve']['pick']['id'] == '2.5+7.5'
+    assert {a for a in joints_of(picked) if a} == {2.5, 7.5}
+    assert history_len(page) == n + 1
+    assert 'You picked this one by hand' in page.inner_text('#rigging-curve-ways')
+    assert page.inner_text('#rigging-curve-reason').startswith('Your pick')
+    # the datum does not reset it
+    act(page, lambda: page.click('#rigging-curve-from [data-value="left"]'))
+    assert solve_now(page, ids[0])['chosen'] == '2.5+7.5'
+    assert 'You picked this one by hand' in page.inner_text('#rigging-curve-ways')
+    # a change to the curve does: the app picks again
+    page.fill('#rigging-curve-value', '21')
+    act(page, lambda: page.press('#rigging-curve-value', 'Enter'))
+    assert 'You picked this one by hand' not in page.inner_text('#rigging-curve-ways')
+    again = solve_now(page, ids[0])
+    assert again['chosen'] == again['app']
+    assert joints_of(layer(page, ids[0])) == again['joints']
+    # and Let the app pick drops a pick at once
+    act(page, lambda: page.click('#rigging-curve-ways [data-pick="2.5+7.5"]'))
+    act(page, lambda: page.click('#rigging-curve-ways [data-pick="auto"]'))
+    assert layer(page, ids[0])['riggingCurve']['pick'] is None
+    assert page.errors == []
+
+
+def test_the_math_runs_in_a_worker_and_the_newest_edit_wins(page):
+    ids = reset(page, [{'name': 'BIG', 'columns': 48, 'rows': 2, 'offset_x': 0, 'offset_y': 0}])
+    open_rigging(page)
+    page.evaluate("""(id) => { const l = window.app.project.layers.find(x => x.id === id); l.riggingSizes = [1, 2, 3, 4];
+        window.app.refreshRiggingPanel(); }""", ids[0])
+    page.check('#rigging-curve-on')
+    assert page.is_visible('#rigging-curve-working')
+    # the page keeps running while it works: a timer every 20 ms is never
+    # held up by the math (it took over a second on this wall on the page)
+    lag = page.evaluate("""() => new Promise(res => { const t0 = performance.now(); let worst = 0, last = t0;
+        const id = setInterval(() => { const now = performance.now(); worst = Math.max(worst, now - last); last = now;
+            if (!window.app.riggingCurveBusy() || now - t0 > 20000) { clearInterval(id); res(worst); } }, 20); })""")
+    assert page.evaluate('!!window.app._curveWorkerObj && !window.app._curveWorkerBroken')
+    assert lag < 400, lag
+    idle(page, 60000)
+    assert not page.is_visible('#rigging-curve-working')
+    # two edits close together: only the newest lands, as one step
+    n = history_len(page)
+    page.click('#rigging-curve-goal [data-value="even"]')
+    page.click('#rigging-curve-goal [data-value="tightest"]')
+    idle(page, 60000)
+    now = layer(page, ids[0])
+    assert now['riggingCurve']['goal'] == 'tightest'
+    assert joints_of(now) == solve_now(page, ids[0])['joints']
+    assert history_len(page) == n + 1
+    # an undo while it works takes back that edit, and its answer never
+    # lands; a redo brings the edit back and the tab says it is not laid
+    m = history_len(page)
+    page.click('#rigging-curve-bend [data-value="convex"]')
+    assert page.evaluate('window.app.riggingCurveBusy()')
+    page.evaluate('window.app.undo()')
+    idle(page, 60000)
+    after = layer(page, ids[0])
+    assert after['riggingCurve']['bend'] == 'concave', after['riggingCurve']
+    assert after['riggingCurve']['goal'] == 'tightest'
+    assert joints_of(after) == joints_of(now)
+    assert history_len(page) == m + 1
+    page.evaluate('window.app.redo()')
+    page.evaluate('window.app.refreshRiggingPanel()')
+    assert layer(page, ids[0])['riggingCurve']['bend'] == 'convex'
+    assert 'not this curve' in page.inner_text('#rigging-curve-note')
+    act(page, lambda: page.click('#rigging-auto-btn'))
+    assert joints_of(layer(page, ids[0])) == solve_now(page, ids[0])['joints']
+    assert all(a <= 0 for a in joints_of(layer(page, ids[0])))
     assert page.errors == []
 
 
@@ -397,6 +609,8 @@ def group_two(page, ids):
     page.evaluate("() => { window.app.groupSelectedLayers(); }")
     assert settled(page, lambda: page.evaluate(
         f"window.app.project.layers.find(l => l.id === {ids[1]}).group_id"), bool)
+    # the grouping's own step lands when the server has answered
+    page.evaluate("async () => { await window.app._groupCommitChain; }")
 
 
 def face_corners_xz(obj, row_top=True):
@@ -448,8 +662,8 @@ def test_an_obj_of_a_curved_screen_reads_back_right(page):
     ids = reset(page)
     open_rigging(page)
     singles_only(page)
-    page.check('#rigging-curve-on')
-    lay = settled(page, lambda: layer(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('on'))
+    act(page, lambda: page.check('#rigging-curve-on'))
+    lay = layer(page, ids[0])
     files = obj_files(page)
     assert sorted(files) == ['Test_Show_Canvas_1_Pixel_Map.png', 'Test_Show_WALL.mtl', 'Test_Show_WALL.obj'], sorted(files)
     assert files['Test_Show_Canvas_1_Pixel_Map.png'] > 1000
@@ -498,21 +712,15 @@ def test_a_group_is_one_file_unless_set_to_screens_and_a_loose_screen_is_its_own
         {'name': 'SIDE', 'columns': 2, 'rows': 2, 'offset_x': 0, 'offset_y': 600},
     ])
     group_two(page, ids[:2])
-    # the group has landed on the server before it is renamed, so no late
-    # reply to the grouping puts the old name back
-    served_groups = "fetch('/api/project').then(r => r.json()).then(p => (p.groups || []).map(g => g.name))"
-    assert settled(page, lambda: page.evaluate(served_groups), lambda n: len(n) == 1, 5000)
-    page.evaluate("async () => { await window.app.renameGroup(window.app.project.groups[0].id, 'CENTER'); }")
-    assert settled(page, lambda: page.evaluate(served_groups), lambda n: n == ['CENTER'], 5000) == ['CENTER']
-    assert settled(page, lambda: page.evaluate("window.app.project.groups.map(g => g.name)"), lambda n: n == ['CENTER']) == ['CENTER']
+    # the group as the app names it: one file, named after the group
     files = obj_files(page)
-    assert sorted(files) == ['Test_Show_CENTER.mtl', 'Test_Show_CENTER.obj', 'Test_Show_Canvas_1_Pixel_Map.png',
+    assert sorted(files) == ['Test_Show_Canvas_1_Pixel_Map.png', 'Test_Show_Group_1.mtl', 'Test_Show_Group_1.obj',
                              'Test_Show_SIDE.mtl', 'Test_Show_SIDE.obj'], sorted(files)
-    center = read_obj(files['Test_Show_CENTER.obj'])
+    center = read_obj(files['Test_Show_Group_1.obj'])
     assert [o['name'] for o in center['objects']] == ['LEFT', 'RIGHT']
     assert [len(o['faces']) for o in center['objects']] == [8, 8]
     assert {o['material'] for o in center['objects']} == {'Canvas_1'}
-    assert any('Group: CENTER, 2 screens' in c for c in center['comments'])
+    assert any('Group: Group 1, 2 screens' in c for c in center['comments'])
     # each member keeps its own place in the canvas: RIGHT starts where LEFT ends
     left_u = [center['vt'][i - 1][0] for f in center['objects'][0]['faces'] for i in (k[1] for k in f)]
     right_u = [center['vt'][i - 1][0] for f in center['objects'][1]['faces'] for i in (k[1] for k in f)]

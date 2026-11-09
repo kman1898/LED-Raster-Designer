@@ -1824,22 +1824,25 @@
                                     <span style="flex: none; width: 74px; color: #aaa;">Lock angles</span>
                                     <input type="text" id="rigging-curve-angles" autocomplete="off" style="flex: 1; min-width: 0; padding: 3px 5px;">
                                 </div>
-                                <div style="margin-bottom: 6px;" data-tooltip="Build from, where the crew sets out from: the center, or the left or right end. The wall touches the drawing there and any drift lands away from it.">
+                                <div style="margin-bottom: 6px;" data-tooltip="Build from, where the crew sets out from: the center, the left or right end, or any panel or joint by dragging the red dot on the plan. The wall touches the drawing there and any drift lands away from it.">
                                     <div style="color: #aaa; margin-bottom: 2px;">Build from</div>
                                     <div id="rigging-curve-from" style="display: flex; gap: 2px;">
                                         <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="left" style="flex: 1; min-width: 0; padding: 3px 2px; font-size: 11px;">Left</button>
                                         <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="center" style="flex: 1; min-width: 0; padding: 3px 2px; font-size: 11px;">Center</button>
                                         <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="right" style="flex: 1; min-width: 0; padding: 3px 2px; font-size: 11px;">Right</button>
                                     </div>
+                                    <div id="rigging-curve-from-label" style="color: #888; font-size: 11px; margin-top: 2px;"></div>
                                 </div>
+                                <div id="rigging-curve-working" style="display: none; color: #aaa; font-size: 11px; margin-bottom: 4px;" data-tooltip="Working, the Curve is working out the bars and the angles. The rest of the app carries on meanwhile.">Working</div>
                                 <div id="rigging-curve-errors" style="display: none; color: #ff6b6b; white-space: pre-line;"></div>
                                 <div id="rigging-curve-result" style="padding: 6px; background: #111; border: 1px solid #4a4a4a; border-radius: 4px;">
                                     <div id="rigging-curve-head" style="font-weight: 600; color: #fff; margin-bottom: 4px;" data-tooltip="Set the bars to, the angle to lock each join to and how many joins get it. The strip below shows which."></div>
                                     <div id="rigging-curve-sheet" style="overflow-x: auto; margin-bottom: 4px;" data-tooltip="Build sheet, the bars left to right with their size, the angle on every join that bends, and a red mark where the build starts."></div>
-                                    <div id="rigging-curve-plan" style="margin-bottom: 4px;" data-tooltip="Plan, the wall from above with the audience at the bottom: red as built, dashed as drawn."></div>
+                                    <div id="rigging-curve-plan" style="margin-bottom: 4px;" data-tooltip="Plan, the wall from above with the audience at the bottom: red as built, dashed as drawn. Drag the red dot onto any panel middle or joint to build from there."></div>
                                     <div id="rigging-curve-readouts" style="display: flex; flex-direction: column; gap: 1px;" data-tooltip="Readouts, what the wall builds, measured off the built wall: the sweep, the radius to the front face, the width end to end, the depth of the bow, and the farthest it lands from the drawn curve."></div>
                                     <div id="rigging-curve-reason" style="color: #aaa; font-size: 11px; margin-top: 4px;"></div>
                                     <div id="rigging-curve-warnings" style="display: none; color: #f5a623; font-size: 11px; margin-top: 4px; white-space: pre-line;"></div>
+                                    <div id="rigging-curve-ways" data-tooltip="Ways to build it, every way these angles can build the curve, best first by the Curve's rule, the closest and the closest even one among them. Use this builds the wall that way until the curve, the bars or the wall change."></div>
                                 </div>
                             </div>
                         </div>

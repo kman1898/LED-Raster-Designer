@@ -126,6 +126,17 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   in one undo step. Auto lays it again too. While Curve is on, the bars are
   the Curve's: Custom and Remove Bar leave that screen alone, and Clear
   takes the bars off and turns the Curve off.
+- NEW: Build from the center or either end, or drag the red dot on the
+  plan onto any panel or the joint between two.
+- NEW: Ways to build it lists every way your angles can make the curve,
+  best first, with how many joints bend, the % it builds and how far off
+  the drawing it lands. Use this builds the wall that way until you change
+  the curve, the bars or the wall.
+- NEW: The Curve works it out in the background, so the app never stops
+  while it does; the tab says Working until the bars land.
+- NEW: If the sizes you have lit can't cover the wall exactly, the Curve
+  says how many panels they leave uncovered and lays nothing until you
+  light another size.
 - NEW: File > Export OBJ saves each screen as a 3D model in meters, bent
   and curved as it stands on the 3D stage, with every cabinet mapped to
   where it sits in its canvas, so content mapped to that canvas lands on
