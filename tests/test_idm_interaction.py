@@ -508,3 +508,108 @@ def test_a_browser_that_cannot_place_windows_says_to_drag_them(e2e_server, pw_br
         assert 'Drag it onto its display' in pg.inner_text('#output-display-place-note')
     finally:
         context.close()
+
+
+# ── half cabinets number their own modules ────────────────────────────────
+
+HALF_JS = """async ([which]) => {
+    const app = window.app;
+    const a = app.project.layers.find(x => x.name === 'IdmA');
+    const pick = {
+        firstRow: [q => q.row === 0, 'height'], lastRow: [q => q.row === 1, 'height'],
+        firstCol: [q => q.col === 0, 'width'], lastCol: [q => q.col === 2, 'width'],
+    }[which];
+    const ids = a.panels.filter(pick[0]).map(q => ({id: q.id, halfTile: pick[1]}));
+    await fetch(`/api/layer/${a.id}/panels/set_half_tile`, {method: 'POST',
+        headers: {'Content-Type': 'application/json'}, body: JSON.stringify({panels: ids})});
+    app.loadProject();
+}"""
+
+# Each case: the half cabinet looked at, the module key of its first module
+# (its place in a whole cabinet's 2 x 2 grid) and the module the half keeps
+# beside or under it.
+HALF_CASES = {
+    # a half first row meets the wall below it: it keeps the whole
+    # cabinet's bottom row (my = 1), which reads row 1
+    'firstRow': ('0,0', '0,0,0,1', '0,0,1,1'),
+    'lastRow': ('0,1', '0,1,0,0', '0,1,1,0'),
+    # a half first column meets the wall on its right: mx = 1, column A
+    'firstCol': ('0,0', '0,0,1,0', '0,0,1,1'),
+    'lastCol': ('2,0', '2,0,0,0', '2,0,0,1'),
+}
+
+
+@pytest.mark.parametrize('which', list(HALF_CASES))
+def test_a_half_cabinet_reads_1_1_at_its_own_first_module(page, which):
+    from test_idm_module_ids import set_ids, texts, list_labels
+    reset_project(page)
+    page.evaluate(HALF_JS, [which])
+    settled(page, lambda: page.evaluate(
+        "() => window.app.project.layers.find(x => x.name === 'IdmA').panels.filter(p => p.halfTile && p.halfTile !== 'none').length"),
+        lambda n: n >= 2, 8000)
+    page.wait_for_timeout(400)
+    set_layout(page, 'IdmA', 2, 2)
+    set_ids(page, True)
+    cab, first, second = HALF_CASES[which]
+    got = texts(page, 'IdmA')
+    in_half = {k: t for k, t in got.items() if k.startswith(cab + ',')}
+    # half the modules in that direction: two, not four
+    assert len(in_half) == 2, in_half
+    assert in_half[first] == 'A1', in_half
+    assert in_half[second] == ('B1' if which in ('firstRow', 'lastRow') else 'A2'), in_half
+    assert got == list_labels(page, 'IdmA')
+    # the highlight readout and the pad
+    page.evaluate("""(k) => { const app = window.app;
+        app._idmSetHighlight(app.project.layers.find(x => x.name === 'IdmA').id, k); }""", first)
+    assert page.inner_text('#idm-hl-readout').endswith('Module A1'), page.inner_text('#idm-hl-readout')
+    assert 'Row 1, col 1' in page.inner_text('#idm-hl-where')
+    # a mark round-trips: a click, the list, the server, a reload
+    col, row, mx, my = (int(v) for v in first.split(','))
+    pt = point(page, 'IdmA', col, row, mx, my)
+    page.mouse.click(pt['x'], pt['y'])
+    got_served = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and first in v['marks'])
+    assert list(got_served['marks']) == [first], got_served
+    row_text = ' '.join(page.inner_text('#idm-list .idm-row-text').split())
+    assert 'Module A1 (row 1, col 1)' in row_text, row_text
+    page.evaluate("() => window.app.loadProject()")
+    settled(page, lambda: marks_of(page, 'IdmA'), lambda v: first in v, 8000)
+    page.wait_for_timeout(400)
+    assert list(marks_of(page, 'IdmA')) == [first]
+    assert texts(page, 'IdmA')[first] == 'A1'
+    page.mouse.move(3, 3)
+    set_ids(page, False)
+
+
+def test_a_mark_saved_before_the_fix_stays_on_its_module(page, e2e_server):
+    """A show saved before half cabinets numbered their own modules keeps
+    its marks by the module's place in a whole cabinet's grid; that key is
+    unchanged, so the mark stays on the same physical module and only its
+    name reads from 1,1 now."""
+    import json
+    import urllib.request
+    cid = reset_project(page)
+    page.evaluate(HALF_JS, ['firstRow'])
+    settled(page, lambda: page.evaluate(
+        "() => window.app.project.layers.find(x => x.name === 'IdmA').panels.filter(p => p.halfTile === 'height').length"),
+        lambda n: n == 3, 8000)
+    lid = page.evaluate("() => window.app.project.layers.find(x => x.name === 'IdmA').id")
+    # the old show's mark: the bottom-left module of the half first row's
+    # first cabinet, which the old labels called A2
+    old = {'modulesX': 2, 'modulesY': 2, 'marks': {'0,0,0,1': {'style': 'color', 'color': '#00ff00'}}}
+    req = urllib.request.Request(f'{e2e_server}/api/layer/{lid}', data=json.dumps({'idm': old}).encode('utf-8'),
+                                 headers={'Content-Type': 'application/json'}, method='PUT')
+    urllib.request.urlopen(req).read()
+    page.evaluate("() => window.app.loadProject()")
+    settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '0,0,0,1' in v, 8000)
+    page.wait_for_timeout(300)
+    assert marks_of(page, 'IdmA') == {'0,0,0,1': {'style': 'color', 'color': '#00ff00'}}
+    assert 'Module A1 (row 1, col 1)' in ' '.join(page.inner_text('#idm-list .idm-row-text').split())
+    # on the wall it is still the half cabinet's left module: the half row
+    # is 64 px tall at y 0..64, its left module x 0..64
+    page.mouse.move(3, 3)
+    out = open_output(page, cid)
+    try:
+        wait_pixel(out, 32, 32, (0, 255, 0))
+        assert pixel(out, 96, 32) != [0, 255, 0]
+    finally:
+        out.close()

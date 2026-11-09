@@ -138,6 +138,9 @@ FIXES
   or cleared the modules it crossed.
 - FIX: A quick drag on the IDM Locator marks every module it crosses,
   not only the ones the mouse happened to stop on.
+- FIX: On the IDM Locator a half cabinet numbers its modules from its
+  own first module, A1, like any other cabinet. A half first row used to
+  read A2. Marks already made stay on the same modules.
 - FIX: Screen order Top to bottom prints the binder's screens and groups
   in the order the Screens list shows them in Show Look, Data and Power,
   whichever tab is open when you export, and Bottom to top prints them the

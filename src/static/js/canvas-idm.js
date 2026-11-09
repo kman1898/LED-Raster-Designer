@@ -119,14 +119,30 @@ Object.assign(CanvasRenderer.prototype, {
     // starting again in every cabinet: in A1, B1 style a 2 x 2 cabinet
     // reads A1 B1 / A2 B2, in A1, A2 style A1 A2 / B1 B2, in 1,1 style
     // 1,1 1,2 / 2,1 2,2; any other style numbers the modules 1.. row by
-    // row. The position is the module's in the FULL cabinet grid, seen
-    // from the front (the screen as built, before any Pixel Map rotation),
-    // so a half cabinet's modules read as the same modules of a whole one.
-    // Returns cell -> text.
+    // row. Seen from the front (the screen as built, before any Pixel Map
+    // rotation). A half cabinet is a cabinet of its own (the owner's ruling,
+    // 2026-11-08): its modules number from 1,1 at its own first module, so
+    // the one row a half first row keeps reads A1 B1, not A2 B2. Given the
+    // cabinet's `cells`, the position is the module's among them; without
+    // them, its place in a whole cabinet. The mark keys stay the module's
+    // place in the whole cabinet's grid (idmCellKey), so no mark moves.
+    // Returns (cell, cells) -> text.
     idmModuleLabeler(layer) {
         const style = (layer && layer.cabinetIdStyle) || 'column-row';
         const counts = this.idmCounts(layer);
-        return (cell) => this.cabinetIdFormat(style, cell.my, cell.mx, cell.my * counts.x + cell.mx + 1);
+        return (cell, cells) => {
+            let col = cell.mx, row = cell.my, across = counts.x;
+            if (Array.isArray(cells) && cells.length) {
+                const xs = [...new Set(cells.map(c => c.mx))].sort((a, b) => a - b);
+                const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
+                if (xs.includes(cell.mx) && ys.includes(cell.my)) {
+                    col = xs.indexOf(cell.mx);
+                    row = ys.indexOf(cell.my);
+                    across = xs.length;
+                }
+            }
+            return this.cabinetIdFormat(style, row, col, row * across + col + 1);
+        };
     },
 
     // Every cabinet of `layer` with its modules: [{panel, cells}].
@@ -475,7 +491,7 @@ Object.assign(CanvasRenderer.prototype, {
             };
             for (const { panel, cells } of groups) {
                 for (const c of cells) {
-                    const text = labelOf(c);
+                    const text = labelOf(c, cells);
                     const m = measure(text);
                     const x = centred ? c.x + (c.w - m.w) / 2 : c.x + inset;
                     const y = centred ? c.y + (c.h - H) / 2 : c.y + inset;

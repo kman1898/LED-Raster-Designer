@@ -1174,7 +1174,7 @@ class _IdmLocator {
         const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
         const screen = layer.name || 'Screen';
         const cabinet = r.cabinetIdLabeler(layer)(panel);
-        const module = r.idmModuleLabeler(layer)(cell);
+        const module = r.idmModuleLabeler(layer)(cell, cells);
         return {
             screen, cabinet, module,
             row: ys.indexOf(parts[3]) + 1, col: xs.indexOf(parts[2]) + 1,
@@ -1600,7 +1600,7 @@ class _IdmLocator {
                 rows.push({
                     key, panel, index,
                     cabinet: labelOf(panel),
-                    module: moduleOf(cell),
+                    module: moduleOf(cell, cells),
                     row: ys.indexOf(parts[3]) + 1,
                     col: xs.indexOf(parts[2]) + 1,
                     style: mark.style === 'x' ? 'x' : 'color',

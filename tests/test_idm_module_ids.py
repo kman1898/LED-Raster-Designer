@@ -9,8 +9,8 @@ What this file pins:
   route, and is never an undo step. On, every module carries its label -
   the screen's Cabinet ID style run over the cabinet's own module grid,
   starting again in every cabinet (canvas-idm idmModuleLabeler), the very
-  label the locator list and the highlight readout print, a half cabinet's
-  modules labelled as the same modules of a whole one - in the app and in
+  label the locator list and the highlight readout print, a half cabinet
+  a cabinet of its own numbered from its own first module - in the app and in
   the output window's frame (pixels); off, none. Changing the style in the
   Cabinet ID tab changes them, and they sit where its Label Position puts
   the cabinet IDs (centred or top-left). They are never black (an unlit
@@ -479,12 +479,13 @@ def test_the_labels_follow_the_cabinet_id_style_and_match_the_list(page):
     page.evaluate("() => window.app._idmClearHighlight()")
 
 
-def test_a_half_cabinet_labels_its_modules_as_the_whole_cabinet_does(page):
+def test_a_half_cabinet_numbers_its_own_modules_from_its_first(page):
     fresh(page)
     set_ids(page, True)
     # IdmA's left column cut to half width, 4 x 4 modules of 32 px: the half
     # keeps two columns (it meets the wall on its right, so the cut is on its
-    # free left edge) and labels them as those columns of a whole cabinet
+    # free left edge). A half cabinet is a cabinet of its own (the owner's
+    # ruling, 2026-11-08): its two columns read A and B, not C and D.
     page.evaluate("""async () => {
         const app = window.app;
         const a = app.project.layers.find(x => x.name === 'IdmA');
@@ -501,9 +502,10 @@ def test_a_half_cabinet_labels_its_modules_as_the_whole_cabinet_does(page):
     half = {k: t for k, t in got.items() if k.startswith('0,0,')}
     whole = {k: t for k, t in got.items() if k.startswith('1,0,')}
     assert len(half) == 8 and len(whole) == 16, (half, whole)
-    assert sorted(half.values()) == sorted(['C1', 'D1', 'C2', 'D2', 'C3', 'D3', 'C4', 'D4']), half
+    assert sorted(half.values()) == sorted(['A1', 'B1', 'A2', 'B2', 'A3', 'B3', 'A4', 'B4']), half
     for k, t in half.items():
-        assert whole['1,0,' + k[4:]] == t, (k, t)
+        _c, _r, mx, my = (int(v) for v in k.split(','))
+        assert t == 'AB'[mx - 2] + str(my + 1), (k, t)
     # a mark on the half cabinet: the list names the module by its label
     page.evaluate("""() => {
         const app = window.app, l = app.project.layers.find(x => x.name === 'IdmA');
@@ -512,8 +514,8 @@ def test_a_half_cabinet_labels_its_modules_as_the_whole_cabinet_does(page):
         window.canvasRenderer.render();
     }""")
     row = page.inner_text('#idm-list .idm-row-text')
-    assert half['0,0,3,1'] == 'D2'
-    assert re.search(r'Module D2(?!\d)', row), row
+    assert half['0,0,3,1'] == 'B2'
+    assert re.search(r'Module B2(?!\d)', row), row
     assert '(row 2, col 2)' in row, row
 
 
