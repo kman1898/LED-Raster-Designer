@@ -473,6 +473,10 @@ jobs:
           function Answers {
             try { return (Invoke-WebRequest -UseBasicParsing -Uri "$base/api/version" -TimeoutSec 2).StatusCode -eq 200 } catch { return $false }
           }
+          function Running-Copies {
+            return @(Get-CimInstance Win32_Process -Filter "Name = '$appName.exe'" |
+              Where-Object { $_.ExecutablePath -eq $exe })
+          }
 
           Write-Host "--- 1. install an older version ---"
           Check ((Run-Setup $env:LRD_SETUP_OLD @()) -eq 0) 'older setup ran'
@@ -504,6 +508,9 @@ jobs:
           $old.Refresh()
           Check $old.HasExited 'setup closed the running copy'
           Check (-not (Answers)) 'the old server is gone'
+          # Only the app's own Update passes /RELAUNCH; an ordinary silent
+          # install (an admin's, or this one) must leave the app closed.
+          Check ((Running-Copies).Count -eq 0) 'a silent install without /RELAUNCH does not reopen the app'
           Check ((Get-ItemProperty $uninstKey).DisplayVersion -eq $env:LRD_SETUP_LABEL) "Settings > Apps now lists $env:LRD_SETUP_LABEL"
           $entries = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
             Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq $appName })
@@ -544,6 +551,47 @@ jobs:
           Check (Test-Path $presetFile) "preset kept: $presetFile"
           Check ((Get-Content $settingsFile -Raw) -match 'installer_smoke') "settings kept: $settingsFile"
           Check (Test-Path (Join-Path $dataDir 'logs\led_raster_designer.log')) 'logs kept'
+          Stop-IfFailed
+
+          # The app's own Update (src/updater.py), driven by
+          # scripts/update_smoke.py with the app's code: download the setup
+          # the way Update does, prove the copy has no Zone.Identifier (so
+          # Windows does not warn), then start it the way Install and
+          # restart does and exit, as the app quits. Setup must upgrade the
+          # older install in place and reopen the app by itself.
+          Write-Host "--- 7. Update in the app: download, check, install, reopen ---"
+          Check ((Run-Setup $env:LRD_SETUP_OLD @()) -eq 0) 'older setup ran again'
+          Check ((Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).DisplayVersion -eq '0.0.1') 'back on 0.0.1'
+          Stop-IfFailed
+          $py = Join-Path $PWD '.venv\Scripts\python.exe'
+          $fetchedTxt = Join-Path $env:RUNNER_TEMP 'update-fetched.txt'
+          & $py scripts\update_smoke.py fetch $env:LRD_SETUP $env:LRD_SETUP_LABEL $fetchedTxt | Out-Host
+          Check ($LASTEXITCODE -eq 0) 'the updater downloaded the setup and its checksum matched'
+          Stop-IfFailed
+          $fetched = (Get-Content $fetchedTxt -Raw).Trim()
+          $streams = @(Get-Item -LiteralPath $fetched -Stream * | Where-Object { $_.Stream -ne ':$DATA' } | ForEach-Object { $_.Stream })
+          Check ($streams -notcontains 'Zone.Identifier') "no Zone.Identifier on $fetched (streams: $($streams -join ', '))"
+          Stop-IfFailed
+          & $py scripts\update_smoke.py install $fetched | Out-Host
+          Check ($LASTEXITCODE -eq 0) 'the updater started setup'
+          $reopened = $false
+          foreach ($i in 1..180) {
+            Start-Sleep -Seconds 1
+            if (((Get-ItemProperty $uninstKey -ErrorAction SilentlyContinue).DisplayVersion -eq $env:LRD_SETUP_LABEL) -and (Answers)) { $reopened = $true; break }
+          }
+          if (-not $reopened) {
+            $setupLog = Join-Path (Split-Path $fetched) 'install.log'
+            if (Test-Path $setupLog) { Get-Content $setupLog -Tail 40 | Out-Host }
+          }
+          Check $reopened "setup upgraded 0.0.1 to $env:LRD_SETUP_LABEL in place and reopened the app"
+          $copies = Running-Copies
+          Check ($copies.Count -eq 1) "the reopened app runs from $exe (found $($copies.Count))"
+          $presets = (Invoke-RestMethod -Uri "$base/api/presets").presets
+          Check ($presets -contains 'installer-smoke') 'the user data is still there after the update'
+          $entries = @(Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+            Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -eq $appName })
+          Check ($entries.Count -eq 1) "still one Settings > Apps entry (found $($entries.Count))"
+          $copies | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
           Stop-IfFailed
           Write-Host "Installer smoke test passed."
 

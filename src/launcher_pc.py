@@ -257,6 +257,11 @@ def run_tray(settings):
     )
     icon_ref[0] = icon
 
+    # Install and restart (updater.install_update) closes the app the same
+    # way Quit does.
+    import updater
+    updater.set_quit_handler(lambda: quit_app(icon, None))
+
     # icon.run() blocks on the main thread
     icon.run()
 
@@ -271,8 +276,10 @@ def main():
     # Give the server a moment to start
     time.sleep(1.5)
 
-    # Auto-open the GUI in the chosen browser, unless the user turned that off
-    if settings.get('open_browser_on_launch', False):
+    # Auto-open the GUI in the chosen browser, unless the user turned that
+    # off, or the page from before an update is waiting to reload.
+    import updater
+    if updater.open_browser_on_launch(settings):
         open_url(get_display_url(settings), settings)
 
     # Run the system tray (blocks main thread)

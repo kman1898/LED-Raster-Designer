@@ -141,6 +141,35 @@ def test_a_running_copy_is_closed_first():
     assert "function InitializeUninstall(" in text
 
 
+def test_only_the_apps_own_update_reopens_it():
+    """Update in the app (2026-11-08) runs setup with /RELAUNCH and the
+    setup reopens the app. An ordinary install keeps its tick box, and a
+    silent one without the flag (an admin's) leaves the app closed."""
+    run = _section(_iss(), "Run")
+    assert ('Filename: "{app}\\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; '
+            'Flags: nowait postinstall skipifsilent') in run
+    relaunch = [l for l in run if "Check: RelaunchRequested" in l]
+    assert relaunch == ['Filename: "{app}\\{#AppExeName}"; Flags: nowait; Check: RelaunchRequested'], run
+    code = _iss()[_iss().index("[Code]"):]
+    fn = code[code.index("function RelaunchRequested(): Boolean;"):]
+    fn = fn[:fn.index("\nend;") + 5]
+    assert "ParamStr(I)" in fn and "'/RELAUNCH'" in fn
+
+
+def test_the_app_runs_setup_with_the_flags_the_iss_reads():
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import updater
+    finally:
+        sys.path.pop(0)
+    assert updater.INSTALLER_ARGS == ('/SILENT', '/SP-', '/SUPPRESSMSGBOXES', '/NORESTART', '/RELAUNCH')
+    assert "{" + updater.APP_ID.strip("{}") + "}" == "{" + APP_ID + "}"
+    # The asset the app looks for is the file the build names.
+    assert updater.INSTALLER_NAME_RE.match("led_raster_designer_v1.7.0_windows_setup.exe")
+    assert updater.INSTALLER_NAME_RE.match("led_raster_designer_v1.7.0-beta.3_windows_setup.exe")
+    assert _setup_value("OutputBaseFilename") == "led_raster_designer_v{#AppVersion}_windows_setup"
+
+
 def test_user_data_stays_outside_the_install_folder():
     """If the app ever starts writing next to itself, the per-user install
     and the uninstaller both need another look."""
@@ -164,6 +193,27 @@ def test_windows_job_builds_and_smoke_tests_the_installer():
                    "setup closed the running copy", "uninstall closed the running copy"):
         assert needle in smoke, f"installer smoke test lost: {needle}"
     assert "{" + APP_ID + "}" in smoke, "smoke test checks a different AppId"
+
+
+def test_installer_smoke_proves_update_in_place():
+    """The app's own Update, on the runner: the setup downloaded by the
+    updater's code has no Zone.Identifier, the updater starts it with
+    /RELAUNCH over an older install, and it upgrades in place and reopens
+    the app. A silent install without the flag leaves the app closed."""
+    smoke = _step("Smoke test the installer (install, upgrade, run, uninstall)")
+    assert (ROOT / "scripts" / "update_smoke.py").is_file()
+    for needle in ("scripts\\update_smoke.py fetch $env:LRD_SETUP $env:LRD_SETUP_LABEL",
+                   "scripts\\update_smoke.py install $fetched",
+                   "-Stream *", "-notcontains 'Zone.Identifier'",
+                   "Run-Setup $env:LRD_SETUP_OLD",
+                   "does not reopen the app",
+                   "upgraded 0.0.1 to $env:LRD_SETUP_LABEL in place and reopened the app",
+                   "the user data is still there after the update"):
+        assert needle in smoke, f"update-in-place smoke test lost: {needle}"
+    # The no-relaunch check sits on the ordinary silent upgrade (step 3),
+    # the update steps after the uninstall (step 7).
+    assert smoke.index("does not reopen the app") < smoke.index("--- 4.")
+    assert smoke.index("--- 6.") < smoke.index("update_smoke.py fetch")
 
 
 def test_installer_is_uploaded_checksummed_and_published():

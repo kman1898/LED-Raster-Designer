@@ -157,6 +157,9 @@ ALSO NEW
 - NEW: Drag a group in the Screens list onto another canvas to move the
   whole group, or up and down to change its order. Hold Alt (Option on a
   Mac) on Pixel Map or Cabinet ID to copy it instead.
+- NEW: A Windows copy installed with the setup file updates itself:
+  Update downloads the new version, checks it and installs it, then
+  reopens the app. A beta is offered the next beta.
 
 FIXES
 

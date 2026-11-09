@@ -1046,7 +1046,7 @@ NEW_IN_1_7 = ['quickPalettes', 'riggingTab', 'riggingSizes', 'riggingAuto', 'rig
               'outputOpen', 'outputChoices',
               'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
               'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist', 'groupDrag',
-              'riggingSheet']
+              'riggingSheet', 'checkUpdates']
 
 
 def test_the_guide_step_shows_the_palettes(page):
