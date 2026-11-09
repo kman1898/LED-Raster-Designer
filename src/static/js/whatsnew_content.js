@@ -26,7 +26,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'A Hue slider, and your own eight',
               d: 'Drag Hue to turn the eight and the selected screens together, one degree at a time. A drag or a run of arrow keys is one undo step, and clicking the degrees puts it back to 0. Preferences > Palettes keeps eight pairs of your own, and the Pixel Map tab shows them instead of the built set.' },
             { h: 'Header and footer bars',
-              d: 'The new Header/Footer tab, right of Power, builds the bars above and below each wall. Light the sizes you stock and Auto fits the fewest bars across it, then drag a bar or the edge between two. The counts go on the pull sheet, and the binder prints a sheet for each screen or group with bars.' },
+              d: 'The new Header/Footer tab, right of Power, builds the bars above or below each wall. Light the sizes you stock and Auto fits the fewest bars across it, or pick Custom and click or drag along the edge to lay them yourself. Grouped screens share one row across the seam, and the counts go on the pull sheet and the binder.' },
             { h: 'Screens on a stage in 3D',
               d: 'The 3D tab builds every Show Look screen from its cabinets with its Pixel Map on the front. Place and turn each screen, and bend any column or row joint up to 15 degrees. The header and footer bars stand above and below each wall in their own colors, and Bars hides them.' },
             { h: 'A canvas on a second display',

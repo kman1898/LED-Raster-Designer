@@ -31,12 +31,24 @@ the colors the screen already has. Thanks to kcikcreative33 for this one.
 
 HEADER AND FOOTER BARS
 
-The new Header/Footer tab, right of Power, builds the bars above and below
-each wall. Light the bar sizes you stock, single, double, triple or quad,
-and Auto fits the fewest bars across the wall. The bars go on the pull sheet and print on a Header/Footer
-binder sheet, and the PNG, SVG, PSD and PDF exports have a Header/Footer
-view. Thanks to kcikcreative33 for this one.
+The new Header/Footer tab, right of Power, builds the bars above or below
+each wall. Each screen takes one or the other: pick Header or Footer, and
+switching later moves the bars across as they are. Light the bar sizes you
+stock, single, double, triple or quad, and Auto fits the fewest bars across
+the wall. The bars go on the pull sheet and print on a Header/Footer binder
+sheet, and the PNG, SVG, PSD and PDF exports have a Header/Footer view.
+Thanks to kcikcreative33 for this one.
 
+- NEW: Custom lays the bars by hand. Pick a size, click a panel along the
+  wall's edge to drop a bar there, or drag along it to lay a row of them,
+  then pick another size and keep going. A see-through bar shows where it
+  will land, a new bar replaces any it covers, and gaps are fine, say over a
+  truss leg. Click a bar and press Delete, or right-click it, to take it off.
+- NEW: Grouped screens standing edge to edge in Show Look share one row of
+  bars, and a bar can run across the seam. Two 11 wide walls take eleven
+  doubles between them. A bar across a seam is counted once, on the screen
+  it starts on, and each screen's own binder sheet shows where it carries
+  on next door.
 - NEW: Drag a bar to move it, or the edge between two bars to widen one and
   shorten the other. Each screen keeps its own bar and text colors.
 - NEW: A group's binder sheet follows the tab's Names switch: one sheet for
@@ -45,6 +57,9 @@ view. Thanks to kcikcreative33 for this one.
 - NEW: Resize or turn a wall and its bars stay as they are. The tab, the
   pull sheet, the binder and the exports say they no longer fit, and Auto
   fits them again.
+- NEW: A show saved with a header and a footer on one screen opens as it
+  was. The tab lists each such screen with Keep Header and Keep Footer, and
+  nothing is taken off until you pick.
 
 SCREENS ON A STAGE, IN THREE DIMENSIONS
 

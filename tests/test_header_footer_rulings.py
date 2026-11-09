@@ -643,24 +643,25 @@ def test_a_wall_made_wider_keeps_its_bars_says_so_and_auto_fits_it(pg):
 
 
 def test_a_wall_made_narrower_draws_past_its_edge_never_squeezed(pg):
+    """A screen has one side (owner, 2026-11-08): the bars move to the
+    footer, and the footer row is the one that no longer fits."""
     p = pg
     tab(p)
     auto(p, 'A')
     p.locator('.rigging-mode-btn[data-mode="footer"]').click()
-    p.wait_for_timeout(150)
-    p.locator('#rigging-auto-btn').click()
     p.wait_for_timeout(250)
+    assert lay(p, 'A', 'riggingBars', 'riggingFooterBars') == {'riggingBars': [], 'riggingFooterBars': [2] * 6}
     resize(p, 'A', 10)
     text = p.locator('#rigging-fit-text').text_content()
-    assert 'A: header bars cover 12 panels, the wall is 10.' in text
-    assert 'A: footer bars cover 12 panels, the wall is 10.' in text
+    assert text == 'A: footer bars cover 12 panels, the wall is 10.'
     bars = hits(p, 'A')
     wall = wall_px(p, 'A')
+    assert {b['row'] for b in bars} == {'footer'}
     assert max(b['x1'] for b in bars) > wall['x'] + wall['w'] + 1
-    # The size picks and the Auto button in the box fit both rows.
+    # The size picks and the Auto button in the box fit the row again.
     p.locator('#rigging-fit-auto').click()
     p.wait_for_timeout(300)
-    assert lay(p, 'A', 'riggingBars', 'riggingFooterBars') == {'riggingBars': [2] * 5, 'riggingFooterBars': [2] * 5}
+    assert lay(p, 'A', 'riggingBars', 'riggingFooterBars') == {'riggingBars': [], 'riggingFooterBars': [2] * 5}
 
 
 def test_a_turned_wall_warns_and_auto_fits_its_rows(pg):
