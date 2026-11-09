@@ -178,6 +178,8 @@ FIXES
   whichever tab is open when you export, and Bottom to top prints them the
   other way. Alphabetical, by port and by circuit sort a group in with the
   other screens too, where its first screen falls.
+- FIX: Delete pressed twice quickly deletes twice, or says the last screen
+  cannot be deleted. The second press used to be lost without a word.
 - FIX: A group's up and down arrows move it among the rows of the canvas
   it is listed under, also when Show Look has one of its screens on
   another canvas.

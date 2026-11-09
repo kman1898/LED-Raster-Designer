@@ -2209,9 +2209,11 @@ Object.assign(CanvasRenderer.prototype, {
             if (!this.isDragging) this.canvas.style.cursor = 'grab';
         }
         
-        // Delete key - only delete layer if NOT typing
+        // Delete key - only delete layer if NOT typing. A delete clears the
+        // selection the moment it starts, so a press while one is landing
+        // goes through too: deleteCurrentLayer holds it for when it lands.
         if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping) {
-            if (window.app && window.app.currentLayer) {
+            if (window.app && (window.app.currentLayer || window.app.deletionInProgress)) {
                 e.preventDefault();
                 window.app.deleteCurrentLayer();
             }
