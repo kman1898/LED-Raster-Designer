@@ -3446,7 +3446,22 @@
                         return w && Number(w.cabinet_width) === 200 && Number(w.cabinet_height) === 200
                             && w.panels && w.panels[0] && Number(w.panels[0].width) === 200;
                     });
-                }).then(function () { frameWalls(); });
+                }).then(function (ok) {
+                    // Said in full when it does not take (1.7.0 CI: once, with
+                    // nothing to go on): what the screen holds, what the fields
+                    // show, and how many saves are still on their way.
+                    if (!ok) {
+                        var w = wall(), a = A();
+                        var pending = (a && a._inflightLayerPuts ? a._inflightLayerPuts.size : 0)
+                            + (a && a._layerPutChains ? a._layerPutChains.size : 0);
+                        var f = function (id) { var el = document.getElementById(id); return el ? el.value : '?'; };
+                        throw new Error('the screen holds ' + (w ? w.cabinet_width + ' x ' + w.cabinet_height
+                            + ', first panel ' + (w.panels && w.panels[0] ? w.panels[0].width : '?') : 'no screen')
+                            + '; the fields show ' + f('cabinet-width') + ' x ' + f('cabinet-height')
+                            + '; ' + pending + ' saves on their way');
+                    }
+                    frameWalls();
+                });
             },
             check: function () {
                 var w = wall();
@@ -7396,7 +7411,7 @@
             window: 'output',
             target: '[data-menu="view"]', place: 'bottom', title: 'Output to Display',
             avoid: ['[data-menu="view"]', '#menu-view [data-action="output-to-display"]'],
-            body: 'View &rsaquo; Output to Display sends a canvas full screen to another display, and it follows every edit live. Pick the canvas, the view and the display, then Open output: it goes full screen there by itself. Open one for each display you need.',
+            body: 'View &rsaquo; Output to Display sends a canvas full screen to another display, live. Pick the canvas, view and display, then Open output; open one for each display you need.',
             before: function () { closeOutput(); },
             act: function (t) {
                 // Up already on a Back from the next step, which shares it.
@@ -7425,7 +7440,7 @@
             target: '#output-display-view', ring: ['#output-display-view', '#output-display-note'],
             place: 'right', title: 'The view, at 1:1',
             avoid: ['#output-display-view', '#output-display-note'],
-            body: 'Every tab but 3D can go out, the IDM Locator included. Every output is 1:1: one canvas pixel per display pixel, at the display&rsquo;s resolution, from the top-left corner. What the canvas leaves unused stays black, and a canvas bigger than the display stays black until the display is set to its size.',
+            body: 'Every tab but 3D can go out, at 1:1: one canvas pixel per display pixel from the top-left corner. Unused canvas stays black, and a canvas bigger than the display is not sent.',
             before: function () {
                 var a = A();
                 if (!outputOpen() && a && typeof a.openOutputDisplayDialog === 'function') a.openOutputDisplayDialog();
