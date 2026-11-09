@@ -123,7 +123,8 @@ export const BINDER_SHEETS = Object.keys(SHEETS).map(k => ({ key: k, name: SHEET
 
 // The sheet's frame: the border a quarter inch in from the edge, the
 // title block column 2.4 in wide inside it on the right, the drawing area
-// to its left with its own small margin.
+// to its left with its own small margin inside the border (none with the
+// title block off: the drawing then runs to the quarter inch, _bGeo).
 const PAD = 50;
 const TB_W = 480;
 const DA_PAD = 30;
@@ -166,6 +167,7 @@ const NO_OVERHANG = Object.freeze({ left: 0, right: 0, top: 0, bottom: 0 });
 const NOT_ASTRIDE = new Set(['wallEdge', 'cabinet', 'cabinetId', 'band', 'rulerTick', 'rulerLabel']);
 const OVERHANG_PROBE_PX = 1600;       // the probe's longest side, in bitmap pixels
 const WRAP_GAIN = 1.1;                // wrap wins only with a wall this much larger than side's or stack's
+const NARROW_GAIN = 1.03;             // tables at their own width win only with a wall this much larger (_bMapLayout)
 const TH_H = 40;
 // A heading too wide for its column wraps at its words, a line this far
 // under the last - never shrunk ("AT THE" over "PROCESSOR").
@@ -2319,12 +2321,22 @@ class _Binder {
     // inside the same small margin - TB_W wider than before. The sheet
     // keeps its own naming at the foot (the view bubble and the subject
     // heading); nothing else of the block survives.
+    //
+    // A QUARTER INCH ROUND THE SHEET (2026-11-08, on a Letter set printed
+    // with the block off: "there is just a ton of room in the margins top
+    // and bottom and the sides too"): the ink stops PAD from the paper's
+    // edge, what an office printer reaches, and no further in. With the
+    // block that ink is the border, the drawing DA_PAD inside it so it
+    // never touches the rule; with the block off there is no rule to
+    // clear, and the drawing takes the sheet to PAD - it used to keep the
+    // border's inset too, 0.4 in of blank paper all round.
     _bGeo(sheet, titleBlock) {
         const W = sheet.w, H = sheet.h;
         const on = titleBlock !== false;
         const border = { x: PAD, y: PAD, w: W - PAD * 2, h: H - PAD * 2 };
         const tb = { x: W - PAD - (on ? TB_W : 0), y: PAD, w: on ? TB_W : 0, h: H - PAD * 2 };
-        const da = { x: PAD + DA_PAD, y: PAD + DA_PAD, w: tb.x - PAD - DA_PAD * 2, h: H - PAD * 2 - DA_PAD * 2 };
+        const inset = on ? DA_PAD : 0;
+        const da = { x: PAD + inset, y: PAD + inset, w: tb.x - PAD - inset * 2, h: H - PAD * 2 - inset * 2 };
         return { W, H, border, tb, da, titleBlock: on };
     }
 
@@ -3585,11 +3597,29 @@ class _Binder {
         }
         // a fitted table is drawn at its own width in a wider column
         const tableW = (w) => (spec.fit ? Math.min(w, mW) : w);
+        // NARROWER THAN IT WAS MEASURED (a map sheet laid with its tables at
+        // their own width, _bMapLayout): never under `naturalW`, where every
+        // cell and band stands on one line, so the rows keep their measured
+        // heights; the columns are shared out afresh at that width, every
+        // list whole, rather than scaled down - scaled, a column given room
+        // past its content at the measured width could lend none of it and
+        // a narrow one would cut its cells.
+        const narrow = new Map();
+        const widthsAt = (w) => {
+            if (spec.fit || !(w < mW - 0.5) || !(lines.naturalW > 0)) return null;
+            const key = Math.round(w * 100);
+            if (!narrow.has(key)) {
+                narrow.set(key, this._bColWidths(book, cols, spec.rows || [], Math.max(w, lines.naturalW), padX,
+                                                 { whole: true }));
+            }
+            return narrow.get(key);
+        };
         const layout = (w) => {
-            const k = w / mW;
+            const Wn = widthsAt(w);
+            const k = Wn ? 1 : w / mW;
             let x = 0;
             return cols.map((c, i) => {
-                const cw = W[i] * k;
+                const cw = (Wn || W)[i] * k;
                 // every column stands on its middle, its heading and its
                 // cells (owner, 2026-10-18: "center every column in every
                 // binder table")
@@ -3942,6 +3972,33 @@ class _Binder {
         // only under its bands
         if (lead) lines.contHeads = [...lines.filter(l => l.head && l !== th), th];
         if (spec.fit) lines.naturalW = mW;
+        else if (!grown) {
+            // the width at which every cell (each list whole), every band,
+            // every heading and the title stand on one line - a table of
+            // the plain kinds only, and never past the width it was
+            // measured at (a table that wraps there keeps that width)
+            const plain = !groups.length && !cols.some(c => c.inputs || c.parts || c.swatch)
+                && !(spec.rows || []).some(r => r.halves || r.lines || r.inputs || r.parts);
+            if (plain) {
+                const ctxN = book.measureCtx;
+                const cells = this._bColNeeds(book, cols, spec.rows || [], padX, true).reduce((a, b) => a + b, 0);
+                ctxN.font = this._bFont(SZ.cell, 700);
+                const band = (spec.rows || []).reduce((m, r) => (typeof r.band === 'string' && r.band
+                    ? Math.max(m, ctxN.measureText(r.band).width + (r.sub ? 22 : 0) + padX * 2) : m), 0);
+                // (a bold row - a Total - in its own weight)
+                const bold = (spec.rows || []).some(r => r.bold && r.cells)
+                    ? this._bColNeeds(book, cols, (spec.rows || []).filter(r => r.bold && r.cells), padX, true)
+                        .reduce((a, b) => a + b, 0) * 1.08 : 0;
+                ctxN.font = this._bFont(SZ.h4, 700);
+                const title = spec.title ? ctxN.measureText(this._bCaps(spec.title)).width : 0;
+                ctxN.font = this._bFont(SZ.cell, 400);
+                const note = spec.note ? ctxN.measureText(spec.note).width : 0;
+                // (a few px of air: the page's metrics are a hair off the
+                // measure's)
+                const need = Math.ceil(Math.max(cells, band, bold, title, note) + 6);
+                if (need <= mW) lines.naturalW = need;
+            }
+        }
         if (grown) lines.minW = grown;
         return lines;
     }
@@ -4385,6 +4442,10 @@ class _Binder {
         ctxK.font = this._bFont(SZ.cell, 700);
         const widest = pairs.reduce((m, [k]) => Math.max(m, ctxK.measureText(String(k)).width), 0);
         const keyW = widest > 150 - 4 ? Math.ceil(widest) + 16 : 150;
+        // the width at which every value stands on one line (`naturalW`,
+        // _bMapLayout): none where one wraps in COL_W
+        ctxK.font = this._bFont(SZ.h4, 700);
+        let natural = ctxK.measureText(this._bCaps(title)).width;
         for (const [k, v] of pairs) {
             // Values wrap onto as many lines as they need - never between a
             // number and its unit ("50 m", "400 A"), nor inside a length
@@ -4414,6 +4475,12 @@ class _Binder {
             // past it: what would wrap below the row's last line joins
             // that line, shrunk to fit, so the row under it stays clear.
             const n = rowsOf(COL_W).length;
+            // (a value that wraps in COL_W: the narrowest width that still
+            // wraps it onto the lines it was measured on, every line whole)
+            let least = COL_W;
+            while (least - 4 > keyW + 8 && rowsOf(least - 4 - 6).length <= n) least -= 4;
+            ctxK.font = this._bFont(SZ.cell, 400);
+            natural = Math.max(natural, n > 1 ? least : keyW + 8 + ctxK.measureText(words.join(' ')).width);
             lines.push({ h: ROW_H * n, draw: (ctx, x, y, w) => {
                 this._bText(book, k, x, y + 27, { size: SZ.cell, weight: 700 });
                 let drawn = rowsOf(w);
@@ -4424,6 +4491,7 @@ class _Binder {
                 });
             } });
         }
+        if (Number.isFinite(natural) && natural + 6 <= COL_W) lines.naturalW = Math.ceil(natural + 6);
         return lines;
     }
 
@@ -4598,9 +4666,49 @@ class _Binder {
     // bubble are painted under the fill (_bPage's `scaled`) from BASE
     // coordinates, so `top`, `colW`, `colX` are base units and `toBase`
     // maps a page point into them. `mapArea` is page units.
+    //
+    // TABLES AS WIDE AS THEIR CONTENT WHERE THAT GIVES THE WALL MORE
+    // (2026-11-08, on a 16 x 5 wall on Letter: "why on this export are the
+    // margins so large? we can fit so much more here"). Every table used
+    // to be stretched to COL_W (3.5 in) whatever it held, so a short wide
+    // wall's four tables took two columns under it, the tallest pair
+    // setting the height the wall lost, with a third of the sheet's width
+    // empty beside the wall - and no column of tables fit there either, as
+    // a 3.5 in column is wider than the room left. The layouts are tried
+    // again with the columns as narrow as the widest table needs to print
+    // every cell, band and heading on one line (_bNaturalColW): three
+    // columns under the wall instead of two, or a column beside it. That
+    // set takes the sheet only where its wall is NARROW_GAIN larger, so a
+    // sheet already laid out well keeps its layout.
     _bMapLayout(book, spec, blocks) {
         const da = book.geo.da;
-        const colW = Math.max(COL_W, ...blocks.map(b => this._bBlockMinW(b)));
+        const probe = this._bMeasureMap(book, spec, { x: da.x, y: da.y, w: da.w, h: da.h });
+        const L = this._bMapLayoutAt(book, spec, blocks, 0, probe);
+        const natural = this._bNaturalColW(blocks);
+        if (!(natural > 0) || natural >= L.colWAsked - 1) return L;
+        const N = this._bMapLayoutAt(book, spec, blocks, natural, probe);
+        return !N.tonsOfInfo && N.map.zoom > L.map.zoom * NARROW_GAIN ? N : L;
+    }
+
+    // The widest of the blocks' natural widths (_bTableLines' and
+    // _bKvLines' `naturalW`: every cell, band and heading on one line),
+    // never under a block's own minW; 0 where any block has none.
+    _bNaturalColW(blocks) {
+        let w = 0;
+        for (const b of blocks) {
+            if (!b || !(b.lines || []).length) continue;
+            const n = b.lines.naturalW;
+            if (!(n > 0)) return 0;
+            w = Math.max(w, n, this._bBlockMinW(b));
+        }
+        return Math.ceil(w);
+    }
+
+    // One layout of the map sheet at a column width: `ask` the tables'
+    // column (0: COL_W or the widest a block asks for, as always).
+    _bMapLayoutAt(book, spec, blocks, ask, probe) {
+        const da = book.geo.da;
+        const colW = ask > 0 ? ask : Math.max(COL_W, ...blocks.map(b => this._bBlockMinW(b)));
         const across = Math.max(1, Math.floor((da.w + COL_GAP) / (colW + COL_GAP)));
         // (spec.keyH: the height a bracket key under the wall needs where
         // the map's own room could not hold it - _bMapSheets)
@@ -4611,10 +4719,9 @@ class _Binder {
         const clamp = (v) => Math.max(1, Math.min(FILL_CAP, Math.floor(v * 1000) / 1000));
         const minW = Math.round(da.w * MAP_MIN_FRAC), minH = Math.round(da.h * MAP_MIN_FRAC);
         const area = da.w * da.h;
-        // The wall's own size, from one measure; then its fit in a room -
-        // the very arithmetic _bMap does, so the layout's numbers are the
-        // paint's.
-        const probe = this._bMeasureMap(book, spec, { x: da.x, y: da.y, w: da.w, h: da.h });
+        // The wall's own size, from one measure (_bMapLayout's); then its
+        // fit in a room - the very arithmetic _bMap does, so the layout's
+        // numbers are the paint's.
         const ww = probe && probe.zoom > 0 ? probe.wall.w / probe.zoom : 0;
         const wh = probe && probe.zoom > 0 ? probe.wall.h / probe.zoom : 0;
         const fit = (roomW, roomH) => {
@@ -4806,8 +4913,8 @@ class _Binder {
         } else if (kept.length) {
             pick = kept[0];
         }
-        if (wrap && (!pick || wrap.map.zoom > pick.map.zoom * WRAP_GAIN)) return wrap;
-        if (pick) return pick;
+        if (wrap && (!pick || wrap.map.zoom > pick.map.zoom * WRAP_GAIN)) return { ...wrap, colWAsked: colW };
+        if (pick) return { ...pick, colWAsked: colW };
 
         // tons of info: neither holds the tables at 1 - the map over the
         // tables in the columns that fit, the rest continuing
@@ -4818,6 +4925,7 @@ class _Binder {
         const mapH = da.h - BUBBLE_H - COL_GAP - tablesH;
         const m = fit(da.w, mapH);
         return { kind: 'stack', cols: across, colW: wide, top: da.y + m.h + BUBBLE_H + COL_GAP, pack, scale: 1,
+                 tonsOfInfo: true, colWAsked: colW,
                  mapArea: { x: da.x, y: da.y, w: da.w, h: mapH, hMax: m.h },
                  extent: { w: da.w, h: m.h + BUBBLE_H + COL_GAP + tablesH },
                  coverage: (m.w * m.h + da.w * tablesH) / area,

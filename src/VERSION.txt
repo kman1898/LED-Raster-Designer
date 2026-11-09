@@ -131,6 +131,11 @@ FIXES
 - FIX: A group's up and down arrows move it among the rows of the canvas
   it is listed under, also when Show Look has one of its screens on
   another canvas.
+- FIX: Binder sheets use the room beside and under a wide, short wall. The
+  tables are only as wide as what they hold, so more of them fit side by
+  side and the wall draws bigger.
+- FIX: With the title block off, binder sheets print to a quarter inch
+  from the edge of the paper instead of leaving 0.4 in of blank margin.
 
 v1.6.0 - November 6, 2026
 ----------------------------
