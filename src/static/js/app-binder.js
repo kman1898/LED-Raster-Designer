@@ -123,11 +123,14 @@ export const BINDER_SHEETS = Object.keys(SHEETS).map(k => ({ key: k, name: SHEET
 
 // The sheet's frame: the border a quarter inch in from the edge, the
 // title block column 2.4 in wide inside it on the right, the drawing area
-// to its left with its own small margin inside the border (none with the
-// title block off: the drawing then runs to the quarter inch, _bGeo).
+// to its left a hair inside the border (none with the title block off:
+// the drawing then runs to the quarter inch, _bGeo). DA_PAD clears the
+// border's 3-unit rule and no more; DA_FOOT is the strip the rev line
+// stands in under the drawing.
 const PAD = 50;
 const TB_W = 480;
-const DA_PAD = 30;
+const DA_PAD = 10;
+const DA_FOOT = 30;
 // The book canvas is painted at PAGE_SCALE x (400 px/in) up to a Tabloid /
 // A3 sheet; the ARCH sheets, four times the pixels, paint at 1x - the
 // canvas is a look, the PDF is vector either way.
@@ -2330,13 +2333,21 @@ class _Binder {
     // never touches the rule; with the block off there is no rule to
     // clear, and the drawing takes the sheet to PAD - it used to keep the
     // border's inset too, 0.4 in of blank paper all round.
+    //
+    // WITH THE BLOCK ON, A HAIR INSIDE THE RULE (2026-11-08, the same set
+    // with the block on: "we can fit so much more here"): the drawing
+    // stood 0.15 in inside the border on every side. It now stands DA_PAD
+    // (0.05 in) inside it at the top and the sides, what keeps its ink
+    // off the 3-unit rule; at the foot it keeps DA_FOOT, the strip the
+    // "rev 1.0" line prints in at the border's corner. The title block
+    // column is where it was.
     _bGeo(sheet, titleBlock) {
         const W = sheet.w, H = sheet.h;
         const on = titleBlock !== false;
         const border = { x: PAD, y: PAD, w: W - PAD * 2, h: H - PAD * 2 };
         const tb = { x: W - PAD - (on ? TB_W : 0), y: PAD, w: on ? TB_W : 0, h: H - PAD * 2 };
-        const inset = on ? DA_PAD : 0;
-        const da = { x: PAD + inset, y: PAD + inset, w: tb.x - PAD - inset * 2, h: H - PAD * 2 - inset * 2 };
+        const inset = on ? DA_PAD : 0, foot = on ? DA_FOOT : 0;
+        const da = { x: PAD + inset, y: PAD + inset, w: tb.x - PAD - inset * 2, h: H - PAD * 2 - inset - foot };
         return { W, H, border, tb, da, titleBlock: on };
     }
 
@@ -3789,7 +3800,7 @@ class _Binder {
                 // a group stands on its lines and its gap (_bStackLayout)
                 const tall = (list) => { const L = this._bStackLayout(list); return (L.lines - 1) * LIST_H + L.extra; };
                 const h = BAND_H + (stackL ? tall(stackL) : stackH.reduce((m, half) => Math.max(m, tall(half)), 0));
-                lines.push({ h, band: true, draw: (ctx, x, y, cw) => {
+                lines.push({ h, band: true, level: sub ? 'sub' : 'top', draw: (ctx, x, y, cw) => {
                     const w = tableW(cw);
                     const L = layout(w);
                     if (book.meta.palette === 'printer') {
@@ -3829,7 +3840,7 @@ class _Binder {
                 const bandText = String(r.band == null ? '' : r.band);
                 const bandLines = this._bBandLines(book, bandText, mW - ind - padX * 2);
                 const bandH = BAND_H + (bandLines.length - 1) * LIST_H;
-                lines.push({ h: bandH, band: true, draw: (ctx, x, y, cw) => {
+                lines.push({ h: bandH, band: true, level: sub ? 'sub' : 'top', draw: (ctx, x, y, cw) => {
                     const w = tableW(cw);
                     if (book.meta.palette === 'printer') {
                         ctx.fillStyle = INK;
@@ -4554,7 +4565,9 @@ class _Binder {
                 fitH += l.h; n++;
             }
             while (n > 0 && block.lines[n - 1].band) n--;
-            const useful = block.lines.slice(0, n).some(l => !l.head);
+            // (a band repeated over a continuation is a head here: a column
+            // holding only the heads and that band holds nothing)
+            const useful = block.lines.slice(0, n).some(l => !l.head && !l.carried);
             if (!useful) {
                 if (col.items.length) {
                     // this column is done; try the next
@@ -4563,7 +4576,8 @@ class _Binder {
                 }
                 // an empty column cannot hold even one row: force the
                 // heads and the first row, so nothing loops forever
-                n = Math.min(block.lines.length, heads.length + 1);
+                const first = block.lines.findIndex(l => !l.head && !l.carried);
+                n = Math.min(block.lines.length, (first < 0 ? heads.length : first) + 1);
                 while (n < block.lines.length && block.lines[n - 1].band) n++;
             }
             for (const l of block.lines.slice(0, n)) {
@@ -4574,8 +4588,10 @@ class _Binder {
             const remaining = block.lines.slice(n);
             if (remaining.length) {
                 // the block continues: its heads again over what is left,
-                // in a fresh column
-                block.lines = heads.concat(remaining);
+                // in a fresh column - and the band its first rows stand
+                // under (_bCarryBands)
+                block.lines = this._bCarryBands(heads, block.lines.slice(0, n), remaining, !!block.contHeads)
+                    .concat(remaining);
                 col = null;
                 if (cols.length >= maxCols) break;
             } else {
@@ -4586,6 +4602,36 @@ class _Binder {
         // table on its "(cont.)" sheet was squeezed into COL_W
         for (const b of queue) rest.push({ lines: b.lines, contHeads: b.contHeads, ...(b.minW ? { minW: b.minW } : {}) });
         return { cols, rest };
+    }
+
+    // THE BAND OVER A CONTINUED TABLE (2026-11-08, a Ports table the wrap
+    // layout ran on beside its wall: the second half repeated the title
+    // and the headings but not "XD A · trunk A · 10 ports", so its rows
+    // read as no unit's). The heads a continuation starts with, the bands
+    // still open at the split repeated after them: the last band above
+    // the split and the last sub-band under it (the snake), each only
+    // where the rows past the split still stand under it - a band or a
+    // sub-band starting the remainder closes it. A band-led table
+    // (`lead`: its band reads above its headings) puts the band before
+    // the heading row, the sub-band after it, as its first column has
+    // them. The copies are `carried`: heads to _bPack, which never leaves
+    // one over nothing.
+    _bCarryBands(heads, placed, remaining, lead) {
+        const next = remaining[0];
+        if (!next || next.level === 'top') return heads;
+        let top = null, sub = null;
+        for (let i = placed.length - 1; i >= 0; i--) {
+            const l = placed[i];
+            if (l.level === 'sub' && !sub && !top) sub = l;
+            if (l.level === 'top') { top = l; break; }
+        }
+        if (next.level === 'sub') sub = null;
+        if (!top && !sub) return heads;
+        const copy = (l) => (l ? [{ ...l, carried: true }] : []);
+        if (lead && heads.length) {
+            return [...heads.slice(0, -1), ...copy(top), heads[heads.length - 1], ...copy(sub)];
+        }
+        return [...heads, ...copy(top), ...copy(sub)];
     }
 
     // The layout of a continuation's drawing area - tables only: the
@@ -4679,7 +4725,10 @@ class _Binder {
     // every cell, band and heading on one line (_bNaturalColW): three
     // columns under the wall instead of two, or a column beside it. That
     // set takes the sheet only where its wall is NARROW_GAIN larger, so a
-    // sheet already laid out well keeps its layout.
+    // sheet already laid out well keeps its layout - or where it holds
+    // every table on the sheet and the 3.5 in columns do not (their
+    // "tons of info" stack sends tables on to a (cont.) sheet: its wall
+    // is larger only for having left them off).
     _bMapLayout(book, spec, blocks) {
         const da = book.geo.da;
         const probe = this._bMeasureMap(book, spec, { x: da.x, y: da.y, w: da.w, h: da.h });
@@ -4687,7 +4736,7 @@ class _Binder {
         const natural = this._bNaturalColW(blocks);
         if (!(natural > 0) || natural >= L.colWAsked - 1) return L;
         const N = this._bMapLayoutAt(book, spec, blocks, natural, probe);
-        return !N.tonsOfInfo && N.map.zoom > L.map.zoom * NARROW_GAIN ? N : L;
+        return !N.tonsOfInfo && (L.tonsOfInfo || N.map.zoom > L.map.zoom * NARROW_GAIN) ? N : L;
     }
 
     // The widest of the blocks' natural widths (_bTableLines' and

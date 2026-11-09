@@ -19,6 +19,14 @@ Two causes, two fixes:
 - WITH THE TITLE BLOCK OFF the drawing kept the border's inset though no
   border is drawn: 0.4 in of blank paper all round. It now runs to the
   quarter inch (PAD), the ink's edge with the block on as well.
+- WITH THE TITLE BLOCK ON the drawing stood 0.15 in inside the border all
+  round. It now stands DA_PAD (0.05 in) inside it at the top and the
+  sides, clear of the 3-unit rule, and DA_FOOT at the foot, the strip the
+  rev line prints in.
+
+And where the wrap layout runs the Ports table on into a second column,
+that half repeats the band its rows stand under ("H9 Card 1 · 16 ports"),
+not only the title and the headings.
 
 Run locally:
     python -m pytest tests/test_binder_wide_wall_room.py -v --browser chromium
@@ -36,7 +44,7 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 # Letter landscape in page units (200 px/in); the border's quarter inch.
 LETTER_W, LETTER_H, PAD = 2200, 1700, 50
-DA_PAD, TB_W = 30, 480
+DA_PAD, DA_FOOT, TB_W = 10, 30, 480
 MAP_GUTTER = {'left': 200, 'right': 180, 'top': 74, 'bottom': 16}
 
 # One screen, WALL-A: 16 x 5 of 500 x 1000 mm panels (192 x 384 px), 208 V
@@ -100,7 +108,7 @@ PLAN_JS = """(opts) => {
         return { kind: p.kind, title: p.title, layout: p.layout, cols: p.cols, scale: p.scale,
                  map: r.map, bubble: r.bubble,
                  images: ops.filter(o => o.op === 'image').map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h })),
-                 texts: ops.filter(o => o.op === 'text').map(o => ({ t: o.text, x: o.x, y: o.y, size: o.size })) };
+                 texts: ops.filter(o => o.op === 'text').map(o => ({ t: o.text, x: o.x, y: o.y, size: o.size, align: o.align })) };
     });
 }"""
 
@@ -135,16 +143,17 @@ def test_the_power_tables_stand_three_across_and_the_wall_takes_the_room(page):
     under the wall at their own width (two 3.5 in columns before), and the
     wall draws about a quarter larger than it did: at least 1390 page units
     wide (1114 before the change, 1401 measured), the Data wall likewise
-    (1279 before, 1576 measured). The Power wall keeps at least the share
-    of the Data wall it had (0.87): the two stay the size they were
-    against each other while both grow."""
+    (1279 before, 1576 measured; 1542 since its continued Ports half
+    repeats its band, a line of 46 more). The Power wall keeps at least
+    the share of the Data wall it had (0.87): the two stay the size they
+    were against each other while both grow."""
     pg, errors = page
     s = _sheets(pg, LETTER_PLAIN)
     power, data = s['power'], s['data']
     assert power['layout'] == 'stack' and power['cols'] == 3, (power['layout'], power['cols'])
     m = power['map']
     assert m['w'] >= 1390 and abs(m['w'] / m['h'] - 1.6) < 0.01, m
-    assert data['map']['w'] >= 1560, data['map']
+    assert data['map']['w'] >= 1530, data['map']
     assert power['map']['w'] >= data['map']['w'] * 0.87, (power['map'], data['map'])
     # the tables never smaller than the base type
     assert power['scale'] >= 1 and data['scale'] >= 1, (power['scale'], data['scale'])
@@ -176,7 +185,7 @@ def test_with_the_title_block_off_the_drawing_runs_to_the_quarter_inch(page):
     """No border, no inset: the map's image starts at the quarter inch from
     the top and the left (0.4 in before), on every map sheet. With the
     block on, the border is the ink at the quarter inch and the drawing
-    keeps its small inset inside it."""
+    stands DA_PAD inside it."""
     pg, _ = page
     for s in _sheets(pg, LETTER_PLAIN).values():
         img = s['images'][0]
@@ -192,11 +201,84 @@ def test_a_sheet_the_narrow_tables_would_not_help_keeps_its_layout(page):
     """With the title block on, the drawing is 2.4 in narrower and three
     columns of these tables no longer fit under the wall: the tables at
     their own width give the wall nothing, so both sheets keep the layout
-    and the wall they always had (two columns under the wall; 1114 and
-    1180 page units wide)."""
+    they always had (two columns under the wall), the walls only as much
+    larger as the drawing's smaller inset gives them: 1146 and 1219 page
+    units wide (1114 and 1180 at the 0.15 in inset)."""
     pg, _ = page
     s = _sheets(pg, LETTER_BLOCK)
-    for kind, want in (('power', 1114), ('data', 1180)):
+    for kind, want in (('power', 1146), ('data', 1219)):
         sheet = s[kind]
         assert sheet['layout'] == 'stack' and sheet['cols'] == 2, (kind, sheet['layout'], sheet['cols'])
         assert abs(sheet['map']['w'] - want) < 2, (kind, sheet['map'])
+
+
+# Every sheet of the set with the block on, every extra sheet kind drawn:
+# each text op with its place, and the drawing area the sheet was laid in.
+SWEEP_JS = """(opts) => {
+    const app = window.app;
+    const plan = app.planBinder(opts);
+    return plan.map((p, i) => {
+        const r = app.renderBinderPage(opts, i);
+        const ops = (r.record && r.record.ops) || [];
+        return { kind: p.kind, title: p.title,
+                 texts: ops.filter(o => o.op === 'text' && String(o.text).trim())
+                     .map(o => ({ t: o.text, x: o.x, y: o.y, size: o.size, align: o.align || 'left' })) };
+    });
+}"""
+
+
+def test_with_the_title_block_on_the_drawing_stands_a_hair_inside_the_border(page):
+    """2026-11-08, the same set with the block on ("we can fit so much more
+    here"): the drawing stood 0.15 in (30 units) inside the border. It
+    now stands DA_PAD (0.05 in) inside it at the top and the left, the
+    map's image starting there, and keeps DA_FOOT at the foot for the
+    rev line. On every sheet of the set - map, wiring, overview, pull,
+    hardware - no text of the drawing reaches past that: none starts left
+    of it, none stands above it, none sits in the rev line's strip, none
+    runs into the title block column."""
+    pg, _ = page
+    for s in _sheets(pg, LETTER_BLOCK).values():
+        img = s['images'][0]
+        assert abs(img['y'] - (PAD + DA_PAD)) < 0.5, (s['title'], img)
+        assert img['x'] >= PAD + DA_PAD - 0.5, (s['title'], img)
+    opts = {**LETTER_BLOCK, 'pull': True, 'hardware': True, 'wiring': True, 'cover': True}
+    left, top = PAD + DA_PAD, PAD + DA_PAD
+    foot, tb_x = LETTER_H - PAD - DA_FOOT, LETTER_W - PAD - TB_W
+    sheets = pg.evaluate(SWEEP_JS, opts)
+    assert {s['kind'] for s in sheets} >= {'overview', 'power', 'data', 'wiring', 'pull'}, sheets
+    for s in sheets:
+        drawing = [t for t in s['texts'] if t['x'] < tb_x and not t['t'].startswith('rev ')]
+        assert drawing, s['title']
+        for t in drawing:
+            where = (s['title'], t)
+            if t['align'] == 'left':
+                assert t['x'] >= left - 0.5, where
+            assert t['y'] - t['size'] * 0.72 >= top - 0.5, where
+            assert t['y'] <= foot + 0.5, where
+        rev = [t for t in s['texts'] if t['t'].startswith('rev ')]
+        assert len(rev) == 1 and abs(rev[0]['x'] - left) < 0.5 and rev[0]['y'] > foot, (s['title'], rev)
+
+
+def test_a_continued_ports_half_repeats_its_band(page):
+    """The wrap layout runs the Data sheet's Ports table on from the column
+    under the wall into the next: the second half repeated PORTS and the
+    headings but not the band its rows stand under, so they read as no
+    card's. Now each half is title, band, headings, rows: the band
+    "H9 Card 1 · 16 ports" twice, each under its own PORTS and over its
+    own PORT heading, with ports under both."""
+    pg, errors = page
+    data = _sheets(pg, LETTER_PLAIN)['data']
+    assert data['layout'] == 'wrap', data['layout']
+    texts = data['texts']
+    titles = sorted((t for t in texts if t['t'] == 'PORTS'), key=lambda t: (t['x'], t['y']))
+    bands = [t for t in texts if t['t'] == 'H9 Card 1 · 16 ports']
+    heads = [t for t in texts if t['t'] == 'PORT']
+    assert len(titles) == 2 and len(bands) == 2 and len(heads) == 2, (titles, bands, heads)
+    for title in titles:
+        band = [b for b in bands if abs(b['x'] - title['x']) < 40 and title['y'] < b['y'] < title['y'] + 120]
+        assert len(band) == 1, (title, bands)
+        head = [h for h in heads if abs(h['x'] - title['x']) < 120 and band[0]['y'] < h['y'] < band[0]['y'] + 120]
+        assert len(head) == 1, (title, band, heads)
+        rows = [t for t in texts if t['t'].isdigit() and abs(t['x'] - head[0]['x']) < 30 and t['y'] > head[0]['y']]
+        assert rows, (title, head)
+    assert not errors, errors
