@@ -1846,6 +1846,14 @@ class _ScreenGroups {
                 : 'Cancel leaves the screens ungrouped and unchanged.';
         }
 
+        // One dialog, one question: an ask still open when another comes is
+        // answered Cancel first (askGroupLock does the same). Its resolver
+        // was simply overwritten before, so the earlier grouping waited
+        // forever on a dialog that now asked about other screens.
+        if (this._groupSettingsResolve) {
+            sendClientLog('group_settings_superseded', { mode });
+            this._groupSettingsResolve(null);
+        }
         modal.style.display = 'block';
         return new Promise(resolve => { this._groupSettingsResolve = resolve; });
     }
