@@ -49,7 +49,7 @@ def _guard(server_project_guard):
 # The sheet (app-binder.js): Tabloid at 200 px/in, the border PAD in, the
 # title block TB_W wide inside it, the drawing area DA_PAD in from both.
 W, H = 3400, 2200
-PAD, TB_W, DA_PAD = 50, 480, 30
+PAD, TB_W, DA_PAD, DA_FOOT = 50, 480, 10, 30
 COL_W, COL_GAP, BUBBLE_H = 700, 30, 96
 H4_H, TH_H, ROW_H, LIST_H = 46, 40, 38, 30
 SZ_CELL = 24
@@ -63,10 +63,12 @@ BEFORE = (1499, 598)
 
 def _da(w, h, block=True):
     # (no block, no border to clear: the drawing runs to the quarter inch)
+    # (with it, a hair inside the rule and the rev line's strip at the foot)
     inset = DA_PAD if block else 0
+    foot = DA_FOOT if block else 0
     return {'x': PAD + inset, 'y': PAD + inset,
             'w': w - PAD * 2 - (TB_W if block else 0) - inset * 2,
-            'h': h - PAD * 2 - inset * 2}
+            'h': h - PAD * 2 - inset - foot}
 
 
 SEED_JS = """async () => {
