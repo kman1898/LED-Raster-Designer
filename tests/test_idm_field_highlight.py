@@ -306,7 +306,7 @@ def point(pg, name, col, row, mx, my):
 
 def open_output(pg, cid):
     with pg.expect_popup() as info:
-        pg.evaluate("(id) => { window.app.openOutputDisplay({canvasId: id, view: 'idm', scale: '1to1'}); }", cid)
+        pg.evaluate("(id) => { window.app.openOutputDisplay({canvasId: id, view: 'idm'}); }", cid)
     out = info.value
     out.wait_for_load_state('domcontentloaded')
     settled(out, lambda: out.evaluate("() => Number(document.body.dataset.frames || 0)"), lambda n: n >= 1, 8000)
@@ -749,7 +749,7 @@ def test_screenshots(page, e2e_server, pw_browser):
     page.screenshot(path=os.path.join(SHOTS, 'idm-field-red-shade-highlight.png'))
     click_field(page, '#ffffff', 'shade')
     with page.expect_popup() as info:
-        page.evaluate("(id) => { window.app.openOutputDisplay({canvasId: id, view: 'idm', scale: 'fit'}); }", cid)
+        page.evaluate("(id) => { window.app.openOutputDisplay({canvasId: id, view: 'idm'}); }", cid)
     out = info.value
     out.set_viewport_size({'width': 1280, 'height': 720})
     settled(out, lambda: out.evaluate("() => Number(document.body.dataset.frames || 0)"), lambda n: n >= 1, 8000)

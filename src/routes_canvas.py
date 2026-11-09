@@ -325,14 +325,13 @@ def set_active_canvas(canvas_id):
 # opens it renders the canvas with its own renderer and hands it each frame
 # (static/js/app-output-display.js, static/js/output-display.js) - so the
 # route serves the shell and the page reads the query string
-# (?canvas=&view=&scale=). No-store like the main page, so a rebuilt app
+# (?canvas=&view=; every output is 1:1). No-store like the main page, so a rebuilt app
 # never shows a stale shell.
 @canvas_bp.route('/output')
 def output_display():
     log_event('output_display_page', {
         'canvas': request.args.get('canvas', ''),
         'view': request.args.get('view', ''),
-        'scale': request.args.get('scale', ''),
     })
     response = make_response(render_template('output.html'))
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'

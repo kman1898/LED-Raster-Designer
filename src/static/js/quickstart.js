@@ -3005,7 +3005,7 @@
             setNotesCollapsed(w.notes);
             restorePanels(w.panels);
             restoreIdm(w.idm);
-            setOutputChoice(w.output || { view: 'pixel-map', scale: 'fit' });
+            setOutputChoice(w.output || { view: 'pixel-map' });
             closeTransients();
             var em = $('#export-modal');
             if (em) em.style.display = w.exportOpen ? 'block' : 'none';
@@ -3261,15 +3261,13 @@
         var m = outputModal();
         if (!m) return null;
         var v = m.querySelector('#output-display-view');
-        var s = m.querySelector('input[name="output-display-scale"]:checked');
-        return { view: v ? v.value : 'pixel-map', scale: s ? s.value : 'fit' };
+        return { view: v ? v.value : 'pixel-map' };
     }
     function setOutputChoice(c) {
         var m = outputModal(), a = A();
         if (!m || !c) return;
         var v = m.querySelector('#output-display-view');
         if (v) v.value = c.view;
-        $$('input[name="output-display-scale"]', m).forEach(function (r) { r.checked = r.value === c.scale; });
         if (a && typeof a._outputDisplayUpdateNote === 'function') { try { a._outputDisplayUpdateNote(); } catch (e) {} }
     }
     // Only this screen selected (the 3D panel and the IDM Locator's module
@@ -7417,17 +7415,17 @@
             check: function () {
                 if (!outputOpen()) return null;
                 var note = $('#output-display-note');
-                return 'Pick the canvas, the view and the scale, then Open output.' + (note && note.textContent ? ' ' + note.textContent : '');
+                return 'Pick the canvas and the view, then Open output.' + (note && note.textContent ? ' ' + note.textContent : '');
             },
             after: closeOutput
         },
         outputChoices: {
             since: '1.7.0',
             window: 'output',
-            target: '#output-display-view', ring: ['#output-display-view', 'input[name="output-display-scale"][value="1to1"]'],
-            place: 'right', title: 'The view and the scale',
-            avoid: ['#output-display-view', 'input[name="output-display-scale"][value="1to1"]'],
-            body: 'Every tab but 3D can go out, the IDM Locator included. Fit to display fills the display; 1:1 pixel puts one raster pixel on each display pixel.',
+            target: '#output-display-view', ring: ['#output-display-view', '#output-display-note'],
+            place: 'right', title: 'The view, at 1:1',
+            avoid: ['#output-display-view', '#output-display-note'],
+            body: 'Every tab but 3D can go out, the IDM Locator included. Every output is 1:1: one raster pixel on each display pixel, from the top-left corner.',
             before: function () {
                 var a = A();
                 if (!outputOpen() && a && typeof a.openOutputDisplayDialog === 'function') a.openOutputDisplayDialog();
@@ -7435,15 +7433,13 @@
             act: function (t) {
                 return t.spot($('#output-display-modal .modal-content')).then(function () {
                     return t.select('#output-display-view', 'idm');
-                }).then(function () {
-                    return t.click('input[name="output-display-scale"][value="1to1"]');
                 }).then(function () { return t.pause(PACE.acted); });
             },
             check: function () {
                 var c = outputChoice();
-                if (!outputOpen() || !c || c.view !== 'idm' || c.scale !== '1to1') return null;
+                if (!outputOpen() || !c || c.view !== 'idm') return null;
                 var note = $('#output-display-note');
-                return 'IDM Locator at 1:1 pixel.' + (note && note.textContent ? ' ' + note.textContent : '');
+                return 'The IDM Locator is picked.' + (note && note.textContent ? ' ' + note.textContent : '');
             },
             after: closeOutput
         },

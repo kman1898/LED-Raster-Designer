@@ -2252,8 +2252,13 @@ Object.assign(CanvasRenderer.prototype, {
         // tab with a bar picked (a click on it), the bar goes instead. A
         // delete clears the selection the moment it starts, so a press while
         // one is landing goes through too: deleteCurrentLayer holds it for
-        // when it lands.
-        if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping
+        // when it lands. On the 3D tab the keys do nothing (Matt,
+        // 2026-11-08: too easy to hit there by accident); the right-click
+        // Delete Screen and the Screens list's own delete still work. A
+        // focused field is never reached here, so it keeps its own keys.
+        if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping && this.viewMode === '3d') {
+            e.preventDefault();
+        } else if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping
                 && this.viewMode === 'rigging' && window.app && window.app._riggingPicked) {
             e.preventDefault();
             window.app.removePickedRiggingBar();

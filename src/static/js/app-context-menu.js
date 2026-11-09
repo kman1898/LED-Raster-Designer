@@ -170,6 +170,13 @@ class _ContextMenu {
             menu.querySelectorAll('.movable-view-only').forEach(el => {
                 el.style.display = canCenter ? '' : 'none';
             });
+            // Previous/Next Port step the data walk, which means nothing on
+            // the 3D tab (Matt, 2026-11-08): the two leave there, with their
+            // divider. Every other tab keeps them.
+            const in3d = window.canvasRenderer && window.canvasRenderer.viewMode === '3d';
+            menu.querySelectorAll('.port-step-only').forEach(el => {
+                el.style.display = in3d ? 'none' : '';
+            });
             menu.querySelectorAll('.screen-export-only').forEach(el => {
                 el.style.display = this._binderMenuLayer ? '' : 'none';
             });
@@ -355,6 +362,16 @@ class _ContextMenu {
                 ? 'data-shortcut-mac' : 'data-shortcut-win');
             item.textContent = key ? `${word} ${stepWord} (${key})` : `${word} ${stepWord}`;
         });
+        // The Del key deletes nothing on the 3D tab (canvas-input.js), so
+        // Delete Screen does not offer it there.
+        const deleteItem = menu.querySelector('[data-action="delete"]');
+        if (deleteItem) {
+            const label = deleteItem.getAttribute('data-label') || 'Delete Screen';
+            const key = deleteItem.getAttribute(this._isMacPlatform()
+                ? 'data-shortcut-mac' : 'data-shortcut-win');
+            const in3dView = window.canvasRenderer && window.canvasRenderer.viewMode === '3d';
+            deleteItem.textContent = (key && !in3dView) ? `${label} (${key})` : label;
+        }
 
         menu.style.visibility = 'hidden';
         menu.style.display = 'block';

@@ -838,7 +838,7 @@ def test_the_output_window_shows_a_mark_as_it_is_made(page, e2e_server):
     cid = reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
     with page.expect_popup() as info:
-        page.evaluate("(id) => { window.app.openOutputDisplay({canvasId: id, view: 'idm', scale: '1to1'}); }", cid)
+        page.evaluate("(id) => { window.app.openOutputDisplay({canvasId: id, view: 'idm'}); }", cid)
     out = info.value
     out.wait_for_load_state('domcontentloaded')
 
@@ -967,7 +967,7 @@ def test_screenshots(page):
     page.wait_for_timeout(500)
     page.screenshot(path=os.path.join(SHOTS, 'idm-locator-tab.png'))
     with page.expect_popup() as info:
-        page.evaluate("(id) => { window.app.openOutputDisplay({canvasId: id, view: 'idm', scale: 'fit'}); }", cid)
+        page.evaluate("(id) => { window.app.openOutputDisplay({canvasId: id, view: 'idm'}); }", cid)
     out = info.value
     out.set_viewport_size({'width': 1280, 'height': 720})
     settled(out, lambda: out.evaluate("() => Number(document.body.dataset.frames || 0)"), lambda n: n >= 1, 8000)

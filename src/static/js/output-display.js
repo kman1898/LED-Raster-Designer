@@ -4,17 +4,15 @@
    below (app-output-display.js). This page never draws a layer itself: it
    holds the pixels, sizes them, and handles full screen and closing.
 
-   Scale modes (?scale=):
-     fit   - the whole raster, as large as the window allows, centred.
-     1to1  - one raster pixel on one device pixel, from the top-left corner
-             (the CSS size is divided by devicePixelRatio, so a 150% display
-             still gets the raster pixel for pixel).
+   Always 1:1: one raster pixel on one device pixel, from the top-left
+   corner (the CSS size is divided by devicePixelRatio, so a 150% display
+   still gets the raster pixel for pixel). There is no other scale; an old
+   ?scale= on the address (a window opened by an earlier build) is ignored.
 */
 (function () {
     'use strict';
 
     var params = new URLSearchParams(window.location.search);
-    var scaleMode = params.get('scale') === '1to1' ? '1to1' : 'fit';
     var canvas = document.getElementById('output-canvas');
     var ctx = canvas.getContext('2d', { alpha: false });
     var hint = document.getElementById('output-hint');
@@ -22,8 +20,6 @@
     var frames = 0;
     var fullscreenSince = 0;
     var fullscreenLeftAt = 0;
-
-    document.body.dataset.scale = scaleMode;
 
     function showMessage(text) {
         message.textContent = text;
@@ -35,28 +31,12 @@
         var h = canvas.height;
         if (!w || !h) return;
         var dpr = window.devicePixelRatio || 1;
-        var vw = window.innerWidth;
-        var vh = window.innerHeight;
-        var cssW, cssH, left, top;
-        if (scaleMode === '1to1') {
-            cssW = w / dpr;
-            cssH = h / dpr;
-            left = 0;
-            top = 0;
-        } else {
-            var s = Math.min(vw / w, vh / h);
-            cssW = w * s;
-            cssH = h * s;
-            left = Math.max(0, (vw - cssW) / 2);
-            top = Math.max(0, (vh - cssH) / 2);
-        }
-        canvas.style.width = cssW + 'px';
-        canvas.style.height = cssH + 'px';
-        canvas.style.left = left + 'px';
-        canvas.style.top = top + 'px';
-        // Hard pixel edges whenever a raster pixel covers one or more device
-        // pixels; smoothing only when Fit has to shrink the raster.
-        canvas.style.imageRendering = (cssW * dpr >= w - 0.5) ? 'pixelated' : 'auto';
+        canvas.style.width = (w / dpr) + 'px';
+        canvas.style.height = (h / dpr) + 'px';
+        canvas.style.left = '0px';
+        canvas.style.top = '0px';
+        // Hard pixel edges: every raster pixel is one device pixel.
+        canvas.style.imageRendering = 'pixelated';
     }
 
     // One frame from the designer window: `src` is a canvas holding the
@@ -93,8 +73,7 @@
         missing: missing,
         params: {
             canvas: params.get('canvas') || '',
-            view: params.get('view') || 'pixel-map',
-            scale: scaleMode
+            view: params.get('view') || 'pixel-map'
         }
     };
 

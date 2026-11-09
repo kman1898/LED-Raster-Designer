@@ -100,10 +100,10 @@ other edit.
 A CANVAS ON A SECOND DISPLAY
 
 View > Output to Display opens one canvas in its own window, Pixel Map,
-Cabinet ID, Show Look, Data, Power, Header/Footer or IDM Locator, scaled to
-fit the display or at one raster pixel to one display pixel. In Chrome and
-Edge the dialog picks the display. Click, F or a double-click goes full
-screen, Esc leaves it. The window follows every edit as you make it.
+Cabinet ID, Show Look, Data, Power, Header/Footer or IDM Locator, at 1:1,
+one raster pixel to one display pixel. In Chrome and Edge the dialog picks
+the display. Click, F or a double-click goes full screen, Esc leaves it.
+The window follows every edit as you make it.
 Output to Display can feed several displays at once: open another output
 for each one, any canvas in any view, and the dialog lists each output
 with the display it is on. Where the browser can't pick the display, drag

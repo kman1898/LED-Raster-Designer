@@ -15,6 +15,11 @@
 // whatever this window shows - its own edits, undo, and the layer edits
 // other LAN clients push to it.
 //
+// Every output is 1:1: one raster pixel on one display pixel, from the
+// top-left corner (Matt, 2026-11-08: "1:1 is the only output option we
+// should have"). There is no scale to pick; an old ?scale= on an output's
+// address is ignored.
+//
 // The windows are kept in _outputDisplayWindows (references, not ids), the
 // dialog lists and closes them, and they close with this window.
 import { LEDRasterApp } from './app-core.js';
@@ -31,7 +36,6 @@ const OUTPUT_VIEWS = [
     // (app-idm-locator.js), so the crew can find a bad module on the wall.
     ['idm', 'IDM Locator'],
 ];
-const OUTPUT_SCALES = { fit: 'Fit to display', '1to1': '1:1 pixel' };
 
 class _OutputDisplay {
     // ---- the dialog ---------------------------------------------------------
@@ -105,13 +109,6 @@ class _OutputDisplay {
                     <label for="output-display-view">View</label>
                     <select id="output-display-view">${views}</select>
                 </div>
-                <div class="od-row">
-                    <span class="od-label">Scale</span>
-                    <div class="od-choices">
-                        <label><input type="radio" name="output-display-scale" value="fit" checked> Fit to display</label>
-                        <label><input type="radio" name="output-display-scale" value="1to1"> 1:1 pixel</label>
-                    </div>
-                </div>
                 <div class="od-row" id="output-display-screen-row"${canPickScreen ? '' : ' hidden'}>
                     <label for="output-display-screen">Display</label>
                     <select id="output-display-screen" data-tooltip="Display, The display the output opens on. A display that already has an output is picked last."></select>
@@ -125,7 +122,7 @@ class _OutputDisplay {
                 </div>
                 <div class="od-actions">
                     <button type="button" class="btn" id="output-display-close">Close</button>
-                    <button type="button" class="btn btn-primary" id="output-display-open" data-tooltip="Open output, Open the canvas, view and scale above on the chosen display. Open as many as you need: each display gets its own output, and every one follows your edits live.">Open output</button>
+                    <button type="button" class="btn btn-primary" id="output-display-open" data-tooltip="Open output, Open the canvas and view above on the chosen display, one raster pixel to one display pixel. Open as many as you need: each display gets its own output, and every one follows your edits live.">Open output</button>
                 </div>
             </div>`;
         document.body.appendChild(modal);
@@ -145,8 +142,6 @@ class _OutputDisplay {
             .addEventListener('change', () => this._outputDisplayUpdateNote());
         modal.querySelector('#output-display-view')
             .addEventListener('change', () => this._outputDisplayUpdateNote());
-        modal.querySelectorAll('input[name="output-display-scale"]').forEach(r =>
-            r.addEventListener('change', () => this._outputDisplayUpdateNote()));
         modal.querySelector('#output-display-open-list').addEventListener('click', (e) => {
             const btn = e.target.closest('[data-output-id]');
             if (!btn) return;
@@ -160,29 +155,24 @@ class _OutputDisplay {
 
     _outputDisplayChoice() {
         const modal = this._outputDisplayDialog();
-        const scaleEl = modal.querySelector('input[name="output-display-scale"]:checked');
         const screenSel = modal.querySelector('#output-display-screen');
         const screenIdx = screenSel && screenSel.value !== '' ? Number(screenSel.value) : -1;
         return {
             canvasId: modal.querySelector('#output-display-canvas').value || '',
             view: modal.querySelector('#output-display-view').value || 'pixel-map',
-            scale: (scaleEl && scaleEl.value === '1to1') ? '1to1' : 'fit',
             screen: (this._outputDisplayScreens && screenIdx >= 0)
                 ? this._outputDisplayScreens[screenIdx] || null : null,
         };
     }
 
-    // The raster the choice would show, so 1:1 says what it needs.
+    // The raster the choice would show, so the note says what 1:1 needs.
     _outputDisplayUpdateNote() {
         const note = document.getElementById('output-display-note');
         if (!note) return;
-        const { canvasId, view, scale } = this._outputDisplayChoice();
+        const { canvasId, view } = this._outputDisplayChoice();
         const size = this._outputDisplayRasterSize(canvasId, view);
-        const dims = size ? `${size.width} × ${size.height}` : '';
         note.textContent = !size ? ''
-            : (scale === '1to1'
-                ? `Raster ${dims}, one raster pixel per display pixel from the top-left corner. A display smaller than the raster cuts off the rest.`
-                : `Raster ${dims}, scaled to fill the display.`);
+            : `Raster ${size.width} × ${size.height}, output at 1:1, one raster pixel per display pixel from the top-left corner. A display smaller than the raster cuts off the rest.`;
     }
 
     _outputDisplayRasterSize(canvasId, view) {
@@ -307,13 +297,12 @@ class _OutputDisplay {
         this._outputDisplayFillScreens(false);
     }
 
-    // Open one output. choice: { canvasId, view, scale, screen }. Returns
+    // Open one output, always 1:1. choice: { canvasId, view, screen }. Returns
     // the entry, or null when the browser refused the window.
     openOutputDisplay(choice) {
         const view = OUTPUT_VIEWS.some(([v]) => v === choice.view) ? choice.view : 'pixel-map';
-        const scale = choice.scale === '1to1' ? '1to1' : 'fit';
         const canvasId = choice.canvasId || '';
-        const qs = new URLSearchParams({ canvas: canvasId, view, scale });
+        const qs = new URLSearchParams({ canvas: canvasId, view });
         const s = choice.screen;
         let features;
         if (s) {
@@ -331,13 +320,13 @@ class _OutputDisplay {
         if (!this._outputDisplayTag) this._outputDisplayTag = Date.now().toString(36);
         const win = window.open(`/output?${qs.toString()}`, `lrd-output-${this._outputDisplayTag}-${id}`, features);
         if (!win) {
-            sendClientLog('output_display_blocked', { canvasId, view, scale });
+            sendClientLog('output_display_blocked', { canvasId, view });
             return null;
         }
         const chosen = s ? (this._outputDisplayScreens || []).indexOf(s) : -1;
-        const entry = { id, win, canvasId, view, scale, lastSig: null, chosenScreen: chosen };
+        const entry = { id, win, canvasId, view, lastSig: null, chosenScreen: chosen };
         this._outputDisplayTrack(entry);
-        sendClientLog('output_display_open', { id, canvasId, view, scale, screen: !!s });
+        sendClientLog('output_display_open', { id, canvasId, view, screen: !!s });
         return entry;
     }
 
@@ -359,7 +348,7 @@ class _OutputDisplay {
         return this._outputDisplayWindows.map(e => {
             const screenIndex = this._outputDisplayEntryScreen(e);
             return {
-                id: e.id, canvasId: e.canvasId, view: e.view, scale: e.scale, screenIndex,
+                id: e.id, canvasId: e.canvasId, view: e.view, screenIndex,
                 display: screenIndex >= 0 ? this._outputDisplayScreenName(screenIndex) : '',
                 label: this._outputDisplayLabel(e, screenIndex),
             };
@@ -391,14 +380,14 @@ class _OutputDisplay {
         this._outputDisplayWindows = [];
     }
 
-    // Canvas · view · scale, and the display it is on when the browser
+    // Canvas · view, and the display it is on when the browser
     // can say (`screenIndex`, worked out when not given).
     _outputDisplayLabel(entry, screenIndex) {
         const c = this._outputDisplayCanvases().find(x => x.id === entry.canvasId);
         const v = OUTPUT_VIEWS.find(([k]) => k === entry.view);
         const i = screenIndex === undefined ? this._outputDisplayEntryScreen(entry) : screenIndex;
         const on = i >= 0 ? ` · on ${this._outputDisplayScreenName(i)}` : '';
-        return `${c ? c.name : 'Missing canvas'} · ${v ? v[1] : entry.view} · ${OUTPUT_SCALES[entry.scale] || entry.scale}${on}`;
+        return `${c ? c.name : 'Missing canvas'} · ${v ? v[1] : entry.view}${on}`;
     }
 
     // `quiet`: the once-a-second poll - rewrite only when the list changed.
@@ -463,7 +452,7 @@ class _OutputDisplay {
             entry = {
                 id: this._outputDisplaySeq, win, canvasId: p.canvas || '',
                 view: OUTPUT_VIEWS.some(([v]) => v === p.view) ? p.view : 'pixel-map',
-                scale: p.scale === '1to1' ? '1to1' : 'fit', lastSig: null,
+                lastSig: null,
             };
             this._outputDisplayTrack(entry);
         }

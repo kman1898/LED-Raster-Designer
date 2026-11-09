@@ -676,3 +676,110 @@ def test_one_gesture_after_another(page):
     page.wait_for_timeout(800)
     assert camera(page)['position'] == pytest.approx(framed['position'], abs=0.05), 'something moved the camera after the reload'
     assert page.errors == []
+
+
+# ── Delete and the right-click menu on the 3D tab ───────────────────────
+# Matt, 2026-11-08: Delete and Backspace on the 3D tab do nothing (too easy
+# to hit there by accident); the right-click Delete Screen stays. Previous
+# and Next Port mean nothing in 3D, so the menu drops them there.
+
+def layer_ids(page):
+    return page.evaluate("window.app.project.layers.map(l => l.id).sort((a, b) => a - b)")
+
+
+def menu_shows(page, action):
+    return page.evaluate("""(a) => { const el = document.querySelector(`#context-menu [data-action="${a}"]`);
+        return !!el && getComputedStyle(el).display !== 'none'; }""", action)
+
+
+PORT_DIVIDER_JS = """() => { const el = document.querySelector('#context-menu .menu-divider.port-step-only');
+    return !!el && getComputedStyle(el).display !== 'none'; }"""
+
+
+def test_delete_and_backspace_on_3d_leave_the_selected_screen(page):
+    ids = fresh(page)
+    at = screen(page, ids[0])['at']
+    page.mouse.click(*at)
+    page.wait_for_timeout(300)
+    assert selected(page) == [ids[0]]
+    steps = history_len(page)
+    for key in ('Delete', 'Backspace'):
+        page.keyboard.press(key)
+        page.wait_for_timeout(400)
+        assert layer_ids(page) == sorted(ids), key
+        assert selected(page) == [ids[0]], key
+    assert history_len(page) == steps
+    # Both screens selected: still nothing goes.
+    page.keyboard.down('Shift')
+    page.mouse.click(*screen(page, ids[1])['at'])
+    page.keyboard.up('Shift')
+    page.wait_for_timeout(300)
+    assert selected(page) == sorted(ids)
+    page.keyboard.press('Delete')
+    page.wait_for_timeout(400)
+    assert layer_ids(page) == sorted(ids)
+    # A field keeps its own Backspace and Delete.
+    page.mouse.click(*at)
+    page.wait_for_timeout(300)
+    page.click('#s3d-x')
+    page.keyboard.press('End')
+    page.keyboard.type('9')
+    typed = page.input_value('#s3d-x')
+    page.keyboard.press('Backspace')
+    assert page.input_value('#s3d-x') == typed[:-1]
+    page.keyboard.press('Home')
+    page.keyboard.press('Delete')
+    assert page.input_value('#s3d-x') == typed[1:-1]
+    page.keyboard.press('Escape')
+    page.mouse.click(5, 5)
+    assert layer_ids(page) == sorted(ids)
+    assert page.errors == []
+
+
+def test_delete_on_pixel_map_still_deletes(page):
+    ids = fresh(page)
+    open_tab(page, 'pixel-map')
+    page.evaluate("(id) => window.app.selectLayer(window.app.project.layers.find(l => l.id === id))", ids[1])
+    page.wait_for_timeout(200)
+    page.evaluate("document.activeElement && document.activeElement.blur && document.activeElement.blur()")
+    page.keyboard.press('Delete')
+    got = settled(page, lambda: layer_ids(page), lambda v: v == [ids[0]], 5000)
+    assert got == [ids[0]], got
+
+
+def test_the_3d_menu_has_no_port_steps_and_pixel_map_keeps_them(page):
+    ids = fresh(page)
+    at = screen(page, ids[0])['at']
+    page.mouse.click(*at)
+    page.wait_for_timeout(300)
+    page.mouse.click(*at, button='right')
+    page.wait_for_selector('#context-menu', state='visible')
+    try:
+        assert not menu_shows(page, 'prev-port')
+        assert not menu_shows(page, 'next-port')
+        assert not page.evaluate(PORT_DIVIDER_JS)
+        # Delete Screen stays, without a Del key it would not answer to here.
+        assert menu_shows(page, 'delete')
+        assert page.inner_text('#context-menu [data-action="delete"]') == 'Delete Screen'
+    finally:
+        page.evaluate("window.app.hideContextMenu()")
+    # Delete Screen from the menu still deletes on 3D.
+    page.mouse.click(*at, button='right')
+    page.wait_for_selector('#context-menu', state='visible')
+    page.click('#context-menu [data-action="delete"]')
+    got = settled(page, lambda: layer_ids(page), lambda v: v == [ids[1]], 5000)
+    assert got == [ids[1]], got
+    # Pixel Map: the two are back, with their divider and the Del key.
+    open_tab(page, 'pixel-map')
+    page.evaluate("(id) => window.app.selectLayer(window.app.project.layers.find(l => l.id === id))", ids[1])
+    box = page.locator('#main-canvas').bounding_box()
+    page.mouse.click(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2, button='right')
+    page.wait_for_selector('#context-menu', state='visible')
+    try:
+        assert menu_shows(page, 'prev-port') and menu_shows(page, 'next-port')
+        assert page.evaluate(PORT_DIVIDER_JS)
+        assert page.inner_text('#context-menu [data-action="prev-port"]').startswith('Previous Port')
+        assert page.inner_text('#context-menu [data-action="delete"]').startswith('Delete Screen (')
+    finally:
+        page.evaluate("window.app.hideContextMenu()")
+    assert page.errors == []

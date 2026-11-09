@@ -6,9 +6,12 @@ chosen canvas with its own renderer - the export recipe, onto an offscreen
 canvas - and hands every frame over. Pinned here:
 
 * the route serves the bare page (no-store, the page script, no app chrome);
-* the output shows THE CHOSEN canvas, at its own raster size, in both scale
-  modes - Fit sizes it into the window, 1:1 puts one raster pixel on one
-  device pixel (CSS size = raster / devicePixelRatio);
+* the output shows THE CHOSEN canvas, at its own raster size, always 1:1 -
+  one raster pixel on one device pixel (CSS size = raster /
+  devicePixelRatio) from the top-left corner. There is no scale to pick
+  (Matt, 2026-11-08: "1:1 is the only output option we should have"): the
+  dialog has no scale control, and a 'fit' left on an output's address or
+  passed by old code opens 1:1 all the same;
 * it is live: a local edit, its undo, and a layer edit another client makes
   through the server all reach the picture;
 * the dialog lists the open outputs and closes them, Esc in an output with
@@ -138,12 +141,11 @@ def canvas_box(pg):
     }""")
 
 
-def open_from_dialog(page, canvas_id, view='pixel-map', scale='fit'):
+def open_from_dialog(page, canvas_id, view='pixel-map'):
     page.evaluate("window.app.handleMenuAction('output-to-display')")
     page.wait_for_selector('#output-display-modal', state='visible')
     page.select_option('#output-display-canvas', canvas_id)
     page.select_option('#output-display-view', view)
-    page.check(f'input[name="output-display-scale"][value="{scale}"]')
     with page.expect_popup() as info:
         page.click('#output-display-open')
     out = info.value
@@ -160,7 +162,7 @@ def close_dialog(page):
 # ── the route ─────────────────────────────────────────────────────────────
 
 def test_output_route_serves_the_bare_page(client):
-    res = client.get('/output?canvas=c1&view=pixel-map&scale=fit')
+    res = client.get('/output?canvas=c1&view=pixel-map')
     assert res.status_code == 200
     html = res.get_data(as_text=True)
     assert 'id="output-canvas"' in html
@@ -173,24 +175,80 @@ def test_output_route_serves_the_bare_page(client):
 
 # ── the picture ───────────────────────────────────────────────────────────
 
-def test_fit_output_shows_the_chosen_canvas_at_its_raster_size(page):
+def test_the_dialog_has_no_scale_control_and_says_1_to_1(page):
     ids = reset_project(page)
-    out = open_from_dialog(page, ids['c2'], scale='fit')
+    page.evaluate("window.app.handleMenuAction('output-to-display')")
+    page.wait_for_selector('#output-display-modal', state='visible')
+    try:
+        page.select_option('#output-display-canvas', ids['c2'])
+        modal = page.locator('#output-display-modal')
+        assert modal.locator('input[name="output-display-scale"]').count() == 0
+        assert modal.locator('input[type="radio"]').count() == 0
+        text = modal.inner_text()
+        assert 'Scale' not in text and 'Fit to display' not in text, text
+        note = page.inner_text('#output-display-note')
+        assert note.startswith('Raster 640 × 360, output at 1:1,'), note
+        tip = page.get_attribute('#output-display-open', 'data-tooltip')
+        assert 'scale' not in tip and 'one raster pixel to one display pixel' in tip, tip
+    finally:
+        close_dialog(page)
+
+
+def test_output_shows_the_chosen_canvas_at_exactly_its_raster_size(page):
+    ids = reset_project(page)
+    out = open_from_dialog(page, ids['c2'])
     try:
         box = canvas_box(out)
         assert (box['w'], box['h']) == (640, 360), box
-        # Fit: as large as the window allows, aspect kept, centred.
-        s = min(box['vw'] / 640, box['vh'] / 360)
-        assert abs(box['cssW'] - 640 * s) < 1 and abs(box['cssH'] - 360 * s) < 1, box
-        assert abs(box['left'] - (box['vw'] - box['cssW']) / 2) < 1, box
-        assert abs(box['top'] - (box['vh'] - box['cssH']) / 2) < 1, box
+        # 1:1 from the top-left corner, whatever the window's size.
+        assert box['cssW'] == pytest.approx(640 / box['dpr']), box
+        assert box['cssH'] == pytest.approx(360 / box['dpr']), box
+        assert (box['left'], box['top']) == (0, 0), box
+        assert 'scale' not in out.url, out.url
         # c2's own screen, drawn from c2's corner - not c1's wider screen.
         assert lit(pixel(out, 80, 80)), pixel(out, 80, 80)
         assert black(pixel(out, 450, 200)), pixel(out, 450, 200)
         assert black(pixel(out, 600, 330)), pixel(out, 600, 330)
-        assert out.title().startswith('Canvas 2 · Pixel Map · Fit to display')
+        assert out.title().startswith('Canvas 2 · Pixel Map · Output'), out.title()
     finally:
         close_dialog(page)
+        out.close()
+
+
+def test_a_saved_fit_opens_as_1_to_1(page):
+    """'fit' from before the ruling, by either road it could come back: a
+    call that still passes it, and an output window whose address still
+    carries ?scale=fit (taken back by _outputDisplayAttach)."""
+    ids = reset_project(page)
+    with page.expect_popup() as info:
+        page.evaluate("(id) => { window.app.openOutputDisplay("
+                      "{canvasId: id, view: 'pixel-map', scale: 'fit'}); }", ids['c2'])
+    out = info.value
+    try:
+        settled(out, lambda: frames(out), lambda n: n >= 1, 8000)
+        box = canvas_box(out)
+        assert (box['w'], box['h']) == (640, 360), box
+        assert box['cssW'] == pytest.approx(640 / box['dpr']), box
+        assert (box['left'], box['top']) == (0, 0), box
+        assert 'scale' not in out.url, out.url
+    finally:
+        out.close()
+    with page.expect_popup() as info:
+        page.evaluate("(id) => { window.open('/output?canvas=' + id + '&view=pixel-map&scale=fit',"
+                      " 'lrd-output-old', 'popup=yes,width=900,height=600'); }", ids['c2'])
+    out = info.value
+    try:
+        settled(out, lambda: frames(out), lambda n: n >= 1, 8000)
+        box = canvas_box(out)
+        assert (box['w'], box['h']) == (640, 360), box
+        assert box['cssW'] == pytest.approx(640 / box['dpr']), box
+        assert box['cssH'] == pytest.approx(360 / box['dpr']), box
+        assert (box['left'], box['top']) == (0, 0), box
+        assert out.evaluate("window.lrdOutput.params") == {'canvas': ids['c2'], 'view': 'pixel-map'}
+        listed = page.evaluate("window.app.listOutputDisplays()")
+        assert len(listed) == 1 and 'scale' not in listed[0], listed
+        assert listed[0]['label'] == 'Canvas 2 · Pixel Map', listed
+    finally:
         out.close()
 
 
@@ -200,7 +258,7 @@ def test_one_to_one_output_puts_a_raster_pixel_on_a_device_pixel(e2e_server, pw_
     try:
         with pg.expect_popup() as info:
             pg.evaluate("(id) => { window.app.openOutputDisplay("
-                        "{canvasId: id, view: 'pixel-map', scale: '1to1'}); }", ids['c1'])
+                        "{canvasId: id, view: 'pixel-map'}); }", ids['c1'])
         out = info.value
         settled(out, lambda: frames(out), lambda n: n >= 1, 8000)
         box = canvas_box(out)
@@ -223,7 +281,7 @@ def test_one_to_one_output_puts_a_raster_pixel_on_a_device_pixel(e2e_server, pw_
 
 def test_output_follows_local_edits_undo_and_other_clients(page, e2e_server):
     ids = reset_project(page)
-    out = open_from_dialog(page, ids['c1'], scale='fit')
+    out = open_from_dialog(page, ids['c1'])
     close_dialog(page)
     try:
         before = pixel(out, 450, 200)
@@ -305,10 +363,11 @@ def test_header_footer_goes_out_at_the_show_raster(page):
 
 def test_dialog_lists_and_closes_outputs(page):
     ids = reset_project(page)
-    out = open_from_dialog(page, ids['c2'], view='cabinet-id', scale='1to1')
+    out = open_from_dialog(page, ids['c2'], view='cabinet-id')
     rows = page.locator('#output-display-open-list .od-open-row')
     assert rows.count() == 1
-    assert rows.first.inner_text().startswith('Canvas 2 · Cabinet ID · 1:1 pixel')
+    assert rows.first.inner_text().startswith('Canvas 2 · Cabinet ID')
+    assert '1:1 pixel' not in rows.first.inner_text() and 'Fit' not in rows.first.inner_text()
     assert page.evaluate("window.app.listOutputDisplays().length") == 1
     with out.expect_event('close', timeout=5000):
         rows.first.locator('button').click()

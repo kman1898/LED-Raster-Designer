@@ -707,11 +707,8 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
 #output-display-modal .output-display-dialog > h2 { margin: 0 0 14px; padding: 10px 16px; font-size: 15px; }
 #output-display-modal .od-row { display: flex; align-items: center; gap: 10px; margin: 0 16px 10px; }
 #output-display-modal .od-row[hidden] { display: none; }
-#output-display-modal .od-row > label,
-#output-display-modal .od-label { flex: 0 0 64px; color: var(--ps-dim, #ccc); font-size: 12px; }
+#output-display-modal .od-row > label { flex: 0 0 64px; color: var(--ps-dim, #ccc); font-size: 12px; }
 #output-display-modal .od-row > select { flex: 1; min-width: 0; padding: 5px 8px; font-size: 12px; }
-#output-display-modal .od-choices { display: flex; gap: 14px; flex-wrap: wrap; }
-#output-display-modal .od-choices label { display: inline-flex; align-items: center; gap: 5px; color: var(--ps-text, #ddd); font-size: 12px; cursor: pointer; }
 #output-display-modal .od-note { margin: 2px 16px 12px; min-height: 16px; color: var(--ps-faint, #999); font-size: 11px; line-height: 1.45; }
 #output-display-modal .od-open { margin: 0 16px 12px; border: 1px solid var(--ps-dark, #333); border-radius: 3px; background: var(--ps-panel-2, #222); }
 #output-display-modal .od-open[hidden] { display: none; }

@@ -159,9 +159,11 @@
             <div class="menu-option movable-view-only" data-action="center-x" data-label="Center on Canvas X"></div>
             <div class="menu-option movable-view-only" data-action="center-y" data-label="Center on Canvas Y"></div>
             <div class="menu-option movable-view-only" data-action="center-both" data-label="Center on Canvas"></div>
-            <div class="menu-divider"></div>
-            <div class="menu-option" data-action="prev-port" data-label="Previous Port" data-shortcut-mac="Shift+Tab" data-shortcut-win="Shift+Tab"></div>
-            <div class="menu-option" data-action="next-port" data-label="Next Port" data-shortcut-mac="Tab" data-shortcut-win="Tab"></div>
+            <!-- Tab steps ports (circuits on Power); meaningless on the 3D
+                 tab, where the three leave (app-context-menu.js). -->
+            <div class="menu-divider port-step-only"></div>
+            <div class="menu-option port-step-only" data-action="prev-port" data-label="Previous Port" data-shortcut-mac="Shift+Tab" data-shortcut-win="Shift+Tab"></div>
+            <div class="menu-option port-step-only" data-action="next-port" data-label="Next Port" data-shortcut-mac="Tab" data-shortcut-win="Tab"></div>
             <!-- Assignment clear. Armed by _prepareClearMenu (app-dock.js)
                  when the right-click lands on a drawn port run, a power
                  circuit, or a dock chip; hidden everywhere else. No
@@ -3607,7 +3609,7 @@
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+C / <span data-sc-mod>Ctrl</span>+V</td><td>Copy / paste the selected screen</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+J</td><td>Duplicate the selected screens</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+A</td><td>Select every screen on the canvas (every cabinet of the screen when a cabinet selection is open)</td></tr>
-                    <tr><td class="sc-key">Delete / Backspace</td><td>Delete the current screen</td></tr>
+                    <tr><td class="sc-key">Delete / Backspace</td><td>Delete the current screen (not on the 3D tab: there, right-click it and pick Delete Screen)</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+,</td><td>Open Preferences</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+O</td><td>Open a project file</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+S</td><td>Save the project to a file</td></tr>

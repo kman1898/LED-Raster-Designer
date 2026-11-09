@@ -449,12 +449,11 @@ def _frames(out):
     return out.evaluate("() => Number(document.body.dataset.frames || 0)")
 
 
-def _open_from_dialog(page, cid, view, scale='1to1'):
+def _open_from_dialog(page, cid, view):
     page.evaluate("window.app.handleMenuAction('output-to-display')")
     page.wait_for_selector('#output-display-modal', state='visible')
     page.select_option('#output-display-canvas', cid)
     page.select_option('#output-display-view', view)
-    page.check(f'input[name="output-display-scale"][value="{scale}"]')
     with page.expect_popup() as info:
         page.click('#output-display-open')
     out = info.value
@@ -495,8 +494,8 @@ def test_two_outputs_at_once_follow_edits_and_close_apart(page):
         rows = page.locator('#output-display-open-list .od-open-row')
         assert rows.count() == 3
         texts = rows.all_inner_texts()
-        assert texts[0].startswith('Canvas 1 · IDM Locator · 1:1 pixel'), texts
-        assert texts[1].startswith('Canvas 2 · Pixel Map · 1:1 pixel'), texts
+        assert texts[0].startswith('Canvas 1 · IDM Locator'), texts
+        assert texts[1].startswith('Canvas 2 · Pixel Map'), texts
         assert [a_.evaluate("() => document.getElementById('output-canvas').width") for a_ in (a, b, c)] == [1920, 640, 1920]
         # an edit on each canvas reaches its outputs
         fb = _frames(b)
@@ -557,14 +556,13 @@ def test_the_dialog_names_each_display_and_moves_on_to_a_free_one(page):
     assert page.input_value('#output-display-screen') == '0'
     page.select_option('#output-display-canvas', cid)
     page.select_option('#output-display-view', 'idm')
-    page.check('input[name="output-display-scale"][value="fit"]')
     with page.expect_popup() as info:
         page.click('#output-display-open')
     out = info.value
     try:
         out.wait_for_load_state('domcontentloaded')
         rows = page.locator('#output-display-open-list .od-open-row')
-        assert rows.first.inner_text().startswith('Canvas 1 · IDM Locator · Fit to display · on Wall A'), rows.first.inner_text()
+        assert rows.first.inner_text().startswith('Canvas 1 · IDM Locator · on Wall A'), rows.first.inner_text()
         # the next output goes to the display without one
         assert page.input_value('#output-display-screen') == '1'
         assert 'has an output' in page.inner_text('#output-display-screen option[value="0"]')
