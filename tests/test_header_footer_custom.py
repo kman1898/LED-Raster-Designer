@@ -607,13 +607,17 @@ def test_the_group_sheet_draws_the_row_and_counts_the_straddler_once(pg):
         a.project.groupNameDisplayByView = { rigging: 'group' };
         const plan = a.planBinder(o);
         const i = plan.findIndex(x => x.title === 'PAIR - Header/Footer - Front View');
+        const r = i < 0 ? null : a.renderBinderPage(o, i);
         return { titles: plan.filter(x => x.kind === 'rigging').map(x => x.title),
-                 texts: i < 0 ? null : a.renderBinderPage(o, i).texts }; }""", OPTS)
+                 texts: r && r.texts, map: r && r.mapTexts, dashes: r && r.dashes }; }""", OPTS)
     assert 'PAIR - Header/Footer - Front View' in out['titles'], out['titles']
     texts = out['texts']
     head = texts[texts.index('HEADER BARS'):]
     i = head.index('Header Bar - Double')
     assert head[i + 1:i + 3] == ['2', '11'], head
+    # the map draws the row whole, each bar once, nothing dashed
+    assert out['map'].count('2') == 11, out['map']
+    assert not [d for d in out['dashes'] if d], out['dashes']
 
 
 def test_a_member_sheet_shows_the_bar_continuing_on_the_neighbor(pg):
@@ -626,7 +630,8 @@ def test_a_member_sheet_shows_the_bar_continuing_on_the_neighbor(pg):
         const pick = (t) => { const i = plan.findIndex(x => x.title === t); return i < 0 ? null : a.renderBinderPage(o, i); };
         const l = pick('PL - Header/Footer - Front View'), r = pick('PR - Header/Footer - Front View');
         return { titles: plan.filter(x => x.kind === 'rigging').map(x => x.title),
-                 l: l && l.texts, r: r && r.texts, ld: l && l.dashes, rd: r && r.dashes }; }""", OPTS)
+                 l: l && l.texts, r: r && r.texts, lm: l && l.mapTexts, rm: r && r.mapTexts,
+                 ld: l && l.dashes, rd: r && r.dashes }; }""", OPTS)
     assert 'PL - Header/Footer - Front View' in out['titles'] and 'PR - Header/Footer - Front View' in out['titles']
     note = "A double header bar runs from PL onto PR. It is counted on PL."
     assert note in out['l'] and note in out['r'], (out['l'], out['r'])
@@ -635,6 +640,11 @@ def test_a_member_sheet_shows_the_bar_continuing_on_the_neighbor(pg):
         head = texts[texts.index('HEADER BARS'):]
         i = head.index('Header Bar - Double')
         assert head[i + 1:i + 3] == ['2', qty], head
+    # each map draws its 5 or 6 own bars plus the straddling one, whose part
+    # over the neighbor is dashed (a map laid as a fill and an overlay is
+    # painted twice, so its lettering is logged twice)
+    assert out['lm'].count('2') in (6, 12) and out['rm'].count('2') in (6, 12), (out['lm'], out['rm'])
+    assert [d for d in out['ld'] if d] and [d for d in out['rd'] if d]
 
 
 def test_3d_stands_the_straddling_bar_half_on_each_member(pg):

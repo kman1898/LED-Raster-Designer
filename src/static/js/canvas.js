@@ -218,6 +218,9 @@ class CanvasRenderer {
         window.addEventListener('mouseup', this.handleMouseUp.bind(this));
         this.canvas.addEventListener('wheel', this.handleWheel.bind(this));
         this.canvas.addEventListener('contextmenu', this.handleContextMenu.bind(this));
+        // Custom on the Header/Footer tab: the see-through bar under the
+        // mouse goes when the mouse leaves the canvas.
+        this.canvas.addEventListener('mouseleave', () => { if (typeof this._riggingHover === 'function') this._riggingHover(null); });
         document.addEventListener('keydown', this.handleKeyDown.bind(this));
         document.addEventListener('keyup', this.handleKeyUp.bind(this));
         // Focus loss (cmd-tab, window switch, tab hide) delivers the

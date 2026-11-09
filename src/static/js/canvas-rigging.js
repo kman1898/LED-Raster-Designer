@@ -72,6 +72,8 @@ Object.assign(CanvasRenderer.prototype, {
     renderRiggingBars(layer) {
         const app = window.app;
         if (!app || typeof app.riggingRowsOf !== 'function') return;
+        // Text and image layers carry no bars.
+        if ((layer.type || 'screen') !== 'screen') return;
         const interactive = !this.exportMode && this.viewMode === 'rigging';
         const solo = !!this.riggingSolo;
         const side = app.riggingSideOf(layer);
@@ -184,10 +186,13 @@ Object.assign(CanvasRenderer.prototype, {
         const adds = d && d.kind === 'place' && d.rowObj && d.rowObj.key === row.key
             ? new Set((d.adds || []).map(b => b.start)) : null;
         const p = app && app._riggingPicked;
-        const isLit = (b) => lit.has(b.runIndex) || (adds && adds.has(b.start))
+        const isLit = (b) => !this.exportMode && (lit.has(b.runIndex) || (adds && adds.has(b.start))
             || (!this.exportMode && p && p.kind === row.kind && p.layerId === b.owner.id
-                && row.offsets[row.layers.indexOf(b.owner)] + p.start === b.start);
+                && row.offsets[row.layers.indexOf(b.owner)] + p.start === b.start));
         const line = (on) => { ctx.strokeStyle = on ? '#4A90E2' : style.textColor; ctx.lineWidth = on ? 4 : 2; };
+        // A bar in hand, picked or being laid fills blue, so it reads at
+        // any zoom; an exported picture never shows it.
+        const fillOf = (on) => (on ? '#4A90E2' : style.fill);
         const label = (span, x, w) => {
             const fontPx = Math.max(10, Math.min(barH * 0.6, w * 0.5));
             ctx.fillStyle = style.textColor;
@@ -205,20 +210,23 @@ Object.assign(CanvasRenderer.prototype, {
                 const lo = k > 0 ? Math.max(x, box.x) : x;
                 const hi = k < last ? Math.min(x + w, box.x + box.width) : x + w;
                 if (hi > lo) {
-                    ctx.fillStyle = style.fill;
+                    ctx.fillStyle = fillOf(on);
                     ctx.fillRect(lo, top, hi - lo, barH);
                     line(on);
                     ctx.strokeRect(lo, top, hi - lo, barH);
                 }
                 ctx.save();
-                line(false);
+                // On the paper around the wall, in the bar's own color (its
+                // text color when the bar is too pale to show on white).
+                ctx.strokeStyle = this.printerMode ? PRINTER_INK : this._riggingInkOnPaper(style);
+                ctx.lineWidth = 2;
                 ctx.setLineDash([Math.max(4, barH * 0.2), Math.max(3, barH * 0.12)]);
                 if (lo > x) ctx.strokeRect(x, top, lo - x, barH);
                 if (hi < x + w) ctx.strokeRect(Math.max(hi, x), top, x + w - Math.max(hi, x), barH);
                 ctx.restore();
                 if (hi > lo) label(b.size, lo, hi - lo);
             } else {
-                ctx.fillStyle = style.fill;
+                ctx.fillStyle = fillOf(on);
                 ctx.fillRect(x, top, w, barH);
                 line(on);
                 ctx.strokeRect(x, top, w, barH);
@@ -251,6 +259,15 @@ Object.assign(CanvasRenderer.prototype, {
                 this._drawRiggingMisfit(rowX, row.width * unit, top, barH, rowX + (end.start + end.size) * unit);
             }
         }
+    },
+
+    // A color that shows on white paper: the bar's fill, or its text
+    // color when the fill is pale.
+    _riggingInkOnPaper(style) {
+        const hex = String(style.fill || '#000000');
+        const n = parseInt(hex.slice(1), 16);
+        const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+        return lum > 0.8 ? style.textColor : hex;
     },
 
     // Custom: the bar a click would drop, under the mouse, before the
