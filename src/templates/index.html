@@ -1763,7 +1763,7 @@
                      (or Custom's hint), the colors and the totals.
                      app-rigging.js drives it. -->
                 <div class="panel tab-panel screen-only" data-tab="rigging" style="display: none;">
-                    <div class="panel-header no-fold" data-tooltip="Header and footer bars on the selected screens. Pick Header or Footer, then let Auto fit the sizes you have, or pick Custom and click or drag along the wall's edge.">
+                    <div class="panel-header no-fold" data-tooltip="Header and footer bars on the selected screens. Pick Header or Footer, then let Auto fit the sizes you have, or pick Custom and click or drag in the bar strip outside the wall.">
                         <h2>Header/Footer Bars</h2>
                     </div>
                     <div class="panel-content">
@@ -1773,7 +1773,7 @@
                         </div>
                         <div id="rigging-tool-picker" style="display: flex; gap: 4px; margin-bottom: 10px;">
                             <button type="button" class="btn btn-secondary rigging-tool-btn active" data-tool="auto" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Auto, light the sizes you have and press Auto to fit the fewest bars across each selected screen, edge to edge.">Auto</button>
-                            <button type="button" class="btn btn-secondary rigging-tool-btn" data-tool="custom" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Custom, pick one size, then click a panel along the wall's edge to drop a bar there or drag along the edge to lay a row of them. Pick another size and keep going. Gaps are fine.">Custom</button>
+                            <button type="button" class="btn btn-secondary rigging-tool-btn" data-tool="custom" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Custom, pick one size, then click in the bar strip above or below a wall to drop a bar there, or drag along the strip to lay a row of them. Pick another size and keep going. Gaps are fine. The choice is saved with the show.">Custom</button>
                         </div>
                         <div id="rigging-size-label" style="color:#aaa; font-size: 12px; margin-bottom: 6px;">Sizes Auto uses</div>
                         <div id="rigging-size-picker" style="margin-bottom: 10px;">
@@ -3612,7 +3612,7 @@
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+C / <span data-sc-mod>Ctrl</span>+V</td><td>Copy / paste the selected screen</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+J</td><td>Duplicate the selected screens</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+A</td><td>Select every screen on the canvas (every cabinet of the screen when a cabinet selection is open)</td></tr>
-                    <tr><td class="sc-key">Delete / Backspace</td><td>Delete the current screen (not on the 3D tab: there, right-click it and pick Delete Screen)</td></tr>
+                    <tr><td class="sc-key">Delete / Backspace</td><td>Delete the selected screen on the Pixel Map tab; on Header/Footer, take off the clicked bar or the selected screens' bars; on the IDM Locator, clear the mark. Other tabs: nothing (right-click the screen in the Screens list to delete it)</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+,</td><td>Open Preferences</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+O</td><td>Open a project file</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+S</td><td>Save the project to a file</td></tr>

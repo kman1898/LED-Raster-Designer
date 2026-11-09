@@ -337,3 +337,28 @@ def test_the_new_rigging_fields_save_and_come_back(client):
     saved = next(l for l in client.get('/api/project').get_json()['layers'] if l['id'] == layer['id'])
     assert saved['riggingBarStarts'] == [1, 8] and saved['riggingFooterBarStarts'] is None
     assert saved['riggingSide'] == 'footer' and saved['riggingCustom'] is True
+
+
+# ── A copy of one member keeps the bars over it, cut at its edges (2026-11-08) ──
+
+@needs_node
+@pytest.mark.parametrize('bars, offset, panels, expected', [
+    # 11 doubles across two 11 wide walls: the left keeps 5 and half the straddler
+    ([[i, 2] for i in range(0, 22, 2)], 0, 11, [[0, 2], [2, 2], [4, 2], [6, 2], [8, 2], [10, 1]]),
+    # the right takes the other half, then its own 5
+    ([[i, 2] for i in range(0, 22, 2)], 11, 11, [[0, 1], [1, 2], [3, 2], [5, 2], [7, 2], [9, 2]]),
+    ([[8, 4], [12, 4]], 11, 11, [[0, 1], [1, 4]]),              # a gap stays a gap
+    ([[0, 4]], 4, 4, []),                                       # nothing over this one
+    ([[2, 4]], 0, 8, [[2, 4]]),                                 # a bar on it is untouched
+])
+def test_clip_to_one_member(bars, offset, panels, expected):
+    assert _pairs(_node(f"R.clipTo({_bars(bars)}, {offset}, {panels})")) == expected
+
+
+def test_the_auto_or_custom_choice_is_saved_with_the_show(client):
+    assert client.put('/api/project/rigging-tool', json={'tool': 'custom'}).get_json() == {'riggingTool': 'custom'}
+    assert client.get('/api/project').get_json()['riggingTool'] == 'custom'
+    # anything else is Auto
+    assert client.put('/api/project/rigging-tool', json={'tool': 'hand'}).get_json() == {'riggingTool': 'auto'}
+    assert client.get('/api/project').get_json()['riggingTool'] == 'auto'
+    assert client.put('/api/project/rigging-tool', json=['custom']).status_code == 400

@@ -3,6 +3,14 @@
 // and before main.js; every method here lands on CanvasRenderer.prototype by
 // name, so a name defined in two canvas-*.js files is a silent overwrite -
 // tests/test_js_modules.py fails on that.
+// The live Header/Footer view's floor at any zoom, in screen pixels: the
+// bar strip's height, the gap between it and the wall, its numbers, and how
+// far past the bars a Custom press still lays them.
+const RIGGING_MIN_BAR_PX = 18;
+const RIGGING_MIN_GAP_PX = 4;
+const RIGGING_MIN_FONT_PX = 11;
+const RIGGING_ZONE_PAD = 12;
+
 Object.assign(CanvasRenderer.prototype, {
     // The bar under a point on the canvas (canvas pixels), or null. The hit
     // carries its screen (the one it is stored on), its row ('header' or
@@ -36,10 +44,15 @@ Object.assign(CanvasRenderer.prototype, {
         return null;
     },
 
-    // Custom: the strip where a screen's bars go and its edge row of panels
-    // under a point, with the panel the point is over (the screen's own),
-    // or null. `kind` is 'both' on a screen an older show left with a
-    // header and a footer.
+    // Custom: the strip where a screen's bars go under a point, with the
+    // panel the point is over (the screen's own), or null. The strip runs
+    // from the wall's edge out past the bars' outer edge (RIGGING_ZONE_PAD
+    // on screen); the wall itself is never in it, so a press on the wall
+    // selects the screen and drags as it does with Auto (owner,
+    // 2026-11-08). A bar already in the strip is checked first (a press on
+    // it picks or moves it), so a new bar over an old one is laid from the
+    // band past the bars' outer edge or the gap at the wall. `kind` is
+    // 'both' on a screen an older show left with a header and a footer.
     riggingZoneAt(mouseX, mouseY) {
         const zones = this._riggingZones || [];
         for (let i = zones.length - 1; i >= 0; i--) {
@@ -113,9 +126,15 @@ Object.assign(CanvasRenderer.prototype, {
         // losing them off the image.
         const clipToRaster = this.exportMode && !this.ignoreRasterBounds;
         const m = ctx.getTransform();
-        const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
-        const wallRows = Math.max(1, Number(deg === 90 || deg === 270 ? layer.columns : layer.rows) || 1);
-        const panelH = box.height / wallRows;
+        // On this tab the bars stay readable however far out the view is
+        // zoomed (owner, 2026-11-08: "bars are thin when zoomed out"): the
+        // strip is never shorter than RIGGING_MIN_BAR_PX on screen, nor
+        // its numbers smaller than RIGGING_MIN_FONT_PX. Only the live view:
+        // the binder, an export and the 3D stage draw the real sizes.
+        const perPx = 1 / (Math.abs(m.d) || 1);     // canvas units per screen pixel
+        const lift = interactive && !solo;
+        style.minFont = lift ? RIGGING_MIN_FONT_PX * perPx : 10;
+        style.line = lift ? perPx : 0;
         for (const row of rows) {
             // One height along a row that crosses a seam: the shortest
             // member's, so the bars line up.
@@ -123,23 +142,29 @@ Object.assign(CanvasRenderer.prototype, {
                 ? Math.min(...row.layers.map(l => app._riggingRect(l).h)) : box.height;
             const baseH = Math.max(36, Math.min(96, minH * 0.18));
             const header = row.kind === 'header';
-            const { gap, h } = fit(header ? this.riggingTopRoom : this.riggingBottomRoom, baseH);
+            const room = header ? this.riggingTopRoom : this.riggingBottomRoom;
+            let { gap, h } = fit(room, baseH);
+            if (lift && !Number.isFinite(room)) {
+                h = Math.max(h, RIGGING_MIN_BAR_PX * perPx);
+                gap = Math.max(gap, RIGGING_MIN_GAP_PX * perPx);
+            }
             let top = header ? box.y - gap - h : box.y + box.height + gap;
             if (clipToRaster && header && top < 0) top = 0;
             if (clipToRaster && !header && Number.isFinite(this.rasterHeight) && top + h > this.rasterHeight) {
                 top = Math.max(0, this.rasterHeight - h);
             }
             if (interactive && this._riggingZones) {
-                // The strip and the wall's edge row of panels: where a
-                // Custom click or drag lays bars.
-                const ya = header ? top : box.y + box.height - panelH;
-                const yb = header ? box.y + panelH : top + h;
+                // The bar strip, from the wall's edge out past the bars:
+                // where a Custom click or drag lays bars. Never the wall.
+                const inner = m.d * (header ? box.y : box.y + box.height) + m.f;
+                const outer0 = m.d * (header ? top : top + h) + m.f;
+                const outer = outer0 + Math.sign(outer0 - inner) * RIGGING_ZONE_PAD;
                 const k = row.layers.indexOf(layer);
                 this._riggingZones.push({
                     layerId: layer.id, kind: side === 'both' ? 'both' : row.kind, rowKey: row.key,
                     offset: row.offsets[k], rowWidth: row.width, panels: wall,
                     x0: m.a * box.x + m.e, x1: m.a * (box.x + box.width) + m.e,
-                    y0: Math.min(m.d * ya + m.f, m.d * yb + m.f), y1: Math.max(m.d * ya + m.f, m.d * yb + m.f),
+                    y0: Math.min(inner, outer), y1: Math.max(inner, outer),
                     unitPx: Math.abs(m.a * unit) || 1, dir: m.a < 0 ? -1 : 1,
                 });
             }
@@ -189,12 +214,15 @@ Object.assign(CanvasRenderer.prototype, {
         const isLit = (b) => !this.exportMode && (lit.has(b.runIndex) || (adds && adds.has(b.start))
             || (!this.exportMode && p && p.kind === row.kind && p.layerId === b.owner.id
                 && row.offsets[row.layers.indexOf(b.owner)] + p.start === b.start));
-        const line = (on) => { ctx.strokeStyle = on ? '#4A90E2' : style.textColor; ctx.lineWidth = on ? 4 : 2; };
+        const line = (on) => {
+            ctx.strokeStyle = on ? '#4A90E2' : style.textColor;
+            ctx.lineWidth = Math.max(on ? 4 : 2, (on ? 2 : 1) * (style.line || 0));
+        };
         // A bar in hand, picked or being laid fills blue, so it reads at
         // any zoom; an exported picture never shows it.
         const fillOf = (on) => (on ? '#4A90E2' : style.fill);
         const label = (span, x, w) => {
-            const fontPx = Math.max(10, Math.min(barH * 0.6, w * 0.5));
+            const fontPx = Math.max(style.minFont || 10, Math.min(barH * 0.6, w * 0.5));
             ctx.fillStyle = style.textColor;
             ctx.font = `bold ${fontPx}px sans-serif`;
             ctx.textAlign = 'center';
@@ -256,7 +284,7 @@ Object.assign(CanvasRenderer.prototype, {
         if (row.problem && row.placed.length) {
             const end = row.placed.reduce((a, b) => (b.start + b.size >= a.start + a.size ? b : a));
             if (end.owner === layer) {
-                this._drawRiggingMisfit(rowX, row.width * unit, top, barH, rowX + (end.start + end.size) * unit);
+                this._drawRiggingMisfit(rowX, row.width * unit, top, barH, rowX + (end.start + end.size) * unit, style.minFont);
             }
         }
     },
@@ -290,7 +318,7 @@ Object.assign(CanvasRenderer.prototype, {
         ctx.setLineDash([Math.max(4, barH * 0.2), Math.max(3, barH * 0.12)]);
         ctx.strokeRect(x, top, w, barH);
         ctx.setLineDash([]);
-        const fontPx = Math.max(10, Math.min(barH * 0.6, w * 0.5));
+        const fontPx = Math.max(style.minFont || 10, Math.min(barH * 0.6, w * 0.5));
         ctx.fillStyle = '#4A90E2';
         ctx.font = `bold ${fontPx}px sans-serif`;
         ctx.textAlign = 'center';
@@ -303,7 +331,7 @@ Object.assign(CanvasRenderer.prototype, {
     // bars should reach (x0, width: the wall, or a group's whole row), and
     // the words beside the bars' own end, inside the gap on a short row and
     // past the bars on a long one.
-    _drawRiggingMisfit(x0, width, top, barH, barsEnd) {
+    _drawRiggingMisfit(x0, width, top, barH, barsEnd, minFont = 10) {
         const ctx = this.ctx;
         const ink = this.printerMode ? PRINTER_INK : '#ff5a4f';
         ctx.save();
@@ -312,7 +340,7 @@ Object.assign(CanvasRenderer.prototype, {
         ctx.setLineDash([barH * 0.25, barH * 0.15]);
         ctx.strokeRect(x0, top, width, barH);
         ctx.setLineDash([]);
-        const fontPx = Math.max(10, Math.min(barH * 0.4, 28));
+        const fontPx = Math.max(minFont, Math.min(barH * 0.4, 28));
         ctx.font = `bold ${fontPx}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';

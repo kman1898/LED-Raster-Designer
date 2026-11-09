@@ -253,7 +253,8 @@
         return { x: box.left + e.x, y: box.top + (e.y0 + e.y1) / 2, unitPx: e.unitPx, dir: e.dir };
     }
     // Custom on the Header/Footer tab: the client point over the wall's
-    // panel n along its bar edge (in the wall's edge row of panels), from
+    // panel n in its bar strip (outside the wall, where Custom lays bars),
+    // out past the bars already there (a press on a bar picks it up), from
     // the renderer's zone list, or null when none is drawn.
     function barEdgePanelPoint(n) {
         var r = R();
@@ -262,8 +263,7 @@
         var z = r._riggingZones.find(function (q) { return q.layerId === w.id; });
         if (!z) return null;
         var box = r.canvas.getBoundingClientRect();
-        var y = z.kind === 'footer' ? z.y0 + 4 : z.y1 - 4;
-        return { x: box.left + z.x0 + z.dir * (n + 0.5) * z.unitPx, y: box.top + y };
+        return { x: box.left + z.x0 + z.dir * (n + 0.5) * z.unitPx, y: box.top + (z.kind === 'footer' ? z.y1 - 4 : z.y0 + 4) };
     }
     function headerBars() {
         var w = wall();
@@ -2586,7 +2586,7 @@
         // The Header/Footer tab starts each step on Auto, nothing picked.
         a._riggingPicked = null;
         a._riggingGhost = null;
-        if (a._riggingTool === 'custom' && a.setRiggingTool) { try { a.setRiggingTool('auto'); } catch (e) {} }
+        if (a._riggingToolNow && a._riggingToolNow() === 'custom' && a.setRiggingTool) { try { a.setRiggingTool('auto'); } catch (e) {} }
         if (a._overrideEditing && a.endOverrideEdit) { try { a.endOverrideEdit(); } catch (e) {} }
         if (a.updateOverrideHover) { try { a.updateOverrideHover(false, 0, 0); } catch (e) {} }
         $$('.canvas-add-popup, .canvas-menu-popup').forEach(function (el) { el.remove(); });
@@ -5793,7 +5793,7 @@
             since: '1.7.0',
             target: '#rigging-tool-picker', place: 'right', title: 'Lay bars by hand',
             avoid: [function () { return barEdgePanelPoint(0); }, function () { return barEdgePanelPoint(5); }],
-            body: 'Custom lays one size at a time: pick it, then click a panel along the edge to drop a bar or drag to lay a row. Gaps are fine, and a clicked bar goes with Delete.',
+            body: 'Custom lays one size at a time: pick it, then click in the bar strip outside the wall to drop a bar or drag along it to lay a row. Gaps are fine, and a clicked bar goes with Delete.',
             before: function () {
                 switchView('rigging');
                 var w = wall();

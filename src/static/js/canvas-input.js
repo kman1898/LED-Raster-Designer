@@ -28,8 +28,10 @@ Object.assign(CanvasRenderer.prototype, {
         // Header/Footer view: a plain left press on a bar picks it up (a
         // drag moves it past its neighbors, a click picks it for Delete);
         // on the edge between two bars it widens one and shortens the
-        // other. In Custom, a press along a wall's bar edge lays bars of the
-        // picked size there and the drag that follows lays a row of them.
+        // other. In Custom, a press in a wall's bar strip (outside the wall)
+        // lays bars of the picked size there and the drag that follows lays
+        // a row of them; a press on the wall itself selects the screen and
+        // drags as it does with Auto.
         // Every one works on the whole row, across a group's seams
         // (app-rigging.js riggingBeginDrag), and the release saves it.
         if (this.viewMode === 'rigging' && e.button === 0 && !this.spacePressed
@@ -54,7 +56,7 @@ Object.assign(CanvasRenderer.prototype, {
                 this.render();
                 return;
             }
-            const zone = app && app._riggingTool === 'custom' ? this.riggingZoneAt(mouseX, mouseY) : null;
+            const zone = app && app._riggingToolNow() === 'custom' ? this.riggingZoneAt(mouseX, mouseY) : null;
             const zoneLayer = zone ? app.project.layers.find(l => l.id === zone.layerId) : null;
             if (zoneLayer) {
                 app._riggingGhost = null;
@@ -2044,7 +2046,7 @@ Object.assign(CanvasRenderer.prototype, {
         if (!app) return false;
         let ghost = null;
         let over = false;
-        if (mouseX != null && app._riggingTool === 'custom' && !this._riggingDrag) {
+        if (mouseX != null && app._riggingToolNow() === 'custom' && !this._riggingDrag) {
             const z = this.riggingZoneAt(mouseX, mouseY);
             over = !!z;
             if (z && z.kind !== 'both') {
@@ -2252,24 +2254,28 @@ Object.assign(CanvasRenderer.prototype, {
             if (!this.isDragging) this.canvas.style.cursor = 'grab';
         }
         
-        // Delete key - only delete layer if NOT typing. On the Header/Footer
-        // tab with a bar picked (a click on it), the bar goes instead. A
-        // delete clears the selection the moment it starts, so a press while
-        // one is landing goes through too: deleteCurrentLayer holds it for
-        // when it lands. On the 3D tab the keys do nothing (Matt,
-        // 2026-11-08: too easy to hit there by accident); the right-click
-        // Delete Screen and the Screens list's own delete still work. A
-        // focused field is never reached here, so it keeps its own keys.
-        if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping && this.viewMode === '3d') {
-            e.preventDefault();
-        } else if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping
-                && this.viewMode === 'rigging' && window.app && window.app._riggingPicked) {
-            e.preventDefault();
-            window.app.removePickedRiggingBar();
-        } else if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping) {
-            if (window.app && (window.app.currentLayer || window.app.deletionInProgress)) {
+        // Delete and Backspace (Matt, 2026-11-08): Pixel Map is the only
+        // tab where the key deletes a screen, so a stray key never costs
+        // one. On Header/Footer it takes off the picked bar, or with none
+        // picked the selected screens' bars (app-rigging.js
+        // riggingDeleteKey); the IDM Locator clears its mark before this is
+        // reached (app-idm-locator.js _idmKeyDown); every other tab, 3D
+        // included, does nothing. The Screens list's right-click Delete
+        // Screen works on every tab. A focused field is never reached here,
+        // so it keeps its own keys.
+        //
+        // On Pixel Map a delete clears the selection the moment it starts,
+        // so a press while one is landing goes through too:
+        // deleteCurrentLayer holds it for when it lands.
+        if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping) {
+            if (this.viewMode === 'pixel-map') {
+                if (window.app && (window.app.currentLayer || window.app.deletionInProgress)) {
+                    e.preventDefault();
+                    window.app.deleteCurrentLayer();
+                }
+            } else {
                 e.preventDefault();
-                window.app.deleteCurrentLayer();
+                if (this.viewMode === 'rigging' && window.app && !e.repeat) window.app.riggingDeleteKey();
             }
         }
         

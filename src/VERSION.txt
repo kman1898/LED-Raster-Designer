@@ -37,18 +37,24 @@ switching later moves the bars across as they are. Light the bar sizes you
 stock, single, double, triple or quad, and Auto fits the fewest bars across
 the wall. The bars go on the pull sheet and print on a Header/Footer binder
 sheet, and the PNG, SVG, PSD and PDF exports have a Header/Footer view.
+On the tab, the bars and their sizes stay readable however far out you
+zoom; the binder, the exports and 3D draw them at their real size.
 Thanks to kcikcreative33 for this one.
 
-- NEW: Custom lays the bars by hand. Pick a size, click a panel along the
-  wall's edge to drop a bar there, or drag along it to lay a row of them,
-  then pick another size and keep going. A see-through bar shows where it
-  will land, a new bar replaces any it covers, and gaps are fine, say over a
-  truss leg. Click a bar and press Delete, or right-click it, to take it off.
+- NEW: Custom lays the bars by hand. Pick a size, click in the bar strip
+  above or below a wall to drop a bar there, or drag along it to lay a row
+  of them, then pick another size and keep going. A see-through bar shows
+  where it will land, a new bar replaces any it covers, and gaps are fine,
+  say over a truss leg. A press on the wall itself still selects and drags
+  the screen. Auto or Custom is saved with the show.
+- NEW: Click a bar and press Delete, or right-click it, to take it off.
+  With no bar clicked, Delete clears the selected screens' bars.
 - NEW: Grouped screens standing edge to edge in Show Look share one row of
   bars, and a bar can run across the seam. Two 11 wide walls take eleven
   doubles between them. A bar across a seam is counted once, on the screen
   it starts on, and each screen's own binder sheet shows where it carries
-  on next door.
+  on next door. A copy of one of those screens keeps the bars over it, cut
+  at its edges.
 - NEW: Drag a bar to move it, or the edge between two bars to widen one and
   shorten the other. Each screen keeps its own bar and text colors.
 - NEW: A group's binder sheet follows the tab's Names switch: one sheet for
@@ -58,8 +64,8 @@ Thanks to kcikcreative33 for this one.
   pull sheet, the binder and the exports say they no longer fit, and Auto
   fits them again.
 - NEW: A show saved with a header and a footer on one screen opens as it
-  was. The tab lists each such screen with Keep Header and Keep Footer, and
-  nothing is taken off until you pick.
+  was. The tab lists each such screen with a Header and a Footer button to
+  pick the side to keep, and nothing is taken off until you pick.
 
 SCREENS ON A STAGE, IN THREE DIMENSIONS
 
@@ -186,6 +192,11 @@ FIXES
   other screens too, where its first screen falls.
 - FIX: Delete pressed twice quickly deletes twice, or says the last screen
   cannot be deleted. The second press used to be lost without a word.
+- FIX: Delete removes a screen only on the Pixel Map tab, so a stray key
+  never costs a screen. On Header/Footer it clears the bars, on the IDM
+  Locator the mark, and elsewhere it does nothing. The canvas right-click
+  Delete Screen is on Pixel Map only; the Screens list's right-click still
+  deletes on every tab.
 - FIX: A group's up and down arrows move it among the rows of the canvas
   it is listed under, also when Show Look has one of its screens on
   another canvas.

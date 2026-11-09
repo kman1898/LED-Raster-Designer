@@ -389,6 +389,21 @@ const RiggingMath = (() => {
         return out;
     }
 
+    // The bars of a row over one of its screens (`offset`, `panels` wide),
+    // each cut at that screen's edges, in its own panels: what a copy of
+    // the screen alone keeps of a row that crosses a group's seam.
+    function clipTo(placed, offset, panels) {
+        const lo = Number(offset) || 0;
+        const hi = lo + (Number(panels) || 0);
+        return (placed || [])
+            .filter(b => b && b.size > 0 && b.start < hi && b.start + b.size > lo)
+            .map(b => {
+                const s = Math.max(b.start, lo);
+                return { start: s - lo, size: Math.min(b.start + b.size, hi) - s };
+            })
+            .sort((a, b) => a.start - b.start);
+    }
+
     // What is wrong with a row, or null when nothing is. `spans` are the
     // members' [offset, panels]; `custom` a row laid by hand.
     //   Auto row    every member with a bar over it is covered edge to edge,
@@ -425,7 +440,7 @@ const RiggingMath = (() => {
     return { cleanSizes, arrangeSymmetric, isSymmetric, fitBars, moveBar, moveBarWithSlot, resizeBoundary, tally, sizeWord, barName,
              wallPanels, barPanels, barsFit,
              placedOf, storeOf, placeBars, barsForClick, barsForDrag, barAtPanel, resizeEdgeAt, moveInBlock,
-             runsOf, ownerIndex, distribute, rowProblem };
+             runsOf, ownerIndex, distribute, clipTo, rowProblem };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = RiggingMath;

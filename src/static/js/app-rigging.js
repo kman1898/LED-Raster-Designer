@@ -3,8 +3,8 @@
 // choice, a row of bar sizes (1-4 panels wide, single to quad; 3 and up sit
 // behind a + button), and in Auto an Auto button that fits bars of the lit
 // sizes across every selected screen's width; in Custom one size is picked
-// and the person clicks or drags along the wall's edge on the canvas
-// (canvas-input.js) to lay bars of it. The sizes and the bars ride on each
+// and the person clicks or drags in the bar strip outside the wall on the
+// canvas (canvas-input.js) to lay bars of it. The sizes and the bars ride on each
 // screen; the bars draw in this view (canvas-rigging.js), and
 // riggingPullRows hands them to the pull list (app-pull-list.js).
 //
@@ -196,10 +196,16 @@ class _Rigging {
             ? layer.riggingSizes.filter(s => RIGGING_SIZES.includes(s)) : [...DEFAULT_SIZES];
     }
 
-    // Auto (fit the lit sizes) or Custom (click or drag one size along the
-    // edge). The tab's state, not the show's.
+    // Auto (fit the lit sizes) or Custom (click or drag one size in the
+    // bar strip). SAVED WITH THE SHOW, ONE CHOICE FOR THE WHOLE SHOW
+    // (project.riggingTool; owner, 2026-11-08: the choice is saved). It is
+    // a way of working, not a property of a wall: in Custom every wall's
+    // bar strip lays bars, whichever screen is selected, so a per-screen
+    // choice would change under the person as they clicked from wall to
+    // wall. View state like the IDM Locator's field: never an undo step,
+    // and undo, redo and a reload keep it. A show without it opens on Auto.
     _riggingToolNow() {
-        return this._riggingTool === 'custom' ? 'custom' : 'auto';
+        return this.project && this.project.riggingTool === 'custom' ? 'custom' : 'auto';
     }
 
     riggingCustomSize() {
@@ -323,9 +329,24 @@ class _Rigging {
     }
 
     setRiggingTool(tool) {
-        this._riggingTool = tool === 'custom' ? 'custom' : 'auto';
+        const next = tool === 'custom' ? 'custom' : 'auto';
         this._riggingGhost = null;
-        if (this._riggingTool === 'custom' && !RIGGING_SIZES.includes(this._riggingCustomSize)) {
+        if (this.project && this._riggingToolNow() !== next) {
+            // Onto the project and every history entry, so no undo or redo
+            // brings the other choice back and the next snapshot does not
+            // count it as an edit; then to the server, which saves it with
+            // the show.
+            this.project.riggingTool = next;
+            (Array.isArray(this.history) ? this.history : []).forEach(entry => {
+                if (entry && entry.project && typeof entry.project === 'object') entry.project.riggingTool = next;
+            });
+            fetch('/api/project/rigging-tool', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tool: next }),
+            }).catch(() => {});
+        }
+        if (next === 'custom' && !RIGGING_SIZES.includes(this._riggingCustomSize)) {
             // Start on a size the person already lit, the largest.
             const lit = this._riggingSizesOf(this._riggingPrimary());
             this._riggingCustomSize = lit.length ? lit[lit.length - 1] : DEFAULT_CUSTOM_SIZE;
@@ -366,7 +387,7 @@ class _Rigging {
     _riggingSayBoth(layers) {
         const names = listWords(layers.map(l => l.name || `Screen ${l.id}`));
         const one = layers.length === 1;
-        this._toast(`${names} ${one ? 'has' : 'have'} a header and a footer. Pick Keep Header or Keep Footer in the box on the left first.`, true, 6000);
+        this._toast(`${names} ${one ? 'has' : 'have'} a header and a footer. Pick the side to keep in the box on the left first.`, true, 6000);
     }
 
     // Keep Header / Keep Footer on a screen an older show left with both:
@@ -603,6 +624,17 @@ class _Rigging {
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
+    // Delete or Backspace on this tab (canvas-input.js; Matt, 2026-11-08):
+    // the picked bar goes; with none picked, the selected screens' bars go,
+    // as Clear takes them (both rows on an older show's screen with both),
+    // one undo step, a locked screen named and left as it is. Never a
+    // screen.
+    riggingDeleteKey() {
+        if (this._riggingPicked) return this.removePickedRiggingBar();
+        this.clearRiggingBars();
+        return true;
+    }
+
     removePickedRiggingBar() {
         const p = this._riggingPicked;
         this._riggingPicked = null;
@@ -693,8 +725,8 @@ class _Rigging {
         }
         if (hint) {
             hint.style.display = tool === 'custom' ? '' : 'none';
-            const where = side === 'footer' ? 'bottom' : 'top';
-            hint.textContent = `Click a panel along the ${where} edge to drop a ${RiggingMath.sizeWord(this.riggingCustomSize()).toLowerCase()}, or drag along it to lay a row. Click a bar and press Delete to take it off.`;
+            const where = side === 'footer' ? 'below' : 'above';
+            hint.textContent = `Click in the bar strip ${where} a wall to drop a ${RiggingMath.sizeWord(this.riggingCustomSize()).toLowerCase()}, or drag along it to lay a row. Click a bar and press Delete to take it off.`;
         }
         if (clear) clear.disabled = !this._riggingWithGroups(screens).some(l => KINDS.some(k => this.riggingBarsOf(l, k).length));
 
@@ -816,22 +848,30 @@ class _Rigging {
                 list.dataset.sig = sig;
                 list.innerHTML = '';
                 both.forEach(l => {
+                    // One line per screen at any sidebar width: the name,
+                    // then the two sides to keep, one word each (the box
+                    // already says "Pick the side to keep").
                     const rowEl = document.createElement('div');
                     rowEl.className = 'rigging-both-row';
                     rowEl.style.cssText = 'margin-top: 6px;';
                     const name = document.createElement('div');
                     name.textContent = l.name || `Screen ${l.id}`;
-                    name.style.cssText = 'margin-bottom: 3px; color: #ddd;';
+                    name.style.cssText = 'margin-bottom: 3px; color: #ddd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
                     const btns = document.createElement('div');
                     btns.style.cssText = 'display: flex; gap: 4px;';
                     for (const k of KINDS) {
                         const b = document.createElement('button');
                         b.type = 'button';
                         b.className = 'btn btn-secondary';
-                        b.style.cssText = 'flex: 1; padding: 3px 6px; font-size: 11px;';
+                        // The theme's button padding and size win over a
+                        // plain inline style; these two must not, or the
+                        // word does not fit the narrowest sidebar.
+                        b.style.cssText = 'flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden;';
+                        b.style.setProperty('padding', '3px 2px', 'important');
+                        b.style.setProperty('font-size', '11px', 'important');
                         b.dataset.layerId = String(l.id);
                         b.dataset.keep = k;
-                        b.textContent = `Keep ${KIND_WORD[k]}`;
+                        b.textContent = KIND_WORD[k];
                         b.setAttribute('data-tooltip', `Keep ${KIND_WORD[k]}, keep this screen's ${k} bars and take its ${k === 'header' ? 'footer' : 'header'} bars off. A screen has bars on one side.`);
                         btns.appendChild(b);
                     }
@@ -889,6 +929,33 @@ class _Rigging {
                 const on = row.layers.filter((m, i) => b.start < row.offsets[i] + row.panels[i] && end > row.offsets[i]);
                 if (on.length > 1 && on.includes(layer)) out.push({ kind, size: b.size, from: on[0], to: on[on.length - 1], owner: b.owner });
             }
+        }
+        return out;
+    }
+
+    // ---- copies --------------------------------------------------------------
+
+    // The bar fields a copy of `layer` alone gets (Copy, Duplicate; Paste
+    // takes the copy's: app-clipboard.js), or null when the screen's own
+    // fields will do. A copy stands alone, out of the group, so of a row
+    // that crosses a seam it keeps the bars over this screen, each cut at
+    // its edges: the bar straddling the seam becomes the part of it over
+    // this screen, a neighbor's bar reaching onto it included, so the copy
+    // is covered edge to edge exactly as the screen is and nothing runs
+    // past its edge (owner, 2026-11-08). Every other bar is kept as it is
+    // (copies keep their bars, 2026-11-06).
+    riggingCopyFields(layer) {
+        const layers = (this.project && this.project.layers) || [];
+        if (!layer || !layers.includes(layer) || (layer.type || 'screen') !== 'screen') return null;
+        let out = null;
+        for (const kind of this._riggingKindsOf(layer)) {
+            const row = this.riggingRow(layer, kind);
+            if (row.layers.length < 2) continue;
+            const k = row.layers.indexOf(layer);
+            const { bars, starts } = RiggingMath.storeOf(RiggingMath.clipTo(row.placed, row.offsets[k], row.panels[k]));
+            out = out || {};
+            out[BAR_FIELD[kind]] = bars;
+            out[START_FIELD[kind]] = starts;
         }
         return out;
     }

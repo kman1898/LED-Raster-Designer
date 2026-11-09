@@ -475,6 +475,23 @@ def save_stage3d_view():
     })
 
 
+@project_bp.route('/api/project/rigging-tool', methods=['PUT'])
+def put_rigging_tool():
+    """The Header/Footer tab's Auto | Custom choice, one for the show
+    (app-rigging.js _riggingToolNow). View state, not an edit: no undo
+    entry on the client and a pristine project stays pristine, but it is
+    saved with the show so reopening it or reloading the page comes back
+    on the same choice. Anything but 'custom' is Auto, which is also what a
+    show without it opens on."""
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'expected an object'}), 400
+    tool = 'custom' if data.get('tool') == 'custom' else 'auto'
+    app.current_project['riggingTool'] = tool
+    log_event('rigging_tool', {'tool': tool})
+    return jsonify({'riggingTool': tool})
+
+
 @project_bp.route('/api/project/idm-field', methods=['PUT'])
 def put_idm_field():
     """The IDM Locator's field: one solid colour for every screen and the
