@@ -252,6 +252,23 @@
         var box = r.canvas.getBoundingClientRect();
         return { x: box.left + e.x, y: box.top + (e.y0 + e.y1) / 2, unitPx: e.unitPx, dir: e.dir };
     }
+    // Custom on the Header/Footer tab: the client point over the wall's
+    // panel n along its bar edge (in the wall's edge row of panels), from
+    // the renderer's zone list, or null when none is drawn.
+    function barEdgePanelPoint(n) {
+        var r = R();
+        var w = wall();
+        if (!r || !w || !r._riggingZones) return null;
+        var z = r._riggingZones.find(function (q) { return q.layerId === w.id; });
+        if (!z) return null;
+        var box = r.canvas.getBoundingClientRect();
+        var y = z.kind === 'footer' ? z.y0 + 4 : z.y1 - 4;
+        return { x: box.left + z.x0 + z.dir * (n + 0.5) * z.unitPx, y: box.top + y };
+    }
+    function headerBars() {
+        var w = wall();
+        return w && Array.isArray(w.riggingBars) ? w.riggingBars.join(',') : '';
+    }
     function portsNeeded() {
         var w = wall();
         if (!w || !A().calculatePortAssignments) return 0;
@@ -2566,6 +2583,10 @@
         a._portPicks = null;
         a._mergeRedraw = null;
         if (r) r._portPickPending = null;
+        // The Header/Footer tab starts each step on Auto, nothing picked.
+        a._riggingPicked = null;
+        a._riggingGhost = null;
+        if (a._riggingTool === 'custom' && a.setRiggingTool) { try { a.setRiggingTool('auto'); } catch (e) {} }
         if (a._overrideEditing && a.endOverrideEdit) { try { a.endOverrideEdit(); } catch (e) {} }
         if (a.updateOverrideHover) { try { a.updateOverrideHover(false, 0, 0); } catch (e) {} }
         $$('.canvas-add-popup, .canvas-menu-popup').forEach(function (el) { el.remove(); });
@@ -5670,9 +5691,9 @@
             after: function () { var m = $('#balance-modal'); if (m) m.remove(); }
         },
         // Header/Footer (app-rigging.js): the bars above and below each
-        // wall. Five steps - the tab, the sizes, Auto, dragging a bar, the
-        // totals - and the binder's Header/Footer tick (riggingSheet) with
-        // the exports.
+        // wall. Seven steps - the tab, the sizes, Auto, dragging a bar,
+        // Custom, the side, the totals - and the binder's Header/Footer
+        // tick (riggingSheet) with the exports.
         riggingTab: {
             since: '1.7.0',
             target: '.view-tab[data-mode="rigging"]', place: 'bottom', title: 'The Header/Footer tab',
@@ -5688,7 +5709,7 @@
         riggingSizes: {
             since: '1.7.0',
             target: '#rigging-size-picker', place: 'right', title: 'Pick the bar sizes',
-            body: 'Pick Header or Footer, then light the bar sizes you have; the + opens the triple and the quad. Say the truck holds only doubles and triples: switch the single off, open the + and light the 3.',
+            body: 'Light the bar sizes you have; the + opens the triple and the quad. Say the truck holds only doubles and triples: switch the single off, open the + and light the 3.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -5768,6 +5789,85 @@
                 var now = w && w.riggingBars ? w.riggingBars.join(',') : '';
                 return mem.before && now && now !== mem.before
                     ? 'The bars read ' + now.split(',').join(' + ') + ' now; they were ' + mem.before.split(',').join(' + ') + '.' : null;
+            }
+        },
+        riggingCustom: {
+            since: '1.7.0',
+            target: '#rigging-tool-picker', place: 'right', title: 'Lay bars by hand',
+            avoid: [function () { return barEdgePanelPoint(0); }, function () { return barEdgePanelPoint(5); }],
+            body: 'Custom lays one size at a time: pick it, then click a panel along the edge to drop a bar or drag to lay a row. Gaps are fine, and a clicked bar goes with Delete.',
+            before: function () {
+                switchView('rigging');
+                var w = wall();
+                if (w) A().setSelectedLayersByIds([w.id], w.id);
+                A().refreshRiggingPanel();
+            },
+            act: function (t) {
+                t.mem.before = headerBars();
+                return t.click('.rigging-tool-btn[data-tool="custom"]').then(function () {
+                    return t.click('#rigging-size-picker [data-size="2"]');
+                }).then(function () {
+                    var from = barEdgePanelPoint(0);
+                    var to = barEdgePanelPoint(5);
+                    if (!from || !to) throw new Error('no bar edge to lay bars on');
+                    return t.hover(from).then(function () {
+                        press(true);
+                        t.canvasDown(from);
+                        return t.pause(PACE.dragPress);
+                    }).then(function () {
+                        t.canvasMove({ x: from.x + 6, y: from.y });
+                        return t.canvasGlide(to);
+                    }).then(function () {
+                        t.canvasMove(to);
+                        return t.pause(PACE.hover);
+                    }).then(function () {
+                        t.canvasUp(to);
+                        press(false);
+                        return t.wait(function () { return headerBars() !== t.mem.before; });
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('no bars were laid');
+                    return t.pause(PACE.dragRest);
+                });
+            },
+            check: function (mem) {
+                var now = headerBars();
+                return mem.before && now === '2,2,2,3,3'
+                    ? 'Three doubles laid along panels 1 to 6 took the place of ' + mem.before.split(',').slice(0, 2).join(' + ') + ': ' + now.split(',').join(' + ') + '.' : null;
+            }
+        },
+        riggingSide: {
+            since: '1.7.0',
+            target: '#rigging-mode-picker', place: 'right', title: 'Header or footer',
+            body: 'A screen carries bars on one side. Footer moves them under the wall as they are and Header brings them back; grouped screens switch together and share one row across the seam.',
+            before: function () {
+                switchView('rigging');
+                var w = wall();
+                if (w) A().setSelectedLayersByIds([w.id], w.id);
+                A().refreshRiggingPanel();
+            },
+            act: function (t) {
+                t.mem.before = headerBars();
+                return t.click('#rigging-mode-picker [data-mode="footer"]').then(function () {
+                    return t.wait(function () {
+                        var w = wall();
+                        return w && Array.isArray(w.riggingFooterBars) && w.riggingFooterBars.join(',') === t.mem.before
+                            && !headerBars();
+                    });
+                }).then(function (ok) {
+                    t.mem.under = !!ok;
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return t.click('#rigging-mode-picker [data-mode="header"]');
+                }).then(function () {
+                    return t.wait(function () { return headerBars() === t.mem.before; });
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                var foot = w && Array.isArray(w.riggingFooterBars) ? w.riggingFooterBars.length : 0;
+                return mem.under && mem.before && headerBars() === mem.before && !foot
+                    ? 'Footer took ' + mem.before.split(',').join(' + ') + ' under the wall; Header brought the same bars back up.' : null;
             }
         },
         riggingTotals: {
@@ -7665,7 +7765,7 @@
                     'cableStockPieces', 'powerCableTags',
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
-                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingTotals',
+                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
                     's3dOpen', 's3dSelect', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
                     's3dBars', 's3dJoint',

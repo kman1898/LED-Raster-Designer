@@ -73,10 +73,13 @@ def add_layer():
         'powerColorCodedView',
         'powerCircuitColors',
         # Header/Footer tab: the bar sizes highlighted for the screen, and the
-        # header and footer bars Auto fit across it (ints, panels wide, left
-        # to right), the screen's bar colors, and the tab's own screen-name
-        # settings (shown, size, dragged position).
+        # header and footer bars on it (ints, panels wide, left to right),
+        # with the panel each starts on when they do not run end to end from
+        # the left edge (null otherwise), the side a screen with no bars is
+        # on, whether its row was laid by hand, the screen's bar colors, and
+        # the tab's own screen-name settings (shown, size, dragged position).
         'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
+        'riggingBarStarts', 'riggingFooterBarStarts', 'riggingSide', 'riggingCustom',
         'showLabelNameRigging', 'screenNameSizeRigging',
         'screenNameOffsetXRigging', 'screenNameOffsetYRigging',
         'showLabelName', 'showLabelNameCabinet', 'showLabelNameDataFlow', 'showLabelNamePower',
@@ -431,6 +434,7 @@ def update_layer(layer_id):
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom', 'panelWatts',
                 'powerMaximize', 'powerOrganized', 'powerNumberOrder', 'powerCustomPath', 'powerFlowPattern', 'powerLineWidth',
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
+                'riggingBarStarts', 'riggingFooterBarStarts', 'riggingSide', 'riggingCustom',
                 'showLabelNameRigging', 'screenNameSizeRigging',
                 'screenNameOffsetXRigging', 'screenNameOffsetYRigging', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',

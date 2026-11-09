@@ -151,6 +151,10 @@
                  the current state and is written at open time. -->
             <div class="menu-divider custom-mode-only" style="display: none;"></div>
             <div class="menu-option custom-mode-only" data-action="custom-mode-toggle" style="display: none;"></div>
+            <!-- A header or footer bar on the Header/Footer tab: take it off
+                 (app-rigging.js _prepareRiggingBarMenu picks it first). -->
+            <div class="menu-divider rigging-bar-only" style="display: none;"></div>
+            <div class="menu-option rigging-bar-only" data-action="rigging-remove-bar" data-label="Remove Bar" style="display: none;"></div>
             <div class="menu-divider movable-view-only"></div>
             <div class="menu-option movable-view-only" data-action="center-x" data-label="Center on Canvas X"></div>
             <div class="menu-option movable-view-only" data-action="center-y" data-label="Center on Canvas Y"></div>
@@ -1752,19 +1756,24 @@
                     </div>
                 </div>
 
-                <!-- The bars. A Header | Footer choice (which row the panel
-                     works on), the Size row, Auto, the colors and the totals.
+                <!-- The bars. A Header | Footer choice (the side the selected
+                     screens carry bars on), Auto | Custom, the Size row, Auto
+                     (or Custom's hint), the colors and the totals.
                      app-rigging.js drives it. -->
                 <div class="panel tab-panel screen-only" data-tab="rigging" style="display: none;">
-                    <div class="panel-header no-fold" data-tooltip="Header and footer bars on the selected screens. Pick Header or Footer, light the sizes you have, then press Auto.">
+                    <div class="panel-header no-fold" data-tooltip="Header and footer bars on the selected screens. Pick Header or Footer, then let Auto fit the sizes you have, or pick Custom and click or drag along the wall's edge.">
                         <h2>Header/Footer Bars</h2>
                     </div>
                     <div class="panel-content">
                         <div id="rigging-mode-picker" style="display: flex; gap: 4px; margin-bottom: 10px;">
-                            <button type="button" class="btn btn-secondary rigging-mode-btn active" data-mode="header" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Header, the bars above the wall">Header</button>
-                            <button type="button" class="btn btn-secondary rigging-mode-btn" data-mode="footer" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Footer, the bars below the wall">Footer</button>
+                            <button type="button" class="btn btn-secondary rigging-mode-btn active" data-mode="header" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Header, the selected screens carry their bars above the wall. A screen has bars on one side: bars already below move up as they are. A group's screens switch together.">Header</button>
+                            <button type="button" class="btn btn-secondary rigging-mode-btn" data-mode="footer" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Footer, the selected screens carry their bars below the wall. A screen has bars on one side: bars already above move down as they are. A group's screens switch together.">Footer</button>
                         </div>
-                        <div style="color:#aaa; font-size: 12px; margin-bottom: 6px;">Size</div>
+                        <div id="rigging-tool-picker" style="display: flex; gap: 4px; margin-bottom: 10px;">
+                            <button type="button" class="btn btn-secondary rigging-tool-btn active" data-tool="auto" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Auto, light the sizes you have and press Auto to fit the fewest bars across each selected screen, edge to edge.">Auto</button>
+                            <button type="button" class="btn btn-secondary rigging-tool-btn" data-tool="custom" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Custom, pick one size, then click a panel along the wall's edge to drop a bar there or drag along the edge to lay a row of them. Pick another size and keep going. Gaps are fine.">Custom</button>
+                        </div>
+                        <div id="rigging-size-label" style="color:#aaa; font-size: 12px; margin-bottom: 6px;">Sizes Auto uses</div>
                         <div id="rigging-size-picker" style="margin-bottom: 10px;">
                             <div style="display: flex; gap: 4px;">
                                 <button type="button" class="btn btn-secondary rigging-size-btn" data-size="1" style="flex: 1; padding: 4px 6px; font-size: 11px;">1</button>
@@ -1778,9 +1787,10 @@
                         </div>
                         <button type="button" id="rigging-select-all-btn" class="btn btn-secondary" style="width: 100%; margin-bottom: 4px;" data-tooltip="Select every screen in the show, on every canvas, so Auto and Clear act on all of them at once">Select All Screens</button>
                         <div style="display: flex; gap: 4px;">
-                            <button type="button" id="rigging-auto-btn" class="btn btn-primary" style="flex: 1;" disabled data-tooltip="Fit the fewest bars of the lit sizes across each selected screen, as a header or a footer depending on the choice above">Auto</button>
-                            <button type="button" id="rigging-clear-btn" class="btn btn-secondary" style="flex: 1;" disabled data-tooltip="Remove the header or footer bars (the choice above) from the selected screens">Clear</button>
+                            <button type="button" id="rigging-auto-btn" class="btn btn-primary" style="flex: 1;" disabled data-tooltip="Auto, fit the fewest bars of the lit sizes across each selected screen, on its side. Grouped screens standing edge to edge get one row across them.">Auto</button>
+                            <button type="button" id="rigging-clear-btn" class="btn btn-secondary" style="flex: 1;" disabled data-tooltip="Clear, take every bar off the selected screens.">Clear</button>
                         </div>
+                        <div id="rigging-custom-hint" style="display: none; color: #aaa; font-size: 12px; margin-top: 6px;"></div>
                         <div class="info-row" style="margin-top: 10px;" data-tooltip="Bar Color, the fill color of the header and footer bars on the selected screens.">
                             <label>Bar Color</label>
                             <div style="display: flex; gap: 5px; align-items: center;">
@@ -1796,13 +1806,22 @@
                             </div>
                         </div>
                         <div id="rigging-status" style="color:#aaa; font-size: 12px; margin-top: 8px; white-space: pre-line;"></div>
-                        <!-- Rows of bars that no longer add up to their wall
-                             (a resize or a turn). Nothing changes until Auto
-                             here is pressed. _refreshRiggingFitBox fills it. -->
-                        <div id="rigging-fit-warning" style="display: none; margin-top: 8px; padding: 6px 8px; font-size: 12px; color: #f5a623; background: #1a1a1a; border: 1px solid #f5a623; border-radius: 4px;" data-tooltip="Bars no longer fit, A screen was resized or turned, so its bars no longer add up to its wall. They stay as they are until you press Auto here.">
-                            <div style="font-weight: 600; margin-bottom: 2px;">Bars no longer fit</div>
-                            <div id="rigging-fit-text" style="white-space: pre-line; margin-bottom: 6px;"></div>
-                            <button type="button" id="rigging-fit-auto" class="btn btn-primary" style="width: 100%;" data-tooltip="Auto, Fit these bars to their walls again, with each screen's own lit sizes.">Auto</button>
+                        <!-- Rows of bars that no longer fit their wall (a
+                             resize or a turn), and screens an older show left
+                             with a header AND a footer. Nothing changes until
+                             a button here is pressed. _refreshRiggingFitBox
+                             fills it. -->
+                        <div id="rigging-fit-warning" style="display: none; margin-top: 8px; padding: 6px 8px; font-size: 12px; color: #f5a623; background: #1a1a1a; border: 1px solid #f5a623; border-radius: 4px;">
+                            <div id="rigging-fit-section" data-tooltip="Bars no longer fit, A screen was resized or turned, so its bars no longer cover its wall or run past its edge. They stay as they are until you press Auto here.">
+                                <div style="font-weight: 600; margin-bottom: 2px;">Bars no longer fit</div>
+                                <div id="rigging-fit-text" style="white-space: pre-line; margin-bottom: 6px;"></div>
+                                <button type="button" id="rigging-fit-auto" class="btn btn-primary" style="width: 100%;" data-tooltip="Auto, Fit these bars to their walls again, with each screen's own lit sizes.">Auto</button>
+                            </div>
+                            <div id="rigging-both-section" style="display: none;" data-tooltip="A header and a footer, A screen has bars on one side now. These screens were saved with both and stay that way until you pick the side to keep.">
+                                <div style="font-weight: 600; margin-bottom: 2px;">A header and a footer</div>
+                                <div>Pick the side to keep on each screen.</div>
+                                <div id="rigging-both-list"></div>
+                            </div>
                         </div>
                         <!-- Every screen in the show, not just the selected ones.
                              Filled by refreshRiggingTotals (app-rigging.js). -->

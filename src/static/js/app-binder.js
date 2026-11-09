@@ -5468,7 +5468,7 @@ class _Binder {
             printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
             hideNames: r.hideScreenNames,
             ignoreRaster: r.ignoreRasterBounds,
-            rigRoom: r.riggingTopRoom, rigRoomBelow: r.riggingBottomRoom,
+            rigRoom: r.riggingTopRoom, rigRoomBelow: r.riggingBottomRoom, rigSolo: r.riggingSolo,
             active: this.project ? this.project.active_canvas_id : null,
             canvasVis: canvases.map(c => [c, c.visible]),
             layerVis: (this.project.layers || []).map(l => [l, l.visible]),
@@ -5524,8 +5524,12 @@ class _Binder {
             // What stands astride a member's edge reaches past its wall by
             // this much, in the wall's own units: the wall is framed with
             // it, so a label kept whole on the sheet stays on the sheet.
+            // A Header/Footer sheet of one screen whose bars cross a group's
+            // seam: the part over the neighbor is drawn too (dashed), so the
+            // wall is framed with it.
             const over = subject.kind === 'member'
-                ? this._bMemberOverhang(book, subject, view, ws, wall) : NO_OVERHANG;
+                ? this._bMemberOverhang(book, subject, view, ws, wall)
+                : (view === 'rigging' && subject.kind === 'layer' ? this._bRiggingOverhang(layer, mirrored) : NO_OVERHANG);
             const fw = ww + over.left + over.right, fh = wh + over.top + over.bottom;
             // A power map's brackets (_bBoxBrackets) get the room they
             // need: where a deep stack or a crowded side will not fit the
@@ -5640,6 +5644,10 @@ class _Binder {
                 // wall: the gutter's height, in canvas units at this zoom.
                 r.riggingTopRoom = view === 'rigging' ? Math.max(0, G.top - 8) / zoom : null;
                 r.riggingBottomRoom = view === 'rigging' ? Math.max(0, G.bottom - 8) / zoom : null;
+                // A sheet of one screen draws its row's bars over it, a
+                // neighbor's too, and dashes what carries on over the
+                // neighbor (canvas-rigging.js renderRiggingBars).
+                r.riggingSolo = view === 'rigging' && subject.kind === 'layer';
                 // The renderer draws at S times the sheet zoom (its world
                 // transform is zoom and pan alone, so a scaled context
                 // would not survive it); the wall's local origin lands at
@@ -5726,6 +5734,7 @@ class _Binder {
             r.printerMode = saved.printer;
             r.riggingTopRoom = saved.rigRoom;
             r.riggingBottomRoom = saved.rigRoomBelow;
+            r.riggingSolo = saved.rigSolo;
             r.viewMode = saved.viewMode;
             r.zoom = saved.zoom;
             r.panX = saved.panX;
@@ -7014,19 +7023,44 @@ class _Binder {
 
     // ---- the header/footer sheets -------------------------------------------
 
+    // A screen with bars of its own, or a neighbor's bar reaching over it
+    // across a group's seam.
     _bHasRigging(layer) {
-        return !!layer && (layer.type || 'screen') === 'screen'
-            && ((Array.isArray(layer.riggingBars) && layer.riggingBars.length > 0)
-                || (Array.isArray(layer.riggingFooterBars) && layer.riggingFooterBars.length > 0));
+        if (!layer || (layer.type || 'screen') !== 'screen') return false;
+        if ((Array.isArray(layer.riggingBars) && layer.riggingBars.length > 0)
+                || (Array.isArray(layer.riggingFooterBars) && layer.riggingFooterBars.length > 0)) return true;
+        return typeof this.riggingSharedBarsOf === 'function' && this.riggingSharedBarsOf(layer).length > 0;
     }
 
     // The map's gutters for a header/footer sheet: the default's room above
-    // the wall for the header bars, and - only on a screen that has footer
-    // bars - room below it for them too.
+    // the wall for the header bars, and - only on a screen with footer bars
+    // over it - room below it for them too.
     _bRiggingGutter(target) {
-        const footer = this._bSubject(target).layers
-            .some(l => Array.isArray(l.riggingFooterBars) && l.riggingFooterBars.length > 0);
+        const footer = this._bSubject(target).layers.some(l => (typeof this.riggingSliceOf === 'function'
+            ? this.riggingSliceOf(l, 'footer').length > 0
+            : Array.isArray(l.riggingFooterBars) && l.riggingFooterBars.length > 0));
         return footer ? { ...MAP_GUTTER, bottom: MAP_GUTTER.top } : MAP_GUTTER;
+    }
+
+    // How far a one-screen Header/Footer sheet's bars reach past the wall
+    // over a grouped neighbor, in the wall's own units (NO_OVERHANG when
+    // none do). A rear view is mirrored, so left and right swap.
+    _bRiggingOverhang(layer, mirrored) {
+        if (!layer || typeof this.riggingSliceOf !== 'function') return NO_OVERHANG;
+        const n = this.riggingWallPanels(layer);
+        if (!n) return NO_OVERHANG;
+        const unit = this._riggingRect(layer).w / n;
+        let left = 0, right = 0;
+        for (const kind of ['header', 'footer']) {
+            for (const b of this.riggingSliceOf(layer, kind)) {
+                if (!b.shared) continue;
+                left = Math.max(left, -b.start);
+                right = Math.max(right, b.start + b.size - n);
+            }
+        }
+        if (!left && !right) return NO_OVERHANG;
+        const [l, r] = mirrored ? [right, left] : [left, right];
+        return { left: l * unit, right: r * unit, top: 0, bottom: 0 };
     }
 
     // The Header/Footer sheet for ONE screen (a group's members each have
@@ -7065,14 +7099,29 @@ class _Binder {
         const rows = [['Header', layers.map(l => list(l, 'riggingBars'))],
                       ['Footer', layers.map(l => list(l, 'riggingFooterBars'))]]
             .filter(([, lists]) => lists.some(bars => bars.length));
-        // Rows that no longer add up to their wall say so above the tables,
-        // the way a screen that cannot fit a circuit does.
-        const misfits = layers.flatMap(l => this.riggingMisfits(l));
+        // Rows that no longer fit their wall say so above the tables, the
+        // way a screen that cannot fit a circuit does; a row across a
+        // group's seam once.
+        const seen = new Set();
+        const misfits = layers.flatMap(l => this.riggingMisfits(l))
+            .filter(m => !seen.has(m.key) && seen.add(m.key));
         const notes = misfits.length ? [{ lines: this._bTableLines(book, {
             title: 'Bars no longer fit',
             cols: [{ title: 'note', w: 1, list: 6, words: true }],
             rows: misfits.map(m => ({ cells: [this.riggingMisfitLine(m, layers.length > 1)] })),
         }) }] : [];
+        // A sheet of one grouped screen: the bars that cross a seam onto a
+        // neighbor, and the sheet that counts each (the screen it starts on).
+        const shared = layers.length === 1 && typeof this.riggingSharedBarsOf === 'function'
+            ? this.riggingSharedBarsOf(layers[0]) : [];
+        if (shared.length) {
+            const name = (l) => l.name || `Screen ${l.id}`;
+            notes.push({ lines: this._bTableLines(book, {
+                title: 'Bars across screens',
+                cols: [{ title: 'note', w: 1, list: 6, words: true }],
+                rows: shared.map(s => ({ cells: [`A ${RiggingMath.sizeWord(s.size).toLowerCase()} ${s.kind} bar runs from ${name(s.from)} onto ${name(s.to)}. It is counted on ${name(s.owner)}.`] })),
+            }) });
+        }
         const blocks = rows.map(([word, lists]) => {
             const { total, bySize } = RiggingMath.tally(lists.filter(bars => bars.length));
             const kind = word === 'Footer' ? 'footer' : 'header';

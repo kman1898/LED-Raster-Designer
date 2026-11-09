@@ -415,6 +415,9 @@ class _MenuBar {
             case 'custom-mode-toggle':
                 this.runCustomModeMenu();
                 break;
+            case 'rigging-remove-bar':
+                this.removePickedRiggingBar();
+                break;
             case 'center-x':
                 this.centerLayersOnCanvas('x');
                 break;

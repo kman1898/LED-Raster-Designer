@@ -130,6 +130,10 @@ class _ContextMenu {
         // one; never on the dock or another tab.
         const customMode = !inDock ? this._prepareCustomModeMenu(x, y) : null;
         this._customModeMenuAction = customMode;
+        // "Remove Bar": on a header or footer bar on the Header/Footer tab
+        // (app-rigging.js _prepareRiggingBarMenu, which picks the bar).
+        const rigBar = !inDock && typeof this._prepareRiggingBarMenu === 'function'
+            ? this._prepareRiggingBarMenu(x, y) : null;
         if (inDock && !clear && !merge && !sharing.share
                 && !sharing.unshare && !outs && !snake) {
             this.hideContextMenu();
@@ -208,6 +212,11 @@ class _ContextMenu {
             menu.querySelectorAll('.custom-mode-only').forEach(el => {
                 el.style.display = customMode ? '' : 'none';
             });
+            menu.querySelectorAll('.rigging-bar-only').forEach(el => {
+                el.style.display = rigBar ? '' : 'none';
+            });
+            const rigItem = menu.querySelector('[data-action="rigging-remove-bar"]');
+            if (rigItem && rigBar) rigItem.title = rigBar.title;
             const customItem = menu.querySelector('[data-action="custom-mode-toggle"]');
             if (customItem && customMode) {
                 customItem.textContent = customMode.label;
