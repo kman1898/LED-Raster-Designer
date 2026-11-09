@@ -627,3 +627,52 @@ def test_arrow_keys_nudge_in_one_undo_step_per_burst(page):
     undo(page)
     assert stored(page, ids[0]) is None
     assert page.errors == []
+
+
+def test_one_gesture_after_another(page):
+    """The gestures in the order a person uses them: orbit, select, move,
+    undo, zoom, frame, another tab and back, a reload. Each leaves the next
+    one working and the camera where the last one put it."""
+    ids = fresh(page)
+    view(page, 'iso')
+    lower = screen(page, ids[1])['at']
+    drag(page, lower, (lower[0] + 70, lower[1] + 20), button='middle')
+    orbited = camera(page)
+    lower = screen(page, ids[1])['at']
+    page.mouse.click(*lower)
+    page.wait_for_timeout(300)
+    assert selected(page) == [ids[1]] and camera(page) == orbited
+    steps = history_len(page)
+    before = screen(page, ids[1])['placement']
+    drag(page, lower, (lower[0] + 60, lower[1]))
+    moved = stored(page, ids[1])
+    assert moved and moved['x'] != pytest.approx(before['x']) and history_len(page) == steps + 1
+    assert camera(page) == orbited
+    undo(page)
+    assert stored(page, ids[1]) is None
+    page.mouse.move(*lower)
+    page.mouse.wheel(0, -200)
+    page.wait_for_timeout(100)
+    zoomed = camera(page)
+    assert zoomed != orbited
+    page.mouse.move(5, 5)
+    page.keyboard.press('f')
+    framed = landed(page)
+    w = screen(page, ids[1])['world']
+    assert framed['target'] == pytest.approx([(w['min'][i] + w['max'][i]) / 2 for i in range(3)], abs=1)
+    settled(page, lambda: page.evaluate(
+        "async () => (await (await fetch('/api/project')).json()).stage3dCamera"),
+        lambda v: v and v['position'] == framed['position'])
+    open_tab(page, 'show-look')
+    open_tab(page, '3d')
+    page.wait_for_timeout(400)
+    assert camera(page) == framed
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_timeout(2500)
+    open_3d(page, 2)
+    back = settled(page, lambda: camera(page),
+                   lambda v: v and v['position'] == pytest.approx(framed['position'], abs=0.05))
+    assert back['target'] == pytest.approx(framed['target'], abs=0.05)
+    page.wait_for_timeout(800)
+    assert camera(page)['position'] == pytest.approx(framed['position'], abs=0.05), 'something moved the camera after the reload'
+    assert page.errors == []
