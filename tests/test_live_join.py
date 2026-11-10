@@ -532,3 +532,106 @@ def test_a_tablet_at_the_computer_s_address_joins_live(e2e_server, pw_browser, m
     finally:
         tablet_ctx.close()
         host_ctx.close()
+
+
+# ── a guide in one tab, the show joined in another ────────────────────────
+
+STASH_KEY = 'lrd_tour_saved_world'
+
+
+def _seed_person_s_show(url):
+    """The person's own show: one wall the guide's demo does not have."""
+    _post(url, '/api/project/new')
+    proj = _server_project(url)
+    _post(url, '/api/layer/add', {'name': 'MY WALL', 'columns': 3, 'rows': 2,
+                                   'cabinet_width': 128, 'cabinet_height': 128})
+    for layer in proj['layers']:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        req = urllib.request.Request(f"{url}/api/layer/{layer['id']}", method='DELETE')
+        with opener.open(req, timeout=10) as reply:
+            assert reply.status == 200
+    names = [l['name'] for l in _server_project(url)['layers']]
+    assert names == ['MY WALL'], names
+
+
+def _server_layer_names(url):
+    return [l['name'] for l in _server_project(url)['layers']]
+
+
+def _wait_server(url, want, timeout=20.0):
+    import time
+    deadline = time.time() + timeout
+    names = None
+    while time.time() < deadline:
+        names = _server_layer_names(url)
+        if want(names):
+            return names
+        time.sleep(0.2)
+    raise AssertionError(f'the server project never got there: {names}')
+
+
+def _start_guide(pg, url):
+    pg.evaluate("() => { window.QuickStart.setSpeed(4); window.QuickStart.start(); }")
+    pg.wait_for_function("() => window.QuickStart.state().visible && !window.QuickStart.state().running"
+                         " && !!localStorage.getItem('lrd_tour_saved_world')", timeout=20000)
+    _wait_server(url, lambda n: 'DEMO WALL' in n and 'MY WALL' not in n)
+
+
+def test_a_tab_opened_during_a_guide_leaves_the_guide_s_show_alone(e2e_server, pw_browser):
+    """The guide in the first tab runs on its demo show; a second tab of
+    the same browser finds the guide's stash of the person's project and
+    must not put it back mid-guide. The guide's own end puts it back, and
+    the second tab follows."""
+    _seed_person_s_show(e2e_server)
+    context = _context(pw_browser, QUIET)
+    try:
+        first, problems = _open(context, e2e_server)
+        _start_guide(first, e2e_server)
+        second, more = _open(context, e2e_server)
+        _settle(second)
+        second.wait_for_timeout(2000)
+        assert 'DEMO WALL' in _server_layer_names(e2e_server)
+        assert 'MY WALL' not in _server_layer_names(e2e_server)
+        assert first.evaluate("() => window.QuickStart.state().visible")
+        assert second.evaluate("(k) => !!localStorage.getItem(k)", STASH_KEY)
+        assert 'DEMO WALL' in _layers(second)
+        # a guide started in the second tab now would stash the demo as
+        # the person's world: it says why and does not start
+        second.evaluate("() => window.QuickStart.start()")
+        second.wait_for_timeout(500)
+        assert not second.evaluate("() => window.QuickStart.state().visible")
+        assert 'DEMO WALL' in _server_layer_names(e2e_server)
+        # the guide ends where it runs: the person's project comes back
+        first.evaluate("() => window.QuickStart.end()")
+        _wait_server(e2e_server, lambda n: n == ['MY WALL'])
+        first.wait_for_function("(k) => !localStorage.getItem(k)", arg=STASH_KEY, timeout=10000)
+        second.wait_for_function("() => window.app.project.layers.map(l => l.name).join() === 'MY WALL'",
+                                 timeout=10000)
+        # and the second tab never puts anything back on its own later
+        second.wait_for_timeout(2500)
+        assert _server_layer_names(e2e_server) == ['MY WALL']
+        assert problems == [] and more == [], problems + more
+    finally:
+        context.close()
+
+
+def test_a_guide_s_tab_closed_mid_guide_hands_the_project_back_through_the_other_tab(e2e_server, pw_browser):
+    """The guide's tab goes before its guide ends: the tab still open puts
+    the person's project back, once the closed tab has had the moment its
+    own reload would take."""
+    _seed_person_s_show(e2e_server)
+    context = _context(pw_browser, QUIET)
+    try:
+        first, problems = _open(context, e2e_server)
+        _start_guide(first, e2e_server)
+        second, more = _open(context, e2e_server)
+        _settle(second)
+        assert 'DEMO WALL' in _server_layer_names(e2e_server)
+        first.close()
+        _wait_server(e2e_server, lambda n: n == ['MY WALL'], timeout=20.0)
+        second.wait_for_function("(k) => !localStorage.getItem(k)", arg=STASH_KEY, timeout=10000)
+        second.wait_for_function("() => window.app.project.layers.map(l => l.name).join() === 'MY WALL'",
+                                 timeout=10000)
+        assert more == [], more
+    finally:
+        context.close()

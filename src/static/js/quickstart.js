@@ -2773,6 +2773,94 @@
     // the user their project. Cleared on a clean exit; read back on boot.
     var STASH_KEY = 'lrd_tour_saved_world';
 
+    // Whose stash it is. Every tab of this browser shares the stash
+    // (localStorage), but only one of them runs the guide. The app is a
+    // live service (owner, 2026-11-09): a second tab joins the show as it
+    // stands, and while a guide ran in the first, the second found the
+    // stash at boot and put the person's project back on the server in
+    // the middle of that guide. So the guide's page keeps a pulse beside
+    // its stash while it holds it, and marks it gone as the page goes. A
+    // page that finds a stash with a live pulse not its own leaves it
+    // alone and watches: the guide that owns it puts the world back when
+    // it ends. Only when that page is gone (closed, or crashed and quiet
+    // past STASH_QUIET_MS) does a watching page put it back, after
+    // STASH_HAND_ON_MS, so the owning tab's own reload takes it back first.
+    var STASH_BEAT_KEY = 'lrd_tour_saved_world_beat';
+    var STASH_TAB_KEY = 'lrd_tour_tab';
+    var STASH_BEAT_MS = 1000;
+    // A browser slows the timers of a tab left in the background to one a
+    // minute, so a quiet pulse means a dead page only well past that.
+    var STASH_QUIET_MS = 90000;
+    var STASH_HAND_ON_MS = 4000;
+    var stashPage = 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+    var stashTabMem = null;
+    var stashBeatTimer = null;
+    var stashWatchTimer = null;
+    // This tab's mark: it outlives the tab's own reload (sessionStorage).
+    function stashTab() {
+        try {
+            var t = sessionStorage.getItem(STASH_TAB_KEY);
+            if (!t) { t = stashPage; sessionStorage.setItem(STASH_TAB_KEY, t); }
+            return t;
+        } catch (e) {
+            if (!stashTabMem) stashTabMem = stashPage;
+            return stashTabMem;
+        }
+    }
+    function readStashBeat() {
+        try {
+            var raw = localStorage.getItem(STASH_BEAT_KEY);
+            var b = raw ? JSON.parse(raw) : null;
+            return b && typeof b.page === 'string' && typeof b.at === 'number' ? b : null;
+        } catch (e) { return null; }
+    }
+    function writeStashBeat(gone) {
+        try {
+            localStorage.setItem(STASH_BEAT_KEY, JSON.stringify({
+                tab: stashTab(), page: stashPage, at: Date.now(), gone: !!gone
+            }));
+        } catch (e) { /* no storage: no stash either */ }
+    }
+    function startStashBeat() {
+        writeStashBeat(false);
+        if (stashBeatTimer) return;
+        stashBeatTimer = setInterval(function () { writeStashBeat(false); }, STASH_BEAT_MS);
+    }
+    function stopStashBeat() {
+        if (stashBeatTimer) { clearInterval(stashBeatTimer); stashBeatTimer = null; }
+        var b = readStashBeat();
+        if (b && b.page === stashPage) {
+            try { localStorage.removeItem(STASH_BEAT_KEY); } catch (e) {}
+        }
+    }
+    // The page holding the stash goes (closed, reloaded, navigated away).
+    window.addEventListener('pagehide', function () { if (stashBeatTimer) writeStashBeat(true); });
+    // and comes back from the browser's page cache, its guide still up
+    window.addEventListener('pageshow', function (e) { if (e.persisted && stashBeatTimer) writeStashBeat(false); });
+    // Is the stash another page's, still in use? A pulse of this page's
+    // own is never another's; a page gone in this same tab is this tab's
+    // reload, which takes its stash back at once.
+    function stashHeldElsewhere() {
+        var b = readStashBeat();
+        if (!b || b.page === stashPage) return false;
+        var age = Date.now() - b.at;
+        if (!b.gone) return age < STASH_QUIET_MS;
+        return b.tab !== stashTab() && age < STASH_HAND_ON_MS;
+    }
+    // A page that left another page's stash alone: once that page is gone
+    // with the stash still there, put the world back here.
+    function watchHeldStash() {
+        if (stashWatchTimer) return;
+        stashWatchTimer = setInterval(function () {
+            if (S.visible || S.running || S.saved) return;
+            if (!readStash()) { clearInterval(stashWatchTimer); stashWatchTimer = null; return; }
+            if (stashHeldElsewhere()) return;
+            clearInterval(stashWatchTimer);
+            stashWatchTimer = null;
+            recoverStash();
+        }, 1000);
+    }
+
     // Preferences are shared state a step can write (the binder's title
     // block tick, screen order, sheet size are preferences), so the tour
     // carries the server's copy and the app's caches and puts them back.
@@ -2865,9 +2953,13 @@
                 tray: w.tray, panels: w.panels, layout: w.layout, currentLayerId: w.currentLayerId,
                 notes: w.notes, idm: w.idm, at: Date.now()
             }));
+            startStashBeat();
         } catch (e) { /* a project too big for the stash still restores on exit */ }
     }
-    function clearStash() { try { localStorage.removeItem(STASH_KEY); } catch (e) {} }
+    function clearStash() {
+        try { localStorage.removeItem(STASH_KEY); } catch (e) {}
+        stopStashBeat();
+    }
     function readStash() {
         try {
             var raw = localStorage.getItem(STASH_KEY);
@@ -2881,6 +2973,15 @@
     function recoverStash() {
         var w = readStash();
         if (!w) return Promise.resolve(false);
+        if (stashHeldElsewhere()) {
+            // Another page's guide is running on it: that guide puts the
+            // world back when it ends. Watch, in case that page dies first.
+            watchHeldStash();
+            return Promise.resolve(false);
+        }
+        // This page puts it back now: its pulse tells any other page that
+        // looks meanwhile to leave it alone.
+        startStashBeat();
         var a = A();
         // The person's Preferences first: the guide ran on the shipped
         // ones (guidePreferences), and their project comes back under
@@ -2914,6 +3015,8 @@
             return true;
         }).catch(function (e) {
             console.warn('QuickStart: recovery failed', e);
+            // left for the next page to try
+            stopStashBeat();
             return false;
         });
     }
@@ -3121,6 +3224,26 @@
         // overwritten by that restore, and it captured the scratch show as
         // the world to put back, so leaving it lost the person's project.
         if (S.ending) return S.ending.then(function () { return show(name, custom); });
+        // A stash this page does not hold is the person's world from a
+        // guide in another tab. Started over it, this guide would stash
+        // that guide's scratch show in its place, and the person's project
+        // would be lost. A guide running elsewhere is finished there; one
+        // whose page is gone is put back first.
+        if (!S.saved && readStash()) {
+            if (stashHeldElsewhere()) {
+                var a1 = A();
+                if (a1 && typeof a1._toast === 'function') {
+                    a1._toast('A guide is running in another window. Finish it there first.', true, 5000);
+                }
+                watchHeldStash();
+                return Promise.resolve();
+            }
+            return recoverStash().then(function (back) {
+                // Not put back (the server refused it): no guide over it.
+                if (!back && readStash()) return;
+                return show(name, custom);
+            });
+        }
         if (!els) build();
         // The ghost cursor starts from the middle of the window, not from
         // the corner it is born in, so the first act's travel reads as a
