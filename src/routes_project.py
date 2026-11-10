@@ -570,7 +570,7 @@ def save_project():
     # voltage no longer allows: it lands eligible (2026-09-22).
     app.normalize_power_breakouts(app.current_project)
     # The 3D placement on every screen held to its shape (joint bends within
-    # +/-180 degrees). Idempotent; see app.sanitize_stage3d.
+    # +/-20 degrees). Idempotent; see app.sanitize_stage3d.
     app.normalize_stage3d(app.current_project)
     # The IDM Locator's marks held to the screens as they stand (no mark on
     # a blanked cabinet or a module that is not there). Idempotent.

@@ -5,7 +5,7 @@ follow it, not just the first one:
 
   Bars that no longer fit  "the bars no longer fit and offer Auto again,
                            rather than changing them silently." A wall
-                           resized or turned leaves its bars exactly as they
+                           resized leaves its bars exactly as they
                            were, says so (toast, the tab's box, the canvas,
                            the pull rows, the binder, the exports) and offers
                            Auto. Auto fits the wall's real footprint. Bars are
@@ -664,27 +664,26 @@ def test_a_wall_made_narrower_draws_past_its_edge_never_squeezed(pg):
     assert lay(p, 'A', 'riggingBars', 'riggingFooterBars') == {'riggingBars': [], 'riggingFooterBars': [2] * 5}
 
 
-def test_a_turned_wall_warns_and_auto_fits_its_rows(pg):
+def test_a_turned_wall_keeps_its_bars_on_its_columns(pg):
+    """The owner, 2026-11-10: a Pixel Map rotation turns only the picture.
+    The bars follow the wall as built, its twelve columns, at any turn:
+    nothing warns and Auto lays the same row (tests/test_bars_rotation.py
+    draws and stands them)."""
     p = pg
     tab(p)
     auto(p, 'A')
     clear_toasts(p)
     turn(p, 90)
     assert lay(p, 'A', 'rotation', 'riggingBars') == {'rotation': 90, 'riggingBars': [2] * 6}
-    assert 'A: header bars cover 12 panels, the wall is 6.' in p.locator('#rigging-fit-text').text_content()
-    assert any('no longer fit' in t for t in toasts(p)), toasts(p)
-    # Auto on the tab: the wall's real footprint, its six rows.
+    assert not p.locator('#rigging-fit-warning').is_visible()
+    assert not any('no longer fit' in t for t in toasts(p)), toasts(p)
     sel(p, 'A')
     p.locator('#rigging-auto-btn').click()
     p.wait_for_timeout(300)
-    assert lay(p, 'A', 'riggingBars')['riggingBars'] == [2, 2, 2]
-    assert not p.locator('#rigging-fit-warning').is_visible()
-    bars = hits(p, 'A')
-    wall = wall_px(p, 'A')
-    assert abs(sum(b['x1'] - b['x0'] for b in bars) - wall['w']) < 1.5
-    # Turned 180 the wall is its columns again, 12: three doubles no longer fit.
+    assert lay(p, 'A', 'riggingBars')['riggingBars'] == [2] * 6
     turn(p, 180)
-    assert 'A: header bars cover 6 panels, the wall is 12.' in p.locator('#rigging-fit-text').text_content()
+    assert not p.locator('#rigging-fit-warning').is_visible()
+    assert lay(p, 'A', 'riggingBars')['riggingBars'] == [2] * 6
 
 
 def test_a_square_turn_needs_no_warning(pg):

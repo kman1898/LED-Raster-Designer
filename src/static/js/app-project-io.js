@@ -613,6 +613,14 @@ class _ProjectIo {
                             && this.fillFacesInUseOnOpen().length) {
                         this._persistDistros();
                     }
+                    // A screen turned a quarter by its Pixel Map rotation,
+                    // saved when its bars ran across its rows: an Auto row
+                    // is laid again along its columns, and said; a custom
+                    // one is left for the tab's no-longer-fit box
+                    // (app-rigging.js riggingRelayTurnedOnOpen). Ahead of
+                    // the sync below, which saves it.
+                    const turnedNote = typeof this.riggingRelayTurnedOnOpen === 'function'
+                        ? this.riggingRelayTurnedOnOpen() : '';
                     // Sync the canvas's pixel/show raster backing fields from the
                     // loaded project so Show Look picks up the file's values
                     // (and falls back to the pixel raster when show wasn't saved).
@@ -630,6 +638,7 @@ class _ProjectIo {
                     if (stackNotes.length && typeof this._toast === 'function') {
                         this._toast(stackNotes.join(' '), false, 12000);
                     }
+                    if (turnedNote && typeof this._toast === 'function') this._toast(turnedNote, false, 10000);
                     document.getElementById('status-message').textContent =
                         recent ? 'Project loaded from recent files' : 'Project loaded';
                     setTimeout(() => {

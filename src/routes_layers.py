@@ -617,7 +617,7 @@ def update_layer(layer_id):
 
     # The 3D view's placement of this screen (app-stage3d.js): taken off the
     # plain allow-list because it is held to a shape - every joint bend
-    # held to +/-180 degrees, stray keys dropped. null (or anything that
+    # held to +/-20 degrees, stray keys dropped. null (or anything that
     # is not a block) removes it, and the screen goes back to the place its
     # Show Look position gives it.
     if 'stage3d' in data:

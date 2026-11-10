@@ -61,7 +61,7 @@ import { LEDRasterApp } from './app-core.js';
 import { s3dCleanCorners, s3dCornerSeams, s3dCornerTurn, s3dResolve, s3dSanitize } from './app-stage3d.js';
 import {
     cleanCurve, convertCurveEntry, datumLabel, formatAngle, formatLength, formatSmall, parseAngles,
-    screenCurve, snapDatum,
+    screenCurve, snapDatum, CURVE_MAX_JOINT_DEG,
 } from './curve-math.js';
 
 const CACHE_MAX = 40;
@@ -121,11 +121,9 @@ class _Curve {
     }
 
     // Why a screen cannot take a Curve, or '' when it can.
+    // A Pixel Map rotation is no reason: it turns only the picture, and the
+    // bars and the joints stay the wall's own columns (owner, 2026-11-10).
     _curveCannot(layer) {
-        const cols = Number(layer.columns) || 0;
-        if (this.riggingWallPanels(layer) !== cols) {
-            return 'it is turned a quarter, so its bars run down its columns';
-        }
         if (this.riggingSideOf(layer) === 'both') return 'it has a header and a footer';
         const row = this.riggingRow(layer, this.riggingSideOf(layer));
         if (row.layers.length > 1) return 'its bars run across its group, and a curve is one screen\'s';
@@ -154,11 +152,10 @@ class _Curve {
         return pieces.length ? { pieces } : null;
     }
 
-    // An answer's joints in the screen's own column order: a screen with
-    // corners turned half way round has its bar panels right to left.
+    // An answer's joints, in the screen's own column order: its bars and
+    // corner bars are in that order whatever its Pixel Map rotation.
     _curveJoints(layer, out) {
-        const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
-        return deg === 180 && out.sides ? [...out.joints].reverse() : out.joints;
+        return out.joints;
     }
 
     // ---- the background calculator -----------------------------------------
@@ -479,6 +476,14 @@ class _Curve {
             const list = parseAngles(raw);
             if (!list || !list.length) {
                 this._toast('Lock angles, type the angles the bars lock at, like 2.5, 5, 7.5, 10.', true, 5000);
+                this.refreshRiggingPanel();
+                return;
+            }
+            // A curve lock bends at most CURVE_MAX_JOINT_DEG a joint (owner,
+            // 2026-11-10): past it the field goes back to what it held.
+            const over = list.filter(a => a > CURVE_MAX_JOINT_DEG + 1e-9);
+            if (over.length) {
+                this._toast(`Lock angles, ${over.map(a => formatAngle(a)).join(' and ')} is past the ${CURVE_MAX_JOINT_DEG}° a curve lock bends. Type angles up to ${CURVE_MAX_JOINT_DEG}°.`, true, 6000);
                 this.refreshRiggingPanel();
                 return;
             }

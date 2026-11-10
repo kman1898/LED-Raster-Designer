@@ -807,8 +807,9 @@ def strip_copied_feeds(layer):
 #                        (app-stage3d.js s3dResolve), so it stands where it
 #                        stood. The marker is kept as it came, never added
 #                        here - only the client knows the screen's shape.
-# Every bend is held to +/-STAGE3D_JOINT_LIMIT degrees, a half turn: a joint
-# keeps what it is given, the Curve's angles included. A layer without the
+# Every curve joint is held to +/-STAGE3D_JOINT_LIMIT degrees, the most a
+# curve lock bends (owner, 2026-11-10); a corner's 90 is riggingCorners,
+# never held to it. A layer without the
 # key is placed by the client from its Show Look position, so older files
 # load unchanged. The project keeps the last camera (`stage3dCamera`), the
 # length units the panel shows (`stage3dUnits`; none saved = the show's
@@ -816,7 +817,7 @@ def strip_copied_feeds(layer):
 # (`stage3dGrid`) and the header and footer bars switch (`stage3dBars`);
 # those are view state and are written by their own
 # route (routes_project.py), never by the layer PUT.
-STAGE3D_JOINT_LIMIT = 180.0
+STAGE3D_JOINT_LIMIT = 20.0
 STAGE3D_UNITS = ('ft', 'm')
 STAGE3D_PIVOT = 'bottom'
 

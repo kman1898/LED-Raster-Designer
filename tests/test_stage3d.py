@@ -961,3 +961,14 @@ def test_switching_through_every_tab_raises_nothing(page):
     assert page.errors == []
     page.wait_for_timeout(300)
     assert dbg(page)['active']
+
+
+def test_the_server_holds_a_curve_joint_to_20(client_with_layer):
+    """The owner, 2026-11-10: "lets limit to 20". 20 is kept; 30 and
+    -20.5 are held to it. A corner's 90 is riggingCorners, never this."""
+    assert app_module.STAGE3D_JOINT_LIMIT == 20
+    client = client_with_layer
+    layer_id = app_module.current_project['layers'][0]['id']
+    placed = client.put(f'/api/layer/{layer_id}', json={'stage3d': {
+        'jointsCol': {'0': 30, '1': 20, '2': -20.5}}}).get_json()['stage3d']
+    assert placed['jointsCol'] == {'0': 20, '1': 20, '2': -20}

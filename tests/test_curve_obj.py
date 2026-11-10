@@ -324,15 +324,18 @@ def test_custom_and_remove_bar_leave_a_curved_screen_alone_and_clear_turns_it_of
     assert page.errors == []
 
 
-def test_a_grouped_row_or_a_turned_screen_is_refused_and_named(page):
+def test_a_grouped_row_is_refused_and_named_and_a_turned_screen_curves(page):
+    # A Pixel Map rotation turns only the picture: the bars and joints stay
+    # the wall's own columns, so a turned screen takes a Curve (owner,
+    # 2026-11-10).
     ids = reset(page, [{'name': 'TURNED', 'columns': 6, 'rows': 2, 'offset_x': 0, 'offset_y': 0}])
     page.evaluate("(id) => { const l = window.app.project.layers.find(x => x.id === id); l.rotation = 90; window.app.updateLayers([l], false); }", ids[0])
     open_rigging(page)
-    page.click('#rigging-curve-on')
-    page.wait_for_timeout(300)
-    assert not page.is_checked('#rigging-curve-on')
-    assert 'TURNED cannot take a Curve' in toast_says(page, 'TURNED cannot take a Curve')
-    assert not (layer(page, ids[0]).get('riggingCurve') or {}).get('on')
+    singles_only(page)
+    act(page, lambda: page.check('#rigging-curve-on'))
+    turned = layer(page, ids[0])
+    assert (turned.get('riggingCurve') or {}).get('on')
+    assert turned['riggingBars'] == [1] * 6 and joints_of(turned) == expected(page, ids[0])['joints']
 
     # two grouped screens standing edge to edge share one row of bars
     ids = reset(page, [{'name': 'LEFT', 'columns': 4, 'rows': 2, 'offset_x': 0, 'offset_y': 0},
@@ -952,4 +955,73 @@ def test_the_curves_angles_over_15_reach_3d_and_the_obj_unchanged(page):
     heads = [math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) for a, b in zip(pts, pts[1:])]
     turns = [h1 - h0 for h0, h1 in zip(heads, heads[1:])]
     assert turns == pytest.approx(want['joints'], abs=1e-3)
+    assert page.errors == []
+
+
+def test_lock_angles_past_20_are_refused_and_the_field_goes_back(page):
+    """The owner, 2026-11-10: "lets limit to 20". 20 is taken; 20.5 and 25
+    are refused, said, and the field shows what it held."""
+    ids = reset(page)
+    open_rigging(page)
+    singles_only(page)
+    page.fill('#rigging-curve-angles', '5, 20')
+    page.press('#rigging-curve-angles', 'Tab')
+    assert settled(page, lambda: layer(page, ids[0])['riggingCurve']['angles'], lambda a: a == [5, 20]) == [5, 20]
+    for typed in ('20.5', '10, 25'):
+        n = history_len(page)
+        page.fill('#rigging-curve-angles', typed)
+        page.press('#rigging-curve-angles', 'Tab')
+        said = toast_says(page, 'past the 20° a curve lock bends')
+        assert 'Type angles up to 20°' in said, said
+        assert page.input_value('#rigging-curve-angles') == '5, 20'
+        assert layer(page, ids[0])['riggingCurve']['angles'] == [5, 20]
+        assert history_len(page) == n
+    assert page.errors == []
+
+
+def test_a_curve_needing_more_than_20_a_joint_is_refused_and_says_how_much_fits(page):
+    ids = reset(page, [dict(WALL, columns=9)])
+    open_rigging(page)
+    singles_only(page)
+    page.fill('#rigging-curve-angles', '10, 20')
+    page.press('#rigging-curve-angles', 'Tab')
+    page.fill('#rigging-curve-value', '55')
+    page.press('#rigging-curve-value', 'Tab')
+    settled(page, lambda: layer(page, ids[0])['riggingCurve'], lambda c: c.get('value') == 55)
+    act(page, lambda: page.check('#rigging-curve-on'))
+    want = expected(page, ids[0])
+    assert want['errors'] == ['This curve needs 22° at each joint on a 9-panel wall, past the 20° a curve lock takes. Ask for 50% or less.']
+    lay = layer(page, ids[0])
+    assert not lay.get('riggingBars') and not joints_of(lay)
+    said = settled(page, lambda: page.inner_text('#rigging-curve-errors'), lambda s: 'Ask for 50% or less' in s)
+    assert 'needs 22° at each joint' in said, said
+    assert page.errors == []
+
+
+def test_a_corner_folds_90_in_3d_and_the_obj_whatever_the_curve_limit(page):
+    """A corner's 90 is riggingCorners, never held to the 20 a curve joint
+    is: a seam corner beside curve joints stored at 30 (held to 20)."""
+    ids = reset(page, [dict(WALL, columns=6)])
+    page.evaluate("""(id) => { const a = window.app; const l = a.project.layers.find(x => x.id === id);
+        l.riggingCorners = [{at: 3.5, angle: 90, side: 'interior'}];
+        // the stored angles are a Curve's (only a screen with its Curve on
+        // stands them)
+        l.riggingCurve = {on: true};
+        l.stage3d = {x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, pivot: 'bottom', jointsCol: {'0': 30, '4': 30}};
+        a.updateLayers([l], true, 'Test'); }""", ids[0])
+    page.wait_for_timeout(300)
+    built = page.evaluate("""async (id) => {
+        const m = await import('/static/js/app-stage3d.js');
+        const l = window.app.project.layers.find(x => x.id === id);
+        return { colJ: m.s3dBuild(l, window.app._s3dPlacementOf(l)).colJ };
+    }""", ids[0])
+    srv = settled(page, lambda: served(page, ids[0]), lambda l: (l.get('stage3d') or {}).get('jointsCol'))
+    assert srv['stage3d']['jointsCol'] == {'0': 20, '4': 20}
+    assert srv['riggingCorners'][0]['at'] == 3.5
+    assert built['colJ'] == [20, 0, 90, 0, 20]
+    obj = read_obj(obj_files(page)['Test_Show_WALL.obj'])
+    pts = face_corners_xz(obj)
+    heads = [math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) for a, b in zip(pts, pts[1:])]
+    turns = [h1 - h0 for h0, h1 in zip(heads, heads[1:])]
+    assert turns == pytest.approx([20, 0, 90, 0, 20], abs=1e-3)
     assert page.errors == []

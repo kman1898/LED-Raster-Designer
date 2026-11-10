@@ -174,12 +174,12 @@ const RiggingMath = (() => {
         return { total, bySize };
     }
 
-    // How many panels wide the wall stands: its columns, or its rows once it
-    // is turned a quarter (the footprint the bars hang on, canvas.js
-    // _layerRotationGeom swaps the same two angles).
+    // How many panels wide the wall stands: its columns, whatever its Pixel
+    // Map rotation (owner, 2026-11-10): the rotation only turns the picture,
+    // the bars follow the wall as built along its real bottom, and how the
+    // wall stands is set on the 3D tab. `rows` and `rotation` are ignored.
     function wallPanels(columns, rows, rotation) {
-        const deg = (((Number(rotation) || 0) % 360) + 360) % 360;
-        return Number(deg === 90 || deg === 270 ? rows : columns) || 0;
+        return Number(columns) || 0;
     }
 
     // How many panels a row of bars covers.

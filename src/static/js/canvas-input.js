@@ -57,7 +57,7 @@ Object.assign(CanvasRenderer.prototype, {
                 Object.assign(d, edge
                     ? { kind: 'edge', boundary: edge.runBoundary }
                     : { kind: 'move', index: bar.runIndex, hit: bar },
-                    { startX: mouseX, unitPx: hit.unitPx, dir: hit.dir });
+                    { startX: mouseX, startY: mouseY, unitPx: hit.unitPx, dir: hit.dir, f: hit.f, unit: hit.unit });
                 this._riggingDrag = d;
                 if (app._riggingGhost) app._riggingGhost = null;
                 this.canvas.style.cursor = edge ? 'ew-resize' : 'grabbing';
@@ -818,7 +818,16 @@ Object.assign(CanvasRenderer.prototype, {
             const app = window.app;
             if (app) {
                 if (d.kind === 'place') {
-                    app.riggingPreviewPlace(d, this.riggingZoneRowPanel(d.zone, mouseX));
+                    app.riggingPreviewPlace(d, this.riggingZoneRowPanel(d.zone, mouseX, mouseY));
+                } else if (d.f && d.unit > 0) {
+                    // Along the wall in its own frame, so a bar on a wall
+                    // whose picture is turned moves the way it is drawn.
+                    const a = this._riggingLocal(d.f, d.startX, d.startY);
+                    const b = this._riggingLocal(d.f, mouseX, mouseY);
+                    const panels = (b.x - a.x) / d.unit;
+                    if (Math.hypot(mouseX - d.startX, mouseY - d.startY) > 3) d.moved = true;
+                    if (d.kind === 'edge') app.riggingPreviewEdge(d, panels);
+                    else app.riggingPreviewMove(d, panels);
                 } else if (d.unitPx > 0) {
                     const panels = d.dir * (mouseX - d.startX) / d.unitPx;
                     if (Math.abs(mouseX - d.startX) > 3) d.moved = true;
