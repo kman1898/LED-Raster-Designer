@@ -43,11 +43,13 @@ export const SERVER_LINK = { gone: false, lost: false, onTrouble: null };
     const tagged = function (input, init) {
         let write = false;
         let send = false;   // anything but a read or the page's log
+        let ours = false;   // one of the app's own routes
         try {
             const url = typeof input === 'string' ? input : (input instanceof URL ? input.href : null);
             if (url !== null) {
                 const at = new URL(url, window.location.href);
                 if (at.origin === window.location.origin && at.pathname.startsWith('/api/')) {
+                    ours = true;
                     const headers = new Headers((init && init.headers) || undefined);
                     headers.set('X-LRD-Page', PAGE_CLIENT_ID);
                     init = Object.assign({}, init, { headers });
@@ -66,7 +68,7 @@ export const SERVER_LINK = { gone: false, lost: false, onTrouble: null };
         // A request that never reached the server (not one it answered
         // with an error) has the page check whether the app is still up.
         const sent = raw.catch((err) => {
-            if (err && err.name !== 'AbortError') {
+            if (ours && err && err.name !== 'AbortError') {
                 if (send) SERVER_LINK.lost = true;
                 if (typeof SERVER_LINK.onTrouble === 'function') {
                     try { SERVER_LINK.onTrouble(); } catch (_) { /* checked anyway */ }
