@@ -612,7 +612,7 @@ class _Stage3DNav {
         caught.forEach(id => { if (!ids.includes(id)) ids.push(id); });
         const primary = add && this.currentLayer && ids.includes(this.currentLayer.id)
             ? this.currentLayer.id : (caught[0] || null);
-        st.joint = null;
+        this._s3dPickCorner(null);
         sendClientLog('stage3d_box_select', { caught, add, ids });
         this.setSelectedLayersByIds(ids, primary);
         this._s3dRefreshPanel();

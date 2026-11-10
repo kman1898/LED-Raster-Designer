@@ -97,6 +97,10 @@ GESTURE_PHRASES = [
     'Export this screen',
     # Show Look
     "show position",
+    # 3D
+    'Drag a figure in the 3D panel',
+    'Right-click Pitch, Yaw or Roll',
+    'Click a seam or the middle of a panel',
     # Data view & the tray
     'Hold Alt',
     'Alt+click a run',
