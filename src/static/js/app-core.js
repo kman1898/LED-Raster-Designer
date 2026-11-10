@@ -1394,13 +1394,33 @@ export class LEDRasterApp {
     _recordForeignStep() {
         if (!Array.isArray(this.history) || this.historyIndex < 0 || !this.project) return;
         const json = JSON.stringify(this.project, this._snapshotReplacer);
+        // compared as the server would write them (key order aside)
+        const now = this._canonicalJson(JSON.parse(json));
+        const same = (p) => !!p && this._canonicalJson(p) === now;
         const tip = this.history[this.historyIndex];
-        if (tip && JSON.stringify(tip.project) === json) return;
+        if (tip && same(tip.project)) return;
         const atEnd = this.historyIndex === this.history.length - 1;
         // The step before the other pages' changes: when they come back to
-        // it (another page's undo), the step goes again.
+        // it (another page's undo), the step goes again. Read loosely: the
+        // server's copy fills defaults the page's own load did not have
+        // (a screen's `locked: false`), and those are no change.
+        const loose = (v) => {
+            const walk = (x) => {
+                if (Array.isArray(x)) return '[' + x.map(walk).join(',') + ']';
+                if (x && typeof x === 'object') {
+                    const keys = Object.keys(x).filter(k => !(k.length > 1 && k.charAt(0) === '_')
+                        && !(x[k] === undefined || x[k] === null || x[k] === false || x[k] === ''
+                            || (Array.isArray(x[k]) && !x[k].length)
+                            || (x[k] && typeof x[k] === 'object' && !Array.isArray(x[k]) && !Object.keys(x[k]).length)))
+                        .sort();
+                    return '{' + keys.map(k => JSON.stringify(k) + ':' + walk(x[k])).join(',') + '}';
+                }
+                return JSON.stringify(x);
+            };
+            return walk(v);
+        };
         if (tip && tip.action === FOREIGN_STEP && atEnd && this.historyIndex > 0
-                && JSON.stringify(this.history[this.historyIndex - 1].project) === json) {
+                && loose(this.history[this.historyIndex - 1].project) === loose(JSON.parse(json))) {
             this.history.pop();
             this.historyIndex -= 1;
             sendClientLog('foreign_step_undone_elsewhere', { historyIndex: this.historyIndex });
