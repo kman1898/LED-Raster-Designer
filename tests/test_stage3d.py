@@ -3,8 +3,8 @@
 The tab stands every screen Show Look shows on the stage, built from its own
 cabinets with its Pixel Map drawing on the front. Each screen's place lives
 on the layer as `stage3d` (mm and degrees; the only joint angles are the
-Curve's, between columns, held to +/-180); the camera, units and grid are
-the view's own, saved with the project.
+Curve's, between columns, held to the joint limit); the camera, units and
+grid are the view's own, saved with the project.
 
 What this file pins:
 
@@ -47,22 +47,22 @@ FT = 304.8
 # ── 1. The server's shape rule (no browser) ──────────────────────────────
 
 def test_sanitize_keeps_the_curves_column_angles_and_drops_every_row_figure():
-    # A joint keeps the angle it is given, the Curve's 20 degrees and a
-    # 90 degree fold included (QA, 2026-11-10: the 3D place held every
-    # joint to 15); only a figure past a half turn is held to 180. Joints
-    # are between columns only (owner, 2026-11-10): the first betas'
-    # curveCol, curveRow and jointsRow are dropped, whatever they held.
+    # A joint keeps the Curve's angle up to the joint limit (app.py
+    # STAGE3D_JOINT_LIMIT); a figure past it is held to it. Joints are
+    # between columns only (owner, 2026-11-10): the first betas' curveCol,
+    # curveRow and jointsRow are dropped, whatever they held.
+    lim = app_module.STAGE3D_JOINT_LIMIT
     raw = {
         'x': '1200.5', 'y': None, 'z': float('nan'), 'pitch': 10, 'yaw': True, 'roll': -5,
         'curveCol': 40, 'curveRow': -999,
-        'jointsCol': {'2': 20, '03': -4, '5': 90, '6': 400, 'x': 3, '-1': 5, '4': 'bad'},
+        'jointsCol': {'2': 12.5, '03': -4, '6': 400, '7': -400, 'x': 3, '-1': 5, '4': 'bad'},
         'jointsRow': {'0': 12},
         'stray': 'dropped',
     }
     out = app_module.sanitize_stage3d(raw)
     assert out == {
         'x': 1200.5, 'y': 0.0, 'z': 0.0, 'pitch': 10.0, 'yaw': 0.0, 'roll': -5.0,
-        'jointsCol': {'2': 20.0, '3': -4.0, '5': 90.0, '6': 180.0},
+        'jointsCol': {'2': 12.5, '3': -4.0, '6': lim, '7': -lim},
     }, out
     # idempotent: what the funnels store is what they would store again
     assert app_module.sanitize_stage3d(out) == out
@@ -79,7 +79,8 @@ def test_normalize_stage3d_runs_over_the_project():
     changed = app_module.normalize_stage3d(project)
     assert changed == [1, 2]
     block = project['layers'][0]['stage3d']
-    assert 'curveRow' not in block and 'jointsRow' not in block and block['jointsCol'] == {'0': 180.0}
+    assert 'curveRow' not in block and 'jointsRow' not in block
+    assert block['jointsCol'] == {'0': app_module.STAGE3D_JOINT_LIMIT}
     assert 'stage3d' not in project['layers'][1]
     assert 'stage3d' not in project['layers'][2]
     assert app_module.normalize_stage3d(project) == []
@@ -104,7 +105,7 @@ def test_layer_put_strips_row_joints_clamps_and_null_removes(client_with_layer):
     assert resp.status_code == 200
     placed = resp.get_json()['stage3d']
     assert placed == {'x': 100.0, 'y': 0.0, 'z': 0.0, 'pitch': 0.0, 'yaw': 0.0, 'roll': 0.0,
-                      'jointsCol': {'1': -180.0}}, placed
+                      'jointsCol': {'1': -app_module.STAGE3D_JOINT_LIMIT}}, placed
     assert app_module.current_project['layers'][0]['stage3d'] == placed
     resp = client.put(f'/api/layer/{layer_id}', json={'stage3d': None})
     assert 'stage3d' not in resp.get_json()
@@ -117,9 +118,9 @@ def test_add_route_and_restore_funnel_hold_the_shape(client):
         'stage3d': {'x': 5, 'curveRow': 500}})
     assert 'curveRow' not in resp.get_json()['stage3d']
     project = client.get('/api/project').get_json()
-    project['layers'][0]['stage3d'] = {'jointsCol': {'0': 999, '1': 20}, 'jointsRow': {'0': 9}}
+    project['layers'][0]['stage3d'] = {'jointsCol': {'0': 999, '1': 7.5}, 'jointsRow': {'0': 9}}
     restored = client.put('/api/project', json=project).get_json()
-    assert restored['layers'][0]['stage3d']['jointsCol'] == {'0': 180, '1': 20}
+    assert restored['layers'][0]['stage3d']['jointsCol'] == {'0': app_module.STAGE3D_JOINT_LIMIT, '1': 7.5}
     assert 'jointsRow' not in restored['layers'][0]['stage3d']
     # a file without the key loads without it
     del project['layers'][0]['stage3d']
