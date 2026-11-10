@@ -693,6 +693,39 @@ def test_3d_stands_the_straddling_bar_half_on_each_member(pg):
     assert 'footer' not in by['PL']
 
 
+def test_3d_stands_a_crossing_footer_row_against_both_members(pg):
+    """The owner, 2026-11-09: a footer touches the panels and stands 6 in,
+    floor to panel, and Y counts from its foot. A group's footer row across
+    the seam does the same on both members."""
+    p = pg
+    tab(p)
+    auto(p, 'PL', size=2)
+    sel(p, 'PL')
+    p.evaluate("() => window.app.setRiggingSide('footer')")
+    p.wait_for_timeout(300)
+    tab(p, '3d')
+    d = None
+    for _ in range(40):
+        d = p.evaluate("() => window.app._s3dDebug()")
+        if d['loaded'] and len(d['screens']) >= 8:
+            break
+        p.wait_for_timeout(250)
+    by = {s['name']: s for s in d['screens']}
+    for name in ('PL', 'PR'):
+        s = by[name]
+        rows = {r['row']: r for r in s['bars']}
+        assert set(rows) == {'footer'}, (name, rows)
+        foot = rows['footer']
+        assert foot['heightMm'] == pytest.approx(152.4)
+        # its top edge is the panels' bottom edge (the screen's own origin)
+        assert foot['first'][1] == pytest.approx(0, abs=0.001)
+        assert s['footerMm'] == pytest.approx(152.4)
+        # Y counts from the footer's foot: the panels stand 6 in over it
+        assert s['world']['min'][1] - s['datum'][1] == pytest.approx(152.4, abs=0.01)
+        assert s['shown']['y'] == pytest.approx(s['datum'][1], abs=0.01)
+    assert by['PL']['bars'][0]['slots'] == 11 and by['PR']['bars'][0]['slots'] == 11
+
+
 # ── Polish, 2026-11-08 ("fix all of that") ──────────────────────────────
 
 def _one_line(p, sel_):

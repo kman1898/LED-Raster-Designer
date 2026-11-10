@@ -650,7 +650,14 @@ def test_one_gesture_after_another(page):
     assert selected(page) == [ids[1]] and camera(page) == orbited
     steps = history_len(page)
     before = screen(page, ids[1])['placement']
-    drag(page, lower, (lower[0] + 60, lower[1]))
+    # grabbed a quarter of the way across, clear of the move arrows: the
+    # Y arrow stands up from the bottom middle, through the screen's middle
+    w = screen(page, ids[1])['world']
+    grab = where(page, [w['min'][0] + (w['max'][0] - w['min'][0]) / 4,
+                        (w['min'][1] + w['max'][1]) / 2, w['max'][2]])
+    hit = probe(page, *grab)
+    assert hit and w['min'][0] <= hit[0] <= w['max'][0], hit
+    drag(page, grab, (grab[0] + 60, grab[1]))
     moved = stored(page, ids[1])
     assert moved and moved['x'] != pytest.approx(before['x']) and history_len(page) == steps + 1
     assert camera(page) == orbited

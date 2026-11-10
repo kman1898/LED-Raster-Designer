@@ -1050,7 +1050,7 @@ def test_a_real_palette_source_pick_passes_the_field_guard(page):
 # Every Advanced Guide step 1.7.0 brings, in guide order.
 NEW_IN_1_7 = ['quickPalettes', 'processorIp', 'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag',
               'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurve',
-              's3dOpen', 's3dSelect', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
+              's3dOpen', 's3dSelect', 's3dHeight', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
               's3dBars', 's3dJoint',
               'outputOpen', 'outputChoices',
               'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',

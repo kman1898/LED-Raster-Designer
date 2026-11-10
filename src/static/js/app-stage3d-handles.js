@@ -3,8 +3,11 @@
 // need to be able to manipulate screens easily too").
 //
 // The selected screens (and the rest of each one's group) carry one set of
-// handles at their centre - a lone screen's own centre, several screens'
-// combined one:
+// handles at the point they turn about - a lone screen's bottom middle (the
+// point its X, Y and Z show, 2026-11-09: its footer's foot when it has one,
+// else the panels' bottom edge), several screens' or a group's the middle
+// of the bottom of their combined bounds - so a turn never lifts a screen
+// off the floor and the arrows start where the fields measure:
 //
 //   Move (W)     an arrow per stage axis, X red, Y green, Z blue; a drag
 //                slides the screens along that axis only
@@ -124,8 +127,11 @@ class _Stage3DHandles {
         return 2 * d * Math.tan(cam.fov * DEG / 2) / h;
     }
 
-    // The handles' centre and the three turn axes, from the screens as
-    // drawn now (a drag holds its own centre). Null with nothing to carry.
+    // The handles' pivot and the three turn axes, from the screens as
+    // drawn now (a drag holds its own pivot). One screen: its bottom middle,
+    // where its group stands it. Several: the middle of the bottom face of
+    // the box round them all - the lowest point of their combined bounds,
+    // under their middle. Null with nothing to carry.
     _s3dHandlesPose() {
         const st = this._s3dState();
         const h = st.handles;
@@ -135,14 +141,24 @@ class _Stage3DHandles {
         if (!entries.length) return null;
         const primary = entries.find(e => this.currentLayer && e.id === this.currentLayer.id) || entries[0];
         let pivot;
+        const datum = (e) => new T.Vector3().fromArray(this._s3dDatumWorld(e) || e.obj.position.toArray());
         if (h.drag) {
             pivot = h.drag.pivot.clone();
         } else if (entries.length === 1) {
-            pivot = primary.obj.position.clone();
+            pivot = datum(primary);
         } else {
             const box = new T.Box3();
-            entries.forEach(e => { e.obj.updateMatrixWorld(true); if (e.front) box.expandByObject(e.front); });
-            pivot = box.isEmpty() ? primary.obj.position.clone() : box.getCenter(new T.Vector3());
+            entries.forEach(e => {
+                e.obj.updateMatrixWorld(true);
+                if (e.front) box.expandByObject(e.front);
+                box.expandByPoint(datum(e));
+            });
+            if (box.isEmpty()) {
+                pivot = primary.obj.position.clone();
+            } else {
+                pivot = box.getCenter(new T.Vector3());
+                pivot.y = box.min.y;
+            }
         }
         const r = primary.obj.rotation;
         const qYaw = new T.Quaternion().setFromAxisAngle(new T.Vector3(0, 1, 0), r.y);
@@ -473,8 +489,8 @@ class _Stage3DHandles {
         const layer = this._s3dCurrentScreen();
         if (!layer || !d || !d.starts || !d.starts.has(layer.id)) return;
         const start = d.starts.get(layer.id);
-        const p = d.next && d.next.has(layer.id) ? d.next.get(layer.id)
-            : { ...start, x: start.x + d.delta[0], y: start.y + d.delta[1], z: start.z + d.delta[2] };
+        const p = this._s3dShownOf(layer, d.next && d.next.has(layer.id) ? d.next.get(layer.id)
+            : { ...start, x: start.x + d.delta[0], y: start.y + d.delta[1], z: start.z + d.delta[2] });
         const set = (id, value) => {
             const el = document.getElementById(id);
             if (el && document.activeElement !== el && el.value !== value) el.value = value;

@@ -13,7 +13,9 @@ What this file pins:
 * The tab: it opens, the stage builds one quad per cabinet, blanked
   cabinets are left out and half cabinets are half size.
 * A screen with no 3D place stands upright at its Show Look position, the
-  lowest screen's bottom edge on the floor.
+  lowest screen's bottom edge on the floor. (Y from the bottom edge, the
+  turning point, the ft | m switch and the footer's 6 in are pinned in
+  tests/test_stage3d_pivot.py.)
 * Edits from the panel (typed lengths in feet, feet-and-inches, degrees,
   curves, a joint picked by clicking its seam) land on the layer and the
   server, survive a reload, and undo / redo as one step each.
@@ -545,7 +547,8 @@ def test_a_group_moves_and_turns_as_one_wall(page):
     assert history_len(page) == start + 1
     a, b = stored(page, ids[0]), stored(page, ids[1])
     assert a['yaw'] == 90 and b['yaw'] == pytest.approx(90)
-    # turned about the edited screen's centre: the peer went from +X to -Z
+    # turned about the edited screen's bottom middle: the peer went from +X
+    # to -Z (both stand on the floor, so the bottom middles share a line)
     assert b['x'] == pytest.approx(a['x'], abs=0.01)
     assert b['z'] - a['z'] == pytest.approx(-gap, abs=0.01)
 
@@ -812,14 +815,17 @@ def test_header_and_footer_bars_stand_on_the_stage_at_their_true_width(page):
     assert all(r['shown'] and r['tex'] for r in list(up.values()) + list(low.values()))
     assert screen(page, ids[0])['barColors'] == {'fill': '#1b3a8c', 'ink': '#ffd200'}
     assert screen(page, ids[1])['barColors'] == {'fill': '#000000', 'ink': '#ffffff'}
-    # above and below the wall, in its own frame (Y up, origin at its
-    # centre): `first` is a row's top-left corner, so the header's sits a
-    # bar's height over the wall's top and the footer's just under its foot
-    half, h = screen(page, ids[0])['heightMm'] / 2, up['header']['heightMm']
-    # a bar's real height, 3.5 in, whatever the wall's size
-    assert h == pytest.approx(88.9) and low['header']['heightMm'] == pytest.approx(88.9)
-    assert up['header']['first'][1] > half + h
-    assert -half - h < up['footer']['first'][1] < -half
+    # above and below the wall, against it, in its own frame (Y up, origin
+    # at the middle of the panels' bottom edge since 2026-11-09): `first`
+    # is a row's top-left corner, so the header's sits a bar's height over
+    # the wall's top and the footer's on the wall's bottom edge
+    tall = screen(page, ids[0])['heightMm']
+    # a bar's real height whatever the wall's size: a header 3.5 in, a
+    # footer 6 in (2026-11-09; every bar was 3.5 in before)
+    assert up['header']['heightMm'] == pytest.approx(88.9) and low['header']['heightMm'] == pytest.approx(88.9)
+    assert up['footer']['heightMm'] == pytest.approx(152.4)
+    assert up['header']['first'][1] == pytest.approx(tall + 88.9, abs=0.001)
+    assert up['footer']['first'][1] == pytest.approx(0, abs=0.001)
 
 
 def test_the_bars_follow_the_curve_and_a_change_on_the_tab(page):
