@@ -9,16 +9,29 @@
 //   press and drag sideways   changes the figure (the cursor says so), the
 //                             view following live; Shift for fine steps,
 //                             Ctrl (Cmd on a Mac) snaps to 1 in or 1 cm, or
-//                             15 degrees. The whole drag is ONE undo step.
-//   click without dragging    puts the caret in it to type (Math OK, and a
-//                             length with its own unit, 12' 6" or 3.5m)
-//   Enter                     commits and lets go ("Enter ends the edit")
-//   Esc                       puts the figure back and lets go
+//                             15 degrees. The whole drag is ONE undo step;
+//                             Esc during it puts everything back.
+//   press, drag down, then    gathers the next fields of the row (a field
+//   sideways                  height of travel each, up gathers the ones
+//                             before), and the sideways drag moves them all
+//                             by the same amount, one undo step
+//   < > on hover              step the figure by 1 in, 1 cm or 1 degree
+//   click without dragging    puts the caret where you clicked, to type;
+//                             a double-click selects the whole figure
+//   typing                    Math OK (16.4+2), *2 and /2 scale the figure,
+//                             and a length takes its own unit: 6' 6", 6ft
+//                             6in, 2m, 250mm, whatever the ft | m switch
+//                             says. A figure that is not one goes back, and
+//                             a short note under the row says so
+//   Enter / Esc               keeps it and lets go / puts it back
+//   Tab / Shift+Tab           X, Y, Z, Pitch, Yaw, Roll and back
 //   Up / Down                 nudge 1 in, 1 cm or 1 degree (Shift a tenth,
 //                             Ctrl / Cmd a snap step); the run of nudges is
 //                             one undo step, saved when the field lets go
 //   the wheel                 does nothing (too easy to do by accident)
-//   right-click a rotation    +90, -90 and Reset
+//   right-click               Reset, Copy value, Paste value, Copy all
+//                             three, Paste all three; Pitch, Yaw and Roll
+//                             also +90 and -90
 // Each section has a reset icon: Position goes back to the Show Look place,
 // Rotation to upright and facing the audience.
 //
@@ -30,7 +43,7 @@
 // setRiggingCornerAt, the same riggingCorners the Header/Footer tab
 // writes, so the two tabs always agree.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { evaluateMathExpression, sendClientLog } from './helpers.js';
 import {
     DEG, round, wrap180, s3dCornersOn, s3dCornerSeams, s3dCurveOn, s3dStoredFrom,
 } from './app-stage3d.js';
@@ -39,15 +52,19 @@ import { cornerSpotLabel } from './app-corners.js';
 const LENGTH_KEYS = ['x', 'y', 'z'];
 const ANGLE_KEYS = ['pitch', 'yaw', 'roll'];
 const KEYS = LENGTH_KEYS.concat(ANGLE_KEYS);
-const DRAG_PX = 3;               // a press that travels this far is a drag
+const DRAG_PX = 3;               // a press that travels this far sideways is a drag
+const GATHER_PX = 8;             // ...or this far down (or up) first gathers fields
+const GATHER_STEP = 22;          // px of downward travel per field gathered
 // A drag's step per page pixel, and the snap and nudge steps, in mm or
 // degrees: feet move an inch a pixel, meters a centimeter.
 const PX_STEP = { ft: 25.4, m: 10, deg: 0.5 };
 const SNAP = { ft: 25.4, m: 10, deg: 15 };
 const NUDGE = { ft: 25.4, m: 10, deg: 1 };
 const FINE = 0.1;
+const NOTE_MS = 3500;
 
 const isLength = (key) => LENGTH_KEYS.includes(key);
+const rowOf = (key) => (isLength(key) ? LENGTH_KEYS : ANGLE_KEYS);
 
 class _Stage3DPanel {
     // ── wiring ────────────────────────────────────────────────────────────
@@ -64,12 +81,20 @@ class _Stage3DPanel {
             field.addEventListener('pointerup', (ev) => this._s3dFieldRelease(ev, false));
             field.addEventListener('pointercancel', (ev) => this._s3dFieldRelease(ev, true));
             field.addEventListener('lostpointercapture', (ev) => this._s3dFieldRelease(ev, true));
+            field.addEventListener('contextmenu', (ev) => this._s3dFieldMenu(key, ev));
             input.addEventListener('keydown', (ev) => this._s3dFieldKey(input, ev));
             input.addEventListener('change', () => this._s3dFieldFinish(input));
             input.addEventListener('blur', () => this._s3dFieldFinish(input));
-            if (ANGLE_KEYS.includes(key)) {
-                field.addEventListener('contextmenu', (ev) => this._s3dRotationMenu(key, ev));
-            }
+            input.addEventListener('dblclick', () => input.select());
+            field.querySelectorAll('[data-s3d-nudge]').forEach(btn => {
+                const stop = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
+                btn.addEventListener('pointerdown', stop);
+                btn.addEventListener('mousedown', stop);
+                btn.addEventListener('click', (ev) => {
+                    stop(ev);
+                    this._s3dFieldStep(key, Number(btn.dataset.s3dNudge), ev.shiftKey);
+                });
+            });
         });
         const on = (id, fn) => {
             const el = document.getElementById(id);
@@ -78,6 +103,13 @@ class _Stage3DPanel {
         on('s3d-reset-position', () => this._s3dResetPosition());
         on('s3d-reset-rotation', () => this._s3dResetRotation());
         on('s3d-curve-edit', () => this._s3dOpenCurve());
+        // Where the pointer last was over the view: G and R start there.
+        const view = document.getElementById('s3d-view');
+        if (view) {
+            view.addEventListener('pointermove', (ev) => {
+                this._s3dState().pointer = { x: ev.clientX, y: ev.clientY };
+            });
+        }
         document.querySelectorAll('#s3d-corner-pop [data-s3d-corner]').forEach(btn => {
             btn.addEventListener('click', () => this._s3dCornerChoose(btn.dataset.s3dCorner));
         });
@@ -93,8 +125,18 @@ class _Stage3DPanel {
         return isLength(key) ? this._s3dFormatLength(value) : String(round(wrap180(Number(value) || 0), 2));
     }
 
-    _s3dFieldParse(key, text) {
-        return isLength(key) ? this._s3dParseLength(text) : this._s3dParseAngle(text);
+    // A typed figure in mm or degrees, or null. A leading * or / scales the
+    // figure the field holds (`current`): *2 doubles it, /2 halves it.
+    _s3dFieldParse(key, text, current = null) {
+        const t = String(text == null ? '' : text).trim();
+        const scale = t.match(/^([*/])\s*(.+)$/);
+        if (scale) {
+            if (current === null || !Number.isFinite(current)) return null;
+            const k = evaluateMathExpression(scale[2]);
+            if (!Number.isFinite(k) || (scale[1] === '/' && k === 0)) return null;
+            return scale[1] === '*' ? current * k : current / k;
+        }
+        return isLength(key) ? this._s3dParseLength(t) : this._s3dParseAngle(t);
     }
 
     // The screen's figure as the panel shows it (X, Y and Z at the datum).
@@ -106,47 +148,95 @@ class _Stage3DPanel {
     // dragged keeps its own (`force` rewrites it too).
     _s3dPanelFigures(shown, force = false) {
         const st = this._s3dState();
+        const dragging = st.field && st.field.moved ? st.field.keys : [];
         for (const key of KEYS) {
             const el = document.getElementById(`s3d-${key}`);
             if (!el) continue;
             const text = this._s3dFieldText(key, shown[key]);
-            if (!force && (document.activeElement === el || (st.field && st.field.key === key && st.field.moved))) continue;
+            if (!force && (document.activeElement === el || dragging.includes(key))) continue;
             if (el.value !== text) el.value = text;
             el.dataset.text = text;
             delete el.dataset.pending;
         }
     }
 
+    // A short note under the field's row, gone after a moment.
+    _s3dFieldNote(key, text) {
+        const el = document.querySelector(`[data-s3d-note="${isLength(key) ? 'position' : 'rotation'}"]`);
+        if (!el) return;
+        const st = this._s3dState();
+        el.textContent = text || '';
+        el.hidden = !text;
+        clearTimeout(st.noteTimer);
+        if (text) st.noteTimer = setTimeout(() => { el.hidden = true; el.textContent = ''; }, NOTE_MS);
+    }
+
     // ── press and drag ────────────────────────────────────────────────────
 
     _s3dFieldPress(input, field, ev) {
         if (ev.button !== 0 || document.activeElement === input) return;
+        if (ev.target && ev.target.closest && ev.target.closest('[data-s3d-nudge]')) return;
         const layer = this._s3dCurrentScreen();
         if (!layer) return;
         ev.preventDefault();
         const st = this._s3dState();
         const key = input.dataset.s3dKey;
         st.field = {
-            key, input, field, layerId: layer.id, pointerId: ev.pointerId,
-            x0: ev.clientX, lastX: ev.clientX, moved: false, refused: false,
-            start: this._s3dFieldModel(layer, key), raw: this._s3dFieldModel(layer, key), value: null,
+            key, keys: [key], input, field, layerId: layer.id, pointerId: ev.pointerId,
+            x0: ev.clientX, y0: ev.clientY, lastX: ev.clientX, moved: false, gather: false, refused: false,
+            starts: { [key]: this._s3dFieldModel(layer, key) }, raw: 0, values: null,
         };
         try { field.setPointerCapture(ev.pointerId); } catch (e) { /* a dispatched press */ }
+    }
+
+    // The fields a gather has crossed: from the pressed one, one more per
+    // field height of travel down (or up, the ones before it), in its row.
+    _s3dGatherKeys(f, dy) {
+        const row = rowOf(f.key);
+        const i0 = row.indexOf(f.key);
+        const n = Math.trunc(dy / GATHER_STEP + (dy >= 0 ? 0.5 : -0.5));
+        const i1 = Math.max(0, Math.min(row.length - 1, i0 + n));
+        return row.slice(Math.min(i0, i1), Math.max(i0, i1) + 1);
+    }
+
+    _s3dGatherShow(keys) {
+        KEYS.forEach(k => {
+            const el = document.getElementById(`s3d-${k}`);
+            const f = el && el.closest('.s3d-field');
+            if (f) f.classList.toggle('s3d-gathered', !!keys && keys.length > 1 && keys.includes(k));
+        });
     }
 
     _s3dFieldMove(ev) {
         const st = this._s3dState();
         const f = st.field;
         if (!f || ev.pointerId !== f.pointerId || f.refused) return;
+        const dx = ev.clientX - f.x0, dy = ev.clientY - f.y0;
         if (!f.moved) {
-            if (Math.abs(ev.clientX - f.x0) < DRAG_PX) return;
+            if (!f.gather && Math.abs(dy) >= GATHER_PX && Math.abs(dx) < DRAG_PX) {
+                f.gather = true;
+                f.gx = ev.clientX;
+            }
+            if (f.gather) {
+                // down (or up) picks the fields; sideways from here drags them
+                if (Math.abs(ev.clientX - f.gx) < DRAG_PX) {
+                    f.keys = this._s3dGatherKeys(f, dy);
+                    this._s3dGatherShow(f.keys);
+                    return;
+                }
+                f.x0 = f.gx;
+            } else if (Math.abs(dx) < DRAG_PX) {
+                return;
+            }
             const layer = this._s3dFieldLayer(f);
             if (!layer || this._lockedRefused(layer)) {
                 f.refused = true;
+                this._s3dGatherShow(null);
                 return;
             }
             f.moved = true;
             f.lastX = f.x0;
+            f.keys.forEach(k => { f.starts[k] = this._s3dFieldModel(layer, k); });
             document.body.classList.add('s3d-scrubbing');
             f.esc = (e) => {
                 if (e.key !== 'Escape') return;
@@ -160,9 +250,15 @@ class _Stage3DPanel {
         const fine = ev.shiftKey ? FINE : 1;
         f.raw += (ev.clientX - f.lastX) * PX_STEP[unit] * fine;
         f.lastX = ev.clientX;
-        f.value = (ev.ctrlKey || ev.metaKey) ? Math.round(f.raw / SNAP[unit]) * SNAP[unit] : f.raw;
-        f.input.value = this._s3dFieldText(f.key, f.value);
-        this._s3dFieldPreview(this._s3dFieldLayer(f), f.key, f.value);
+        const snap = ev.ctrlKey || ev.metaKey;
+        f.values = {};
+        for (const k of f.keys) {
+            const v = f.starts[k] + f.raw;
+            f.values[k] = snap ? Math.round(v / SNAP[unit]) * SNAP[unit] : v;
+            const el = document.getElementById(`s3d-${k}`);
+            if (el) el.value = this._s3dFieldText(k, f.values[k]);
+        }
+        this._s3dFieldPreview(this._s3dFieldLayer(f), f.values);
     }
 
     _s3dFieldRelease(ev, cancelled) {
@@ -171,6 +267,7 @@ class _Stage3DPanel {
         if (!f || (ev && ev.pointerId !== undefined && ev.pointerId !== f.pointerId)) return;
         st.field = null;
         document.body.classList.remove('s3d-scrubbing');
+        this._s3dGatherShow(null);
         if (f.esc) window.removeEventListener('keydown', f.esc, true);
         try { f.field.releasePointerCapture(f.pointerId); } catch (e) { /* not held */ }
         if (f.refused) {
@@ -178,21 +275,38 @@ class _Stage3DPanel {
             return;
         }
         if (!f.moved) {
-            // A click: the caret goes in to type, the figure selected.
-            if (!cancelled) {
-                f.input.focus();
-                f.input.select();
-            }
+            // A click: the caret goes in where it was clicked, to type.
+            if (!cancelled && !f.gather) this._s3dFieldCaret(f.input, ev ? ev.clientX : null);
             return;
         }
         const layer = this._s3dFieldLayer(f);
         this._s3dFieldEndPreview(cancelled || !layer);
-        if (cancelled || !layer || f.value === null) {
+        if (cancelled || !layer || !f.values) {
             this._s3dRefreshPanel(true);
             return;
         }
-        sendClientLog('stage3d_field_drag', { key: f.key, from: f.start, to: f.value });
-        this._s3dFieldCommitValue(layer, f.key, f.value);
+        sendClientLog('stage3d_field_drag', { keys: f.keys, from: f.starts, to: f.values });
+        this._s3dFieldCommitValues(layer, f.values);
+    }
+
+    // Focus the field with the caret at the page x clicked (the figure is
+    // right-aligned, so the text's left edge is measured from the right).
+    _s3dFieldCaret(input, clientX) {
+        input.focus();
+        const text = input.value || '';
+        let at = text.length;
+        if (clientX !== null && text) {
+            const cs = getComputedStyle(input);
+            const ctx = (this._s3dMeasure || (this._s3dMeasure = document.createElement('canvas').getContext('2d')));
+            ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+            const r = input.getBoundingClientRect();
+            const right = r.right - (parseFloat(cs.paddingRight) || 0) - (parseFloat(cs.borderRightWidth) || 0);
+            const left = right - ctx.measureText(text).width;
+            const x = clientX - left;
+            at = 0;
+            while (at < text.length && ctx.measureText(text.slice(0, at + 1)).width - ctx.measureText(text[at]).width / 2 < x) at++;
+        }
+        try { input.setSelectionRange(at, at); } catch (e) { /* not a text field */ }
     }
 
     _s3dFieldLayer(f) {
@@ -211,13 +325,13 @@ class _Stage3DPanel {
 
     // ── the view follows ──────────────────────────────────────────────────
 
-    // The screen (and its group) drawn where the figure puts them, without
+    // The screen (and its group) drawn where the figures put them, without
     // saving anything: the stage keeps the preview until the drag ends
     // (app-stage3d.js _s3dUpdateEntry leaves a screen in st.drag alone).
-    _s3dFieldPreview(layer, key, value) {
+    _s3dFieldPreview(layer, values) {
         if (!layer) return;
         const st = this._s3dState();
-        const shown = { ...this._s3dShownOf(layer, this._s3dPlacementOf(layer)), [key]: value };
+        const shown = { ...this._s3dShownOf(layer, this._s3dPlacementOf(layer)), ...values };
         const plan = this._s3dPlanEdit(layer, s3dStoredFrom(layer, shown, this._s3dFooterMm(layer)));
         if (!st.drag || st.drag.kind !== 'field') {
             const layout = this._s3dLayout();
@@ -256,6 +370,17 @@ class _Stage3DPanel {
             input.blur();
             return;
         }
+        if (ev.key === 'Tab' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+            // X, Y, Z, Pitch, Yaw, Roll, and back: past either end, the
+            // page's own order takes over.
+            const next = KEYS[KEYS.indexOf(key) + (ev.shiftKey ? -1 : 1)];
+            const el = next ? document.getElementById(`s3d-${next}`) : null;
+            if (!el) return;
+            ev.preventDefault();
+            el.focus();
+            el.select();
+            return;
+        }
         if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
         ev.preventDefault();
         ev.stopPropagation();
@@ -267,11 +392,12 @@ class _Stage3DPanel {
         }
         const unit = this._s3dFieldUnit(key);
         const dir = ev.key === 'ArrowUp' ? 1 : -1;
+        const model = this._s3dFieldModel(layer, key);
         const pending = input.dataset.pending !== undefined && input.value === input.dataset.pendingText
             ? Number(input.dataset.pending) : null;
-        const typed = pending === null ? this._s3dFieldParse(key, input.value) : null;
-        const base = pending !== null ? pending : (typed !== null && input.value !== input.dataset.text
-            ? typed : this._s3dFieldModel(layer, key));
+        const typed = pending === null && input.value !== input.dataset.text
+            ? this._s3dFieldParse(key, input.value, model) : null;
+        const base = pending !== null ? pending : (typed !== null ? typed : model);
         let value;
         if (ev.ctrlKey || ev.metaKey) {
             value = (Math.round(base / SNAP[unit]) + dir) * SNAP[unit];
@@ -281,12 +407,12 @@ class _Stage3DPanel {
         input.value = this._s3dFieldText(key, value);
         input.dataset.pending = String(value);
         input.dataset.pendingText = input.value;
-        this._s3dFieldPreview(layer, key, value);
+        this._s3dFieldPreview(layer, { [key]: value });
     }
 
     // The field lets go (Enter, Tab, a click elsewhere) or its text
     // changed: the figure it holds is saved, once. Unchanged text saves
-    // nothing; text that is no figure puts the old one back.
+    // nothing; text that is no figure puts the old one back, with a note.
     _s3dFieldFinish(input) {
         const key = input.dataset.s3dKey;
         const layer = this._s3dCurrentScreen();
@@ -295,11 +421,14 @@ class _Stage3DPanel {
         if (input.dataset.pending !== undefined && input.value === input.dataset.pendingText) {
             value = Number(input.dataset.pending);
         } else if (text !== (input.dataset.text || '')) {
-            value = this._s3dFieldParse(key, text);
+            value = layer ? this._s3dFieldParse(key, text, this._s3dFieldModel(layer, key)) : null;
             if (value === null) {
                 delete input.dataset.pending;
                 this._s3dFieldEndPreview(true);
+                const was = input.dataset.text || '';
                 this._s3dRefreshPanel(true);
+                const name = input.getAttribute('aria-label') || key;
+                this._s3dFieldNote(key, `"${text}" is not a figure; ${name} is back to ${was}.`);
                 return;
             }
         }
@@ -310,21 +439,34 @@ class _Stage3DPanel {
         }
         this._s3dFieldEndPreview(false);
         input.dataset.text = input.value;
-        this._s3dFieldCommitValue(layer, key, value);
+        this._s3dFieldCommitValues(layer, { [key]: value });
     }
 
-    // One figure saved: one undo step, the group following.
-    _s3dFieldCommitValue(layer, key, value) {
+    // One step of a field's < or > (Shift a tenth): one undo step.
+    _s3dFieldStep(key, dir, fine) {
+        const layer = this._s3dCurrentScreen();
+        if (!layer || !(dir === 1 || dir === -1)) return;
+        const unit = this._s3dFieldUnit(key);
+        const now = this._s3dFieldModel(layer, key);
+        this._s3dFieldCommitValues(layer, { [key]: now + dir * NUDGE[unit] * (fine ? FINE : 1) });
+    }
+
+    // Figures saved together: one undo step, the group following.
+    _s3dFieldCommitValues(layer, values) {
         const shown = this._s3dShownOf(layer, this._s3dPlacementOf(layer));
-        if (!Number.isFinite(value)) return;
-        if (Math.abs((Number(shown[key]) || 0) - value) < 1e-9) {
+        const keys = Object.keys(values).filter(k => Number.isFinite(values[k]));
+        const changed = keys.filter(k => Math.abs((Number(shown[k]) || 0) - values[k]) >= 1e-9);
+        if (!changed.length) {
             this._s3dRefreshPanel(true);
             return;
         }
-        this._s3dCommitShown(layer, { ...shown, [key]: value }, isLength(key) ? 'Move Screen (3D)' : 'Rotate Screen (3D)');
+        const next = { ...shown };
+        changed.forEach(k => { next[k] = values[k]; });
+        this._s3dCommitShown(layer, next, changed.every(isLength) ? 'Move Screen (3D)'
+            : (changed.some(isLength) ? 'Place Screen (3D)' : 'Rotate Screen (3D)'));
     }
 
-    // ── reset icons and the rotation menu ─────────────────────────────────
+    // ── reset icons and the right-click menu ──────────────────────────────
 
     // Back to the Show Look place, the rotation kept.
     _s3dResetPosition() {
@@ -345,29 +487,73 @@ class _Stage3DPanel {
         this._s3dCommitShown(layer, { ...shown, pitch: 0, yaw: 0, roll: 0 }, 'Reset Rotation (3D)');
     }
 
-    // Right-click a rotation field: +90, -90 and Reset, each one undo step.
-    _s3dRotationMenu(key, ev) {
+    // The figure Reset gives one field: X, Y or Z as Reset position would
+    // put them, an angle 0.
+    _s3dFieldHome(layer, key) {
+        if (!isLength(key)) return 0;
+        const p = this._s3dPlacementOf(layer);
+        const home = this._s3dShowLookPlacement(layer);
+        return this._s3dShownOf(layer, { ...p, x: home.x, y: home.y, z: home.z })[key];
+    }
+
+    // Copied figures: kept here (and put on the system clipboard as text
+    // too), so Paste works whatever the browser allows.
+    _s3dCopy(kind, texts) {
+        const st = this._s3dState();
+        st.clip = { kind, texts };
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(texts.join(', ')).catch(() => {});
+        } catch (e) { /* no clipboard here */ }
+    }
+
+    _s3dFieldMenu(key, ev) {
         ev.preventDefault();
         ev.stopPropagation();
         const layer = this._s3dCurrentScreen();
         if (!layer) return;
         this._s3dCloseFieldMenu();
+        const st = this._s3dState();
+        const kind = isLength(key) ? 'length' : 'angle';
+        const row = rowOf(key);
+        const label = (k) => (document.getElementById(`s3d-${k}`) || {}).getAttribute?.('aria-label') || k;
+        const textOf = (k) => {
+            const v = this._s3dFieldModel(layer, k);
+            return isLength(k) ? `${this._s3dFormatLength(v)} ${this._s3dUnits()}` : `${round(wrap180(v), 2)}°`;
+        };
+        const clip = st.clip && st.clip.kind === kind ? st.clip : null;
+        const live = () => this._s3dCurrentScreen();
+        const items = [
+            ['reset', 'Reset', () => this._s3dFieldCommitValues(live(), { [key]: this._s3dFieldHome(live(), key) })],
+            ['copy', 'Copy value', () => this._s3dCopy(kind, [textOf(key)])],
+            ['paste', 'Paste value', () => {
+                const v = this._s3dFieldParse(key, clip.texts[0]);
+                if (v !== null) this._s3dFieldCommitValues(live(), { [key]: v });
+            }, !clip],
+            ['copy-all', 'Copy all three', () => this._s3dCopy(kind, row.map(textOf))],
+            ['paste-all', 'Paste all three', () => {
+                const values = {};
+                row.forEach((k, i) => { const v = this._s3dFieldParse(k, clip.texts[i]); if (v !== null) values[k] = v; });
+                this._s3dFieldCommitValues(live(), values);
+            }, !clip || clip.texts.length !== 3],
+        ];
+        if (!isLength(key)) {
+            items.push(['+90', '+90°', () => this._s3dFieldCommitValues(live(), { [key]: wrap180(this._s3dFieldModel(live(), key) + 90) })]);
+            items.push(['-90', '-90°', () => this._s3dFieldCommitValues(live(), { [key]: wrap180(this._s3dFieldModel(live(), key) - 90) })]);
+        }
         const menu = document.createElement('div');
         menu.id = 's3d-field-menu';
         menu.setAttribute('role', 'menu');
-        const items = [['+90', '+90°', (v) => v + 90], ['-90', '-90°', (v) => v - 90], ['reset', 'Reset', () => 0]];
-        for (const [id, text, to] of items) {
+        menu.setAttribute('aria-label', label(key));
+        for (const [id, text, act, off] of items) {
             const b = document.createElement('button');
             b.type = 'button';
             b.setAttribute('role', 'menuitem');
             b.dataset.s3dMenu = id;
             b.textContent = text;
+            b.disabled = !!off;
             b.addEventListener('click', () => {
                 this._s3dCloseFieldMenu();
-                const live = this._s3dCurrentScreen();
-                if (!live) return;
-                const now = this._s3dFieldModel(live, key);
-                this._s3dFieldCommitValue(live, key, wrap180(to(now)));
+                if (live()) act();
             });
             menu.appendChild(b);
         }
@@ -375,7 +561,6 @@ class _Stage3DPanel {
         const w = menu.offsetWidth, h = menu.offsetHeight;
         menu.style.left = `${Math.max(4, Math.min(ev.clientX, window.innerWidth - w - 4))}px`;
         menu.style.top = `${Math.max(4, Math.min(ev.clientY, window.innerHeight - h - 4))}px`;
-        const st = this._s3dState();
         st.fieldMenuClose = (e) => {
             if (e.type === 'keydown' && e.key !== 'Escape') return;
             if (e.type === 'pointerdown' && menu.contains(e.target)) return;

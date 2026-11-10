@@ -10,10 +10,19 @@ What this file pins (app-stage3d-panel.js):
   wide widths, and no step buttons.
 * A press and drag sideways changes a figure, the view following live; Shift
   steps finely, Ctrl snaps to 1 in (1 cm) or 15 degrees; the whole drag is
-  one undo step. A click without a drag types; Enter commits and lets go;
-  Esc puts the figure back; Up and Down nudge as one step; the wheel changes
-  nothing. A rotation field's right-click gives +90, -90 and Reset; each
-  section's reset icon puts its figures back.
+  one undo step, and Esc during it puts everything back. A drag down first
+  gathers the next fields of the row, and the sideways drag moves them all.
+  The < > arrows on hover step a figure. A click puts the caret where it
+  lands, a double-click selects the figure; typing takes math, *2 and /2,
+  and units; a figure that is not one goes back with a note. Enter commits
+  and lets go; Esc puts the figure back; Tab and Shift+Tab go X, Y, Z,
+  Pitch, Yaw, Roll; Up and Down nudge as one step; the wheel changes
+  nothing. Right-click gives Reset, copy and paste of one figure or all
+  three, and +90 and -90 on a rotation; each section's reset icon puts its
+  figures back.
+* In the view, a square between two arrows moves the selection on its
+  plane, and G and R move and turn it from the keyboard: X, Y or Z locks,
+  a typed figure sets it, Enter keeps it, Esc puts it back.
 * A click on a seam or a panel's middle of the selected screen offers a
   corner: None, Interior 90 or Exterior 90, written to riggingCorners, the
   same data the Header/Footer tab writes, which shows it. A spot too close to
@@ -227,9 +236,12 @@ def test_a_click_types_enter_commits_esc_cancels(page):
     ids = reset(page, ONE)
     open_3d(page, 1)
     start = history_len(page)
-    page.click('#s3d-y')
+    page.dblclick('#s3d-y')
     assert focused(page) == 's3d-y', 'a click without a drag puts the caret in'
-    page.keyboard.type('3')                       # the figure was selected
+    assert page.evaluate("(() => { const e = document.getElementById('s3d-y');"
+                         " return [e.selectionStart, e.selectionEnd, e.value.length]; })()") == [0, 4, 4], \
+        'a double-click selects the whole figure'
+    page.keyboard.type('3')
     page.keyboard.press('Enter')
     page.wait_for_timeout(400)
     assert stored(page, ids[0])['y'] == pytest.approx(3 * FT)
@@ -243,11 +255,164 @@ def test_a_click_types_enter_commits_esc_cancels(page):
     assert field(page, 'y') == '3.00' and focused(page) != 's3d-y'
     assert stored(page, ids[0])['y'] == pytest.approx(3 * FT)
     assert history_len(page) == start + 1
-    # a figure that is not one puts the old one back
+    # a figure that is not one puts the old one back, and says so
     page.fill('#s3d-y', 'abc')
     page.press('#s3d-y', 'Enter')
     page.wait_for_timeout(300)
     assert field(page, 'y') == '3.00' and history_len(page) == start + 1
+    note = page.locator('[data-s3d-note="position"]')
+    assert note.is_visible() and note.inner_text() == '"abc" is not a figure; Y is back to 3.00.'
+    assert page.errors == []
+
+
+def test_a_single_click_puts_the_caret_where_it_lands(page):
+    reset(page, ONE)
+    open_3d(page, 1)
+    page.fill('#s3d-x', '12.5')
+    page.press('#s3d-x', 'Enter')
+    page.wait_for_timeout(300)
+    assert field(page, 'x') == '12.50'
+    box = page.locator('#s3d-x').bounding_box()
+    # the far right of the figure: the caret after its last digit
+    page.mouse.click(box['x'] + box['width'] - 3, box['y'] + box['height'] / 2)
+    page.wait_for_timeout(100)
+    sel = page.evaluate("(() => { const e = document.getElementById('s3d-x'); return [e.selectionStart, e.selectionEnd]; })()")
+    assert sel == [5, 5], sel
+    page.keyboard.press('Escape')
+    # left of the figure: the caret before its first digit
+    page.mouse.click(box['x'] + 4, box['y'] + box['height'] / 2)
+    page.wait_for_timeout(100)
+    sel = page.evaluate("(() => { const e = document.getElementById('s3d-x'); return [e.selectionStart, e.selectionEnd]; })()")
+    assert sel == [0, 0], sel
+    page.keyboard.press('Escape')
+    assert page.errors == []
+
+
+def test_typing_takes_math_scaling_and_units(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+
+    def put(key, text):
+        page.dblclick(f'#s3d-{key}')
+        page.keyboard.type(text)
+        page.keyboard.press('Enter')
+        page.wait_for_timeout(300)
+
+    put('x', '16.4+2')
+    assert stored(page, ids[0])['x'] == pytest.approx(18.4 * FT)
+    put('x', '*2')
+    assert stored(page, ids[0])['x'] == pytest.approx(36.8 * FT)
+    put('x', '/4')
+    assert stored(page, ids[0])['x'] == pytest.approx(9.2 * FT)
+    put('x', '-1.5')
+    assert stored(page, ids[0])['x'] == pytest.approx(-1.5 * FT)
+    put('z', "6' 6\"")
+    assert stored(page, ids[0])['z'] == pytest.approx(6 * FT + 6 * 25.4)
+    put('z', '6ft 6in')
+    assert stored(page, ids[0])['z'] == pytest.approx(6 * FT + 6 * 25.4)
+    put('z', '2m')
+    assert stored(page, ids[0])['z'] == pytest.approx(2000)
+    put('z', '250mm')
+    assert stored(page, ids[0])['z'] == pytest.approx(250)
+    put('z', '35cm')
+    assert stored(page, ids[0])['z'] == pytest.approx(350)
+    put('yaw', '45*2')
+    assert stored(page, ids[0])['yaw'] == 90
+    # in meters, a plain figure is meters and feet still read as feet
+    page.click('#s3d-units-m')
+    page.wait_for_timeout(200)
+    put('x', '2.5')
+    assert stored(page, ids[0])['x'] == pytest.approx(2500)
+    put('x', "3'")
+    assert stored(page, ids[0])['x'] == pytest.approx(3 * FT)
+    page.click('#s3d-units-ft')
+    assert page.errors == []
+
+
+def test_tab_and_shift_tab_go_through_the_six_figures(page):
+    reset(page, ONE)
+    open_3d(page, 1)
+    page.dblclick('#s3d-x')
+    seen = [focused(page)]
+    for _ in range(5):
+        page.keyboard.press('Tab')
+        seen.append(focused(page))
+    assert seen == ['s3d-x', 's3d-y', 's3d-z', 's3d-pitch', 's3d-yaw', 's3d-roll']
+    back = []
+    for _ in range(5):
+        page.keyboard.press('Shift+Tab')
+        back.append(focused(page))
+    assert back == ['s3d-yaw', 's3d-pitch', 's3d-z', 's3d-y', 's3d-x']
+    page.keyboard.press('Escape')
+
+
+def test_the_step_arrows_show_on_hover_and_step_once_a_click(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    opacity = "(k) => getComputedStyle(document.getElementById('s3d-' + k).closest('.s3d-field').querySelector('.s3d-nudge-up')).opacity"
+    page.mouse.move(5, 5)
+    assert page.evaluate(opacity, 'x') == '0'
+    page.hover('#s3d-x')
+    assert page.evaluate(opacity, 'x') == '1'
+    start = history_len(page)
+    page.click('#s3d-x ~ .s3d-nudge-up')
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0])['x'] == pytest.approx(screen(page, ids[0])['placement']['x'])
+    x1 = stored(page, ids[0])['x']
+    page.click('#s3d-x ~ .s3d-nudge-up')
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0])['x'] - x1 == pytest.approx(25.4)
+    assert focused(page) != 's3d-x', 'a step does not put the caret in'
+    page.hover('#s3d-yaw')
+    page.click('.s3d-field:has(#s3d-yaw) .s3d-nudge-dn')
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0])['yaw'] == -1
+    assert history_len(page) == start + 3
+    assert page.errors == []
+
+
+def test_a_drag_down_then_sideways_moves_every_field_it_crossed(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    before = screen(page, ids[0])['placement']
+    start = history_len(page)
+    x, y = centre(page, 'x')
+    page.mouse.move(x, y)
+    page.mouse.down()
+    for i in range(1, 7):                     # down two fields' worth: Y and Z
+        page.mouse.move(x, y + 8 * i)
+        page.wait_for_timeout(15)
+    gathered = page.evaluate("[...document.querySelectorAll('.s3d-field.s3d-gathered input')].map(e => e.id)")
+    assert gathered == ['s3d-x', 's3d-y', 's3d-z']
+    for i in range(1, 11):
+        page.mouse.move(x + 4 * i, y + 48)
+        page.wait_for_timeout(15)
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    after = stored(page, ids[0])
+    for k in ('x', 'y', 'z'):
+        assert after[k] - before[k] == pytest.approx(40 * 25.4, abs=1e-6), (k, before, after)
+    assert history_len(page) == start + 1
+    assert page.evaluate("document.querySelectorAll('.s3d-gathered').length") == 0
+    # from Roll, a drag UP gathers Yaw too (and Pitch stays out), and Esc
+    # puts both back with no undo step
+    x, y = centre(page, 'roll')
+    page.mouse.move(x, y)
+    page.mouse.down()
+    for i in range(1, 4):
+        page.mouse.move(x, y - 8 * i)
+        page.wait_for_timeout(15)
+    gathered = page.evaluate("[...document.querySelectorAll('.s3d-field.s3d-gathered input')].map(e => e.id)")
+    assert gathered == ['s3d-yaw', 's3d-roll']
+    for i in range(1, 6):
+        page.mouse.move(x + 6 * i, y - 24)
+        page.wait_for_timeout(15)
+    assert float(field(page, 'yaw')) == pytest.approx(15) and float(field(page, 'roll')) == pytest.approx(15)
+    page.keyboard.press('Escape')
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0]) == after and history_len(page) == start + 1
+    assert field(page, 'yaw') == '0' and field(page, 'roll') == '0'
     assert page.errors == []
 
 
@@ -285,12 +450,65 @@ def test_up_and_down_nudge_as_one_step_and_the_wheel_does_nothing(page):
     assert page.errors == []
 
 
+def menu_items(page):
+    return page.evaluate("[...document.querySelectorAll('#s3d-field-menu [data-s3d-menu]')].map(b => b.textContent)")
+
+
+def menu_pick(page, key, item):
+    page.click(f'#s3d-{key}', button='right')
+    page.click(f'#s3d-field-menu [data-s3d-menu="{item}"]')
+    page.wait_for_timeout(300)
+
+
+def test_the_right_click_menu_copies_and_pastes_one_figure_or_all_three(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    home = screen(page, ids[0])['placement']
+    page.click('#s3d-x', button='right')
+    assert menu_items(page) == ['Reset', 'Copy value', 'Paste value', 'Copy all three', 'Paste all three']
+    # nothing copied yet: Paste is grayed out
+    assert page.evaluate("document.querySelector('#s3d-field-menu [data-s3d-menu=\"paste\"]').disabled")
+    page.keyboard.press('Escape')
+    page.fill('#s3d-x', '7')
+    page.press('#s3d-x', 'Enter')
+    page.wait_for_timeout(300)
+    menu_pick(page, 'x', 'copy')
+    start = history_len(page)
+    menu_pick(page, 'z', 'paste')
+    assert stored(page, ids[0])['z'] == pytest.approx(7 * FT)
+    assert history_len(page) == start + 1
+    # all three: copied, changed, pasted back in one step
+    menu_pick(page, 'y', 'copy-all')
+    want = stored(page, ids[0])
+    page.fill('#s3d-x', '1')
+    page.press('#s3d-x', 'Enter')
+    page.fill('#s3d-y', '2')
+    page.press('#s3d-y', 'Enter')
+    page.wait_for_timeout(300)
+    start = history_len(page)
+    menu_pick(page, 'z', 'paste-all')
+    got = stored(page, ids[0])
+    assert (got['x'], got['y'], got['z']) == pytest.approx((want['x'], want['y'], want['z']), abs=0.5)
+    assert history_len(page) == start + 1
+    # a length copied never pastes into an angle
+    page.click('#s3d-roll', button='right')
+    assert page.evaluate("document.querySelector('#s3d-field-menu [data-s3d-menu=\"paste\"]').disabled")
+    page.keyboard.press('Escape')
+    # Reset puts that one figure back where Show Look stands it, the others kept
+    kept = stored(page, ids[0])
+    menu_pick(page, 'x', 'reset')
+    got = stored(page, ids[0])
+    assert got['x'] == pytest.approx(home['x'], abs=0.01)
+    assert (got['y'], got['z']) == pytest.approx((kept['y'], kept['z']), abs=0.01)
+    assert page.errors == []
+
+
 def test_the_rotation_menu_and_the_reset_icons(page):
     ids = reset(page, ONE)
     open_3d(page, 1)
     page.click('#s3d-yaw', button='right')
-    items = page.evaluate("[...document.querySelectorAll('#s3d-field-menu [data-s3d-menu]')].map(b => b.textContent)")
-    assert items == ['+90°', '-90°', 'Reset']
+    items = menu_items(page)
+    assert items == ['Reset', 'Copy value', 'Paste value', 'Copy all three', 'Paste all three', '+90°', '-90°']
     page.click('#s3d-field-menu [data-s3d-menu="+90"]')
     page.wait_for_timeout(300)
     assert stored(page, ids[0])['yaw'] == 90
@@ -463,4 +681,114 @@ def test_the_curve_is_shown_as_it_stands_with_a_link_to_its_settings(page):
     page.wait_for_timeout(400)
     assert page.evaluate("document.querySelector('#view-tabs .view-tab.active').dataset.mode") == 'rigging'
     assert page.evaluate("getComputedStyle(document.getElementById('rigging-curve')).display") != 'none'
+    assert page.errors == []
+
+
+# ── 6. in the view: the plane squares, and G and R ───────────────────────
+
+def test_a_square_between_two_arrows_moves_on_its_plane_in_one_step(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    view_from(page, 'iso')
+    page.click('#s3d-tool-move')
+    h = settled(page, lambda: page.evaluate('window.app._s3dHandlesDebug()'),
+                lambda v: v and v.get('shown') and v['grips'].get('xz'), 4000)
+    assert set(h['grips']) >= {'x', 'y', 'z', 'xy', 'xz', 'yz'}, h['grips']
+    before = screen(page, ids[0])['placement']
+    start = history_len(page)
+    gx, gy = h['grips']['xz']
+    page.mouse.move(gx, gy)
+    page.mouse.down()
+    for i in range(1, 11):
+        page.mouse.move(gx + 6 * i, gy + 3 * i)
+        page.wait_for_timeout(20)
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    after = stored(page, ids[0])
+    assert after, 'the square moved nothing'
+    assert after['y'] == pytest.approx(before['y'], abs=0.01), 'the floor square keeps the height'
+    assert abs(after['x'] - before['x']) > 50 and abs(after['z'] - before['z']) > 50, (before, after)
+    assert history_len(page) == start + 1
+    undo(page)
+    assert stored(page, ids[0]) is None
+    assert page.errors == []
+
+
+def _view_point(page):
+    box = page.locator('#s3d-view canvas').bounding_box()
+    return box['x'] + box['width'] * 0.3, box['y'] + box['height'] * 0.7
+
+
+def test_g_moves_with_the_mouse_x_locks_a_typed_figure_sets_it(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    view_from(page, 'front')
+    before = screen(page, ids[0])['placement']
+    box0 = screen(page, ids[0])['world']
+    start = history_len(page)
+    x, y = _view_point(page)
+    page.mouse.move(x, y)
+    page.keyboard.press('g')
+    # the mouse moves it, no button held, nothing saved yet
+    for i in range(1, 6):
+        page.mouse.move(x + 20 * i, y)
+        page.wait_for_timeout(20)
+    moved = screen(page, ids[0])['world']
+    assert moved['min'][0] > box0['min'][0] + 10, (box0, moved)
+    assert stored(page, ids[0]) is None and history_len(page) == start
+    assert 'Move free' in page.evaluate("document.getElementById('s3d-readout').textContent")
+    # Esc puts it back, no undo step
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(200)
+    assert screen(page, ids[0])['world'] == box0 and history_len(page) == start
+    # G, Z locks the axis, 2 typed, Enter: exactly 2 ft toward the audience
+    page.keyboard.press('g')
+    page.keyboard.press('z')
+    page.keyboard.type('2')
+    page.mouse.move(x + 200, y - 100)          # the typed figure holds
+    page.keyboard.press('Enter')
+    page.wait_for_timeout(400)
+    after = stored(page, ids[0])
+    assert (after['x'], after['y'], after['z']) == pytest.approx((before['x'], before['y'], before['z'] + 2 * FT), abs=0.01)
+    assert history_len(page) == start + 1
+    # a figure with no axis locked goes along X
+    page.keyboard.press('g')
+    page.keyboard.type('-1.5')
+    page.keyboard.press('Enter')
+    page.wait_for_timeout(400)
+    assert stored(page, ids[0])['x'] == pytest.approx(before['x'] - 1.5 * FT, abs=0.01)
+    assert history_len(page) == start + 2
+    assert page.errors == []
+
+
+def test_r_turns_a_locked_angle_by_a_typed_figure_and_a_click_keeps_it(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    view_from(page, 'front')
+    start = history_len(page)
+    x, y = _view_point(page)
+    page.mouse.move(x, y)
+    page.keyboard.press('r')
+    page.keyboard.press('x')                   # pitch
+    page.keyboard.type('30')
+    page.mouse.down()                          # a click keeps it
+    page.mouse.up()
+    page.wait_for_timeout(400)
+    p = stored(page, ids[0])
+    assert p['pitch'] == pytest.approx(30) and p['yaw'] == 0 and p['roll'] == 0
+    assert history_len(page) == start + 1
+    # R unlocked turns the yaw with sideways travel; a right-click puts it back
+    page.keyboard.press('r')
+    for i in range(1, 6):
+        page.mouse.move(x + 15 * i, y)
+        page.wait_for_timeout(20)
+    page.mouse.click(x + 75, y, button='right')
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0]) == p and history_len(page) == start + 1
+    # the keys are the view's only: typed into a field, g and r are text
+    page.dblclick('#s3d-x')
+    page.keyboard.type('g')
+    assert field(page, 'x') == 'g'
+    page.keyboard.press('Escape')
+    assert dbg(page)['handles'] is not None and page.evaluate('!window.app._s3d.keyX')
     assert page.errors == []

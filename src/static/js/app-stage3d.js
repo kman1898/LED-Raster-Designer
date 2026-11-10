@@ -772,6 +772,7 @@ class _Stage3D {
             // panel field's too, and the corner picker closes.
             this._s3dNudgeCommit();
             this._s3dFieldCancel();
+            if (st.keyX) this._s3dKeyTransformEnd(true);
             this._s3dPickCorner(null);
             this._s3dCancelDrag();
             this._s3dEndCameraMove(true);

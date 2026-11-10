@@ -99,7 +99,10 @@ GESTURE_PHRASES = [
     "show position",
     # 3D
     'Drag a figure in the 3D panel',
-    'Right-click Pitch, Yaw or Roll',
+    'Click / double-click a figure',
+    'Right-click a figure',
+    'Move / turn the selection with the mouse',
+    'Drag a square between two arrows',
     'Click a seam or the middle of a panel',
     # Data view & the tray
     'Hold Alt',

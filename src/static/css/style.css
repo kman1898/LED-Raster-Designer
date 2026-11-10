@@ -2918,7 +2918,7 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
    X and pitch red, Y and yaw green, Z and roll blue). They share the row
    and stop growing at 120 px, so a wide panel never makes wide boxes. */
 .s3d-vec { display: grid; grid-template-columns: repeat(3, minmax(0, 120px)); gap: 4px; margin-bottom: 2px; }
-.s3d-field { display: flex; align-items: stretch; min-width: 0; height: 24px; box-sizing: border-box;
+.s3d-field { position: relative; display: flex; align-items: stretch; min-width: 0; height: 24px; box-sizing: border-box;
     border: 1px solid #3a3a3a; border-radius: 4px; background: #1a1a1a; overflow: hidden; cursor: ew-resize;
     touch-action: none; user-select: none; -webkit-user-select: none; }
 .s3d-field:hover { border-color: #555; }
@@ -2933,12 +2933,28 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
     font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; outline: none; cursor: ew-resize; }
 .tab-panel[data-tab="3d"] .s3d-field input.s3d-num:focus { cursor: text; background: #111; user-select: text; -webkit-user-select: text; }
 body.s3d-scrubbing, body.s3d-scrubbing * { cursor: ew-resize !important; }
+/* The < > step arrows at each end of a field, shown while the pointer is
+   over it; they sit over the figure's ends rather than taking its room. */
+.s3d-nudge { position: absolute; top: 0; bottom: 0; z-index: 1; width: 12px; padding: 0; margin: 0; border: 0;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    color: var(--ps-text, #f0f0f0); background: rgba(40, 40, 40, 0.92); opacity: 0; pointer-events: none; }
+.s3d-nudge-dn { left: 16px; }
+.s3d-nudge-up { right: 0; }
+.s3d-field:hover .s3d-nudge { opacity: 1; pointer-events: auto; }
+.s3d-field:focus-within .s3d-nudge, body.s3d-scrubbing .s3d-nudge { opacity: 0; pointer-events: none; }
+.s3d-nudge:hover { background: var(--ps-control, #3a3a3a); }
+.s3d-nudge svg { display: block; }
+/* Fields gathered by a drag down, all changed together. */
+.s3d-field.s3d-gathered { border-color: var(--ps-accent, #e22330); background: #251416; }
+/* The short note a figure that is not one leaves under its row. */
+.s3d-field-note { font-size: 11px; color: #f5a623; margin: 3px 0 0; }
+.s3d-field-note[hidden] { display: none; }
 body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
 /* A section's reset: a small round arrow at the end of its heading. */
 .s3d-reset { width: 18px; height: 18px; padding: 0; margin: -2px 0; border: 0; border-radius: 3px; background: transparent;
     color: var(--ps-faint, #969696); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .s3d-reset:hover { background: var(--ps-control, #3a3a3a); color: var(--ps-text, #f0f0f0); }
-.s3d-reset svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.s3d-reset svg { display: block; width: 12px; height: 12px; }
 /* The Curve and the corners as they stand. */
 .s3d-read { font-size: 12px; line-height: 1.45; color: var(--ps-dim, #c0c0c0); margin: 0 0 4px; }
 .s3d-link { display: inline; padding: 0; margin: 0 0 4px; border: 0; background: none; font-size: 11px;
@@ -2952,7 +2968,8 @@ body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
     background: var(--ps-panel, #2e2e2e); border: 1px solid var(--ps-dark, #131313); border-radius: 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); }
 #s3d-field-menu button { padding: 4px 10px; border: 0; border-radius: 3px; background: transparent; color: var(--ps-text, #f0f0f0);
     font-size: 12px; text-align: left; cursor: pointer; }
-#s3d-field-menu button:hover { background: var(--ps-accent, #e22330); color: var(--ps-on-accent, #fff); }
+#s3d-field-menu button:hover:not(:disabled) { background: var(--ps-accent, #e22330); color: var(--ps-on-accent, #fff); }
+#s3d-field-menu button:disabled { opacity: 0.45; cursor: default; }
 /* The corner picker beside a click in the view. */
 #s3d-corner-pop { position: absolute; z-index: 6; padding: 6px; border-radius: 5px; max-width: calc(100% - 12px); box-sizing: border-box;
     background: var(--ps-panel, #2e2e2e); border: 1px solid var(--ps-dark, #131313); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55); }
