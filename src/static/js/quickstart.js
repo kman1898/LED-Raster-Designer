@@ -7845,6 +7845,20 @@
         // E2E tests. Real users are unaffected; they can still open it manually.
         if (navigator.webdriver) { autoPending = false; return; }
         if (firstRunDone()) { autoPending = false; return; }
+        // Only on the launch (owner, 2026-11-09): a page joining the live
+        // show (another tab, a tablet at the computer's address) lands in
+        // the show. Its browser's first run stays to come, for the day it
+        // opens the app itself, and Help still offers the guide.
+        var a0 = window.app;
+        var claim = a0 && a0._launchClaim && typeof a0._launchClaim.then === 'function'
+            ? a0._launchClaim : Promise.resolve(true);
+        claim.then(function (launch) {
+            if (launch === false) { autoPending = false; return; }
+            autoShowWhenReady();
+        }, function () { autoPending = false; });
+    }
+
+    function autoShowWhenReady() {
         var tries = 0;
         var t = setInterval(function () {
             tries++;

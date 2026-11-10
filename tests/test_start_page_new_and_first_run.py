@@ -33,6 +33,8 @@ import urllib.request
 
 import pytest
 
+from conftest import new_server_run
+
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 
@@ -83,7 +85,10 @@ def _context(pw_browser, init):
 
 
 def _launch(context):
-    """A launch: a new tab on the app. Returns (page, problems)."""
+    """A launch: the app started, its first page a new tab. The start page
+    is once per server run (owner, 2026-11-09), and the e2e server is one
+    run, so each launch here starts a new run. Returns (page, problems)."""
+    new_server_run()
     pg = context.new_page()
     problems = []
     pg.on('pageerror', lambda e: problems.append('pageerror: ' + str(e)))

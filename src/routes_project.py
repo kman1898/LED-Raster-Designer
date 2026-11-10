@@ -7,6 +7,9 @@ sync_next_layer_id) live there. new_project / restore_project REASSIGN the
 project, so this blueprint sets it through the app module attribute
 (app.current_project = ...) — that keeps app.py's readers and the tests in sync.
 """
+import threading
+import time
+
 from flask import Blueprint, request, jsonify
 
 import app
@@ -94,6 +97,153 @@ def get_server_session():
         'session_id': app.SERVER_SESSION_ID,
         'start_time': app.SERVER_START_TIME
     })
+
+
+# ── The launch's start page, once per server run (owner, 2026-11-09) ──
+#
+# "It should only do that on the app originally opening. Treated like a
+# live service once it is already running." The start page (and the
+# launch's panel picker) is for the app's own first page after the server
+# starts. Every later page, another tab, another browser on this computer,
+# or a tablet at the computer's address, joins the show as it stands.
+#
+# The server decides, because only it sees every page. Each page boots
+# with an id of its own and asks once (POST /api/launch/claim) before its
+# project loads. The first page on THIS computer to ask is the launch page
+# (the desktop window opens it, and a person who opens the app in a
+# browser first is that page too). A page from another machine never is:
+# the start page's Open file and Recent read files on the host, and the
+# person at the host is the one launching. The lock makes two pages
+# loading at once get one start page between them.
+#
+# The question stays open until somebody answers it: the launch page's X,
+# a pick or Cancel in the startup picker, File > New, or a show opened on
+# any page (POST /api/launch/settle). From then on nobody gets the start
+# page this run, and a page load no longer puts a startup screen in an
+# emptied project (app.index), so a joining page sees that project empty.
+#
+# While it is open, the launch page keeps it across its own reload: the
+# page notes its id with its reload record (app-start-page.js
+# _saveReloadPlace) and the reload hands the claim on to its new id. A
+# launch page closed with the question open gives it up once its socket
+# has been gone LAUNCH_GONE_SECONDS: the next page on this computer to
+# load is the launch page then, over the startup project as it was. If
+# somebody worked on the show meanwhile it is a live show, and the
+# question is closed instead.
+LAUNCH_GONE_SECONDS = 5.0
+
+_launch_lock = threading.Lock()
+_launch = {}
+
+
+def reset_launch_state():
+    """A fresh server run: nobody has had the start page yet."""
+    with _launch_lock:
+        _launch.clear()
+        _launch.update({
+            'owner': None,        # the launch page's id
+            'seen': 0.0,          # when it last claimed or lost its last socket
+            'settled': False,     # the launch's question has been answered
+            'sockets': {},        # page id -> live socket ids
+        })
+
+
+reset_launch_state()
+
+
+def launch_settled():
+    with _launch_lock:
+        return _launch['settled'] is True
+
+
+def _launch_owner_live(now):
+    owner = _launch['owner']
+    if owner is None:
+        return False
+    if _launch['sockets'].get(owner):
+        return True
+    return now - _launch['seen'] < LAUNCH_GONE_SECONDS
+
+
+def launch_socket_connected(page, sid):
+    """socket connect: a page is up (its query names its id)."""
+    if not page or not sid:
+        return
+    with _launch_lock:
+        _launch['sockets'].setdefault(page, set()).add(sid)
+
+
+def launch_socket_gone(sid):
+    """socket disconnect: a page closed, reloaded or lost the network."""
+    if not sid:
+        return
+    with _launch_lock:
+        for page, sids in list(_launch['sockets'].items()):
+            if sid in sids:
+                sids.discard(sid)
+                if not sids:
+                    del _launch['sockets'][page]
+                    if page == _launch['owner']:
+                        _launch['seen'] = time.time()
+
+
+def _claim_launch(page, prior, remote_addr):
+    """(start_page, why) for a page asking at boot. `prior` lists the ids
+    this tab's reload record names (the page before it, and the one before
+    that when it went before its own claim was answered)."""
+    from routes_dialog import _is_same_machine
+    now = time.time()
+    with _launch_lock:
+        if _launch['settled']:
+            return False, 'settled'
+        owner = _launch['owner']
+        if owner is not None and owner in (prior or ()):
+            _launch['owner'], _launch['seen'] = page, now
+            return True, 'reload'
+        if owner == page:
+            return True, 'again'
+        if not _is_same_machine(remote_addr or ''):
+            return False, 'remote'
+        if owner is None:
+            _launch['owner'], _launch['seen'] = page, now
+            return True, 'first'
+        if _launch_owner_live(now):
+            return False, 'joined'
+        # The launch page went without an answer. Over the startup project
+        # this page takes its place; over a show somebody worked on, the
+        # app is running and the question is closed.
+        if app.current_project.get('is_pristine') is not True:
+            _launch['settled'] = True
+            return False, 'moved_on'
+        _launch['owner'], _launch['seen'] = page, now
+        return True, 'took_over'
+
+
+@project_bp.route('/api/launch/claim', methods=['POST'])
+def post_launch_claim():
+    data = request.get_json(silent=True) or {}
+    page = data.get('page') if isinstance(data.get('page'), str) else ''
+    prior = data.get('prior')
+    if isinstance(prior, str):
+        prior = [prior]
+    prior = [p[:64] for p in prior[:4] if isinstance(p, str) and p] if isinstance(prior, list) else []
+    if not page:
+        return jsonify({'startPage': False, 'why': 'no_page'}), 400
+    start, why = _claim_launch(page[:64], prior, request.remote_addr)
+    log_event('launch_claim', {'startPage': start, 'why': why, 'remote_addr': request.remote_addr})
+    return jsonify({'startPage': start, 'why': why})
+
+
+@project_bp.route('/api/launch/settle', methods=['POST'])
+def post_launch_settle():
+    data = request.get_json(silent=True) or {}
+    why = data.get('why') if isinstance(data.get('why'), str) else None
+    with _launch_lock:
+        was = _launch['settled']
+        _launch['settled'] = True
+    if not was:
+        log_event('launch_settled', {'why': why, 'remote_addr': request.remote_addr})
+    return jsonify({'settled': True})
 
 
 @project_bp.route('/api/project/new', methods=['POST'])
