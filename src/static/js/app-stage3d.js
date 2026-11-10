@@ -4,8 +4,8 @@
 // Map drawing on the front and plain dark grey behind.
 //
 // Each screen keeps its place on the layer as `stage3d` (mm, Y up, +Z
-// towards the audience; pitch / yaw / roll in degrees; the Curve's angle at
-// every joint between columns - the server's app.sanitize_stage3d holds
+// towards the audience; pitch / yaw / roll in degrees; the bend at every
+// joint between columns and rows - the server's app.sanitize_stage3d holds
 // the shape). X, Y and Z are the middle of the screen's bottom edge (the
 // owner's ruling, 2026-11-09): Y is how high the bottom edge stands, so a
 // screen on the floor reads 0, and the screen turns about that point, so a
@@ -28,10 +28,7 @@
 import { LEDRasterApp } from './app-core.js';
 import { evaluateMathExpression, sendClientLog } from './helpers.js';
 
-// The most a joint between two columns can bend, either way: a corner's
-// own 90. The angles are the Curve's (app-curve.js, the Header/Footer
-// tab); the 3D tab has no angle of its own to type (owner, 2026-11-10).
-const JOINT_LIMIT = 90;
+const JOINT_LIMIT = 15;          // degrees, either way, at any joint
 export const FT_MM = 304.8;
 // X, Y and Z measure the middle of the bottom edge (the block's marker).
 export const PIVOT = 'bottom';
@@ -70,30 +67,26 @@ function clampJoint(v) {
 
 // The client's copy of app.sanitize_stage3d - the same block for the same
 // input, so a restore through the server never comes back "repaired".
-//
-// THE ONLY JOINT ANGLES ARE THE CURVE'S (owner, 2026-11-10: corners are 90
-// only, gentle bends come from the Curve, curves are columns only):
-// `jointsCol`, which the Curve writes (app-curve.js). The first 1.7.0
-// betas also kept a screen-wide figure for the columns and the rows
-// (curveCol, curveRow) and per-joint row angles (jointsRow), typed on the
-// 3D tab; those are dropped here. None of them could be a corner: every
-// one was held to 15 degrees when it was saved.
 export function s3dSanitize(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const out = {};
     ['x', 'y', 'z', 'pitch', 'yaw', 'roll'].forEach(k => { out[k] = finite(value[k], 0); });
     if (value.pivot === PIVOT) out.pivot = PIVOT;
-    const raw = value.jointsCol;
-    const joints = {};
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        Object.keys(raw).forEach(idx => {
-            const text = String(idx).trim();
-            if (!/^\d+$/.test(text)) return;
-            if (finite(raw[idx], null) === null) return;
-            joints[String(parseInt(text, 10))] = clampJoint(raw[idx]);
-        });
-    }
-    out.jointsCol = joints;
+    out.curveCol = clampJoint(value.curveCol);
+    out.curveRow = clampJoint(value.curveRow);
+    ['jointsCol', 'jointsRow'].forEach(k => {
+        const raw = value[k];
+        const joints = {};
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            Object.keys(raw).forEach(idx => {
+                const text = String(idx).trim();
+                if (!/^\d+$/.test(text)) return;
+                if (finite(raw[idx], null) === null) return;
+                joints[String(parseInt(text, 10))] = clampJoint(raw[idx]);
+            });
+        }
+        out[k] = joints;
+    });
     return out;
 }
 
@@ -130,12 +123,11 @@ export function s3dCopyPlacement(layer, dxPx, dyPx, ref = null) {
     return p;
 }
 
-// The Curve's angle at column joint j; a joint between rows never bends
-// (curves are columns only, owner 2026-11-10).
 function jointAt(p, axis, j) {
-    if (axis !== 'col') return 0;
-    const own = p && p.jointsCol ? p.jointsCol[String(j)] : undefined;
-    return finite(own, null) !== null ? clampJoint(own) : 0;
+    const table = axis === 'col' ? p.jointsCol : p.jointsRow;
+    const own = table ? table[String(j)] : undefined;
+    if (finite(own, null) !== null) return clampJoint(own);
+    return clampJoint(axis === 'col' ? p.curveCol : p.curveRow);
 }
 
 export function wrap180(deg) {
@@ -223,7 +215,7 @@ export function anglesFromQuat(q) {
 // A CORNER'S SEAM CARRIES NO CURVE ANGLE (owner, 2026-11-09: "think of the
 // 90 as the edge of a wall, so the 90 itself cannot have an angle on it,
 // but the other side of the panel could"): a corner on a seam takes the
-// place of whatever angle the Curve gives that joint; every
+// place of whatever angle the Curve or the 3D tab gives that joint; every
 // other seam keeps its own, the seams either side of a folded panel too.
 // The stored angles are left as they are, so taking the corner off brings
 // the joint's own angle back.
@@ -559,11 +551,21 @@ export function s3dBaseOffset(layer, placement) {
 // bottom edge. A block saved before the marker held the screen's centre:
 // the centre is moved to the bottom middle by the screen's own turn, so
 // every cabinet stands exactly where it stood. Null with no block.
-// The column angles are kept only while the screen's Curve is on
-// (s3dCurveOn), so the 3D tab, the OBJ and the Corners plan agree.
+//
+// THE ONLY JOINT ANGLES ARE THE CURVE'S (owner, 2026-11-10: corners are 90
+// only, gentle bends come from the Curve, curves are columns only). The
+// block as read keeps `jointsCol`, the angles the Curve writes, only
+// while the screen's Curve is on (s3dCurveOn); the first 1.7.0 betas' 3D
+// tab figures (curveCol, curveRow, jointsRow, and jointsCol on a screen
+// without a Curve) read as 0, so such a screen stands flat but for its
+// corners, the same on the 3D tab, in the OBJ and on the Corners plan.
+// None of them could be a corner: every one was held to 15 degrees.
 export function s3dResolve(layer, block) {
     const p = s3dSanitize(block);
     if (!p) return p;
+    p.curveCol = 0;
+    p.curveRow = 0;
+    p.jointsRow = {};
     if (!s3dCurveOn(layer)) p.jointsCol = {};
     if (p.pivot === PIVOT) return p;
     const off = quatRotate(quatFromPlacement(p), s3dBaseOffset(layer, p));
@@ -955,7 +957,7 @@ class _Stage3D {
         const rect = this._s3dShowRect(layer, lay.byId);
         return {
             x: round(rect.left + rect.w / 2, 3), y: round(rect.bottom + lay.lift, 3), z: 0,
-            pitch: 0, yaw: 0, roll: 0, jointsCol: {}, pivot: PIVOT,
+            pitch: 0, yaw: 0, roll: 0, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {}, pivot: PIVOT,
         };
     }
 

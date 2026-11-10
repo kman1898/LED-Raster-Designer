@@ -790,15 +790,10 @@ def strip_copied_feeds(layer):
 #                        towards the audience): Y is the bottom edge's
 #                        height, 0 on the floor (2026-11-09)
 #   {pitch, yaw, roll}   degrees, turned about that same point
-#   jointsCol            the Curve's angle at each joint between two
-#                        columns {"<joint index>": degrees}; joint i sits
-#                        between column i and i + 1. The Curve on the
-#                        Header/Footer tab (app-curve.js) is the only thing
-#                        that writes it; curves are columns only and
-#                        corners are 90 degrees (owner, 2026-11-10). The
-#                        first 1.7.0 betas also kept curveCol, curveRow and
-#                        jointsRow, typed on the 3D tab and held to 15
-#                        degrees: they are dropped here.
+#   curveCol / curveRow  the bend at every joint between columns / rows,
+#                        degrees, one figure for the whole screen
+#   jointsCol / jointsRow  per-joint overrides {"<joint index>": degrees};
+#                        joint i sits between column (row) i and i + 1
 #   pivot                'bottom': x, y and z are the bottom middle. A
 #                        block without it was saved by the first 1.7.0
 #                        betas, whose x, y and z were the screen's centre;
@@ -807,8 +802,7 @@ def strip_copied_feeds(layer):
 #                        (app-stage3d.js s3dResolve), so it stands where it
 #                        stood. The marker is kept as it came, never added
 #                        here - only the client knows the screen's shape.
-# Every angle is held to +/-STAGE3D_JOINT_LIMIT degrees (a corner's own 90,
-# the most a joint can bend). A layer without the
+# Every bend is held to +/-STAGE3D_JOINT_LIMIT degrees. A layer without the
 # key is placed by the client from its Show Look position, so older files
 # load unchanged. The project keeps the last camera (`stage3dCamera`), the
 # length units the panel shows (`stage3dUnits`; none saved = the show's
@@ -816,7 +810,7 @@ def strip_copied_feeds(layer):
 # (`stage3dGrid`) and the header and footer bars switch (`stage3dBars`);
 # those are view state and are written by their own
 # route (routes_project.py), never by the layer PUT.
-STAGE3D_JOINT_LIMIT = 90.0
+STAGE3D_JOINT_LIMIT = 15.0
 STAGE3D_UNITS = ('ft', 'm')
 STAGE3D_PIVOT = 'bottom'
 
@@ -841,13 +835,12 @@ def _stage3d_joint(value):
 
 def sanitize_stage3d(value):
     """The `stage3d` block held to its shape: the six placement figures as
-    finite numbers, the Curve's column angles clamped to the joint limit
-    with their keys as non-negative integer strings, the bottom pivot
-    marker kept when it is exactly 'bottom', anything else (the first
-    betas' curveCol, curveRow and jointsRow among it) dropped. None when
-    `value` is not a dict (the key is then removed). Idempotent - the
-    client's own copy of this rule (app-stage3d.js s3dSanitize) produces
-    the same block, so a restore never re-adopts."""
+    finite numbers, both curves and every joint override clamped to the
+    joint limit, joint keys as non-negative integer strings, the bottom
+    pivot marker kept when it is exactly 'bottom', anything else
+    dropped. None when `value` is not a dict (the key is then removed).
+    Idempotent - the client's own copy of this rule (app-stage3d.js
+    s3dSanitize) produces the same block, so a restore never re-adopts."""
     if not isinstance(value, dict):
         return None
     out = {}
@@ -855,17 +848,20 @@ def sanitize_stage3d(value):
         out[key] = _stage3d_number(value.get(key), 0.0)
     if value.get('pivot') == STAGE3D_PIVOT:
         out['pivot'] = STAGE3D_PIVOT
-    raw = value.get('jointsCol')
-    joints = {}
-    if isinstance(raw, dict):
-        for idx, deg in raw.items():
-            text = str(idx).strip()
-            if not text.isdigit():
-                continue
-            if isinstance(deg, bool) or _stage3d_number(deg, None) is None:
-                continue
-            joints[str(int(text))] = _stage3d_joint(deg)
-    out['jointsCol'] = joints
+    for key in ('curveCol', 'curveRow'):
+        out[key] = _stage3d_joint(value.get(key))
+    for key in ('jointsCol', 'jointsRow'):
+        raw = value.get(key)
+        joints = {}
+        if isinstance(raw, dict):
+            for idx, deg in raw.items():
+                text = str(idx).strip()
+                if not text.isdigit():
+                    continue
+                if isinstance(deg, bool) or _stage3d_number(deg, None) is None:
+                    continue
+                joints[str(int(text))] = _stage3d_joint(deg)
+        out[key] = joints
     return out
 
 

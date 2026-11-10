@@ -301,9 +301,9 @@ def test_old_centre_blocks_resolve_to_the_same_corners(page):
         assert out['pivot'] == 'bottom', out['name']
         # a block read once is read the same way again
         assert out['again'] == out['resolved'], out['name']
-        # the free figures are gone from what is read
-        assert not any(k in out['resolved'] for k in ('curveCol', 'curveRow', 'jointsRow')), out['name']
-        assert out['resolved']['jointsCol'] == {}, out['name']
+        # the free figures read as 0 (these screens have no Curve)
+        r = out['resolved']
+        assert (r['curveCol'], r['curveRow'], r['jointsCol'], r['jointsRow']) == (0, 0, {}, {}), out['name']
         if _bent(case):
             want_list = out['bare']
         else:
@@ -329,13 +329,15 @@ def test_the_bottom_middle_and_the_footer_datum(page):
                     panel_width_mm: 500, panel_height_mm: 500, panels};
         };
         const wall = grid(4, 2);
-        const flat = {x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, jointsCol: {}};
+        const flat = {x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {}};
         const pitched = {...flat, x: 100, y: 200, z: 300, pitch: 25, yaw: -40, roll: 10, pivot: 'bottom'};
         const footed = m.s3dShown(wall, pitched, m.FOOTER_BAR_MM);
         return {
             base: m.s3dBaseOffset(wall, flat),
-            rowFigureBase: m.s3dBaseOffset(wall, {...flat, curveRow: 10, jointsRow: {'0': 10}}),
-            curvedAcrossBase: m.s3dBaseOffset(wall, {...flat, jointsCol: {'0': 12, '1': 12, '2': 12}}),
+            bentBase: m.s3dBaseOffset(wall, {...flat, curveRow: 10}),
+            curvedAcrossBase: m.s3dBaseOffset(wall, {...flat, curveCol: 12}),
+            // a first beta's row figure, read from a stored block: dropped
+            rowRead: m.s3dResolve(wall, {...flat, curveRow: 10, pivot: 'bottom'}),
             oldCentre: m.s3dResolve(wall, {...flat, y: 500}),
             footerFlat: m.s3dDatumOffset(wall, flat, m.FOOTER_BAR_MM),
             noFooter: m.s3dDatumOffset(wall, flat, 0),
@@ -350,9 +352,11 @@ def test_the_bottom_middle_and_the_footer_datum(page):
     assert out['base'] == pytest.approx([0, -500, 0])
     # a column curve leaves the bottom middle under the middle column
     assert out['curvedAcrossBase'] == pytest.approx([0, -500, 0])
-    # rows never bend (curves are columns only, 2026-11-10): a first beta's
-    # row figure is dropped and the bottom middle is the flat one
-    assert out['rowFigureBase'] == pytest.approx([0, -500, 0])
+    # a row bend brings the foot of the bottom row forward
+    assert out['bentBase'][1] > -500 and out['bentBase'][2] > 0
+    # but rows never bend on the stage (curves are columns only, 2026-11-10):
+    # a stored block's row figure reads as 0
+    assert out['rowRead']['curveRow'] == 0 and out['rowRead']['jointsRow'] == {}
     # an old centre 500 mm up on a 1000 mm wall stands its bottom edge on 0
     assert (out['oldCentre']['y'], out['oldCentre']['pivot']) == (pytest.approx(0), 'bottom')
     assert out['footerFlat'] == pytest.approx([0, -152.4, 0])

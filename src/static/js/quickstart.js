@@ -6191,15 +6191,17 @@
                     ? 'DEMO WALL folds 90° Interior in the middle of panel ' + mem.at + '.' : null;
             }
         },
-        // Bars split at a corner (1.7.0): with the Curve off, Auto lays the
-        // corner's own Header Bar - Corner (1 panel) over its panel and fits
-        // each side. The Curve is ticked again afterwards and curves each
-        // side as its own wall right up to the fold, so the wall goes
-        // on as the Curve step left it.
+        // Bars split at a corner (1.7.0): Auto lays the corner's own Header
+        // Bar - Corner over the panels touching it and fills each side. The
+        // Curve the Curve step left on stays on, so Auto lays the Curve
+        // again: each side curved as its own wall right up to the fold. The
+        // step waits for the Curve before Auto and after it, so the bars it
+        // names are the ones the tab shows (the Curve used to be turned off
+        // and on again here, and its second laying landed after the note).
         riggingCornerBars: {
             since: '1.7.0',
             target: '#rigging-total-count', place: 'right', title: 'Corner bars',
-            body: 'Auto splits the bars at a corner: its Header Bar - Corner covers the panels touching it and regular bars fill each side. With the Curve on, each side curves as its own wall right up to the fold.',
+            body: 'Auto splits the bars at a corner: its Header Bar - Corner covers the panels touching it and bars fill each side. With the Curve on, each side curves as its own wall right up to the fold.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -6214,52 +6216,34 @@
                 A().refreshRiggingPanel();
             },
             act: function (t) {
-                var w0 = wall();
-                t.mem.curve = !!(w0 && w0.riggingCurve && w0.riggingCurve.on);
-                t.mem.custom = A()._riggingToolNow() === 'custom';
                 var pieces = function () { var w = wall(); return w ? A().riggingCornerPiecesOf(w).length : 0; };
-                var curveLaid = function () {
-                    var w = wall();
-                    var j = w && w.stage3d && w.stage3d.jointsCol;
-                    return w && w.riggingCurve && w.riggingCurve.on && j && Object.keys(j).length === w.columns - 1;
-                };
-                var chain = Promise.resolve();
-                if (t.mem.curve) {
-                    chain = chain.then(function () { return t.click('#rigging-curve-on'); }).then(function () {
-                        return t.wait(function () { var w = wall(); return w && !(w.riggingCurve && w.riggingCurve.on); });
-                    });
-                }
-                if (t.mem.custom) chain = chain.then(function () { return t.click('.rigging-tool-btn[data-tool="auto"]'); });
-                return chain.then(function () {
+                var idle = function () { return !A().riggingCurveBusy(); };
+                var custom = A()._riggingToolNow() === 'custom';
+                return t.wait(idle, 10000).then(function () {
+                    if (custom) return t.click('.rigging-tool-btn[data-tool="auto"]');
+                }).then(function () {
                     return t.click('#rigging-auto-btn');
                 }).then(function () {
-                    return t.wait(function () { return pieces() > 0; });
+                    // Auto, and a curved wall's Curve laid again, all landed
+                    return t.wait(function () { return pieces() === 1 && idle(); }, 10000);
                 }).then(function (ok) {
                     if (!ok) throw new Error('no corner bar was laid');
-                    t.mem.pieces = pieces();
-                    var w1 = wall();
-                    var laid = w1 ? A().riggingCornerPiecesOf(w1) : [];
-                    t.mem.part = laid.length ? RiggingMath.cornerName(laid[0].size, 'header') : '';
-                    t.mem.bars = headerBars();
-                    var list = $('#rigging-total-breakdown');
-                    t.mem.list = String((list && list.textContent) || '').replace(/\n/g, ', ');
                     var box = $('#rigging-total-count');
                     return t.spot((box && box.closest('[data-tooltip]')) || box).then(function () { return t.pause(PACE.opened); });
                 }).then(function () {
-                    // the wall back as the Curve step left it
-                    if (t.mem.custom) return t.click('.rigging-tool-btn[data-tool="custom"]');
-                }).then(function () {
-                    if (!t.mem.curve) return true;
-                    return t.click('#rigging-curve-on').then(function () {
-                        return t.wait(function () { return curveLaid() && !A().riggingCurveBusy() && pieces() === 1; }, 10000);
-                    });
-                }).then(function (ok) {
-                    if (!ok) throw new Error('the curve was not laid again');
+                    if (custom) return t.click('.rigging-tool-btn[data-tool="custom"]');
                 });
             },
-            check: function (mem) {
-                return mem.pieces === 1 && mem.part && /Corner \(\d panel\): 1/.test(mem.list || '')
-                    ? 'Auto split DEMO WALL at its corner: ' + mem.bars.split(',').join(' + ') + ' and a ' + mem.part + '. The totals read ' + mem.list + '.' : null;
+            // Read as the tab stands when the note is written.
+            check: function () {
+                var w = wall();
+                var laid = w ? A().riggingCornerPiecesOf(w) : [];
+                var part = laid.length ? RiggingMath.cornerName(laid[0].size, 'header') : '';
+                var list = $('#rigging-total-breakdown');
+                var totals = String((list && list.textContent) || '').replace(/\n/g, ', ');
+                var bars = headerBars();
+                if (laid.length !== 1 || !part || !bars || A().riggingCurveBusy() || !/Corner \(\d panel\): 1/.test(totals)) return null;
+                return 'Auto split DEMO WALL at its corner: ' + bars.split(',').join(' + ') + ' and a ' + part + '. The totals read ' + totals + '.';
             }
         },
         riggingCornerSide: {
