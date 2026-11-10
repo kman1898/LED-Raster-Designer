@@ -659,8 +659,12 @@ def test_file_quit_asks_then_quits_and_the_page_dims(e2e_server, _guard, fake_la
 def test_file_quit_with_unsaved_changes_asks_save_don_t_save_or_cancel(e2e_server, _guard, fake_launcher, pw_browser):
     context, page = _host_page(pw_browser, e2e_server, "window.__lrdAskUnsaved = true;")
     try:
-        page.evaluate("() => window.app.saveState('Test edit')")
-        assert page.evaluate("window.app.projectHasUnsavedChanges()") is True
+        # a real edit: the shared server's pristine startup show counts as
+        # saved however many steps it has (_isPristineStartupProject)
+        page.evaluate("""() => { const l = window.app.project.layers[0];
+            l.name = 'Quit test edit'; l.columns = (l.columns || 4) + 1;
+            window.app.updateLayers([l], true, 'Quit test edit'); }""")
+        page.wait_for_function("() => window.app.projectHasUnsavedChanges() === true", timeout=5000)
         _open_file_menu(page)
         page.click('#menu-quit-app')
         ask = page.wait_for_selector('#unsaved-changes-modal', timeout=5000)
