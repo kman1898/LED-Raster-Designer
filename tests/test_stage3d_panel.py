@@ -1,0 +1,466 @@
+"""The 3D Placement panel as fields in 3D software (the owner, 2026-11-10:
+"why is there so much space next to all the text boxes? also we need these
+to be like real 3D software not just text boxes"), and the corners set on
+the 3D tab ("it's supposed to be 90 only and can go out or in").
+
+What this file pins (app-stage3d-panel.js):
+
+* Position and Rotation each sit on one row: three compact fields with an
+  axis tag colored as the view's arrows and rings, at the panel's narrow and
+  wide widths, and no step buttons.
+* A press and drag sideways changes a figure, the view following live; Shift
+  steps finely, Ctrl snaps to 1 in (1 cm) or 15 degrees; the whole drag is
+  one undo step. A click without a drag types; Enter commits and lets go;
+  Esc puts the figure back; Up and Down nudge as one step; the wheel changes
+  nothing. A rotation field's right-click gives +90, -90 and Reset; each
+  section's reset icon puts its figures back.
+* A click on a seam or a panel's middle of the selected screen offers a
+  corner: None, Interior 90 or Exterior 90, written to riggingCorners, the
+  same data the Header/Footer tab writes, which shows it. A spot too close to
+  another corner offers none.
+* There is no free joint angle: the Curve (the Header/Footer tab's) is shown
+  as it stands, with a link to its settings.
+
+Run locally:
+    python -m pytest tests/test_stage3d_panel.py -p no:cacheprovider
+"""
+
+import os
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
+from conftest import settled  # noqa: E402
+
+pytest.importorskip("playwright.sync_api", reason="playwright not installed")
+
+from test_stage3d import (  # noqa: E402
+    FT, _context, dbg, history_len, open_3d, reset, screen, served, set_curve, stored, undo, view_from,
+)
+
+ONE = [{'name': 'Wall', 'columns': 6, 'rows': 2, 'offset_x': 0, 'offset_y': 0}]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _restore_server_project(server_project_guard):
+    """Leave the shared server project exactly as this module found it
+    (see conftest.server_project_guard)."""
+
+
+@pytest.fixture(scope="module")
+def page(e2e_server, pw_browser):
+    context = _context(pw_browser)
+    pg = context.new_page()
+    pg.errors = []
+    pg.on('pageerror', lambda err: pg.errors.append(str(err)))
+    pg.goto(e2e_server, wait_until='domcontentloaded')
+    pg.wait_for_timeout(2000)
+    yield pg
+    context.close()
+
+
+def field(page, key):
+    return page.input_value(f'#s3d-{key}')
+
+
+def focused(page):
+    return page.evaluate("document.activeElement && document.activeElement.id")
+
+
+def centre(page, key):
+    box = page.locator(f'#s3d-{key}').bounding_box()
+    return box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
+
+
+def press_and_drag(page, key, dx, steps=10, keys=(), check=None):
+    """Press on a field, drag `dx` px sideways in `steps` moves, `check()`
+    while still held, then let go."""
+    x, y = centre(page, key)
+    page.mouse.move(x, y)
+    for k in keys:
+        page.keyboard.down(k)
+    page.mouse.down()
+    for i in range(1, steps + 1):
+        page.mouse.move(x + dx * i / steps, y)
+        page.wait_for_timeout(15)
+    held = check() if check else None
+    page.mouse.up()
+    for k in keys:
+        page.keyboard.up(k)
+    page.wait_for_timeout(400)
+    return held
+
+
+def rows_of(page):
+    return page.evaluate("""() => ['x', 'y', 'z', 'pitch', 'yaw', 'roll'].map(k => {
+        const el = document.getElementById('s3d-' + k);
+        const f = el.closest('.s3d-field');
+        const r = f.getBoundingClientRect();
+        const tag = f.querySelector('.s3d-tag');
+        return {k, top: Math.round(r.top), w: r.width, tag: tag.textContent,
+                color: getComputedStyle(tag).backgroundColor, cursor: getComputedStyle(el).cursor};
+    })""")
+
+
+# ── 1. one row each ───────────────────────────────────────────────────────
+
+@pytest.mark.parametrize('width', [260, 460])
+def test_the_figures_sit_on_one_row_each_at_any_panel_width(page, width):
+    reset(page, ONE)
+    open_3d(page, 1)
+    page.evaluate(f"""() => {{
+        const p = document.querySelector('.tab-panel[data-tab="3d"]');
+        const side = p.closest('#left-sidebar, #right-sidebar, .lrd-panel') || p.parentElement;
+        side.style.width = '{width}px';
+    }}""")
+    page.wait_for_timeout(200)
+    rows = rows_of(page)
+    pos, rot = rows[:3], rows[3:]
+    assert len({r['top'] for r in pos}) == 1 and len({r['top'] for r in rot}) == 1, rows
+    assert pos[0]['top'] < rot[0]['top']
+    # compact: never wider than 120 px, never so narrow a figure is cut
+    assert all(60 <= r['w'] <= 120 for r in rows), rows
+    # the tags, colored as the move arrows and the rings
+    red, green, blue = 'rgb(229, 72, 77)', 'rgb(76, 187, 90)', 'rgb(61, 126, 242)'
+    assert [(r['tag'], r['color']) for r in rows] == [
+        ('X', red), ('Y', green), ('Z', blue), ('P', red), ('Y', green), ('R', blue)]
+    assert all(r['cursor'] == 'ew-resize' for r in rows)
+    # the step buttons and the free angle fields are gone
+    assert page.locator('[data-s3d-step], .s3d-steps, #s3d-curve-col, #s3d-curve-row, #s3d-joint-angle').count() == 0
+    page.evaluate("""() => {
+        const p = document.querySelector('.tab-panel[data-tab="3d"]');
+        const side = p.closest('#left-sidebar, #right-sidebar, .lrd-panel') || p.parentElement;
+        side.style.width = '';
+    }""")
+    assert page.errors == []
+
+
+# ── 2. drag to change ─────────────────────────────────────────────────────
+
+def test_a_drag_changes_the_figure_live_and_lands_as_one_undo_step(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    view_from(page, 'front')
+    x0 = screen(page, ids[0])['placement']['x']
+    box0 = screen(page, ids[0])['world']
+    start = history_len(page)
+
+    def mid_drag():
+        # the view follows while the button is held; nothing is saved yet
+        return {'world': screen(page, ids[0])['world'], 'stored': stored(page, ids[0]),
+                'steps': history_len(page), 'field': field(page, 'x'),
+                'scrubbing': page.evaluate("document.body.classList.contains('s3d-scrubbing')")}
+    held = press_and_drag(page, 'x', 100, check=mid_drag)
+    assert held['stored'] is None and held['steps'] == start, held
+    assert held['scrubbing']
+    assert held['world']['min'][0] == pytest.approx(box0['min'][0] + 100 * 25.4, abs=30), (box0, held)
+    assert float(held['field']) == pytest.approx((x0 + 100 * 25.4) / FT, abs=0.1)
+    # let go: one step, an inch a pixel in feet
+    after = stored(page, ids[0])
+    assert after['x'] - x0 == pytest.approx(100 * 25.4, abs=30)
+    assert history_len(page) == start + 1
+    assert focused(page) != 's3d-x', 'a drag does not leave the caret in the field'
+    assert settled(page, lambda: served(page, ids[0]), lambda v: v == after) == after
+    undo(page)
+    assert stored(page, ids[0]) is None
+    assert page.errors == []
+
+
+def test_shift_steps_finely_and_ctrl_snaps(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    page.fill('#s3d-x', '1.03')
+    page.press('#s3d-x', 'Enter')
+    page.wait_for_timeout(300)
+    x0 = stored(page, ids[0])['x']
+    # Shift: a tenth of an inch a pixel
+    press_and_drag(page, 'x', 100, keys=('Shift',))
+    x1 = stored(page, ids[0])['x']
+    assert x1 - x0 == pytest.approx(254, abs=5)
+    # Ctrl: whole inches
+    press_and_drag(page, 'x', 37, keys=('Control',))
+    x2 = stored(page, ids[0])['x']
+    assert x2 != x1 and x2 / 25.4 == pytest.approx(round(x2 / 25.4), abs=1e-6), x2
+    # angles: half a degree a pixel, Ctrl snaps to 15
+    press_and_drag(page, 'yaw', 40)
+    assert stored(page, ids[0])['yaw'] == pytest.approx(20, abs=1)
+    press_and_drag(page, 'yaw', 30, keys=('Control',))
+    assert stored(page, ids[0])['yaw'] == 30
+    # meters: a centimeter a pixel, Ctrl snaps to whole centimeters
+    page.click('#s3d-units-m')
+    page.wait_for_timeout(200)
+    z0 = stored(page, ids[0])['z']
+    press_and_drag(page, 'z', -50)
+    assert stored(page, ids[0])['z'] - z0 == pytest.approx(-500, abs=15)
+    press_and_drag(page, 'z', 7, keys=('Shift',))      # 7 mm
+    press_and_drag(page, 'z', 23, keys=('Control',))   # 230 mm, to the centimeter
+    z = stored(page, ids[0])['z']
+    assert z - z0 == pytest.approx(-260, abs=10) and z / 10 == pytest.approx(round(z / 10), abs=1e-6), z
+    page.click('#s3d-units-ft')
+    assert page.errors == []
+
+
+def test_esc_during_a_drag_puts_the_screen_back(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    start = history_len(page)
+    box0 = screen(page, ids[0])['world']
+    x, y = centre(page, 'z')
+    page.mouse.move(x, y)
+    page.mouse.down()
+    for i in range(1, 9):
+        page.mouse.move(x + 10 * i, y)
+        page.wait_for_timeout(15)
+    page.keyboard.press('Escape')
+    page.mouse.up()
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0]) is None and history_len(page) == start
+    assert screen(page, ids[0])['world'] == box0
+    assert field(page, 'z') == '0.00'
+
+
+# ── 3. typing, Enter, Esc, the arrows, the wheel ──────────────────────────
+
+def test_a_click_types_enter_commits_esc_cancels(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    start = history_len(page)
+    page.click('#s3d-y')
+    assert focused(page) == 's3d-y', 'a click without a drag puts the caret in'
+    page.keyboard.type('3')                       # the figure was selected
+    page.keyboard.press('Enter')
+    page.wait_for_timeout(400)
+    assert stored(page, ids[0])['y'] == pytest.approx(3 * FT)
+    assert focused(page) != 's3d-y', 'Enter ends the edit'
+    assert history_len(page) == start + 1
+    # Esc: the figure goes back, nothing is saved
+    page.click('#s3d-y')
+    page.keyboard.type('9')
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(300)
+    assert field(page, 'y') == '3.00' and focused(page) != 's3d-y'
+    assert stored(page, ids[0])['y'] == pytest.approx(3 * FT)
+    assert history_len(page) == start + 1
+    # a figure that is not one puts the old one back
+    page.fill('#s3d-y', 'abc')
+    page.press('#s3d-y', 'Enter')
+    page.wait_for_timeout(300)
+    assert field(page, 'y') == '3.00' and history_len(page) == start + 1
+    assert page.errors == []
+
+
+def test_up_and_down_nudge_as_one_step_and_the_wheel_does_nothing(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    start = history_len(page)
+    page.click('#s3d-z')
+    for _ in range(3):
+        page.keyboard.press('ArrowUp')
+    page.keyboard.press('Shift+ArrowDown')
+    page.wait_for_timeout(200)
+    # the view follows, nothing saved while the field holds the caret
+    assert stored(page, ids[0]) is None and history_len(page) == start
+    page.keyboard.press('Enter')
+    page.wait_for_timeout(400)
+    assert stored(page, ids[0])['z'] == pytest.approx(3 * 25.4 - 2.54, abs=1e-6)
+    assert history_len(page) == start + 1
+    # Ctrl+Up: a 15 degree step
+    page.click('#s3d-roll')
+    page.keyboard.press('Control+ArrowUp')
+    page.keyboard.press('Enter')
+    page.wait_for_timeout(400)
+    assert stored(page, ids[0])['roll'] == 15
+    # the wheel over a field, focused or not, changes nothing
+    before = stored(page, ids[0])
+    x, y = centre(page, 'x')
+    page.mouse.move(x, y)
+    page.mouse.wheel(0, -300)
+    page.click('#s3d-x')
+    page.mouse.wheel(0, 300)
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0]) == before
+    assert page.errors == []
+
+
+def test_the_rotation_menu_and_the_reset_icons(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    page.click('#s3d-yaw', button='right')
+    items = page.evaluate("[...document.querySelectorAll('#s3d-field-menu [data-s3d-menu]')].map(b => b.textContent)")
+    assert items == ['+90°', '-90°', 'Reset']
+    page.click('#s3d-field-menu [data-s3d-menu="+90"]')
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0])['yaw'] == 90
+    assert page.locator('#s3d-field-menu').count() == 0
+    page.click('#s3d-yaw', button='right')
+    page.click('#s3d-field-menu [data-s3d-menu="reset"]')
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0])['yaw'] == 0
+    # Esc closes the menu with nothing changed
+    page.click('#s3d-pitch', button='right')
+    page.keyboard.press('Escape')
+    assert page.locator('#s3d-field-menu').count() == 0
+    # the reset icons: Position back to Show Look, the rotation kept; then
+    # Rotation upright, the position kept
+    home = screen(page, ids[0])['placement']
+    page.fill('#s3d-x', '12')
+    page.press('#s3d-x', 'Enter')
+    page.fill('#s3d-pitch', '30')
+    page.press('#s3d-pitch', 'Enter')
+    page.wait_for_timeout(300)
+    start = history_len(page)
+    page.click('#s3d-reset-position')
+    page.wait_for_timeout(300)
+    p = stored(page, ids[0])
+    assert (p['x'], p['y'], p['z']) == pytest.approx((home['x'], home['y'], home['z']), abs=0.01)
+    assert p['pitch'] == 30
+    page.click('#s3d-reset-rotation')
+    page.wait_for_timeout(300)
+    p = stored(page, ids[0])
+    assert (p['pitch'], p['yaw'], p['roll']) == (0, 0, 0)
+    assert (p['x'], p['y'], p['z']) == pytest.approx((home['x'], home['y'], home['z']), abs=0.01)
+    assert history_len(page) == start + 2
+    assert page.errors == []
+
+
+# ── 4. corners picked in the view ─────────────────────────────────────────
+
+def corners_of(page, layer_id):
+    return page.evaluate(f"""() => (window.app.project.layers.find(l => l.id === {layer_id}).riggingCorners || [])
+        .map(c => ({{at: c.at, side: c.side, angle: c.angle}}))""")
+
+
+def click_spot(page, layer_id, at):
+    pt = page.evaluate(f"window.app._s3dDebugSpot({layer_id}, {at})")
+    assert pt, f'spot {at} is not in the view'
+    page.mouse.click(pt[0], pt[1])
+    page.wait_for_timeout(300)
+    return pt
+
+
+def pop_open(page):
+    return page.evaluate("!document.getElementById('s3d-corner-pop').hidden")
+
+
+def test_a_corner_picked_in_the_view_is_the_header_footer_tabs_corner(page):
+    ids = reset(page, ONE)
+    wall = ids[0]
+    open_3d(page, 1)
+    view_from(page, 'front')
+    start = history_len(page)
+    # the seam between panels 3 and 4
+    click_spot(page, wall, 3.5)
+    assert pop_open(page)
+    assert dbg(page)['corner'] == {'layerId': wall, 'at': 3.5}
+    assert page.inner_text('#s3d-corner-pop-title') == 'Corner, between panels 3 and 4'
+    assert page.evaluate("[...document.querySelectorAll('#s3d-corner-pop [data-s3d-corner]')].map(b => b.textContent)") \
+        == ['None', 'Interior 90°', 'Exterior 90°']
+    assert page.evaluate("document.querySelector('#s3d-corner-pop [data-s3d-corner=\"none\"]').classList.contains('active')")
+    page.click('#s3d-corner-pop [data-s3d-corner="interior"]')
+    got = settled(page, lambda: corners_of(page, wall), lambda v: len(v) == 1)
+    assert got == [{'at': 3.5, 'side': 'interior', 'angle': 90}]
+    assert not pop_open(page)
+    assert history_len(page) == start + 1
+    served_corners = settled(page, lambda: page.evaluate(f"""async () => ((await (await fetch('/api/project'))
+        .json()).layers.find(l => l.id === {wall}).riggingCorners || []).map(c => [c.at, c.side])"""),
+        lambda v: v == [[3.5, 'interior']])
+    assert served_corners == [[3.5, 'interior']]
+    # the stage folds: the ends come toward the audience
+    s = settled(page, lambda: screen(page, wall), lambda v: v['world']['max'][2] > 500)
+    assert s['world']['max'][2] > 500
+    assert page.inner_text('#s3d-corner-info') == 'Between panels 3 and 4: Interior 90°'
+    # a panel's middle, then Exterior: the same rows on the Header/Footer tab
+    click_spot(page, wall, 6)
+    assert page.inner_text('#s3d-corner-pop-title') == 'Corner, middle of panel 6'
+    page.click('#s3d-corner-pop [data-s3d-corner="exterior"]')
+    got = settled(page, lambda: corners_of(page, wall), lambda v: len(v) == 2)
+    assert got == [{'at': 3.5, 'side': 'interior', 'angle': 90}, {'at': 6, 'side': 'exterior', 'angle': 90}]
+    page.click('#view-tabs .view-tab[data-mode="rigging"]')
+    page.wait_for_timeout(300)
+    rows = page.evaluate("""() => [...document.querySelectorAll('#rigging-corner-list [data-corner]')].map(r => [
+        Number(r.dataset.corner), r.querySelector('[data-corner-side].active').dataset.cornerSide])""")
+    assert rows == [[3.5, 'interior'], [6, 'exterior']]
+    # back on 3D: the seam picked again shows its side, and None takes it off
+    open_3d(page, 1)
+    view_from(page, 'front')
+    click_spot(page, wall, 3.5)
+    assert page.evaluate("document.querySelector('#s3d-corner-pop [data-s3d-corner=\"interior\"]').classList.contains('active')")
+    page.click('#s3d-corner-pop [data-s3d-corner="exterior"]')
+    assert settled(page, lambda: corners_of(page, wall), lambda v: v and v[0]['side'] == 'exterior')[0]['side'] == 'exterior'
+    click_spot(page, wall, 3.5)
+    page.click('#s3d-corner-pop [data-s3d-corner="none"]')
+    got = settled(page, lambda: corners_of(page, wall), lambda v: len(v) == 1)
+    assert got == [{'at': 6, 'side': 'exterior', 'angle': 90}]
+    assert history_len(page) == start + 4
+    undo(page)
+    assert [c['at'] for c in corners_of(page, wall)] == [3.5, 6]
+    assert page.errors == []
+
+
+def test_a_spot_too_close_to_a_corner_offers_none_and_esc_closes(page):
+    ids = reset(page, ONE)
+    wall = ids[0]
+    page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {wall});
+        l.riggingCorners = [{{at: 3.5, angle: 90, side: 'interior'}}]; a.updateLayers([l], true, 'Test Corner'); }}""")
+    open_3d(page, 1)
+    view_from(page, 'front')
+    start = history_len(page)
+    # the middle of panel 4 sits under the 3.5 corner's bar
+    click_spot(page, wall, 4)
+    assert pop_open(page)
+    assert page.evaluate("""() => [...document.querySelectorAll('#s3d-corner-pop [data-s3d-corner]')]
+        .map(b => b.disabled)""") == [False, True, True]
+    assert 'Too close to another corner' in page.inner_text('#s3d-corner-pop-note')
+    page.keyboard.press('Escape')
+    assert not pop_open(page)
+    assert dbg(page)['corner'] is None
+    # a click away from any seam or middle offers nothing
+    pt = page.evaluate(f"window.app._s3dDebugSpot({wall}, 2)")
+    box = page.evaluate(f"window.app._s3dDebugSpot({wall}, 2.5)")
+    page.mouse.click((pt[0] + box[0]) / 2 + 8, pt[1])
+    page.wait_for_timeout(300)
+    assert not pop_open(page)
+    assert history_len(page) == start
+    assert page.errors == []
+
+
+def test_a_locked_screen_refuses_a_corner(page):
+    ids = reset(page, ONE)
+    wall = ids[0]
+    page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {wall});
+        l.locked = true; a.updateLayers([l], true, 'Lock'); }}""")
+    open_3d(page, 1)
+    view_from(page, 'front')
+    start = history_len(page)
+    click_spot(page, wall, 2.5)
+    page.click('#s3d-corner-pop [data-s3d-corner="interior"]')
+    said = settled(page, lambda: page.inner_text('#app-toast-host'), lambda t: 'is locked' in t, 3000)
+    assert 'Wall is locked' in said
+    assert corners_of(page, wall) == [] and history_len(page) == start
+
+
+# ── 5. the Curve, shown; no free joint angle ──────────────────────────────
+
+def test_the_curve_is_shown_as_it_stands_with_a_link_to_its_settings(page):
+    ids = reset(page, ONE)
+    open_3d(page, 1)
+    assert page.inner_text('#s3d-curve-info').startswith('No curve.')
+    set_curve(page, ids[0], 7.5)
+    text = settled(page, lambda: page.inner_text('#s3d-curve-info'), lambda t: t.startswith('Curve:'))
+    assert text == 'Curve: 7.5° per joint, concave, 37.5° in all.'
+    # the stage bends by the Curve's angles
+    s = settled(page, lambda: screen(page, ids[0]), lambda v: v['world']['max'][2] > 100)
+    assert s['world']['max'][2] > 100
+    # a corner's seam takes no curve angle
+    page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {ids[0]});
+        l.riggingCorners = [{{at: 3.5, angle: 90, side: 'interior'}}]; a.updateLayers([l], true, 'Test Corner'); }}""")
+    text = settled(page, lambda: page.inner_text('#s3d-curve-info'), lambda t: '30°' in t)
+    assert text == 'Curve: 7.5° per joint, concave, 30° in all.'
+    page.click('#s3d-curve-edit')
+    page.wait_for_timeout(400)
+    assert page.evaluate("document.querySelector('#view-tabs .view-tab.active').dataset.mode") == 'rigging'
+    assert page.evaluate("getComputedStyle(document.getElementById('rigging-curve')).display") != 'none'
+    assert page.errors == []

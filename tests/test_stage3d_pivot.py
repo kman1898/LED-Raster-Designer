@@ -263,6 +263,19 @@ def _bent(case):
     return any(b.get(k) for k in FREE_ANGLES)
 
 
+def _expected_corners(page, case):
+    """Where a case's cabinets stand now: as the first betas stood them, or,
+    for a block that carried their free curve figures, as the same block
+    without them (flat)."""
+    if not _bent(case):
+        return case['corners']
+    return page.evaluate("""async (c) => {
+        const m = await import('/static/js/app-stage3d.js');
+        const bare = {...c.block, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {}};
+        return m.s3dWorldCorners(c.layer, bare);
+    }""", case)
+
+
 def test_old_centre_blocks_resolve_to_the_same_corners(page):
     """Every old block, and the same block once a commit has rounded its
     bottom middle to the stored thousandth of a mm, stands every cabinet
@@ -384,27 +397,28 @@ def test_an_old_show_opens_with_every_screen_where_it_stood(page):
     open_3d(page, len(ids))
     for layer_id, case in zip(ids, cases):
         have = {(q['row'], q['col']): q['corners'] for q in corners(page, layer_id)}
-        assert len(have) == len(case['corners']), case['name']
-        for want in case['corners']:
+        expected = _expected_corners(page, case)
+        assert len(have) == len(expected), case['name']
+        for want in expected:
             for a, b in zip(have[(want['row'], want['col'])], want['corners']):
                 assert close(a, b), (case['name'], want['row'], want['col'], a, b)
         # looking writes nothing: the old block stays as it was saved
         assert 'pivot' not in stored(page, layer_id)
         assert 'pivot' not in served(page, layer_id)
-    # the first edit writes the bottom middle, and nothing moves: the
-    # screen bent both ways, its column figure typed again as it reads
+    # the first edit writes the bottom middle, and only the edit moves
+    # anything: the screen once bent both ways, raised 1 ft by typing Y
     first = ids[2]
     before = corners(page, first)
     page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {first}))")
     page.wait_for_timeout(200)
-    assert field(page, 'curve-col') == '-5'
-    type_field(page, 'curve-col', '-5.0')       # the same figure, typed afresh
+    y0 = page.evaluate("(() => { const a = window.app; return a._s3dShownOf(a.currentLayer, a._s3dPlacementOf(a.currentLayer)).y; })()")
+    type_field(page, 'y', f'{y0 + FT!r}mm')
     after_block = settled(page, lambda: served(page, first), lambda v: v and v.get('pivot') == 'bottom')
     assert after_block['pivot'] == 'bottom' and after_block == stored(page, first)
     page.wait_for_timeout(300)
     for a, b in zip(corners(page, first), before):
         for p, q in zip(a['corners'], b['corners']):
-            assert close(p, q), (p, q)
+            assert close(p, [q[0], q[1] + FT, q[2]]), (p, q)
     assert page.errors == []
 
 
@@ -522,7 +536,7 @@ def test_the_units_switch_converts_the_panel_snap_and_readout_and_is_kept(page):
     page.click('#s3d-units-m')
     page.wait_for_timeout(300)
     assert field(page, 'y') == '2.000'
-    assert page.evaluate("[...document.querySelectorAll('[data-s3d-unit]')].map(e => e.textContent)") == ['m'] * 3
+    assert page.evaluate("[...document.querySelectorAll('[data-s3d-unit]')].map(e => e.textContent)") == ['m']
     assert page.evaluate("document.getElementById('s3d-units-m').classList.contains('active')")
     assert history_len(page) == steps, 'the switch is view state, not an undo step'
     type_field(page, 'x', "6'6\"")                  # feet typed in a meters panel
@@ -753,7 +767,8 @@ def test_the_obj_stands_every_screen_where_the_stage_does(page):
     for layer_id, case in zip(ids, cases):
         assert_obj_matches_stage(page, layer_id, case['name'])
         # and the stage stands the old block where the first betas did
-        want = {(q['row'], q['col']): q['corners'] for q in case['corners']}
+        # (flat, for one that carried their free curve figures)
+        want = {(q['row'], q['col']): q['corners'] for q in _expected_corners(page, case)}
         for face, quad in zip(obj_corners(page, layer_id), corners(page, layer_id)):
             for a, b in zip(face, want[(quad['row'], quad['col'])]):
                 assert close(a, b), (case['name'], a, b)

@@ -9,7 +9,7 @@ around the screen's own color, and a Hue slider that turns them all. A new
 Header/Footer tab builds the bars above and below each wall and counts them
 on the pull sheet.
 
-Screens can also be placed, turned and curved on a stage in a 3D view, any
+Screens can also be placed, turned and cornered on a stage in a 3D view, any
 canvas can go full screen on a second display, and the new IDM Locator
 tab marks the bad modules on a wall and points at them live, from the
 computer running the app or a tablet on the same network. Windows gets a
@@ -73,11 +73,9 @@ The 3D tab, right of Header/Footer, builds every Show Look screen from its
 real cabinets, with its Pixel Map on the front face and blanked cabinets
 left out. Its name and sizes sit on top of the seams between cabinets,
 and a screen standing in front still hides them. Each screen takes a
-position and a pitch, yaw and roll, typed in feet or meters or dragged
-in the view, and the 15 and 90 degree
-buttons turn it in steps. Every joint between two columns or two rows
-of cabinets bends up to 15 degrees either way: set one figure for the
-whole screen, or click a joint and give it its own. A screen group
+position and a pitch, yaw and roll, set in the panel or dragged in the
+view. Its curve comes from the Curve on the Header/Footer tab, and its
+corners are 90 degrees, Interior or Exterior. A screen group
 moves as one wall. The camera switches between perspective and
 orthographic, has Front, Back, Left, Right, Top and Iso views, and the
 grid can be hidden. Placement saves with the show and undoes like any
@@ -124,6 +122,23 @@ other edit.
   cursor. The arrow keys nudge the selection across the floor, Page Up and
   Page Down raise and lower it, and Esc puts a drag back. A show reopened
   on the 3D tab keeps its camera where you left it.
+- NEW: The 3D Placement panel works like 3D software. X, Y and Z sit on one
+  row and pitch, yaw and roll on the next, each with a tag colored like
+  its arrow or ring. Press on a figure and drag sideways to change it: the
+  screen moves as you drag, Shift moves it in fine steps, and Ctrl (Cmd on
+  a Mac) snaps to whole inches, whole centimeters or 15 degrees. One drag
+  is one undo. A click types instead, Enter keeps it, Esc puts it back,
+  and the Up and Down arrows nudge. The mouse wheel never changes a
+  figure. Right-click pitch, yaw or roll for +90, -90 and Reset, and the
+  small arrow beside Position or Rotation puts that part back.
+- NEW: Click a seam, or the middle of a panel, on the selected screen in
+  3D to set a corner there: None, Interior 90 or Exterior 90. It is the
+  same corner the Header/Footer tab sets, with its corner bar, so both
+  tabs always show the same corners.
+- NEW: The 3D panel shows the screen's curve as the Curve on the
+  Header/Footer tab sets it, like 7.5 degrees per joint, and Curve
+  settings takes you there. Gentle bends come only from the Curve, and
+  only between columns.
 
 CURVED WALLS
 
