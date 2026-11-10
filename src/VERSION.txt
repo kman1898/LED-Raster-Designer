@@ -126,11 +126,22 @@ other edit.
   row and pitch, yaw and roll on the next, each with a tag colored like
   its arrow or ring. Press on a figure and drag sideways to change it: the
   screen moves as you drag, Shift moves it in fine steps, and Ctrl (Cmd on
-  a Mac) snaps to whole inches, whole centimeters or 15 degrees. One drag
-  is one undo. A click types instead, Enter keeps it, Esc puts it back,
-  and the Up and Down arrows nudge. The mouse wheel never changes a
-  figure. Right-click pitch, yaw or roll for +90, -90 and Reset, and the
-  small arrow beside Position or Rotation puts that part back.
+  a Mac) snaps to whole inches, whole centimeters or 15 degrees. Drag down
+  first to take the next figures along, and they all change together. One
+  drag is one undo, and Esc during it puts everything back. Small arrows at
+  each end of a figure step it. A click puts the cursor where you click, a
+  double-click selects the figure, and typing takes sums like 16.4+2, *2
+  or /2, and any length unit: 6' 6", 6ft 6in, 2m or 250mm. Something that
+  is not a figure goes back, with a short note. Enter keeps it, Esc puts
+  it back, Tab and Shift+Tab go X, Y, Z, Pitch, Yaw, Roll, and the Up and
+  Down arrows nudge. The mouse wheel never changes a figure. Right-click a
+  figure to reset it or copy and paste it, or all three; pitch, yaw and
+  roll also get +90 and -90. The small arrow beside Position or Rotation
+  puts that part back.
+- NEW: In the 3D view, a small square between two move arrows moves the
+  screens on that plane. G moves the selected screens with the mouse and R
+  turns them: X, Y or Z locks an axis, a typed figure sets it exactly, and
+  Enter or a click keeps it while Esc or a right-click puts it back.
 - NEW: Click a seam, or the middle of a panel, on the selected screen in
   3D to set a corner there: None, Interior 90 or Exterior 90. It is the
   same corner the Header/Footer tab sets, with its corner bar, so both

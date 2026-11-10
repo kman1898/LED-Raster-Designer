@@ -7697,7 +7697,7 @@
             since: '1.7.0',
             target: '#s3d-tool-move', ring: ['#s3d-tool-move', '#s3d-tool-rotate'], place: 'bottom', title: 'Move with the handles',
             avoid: [function () { var h = s3dHandles(); return h && h.grips && h.grips.x ? { x: h.grips.x[0], y: h.grips.x[1] } : null; }],
-            body: 'Drag a colored arrow to slide the screen along one axis; hold Ctrl (Cmd on a Mac) to snap to 6 in steps. Press E for rings that turn it, W for the arrows again.',
+            body: 'Drag a colored arrow to slide the screen along one axis, or a square between two to move it on that plane; Ctrl (Cmd on a Mac) snaps to 6 in. E shows rings that turn it, W the arrows again.',
             before: function () {
                 return open3d().then(function () {
                     only(wall2());
@@ -7732,6 +7732,52 @@
                 var x = placed(wall2()).x;
                 if (x == null || Math.abs(x - mem.x - 304.8) > 0.01) return null;
                 return wall2().name + ' slid 1 ft along X, in two snapped steps of 6 in.';
+            }
+        },
+        // G and R from the keyboard (app-stage3d-handles.js): G, Z to lock
+        // the move toward the audience, 1 typed, Enter. DEMO WALL 2 steps
+        // 1 ft downstage in one undo step.
+        s3dKeys: {
+            since: '1.7.0',
+            target: '#s3d-view', place: 'left', title: 'Move from the keyboard',
+            avoid: [function () { return stagePoint(wall2()); }],
+            body: 'Press G to move the selected screens with the mouse, or R to turn them. X, Y or Z locks an axis, a typed figure sets it, Enter keeps it and Esc puts it back.',
+            before: function () {
+                return open3d().then(function () {
+                    only(wall2());
+                    var a = A();
+                    if (a._s3dUnits && a._s3dUnits() !== 'ft') a._s3dSetUnits('ft');
+                });
+            },
+            act: function (t) {
+                var d = s3dDebug();
+                if (!d || !d.webgl) return t.pause(PACE.rest);
+                var a = A(), w2 = wall2();
+                t.mem.z = a._s3dShownOf(w2, a._s3dPlacementOf(w2)).z;
+                var press = function (key) {
+                    keyEvent('keydown', window, key);
+                    keyEvent('keyup', window, key);
+                    return t.pause(PACE.acted);
+                };
+                var at = stagePoint(w2);
+                return (at ? t.hover(at, { badge: 'G' }) : Promise.resolve()).then(function () {
+                    return press('g');
+                }).then(function () { return press('z'); }).then(function () {
+                    return press('1');
+                }).then(function () { return press('Enter'); }).then(function () {
+                    return t.wait(function () {
+                        var w = wall2();
+                        return Math.abs(a._s3dShownOf(w, a._s3dPlacementOf(w)).z - t.mem.z - 304.8) < 0.01;
+                    }, 2000);
+                });
+            },
+            check: function (mem) {
+                var d = s3dDebug();
+                if (d && !d.webgl) return 'Without WebGL here, the X, Y and Z fields move the screen the same way.';
+                var a = A(), w2 = wall2();
+                var z = w2 ? a._s3dShownOf(w2, a._s3dPlacementOf(w2)).z : null;
+                if (z == null || mem.z == null || Math.abs(z - mem.z - 304.8) > 0.01) return null;
+                return 'G, Z, 1, Enter: ' + w2.name + ' stepped 1 ft toward the audience in one undo step.';
             }
         },
         // The gentle bends come from the Curve (the riggingCurve step left
@@ -8308,8 +8354,8 @@
                     'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurve',
                     'riggingCorner', 'riggingCornerBars', 'riggingCornerSide',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
-                    's3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera',
-                    's3dFocus', 's3dBars', 's3dCorner',
+                    's3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',
+                    's3dCamera', 's3dFocus', 's3dBars', 's3dCorner',
                     'outputOpen', 'outputChoices',
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
                     'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist',
