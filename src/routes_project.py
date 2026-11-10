@@ -7,6 +7,8 @@ sync_next_layer_id) live there. new_project / restore_project REASSIGN the
 project, so this blueprint sets it through the app module attribute
 (app.current_project = ...) — that keeps app.py's readers and the tests in sync.
 """
+import json
+import re
 import threading
 import time
 
@@ -74,8 +76,10 @@ def get_project():
     # entry point that was missed (2026-09-22: a GET never hands back a
     # screen without a breakout its voltage allows).
     app.normalize_power_breakouts(app.current_project, at='get_project')
+    rev = project_rev()   # before the project is read (project_rev)
     response = jsonify(app.current_project)
     response.headers['X-Project-Unsaved'] = '1' if project_unsaved() else '0'
+    response.headers['X-Project-Rev'] = str(rev)
     return response
 
 
@@ -137,7 +141,8 @@ _launch = {}
 
 
 def reset_launch_state():
-    """A fresh server run: nobody has had the start page yet."""
+    """A fresh server run: nobody has had the start page yet, and no guide
+    is running."""
     with _launch_lock:
         _launch.clear()
         _launch.update({
@@ -145,6 +150,7 @@ def reset_launch_state():
             'seen': 0.0,          # when it last claimed or lost its last socket
             'settled': False,     # the launch's question has been answered
             'sockets': {},        # page id -> live socket ids
+            'guide': None,        # the page running a guide (guide_page)
         })
 
 
@@ -170,13 +176,18 @@ def launch_socket_connected(page, sid):
     if not page or not sid:
         return
     with _launch_lock:
+        back = page == _launch['guide'] and not _launch['sockets'].get(page)
         _launch['sockets'].setdefault(page, set()).add(sid)
+    if back:
+        # the guide's page reconnected: its guide holds the show again
+        _emit_guide_state()
 
 
 def launch_socket_gone(sid):
     """socket disconnect: a page closed, reloaded or lost the network."""
     if not sid:
         return
+    guide_gone = False
     with _launch_lock:
         for page, sids in list(_launch['sockets'].items()):
             if sid in sids:
@@ -185,6 +196,104 @@ def launch_socket_gone(sid):
                     del _launch['sockets'][page]
                     if page == _launch['owner']:
                         _launch['seen'] = time.time()
+                    if page == _launch['guide']:
+                        guide_gone = True
+    if guide_gone:
+        log_event('guide_lock_page_gone')
+        _emit_guide_state()
+
+
+# ── One guide at a time, for every page (2026-11-10) ──
+#
+# A guide runs on a demo show of its own: it stores it on the server, works
+# on it step by step and puts the person's project back when it ends. Every
+# other page follows it onto the demo (app-core _onProjectReplaced) and says
+# so. Until now nothing stopped another page from opening a show, making a
+# new one, or undoing meanwhile: the guide's later saves landed in that
+# show, and its end put the pre-guide project back over it. The lock lived
+# in one browser's storage, so a tablet or another browser never saw it.
+#
+# Now the server knows. A guide's demo show (PUT /api/project?reason=guide)
+# makes its page the guide's page; while that page's socket is up, a show
+# change from any other page is refused with GUIDE_REFUSAL (409, the
+# X-LRD-Guide header says why), and the page puts the server's show back
+# (app-core _guideRefused). That covers a screen's own edit as well as a
+# whole-project replace: the guide's steps read the demo as they built it,
+# and a guide never fails. Its end (reason=guide_end), or the page leaving
+# the guide another way (an open, a New, an undo of its own), lets go. A
+# page that closes, reloads or dies mid-guide lets go with its socket (the
+# same presence the launch page is known by), so the next page, or the
+# guide page's own reload putting the person's project back, goes ahead.
+# A request with no page (a script, a test) is never refused.
+GUIDE_REFUSAL = 'A guide is running in another window. Finish it there first.'
+
+# The show's writes: anything else (the log, Preferences, the panel
+# library, an export, the unsaved flag, the 3D camera) is not the show.
+_SHOW_WRITE = re.compile(r'^/api/(project|layer|canvas|processors|port-assignments|beaches)(/|$)')
+_NOT_SHOW_WRITES = ('/api/project/unsaved', '/api/project/stage3d',
+                    '/api/port-assignments/resolve', '/api/port-assignments/link-check')
+
+
+def guide_page():
+    """The page whose guide holds the show, while its socket is up."""
+    with _launch_lock:
+        page = _launch['guide']
+        return page if page and _launch['sockets'].get(page) else None
+
+
+def _emit_guide_state():
+    """Every page: which page's guide holds the show now (None: none)."""
+    socketio.emit('guide_state', {'page': guide_page()})
+
+
+def _guide_took_the_show(page, reason):
+    """After a whole-project replace stored: the lock follows it."""
+    changed = False
+    with _launch_lock:
+        holder = _launch['guide']
+        if reason == 'guide' and page:
+            changed = holder != page
+            _launch['guide'] = page
+        elif holder and (reason == 'guide_end'
+                         or (page and page == holder and reason in ('open', 'new'))):
+            # the guide ended, or its page left it for another show
+            _launch['guide'] = None
+            changed = True
+    if changed:
+        log_event('guide_lock', {'page': page or None, 'reason': reason})
+        _emit_guide_state()
+
+
+@project_bp.route('/api/guide', methods=['GET'])
+def get_guide():
+    """Which page's guide holds the show (None: no guide is running). A
+    page with a guide's stash to put back asks before it does
+    (quickstart.js recoverStash)."""
+    return jsonify({'page': guide_page()})
+
+
+def is_show_write(path, method):
+    if method in ('GET', 'HEAD', 'OPTIONS'):
+        return False
+    return bool(_SHOW_WRITE.match(path or '')) and path not in _NOT_SHOW_WRITES
+
+
+@project_bp.before_app_request
+def _refuse_while_a_guide_runs_elsewhere():
+    if not is_show_write(request.path, request.method):
+        return None
+    page = request.headers.get('X-LRD-Page')
+    if not page:
+        return None
+    holder = guide_page()
+    if holder is None or holder == page[:64]:
+        return None
+    log_event('guide_lock_refused', {'method': request.method, 'path': request.path,
+                                     'reason': request.args.get('reason')})
+    response = jsonify({'error': GUIDE_REFUSAL, 'guideRunning': True})
+    response.status_code = 409
+    response.headers['X-LRD-Guide'] = 'running'
+    return response
 
 
 def _claim_launch(page, prior, remote_addr):
@@ -276,9 +385,51 @@ def _replace_marker(default):
     return {'reason': reason, 'client': client, 'token': token}
 
 
+_rev_lock = threading.Lock()
+_rev = {'n': 0}
+
+
+def project_rev():
+    """How many times the pages have been sent the whole project. GET
+    /api/project says it (X-Project-Rev), read before the project is, so a
+    page can tell a message its own read already holds from a newer one
+    (app-core _onProjectEdited)."""
+    return _rev['n']
+
+
 def _emit_project_replaced(marker):
-    socketio.emit('project_updated', dict(app.current_project, _replace=dict(
-        marker, unsaved=project_unsaved())))
+    # Numbered and copied in one step, so a higher number never carries an
+    # older project, whichever request thread's message goes out first.
+    with _rev_lock:
+        _rev['n'] += 1
+        payload = dict(app.current_project, _rev=_rev['n'], _replace=dict(
+            marker, unsaved=project_unsaved()))
+        try:
+            payload = json.loads(json.dumps(payload))
+        except (TypeError, ValueError):
+            pass
+    socketio.emit('project_updated', payload)
+
+
+# ── Any other change to the show, told to every page (2026-11-10) ──
+#
+# A screen added, deleted, duplicated or pasted, a processor, a canvas, the
+# port map, a beach, and everything that rides POST /api/project (the
+# Screens list's order, the distros and services, the binder, the pull
+# sheet, the cable stock, the raster a New gives its show) change the show
+# without replacing it. The routes restated the project through the same
+# message with no mark, and every page dropped it: the other pages never
+# saw the change until they reloaded. Now it carries `_replace` with reason
+# 'edit' and the page that made it, and every other page takes it in as
+# the same show (app-core _onProjectEdited). The page that made it already
+# holds it.
+def emit_project_edited():
+    page = ''
+    try:
+        page = request.headers.get('X-LRD-Page') or ''
+    except RuntimeError:
+        page = ''   # outside a request: every page's news
+    _emit_project_replaced({'reason': 'edit', 'client': page[:64], 'token': None})
 
 
 @project_bp.route('/api/project/new', methods=['POST'])
@@ -303,7 +454,9 @@ def new_project():
     set_project_unsaved(False)
     log_event('new_project')
     socketio.emit('project_cleared')
-    _emit_project_replaced(_replace_marker('new'))
+    marker = _replace_marker('new')
+    _emit_project_replaced(marker)
+    _guide_took_the_show(marker['client'], marker['reason'])
     return jsonify(app.current_project)
 
 
@@ -321,6 +474,10 @@ def save_project():
     # Read the way PUT /api/layer/<id> reads ?edited: only true / 1 / yes
     # keep the flag. bool() took the string 'false' as true (2026-09-23).
     keep_pristine = str(data.pop('keep_pristine', False)).lower() in ('1', 'true', 'yes')
+    # What the show was, so the other pages hear of a real change only
+    # (emit_project_edited below): every page's load re-sends a raster the
+    # show already has.
+    before = _show_text(app.current_project)
     # The IDM Locator's live highlight is written by its socket event alone
     # (app.handle_idm_highlight): a save carries whatever copy that client
     # last had, which another client may have moved on since.
@@ -423,7 +580,19 @@ def save_project():
     # ... and its stored highlight to a module the screens still have.
     app.normalize_idm_highlight(app.current_project)
     log_event('save_project', {'name': app.current_project.get('name')})
+    if before is None or _show_text(app.current_project) != before:
+        emit_project_edited()
     return jsonify({'status': 'success'})
+
+
+def _show_text(project):
+    """The show as text, for telling a change from none (is_pristine is the
+    server's own bookkeeping, not the show)."""
+    try:
+        return json.dumps({k: v for k, v in project.items() if k != 'is_pristine'},
+                          sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        return None
 
 
 @project_bp.route('/api/project', methods=['PUT'])
@@ -618,7 +787,9 @@ def restore_project():
         'layers': len(app.current_project.get('layers', [])),
         'layer_names': [l.get('name', '?') for l in app.current_project.get('layers', [])]
     })
-    _emit_project_replaced(_replace_marker('restore'))
+    marker = _replace_marker('restore')
+    _emit_project_replaced(marker)
+    _guide_took_the_show(marker['client'], marker['reason'])
     # Slice 12: surface a one-time migration notice to the client when the
     # incoming file lacked a v0.8 format_version. Carried as a top-level
     # transient field on the response only, never stored on disk because
@@ -719,7 +890,7 @@ def _beach_response(beach=None, created=False, status=200):
     if beach is not None:
         body['beach'] = {'id': beach['id'], 'name': beach['name']}
         body['created'] = bool(created)
-    socketio.emit('project_updated', app.current_project)
+    emit_project_edited()
     return jsonify(body), status
 
 

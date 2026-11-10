@@ -57,7 +57,7 @@
 // comes back; one closed with it up gives it to the next page on the host.
 // Automated browsers ask only when a test sets __lrdStartPage or
 // __lrdStartupPicker.
-import { LEDRasterApp } from './app-core.js';
+import { LEDRasterApp, PAGE_CLIENT_ID } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
 // The per-tab record a reload reads back (_saveReloadPlace).
@@ -77,14 +77,12 @@ class _StartPage {
 
     // This page's id, made once: the server knows the launch page by it,
     // and its socket carries it (app-core.js connectWebSocket).
+    // The one id every request of the page carries too (app-core
+    // PAGE_CLIENT_ID, the X-LRD-Page header), so the server knows a page's
+    // requests and its socket for the same page (a guide's lock lasts as
+    // long as its page's socket, routes_project guide_page).
     launchPageId() {
-        if (!this._launchPageId) {
-            let id = null;
-            try {
-                if (window.crypto && typeof window.crypto.randomUUID === 'function') id = window.crypto.randomUUID();
-            } catch (_) { id = null; }
-            this._launchPageId = id || `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
-        }
+        if (!this._launchPageId) this._launchPageId = PAGE_CLIENT_ID;
         return this._launchPageId;
     }
 

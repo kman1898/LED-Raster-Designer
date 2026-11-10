@@ -61,7 +61,8 @@ def create_canvas():
     app.current_project['active_canvas_id'] = new_id
     app.current_project['is_pristine'] = False
     log_event('canvas_create', {'id': new_id, 'name': canvas['name']})
-    socketio.emit('project_updated', app.current_project)
+    import routes_project
+    routes_project.emit_project_edited()
     return jsonify(app.current_project)
 
 
@@ -91,7 +92,8 @@ def update_canvas(canvas_id):
     # client/test still reading root sees the latest active-canvas values.
     _mirror_active_canvas_to_root(app.current_project)
     log_event('canvas_update', {'id': canvas_id, 'changed': changed})
-    socketio.emit('project_updated', app.current_project)
+    import routes_project
+    routes_project.emit_project_edited()
     return jsonify(app.current_project)
 
 
@@ -173,7 +175,8 @@ def delete_canvas(canvas_id):
         'layers_removed': layers_removed,
         'layers_rehomed': [l.get('id') for l in rehomed],
     })
-    socketio.emit('project_updated', app.current_project)
+    import routes_project
+    routes_project.emit_project_edited()
     return jsonify(app.current_project)
 
 
@@ -288,7 +291,8 @@ def duplicate_canvas(canvas_id):
         'src_id': canvas_id, 'new_id': new_id,
         'layers_cloned': len(src_layers),
     })
-    socketio.emit('project_updated', app.current_project)
+    import routes_project
+    routes_project.emit_project_edited()
     return jsonify(app.current_project)
 
 
@@ -305,7 +309,8 @@ def reorder_canvases():
     app.current_project['canvases'] = [by_id[cid] for cid in canvas_ids]
     app.current_project['is_pristine'] = False
     log_event('canvas_reorder', {'order': canvas_ids})
-    socketio.emit('project_updated', app.current_project)
+    import routes_project
+    routes_project.emit_project_edited()
     return jsonify(app.current_project)
 
 
@@ -316,7 +321,8 @@ def set_active_canvas(canvas_id):
     app.current_project['active_canvas_id'] = canvas_id
     # Note: not flagging pristine, active canvas is a UI cursor, not data.
     log_event('canvas_set_active', {'id': canvas_id})
-    socketio.emit('project_updated', app.current_project)
+    import routes_project
+    routes_project.emit_project_edited()
     return jsonify(app.current_project)
 
 

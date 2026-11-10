@@ -86,15 +86,17 @@ def test_a_replace_tells_every_page_why_and_which_page_asked(client):
         sock.disconnect()
 
 
-def test_a_route_s_own_restatement_carries_no_replace_mark(client):
+def test_a_route_s_own_restatement_is_marked_as_an_edit(client):
     """A processor, a canvas or the port map restate the project through
-    the same message; the pages read those through their own requests."""
+    the same message, marked as an edit of the same show (2026-11-10:
+    every page follows those too; test_live_sync_all.py)."""
     sock = app_module.socketio.test_client(app_module.app)
     try:
         sock.get_received()
-        client.post('/api/canvas', json={'name': 'Canvas 2'})
+        client.post('/api/canvas', json={'name': 'Canvas 2'}, headers={'X-LRD-Page': 'page-a'})
         got = [r for r in sock.get_received() if r['name'] == 'project_updated']
-        assert got and all('_replace' not in r['args'][0] for r in got)
+        assert got and all(r['args'][0]['_replace']['reason'] == 'edit'
+                           and r['args'][0]['_replace']['client'] == 'page-a' for r in got)
     finally:
         sock.disconnect()
 
@@ -493,9 +495,10 @@ def _start_guide(pg, url):
 
 def test_a_page_running_a_guide_is_never_pulled_out_of_it(e2e_server, pw_browser):
     """The guide runs on one device; the other follows it onto its demo
-    show (and says so), and a show it opens meanwhile does not pull the
-    guide's page off the guide. When the guide ends every page and the
-    server agree."""
+    show (and says so). A show it tries to open meanwhile is refused
+    (2026-11-10: one guide at a time on the server, test_live_sync_all.py),
+    so the guide's page stays on the guide. When the guide ends every page
+    and the server agree."""
     _seed_show(e2e_server)
     ctx_guide, ctx_other = _context(pw_browser), _context(pw_browser)
     try:
@@ -505,9 +508,17 @@ def test_a_page_running_a_guide_is_never_pulled_out_of_it(e2e_server, pw_browser
         other.wait_for_function("() => window.app.project.layers.some(l => l.name === 'DEMO WALL')",
                                 timeout=10000)
         assert ('socket_project_replaced', 'guide') in [tuple(x) for x in _log(other)]
-        _open_show(other, 'Opened Show', ['UPSTAGE'])
-        guide.wait_for_function("() => (window.__clog || []).some(e => e.action"
-                                " === 'socket_project_replaced_held_by_guide')", timeout=10000)
+        other.wait_for_function("() => window.app._guideRunningElsewhere()", timeout=10000)
+        opened = other.evaluate("""async () => {
+            const app = window.app;
+            const file = JSON.parse(app.serializeProjectForFile(JSON.parse(JSON.stringify(app.project))));
+            file.name = 'Opened Show';
+            return await app._openProjectData(file, { source: 'file' });
+        }""")
+        assert opened is False
+        other.wait_for_function("() => (window.__clog || []).some(e => e.action"
+                                " === 'guide_elsewhere_refused')", timeout=10000)
+        assert 'DEMO WALL' in _server_names(e2e_server)
         assert guide.evaluate("() => window.QuickStart.state().visible")
         assert 'DEMO WALL' in _names(guide)
         guide.evaluate("() => window.QuickStart.end()")

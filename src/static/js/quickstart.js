@@ -2986,10 +2986,26 @@
             watchHeldStash();
             return Promise.resolve(false);
         }
+        var a = A();
+        // A guide running on a page in another browser or on a tablet
+        // holds the show (routes_project): this stash goes back once it
+        // has ended, never over its demo show.
+        return j('GET', '/api/guide').catch(function () { return null; }).then(function (g) {
+            var mine = a && typeof a.launchPageId === 'function' ? a.launchPageId() : null;
+            if (g && g.page && g.page !== mine) {
+                watchHeldStash();
+                return false;
+            }
+            return putStashBack(w);
+        });
+    }
+    function putStashBack(w) {
+        var a = A();
+        // a guide of this page's own came up while the server was asked
+        if (S.visible || S.saved) return Promise.resolve(false);
         // This page puts it back now: its pulse tells any other page that
         // looks meanwhile to leave it alone.
         startStashBeat();
-        var a = A();
         // The person's Preferences first: the guide ran on the shipped
         // ones (guidePreferences), and their project comes back under
         // their own.
@@ -3233,6 +3249,14 @@
         // overwritten by that restore, and it captured the scratch show as
         // the world to put back, so leaving it lost the person's project.
         if (S.ending) return S.ending.then(function () { return show(name, custom); });
+        // A guide running on another page, in any browser or on a tablet,
+        // holds the show (the server says which page: app-core
+        // _guideRunningElsewhere). One guide at a time.
+        var a0 = A();
+        if (!S.visible && a0 && typeof a0._refuseWhileGuideElsewhere === 'function'
+                && a0._refuseWhileGuideElsewhere('guide')) {
+            return Promise.resolve();
+        }
         // A stash this page does not hold is the person's world from a
         // guide in another tab. Started over it, this guide would stash
         // that guide's scratch show in its place, and the person's project

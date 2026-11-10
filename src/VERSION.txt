@@ -354,6 +354,17 @@ FIXES
   tablet now shows on every other one connected to the app, without a
   reload. They used to keep showing the old show, and a change made there
   could write the old show's screen into the new one.
+- FIX: Every other change now shows on every tab, browser and tablet too:
+  a screen added, duplicated, pasted or deleted, processors, canvases,
+  ports, beaches, the order of the Screens list, distros, the binder, the
+  pull sheet and the cable stock. Changes made on another one are one Undo
+  step of their own, so Undo never takes them back along with your own.
+- FIX: Two shows opened on two tabs at the same moment now leave every tab
+  on the one the app kept, never one each.
+- FIX: While a guide runs, other tabs, browsers and tablets can watch it
+  but not change the show: Open, New, Undo and edits there say "A guide is
+  running in another window. Finish it there first." Closing the guide's
+  tab frees them at once.
 
 v1.6.0 - November 6, 2026
 ----------------------------

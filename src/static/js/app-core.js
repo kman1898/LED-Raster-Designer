@@ -15,10 +15,24 @@ export const NAME_DISPLAY_VALUES = ['screens', 'group', 'both'];
 // (_onProjectReplaced). A layer PUT's echo is told apart the same way
 // (_putLayer's `client`). One id per page load.
 export const PAGE_CLIENT_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+// THIS PAGE'S OWN WRITES TO THE SHOW, ON THEIR WAY (2026-11-10). Another
+// page's change to the show (_onProjectEdited) waits while any is out:
+// taken in then, its copy of the show would not hold this page's own
+// change yet, and the change's echo is this page's own, so nothing would
+// bring it back. Once they have landed the page reads the show again. The
+// same routes as the server's (routes_project is_show_write); a read-only
+// POST is not a write.
+const SHOW_WRITE = /^\/api\/(project|layer|canvas|processors|port-assignments|beaches)(\/|$)/;
+const NOT_SHOW_WRITES = new Set(['/api/project/unsaved', '/api/project/stage3d',
+    '/api/port-assignments/resolve', '/api/port-assignments/link-check']);
+export const LIVE_WRITES = { out: 0, onSettled: null, onGuideRefused: null };
+
 (function tagOwnRequests() {
     if (typeof window === 'undefined' || typeof window.fetch !== 'function' || window.fetch.__lrdTagged) return;
     const native = window.fetch;
     const tagged = function (input, init) {
+        let write = false;
         try {
             const url = typeof input === 'string' ? input : (input instanceof URL ? input.href : null);
             if (url !== null) {
@@ -27,20 +41,50 @@ export const PAGE_CLIENT_ID = Math.random().toString(36).slice(2) + Date.now().t
                     const headers = new Headers((init && init.headers) || undefined);
                     headers.set('X-LRD-Page', PAGE_CLIENT_ID);
                     init = Object.assign({}, init, { headers });
+                    const method = String((init && init.method) || 'GET').toUpperCase();
+                    write = method !== 'GET' && method !== 'HEAD'
+                        && SHOW_WRITE.test(at.pathname) && !NOT_SHOW_WRITES.has(at.pathname);
                 }
             }
         } catch (_) { /* sent as it was */ }
-        return native.call(this, input, init);
+        const sent = native.call(this, input, init);
+        if (!write) return sent;
+        LIVE_WRITES.out += 1;
+        const landed = () => {
+            LIVE_WRITES.out = Math.max(0, LIVE_WRITES.out - 1);
+            // after the caller's own handling of its answer
+            if (LIVE_WRITES.out === 0) {
+                setTimeout(() => {
+                    if (LIVE_WRITES.out === 0 && typeof LIVE_WRITES.onSettled === 'function') LIVE_WRITES.onSettled();
+                }, 0);
+            }
+        };
+        return sent.then((res) => {
+            landed();
+            // refused while a guide runs on another page (routes_project)
+            if (res && res.status === 409 && res.headers.get('X-LRD-Guide') === 'running'
+                    && typeof LIVE_WRITES.onGuideRefused === 'function') {
+                try { LIVE_WRITES.onGuideRefused(pathOf(input)); } catch (_) { /* said once */ }
+            }
+            return res;
+        }, (err) => { landed(); throw err; });
     };
+    function pathOf(input) {
+        try { return new URL(typeof input === 'string' ? input : input.href, window.location.href).pathname; } catch (_) { return null; }
+    }
     tagged.__lrdTagged = true;
     window.fetch = tagged;
 })();
 
 // A replace that leaves the page on the same show (an undo, a redo, a group
-// change): the selection follows its ids, the undo history and a field
-// being typed in stay. Any other (a show opened, New, a guide's show) is a
-// different show: the page lands on it as a load would.
-const SAME_SHOW_REPLACES = new Set(['undo', 'redo', 'group']);
+// change, any other change another page made, or this page putting back
+// the show a refused change was made on): the selection follows its ids,
+// the undo history and a field being typed in stay. Any other (a show
+// opened, New, a guide's show) is a different show: the page lands on it
+// as a load would.
+const SAME_SHOW_REPLACES = new Set(['undo', 'redo', 'group', 'edit', 'resync']);
+// The undo step another page's changes make on this page (_recordForeignStep).
+export const FOREIGN_STEP = 'Changes From Another Page';
 
 export class LEDRasterApp {
     constructor() {
@@ -747,9 +791,12 @@ export class LEDRasterApp {
     connectWebSocket() {
         // The page's id goes with the socket: the server lets a launch page
         // closed with its start page up give the start page to the next
-        // page once this socket is gone (app-start-page.js _claimLaunchPage).
-        const page = typeof this.launchPageId === 'function' ? this.launchPageId() : '';
+        // page once this socket is gone (app-start-page.js _claimLaunchPage),
+        // and a guide running here holds the show only while it is up
+        // (routes_project guide_page). The same id every request carries.
+        const page = typeof this.launchPageId === 'function' ? this.launchPageId() : PAGE_CLIENT_ID;
         this.socket = page ? io({ query: { page } }) : io();
+        this._wireLiveWrites();
         this.socket.on('connect', () => {
             this._socketConnects = (this._socketConnects || 0) + 1;
             document.getElementById('status-message').textContent = 'Connected';
@@ -862,15 +909,22 @@ export class LEDRasterApp {
             if (layer) delete layer._echo;
             this._onSocketLayerUpdated(layer, echo);
         });
-        // A whole project replaced (routes_project _emit_project_replaced).
-        // The same message without `_replace` is a route's own restatement
-        // of the project (a processor, a canvas, the port map); the page
-        // reads those through its own requests.
+        // A whole project replaced (routes_project _emit_project_replaced),
+        // or any other change to the show (emit_project_edited: reason
+        // 'edit'). `_rev` numbers the message (routes_project project_rev).
         this.socket.on('project_updated', (data) => {
             const mark = data && data._replace;
             if (!mark) return;
             delete data._replace;
+            if (typeof data._rev === 'number') mark.rev = data._rev;
+            delete data._rev;
             this._onProjectReplaced(data, mark);
+        });
+        // Which page's guide holds the show (routes_project guide_page):
+        // while it is another page's, this one changes nothing on it.
+        this.socket.on('guide_state', (data) => {
+            this._guidePage = data && typeof data.page === 'string' ? data.page : null;
+            sendClientLog('guide_state', { elsewhere: this._guideRunningElsewhere() });
         });
         this.socket.on('preferences_updated', (prefs) => {
             console.log('WEBSOCKET preferences_updated received');
@@ -949,8 +1003,15 @@ export class LEDRasterApp {
                 return;
             }
         }
+        // Another page's save of a screen (its PUT names the page): a
+        // change made elsewhere, kept as one undo step here
+        // (_recordForeignStep), after any step of this page's own still
+        // waiting.
+        const otherPage = !own && !!(echo && echo.client);
+        if (otherPage && typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
         sendClientLog('socket_layer_updated', { id: layer.id });
         this.applyServerLayer(layer, 'socket_layer_updated', { ownEcho: own });
+        if (otherPage) this._recordForeignStep();
         this.updateUI();
     }
 
@@ -977,6 +1038,21 @@ export class LEDRasterApp {
     _onProjectReplaced(project, mark) {
         if (!project || !Array.isArray(project.layers) || !mark) return;
         const reason = mark.reason || 'restore';
+        // Another change to the show: its own way in (_onProjectEdited).
+        if (reason === 'edit') {
+            if (mark.client && mark.client === PAGE_CLIENT_ID) {
+                sendClientLog('socket_project_edited_own');
+                return;
+            }
+            this._onProjectEdited(project, mark);
+            return;
+        }
+        // A message older than the show this page last took in whole.
+        if (reason !== 'resync' && typeof mark.rev === 'number' && mark.rev <= (this._syncRev || 0)
+                && !(mark.client && mark.client === PAGE_CLIENT_ID)) {
+            sendClientLog('socket_project_replaced_older', { reason, rev: mark.rev, have: this._syncRev || 0 });
+            return;
+        }
         if (mark.client && mark.client === PAGE_CLIENT_ID) {
             // This page's own request: it holds the project already. Unless
             // another page's replace was taken in after the request went
@@ -1011,6 +1087,12 @@ export class LEDRasterApp {
             return;
         }
         this._guideShowReplaced = false;
+        // The server's show put back over a change it refused: the same
+        // show, nothing of this page's still on its way.
+        if (reason === 'resync') {
+            this._adoptReplacedProject(project, mark);
+            return;
+        }
         this._foreignReplaces = (this._foreignReplaces || 0) + 1;
         // From here no save of the show going reaches the server, where it
         // would write its screens into the new show under the same ids
@@ -1125,11 +1207,26 @@ export class LEDRasterApp {
         if (typed !== null && document.activeElement === active) active.value = typed;
         if (!sameShow && window.canvasRenderer) window.canvasRenderer.fitToView();
         else if (window.canvasRenderer) window.canvasRenderer.render();
+        if (typeof mark.rev === 'number') this._syncRev = Math.max(this._syncRev || 0, mark.rev);
+        // The processors and the port map are read through their own
+        // routes (resolved counts, labels): read again when they changed.
+        const hardware = (p) => JSON.stringify([p && p.processors, p && p.port_assignments,
+            p && p.snakes, p && p.fiberCables, p && p.network]);
+        if (hardware(before) !== hardware(this.project) && typeof this.refreshProcessors === 'function') {
+            this.refreshProcessors();
+        }
+        // Another page's change to this show: one undo step here, so an
+        // Undo on this page never takes it back together with this page's
+        // own last change, and a Redo brings it back.
+        // The server's "unsaved" is the show's (the page that changed it
+        // said so); this page does not say it again.
+        if (sameShow && typeof mark.unsaved === 'boolean') this._serverUnsaved = mark.unsaved;
+        if (sameShow && reason !== 'resync') this._recordForeignStep();
         // Following another window's guide onto its demo show: said once.
         if (reason === 'guide' && !this._followingGuide && typeof this._toast === 'function') {
             this._toast('A guide is running in another window. Your show comes back when the guide ends.', false, 6000);
         }
-        this._followingGuide = reason === 'guide';
+        if (reason !== 'edit' && reason !== 'resync') this._followingGuide = reason === 'guide';
         sendClientLog('socket_project_replaced', {
             reason,
             from: mark.client || null,
@@ -1168,6 +1265,186 @@ export class LEDRasterApp {
             this.closePresetPicker();
         }
         this._startupTargetId = null;
+    }
+
+    // ── ANY OTHER CHANGE TO THE SHOW (2026-11-10) ──
+    //
+    // A screen added or deleted (Add, Duplicate, Paste, a preset), a
+    // processor, a canvas, the port map, a beach, the Screens list's order,
+    // the distros, the binder, the pull sheet, the cable stock: the server
+    // sends every page the show as it now stands (routes_project
+    // emit_project_edited), and every page but the one that made the
+    // change takes it in as the same show (_adoptReplacedProject): its
+    // selection by id, its tab, a field being typed in, its history with
+    // one more step. Quietly: nothing is said.
+    _onProjectEdited(project, mark) {
+        if (!this._initialLoadComplete) {
+            this._replacedDuringLoad = true;
+            sendClientLog('socket_project_replaced_during_load', { reason: 'edit' });
+            return;
+        }
+        // A newer show already taken in (a read after this page's own
+        // writes, or a later message) holds this one.
+        if (typeof mark.rev === 'number' && mark.rev <= (this._syncRev || 0)) {
+            sendClientLog('socket_project_edited_older', { rev: mark.rev, have: this._syncRev || 0 });
+            return;
+        }
+        // A guide on this page works on its demo show; no other page can
+        // change it meanwhile (the server refuses them).
+        if (typeof this._guideHoldsWindow === 'function' && this._guideHoldsWindow()) {
+            sendClientLog('socket_project_edited_held_by_guide', { from: mark.client || null });
+            return;
+        }
+        // This page's own change still on its way: this copy of the show
+        // does not hold it yet. Read again once it has landed.
+        if (LIVE_WRITES.out > 0 || this._restorePutPending) {
+            this._editWaiting = true;
+            sendClientLog('socket_project_edited_waits_for_own', { out: LIVE_WRITES.out });
+            return;
+        }
+        // A hand on a gesture keeps the show under it until it lets go.
+        if (this._holdForGesture('project_edited', () => this._onProjectEdited(project, mark))) {
+            sendClientLog('socket_project_edited_held_for_gesture', {});
+            return;
+        }
+        this._adoptReplacedProject(project, mark);
+    }
+
+    _wireLiveWrites() {
+        LIVE_WRITES.onSettled = () => this._liveWritesSettled();
+        LIVE_WRITES.onGuideRefused = (path) => this._guideRefused(path);
+    }
+
+    // Every write of this page's own has landed: the show is read again
+    // when another page's change waited for them, or a change of this
+    // page's was refused (the server's show goes back on the page).
+    _liveWritesSettled() {
+        if (!this._editWaiting && !this._resyncWanted) return;
+        if (this._liveReread) return;
+        const resync = !!this._resyncWanted;
+        this._editWaiting = false;
+        this._resyncWanted = false;
+        this._liveReread = Promise.resolve(typeof this._layerSavesSettled === 'function'
+            ? this._layerSavesSettled() : null)
+            .then(() => fetch('/api/project'))
+            .then(res => {
+                const rev = Number(res.headers.get('X-Project-Rev'));
+                const unsaved = res.headers.get('X-Project-Unsaved') === '1';
+                return res.json().then(p => ({ p, rev, unsaved }));
+            })
+            .then(({ p, rev, unsaved }) => {
+                this._liveReread = null;
+                const mark = { reason: resync ? 'resync' : 'edit', client: '', token: null, unsaved };
+                if (Number.isFinite(rev)) mark.rev = rev;
+                // something new went out meanwhile: read again after it
+                if (LIVE_WRITES.out > 0) {
+                    if (resync) this._resyncWanted = true; else this._editWaiting = true;
+                    return;
+                }
+                this._onProjectReplaced(p, mark);
+            })
+            .catch((err) => {
+                this._liveReread = null;
+                sendClientLog('live_reread_failed', { error: String(err && err.message || err) });
+            });
+    }
+
+    // Which page's guide holds the show, when it is not this one.
+    _guideRunningElsewhere() {
+        return !!(this._guidePage && this._guidePage !== PAGE_CLIENT_ID);
+    }
+
+    // Asked before a change that would replace the show (Open, New, Undo,
+    // Redo, a guide): with a guide running on another page, the change is
+    // not made and the person is told where the guide is.
+    _refuseWhileGuideElsewhere(what) {
+        if (!this._guideRunningElsewhere()) return false;
+        sendClientLog('guide_elsewhere_refused', { what: what || null });
+        this._sayGuideElsewhere();
+        return true;
+    }
+
+    _sayGuideElsewhere() {
+        const now = Date.now();
+        if (this._guideSaidAt && now - this._guideSaidAt < 3000) return;
+        this._guideSaidAt = now;
+        if (typeof this._toast === 'function') {
+            this._toast('A guide is running in another window. Finish it there first.', true, 5000);
+        }
+    }
+
+    // The server refused a change of this page's: a guide runs on another
+    // page (routes_project). Said once, and the show as the server holds
+    // it goes back on the page once this page's writes have landed.
+    _guideRefused(path) {
+        sendClientLog('guide_elsewhere_server_refused', { path: path || null });
+        this._sayGuideElsewhere();
+        this._resyncWanted = true;
+        if (LIVE_WRITES.out === 0) setTimeout(() => this._liveWritesSettled(), 0);
+    }
+
+    // CHANGES FROM ANOTHER PAGE, AS ONE UNDO STEP (2026-11-10). Every page
+    // keeps its own history of whole-show snapshots. A change made on
+    // another page and left out of it was lost to an Undo here: the step
+    // before held the show without it, and the Redo after did not bring it
+    // back. So the changes other pages make between two of this page's own
+    // steps are one step of their own: Undo here takes them back (on every
+    // page), Redo brings them back. Taken straight, never through
+    // saveState, whose commit passes would write back to the server.
+    _recordForeignStep() {
+        if (!Array.isArray(this.history) || this.historyIndex < 0 || !this.project) return;
+        const json = JSON.stringify(this.project, this._snapshotReplacer);
+        // compared as the server would write them (key order aside)
+        const now = this._canonicalJson(JSON.parse(json));
+        const same = (p) => !!p && this._canonicalJson(p) === now;
+        const tip = this.history[this.historyIndex];
+        if (tip && same(tip.project)) return;
+        const atEnd = this.historyIndex === this.history.length - 1;
+        // The step before the other pages' changes: when they come back to
+        // it (another page's undo), the step goes again. Read loosely: the
+        // server's copy fills defaults the page's own load did not have
+        // (a screen's `locked: false`), and those are no change.
+        const loose = (v) => {
+            const walk = (x) => {
+                if (Array.isArray(x)) return '[' + x.map(walk).join(',') + ']';
+                if (x && typeof x === 'object') {
+                    const keys = Object.keys(x).filter(k => !(k.length > 1 && k.charAt(0) === '_')
+                        && !(x[k] === undefined || x[k] === null || x[k] === false || x[k] === ''
+                            || (Array.isArray(x[k]) && !x[k].length)
+                            || (x[k] && typeof x[k] === 'object' && !Array.isArray(x[k]) && !Object.keys(x[k]).length)))
+                        .sort();
+                    return '{' + keys.map(k => JSON.stringify(k) + ':' + walk(x[k])).join(',') + '}';
+                }
+                return JSON.stringify(x);
+            };
+            return walk(v);
+        };
+        if (tip && tip.action === FOREIGN_STEP && atEnd && this.historyIndex > 0
+                && loose(this.history[this.historyIndex - 1].project) === loose(JSON.parse(json))) {
+            this.history.pop();
+            this.historyIndex -= 1;
+            sendClientLog('foreign_step_undone_elsewhere', { historyIndex: this.historyIndex });
+            return;
+        }
+        const snapshot = JSON.parse(json);
+        if (typeof this._shareBinderLogo === 'function') this._shareBinderLogo(snapshot, tip ? tip.project : null);
+        const state = {
+            action: FOREIGN_STEP,
+            project: snapshot,
+            timestamp: Date.now(),
+            redraw: typeof this._powerRedrawRecord === 'function' ? this._powerRedrawRecord() : null,
+            quickPalette: typeof this._qpHistoryRecord === 'function' ? this._qpHistoryRecord() : null,
+        };
+        if (tip && tip.action === FOREIGN_STEP && atEnd) {
+            // more from other pages since: the same step
+            this.history[this.historyIndex] = state;
+        } else {
+            if (!atEnd) this.history = this.history.slice(0, this.historyIndex + 1);
+            this.history.push(state);
+            if (this.history.length > this.maxHistory) this.history.shift();
+            else this.historyIndex++;
+        }
+        sendClientLog('foreign_step', { historyIndex: this.historyIndex, historyLength: this.history.length });
     }
 
     // Extract client-side only properties from a layer.
@@ -1374,6 +1651,10 @@ export class LEDRasterApp {
                 // keeps the answer: app-project-io markProjectClean).
                 this._unsavedCarried = res.headers.get('X-Project-Unsaved') === '1';
                 this._serverUnsaved = this._unsavedCarried;
+                // the newest message to every page this read holds
+                // (routes_project project_rev)
+                const rev = Number(res.headers.get('X-Project-Rev'));
+                if (Number.isFinite(rev)) this._syncRev = Math.max(this._syncRev || 0, rev);
                 return res.json();
             })
             .then(data => {
@@ -1428,9 +1709,13 @@ export class LEDRasterApp {
                 // its way: read it again and follow it (_onProjectReplaced).
                 if (this._replacedDuringLoad) {
                     this._replacedDuringLoad = false;
-                    fetch('/api/project').then(r => r.json()).then(p => {
+                    fetch('/api/project').then(r => {
+                        const rev = Number(r.headers.get('X-Project-Rev'));
+                        return r.json().then(p => ({ p, rev }));
+                    }).then(({ p, rev }) => {
                         const unsaved = this._serverUnsaved === true;
                         this._onProjectReplaced(p, { reason: 'restore', client: '', token: null, unsaved });
+                        if (Number.isFinite(rev)) this._syncRev = Math.max(this._syncRev || 0, rev);
                     }).catch(() => { /* the next replace brings it */ });
                 }
                 // The carried answer was used by the reset above (or the
@@ -1614,12 +1899,26 @@ export class LEDRasterApp {
     }
 
     createNewProject() {
+        if (this._refuseWhileGuideElsewhere('new')) return;
         this.resetApplicationState();
-        this._layerSavesSettled().then(() => fetch(`/api/project/new?${this._replaceQuery('new')}`, {
-            method: 'POST'
-        }))
+        // Another page's replace taken in after this request went: the
+        // server stored that one after this one, and this page follows it
+        // already (_onProjectReplaced). This answer is let go.
+        let replacesAtSend = null;
+        this._layerSavesSettled().then(() => {
+            replacesAtSend = this._foreignReplaces || 0;
+            return fetch(`/api/project/new?${this._replaceQuery('new')}`, { method: 'POST' });
+        })
             .then(res => res.json())
             .then(data => {
+                if ((this._foreignReplaces || 0) !== replacesAtSend) {
+                    sendClientLog('new_answer_after_other_page', {});
+                    return;
+                }
+                if (!data || !Array.isArray(data.layers)) {
+                    sendClientLog('new_project_refused', { error: data && data.error ? data.error : null });
+                    return;
+                }
                 this.project = data;
                 this.dedupeProjectLayers('new_project');
                 this.syncRasterFromProject();

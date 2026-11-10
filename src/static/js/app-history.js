@@ -221,6 +221,8 @@ class _History {
         // cut the redo off. Held, it plays once the delete has its step
         // (1.7.0 CI, caught on a Linux runner with the page's log).
         if (this._holdHistoryKey('undo')) return;
+        // A guide running on another page holds the show (routes_project).
+        if (typeof this._refuseWhileGuideElsewhere === 'function' && this._refuseWhileGuideElsewhere('undo')) return;
         // Land any in-flight debounced snapshot first, so Ctrl+Z steps back
         // over the edit the user just made instead of skipping past it (and
         // so the timer can't overwrite the restored state a moment later).
@@ -506,6 +508,7 @@ class _History {
 
     redo() {
         if (this._holdHistoryKey('redo')) return;
+        if (typeof this._refuseWhileGuideElsewhere === 'function' && this._refuseWhileGuideElsewhere('redo')) return;
         this._flushPendingSaveState();
 
         if (this.historyIndex < this.history.length - 1) {

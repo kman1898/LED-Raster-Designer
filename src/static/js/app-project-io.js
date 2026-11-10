@@ -241,6 +241,7 @@ class _ProjectIo {
     // File > New and the toolbar's New: asks about unsaved changes, then
     // makes the new project.
     async requestNewProject() {
+        if (typeof this._refuseWhileGuideElsewhere === 'function' && this._refuseWhileGuideElsewhere('new')) return false;
         if (!(await this.confirmUnsavedChanges('new'))) return false;
         // A new project answers the launch's question on every page
         // (app-start-page.js _settleLaunch).
@@ -256,6 +257,7 @@ class _ProjectIo {
     // is not known then, and Recent keeps a copy of the show instead.
     // Either way the show opens through _openProjectData.
     async loadProjectFromFile() {
+        if (typeof this._refuseWhileGuideElsewhere === 'function' && this._refuseWhileGuideElsewhere('open')) return false;
         if (!(await this.confirmUnsavedChanges('open'))) return false;
         sendClientLog('open_file_dialog_requested');
         // A client already known to be remote goes straight to the
@@ -340,6 +342,9 @@ class _ProjectIo {
     _openProjectData(projectData, opts = {}) {
         const source = opts.source || 'file';
         const recent = source === 'recent';
+        // A guide running on another page holds the show (routes_project).
+        if (typeof this._refuseWhileGuideElsewhere === 'function'
+                && this._refuseWhileGuideElsewhere('open')) return Promise.resolve(false);
         try {
             sendClientLog('load_project_file_start', {
                 name: projectData.name || 'Unnamed',
@@ -464,13 +469,28 @@ class _ProjectIo {
             window.canvasRenderer.fitToView();
 
             const loaded = this.project;
-            return this._layerSavesSettled().then(() => fetch(`/api/project?${this._replaceQuery('open')}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(loaded)
-            }))
+            // Another page's replace taken in after this request went (a
+            // show opened, New, an undo there within a moment of this one):
+            // the page already follows what the server stored last
+            // (app-core _onProjectReplaced, which takes this page's own
+            // echo too when the server stored this one after the other).
+            // This answer is let go, as an undo's or a group change's is.
+            let replacesAtSend = null;
+            return this._layerSavesSettled().then(() => {
+                replacesAtSend = this._foreignReplaces || 0;
+                return fetch(`/api/project?${this._replaceQuery('open')}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(loaded)
+                });
+            })
                 .then(res => res.json())
                 .then(data => {
+                    if ((this._foreignReplaces || 0) !== replacesAtSend) {
+                        this._projectOpening = false;
+                        sendClientLog('open_answer_after_other_page', { source });
+                        return false;
+                    }
                     if (!data || !Array.isArray(data.layers)) {
                         throw new Error('Invalid project data returned from server');
                     }
