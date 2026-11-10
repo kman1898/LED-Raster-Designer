@@ -96,6 +96,18 @@ RESET_JS = """async (specs) => {
         if (s.extra) await j('PUT', `/api/layer/${made.id}`, s.extra);
     }
     app.project = await j('GET', '/api/project');
+    // The Curve lays only a panel's lock positions (app-curve.js): each
+    // screen's panel locks at the angles its spec's Curve names, both ways,
+    // else at the Curve's first defaults (2.5, 5, 7.5 and 10 either way).
+    const locks = {};
+    specs.forEach((s, i) => {
+        const l = app.project.layers.find(x => x.id === ids[i]);
+        const c = (s.extra && s.extra.riggingCurve) || {};
+        const mags = Array.isArray(c.angles) ? c.angles : [2.5, 5, 7.5, 10];
+        if (l) locks[app.curveLockKey(l)] = [...mags.map(a => -a), 0, ...mags];
+    });
+    await j('POST', '/api/project', {panelCurveLocks: locks});
+    app.project.panelCurveLocks = locks;
     app.dedupeProjectLayers('corners_reset');
     if (typeof app._flushPendingSaveState === 'function') app._flushPendingSaveState();
     app.resetHistory('Corners Reset');

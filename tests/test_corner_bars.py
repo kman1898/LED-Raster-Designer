@@ -202,7 +202,8 @@ SIDES_JS = """async ([id, sides]) => {
         c.panel.count = n;
         c.panel.width_m = 0.5 * unit;
         c.hardware.footer_widths_m = sizes.map(k => k * 0.5);
-        c.hardware.detents_deg = [...s.angles];
+        // the panel's lock positions that bend this way (app-curve.js)
+        c.hardware.detents_deg = m.locksForBend(a.curveLocksOf(l).list, s.bend);
         c.target = { mode: s.entry === 'degrees' ? 'sweep_deg' : 'percent_circle', value: s.value, radius_ref: 'face' };
         c.direction = s.bend;
         c.build_from = from || s.from;

@@ -60,7 +60,7 @@ def page(e2e_server, pw_browser):
     context.close()
 
 
-RESET_JS = """async (specs) => {
+RESET_JS = """async ([specs, locks]) => {
     const app = window.app;
     // The last test's writes land first: a layer PUT still on its way
     // would otherwise reach the server after this reset and write an old
@@ -93,19 +93,32 @@ RESET_JS = """async (specs) => {
         ids.push(made.id);
     }
     app.project = await (await fetch('/api/project')).json();
+    // The Curve lays only a panel's lock positions (app-curve.js): every
+    // screen's panel locks at `locks` (none when null).
+    const map = {};
+    if (locks) for (const id of ids) map[app.curveLockKey(app.project.layers.find(l => l.id === id))] = locks;
+    await fetch('/api/project', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({panelCurveLocks: map}),
+    });
+    app.project.panelCurveLocks = map;
     app.dedupeProjectLayers('curve_test_reset');
     if (typeof app._flushPendingSaveState === 'function') app._flushPendingSaveState();
     app.resetHistory('Curve Test Reset');
-    app.selectLayer(app.project.layers.find(l => l.id === ids[0]));
+    if (ids.length) app.selectLayer(app.project.layers.find(l => l.id === ids[0]));
     app.updateUI();
     return ids;
 }"""
 
 WALL = {'name': 'WALL', 'columns': 16, 'rows': 2, 'offset_x': 0, 'offset_y': 0}
 
+# The lock positions the test walls' panel sets at: the Curve's first
+# defaults, 2.5, 5, 7.5 and 10, either way.
+LOCKS = [-10, -7.5, -5, -2.5, 0, 2.5, 5, 7.5, 10]
 
-def reset(page, specs=(WALL,)):
-    ids = page.evaluate(RESET_JS, list(specs))
+
+def reset(page, specs=(WALL,), locks=LOCKS):
+    ids = page.evaluate(RESET_JS, [list(specs), locks])
     page.wait_for_timeout(300)
     return ids
 
@@ -164,6 +177,22 @@ def act(page, fn):
     """One Curve edit, then the wait for it to land."""
     fn()
     idle(page)
+
+
+def edit_locks(page, text):
+    """Edit on the Curve's lock positions: every position but flat taken
+    off, `text` typed, and Save."""
+    page.click('#rigging-curve-lock-edit')
+    remove = page.locator('#rigging-curve-lock-draft [data-remove-lock]')
+    while remove.count():
+        remove.first.click()
+    page.fill('#rigging-curve-lock-input', text)
+    page.click('#rigging-curve-lock-save')
+
+
+def locks_of(page, layer_id):
+    """The lock positions the screen's panel has in the show."""
+    return page.evaluate("(id) => window.app.curveLocksOf(window.app.project.layers.find(l => l.id === id)).list", layer_id)
 
 
 def toast_says(page, text):
@@ -236,11 +265,10 @@ def test_each_edit_lays_it_again_and_undoes_one_step_at_a_time(page):
     assert joints_of(deg) == joints_of(even)
     assert page.input_value('#rigging-curve-value') == '72'
 
-    page.fill('#rigging-curve-angles', '5')
-    act(page, lambda: page.press('#rigging-curve-angles', 'Enter'))
+    act(page, lambda: edit_locks(page, '-5, 5'))
     five = layer(page, ids[0])
-    assert five['riggingCurve']['angles'] == [5]
-    assert set(joints_of(five)) <= {0, -5}
+    assert locks_of(page, ids[0]) == [-5, 0, 5]
+    assert set(joints_of(five)) <= {0, -5} and -5 in joints_of(five)
 
     # the lit sizes are the stock: laid again, the sizes in the same step
     act(page, lambda: page.click('#rigging-size-picker .rigging-size-btn[data-size="2"]'))
@@ -254,7 +282,7 @@ def test_each_edit_lays_it_again_and_undoes_one_step_at_a_time(page):
     # each undo takes back one of them, in order
     page.evaluate('window.app.undo()')
     back = settled(page, lambda: layer(page, ids[0]), lambda l: l['riggingBars'] != [2] * 8)
-    assert back['riggingCurve']['angles'] == [5] and 1 in back['riggingSizes']
+    assert locks_of(page, ids[0]) == [-5, 0, 5] and 1 in back['riggingSizes']
     for _ in range(5):
         page.evaluate('window.app.undo()')
         page.wait_for_timeout(250)
@@ -904,11 +932,15 @@ def test_settings_edited_with_the_curve_off_are_kept_and_lay_nothing(page):
     assert not lay.get('stage3d') and not lay.get('riggingBars')
     assert history_len(page) == n + 1
     assert page.evaluate('document.activeElement && document.activeElement !== document.body')
-    page.fill('#rigging-curve-angles', '5 and 10')
-    page.press('#rigging-curve-angles', 'Tab')
-    assert settled(page, lambda: layer(page, ids[0])['riggingCurve']['angles'], lambda a: a == [5, 10]) == [5, 10]
-    srv = settled(page, lambda: served(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('angles') == [5, 10])
-    assert srv['riggingCurve']['value'] == 30 and srv['riggingCurve']['on'] is False
+    # the panel's lock positions save with the show, one step, nothing laid
+    edit_locks(page, '-10 -5 5 10')
+    assert settled(page, lambda: locks_of(page, ids[0]), lambda a: a == [-10, -5, 0, 5, 10]) == [-10, -5, 0, 5, 10]
+    srv = settled(page, lambda: page.evaluate("async () => (await (await fetch('/api/project')).json()).panelCurveLocks"),
+                  lambda m: m and list(m.values()) == [[-10, -5, 0, 5, 10]])
+    assert list(srv.values()) == [[-10, -5, 0, 5, 10]]
+    assert served(page, ids[0])['riggingCurve']['value'] == 30 and served(page, ids[0])['riggingCurve']['on'] is False
+    assert history_len(page) == n + 2
+    assert not layer(page, ids[0]).get('stage3d')
     # ticking it lays the curve from those settings
     act(page, lambda: page.check('#rigging-curve-on'))
     on = layer(page, ids[0])
@@ -923,15 +955,12 @@ def test_the_curves_angles_over_15_reach_3d_and_the_obj_unchanged(page):
     joint to 15, so the 3D tab and the OBJ drew a shallower wall than the
     one the crew builds. The joints the Curve lays are stored, built and
     exported exactly as laid."""
-    ids = reset(page, [dict(WALL, columns=9)])
+    ids = reset(page, [dict(WALL, columns=9)], locks=[-20, 0, 20])
     open_rigging(page)
     singles_only(page)
-    page.fill('#rigging-curve-angles', '20')
-    page.press('#rigging-curve-angles', 'Tab')
     page.fill('#rigging-curve-value', '40')
     page.press('#rigging-curve-value', 'Tab')
-    settled(page, lambda: layer(page, ids[0])['riggingCurve'],
-            lambda c: c and c.get('value') == 40 and c.get('angles') == [20])
+    settled(page, lambda: layer(page, ids[0])['riggingCurve'], lambda c: c and c.get('value') == 40)
     act(page, lambda: page.check('#rigging-curve-on'))
     want = expected(page, ids[0])
     assert want['errors'] == []
@@ -958,33 +987,39 @@ def test_the_curves_angles_over_15_reach_3d_and_the_obj_unchanged(page):
     assert page.errors == []
 
 
-def test_lock_angles_past_20_are_refused_and_the_field_goes_back(page):
-    """The owner, 2026-11-10: "lets limit to 20". 20 is taken; 20.5 and 25
-    are refused, said, and the field shows what it held."""
+def test_lock_positions_past_20_are_refused_and_the_list_stays(page):
+    """The owner, 2026-11-10: "lets limit to 20". 20 either way is taken;
+    20.5 and -25 are refused, said, and the list keeps what it held."""
     ids = reset(page)
     open_rigging(page)
     singles_only(page)
-    page.fill('#rigging-curve-angles', '5, 20')
-    page.press('#rigging-curve-angles', 'Tab')
-    assert settled(page, lambda: layer(page, ids[0])['riggingCurve']['angles'], lambda a: a == [5, 20]) == [5, 20]
-    for typed in ('20.5', '10, 25'):
+    edit_locks(page, '-5, 20')
+    assert settled(page, lambda: locks_of(page, ids[0]), lambda a: a == [-5, 0, 20]) == [-5, 0, 20]
+    page.click('#rigging-curve-lock-edit')
+    draft = "[...document.querySelectorAll('#rigging-curve-lock-draft [data-draft-lock]')].map(e => Number(e.dataset.draftLock))"
+    for typed in ('20.5', '10, -25'):
         n = history_len(page)
-        page.fill('#rigging-curve-angles', typed)
-        page.press('#rigging-curve-angles', 'Tab')
+        page.fill('#rigging-curve-lock-input', typed)
+        page.click('#rigging-curve-lock-add')
         said = toast_says(page, 'past the 20° a curve lock bends')
-        assert 'Type angles up to 20°' in said, said
-        assert page.input_value('#rigging-curve-angles') == '5, 20'
-        assert layer(page, ids[0])['riggingCurve']['angles'] == [5, 20]
+        assert 'Type positions from -20° to +20°' in said, said
+        assert page.evaluate(draft) == [-5, 0, 20]
+        assert page.input_value('#rigging-curve-lock-input') == typed
         assert history_len(page) == n
+    # Enter adds what is typed, and Cancel keeps the list as saved
+    page.fill('#rigging-curve-lock-input', '-20')
+    page.press('#rigging-curve-lock-input', 'Enter')
+    assert page.evaluate(draft) == [-20, -5, 0, 20]
+    page.click('#rigging-curve-lock-cancel')
+    assert not page.is_visible('#rigging-curve-lock-editor')
+    assert locks_of(page, ids[0]) == [-5, 0, 20]
     assert page.errors == []
 
 
 def test_a_curve_needing_more_than_20_a_joint_is_refused_and_says_how_much_fits(page):
-    ids = reset(page, [dict(WALL, columns=9)])
+    ids = reset(page, [dict(WALL, columns=9)], locks=[-20, -10, 0, 10, 20])
     open_rigging(page)
     singles_only(page)
-    page.fill('#rigging-curve-angles', '10, 20')
-    page.press('#rigging-curve-angles', 'Tab')
     page.fill('#rigging-curve-value', '55')
     page.press('#rigging-curve-value', 'Tab')
     settled(page, lambda: layer(page, ids[0])['riggingCurve'], lambda c: c.get('value') == 55)
