@@ -1004,6 +1004,9 @@ def test_a_corner_folds_90_in_3d_and_the_obj_whatever_the_curve_limit(page):
     ids = reset(page, [dict(WALL, columns=6)])
     page.evaluate("""(id) => { const a = window.app; const l = a.project.layers.find(x => x.id === id);
         l.riggingCorners = [{at: 3.5, angle: 90, side: 'interior'}];
+        // the stored angles are a Curve's (only a screen with its Curve on
+        // stands them)
+        l.riggingCurve = {on: true};
         l.stage3d = {x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, pivot: 'bottom', jointsCol: {'0': 30, '4': 30}};
         a.updateLayers([l], true, 'Test'); }""", ids[0])
     page.wait_for_timeout(300)
