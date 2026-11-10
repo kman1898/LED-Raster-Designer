@@ -128,6 +128,14 @@ def test_an_edit_made_after_a_reply_stays_while_its_save_is_out(e2e_server, pw_b
 # made the edits knows its own echoes by the id its PUTs carry, socket or
 # no socket, and records no step from another page for them.
 def test_only_the_other_page_takes_the_edits_as_from_another_page(e2e_server, pw_browser):
+    # a name of its own to start from: an edit back to the name the other
+    # page loaded with takes its step away again (foreign_step_undone_elsewhere)
+    import json
+    import urllib.request
+    urllib.request.urlopen(urllib.request.Request(
+        e2e_server.rstrip('/') + '/api/layer/1', method='PUT',
+        data=json.dumps({'name': 'START'}).encode(),
+        headers={'Content-Type': 'application/json'})).read()
     other_ctx = pw_browser.new_context()
     other_ctx.add_init_script("try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     other = other_ctx.new_page()

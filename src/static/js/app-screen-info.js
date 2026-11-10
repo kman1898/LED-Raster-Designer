@@ -1846,8 +1846,7 @@ class _ScreenInfo {
                 console.log('AFTER MERGE - layer.screenNameSize:', layer.screenNameSize);
                 console.log('AFTER MERGE - layer.screenNameOffsetX:', layer.screenNameOffsetX);
                 
-                this.project.layers[index] = layer;
-                this.currentLayer = layer;
+                this.currentLayer = this._takeServerCopy(index, layer);
                 this.updateUI();
             }
         };
@@ -2063,7 +2062,9 @@ class _ScreenInfo {
                 // The IDM Locator's marks: the browser's newest, held to the
                 // screen the server sent back (app-idm-locator.js).
                 if (typeof this._idmMergeEcho === 'function') this._idmMergeEcho(live, updated);
-                this.project.layers[index] = updated;
+                // into the screen the page holds, never a new object in
+                // its place (app-core _takeServerCopy)
+                this._takeServerCopy(index, updated);
             };
             return sent
             .then(res => res.json())

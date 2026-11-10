@@ -1,6 +1,6 @@
 // LEDRasterApp core: constructor, socket wiring, and primary UI setup.
 // Feature areas live in the app-*.js modules, which extend the prototype.
-import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit, installNameDragSelects } from './helpers.js';
+import { evaluateMathExpression, sendClientLog, setClientLogPage, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit, installNameDragSelects } from './helpers.js';
 
 // The tabs the NAMES switch keeps a value for, by the canvas's view mode
 // (setupNameDisplayToggles; owner, 2026-10-01: "Yes, per tab"; per group
@@ -15,6 +15,8 @@ export const NAME_DISPLAY_VALUES = ['screens', 'group', 'both'];
 // (_onProjectReplaced). A layer PUT's echo is told apart the same way
 // (_putLayer's `client`). One id per page load.
 export const PAGE_CLIENT_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+// and every line of the page's log names it
+setClientLogPage(PAGE_CLIENT_ID);
 
 // THIS PAGE'S OWN WRITES TO THE SHOW, ON THEIR WAY (2026-11-10). Another
 // page's change to the show (_onProjectEdited) waits while any is out:
@@ -1617,6 +1619,30 @@ export class LEDRasterApp {
     // `ownEcho`: the layer is the echo of this page's own newest PUT, its
     // unsaved edits already kept (_keepUnsavedEdits); anything else is
     // the server's word, and the page's note of what it sent gives way.
+    // THE SCREEN THE PAGE HOLDS STAYS THE SAME OBJECT (2026-11-10). The
+    // server's copy of a screen (a save's reply, an echo, another page's
+    // change) used to take the place of the screen object in the project.
+    // Anything still holding the old object (code between two edits, the
+    // selection until its next refresh) then wrote into a screen the
+    // project no longer had: two quick renames on a slow CI runner read
+    // the first name back 50 ms after the second, the first save's reply
+    // having replaced the screen just before the second edit went into
+    // the old one; the page showed the older name until the second save's
+    // reply came back. So the copy is written into the screen the page
+    // holds: every key it has, none it lacks. Returns that screen.
+    _takeServerCopy(index, copy) {
+        const live = this.project.layers[index];
+        if (!live || typeof live !== 'object' || live === copy || !copy || typeof copy !== 'object') {
+            this.project.layers[index] = copy;
+            return copy;
+        }
+        Object.keys(live).forEach(key => {
+            if (!Object.prototype.hasOwnProperty.call(copy, key)) delete live[key];
+        });
+        Object.assign(live, copy);
+        return live;
+    }
+
     applyServerLayer(layer, reason = 'apply_server_layer', opts = {}) {
         if (!layer || !this.project || !this.project.layers) return false;
         if (!(opts && opts.ownEcho)) this._noteLayerHeld(layer);
@@ -1624,17 +1650,17 @@ export class LEDRasterApp {
         if (index >= 0) {
             // Preserve client-side properties when server sends layer update
             const clientProps = this.extractClientSideProps(this.project.layers[index]);
-            this.project.layers[index] = layer;
+            const held = this._takeServerCopy(index, layer);
 
             // Restore client props
             Object.keys(clientProps).forEach(key => {
                 if (clientProps[key] !== undefined) {
-                    this.project.layers[index][key] = clientProps[key];
+                    held[key] = clientProps[key];
                 }
             });
 
             if (this.currentLayer && this.currentLayer.id === layer.id) {
-                this.currentLayer = this.project.layers[index];
+                this.currentLayer = held;
             }
             this.dedupeProjectLayers(reason);
         } else {
