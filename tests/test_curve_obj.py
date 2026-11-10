@@ -276,7 +276,14 @@ def test_a_reload_keeps_the_curve_and_the_tab_shows_it(page, e2e_server):
     singles_only(page)
     act(page, lambda: page.check('#rigging-curve-on'))
     act(page, lambda: page.click('#rigging-curve-goal [data-value="tightest"]'))
-    laid = settled(page, lambda: served(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('goal') == 'tightest')
+    # The goal is saved at once and the answer's bars and angles in a second
+    # save when it lands: wait for the server to hold what the app holds,
+    # not just the goal (the first save alone once raced this read).
+    mine = layer(page, ids[0])
+    assert (mine.get('riggingCurve') or {}).get('goal') == 'tightest'
+    laid = settled(page, lambda: served(page, ids[0]),
+                   lambda l: l.get('riggingCurve') == mine['riggingCurve']
+                   and l.get('riggingBars') == mine['riggingBars'] and joints_of(l) == joints_of(mine))
     page.reload(wait_until='domcontentloaded')
     page.wait_for_timeout(2000)
     page.evaluate("(id) => { window.app.selectLayer(window.app.project.layers.find(l => l.id === id)); window.app.updateUI(); }", ids[0])

@@ -652,12 +652,26 @@ def test_the_obj_stands_every_screen_where_the_stage_does(page):
             for a, b in zip(face, want[(quad['row'], quad['col'])]):
                 assert close(a, b), (case['name'], a, b)
     floor_id, foot_id = ids[-2], ids[-1]
-    # on the floor: the panels' bottom edge at Y 0 in the OBJ
+    # Y is the panels' bottom edge in the OBJ (the tallest old screen sets
+    # the Show Look floor, so this one stands up off it)
+    s = screen(page, floor_id)
     ys = [p[1] for f in obj_corners(page, floor_id) for p in f]
-    assert min(ys) == pytest.approx(0, abs=0.001) and max(ys) == pytest.approx(1000, abs=0.001)
-    # a footer stands on the floor, so the panels start 6 in up
+    assert min(ys) == pytest.approx(s['placement']['y'], abs=0.001)
+    assert max(ys) - min(ys) == pytest.approx(1000, abs=0.001)
+    # with a footer, Y is the footer's foot and the panels start 6 in up
+    s = screen(page, foot_id)
     ys = [p[1] for f in obj_corners(page, foot_id) for p in f]
+    assert min(ys) - s['datum'][1] == pytest.approx(152.4, abs=0.001)
+    # alone on the stage, the footer stands on the floor: the OBJ's Y 0
+    lone = reset(page, [{'name': 'Footed', 'columns': 4, 'rows': 2, 'footer': [2, 2]},
+                        {'name': 'Floor', 'columns': 4, 'rows': 2, 'offset_x': 700}])
+    open_3d(page, 2)
+    assert screen(page, lone[0])['datum'][1] == pytest.approx(0, abs=0.001)
+    ys = [p[1] for f in obj_corners(page, lone[0]) for p in f]
     assert min(ys) == pytest.approx(152.4, abs=0.001)
+    ys = [p[1] for f in obj_corners(page, lone[1]) for p in f]
+    assert min(ys) == pytest.approx(152.4, abs=0.001)
+    floor_id = lone[1]
     # turned all three ways about the bottom middle: still the stage's own
     page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {floor_id}))")
     page.wait_for_timeout(200)
