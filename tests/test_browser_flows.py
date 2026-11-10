@@ -42,7 +42,7 @@ def flows_browser(pw_browser):
     return pw_browser
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def page(flows_server, flows_browser):
     """One long-lived page; tests assert deltas rather than absolute state."""
     context = flows_browser.new_context()

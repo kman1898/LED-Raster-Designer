@@ -1665,6 +1665,10 @@ class _ScreenInfo {
 
     updateLayer(saveHistory = false, historyAction = 'Update Layer') {
         if (!this.currentLayer) return;
+        // A follow pass writes nothing and takes no step (app-core
+        // FOLLOWING): what it worked out stays on this page.
+        if (typeof this._followingHolds === 'function'
+                && this._followingHolds('layer', { id: this.currentLayer.id })) return;
         // A Brompton processor's canvas (app-port-assignment
         // _canvasGuardEdit): an edit that would take its screens past it is
         // put back here, before the PUT and before the undo step.
@@ -1855,6 +1859,8 @@ class _ScreenInfo {
     updateLayers(layers, saveHistory = false, historyAction = 'Update Layers') {
         if (!layers || layers.length === 0) return;
         if (!this.project || !this.project.layers) return;
+        if (typeof this._followingHolds === 'function'
+                && this._followingHolds('layers', { ids: layers.map(l => l && l.id) })) return;
 
         // v0.11.0: a screen group is one screen. When an edit propagated a
         // wall-level field to the peers that were not themselves selected,

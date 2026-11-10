@@ -39,7 +39,7 @@ def server(e2e_server):
     return e2e_server
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def page(server, pw_browser):
     """Launch a browser context and navigate to the app."""
     context = pw_browser.new_context()

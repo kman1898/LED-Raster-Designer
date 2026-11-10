@@ -33,6 +33,10 @@ class _Distros {
     // serviceId and the service it names always land together. A show that
     // never had a service sends no key for them.
     _persistDistros() {
+        // A follow pass writes nothing (app-core FOLLOWING).
+        if (typeof this._followingHolds === 'function' && this._followingHolds('distros')) {
+            return Promise.resolve();
+        }
         const send = () => {
             const body = { distros: this.getDistros() };
             if (this.project && Array.isArray(this.project.services)) {

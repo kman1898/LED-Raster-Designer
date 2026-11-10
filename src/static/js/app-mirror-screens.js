@@ -180,7 +180,10 @@ class _MirrorScreens {
     // Copy the source's data map onto every mirror (MIRROR_DATA_FIELDS),
     // and PUT the mirrors that changed. Called from saveState, so the
     // snapshot, the save and the canvas all carry the copied map. Returns
-    // the mirrors it wrote.
+    // the mirrors it wrote. The page that changed the source sends the
+    // copy, with its own change; a page following that change, or joining
+    // the show, copies it for its canvas and sends nothing (_putLayer
+    // keeps it on the page during a follow pass, app-core FOLLOWING).
     _syncMirrorScreens() {
         const layers = (this.project && this.project.layers) || [];
         const wrote = [];

@@ -30,6 +30,24 @@ const NOT_SHOW_WRITES = new Set(['/api/project/unsaved', '/api/project/stage3d',
     '/api/port-assignments/resolve', '/api/port-assignments/link-check']);
 export const LIVE_WRITES = { out: 0, onSettled: null, onGuideRefused: null };
 
+// ONLY THE PAGE THAT MAKES A CHANGE WRITES IT (owner, 2026-11-10). The
+// running app is a live service and other tabs and devices follow along.
+// A page taking in another page's change (_adoptReplacedProject, a screen
+// another page saved, a reconnect's copy) or joining the show as it
+// stands (loadProject) recomputes what it shows and writes nothing back:
+// not the mirror copy, not the footer lift, not a repaired breakout, not
+// the active canvas. Its writes came back to the page that acted as
+// another page's edit, a step nobody made in its undo (CI, 2026-11-10:
+// a second page's mirror copy, run as it followed a restore), and two
+// devices would bounce writes between them. Derived state the show must
+// hold is written by the page that acted, with its own change. `depth`
+// counts the follow passes running now (_asFollower); while one runs the
+// write helpers keep their change on the page (_putLayer,
+// _persistDistros, setActiveCanvas), and any other write to the show is
+// refused before it leaves (below) and logged, so a path missed here
+// shows in the log rather than on another page.
+export const FOLLOWING = { depth: 0 };
+
 // THE APP, STILL RUNNING? (2026-11-10, app-server-link.js). Once the page
 // has found the app gone (`gone`), nothing it sends changes the show: a
 // write is refused here before it leaves, so none can wait to land on
@@ -62,6 +80,11 @@ export const SERVER_LINK = { gone: false, lost: false, onTrouble: null };
                 }
             }
         } catch (_) { /* sent as it was */ }
+        if (write && FOLLOWING.depth > 0) {
+            const path = pathOf(input);
+            try { sendClientLog('follow_write_refused', { path, method: String((init && init.method) || 'GET').toUpperCase() }); } catch (_) { /* refused anyway */ }
+            return Promise.reject(new TypeError(`A page following another page's change does not write (${path})`));
+        }
         if (send && SERVER_LINK.gone) {
             SERVER_LINK.lost = true;
             return Promise.reject(new TypeError('LED Raster Designer is not running'));
@@ -836,7 +859,9 @@ export class LEDRasterApp {
             document.getElementById('status-message').textContent = 'Disconnected';
             sendClientLog('socket_disconnect');
         });
-        this.socket.on('project_data', (data) => {
+        // A reconnect's copy of the show is taken in and shown; nothing
+        // worked out on the way is written back (FOLLOWING).
+        this.socket.on('project_data', (data) => this._asFollower(() => {
             console.log('WEBSOCKET project_data received');
             // The server sends this on every connect. The FIRST connect's copy
             // usually lands a few ms after loadProject's own read has finished
@@ -930,9 +955,9 @@ export class LEDRasterApp {
                     this.currentLayer = updatedLayer;
                 }
             }
-            
+
             this.updateUI();
-        });
+        }));
         this.socket.on('layer_updated', (layer) => {
             console.log('WEBSOCKET layer_updated received for layer:', layer.id);
             const echo = layer && layer._echo;
@@ -1044,9 +1069,13 @@ export class LEDRasterApp {
         const otherPage = !own && !!(echo && echo.client);
         if (otherPage && typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
         sendClientLog('socket_layer_updated', { id: layer.id });
-        this.applyServerLayer(layer, 'socket_layer_updated', { ownEcho: own });
-        if (otherPage) this._recordForeignStep();
-        this.updateUI();
+        // The server's copy of a screen is taken in and shown; nothing
+        // worked out on the way is written back (FOLLOWING).
+        this._asFollower(() => {
+            this.applyServerLayer(layer, 'socket_layer_updated', { ownEcho: own });
+            if (otherPage) this._recordForeignStep();
+            this.updateUI();
+        });
     }
 
     // ── THE WHOLE PROJECT REPLACED (2026-11-09) ──
@@ -1192,6 +1221,13 @@ export class LEDRasterApp {
             this._pendingSaveAction = null;
             this._pendingSaveKey = null;
         }
+        // From here the page takes in a change it did not make: it works
+        // out what to show and writes none of it (FOLLOWING).
+        this._asFollower(() => this._takeReplacedProject(project, mark, { before, active, typed, sameShow }));
+    }
+
+    _takeReplacedProject(project, mark, { before, active, typed, sameShow }) {
+        const reason = mark.reason || 'restore';
         this.project = project;
         this.dedupeProjectLayers('socket_project_replaced');
         this.project.layers.forEach(layer => {
@@ -1717,47 +1753,46 @@ export class LEDRasterApp {
             })
             .then(data => {
                 this.project = data;
-                this.dedupeProjectLayers('load_project');
-                // The server migrated the Names values as the show opened;
-                // the same pass here is a no-op then, idempotent either way.
-                this.migrateGroupNameDisplay();
-                if (data && data.raster_width && data.raster_height) {
-                    this.syncRasterFromProject();
-                    this.saveRasterSize();
-                }
-                sendClientLog('load_project', { name: data.name, layers: data.layers ? data.layers.length : 0 });
-                
-                // Load client-side properties from localStorage
-                const breakoutBefore = new Map((this.project.layers || [])
-                    .map(l => [l.id, l.powerBreakoutType]));
-                this.loadClientSideProperties();
-                // The breakout the load pass wrote (normalizePowerBreakout
-                // in the defaults sweep above) is paperwork the server has
-                // to hold too, or the next project re-fetch - a delete, a
-                // reconnect - hands back the screen without it. PUT exactly
-                // the screens whose breakout changed, nothing else, and
-                // without a history entry (nothing the user did).
-                const breakoutRewrote = (this.project.layers || []).filter(
-                    l => (l.type || 'screen') === 'screen'
-                        && l.powerBreakoutType !== breakoutBefore.get(l.id));
-                if (breakoutRewrote.length) this.updateLayers(breakoutRewrote);
-                
-                // Auto-select first layer BEFORE updateUI so render has correct data
-                // (the first on the active canvas, so a reload stays on it)
-                if (this._selectOpeningScreen()) {
+                // The page joins the show as the server holds it: what the
+                // load works out (defaults, the opening screen and its
+                // canvas, a mirror's copied map, a footer's lift) is shown
+                // and never written back over the live show (FOLLOWING).
+                // The server keeps the stored copy right itself: it
+                // migrates the Names values and normalizes every screen's
+                // breakout (app.py, rung for rung with normalizePowerBreakout)
+                // as the show opens, so the same passes here only match it.
+                const opened = this._asFollower(() => {
+                    this.dedupeProjectLayers('load_project');
+                    this.migrateGroupNameDisplay();
+                    if (data && data.raster_width && data.raster_height) {
+                        this.syncRasterFromProject();
+                        this.saveRasterSize();
+                    }
+                    sendClientLog('load_project', { name: data.name, layers: data.layers ? data.layers.length : 0 });
+                    // Load client-side properties from localStorage
+                    this.loadClientSideProperties();
+                    // Auto-select first layer BEFORE updateUI so render has correct data
+                    // (the first on the active canvas, so a reload stays on it)
+                    return this._selectOpeningScreen();
+                });
+                if (opened) {
                     // Never force-apply defaults to arbitrary loaded projects.
-                    // Only apply to true startup default project when criteria match.
-                    this.applyPreferencesToDefaultLayerIfMatch(false);
+                    // Only apply to true startup default project when criteria
+                    // match, and only what it changes: a page joining a startup
+                    // show another page has already given the Preferences
+                    // finds nothing to change and writes nothing.
+                    this.applyPreferencesToDefaultLayerIfMatch(false, { onlyIfChanged: true });
                 }
-                
+
                 // A circuit redraw the page was reloaded on ends here, the
                 // way Esc ends it (app-run-overrides finishRedrawLeftOpen).
                 if (typeof this.finishRedrawLeftOpen === 'function') {
                     this.finishRedrawLeftOpen(this._redrawLeftOnReload());
                 }
 
-                // Save initial state for undo/redo
-                this.resetHistory('Initial State');
+                // Save initial state for undo/redo: the show as it came, its
+                // commit passes worked out on this page only.
+                this._asFollower(() => this.resetHistory('Initial State'));
 
                 // Mark initial load complete. The first connect's project_data
                 // is dropped after this (see the socket handler); a later one
@@ -1785,7 +1820,7 @@ export class LEDRasterApp {
                 // moment later and ran updateUI; that copy is now dropped, and
                 // without this the show's unit words, the project name and
                 // the rest of updateUI stayed as the page shipped.
-                this.updateUI();
+                this._asFollower(() => this.updateUI());
 
                 // A launch is a fresh project (the app never reopens a
                 // show at boot): ask for the first screen's panel once the
@@ -2048,7 +2083,7 @@ export class LEDRasterApp {
             });
     }
 
-    applyPreferencesToCurrentLayer(prefs) {
+    applyPreferencesToCurrentLayer(prefs, { was = null } = {}) {
         if (!this.currentLayer) return;
         this.currentLayer.columns = prefs.columns;
         this.currentLayer.rows = prefs.rows;
@@ -2123,6 +2158,12 @@ export class LEDRasterApp {
         this.currentLayer.panelWatts = prefs.powerWatts;
         this.currentLayer.powerFlowPattern = prefs.powerFlowPattern || 'tl-h';
         this.loadLayerToInputs();
+        // `was`: the screen before the Preferences, from a page load. Left
+        // as it was, there is nothing to send.
+        if (was !== null && JSON.stringify(this.currentLayer, this._snapshotReplacer) === was) {
+            sendClientLog('startup_preferences_unchanged', { layerId: this.currentLayer.id });
+            return;
+        }
         // This PUT is the preference Save re-making the pristine startup
         // screen, not a hand on it: it must not end the pristine state on
         // the server (see _layerPutIsAnEdit), or the screen would stop
@@ -2198,7 +2239,32 @@ export class LEDRasterApp {
         return Promise.all(pending.map(p => Promise.resolve(p).catch(() => {})));
     }
 
+    // Run `fn` as a follow pass (FOLLOWING): the page takes in a change it
+    // did not make, and nothing it works out on the way is written.
+    _asFollower(fn) {
+        FOLLOWING.depth += 1;
+        try {
+            return fn();
+        } finally {
+            FOLLOWING.depth -= 1;
+        }
+    }
+
+    // True while a follow pass runs: a write helper keeps its change on
+    // the page and says so in the log (`what`).
+    _followingHolds(what, details = {}) {
+        if (FOLLOWING.depth <= 0) return false;
+        sendClientLog('follow_write_kept_local', Object.assign({ what }, details));
+        return true;
+    }
+
     _putLayer(id, body) {
+        // A follow pass never writes (FOLLOWING): the screen keeps what it
+        // worked out on this page, answered here with its own body as a
+        // dropped PUT is below.
+        if (this._followingHolds('layer', { id, keys: body && typeof body === 'object' ? Object.keys(body) : [] })) {
+            return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        }
         // One screen's PUTs go to the server one after another, in the
         // order they were made. Each carries the WHOLE layer as it stood
         // when it was made, and the threaded server can finish two of them
@@ -2470,7 +2536,11 @@ export class LEDRasterApp {
         return this.project.name === 'Untitled Project';
     }
 
-    applyPreferencesToDefaultLayerIfMatch(force = false) {
+    // `onlyIfChanged` (a page load): the screen is PUT only when the
+    // Preferences change it. A page joining a startup show that another
+    // page has already given them finds nothing to change and writes
+    // nothing (app-core FOLLOWING).
+    applyPreferencesToDefaultLayerIfMatch(force = false, { onlyIfChanged = false } = {}) {
         if (!this.shouldApplyStartupPreferences()) return;
         const prefs = this.getPreferences();
         sendClientLog('apply_preferences_to_default_layer', {
@@ -2500,8 +2570,9 @@ export class LEDRasterApp {
                 && typeof this.refreshCableUnitViews === 'function') {
             this.refreshCableUnitViews();
         }
+        const was = onlyIfChanged ? JSON.stringify(this.currentLayer, this._snapshotReplacer) : null;
         this.clearJumperLengths(this.currentLayer);
-        this.applyPreferencesToCurrentLayer(prefs);
+        this.applyPreferencesToCurrentLayer(prefs, { was });
     }
     
     updateUI() {

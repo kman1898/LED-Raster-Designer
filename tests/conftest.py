@@ -524,12 +524,55 @@ def _flask_tests_leave_the_project_as_found(request):
     _restore_project(snapshot)
 
 
+# ── Every module closes the pages it opened ──────────────────────────────
+# The e2e server is shared by every browser module of the session, and a
+# page left open on it is a live page on the show: it follows every later
+# module's changes. Several modules' `page` fixtures returned the page and
+# never closed its context, and two kept a session-wide page; a page left
+# that way was alive through test_mirror_box_drop on CI (2026-11-10) and
+# took in each of its edits as another page's. So whatever browser context
+# a module opened and left open is closed when the module ends, before its
+# server_project_guard puts the project back.
+
+_PW_BROWSERS = []
+
+
+def _open_contexts():
+    out = set()
+    for browser in _PW_BROWSERS:
+        try:
+            out.update(browser.contexts)
+        except Exception:
+            pass
+    return out
+
+
+def _close_contexts_left_open(before):
+    left = [c for c in _open_contexts() if c not in before]
+    for context in left:
+        try:
+            context.close()
+        except Exception:
+            pass
+    return len(left)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _module_closes_its_pages():
+    before = _open_contexts()
+    yield
+    _close_contexts_left_open(before)
+
+
 @pytest.fixture(scope="module")
 def server_project_guard(e2e_server):
     """Snapshot the live server's project at module start, restore at end."""
     import time
     snapshot = _snapshot_project()
+    contexts = _open_contexts()
     yield
+    # a page the module left open would go on writing past the restore
+    _close_contexts_left_open(contexts)
     # A page's updateLayers / undo / _persistDistros writes are fire-and-
     # forget; one can still be in the server's hands right after
     # context.close(). Let stragglers land, then overwrite them.
@@ -614,5 +657,7 @@ def pw_browser(browser_name):
                                  reason="playwright not installed")
     with pw_api.sync_playwright() as p:
         browser = getattr(p, browser_name).launch(headless=True)
+        _PW_BROWSERS.append(browser)
         yield browser
+        _PW_BROWSERS.remove(browser)
         browser.close()

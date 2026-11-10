@@ -1020,6 +1020,11 @@ class _CanvasUi {
             this.renderLayers();
             if (window.canvasRenderer) window.canvasRenderer.render();
         }
+        // A page following another page's change, or joining the show,
+        // shows the canvas its screen is on and tells the server nothing
+        // (app-core FOLLOWING).
+        if (typeof this._followingHolds === 'function'
+                && this._followingHolds('active_canvas', { canvasId })) return Promise.resolve();
         return fetch(`/api/canvas/${canvasId}/active`, { method: 'PUT' })
             .then(r => r.json()).then(data => {
                 // v0.8.7: previously did `this.project = data` here, which
