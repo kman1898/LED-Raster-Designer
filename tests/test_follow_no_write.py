@@ -194,8 +194,14 @@ OPEN_JS = """async (name) => {
 }"""
 
 
+# A field a screen does not hold reads as its default (the page fills it).
+MIRROR_DEFAULTS = {'portMappingMode': 'organized', 'portNumberOrder': 'across',
+                   'lowLatency': False}
+
+
 def _mirror_settings(layer):
-    return {k: layer.get(k) for k in MIRROR_FIELDS}
+    return {k: layer.get(k) if layer.get(k) is not None else MIRROR_DEFAULTS.get(k)
+            for k in MIRROR_FIELDS}
 
 
 def _make_mirror(a, ids, url):
@@ -208,20 +214,53 @@ def _make_mirror(a, ids, url):
              .get('dataMirrorOf') in (ids['Screen1'], str(ids['Screen1'])))
 
 
+# The whole show put back from the server's own copy by a script, as the
+# mirror tests' rig does between cases (test_mirror_box_drop FIELDS_JS):
+# an unmarked PUT /api/project, which every other page takes as a restore.
+RESTORE_JS = """async () => {
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)})
+        .then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    await j('PUT', '/api/project', proj);
+    const app = window.app;
+    app.project = await j('GET', '/api/project');
+    app.currentLayer = app.project.layers[0];
+    app.selectedLayerIds = new Set([app.project.layers[0].id]);
+    await app.refreshProcessors();
+    app.renderLayers();
+    await app.refreshPortAssignment();
+    app.resetHistory('Settings Seed');
+}"""
+
+
 def test_a_following_page_writes_nothing_back(e2e_server, pw_browser):
-    """Page A makes a mirror, edits its source, adds a screen, undoes, and
-    opens a show; page B follows every one of them and sends no write.
-    A's history holds A's own steps only, and the mirror's map on the
-    server is the one A's own edit wrote."""
+    """Page A makes a mirror; the show is put back whole (the CI case);
+    A opens a show, edits the mirror's source, adds a screen and undoes.
+    Page B follows every one of them and sends no write, so A's history
+    holds A's own steps only, and the mirror's map on the server is the
+    one A's own edit wrote."""
     ids = _seed(e2e_server)
     ctx_a, ctx_b = _context(pw_browser), _context(pw_browser)
     try:
         a, pa = _open(ctx_a, e2e_server)
         b, pb = _open(ctx_b, e2e_server)
         writes_b = _record_writes(b)
-        a.evaluate("() => window.app.resetHistory('Test Start')")
         _make_mirror(a, ids, e2e_server)
         _quiet(a)
+        # the CI case: B, following the restore, selected Screen1 and
+        # copied it onto the mirror, and sent the copy
+        a.evaluate(RESTORE_JS)
+        _quiet(a, 2000)
+        assert writes_b == [], writes_b
+        assert _actions(a) == ['Settings Seed'], _actions(a)
+        # a show opened on A: B lands on it as a load does
+        a.evaluate(OPEN_JS, 'Mirror Show Opened')
+        _settled(e2e_server, lambda p: p['name'] == 'Mirror Show Opened')
+        b.wait_for_function("() => window.app.project.name === 'Mirror Show Opened'")
+        _quiet(a, 2000)
+        assert writes_b == [], writes_b
         # the source's map changed on A: the copy follows, written by A
         a.evaluate(PATTERN_JS, [ids['Screen1'], 'br-v'])
         srv = _settled(e2e_server, lambda p: next(l for l in p['layers'] if l['id'] == ids['Screen2'])
@@ -237,14 +276,7 @@ def test_a_following_page_writes_nothing_back(e2e_server, pw_browser):
         _settled(e2e_server, lambda p: len(p['layers']) == 3)
         _quiet(a)
         b.wait_for_function("() => window.app.project.layers.length === 3")
-        # B shows the copy as the server holds it
-        assert b.evaluate("(id) => window.app.project.layers.find(l => l.id === id).flowPattern",
-                          ids['Screen2']) == 'br-v'
-        # a show opened on A: B lands on it as a load does
-        a.evaluate(OPEN_JS, 'Mirror Show Opened')
-        _settled(e2e_server, lambda p: p['name'] == 'Mirror Show Opened')
-        b.wait_for_function("() => window.app.project.name === 'Mirror Show Opened'")
-        _quiet(a, 2000)
+        _quiet(b)
         assert writes_b == [], writes_b
         # A's history: its own steps, never another page's
         acts = _actions(a)
@@ -255,54 +287,17 @@ def test_a_following_page_writes_nothing_back(e2e_server, pw_browser):
         ctx_b.close()
 
 
-def test_the_ci_restore_leaves_the_acting_page_s_history_alone(e2e_server, pw_browser):
-    """The CI case: page A puts the whole show back (a restore) with a
-    mirror in it, and page B, following, selects its first screen and
-    takes the show in. B writes nothing, so A's undo grows no step."""
-    ids = _seed(e2e_server)
-    ctx_a, ctx_b = _context(pw_browser), _context(pw_browser)
-    try:
-        a, pa = _open(ctx_a, e2e_server)
-        b, pb = _open(ctx_b, e2e_server)
-        writes_b = _record_writes(b)
-        _make_mirror(a, ids, e2e_server)
-        _quiet(a)
-        # the test rig's own restore (test_mirror_box_drop FIELDS_JS)
-        a.evaluate("""async () => {
-            const j = (method, url, body) => fetch(url, {method,
-                headers: {'Content-Type': 'application/json'},
-                body: body === undefined ? undefined : JSON.stringify(body)})
-                .then(r => r.json());
-            const proj = await j('GET', '/api/project');
-            await j('PUT', '/api/project', proj);
-            const app = window.app;
-            app.project = await j('GET', '/api/project');
-            app.currentLayer = app.project.layers[0];
-            app.selectedLayerIds = new Set([app.project.layers[0].id]);
-            await app.refreshProcessors();
-            app.renderLayers();
-            await app.refreshPortAssignment();
-            app.resetHistory('Settings Seed');
-        }""")
-        _quiet(a, 2000)
-        assert _actions(a) == ['Settings Seed'], _actions(a)
-        assert writes_b == [], writes_b
-        assert pa == [] and pb == [], pa + pb
-    finally:
-        ctx_a.close()
-        ctx_b.close()
-
-
 def test_a_page_joining_a_show_with_a_mirror_writes_nothing(e2e_server, pw_browser):
-    """Page B opens while the show already holds a mirror: it shows the
-    show as it stands and sends no write, and page A, already on the show,
-    hears of no change."""
+    """Page B opens while the show already holds a mirror whose stored
+    map is behind its source's (the source changed by a script, which no
+    page copied): B shows the copy as it should be and sends no write, so
+    page A, already on the show, hears of no change."""
     ids = _seed(e2e_server)
     ctx_a, ctx_b = _context(pw_browser), _context(pw_browser)
     try:
         a, pa = _open(ctx_a, e2e_server)
         _make_mirror(a, ids, e2e_server)
-        a.evaluate(PATTERN_JS, [ids['Screen1'], 'tr-h'])
+        _call(e2e_server, 'PUT', f"/api/layer/{ids['Screen1']}", {'flowPattern': 'bl-h'})
         _quiet(a)
         before = _server(e2e_server)
         acts = _actions(a)
@@ -318,9 +313,17 @@ def test_a_page_joining_a_show_with_a_mirror_writes_nothing(e2e_server, pw_brows
         assert _actions(a) == acts
         after = _server(e2e_server)
         assert after['layers'] == before['layers']
-        # B shows the copy's map
-        assert b.evaluate("(id) => window.app.project.layers.find(l => l.id === id).flowPattern",
-                          ids['Screen2']) == 'tr-h'
+        # B shows the copy's map: its source's
+        flows = b.evaluate("(ids) => ids.map(id => window.app.project.layers.find(l => l.id === id).flowPattern)",
+                           [ids['Screen1'], ids['Screen2']])
+        assert flows == ['bl-h', 'bl-h'], flows
+        # A changes the source: A writes the copy, B, following, nothing
+        a.evaluate(PATTERN_JS, [ids['Screen1'], 'tr-h'])
+        _settled(e2e_server, lambda p: next(l for l in p['layers'] if l['id'] == ids['Screen2'])
+                 .get('flowPattern') == 'tr-h')
+        _quiet(b)
+        assert writes_b == [], writes_b
+        assert FOREIGN not in _actions(a), _actions(a)
         assert pa == [] and pb == [], pa + pb
     finally:
         ctx_a.close()
