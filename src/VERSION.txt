@@ -313,6 +313,10 @@ FIXES
 - FIX: Opening the app in a second tab while a guide runs in the first no
   longer puts your own project back in the middle of that guide. It comes
   back when the guide ends, or when the guide's tab is closed.
+- FIX: A show opened, File > New, Undo or Redo on one tab, browser or
+  tablet now shows on every other one connected to the app, without a
+  reload. They used to keep showing the old show, and a change made there
+  could write the old show's screen into the new one.
 
 v1.6.0 - November 6, 2026
 ----------------------------

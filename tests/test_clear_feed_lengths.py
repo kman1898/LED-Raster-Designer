@@ -1192,7 +1192,7 @@ LATE_RESTORE_JS = """async () => {
             reads++;
             if (!readHeld) { readHeld = true; return read.then(() => orig(url, opts)); }
         }
-        if (url === '/api/project' && method === 'PUT') {
+        if (String(url).split('?')[0] === '/api/project' && method === 'PUT') {
             return put.then(() => orig(url, opts));
         }
         return orig(url, opts);
