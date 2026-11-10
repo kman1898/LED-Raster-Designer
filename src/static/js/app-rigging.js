@@ -112,6 +112,8 @@ class _Rigging {
         });
         // The Curve's checkbox and form (app-curve.js).
         if (typeof this._wireRiggingCurve === 'function') this._wireRiggingCurve();
+        // The Corners under it (app-corners.js).
+        if (typeof this._wireRiggingCorners === 'function') this._wireRiggingCorners();
     }
 
     _setRiggingColor(field, val, isFinal, action) {
@@ -768,6 +770,7 @@ class _Rigging {
         }
         if (clear) clear.disabled = !this._riggingWithGroups(screens).some(l => KINDS.some(k => this.riggingBarsOf(l, k).length));
         if (typeof this.refreshRiggingCurve === 'function') this.refreshRiggingCurve();
+        if (typeof this.refreshRiggingCorners === 'function') this.refreshRiggingCorners();
 
         const status = document.getElementById('rigging-status');
         if (!status) return;

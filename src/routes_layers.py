@@ -81,8 +81,12 @@ def add_layer():
         # riggingCurve is the tab's Curve (app-curve.js): its on switch and
         # its settings; the client holds it to its shape (curve-math.js
         # cleanCurve), so a duplicate or paste carries it as it is.
+        # riggingCorners is the tab's Corners (app-corners.js): the bends
+        # between columns or down a panel's middle, held to their shape by
+        # app-stage3d.js s3dCleanCorners.
         'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
         'riggingBarStarts', 'riggingFooterBarStarts', 'riggingSide', 'riggingCustom', 'riggingCurve',
+        'riggingCorners',
         'showLabelNameRigging', 'screenNameSizeRigging',
         'screenNameOffsetXRigging', 'screenNameOffsetYRigging',
         'showLabelName', 'showLabelNameCabinet', 'showLabelNameDataFlow', 'showLabelNamePower',
@@ -438,8 +442,9 @@ def update_layer(layer_id):
                 'powerMaximize', 'powerOrganized', 'powerNumberOrder', 'powerCustomPath', 'powerFlowPattern', 'powerLineWidth',
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
                 'riggingBarStarts', 'riggingFooterBarStarts', 'riggingSide', 'riggingCustom',
-                # The Header/Footer tab's Curve: on, and its settings.
+                # The Header/Footer tab's Curve: on, and its settings, and its Corners.
                 'riggingCurve',
+                'riggingCorners',
                 'showLabelNameRigging', 'screenNameSizeRigging',
                 'screenNameOffsetXRigging', 'screenNameOffsetYRigging', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',

@@ -13,7 +13,9 @@ rulings, 2026-11-09).
   those betas stood it, computed with app-stage3d.js at ff788956.
 * With a footer, Y measures from the footer's bottom: a footer on the floor
   reads 0 and the panels start 6 in up. The stored point stays the panels'
-  edge, so a footer added or taken away leaves the panels where they are.
+  edge. A footer added to a screen already placed lifts its panels 6 in,
+  so the footer lands where they stood and Y reads the same; taken away,
+  they drop back (the owner, 2026-11-09). A header moves nothing.
 * Header bars stand 3.5 in tall and footer bars 6 in, against the panels.
 * The ft | m switch beside Position sets the 3D panel's units only: X, Y,
   Z, the snap, the figure beside the cursor, the nudges. It is saved with
@@ -25,6 +27,7 @@ Run locally:
 """
 
 import json
+import math
 import os
 import sys
 
@@ -587,24 +590,100 @@ def test_a_footer_on_the_floor_reads_y_0_with_its_panels_6_in_up(page):
     assert close(h['pivot'], screen(page, ids[0])['datum'], tol=0.01)
 
 
-def test_adding_a_footer_leaves_the_panels_where_they_are(page):
+def _set_footer(page, layer_id, bars, action='Bars'):
+    page.evaluate("""([id, bars, action]) => { const a = window.app; const l = a.project.layers.find(x => x.id === id);
+        l.riggingFooterBars = bars; a.updateLayers([l], true, action); }""", [layer_id, bars, action])
+
+
+def _shift(a, b):
+    """How far every cabinet corner moved from `b` to `a`: one vector, the
+    same for all of them (asserted), so the panels moved rigidly."""
+    d = None
+    for qa, qb in zip(a, b):
+        for p, q in zip(qa['corners'], qb['corners']):
+            v = [p[i] - q[i] for i in range(3)]
+            if d is None:
+                d = v
+            assert close(v, d, tol=0.001), (v, d)
+    return d
+
+
+def test_adding_a_footer_lifts_the_panels_6_in_and_y_still_reads_the_same(page):
+    """The owner's ruling (2026-11-09): a footer added to a screen already
+    placed in 3D lifts the panels 6 in along the screen's own lean, so the
+    footer lands where the panels stood and Y reads what it read before.
+    Taking it away drops them back. One undo step with the bars; a header
+    moves nothing."""
     ids = reset(page, ONE)
     open_3d(page, 1)
     type_field(page, 'x', '2')
     type_field(page, 'pitch', '10')
     before = corners(page, ids[0])
     block = stored(page, ids[0])
-    page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {ids[0]});
-        l.riggingFooterBars = [2, 2]; a.updateLayers([l], true, 'Bars'); }}""")
+    y_before = field(page, 'y')
+    assert y_before == '0.00'
+    steps = history_len(page)
+    _set_footer(page, ids[0], [2, 2])
     s = settled(page, lambda: screen(page, ids[0]), lambda v: v['footerMm'] > 0)
     assert s['footerMm'] == pytest.approx(152.4)
+    lifted = settled(page, lambda: corners(page, ids[0]), lambda c: not close(c[0]['corners'][0], before[0]['corners'][0]))
+    # every corner moved 6 in up the panels' own lean (pitched 10 degrees:
+    # the bottom row's down direction turned toward the audience)
+    up = _shift(lifted, before)
+    assert math.dist(up, [0, 0, 0]) == pytest.approx(152.4, abs=0.01)
+    assert up[1] == pytest.approx(152.4 * math.cos(math.radians(10)), abs=0.01)
+    # the footer's foot is where the panels' bottom middle was, so Y reads
+    # the same and the datum is the old stored point
+    datum = settled(page, lambda: screen(page, ids[0])['datum'],
+                    lambda d: close(d, [block['x'], block['y'], block['z']], tol=0.01))
+    assert close(datum, [block['x'], block['y'], block['z']], tol=0.01), (datum, block)
+    assert settled(page, lambda: field(page, 'y'), lambda v: v == y_before) == y_before
+    # the bars and the lift are one undo step, and the server holds the lift
+    assert history_len(page) == steps + 1
+    now = stored(page, ids[0])
+    assert now['pivot'] == 'bottom' and now['pitch'] == block['pitch']
+    assert now['y'] == pytest.approx(block['y'] + 152.4 * math.cos(math.radians(10)), abs=0.002)
+    assert settled(page, lambda: served(page, ids[0]), lambda v: v == now) == now
+    # another edit does not lift it again
+    page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {ids[0]});
+        l.riggingColor = '#123456'; a.updateLayers([l], true, 'Bar Color'); }}""")
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0]) == now
+    # undo takes the bars and the lift back together
+    undo(page)
+    undo(page)
     assert stored(page, ids[0]) == block
-    for a, b in zip(corners(page, ids[0]), before):
+    redo(page)
+    assert stored(page, ids[0]) == now
+    # taken away, the panels drop back by the same 6 in: Y 0 is their bottom
+    _set_footer(page, ids[0], [])
+    settled(page, lambda: screen(page, ids[0]), lambda v: v['footerMm'] == 0)
+    back = stored(page, ids[0])
+    assert (back['x'], back['y'], back['z']) == pytest.approx((block['x'], block['y'], block['z']), abs=0.002)
+    dropped = settled(page, lambda: corners(page, ids[0]), lambda c: close(c[0]['corners'][0], before[0]['corners'][0]))
+    for a, b in zip(dropped, before):
         for p, q in zip(a['corners'], b['corners']):
-            assert close(p, q, tol=0.001)
-    # the zero moved instead: Y now reads the footer's foot, 6 in lower
-    want = settled(page, lambda: field(page, 'y'), lambda v: v != '0.00')
-    assert float(want) == pytest.approx(-152.4 * 0.9848 / FT, abs=0.01)
+            assert close(p, q, tol=0.01)
+    assert field(page, 'y') == y_before
+    assert page.errors == []
+
+
+def test_a_header_moves_nothing_and_an_unplaced_screen_follows_show_look(page):
+    ids = reset(page, [{'name': 'Placed', 'columns': 4, 'rows': 2},
+                       {'name': 'Loose', 'columns': 4, 'rows': 2, 'offset_x': 700}])
+    open_3d(page, 2)
+    type_field(page, 'y', '2')
+    block = stored(page, ids[0])
+    page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {ids[0]});
+        l.riggingBars = [2, 2]; a.updateLayers([l], true, 'Bars'); }}""")
+    page.wait_for_timeout(300)
+    assert stored(page, ids[0]) == block
+    # a screen with no 3D place gets no block: Show Look still places it,
+    # its footer on the floor
+    _set_footer(page, ids[1], [2, 2])
+    s = settled(page, lambda: screen(page, ids[1]), lambda v: v['footerMm'] > 0)
+    assert stored(page, ids[1]) is None
+    assert s['datum'][1] == pytest.approx(0, abs=0.01)
     assert page.errors == []
 
 
