@@ -186,11 +186,20 @@ def _context(pw_browser, init):
     return context
 
 
+def _unload_race(text):
+    """The browser's note that the server's last socket message crossed the
+    socket's close. The app never closes its socket itself (no disconnect()
+    in src/static/js), so this comes only from the page a reload is
+    leaving, as a live-sync message goes out to every page."""
+    return text.startswith('WebSocket connection to') and 'Data frame received after close' in text
+
+
 def _watch(pg):
     problems = []
     pg.on('pageerror', lambda e: problems.append('pageerror: ' + str(e)))
     pg.on('console', lambda m: problems.append('console: ' + m.text)
-          if m.type == 'error' and not m.text.startswith('Failed to load resource') else None)
+          if m.type == 'error' and not m.text.startswith('Failed to load resource')
+          and not _unload_race(m.text) else None)
     pg.on('response', lambda r: problems.append(f'{r.status} {r.url}')
           if '/api/' in r.url and r.status >= 400 and '/api/native-dialog/' not in r.url
           and '/api/panel-catalog/refresh' not in r.url else None)

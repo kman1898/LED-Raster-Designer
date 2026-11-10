@@ -136,7 +136,10 @@ def _open_page(pw_browser, url, init=ENABLE_PICKER):
     problems = []
     pg.on('pageerror', lambda e: problems.append('pageerror: ' + str(e)))
     pg.on('console', lambda m: problems.append('console: ' + m.text)
-          if m.type == 'error' and not m.text.startswith('Failed to load resource') else None)
+          if m.type == 'error' and not m.text.startswith('Failed to load resource')
+          # the page a reload leaves: the server's last socket message
+          # crossing the close (the app never closes its socket itself)
+          and 'Data frame received after close' not in m.text else None)
     pg.on('response', lambda r: problems.append(f'{r.status} {r.url}')
           if '/api/' in r.url and r.status >= 400
           and '/api/panel-catalog/refresh' not in r.url else None)

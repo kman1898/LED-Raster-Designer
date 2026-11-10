@@ -321,7 +321,21 @@ class _History {
         const done = () => {
             this._restorePutPending = Math.max(0, (this._restorePutPending || 1) - 1);
         };
-        const send = () => fetch('/api/project', {
+        // Why the project is replaced, for the other pages that follow it
+        // (app-core _onProjectReplaced): an undo or redo stays on the show,
+        // a guide's step or its end does not.
+        const reason = label === 'Undo' ? 'undo' : label === 'Redo' ? 'redo'
+            : (label === 'Tutorial Exit' || label === 'Tour Recovery') ? 'guide_end'
+                : /^(Tutorial|Tour)/.test(label) ? 'guide' : 'restore';
+        // Another page's replace taken in while this one was out: its
+        // answer describes a project the page no longer shows.
+        const replacesAtSend = this._foreignReplaces || 0;
+        const stale = () => (this._foreignReplaces || 0) !== replacesAtSend;
+        // Taken in before this one went: the project it would send is the
+        // other page's, and nothing of this page's is left to put back.
+        const send = () => stale()
+            ? (done(), sendClientLog('restore_dropped_after_other_page', { label }), Promise.resolve())
+            : fetch(`/api/project?${this._replaceQuery(reason)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             // Serialized at send time: this.project is exactly the restored
@@ -335,6 +349,10 @@ class _History {
             .then(response => response.json())
             .then(repaired => {
                 done();
+                if (stale()) {
+                    sendClientLog('restore_answer_after_other_page', { label });
+                    return;
+                }
                 this._adoptRestoredProjectRepair(entry, repaired);
                 this.updateUI();
             })

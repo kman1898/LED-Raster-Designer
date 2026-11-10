@@ -463,7 +463,7 @@ def test_an_old_show_opens_unchanged_on_the_server(e2e_server, pw_browser, seede
     try:
         writes = []
         pg2.on('request', lambda r: writes.append(r.url) if (
-            r.method in ('POST', 'PUT') and r.url.endswith('/api/project')) else None)
+            r.method in ('POST', 'PUT') and r.url.split('?')[0].endswith('/api/project')) else None)
         pg2.locator('[data-mode="power"]').click()
         pg2.wait_for_timeout(400)
         out = pg2.evaluate("""() => {

@@ -449,7 +449,7 @@ def test_an_old_crowded_show_prints_distro_and_opens_unchanged(e2e_server, pw_br
         a_before = next(l for l in before['layers'] if l['name'] == 'WALL A')
         a_after = next(l for l in after['layers'] if l['name'] == 'WALL A')
         assert a_after['powerSocaNumber'] == a_before['powerSocaNumber']
-        assert not [w for w in writes if w.endswith('/api/project')], writes
+        assert not [w for w in writes if w.split('?')[0].endswith('/api/project')], writes
         assert not errors, errors
     finally:
         context.close()

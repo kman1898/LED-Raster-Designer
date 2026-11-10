@@ -3174,7 +3174,9 @@
             proj.active_canvas_id = proj.canvases[0].id;
             proj.data_flow_perspective = 'front';
             proj.power_perspective = 'front';
-            return j('PUT', '/api/project', proj);
+            // the other pages follow it onto the demo show (app-core
+            // _onProjectReplaced) and say a guide is running here
+            return j('PUT', '/api/project?reason=guide', proj);
         }).then(function () {
             return j('POST', '/api/layer/add', Object.assign({
                 name: 'DEMO WALL', offset_x: 0, offset_y: 0,
