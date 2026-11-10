@@ -38,13 +38,15 @@
 // the joints depend on changes, then the app picks again (curvePickKey).
 //
 // CORNERS (app-corners.js): a corner on a seam takes the place of that
-// joint's curve angle (owner, 2026-11-09). The Curve still works the
-// wall out whole and keeps every angle it laid, so taking the corner off
-// brings it back; the build sheet strip marks the seam Corner, and the
-// readouts say how much of the curve's turn the corners leave out and
-// what it turns in all as built. The calculator is not run again around
-// the corner: it pins no joint by hand (its house rules), and its bars
-// are laid for the whole wall.
+// joint's curve angle (owner, 2026-11-09), and the build sheet strip
+// marks the seam Corner. WITH THE CURVE ON, A 90 DEGREE CORNER STILL
+// TAKES ITS CORNER BAR (owner, 2026-11-10): the calculator works the wall
+// out around the screen's corners (curve-math.js screenCurve `pieces`,
+// `breaks`, `flat`), so each corner bar sits on its corner's panels, the
+// Curve's bars run on each side up to it, a bar never crosses a corner
+// under 90, and a corner's seam stays flat. Ways to build it, the picks
+// and the leftover-stock refusal hold for every side. Any change to the
+// corners lays the Curve again in the same step (app-corners.js).
 //
 // Stored on the layer as riggingCurve (curve-math.js cleanCurve holds its
 // shape); a show without it has every screen off, unchanged. The reference
@@ -119,7 +121,8 @@ class _Curve {
         return '';
     }
 
-    // What the calculator is asked for a screen as it stands.
+    // What the calculator is asked for a screen as it stands: its corners
+    // too, when it has any (a screen without keeps the input it always had).
     _curveInput(layer, settings = null) {
         const s = settings || this.riggingCurveOf(layer);
         return {
@@ -128,7 +131,19 @@ class _Curve {
             sizes: this._riggingSizesOf(layer),
             settings: { ...s, on: true },
             system: this._curveSystem(),
+            ...(this._curveCornersOf(layer) || {}),
         };
+    }
+
+    // A screen's corners in the calculator's terms, in its own bar panels,
+    // or null: `pieces` its 90 degree corners' bars, `breaks` the panel
+    // edges its bars split at for a corner under 90, `flat` those seams.
+    _curveCornersOf(layer) {
+        if (typeof this.riggingCornerSpots !== 'function') return null;
+        const pieces = this.riggingCornerSpots(layer).map(sp => ({ start: sp.start, size: sp.size }));
+        const breaks = this.riggingCornerBreaks(layer);
+        const flat = this.riggingCornerFlatJoints(layer);
+        return pieces.length || breaks.length || flat.length ? { pieces, breaks, flat } : null;
     }
 
     // ---- the background calculator -----------------------------------------
@@ -222,12 +237,20 @@ class _Curve {
 
     // ---- laying it --------------------------------------------------------
 
-    // The answer written onto the screen: its bars on its side and the
-    // angle at every column joint.
+    // Each bar of an answer where it sits, its corner bars marked.
+    _curvePlaced(out) {
+        if (Array.isArray(out.placed) && out.placed.length) return out.placed;
+        let at = 0;
+        return out.bars.map(size => { const b = { start: at, size, corner: false }; at += size; return b; });
+    }
+
+    // The answer written onto the screen: its bars on its side, its
+    // corners' corner bars, and the angle at every column joint.
     _curveWrite(layer, out) {
         const side = this.riggingSideOf(layer) === 'footer' ? 'footer' : 'header';
-        let at = 0;
-        this._riggingWrite(layer, side, out.bars.map(size => { const b = { start: at, size }; at += size; return b; }));
+        this._riggingWrite(layer, side, this._curvePlaced(out).filter(b => !b.corner).map(b => ({ start: b.start, size: b.size })));
+        const ats = typeof this.riggingCornerSpots === 'function' ? this.riggingCornerSpots(layer).map(sp => sp.at) : [];
+        if (ats.length) this._riggingSetCornerBars(layer, ats, true);
         layer.riggingCustom = false;
         const jointsCol = {};
         out.joints.forEach((a, j) => { jointsCol[String(j)] = a; });
@@ -239,9 +262,9 @@ class _Curve {
     _curveLaidMatches(layer, out) {
         const side = this.riggingSideOf(layer) === 'footer' ? 'footer' : 'header';
         const bars = this.riggingPlaced(layer, side);
-        let at = 0;
-        const want = out.bars.map(size => { const b = { start: at, size }; at += size; return b; });
+        const want = this._curvePlaced(out).filter(b => !b.corner);
         if (JSON.stringify(bars.map(b => [b.start, b.size])) !== JSON.stringify(want.map(b => [b.start, b.size]))) return false;
+        if (typeof this.riggingCornerSpots === 'function' && this.riggingCornerSpots(layer).some(sp => !sp.bar)) return false;
         const table = (layer.stage3d && layer.stage3d.jointsCol) || {};
         const placed = s3dSanitize({ jointsCol: Object.fromEntries(out.joints.map((a, j) => [String(j), a])) }).jointsCol;
         return out.joints.every((_, j) => table[String(j)] === placed[String(j)]);
@@ -307,7 +330,8 @@ class _Curve {
                 // one's change too), or the screen is no longer what was
                 // asked about: nothing of this request lands on it
                 const live = byId(j.id);
-                if (this._curveLatest.get(j.id) !== seq || !live
+                // (its Curve turned off since is one of those)
+                if (this._curveLatest.get(j.id) !== seq || !live || !this.riggingCurveOn(live)
                     || JSON.stringify(this._curveInput(live)) !== j.key) {
                     stale.add(j.id);
                     return;
@@ -697,7 +721,7 @@ class _Curve {
         const panels = joints.length + 1;
         const datum = out.result.datum_at;
         const room = Math.max(120, (host.clientWidth || 200) - 2);
-        const sig = JSON.stringify([bars, joints, datum, room, [...cornerSeams.keys()]]);
+        const sig = JSON.stringify([bars, joints, datum, room, [...cornerSeams.keys()], (out.placed || []).map(b => !!b.corner)]);
         if (host.dataset.sig === sig) return;
         host.dataset.sig = sig;
         host.innerHTML = '';
@@ -722,8 +746,12 @@ class _Curve {
         let at = 0;
         bars.forEach((n, i) => {
             const x = at * px;
-            add('rect', { x: x + 0.5, y: barTop, width: Math.max(1, n * px - 1), height: barH, fill: '#2a2a2a', stroke: '#888', 'stroke-width': 1, 'data-bar': i });
-            add('text', { x: x + n * px / 2, y: barTop + 12, 'text-anchor': 'middle', 'font-size': 10, fill: '#ddd' }, String(n));
+            // a corner bar: "Corner" where it fits, its size where not
+            const corner = !!(Array.isArray(out.placed) && out.placed[i] && out.placed[i].corner);
+            add('rect', { x: x + 0.5, y: barTop, width: Math.max(1, n * px - 1), height: barH, fill: '#2a2a2a',
+                          stroke: corner ? '#f5a623' : '#888', 'stroke-width': 1, 'data-bar': i, ...(corner ? { 'data-corner-bar': i } : {}) });
+            add('text', { x: x + n * px / 2, y: barTop + 12, 'text-anchor': 'middle', 'font-size': corner ? 9 : 10, fill: corner ? '#f5a623' : '#ddd' },
+                corner && n * px >= 34 ? 'Corner' : String(n));
             at += n;
         });
         // The tags: the angle at each join that bends, over its seam, on a

@@ -25,6 +25,19 @@
 //   corner's piece, said in a toast. Two corners whose pieces would share
 //   a panel cannot both be set: those spots are grayed out.
 //
+// The owner's rulings of 2026-11-10:
+// - A corner down a panel's middle takes a "Header Bar - Corner (1
+//   panel)", one on a seam a "Header Bar - Corner (2 panel)": two parts,
+//   each its own line wherever bars are counted.
+// - Only a full 90 degree corner takes a corner bar. Under 90 the regular
+//   bars split at the corner: at the seam, or either side of the folded
+//   panel, which takes a bar of its own. The row and the block say so.
+//   Taking a corner's angle from 90 to less, or back, lays an Auto row
+//   again in the same step, as adding one does.
+// - With the Curve on, a 90 degree corner still takes its piece: the
+//   Curve lays its bars on each side up to it (app-curve.js), and any
+//   change to the corners lays the Curve again in the same step.
+//
 // Stored on the layer as riggingCorners (app-stage3d.js s3dCleanCorners
 // holds its shape). Every change is one undo step. The rows show the
 // current screen's corners; an edit to a row changes the corner at that
@@ -125,19 +138,25 @@ class _Corners {
         return spots.length ? spots[0] : null;
     }
 
-    // After the corners of `layers` moved, came or went: the rows of bars
-    // they sit on split at the corners again, in the same undo step. An
-    // Auto row is laid again around its corners with its own lit sizes
-    // (one that cannot be is left as it is, and the tab says it no longer
-    // fits). In a custom row a bar on a corner's panels makes way for that
-    // corner's piece, and a toast says so. A curved screen's bars are the
-    // Curve's; a row with a locked screen on it is left as it is. Returns
-    // the other screens it changed, to save with the edit.
+    // After the corners of `layers` moved, came or went, or an angle went
+    // to or from 90: the rows of bars they sit on split at the corners
+    // again, in the same undo step. An Auto row is laid again around its
+    // corners with its own lit sizes (one that cannot be is left as it
+    // is, and the tab says it no longer fits). In a custom row a bar on a
+    // 90 degree corner's panels makes way for that corner's piece, and one
+    // across a corner under 90 comes off, and a toast says so. A curved
+    // screen is handed back in `curved`: its Curve lays its bars again
+    // around its corners (app-curve.js). A row with a locked screen on it
+    // is left as it is. { others, curved }: `others` the other screens it
+    // changed, to save with the edit.
     _cornerRelayBars(layers) {
         const out = [];
+        const curved = [];
         const seen = new Set();
         let became = 0;
+        let crossed = 0;
         let word = 'Header';
+        let pieceWord = 'Corner';
         for (const l of layers || []) {
             if (typeof this.riggingRow !== 'function' || !this._riggingCornersApply(l)) continue;
             const side = this.riggingSideOf(l);
@@ -145,26 +164,51 @@ class _Corners {
             const row = this.riggingRow(l, side);
             if (seen.has(row.key)) continue;
             seen.add(row.key);
-            if (!row.placed.length && !row.pieces.length) continue;
             if (row.layers.some(m => this._layerLocked(m))) continue;
-            if (row.layers.some(m => typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(m))) continue;
+            if (row.layers.some(m => typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(m))) {
+                if (row.layers.length === 1) curved.push(row.layers[0]);
+                continue;
+            }
+            if (!row.placed.length && !row.pieces.length) continue;
             if (!row.custom) {
                 if (this._riggingFitRow(row, this._riggingSizesOf(row.layers[0]))) out.push(...row.layers);
                 continue;
             }
             const on = (b, s) => b.start < s.start + s.size && s.start < b.start + b.size;
-            const gone = row.placed.filter(b => row.spots.some(s => on(b, s)));
+            const onPiece = (b) => row.spots.some(s => on(b, s));
+            const gone = row.placed.filter(b => onPiece(b) || RiggingMath.crossesBreak(b, row.breaks));
             if (!gone.length) continue;
             this._riggingWriteRow(row, row.placed.filter(b => !gone.includes(b)).map(b => ({ start: b.start, size: b.size })));
-            row.spots.filter(s => gone.some(b => on(b, s))).forEach(s => this._riggingSetCornerBars(s.owner, [s.at], true));
-            became += gone.length;
+            const made = row.spots.filter(s => gone.some(b => on(b, s)));
+            made.forEach(s => this._riggingSetCornerBars(s.owner, [s.at], true));
+            const n = gone.filter(onPiece).length;
+            became += n;
+            crossed += gone.length - n;
             word = KIND_WORD[row.kind] || 'Header';
+            if (made.length) pieceWord = RiggingMath.cornerWord(made[0].size);
             out.push(...row.layers);
         }
+        const said = [];
         if (became) {
-            this._toast(`${became === 1 ? 'A bar' : `${became} bars`} on a corner's panels made way for the ${word} Bar - Corner. Lay the panels beside it again by hand, or press Auto.`, false, 7000);
+            said.push(`${became === 1 ? 'A bar' : `${became} bars`} on a corner's panels made way for the ${word} Bar - ${pieceWord}.`);
         }
-        return out.filter((l, i) => out.indexOf(l) === i && !(layers || []).includes(l));
+        if (crossed) {
+            said.push(`${crossed === 1 ? 'A bar' : `${crossed} bars`} across a corner came off: bars split at a corner.`);
+        }
+        if (said.length) this._toast(`${said.join(' ')} Lay the panels beside it again by hand, or press Auto.`, false, 7000);
+        return { others: out.filter((l, i) => out.indexOf(l) === i && !(layers || []).includes(l)), curved };
+    }
+
+    // A Corners edit saved as one undo step: the screens it changed, the
+    // others its bars changed, and a curved screen's Curve laid again
+    // around its corners, all together (app-curve.js riggingCurveRelayLater).
+    _cornerCommit(changed, relay, action) {
+        if (!changed.length) return;
+        const all = changed.concat(relay ? relay.others : []);
+        const curved = relay ? relay.curved : [];
+        if (curved.length && typeof this.riggingCurveRelayLater === 'function'
+            && this.riggingCurveRelayLater(curved, action, all)) return;
+        this.updateLayers(all, true, action);
     }
 
     addRiggingCorner() {
@@ -177,7 +221,7 @@ class _Corners {
             l.riggingCorners = s3dCleanCorners([...list, { at, angle: CORNER_MAX, side: 'interior' }]);
             changed.push(l);
         }
-        if (changed.length) this.updateLayers(changed.concat(this._cornerRelayBars(changed)), true, 'Add Corner');
+        if (changed.length) this._cornerCommit(changed, this._cornerRelayBars(changed), 'Add Corner');
         else if (screens.length) this._toast('This screen has no room for another corner. Corners need a panel of their own for their corner bars.', true, 5000);
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
@@ -213,6 +257,9 @@ class _Corners {
         }
         const changed = [];
         const blocked = [];
+        // A corner whose angle went to or from 90 takes or gives up its
+        // corner bar: its row splits again.
+        let flipped = false;
         for (const l of screens) {
             const list = this.riggingCornersOf(l);
             const i = list.findIndex(c => c.at === at);
@@ -224,6 +271,10 @@ class _Corners {
                 if (!this._cornerSpotFree(patch.at, others)) { blocked.push(l); continue; }
             }
             const next = list.map((c, k) => (k === i ? { ...c, ...patch } : c));
+            const full = RiggingMath.isFull(next[i]);
+            if (full !== RiggingMath.isFull(list[i])) flipped = true;
+            // under 90 there is no corner bar to keep laid
+            if (!full) delete next[i].bar;
             const clean = s3dCleanCorners(next);
             if (JSON.stringify(clean) === JSON.stringify(list)) continue;
             l.riggingCorners = clean;
@@ -232,9 +283,10 @@ class _Corners {
         if (blocked.length) {
             this._toast(`${cornerSpotLabel(patch.at)} is taken or too close to another corner on ${blocked.map(l => l.name || `Screen ${l.id}`).join(', ')}. Corners need a panel of their own for their corner bars.`, true, 6000);
         }
-        // A corner that moved splits its bars somewhere else.
-        const relaid = patch.at !== undefined ? this._cornerRelayBars(changed) : [];
-        if (changed.length) this.updateLayers(changed.concat(relaid), true, 'Corner');
+        // A corner that moved splits its bars somewhere else; one that went
+        // to or from 90 takes or gives up its corner bar.
+        const relay = patch.at !== undefined || flipped ? this._cornerRelayBars(changed) : null;
+        this._cornerCommit(changed, relay, 'Corner');
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
@@ -247,7 +299,7 @@ class _Corners {
             l.riggingCorners = list.filter(c => c.at !== at);
             changed.push(l);
         }
-        if (changed.length) this.updateLayers(changed.concat(this._cornerRelayBars(changed)), true, 'Remove Corner');
+        if (changed.length) this._cornerCommit(changed, this._cornerRelayBars(changed), 'Remove Corner');
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
@@ -311,6 +363,21 @@ class _Corners {
             } else if (gone) {
                 gone.remove();
             }
+            // Under 90 degrees: no corner bar, said on the row.
+            let split = row.querySelector('.rigging-corner-split');
+            if (!RiggingMath.isFull(c)) {
+                if (!split) {
+                    split = document.createElement('div');
+                    split.className = 'rigging-corner-split';
+                    split.style.cssText = 'color: #aaa; font-size: 11px; margin-top: 2px;';
+                    row.appendChild(split);
+                }
+                const text = `Only a 90° corner takes a corner bar. ${Number.isInteger(c.at)
+                    ? 'Here the folded panel takes a bar of its own.' : 'Here the bars split at the seam.'}`;
+                if (split.textContent !== text) split.textContent = text;
+            } else if (split) {
+                split.remove();
+            }
             const angle = row.querySelector('[data-corner-angle]');
             if (angle && document.activeElement !== angle) angle.value = String(c.angle);
             row.querySelectorAll('[data-corner-side]').forEach(b => {
@@ -330,18 +397,19 @@ class _Corners {
         } else if (note) {
             note.remove();
         }
-        // Which side stays put in 3D, and the corner bars a curved screen
-        // does not take.
+        // Which side stays put in 3D.
         const hold = document.getElementById('rigging-corner-hold');
         if (hold) {
             hold.style.display = list.length ? '' : 'none';
             const curved = typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(primary);
             const words = cornerAnchorWords(s3dCornerAnchor(primary, cols), cols);
             const text = `In 3D, ${words} stays put and the rest folds away from it`
-                + (curved ? ' (the Curve\'s Build from).' : '.')
-                + (curved ? ' The Curve lays this screen\'s bars, so its corners take no corner bar.' : '');
+                + (curved ? ' (the Curve\'s Build from).' : '.');
             if (hold.textContent !== text) hold.textContent = text;
         }
+        // Only a 90 degree corner takes a corner bar (owner, 2026-11-10).
+        const rule = document.getElementById('rigging-corner-rule');
+        if (rule) rule.style.display = list.length ? '' : 'none';
         this._cornerDrawPlan(document.getElementById('rigging-corner-plan'), primary);
     }
 

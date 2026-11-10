@@ -180,18 +180,29 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   middle stays put. The Corners block says which.
 - NEW: A corner is the edge of the wall, so its seam takes no curve angle.
   The seams beside it keep theirs, the ones either side of a folded panel
-  too. The Where list and the plan show which seams the curve bends, the
-  Curve's strip marks the corner's seam, and the readouts say how much of
-  the curve's turn the corners leave out. Take the corner off and the
+  too. The Where list and the plan show which seams the curve bends, and
+  the Curve's strip marks the corner's seam. Take the corner off and the
   seam's own angle comes back.
-- NEW: Header and footer bars split at a corner. A Header Bar - Corner, or
-  a Footer Bar - Corner, covers the panels touching it: the folded panel
-  of a corner down a panel's middle, one panel either side of a corner on
-  a seam. Auto fits regular bars to each side, and the tab's totals, the
-  pull sheet and the binder's Header/Footer and pull sheets count the
-  corner bars in the same tables. The Header/Footer tab draws them, and
-  the 3D tab stands each one as an L that folds with the panels. Adding,
-  moving or taking off a corner lays an Auto row again in the same step.
+- NEW: Header and footer bars split at a corner. A 90 degree corner takes
+  a corner bar over the panels touching it, and there are two of them:
+  a Header Bar - Corner (1 panel) for a corner down a panel's middle,
+  250 mm either side of the fold on a 500 mm panel, and
+  a Header Bar - Corner (2 panel) for a corner on a seam, one panel
+  either side. Footer bars have the same two. Each is its own line in
+  the tab's totals, the pull sheet and the binder's Header/Footer and pull
+  sheets. Auto fits regular bars to each side. The Header/Footer tab draws
+  the corner bars, and the 3D tab stands each one as an L that folds with
+  the panels.
+- NEW: Only a 90 degree corner takes a corner bar. Under 90, the regular
+  bars split at the corner instead: at its seam, or either side of its
+  folded panel, which takes a bar of its own. The corner's row and the
+  Corners block say so. Adding, moving or taking off a corner, or taking
+  its angle to or from 90, lays an Auto row again in the same step.
+- NEW: With the Curve on, a 90 degree corner keeps its corner bar, and the
+  Curve lays its bars on each side up to it. A corner under 90 splits the
+  Curve's bars the same way. Ways to build it, Use this and the check for
+  uncovered panels work for every side, and any change to the corners
+  lays the Curve again in the same step.
 - NEW: In Custom, a click on a corner's panels lays its corner bar, a bar
   laid beside a corner stops at it, and one that no longer fits there is
   refused and said. A bar laid by hand on a corner's panels makes way for

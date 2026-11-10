@@ -6152,6 +6152,9 @@
                     return t.wait(function () { return corners().length === 1 && corners()[0].at === t.mem.at; });
                 }).then(function (ok) {
                     if (!ok) throw new Error('the corner did not move');
+                    // a curved wall's Curve is laid again around the corner
+                    return t.wait(function () { return !A().riggingCurveBusy(); }, 10000);
+                }).then(function () {
                     return t.spot($('#rigging-corners')).then(function () { return t.pause(PACE.opened); });
                 });
             },
@@ -6163,13 +6166,14 @@
             }
         },
         // Bars split at a corner (1.7.0): with the Curve off, Auto lays the
-        // corner's own Header Bar - Corner over its panel and fits each
-        // side. The Curve is ticked again afterwards, so the wall goes on
-        // as the Curve step left it.
+        // corner's own Header Bar - Corner (1 panel) over its panel and fits
+        // each side. The Curve is ticked again afterwards and lays its bars
+        // around the same corner bar, so the wall goes on as the Curve step
+        // left it.
         riggingCornerBars: {
             since: '1.7.0',
             target: '#rigging-total-count', place: 'right', title: 'Corner bars',
-            body: 'With the Curve off, Auto splits the bars at a corner: a Header Bar - Corner covers the panels touching it and regular bars fill each side. The totals, the pull sheet and the binder count it.',
+            body: 'Auto splits the bars at a corner: a 90&deg; corner takes a Header Bar - Corner over the panels touching it, and regular bars fill each side. With the Curve on, the Curve lays them the same way.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -6207,6 +6211,9 @@
                 }).then(function (ok) {
                     if (!ok) throw new Error('no corner bar was laid');
                     t.mem.pieces = pieces();
+                    var w1 = wall();
+                    var laid = w1 ? A().riggingCornerPiecesOf(w1) : [];
+                    t.mem.part = laid.length ? RiggingMath.cornerName(laid[0].size, 'header') : '';
                     t.mem.bars = headerBars();
                     var list = $('#rigging-total-breakdown');
                     t.mem.list = String((list && list.textContent) || '').replace(/\n/g, ', ');
@@ -6217,14 +6224,16 @@
                     if (t.mem.custom) return t.click('.rigging-tool-btn[data-tool="custom"]');
                 }).then(function () {
                     if (!t.mem.curve) return true;
-                    return t.click('#rigging-curve-on').then(function () { return t.wait(curveLaid, 10000); });
+                    return t.click('#rigging-curve-on').then(function () {
+                        return t.wait(function () { return curveLaid() && !A().riggingCurveBusy() && pieces() === 1; }, 10000);
+                    });
                 }).then(function (ok) {
                     if (!ok) throw new Error('the curve was not laid again');
                 });
             },
             check: function (mem) {
-                return mem.pieces === 1 && /Corner: 1/.test(mem.list || '')
-                    ? 'Auto split DEMO WALL at its corner: ' + mem.bars.split(',').join(' + ') + ' and a Header Bar - Corner. The totals read ' + mem.list + '.' : null;
+                return mem.pieces === 1 && mem.part && /Corner \(\d panel\): 1/.test(mem.list || '')
+                    ? 'Auto split DEMO WALL at its corner: ' + mem.bars.split(',').join(' + ') + ' and a ' + mem.part + '. The totals read ' + mem.list + '.' : null;
             }
         },
         riggingCornerSide: {
@@ -6255,6 +6264,9 @@
                     return t.click('#rigging-corner-list [data-corner] [data-corner-remove]');
                 }).then(function () {
                     return t.wait(function () { return corners().length === 0; });
+                }).then(function (ok) {
+                    // a curved wall's Curve is laid again without the corner
+                    return t.wait(function () { return !A().riggingCurveBusy(); }, 10000).then(function () { return ok; });
                 });
             },
             check: function (mem) {

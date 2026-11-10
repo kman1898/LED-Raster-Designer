@@ -49,21 +49,26 @@
 // width (canvas-rigging.js), and the pull rows, the binder and every export
 // say so too.
 //
-// A ROW SPLITS AT A CORNER (owner, 2026-11-09): a screen's corners (the
-// Corners under the Curve, app-corners.js) each take a corner piece,
-// "Header Bar - Corner" / "Footer Bar - Corner", over the panels touching
-// the corner (rigging-math.js cornerPieces): the folded panel of a corner
-// down a panel's middle, one panel either side of a corner on a seam.
-// Regular bars fill each side; none crosses a corner. Auto lays every
-// corner's piece and fits each side on its own; Clear takes them off with
-// the bars. In Custom, a click or drag over a corner's panels lays its
-// piece, a bar that would run onto a corner stops at it (or is refused,
-// said, when it no longer fits there), and a picked piece comes off with
-// Delete. A piece is kept on its corner (`bar`), so it is counted once,
-// on its screen, everywhere bars are: the tab's totals, the pull list and
-// the binder's Header/Footer and pull sheets. A screen turned a quarter
-// (its bars run along its folds) and a curved screen (the Curve lays its
-// bars) take no pieces.
+// A ROW SPLITS AT A CORNER (owner, 2026-11-09): a screen's 90 degree
+// corners (the Corners under the Curve, app-corners.js) each take a
+// corner piece over the panels touching the corner (rigging-math.js
+// cornerPieces): the folded panel of a corner down a panel's middle, the
+// "Header Bar - Corner (1 panel)", or one panel either side of a corner
+// on a seam, the "Header Bar - Corner (2 panel)"; two different parts,
+// each its own line wherever bars are counted (owner, 2026-11-10).
+// Regular bars fill each side; none crosses a corner. ONLY A FULL 90
+// DEGREE CORNER TAKES A PIECE (2026-11-10): a corner under 90 takes
+// regular bars, split at the corner (rigging-math.js cornerBreaks).
+// Auto lays every corner's piece and fits each side on its own; Clear
+// takes them off with the bars. In Custom, a click or drag over a
+// corner's panels lays its piece, a bar that would run onto a corner
+// stops at it (or is refused, said, when it no longer fits there), and a
+// picked piece comes off with Delete. A piece is kept on its corner
+// (`bar`), so it is counted once, on its screen, everywhere bars are: the
+// tab's totals, the pull list and the binder's Header/Footer and pull
+// sheets. A screen turned a quarter (its bars run along its folds) takes
+// no pieces. A curved screen's Curve lays its bars on each side up to its
+// corners, and the pieces with them (app-curve.js).
 import { LEDRasterApp } from './app-core.js';
 import { setupColorPickerWithHex } from './helpers.js';
 import { s3dCleanCorners, s3dCornersOn } from './app-stage3d.js';
@@ -182,25 +187,42 @@ class _Rigging {
 
     // ---- corner pieces (rigging-math.js cornerPieces) ------------------
 
-    // Can a screen's corners take pieces on its row? Not when the screen
-    // is turned a quarter (its bars run along its folds), nor while its
-    // Curve lays its bars.
+    // Can a screen's corners split its row? Not when the screen is turned
+    // a quarter (its bars run along its folds).
     _riggingCornersApply(layer) {
         if (!layer || (layer.type || 'screen') !== 'screen') return false;
         const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
         if (deg === 90 || deg === 270) return false;
-        if (typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(layer)) return false;
         return true;
     }
 
-    // Every corner of a screen with the panels its piece covers, in the
-    // screen's own bar panels (left to right as it stands):
+    // Every 90 degree corner of a screen with the panels its piece covers,
+    // in the screen's own bar panels (left to right as it stands):
     // [{ at, start, size, bar }], `bar` where the piece is laid.
     riggingCornerSpots(layer) {
         if (!this._riggingCornersApply(layer)) return [];
         const cols = Number(layer.columns) || 0;
         const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
         return RiggingMath.cornerPieces(s3dCornersOn(layer, cols), cols, deg === 180);
+    }
+
+    // The panel edges a screen's bars split at for its corners under 90
+    // degrees, in its own bar panels (rigging-math.js cornerBreaks).
+    riggingCornerBreaks(layer) {
+        if (!this._riggingCornersApply(layer)) return [];
+        const cols = Number(layer.columns) || 0;
+        const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
+        return RiggingMath.cornerBreaks(s3dCornersOn(layer, cols), cols, deg === 180);
+    }
+
+    // The seams of a screen's corners under 90 degrees, as joints in its
+    // own bar panels: the Curve leaves them flat (rigging-math.js
+    // cornerFlatJoints).
+    riggingCornerFlatJoints(layer) {
+        if (!this._riggingCornersApply(layer)) return [];
+        const cols = Number(layer.columns) || 0;
+        const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
+        return RiggingMath.cornerFlatJoints(s3dCornersOn(layer, cols), cols, deg === 180);
     }
 
     // The corner pieces laid on a screen.
@@ -344,17 +366,22 @@ class _Rigging {
         // Every corner along the row, in the row's panels (`spots`), and
         // the pieces laid on them (`pieces`): only on a screen whose own
         // side this row is.
+        // The corners under 90 degrees take no piece: the bars split at
+        // them (`breaks`, panel edges in the row's panels).
         const spots = [];
+        const breaks = [];
         run.layers.forEach((m, i) => {
             if (!this._riggingKindsOf(m).includes(k)) return;
             this.riggingCornerSpots(m).forEach(sp => spots.push({ ...sp, start: run.offsets[i] + sp.start, owner: m }));
+            this.riggingCornerBreaks(m).forEach(e => breaks.push(run.offsets[i] + e));
         });
         spots.sort((a, b) => a.start - b.start);
+        breaks.sort((a, b) => a - b);
         const pieces = spots.filter(sp => sp.bar);
         return {
             key: `${k}:${run.ids.join(',')}`, kind: k, layers: run.layers, ids: run.ids,
-            offsets: run.offsets, panels: run.panels, width: run.width, placed, custom, spots, pieces,
-            problem: RiggingMath.rowProblem(placed, run.width, spans, custom, pieces),
+            offsets: run.offsets, panels: run.panels, width: run.width, placed, custom, spots, pieces, breaks,
+            problem: RiggingMath.rowProblem(placed, run.width, spans, custom, pieces, breaks),
         };
     }
 
@@ -523,12 +550,13 @@ class _Rigging {
         return open;
     }
 
-    // Bars of the lit sizes, end to end across the row: every corner
-    // along it takes its piece and each side between them is fitted on
-    // its own (RiggingMath.fitAround), so no bar crosses a corner. A row
-    // without corners fits exactly as it always did.
+    // Bars of the lit sizes, end to end across the row: every 90 degree
+    // corner along it takes its piece, the bars split at every corner
+    // under 90, and each side between them is fitted on its own
+    // (RiggingMath.fitAround), so no bar crosses a corner. A row without
+    // corners fits exactly as it always did.
     _riggingFitRow(row, sizes) {
-        const placed = RiggingMath.fitAround(row.width, sizes, row.spots || []);
+        const placed = RiggingMath.fitAround(row.width, sizes, row.spots || [], row.breaks || []);
         if (!placed) return false;
         this._riggingWriteRow(row, placed);
         row.layers.forEach(m => {
@@ -703,7 +731,7 @@ class _Rigging {
     // corners it covers (RiggingMath.layAround). { adds, spots }.
     riggingCustomLay(row, from, to, size) {
         const spots = row.spots || [];
-        const lay = RiggingMath.layAround(from, to, size, row.width, spots);
+        const lay = RiggingMath.layAround(from, to, size, row.width, spots, row.breaks || []);
         return { adds: lay.adds, spots: lay.corners.map(i => spots[i]) };
     }
 
@@ -959,6 +987,8 @@ class _Rigging {
         let said;
         if (p.corner) {
             said = `${m.word} bars cross a corner, where the corner bar goes.`;
+        } else if (p.across) {
+            said = `${m.word} bars run across a corner. Bars split at a corner.`;
         } else if (p.custom) {
             said = p.past ? `${m.word} bars run ${p.past} panel${p.past === 1 ? '' : 's'} past the wall's edge.`
                 : `${m.word} bars overlap.`;
@@ -1069,11 +1099,14 @@ class _Rigging {
             const list = document.getElementById(listId);
             if (!count || !list) return;
             const { total, bySize } = RiggingMath.tally(screens.map(l => this.riggingBarsOf(l, kind)));
-            const corners = this.riggingCornerCount(screens, kind);
-            count.textContent = String(total + corners);
+            const corners = this.riggingCornersBySize(screens, kind);
+            const pieces = Object.values(corners).reduce((t, n) => t + n, 0);
+            count.textContent = String(total + pieces);
             const lines = Object.keys(bySize).map(Number).sort((a, b) => b - a)
                 .map(size => `${RiggingMath.sizeWord(size)}: ${bySize[size]}`);
-            if (corners) lines.push(`${RiggingMath.sizeWord(RiggingMath.CORNER)}: ${corners}`);
+            // each corner part its own line, 1 panel before 2
+            Object.keys(corners).map(Number).sort((a, b) => a - b)
+                .forEach(size => lines.push(`${RiggingMath.cornerWord(size)}: ${corners[size]}`));
             list.textContent = lines.join('\n');
         };
         fill('header', 'rigging-total-count', 'rigging-total-breakdown');
@@ -1083,12 +1116,18 @@ class _Rigging {
     // How many corner pieces `layers` carry on their `kind` side, each
     // counted on the screen whose corner it is.
     riggingCornerCount(layers, kind) {
-        let n = 0;
+        return Object.values(this.riggingCornersBySize(layers, kind)).reduce((t, n) => t + n, 0);
+    }
+
+    // The same by part, the panels each covers: { 1: n, 2: n }. A 1 panel
+    // and a 2 panel corner bar are different parts (owner, 2026-11-10).
+    riggingCornersBySize(layers, kind) {
+        const by = {};
         for (const l of layers || []) {
             if (!this._riggingKindsOf(l).includes(kind)) continue;
-            n += this.riggingCornerPiecesOf(l).length;
+            for (const pc of this.riggingCornerPiecesOf(l)) by[pc.size] = (by[pc.size] || 0) + 1;
         }
-        return n;
+        return by;
     }
 
     // ---- the binder's Screens sheets --------------------------------------
@@ -1195,12 +1234,14 @@ class _Rigging {
         for (const kind of KINDS) {
             const miss = misfits.find(m => m.kind === kind);
             const bySize = RiggingMath.tally([this.riggingBarsOf(layer, kind)]).bySize;
-            const corners = this.riggingCornerCount([layer], kind);
-            const sizes = Object.keys(bySize).map(Number).sort((a, b) => b - a);
-            if (corners) sizes.push(RiggingMath.CORNER);
-            sizes.forEach(size => rows.push({
-                type: RiggingMath.barName(size, kind), length: 'EA',
-                qty: size === RiggingMath.CORNER ? corners : bySize[size],
+            const corners = this.riggingCornersBySize([layer], kind);
+            const parts = Object.keys(bySize).map(Number).sort((a, b) => b - a)
+                .map(size => [RiggingMath.barName(size, kind), bySize[size]]);
+            // each corner part its own line, 1 panel before 2
+            Object.keys(corners).map(Number).sort((a, b) => a - b)
+                .forEach(size => parts.push([RiggingMath.cornerName(size, kind), corners[size]]));
+            parts.forEach(([type, qty]) => rows.push({
+                type, length: 'EA', qty,
                 label: miss ? `${name} (bars no longer fit)` : name,
                 notes: miss ? `${this.riggingMisfitLine(miss, false)} Press Auto on the Header/Footer tab.` : '',
                 side: 'rigging',
