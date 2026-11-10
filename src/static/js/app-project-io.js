@@ -464,7 +464,7 @@ class _ProjectIo {
             window.canvasRenderer.fitToView();
 
             const loaded = this.project;
-            return this._layerSavesSettled().then(() => fetch('/api/project', {
+            return this._layerSavesSettled().then(() => fetch(`/api/project?${this._replaceQuery('open')}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(loaded)
