@@ -6099,6 +6099,80 @@
                     ? 'DEMO WALL curves 20% of a circle on ' + headerBars().split(',').join(' + ') + ': ' + ((head && head.textContent) || '') + '.' : null;
             }
         },
+        // The Header/Footer tab's Corners (1.7.0, app-corners.js): Add
+        // corner folds the wall 90 degrees in its middle; the step moves it
+        // to the middle of a panel. The next step turns it Exterior and
+        // takes it off again, so the 3D steps find the wall as it was.
+        riggingCorner: {
+            since: '1.7.0',
+            target: '#rigging-corners', place: 'right', title: 'Bend a corner',
+            body: 'Add corner folds the screen 90 degrees, hinged at the panels&rsquo; front. Pick a seam or the middle of a panel and any angle up to 90; the 3D tab and Export OBJ build it.',
+            before: function () {
+                switchView('rigging');
+                var w = wall();
+                if (w) A().setSelectedLayersByIds([w.id], w.id);
+                A().refreshRiggingPanel();
+            },
+            act: function (t) {
+                var corners = function () { var w = wall(); return (w && Array.isArray(w.riggingCorners)) ? w.riggingCorners : []; };
+                return t.click('#rigging-corner-add').then(function () {
+                    return t.wait(function () { return corners().length === 1 ? corners()[0] : null; });
+                }).then(function (c) {
+                    if (!c) throw new Error('the corner was not added');
+                    // the middle of the panel just left of the seam it went on
+                    t.mem.at = Number.isInteger(c.at) ? c.at : c.at - 0.5;
+                    return t.select('#rigging-corner-list [data-corner] [data-corner-at]', String(t.mem.at));
+                }).then(function () {
+                    return t.wait(function () { return corners().length === 1 && corners()[0].at === t.mem.at; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the corner did not move');
+                    return t.spot($('#rigging-corners')).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                var c = (w && w.riggingCorners) || [];
+                return c.length === 1 && c[0].at === mem.at && c[0].angle === 90 && c[0].side === 'interior'
+                    ? 'DEMO WALL folds 90° Interior in the middle of panel ' + mem.at + '.' : null;
+            }
+        },
+        riggingCornerSide: {
+            since: '1.7.0',
+            target: '#rigging-corner-list', place: 'right', title: 'Interior or Exterior',
+            body: 'Interior folds the sides toward the audience, Exterior away from them. The &times; takes the corner off and the screen goes straight again.',
+            before: function () {
+                switchView('rigging');
+                var w = wall();
+                if (!w) return;
+                A().setSelectedLayersByIds([w.id], w.id);
+                // Played alone: the corner the step before adds.
+                if (!(Array.isArray(w.riggingCorners) && w.riggingCorners.length)) {
+                    var mid = Math.max(1, Math.round((Number(w.columns) || 2) / 2));
+                    w.riggingCorners = [{ at: mid, angle: 90, side: 'interior' }];
+                    A().updateLayers([w], true, 'Add Corner');
+                }
+                A().refreshRiggingPanel();
+            },
+            act: function (t) {
+                var corners = function () { var w = wall(); return (w && Array.isArray(w.riggingCorners)) ? w.riggingCorners : []; };
+                return t.click('#rigging-corner-list [data-corner] [data-corner-side="exterior"]').then(function () {
+                    return t.wait(function () { return corners().length === 1 && corners()[0].side === 'exterior'; });
+                }).then(function (ok) {
+                    t.mem.out = !!ok;
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return t.click('#rigging-corner-list [data-corner] [data-corner-remove]');
+                }).then(function () {
+                    return t.wait(function () { return corners().length === 0; });
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                var c = (w && w.riggingCorners) || [];
+                return mem.out && !c.length
+                    ? 'Exterior turned the fold away from the audience; × took it off and DEMO WALL is straight again.' : null;
+            }
+        },
         // Services (1.5.3, app-services.js): the house power several
         // distros are fed from. One step adds the Service card, the next
         // drags the distro's header bar onto it.
@@ -8044,6 +8118,7 @@
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurve',
+                    'riggingCorner', 'riggingCornerSide',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
                     's3dOpen', 's3dSelect', 's3dHeight', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
                     's3dBars', 's3dJoint',

@@ -91,9 +91,11 @@ other edit.
 - NEW: Y is the height of a screen's bottom edge, so a screen on the floor
   reads 0, and pitch, yaw and roll turn it about the middle of that edge,
   so it stays on the floor. With a footer, Y is the footer's bottom: the
-  footer stands on the floor and the panels start 6 in up. X and Z are the
-  middle of that same edge. Screens already placed in 3D open exactly
-  where they stood.
+  footer stands on the floor and the panels start 6 in up. Add a footer
+  to a screen already placed and its panels lift 6 in, so the footer sits
+  where they stood and Y reads the same; take it off and they drop back.
+  X and Z are the middle of that same edge. Screens already placed in 3D
+  open exactly where they stood.
 - NEW: A ft | m switch beside Position sets the 3D panel's units: X, Y and
   Z, the snap, the figure beside the cursor and the arrow-key steps. It is
   saved with the show and starts on the show's own unit; nothing else in
@@ -162,6 +164,15 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   points at it go in the same folder. A group is one model, with each
   screen in it by name, unless its Names switch on Show Look is Screens.
   The dialog lists every file before it saves.
+- NEW: Corners, under the Curve, bend a screen between two columns or
+  down the middle of a panel, any angle up to 90 degrees, Interior or
+  Exterior, hinged at the panels' front. Add corner puts a 90 degree
+  corner in the middle of the screen; pick where it goes, its angle and
+  its side, and a small plan shows the screen from above as it bends. A
+  six panel column with a 90 degree fold in the middle of a panel is one
+  screen. The 3D tab and Export OBJ build every corner, with the picture
+  running on around it, and a corner on a joint the Curve also bends adds
+  to that angle.
 
 A CANVAS ON A SECOND DISPLAY
 
