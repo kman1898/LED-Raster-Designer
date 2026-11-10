@@ -1904,6 +1904,14 @@ class _ScreenInfo {
         // _releasePinsOffPorts), after the trim's own close-ups.
         if (typeof this._releasePinsOffPorts === 'function') this._releasePinsOffPorts(layers);
 
+        // A footer added to (or taken off) a screen already placed in 3D
+        // lifts (or drops) its panels 6 in, so Y reads what it read before
+        // (app-stage3d.js _s3dFollowFooters). A screen it moves rides along.
+        if (typeof this._s3dFollowFooters === 'function') {
+            const lifted = this._s3dFollowFooters().filter(l => !layers.includes(l));
+            if (lifted.length) layers = layers.concat(lifted);
+        }
+
         if (saveHistory) {
             this.saveState(historyAction);
         }

@@ -188,6 +188,51 @@ export function anglesFromQuat(q) {
     return { pitch: pitch / DEG, yaw: yaw / DEG, roll: roll / DEG };
 }
 
+// ── Corners ──────────────────────────────────────────────────────────────
+
+// A screen's corners (the Header/Footer tab's Corners, app-corners.js): a
+// bend between two columns or down the middle of one panel, any angle up
+// to 90 degrees, Interior or Exterior (owner, 2026-11-09). Stored on the
+// layer as riggingCorners, [{ at, angle, side }]: `at` in half steps as
+// the Curve's build-from point counts them (3 is the middle of panel 3,
+// 3.5 the seam between panels 3 and 4), `angle` in degrees, `side`
+// 'interior' (the wings come toward the audience, like a concave curve)
+// or 'exterior'. Columns only: a corner never runs along a row. The hinge
+// is the panels' front face. A corner on a seam that also carries a curve
+// angle adds to it. A show without corners builds as it always did.
+export const CORNER_MAX = 90;
+export const CORNER_SIDES = ['interior', 'exterior'];
+
+// The corners as they are kept: each `at` a half step from 1 (any panel
+// middle or seam; the screen's own width is checked where it is built),
+// each angle above 0 and at most 90 to the tenth of a degree, one corner
+// per spot (the last one kept), left to right. Junk is dropped.
+export function s3dCleanCorners(raw) {
+    const out = new Map();
+    for (const c of (Array.isArray(raw) ? raw : [])) {
+        if (!c || typeof c !== 'object') continue;
+        const at = finite(c.at, null);
+        const angle = finite(c.angle, null);
+        if (at === null || angle === null) continue;
+        if (at < 1 || Math.abs(at * 2 - Math.round(at * 2)) > 1e-9) continue;
+        const a = Math.round(Math.min(CORNER_MAX, angle) * 10) / 10;
+        if (!(a > 0)) continue;
+        const spot = Math.round(at * 2) / 2;
+        out.set(spot, { at: spot, angle: a, side: c.side === 'exterior' ? 'exterior' : 'interior' });
+    }
+    return [...out.values()].sort((p, q) => p.at - q.at);
+}
+
+// The corners of `layer` that land on a screen `cols` columns wide: a
+// panel middle 1..cols or a seam between two of them.
+export function s3dCornersOn(layer, cols) {
+    return s3dCleanCorners(layer && layer.riggingCorners)
+        .filter(c => (Number.isInteger(c.at) ? c.at <= cols : c.at < cols));
+}
+
+// A corner's turn in the column chain's terms: interior positive.
+export const s3dCornerTurn = (c) => (c.side === 'exterior' ? -c.angle : c.angle);
+
 // ── Building a screen from its cabinets ──────────────────────────────────
 
 // One chain of rigid segments (the columns across, or the rows down) that
@@ -248,6 +293,12 @@ function s3dChain(lengths, joints) {
 // left-right line (an arch, a ceiling, a kick); a cabinet is placed on its
 // row first and the result carried by its column, so a screen curved both
 // ways opens small gaps at the corners rather than warping a cabinet.
+//
+// Corners (s3dCornersOn) bend the column chain too: one on a seam adds its
+// turn to that joint's angle; one down the middle of a panel splits that
+// column into two halves hinged at its middle, so each cabinet of the
+// column is two quads (`fold` 0 and 1), each with its own share of the
+// drawing. `colHeads` is the heading each column starts on.
 export function s3dBuild(layer, placement) {
     const panels = Array.isArray(layer.panels) ? layer.panels : [];
     const mx = mmPerPx(layer, 'x'), my = mmPerPx(layer, 'y');
@@ -270,10 +321,39 @@ export function s3dBuild(layer, placement) {
     const ri = new Map(rows.map((r, i) => [r, i]));
     const colLen = cols.map(c => (colSpan.get(c)[1] - colSpan.get(c)[0]) * mx);
     const rowLen = rows.map(r => (rowSpan.get(r)[1] - rowSpan.get(r)[0]) * my);
-    const colJ = cols.slice(0, -1).map((_, j) => jointAt(placement, 'col', j));
     const rowJ = rows.slice(0, -1).map((_, j) => jointAt(placement, 'row', j));
-    const cc = s3dChain(colLen, colJ);
+    // The corners: a seam's turn added to its joint, a panel's own fold.
+    const fold = cols.map(() => 0);
+    const seamTurn = cols.slice(0, -1).map(() => 0);
+    for (const c of s3dCornersOn(layer, cols.length)) {
+        if (Number.isInteger(c.at)) fold[c.at - 1] += s3dCornerTurn(c);
+        else seamTurn[c.at - 1.5] += s3dCornerTurn(c);
+    }
+    const colJ = cols.slice(0, -1).map((_, j) => jointAt(placement, 'col', j) + seamTurn[j]);
+    // The column chain's segments: a column, or the two halves of a folded one.
+    const segLen = [], segJ = [], colSeg = [];
+    colLen.forEach((len, i) => {
+        if (i > 0) segJ.push(colJ[i - 1]);
+        colSeg.push(segLen.length);
+        if (fold[i]) {
+            segLen.push(len / 2, len / 2);
+            segJ.push(fold[i]);
+        } else {
+            segLen.push(len);
+        }
+    });
+    const cc = s3dChain(segLen, segJ);
     const rc = s3dChain(rowLen, rowJ);
+    // Where column i folds (mm across it), or null.
+    const foldAt = (i) => (fold[i] ? colLen[i] / 2 : null);
+    // The chain segment of column i that `u` mm across it lies on, and how
+    // far along that segment.
+    const segOf = (i, u) => {
+        const s = colSeg[i];
+        if (s === undefined) return [i, u];
+        const f = foldAt(i);
+        return f !== null && u > f ? [s + 1, u - f] : [s, u];
+    };
 
     // The foot of the row chain under the middle of the column chain (which
     // the chain puts at the origin, heading straight across, its front +Z).
@@ -286,8 +366,9 @@ export function s3dBuild(layer, placement) {
 
     // a point at `u` mm across chain column i and `w` mm down chain row k,
     // from the middle of the bottom edge
-    const point = (i, u, k, w) => {
-        const h = cc.heads[i] || 0, o = cc.starts[i] || [0, 0];
+    const point = (i, uIn, k, w) => {
+        const [s, u] = segOf(i, uIn);
+        const h = cc.heads[s] || 0, o = cc.starts[s] || [0, 0];
         const g = rc.heads[k] || 0, q = rc.starts[k] || [0, 0];
         const down = q[0] + w * Math.cos(g);       // along the row chain's first axis (down)
         const fwd = q[1] + w * Math.sin(g);        // towards the audience
@@ -307,16 +388,29 @@ export function s3dBuild(layer, placement) {
         if (!(w > 0 && h > 0)) continue;
         const u0 = (x - colSpan.get(c)[0]) * mx, u1 = u0 + w * mx;
         const w0 = (y - rowSpan.get(r)[0]) * my, w1 = w0 + h * my;
-        quads.push({
-            row: r, col: c, ci: i, ri: k, u0, u1, w0, w1,
-            tl: point(i, u0, k, w0), tr: point(i, u1, k, w0),
-            br: point(i, u1, k, w1), bl: point(i, u0, k, w1),
-            px: [x, y, w, h],
-        });
+        const piece = (a, b, xa, wa, half) => {
+            const q = {
+                row: r, col: c, ci: i, ri: k, u0: a, u1: b, w0, w1,
+                tl: point(i, a, k, w0), tr: point(i, b, k, w0),
+                br: point(i, b, k, w1), bl: point(i, a, k, w1),
+                px: [xa, y, wa, h],
+            };
+            if (half !== undefined) q.fold = half;
+            quads.push(q);
+        };
+        // A cabinet across its column's fold is two quads, hinged there.
+        const f = foldAt(i);
+        if (f !== null && u0 < f - 1e-6 && u1 > f + 1e-6) {
+            const wa = (f - u0) / mx;
+            piece(u0, f, x, wa, 0);
+            piece(f, u1, x + wa, w - wa, 1);
+        } else {
+            piece(u0, u1, x, w);
+        }
     }
     return {
-        quads, point, colLen, rowLen, colJ, rowJ, base,
-        colHeads: cc.heads, rowHeads: rc.heads,
+        quads, point, colLen, rowLen, colJ, rowJ, base, foldAt,
+        colHeads: colSeg.map(s => cc.heads[s] || 0), rowHeads: rc.heads,
         bounds: { x: bx0, y: by0, w: Math.max(1, bx1 - bx0), h: Math.max(1, by1 - by0) },
         widthMm: cc.total, heightMm: rc.total,
     };
@@ -473,11 +567,17 @@ function s3dBarRows(layer, built, slices) {
                 ub = ua + avg;
             }
             lengthMm += ub - ua;
-            quads.push({
-                slot: s,
-                tl: built.point(i, ua, k, wTop), tr: built.point(i, ub, k, wTop),
-                br: built.point(i, ub, k, wBot), bl: built.point(i, ua, k, wBot),
-            });
+            // A bar over a folded panel folds with it: two quads, each with
+            // its share of the slot (f0..f1) for the drawing.
+            const f = built.foldAt ? built.foldAt(i) : null;
+            const cuts = f !== null && ua < f - 1e-6 && ub > f + 1e-6 ? [[ua, f], [f, ub]] : [[ua, ub]];
+            for (const [a, b] of cuts) {
+                quads.push({
+                    slot: s, f0: (a - ua) / (ub - ua), f1: (b - ua) / (ub - ua),
+                    tl: built.point(i, a, k, wTop), tr: built.point(i, b, k, wTop),
+                    br: built.point(i, b, k, wBot), bl: built.point(i, a, k, wBot),
+                });
+            }
         }
         const slots = list.length;
         const fits = sl.fits == null ? (bars.reduce((a, b) => a + b.size, 0) === n) : !!sl.fits;
@@ -717,6 +817,67 @@ class _Stage3D {
             slices = typeof this.riggingStageSlices === 'function' ? this.riggingStageSlices(layer) : null;
         } catch (err) { slices = null; }
         return s3dFooterMm(layer, slices);
+    }
+
+    // The footer each placed screen of `project` (a history entry's show)
+    // stands, by id: _s3dFooterMm read against that show, since a group's
+    // footer row depends on its members as they stood then.
+    _s3dFootersIn(project) {
+        const out = new Map();
+        const live = this.project;
+        try {
+            this.project = project;
+            for (const l of (project && project.layers) || []) {
+                if (this._s3dIsScreen(l) && l.stage3d) out.set(l.id, this._s3dFooterMm(l));
+            }
+        } finally {
+            this.project = live;
+        }
+        return out;
+    }
+
+    // A FOOTER ADDED TO A SCREEN ALREADY PLACED IN 3D LIFTS ITS PANELS 6 in
+    // (owner, 2026-11-09): the footer lands where the panels stood, and Y,
+    // which reads the footer's foot, reads what it read before. Taken away,
+    // the panels drop back by the same, so Y 0 is the panels' bottom again.
+    // A header sits on top and moves nothing; a screen not yet placed
+    // follows Show Look already. Run by updateLayers ahead of the history
+    // entry: against that entry (the show before this edit), every placed
+    // screen whose footer came or went while its place did not is moved,
+    // along its own lean, so the point Y measures stays put. A screen whose
+    // place the edit set itself is left as the edit put it, so running this
+    // twice never lifts twice. Returns the screens it moved, which ride in
+    // the edit's PUT and undo step.
+    _s3dFollowFooters() {
+        const layers = (this.project && this.project.layers) || [];
+        const entry = Array.isArray(this.history) ? this.history[this.historyIndex] : null;
+        const before = entry && entry.project;
+        if (!before || !Array.isArray(before.layers) || !layers.some(l => l && l.stage3d)) return [];
+        const was = new Map(before.layers.map(l => [l.id, l]));
+        let feet = null;
+        const out = [];
+        for (const layer of layers) {
+            if (!this._s3dIsScreen(layer) || !layer.stage3d) continue;
+            const old = was.get(layer.id);
+            if (!old || !old.stage3d) continue;
+            const now = s3dResolve(layer, layer.stage3d);
+            const prev = s3dResolve(old, old.stage3d);
+            if (!now || !prev) continue;
+            if (['x', 'y', 'z'].some(k => Math.abs(now[k] - prev[k]) > 1e-6)) continue;
+            const footNow = this._s3dFooterMm(layer);
+            if (!feet) feet = this._s3dFootersIn(before);
+            const footWas = feet.get(layer.id) || 0;
+            if (footNow === footWas) continue;
+            const shown = s3dShown(old, prev, footWas);
+            const next = s3dStoredFrom(layer, { ...now, x: shown.x, y: shown.y, z: shown.z }, footNow);
+            layer.stage3d = s3dSanitize({ ...now, x: round(next.x, 3), y: round(next.y, 3), z: round(next.z, 3) });
+            out.push(layer);
+        }
+        if (out.length) {
+            sendClientLog('stage3d_footer_follow', { ids: out.map(l => l.id) });
+            this._s3dSchedule();
+        }
+        return out;
     }
 
     // What the panel shows for `layer` placed at `p` (stored form): X, Y
@@ -1389,6 +1550,7 @@ class _Stage3D {
             (layer.panels || []).map(p => [p.row, p.col, p.x, p.y, p.width, p.height, !!p.hidden, !!p.blank]),
             layer.panel_width_mm, layer.panel_height_mm, layer.cabinet_width, layer.cabinet_height,
             placement.curveCol, placement.curveRow, placement.jointsCol, placement.jointsRow,
+            s3dCleanCorners(layer.riggingCorners),
         ]);
         if (e.geoKey !== geoKey) {
             e.geoKey = geoKey;
@@ -1521,7 +1683,7 @@ class _Stage3D {
             const pos = new Float32Array(n * 12), uv = new Float32Array(n * 8), idx = new Uint32Array(n * 6);
             row.quads.forEach((q, i) => {
                 [q.tl, q.tr, q.br, q.bl].forEach((c, k) => pos.set(c, i * 12 + k * 3));
-                const u0 = (q.slot - row.from) / row.span, u1 = (q.slot + 1 - row.from) / row.span;
+                const u0 = (q.slot + q.f0 - row.from) / row.span, u1 = (q.slot + q.f1 - row.from) / row.span;
                 uv.set([u0, 1, u1, 1, u1, 0, u0, 0], i * 8);
                 const base = i * 4;
                 idx.set([base + 3, base + 2, base + 1, base + 3, base + 1, base], i * 6);
