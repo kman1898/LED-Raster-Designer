@@ -16,10 +16,10 @@
 // real bars, so the totals, the pull list and the binder count them, and
 // writes the angle at every joint between columns into the screen's 3D
 // placement (stage3d.jointsCol, concave positive, flat joints written as
-// 0 so the screen-wide column figure never leaks in). Every change is one
+// 0; the Curve is the only source of joint angles). Every change is one
 // undo step. While Curve is on, Custom does not lay bars on that screen
-// and Auto lays the curve again. Turned off, the joints go back to the
-// screen-wide figure and the bars stay where they are. Lit sizes that
+// and Auto lays the curve again. Turned off, every joint goes flat and
+// the bars stay where they are. Lit sizes that
 // cannot cover the wall exactly lay nothing (owner, 2026-11-09): the tab
 // names the gap and the screen's bars and joints stay as they are.
 //
@@ -286,12 +286,17 @@ class _Curve {
         return joints.every((_, j) => table[String(j)] === placed[String(j)]);
     }
 
-    // Curve off: the column joints go back to the screen-wide figure. An
+    // Curve off: every column joint goes flat. An
     // old centre block is moved to the bottom middle first (s3dResolve), so
     // the block written back stands where it stood.
+    // The stored angles are read off the block as saved: a screen whose
+    // Curve is already off reads none (s3dResolve), but they are still
+    // there to take away.
     _curveUnlay(layer) {
-        const prev = layer.stage3d ? s3dResolve(layer, layer.stage3d) : null;
-        if (prev && Object.keys(prev.jointsCol).length) layer.stage3d = { ...prev, jointsCol: {} };
+        const raw = layer.stage3d && layer.stage3d.jointsCol;
+        if (!raw || typeof raw !== 'object' || !Object.keys(raw).length) return;
+        const prev = s3dResolve(layer, layer.stage3d);
+        if (prev) layer.stage3d = { ...prev, jointsCol: {} };
     }
 
     // The curved screens among `layers` laid again from their settings as

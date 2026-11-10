@@ -63,6 +63,7 @@ import './app-clipboard.js';
 import './app-stage3d.js';
 import './app-stage3d-nav.js';
 import './app-stage3d-handles.js';
+import './app-stage3d-panel.js';
 import './app-obj-export.js';
 import './app-idm-locator.js';
 import './app-idm-gamepad.js';

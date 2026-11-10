@@ -3404,7 +3404,7 @@
     }
     function restore3d() {
         var a = A(), st = a && a._s3d;
-        if (st) { a._s3dDropPendingCamera(); st.epoch = null; st.joint = null; }
+        if (st) { a._s3dDropPendingCamera(); st.epoch = null; if (a._s3dPickCorner) a._s3dPickCorner(null); }
     }
     function outputModal() { return $('#output-display-modal'); }
     function outputOpen() { var m = outputModal(); return !!m && m.style.display !== 'none'; }
@@ -3509,6 +3509,31 @@
                 cv.dispatchEvent(new PointerEvent('pointerup', ev(to.x, to.y, 0, button)));
                 press(false);
                 ripple(to.x, to.y);
+                return t.pause(PACE.dragRest);
+            });
+        });
+    }
+    // A press on a 3D panel figure dragged `dx` px sideways and let go, as
+    // a mouse does it (app-stage3d-panel.js listens on the field).
+    function fieldDrag(t, sel, dx, badgeText) {
+        var input = $(sel);
+        var f = input && input.closest('.s3d-field');
+        if (!f) return Promise.reject(new Error('fieldDrag: no field ' + sel));
+        var ev = function (x, y, b, btn) {
+            return { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y,
+                     button: btn, buttons: b, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+        };
+        return t.hover(sel, { badge: badgeText || 'Drag' }).then(function (p) {
+            press(true);
+            f.dispatchEvent(new PointerEvent('pointerdown', ev(p.x, p.y, 1, 0)));
+            return t.pause(PACE.dragPress).then(function () {
+                return animateTo(p.x + dx, p.y, function (x, y) {
+                    f.dispatchEvent(new PointerEvent('pointermove', ev(x, y, 1, -1)));
+                }, PACE.dragTravel);
+            }).then(function () {
+                f.dispatchEvent(new PointerEvent('pointerup', ev(p.x + dx, p.y, 0, 0)));
+                press(false);
+                ripple(p.x + dx, p.y);
                 return t.pause(PACE.dragRest);
             });
         });
@@ -6166,15 +6191,17 @@
                     ? 'DEMO WALL folds 90° Interior in the middle of panel ' + mem.at + '.' : null;
             }
         },
-        // Bars split at a corner (1.7.0): with the Curve off, Auto lays the
-        // corner's own Header Bar - Corner (1 panel) over its panel and fits
-        // each side. The Curve is ticked again afterwards and curves each
-        // side as its own wall right up to the fold, so the wall goes
-        // on as the Curve step left it.
+        // Bars split at a corner (1.7.0): Auto lays the corner's own Header
+        // Bar - Corner over the panels touching it and fills each side. The
+        // Curve the Curve step left on stays on, so Auto lays the Curve
+        // again: each side curved as its own wall right up to the fold. The
+        // step waits for the Curve before Auto and after it, so the bars it
+        // names are the ones the tab shows (the Curve used to be turned off
+        // and on again here, and its second laying landed after the note).
         riggingCornerBars: {
             since: '1.7.0',
             target: '#rigging-total-count', place: 'right', title: 'Corner bars',
-            body: 'Auto splits the bars at a corner: its Header Bar - Corner covers the panels touching it and regular bars fill each side. With the Curve on, each side curves as its own wall right up to the fold.',
+            body: 'Auto splits the bars at a corner: its Header Bar - Corner covers the panels touching it and bars fill each side. With the Curve on, each side curves as its own wall right up to the fold.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -6189,52 +6216,34 @@
                 A().refreshRiggingPanel();
             },
             act: function (t) {
-                var w0 = wall();
-                t.mem.curve = !!(w0 && w0.riggingCurve && w0.riggingCurve.on);
-                t.mem.custom = A()._riggingToolNow() === 'custom';
                 var pieces = function () { var w = wall(); return w ? A().riggingCornerPiecesOf(w).length : 0; };
-                var curveLaid = function () {
-                    var w = wall();
-                    var j = w && w.stage3d && w.stage3d.jointsCol;
-                    return w && w.riggingCurve && w.riggingCurve.on && j && Object.keys(j).length === w.columns - 1;
-                };
-                var chain = Promise.resolve();
-                if (t.mem.curve) {
-                    chain = chain.then(function () { return t.click('#rigging-curve-on'); }).then(function () {
-                        return t.wait(function () { var w = wall(); return w && !(w.riggingCurve && w.riggingCurve.on); });
-                    });
-                }
-                if (t.mem.custom) chain = chain.then(function () { return t.click('.rigging-tool-btn[data-tool="auto"]'); });
-                return chain.then(function () {
+                var idle = function () { return !A().riggingCurveBusy(); };
+                var custom = A()._riggingToolNow() === 'custom';
+                return t.wait(idle, 10000).then(function () {
+                    if (custom) return t.click('.rigging-tool-btn[data-tool="auto"]');
+                }).then(function () {
                     return t.click('#rigging-auto-btn');
                 }).then(function () {
-                    return t.wait(function () { return pieces() > 0; });
+                    // Auto, and a curved wall's Curve laid again, all landed
+                    return t.wait(function () { return pieces() === 1 && idle(); }, 10000);
                 }).then(function (ok) {
                     if (!ok) throw new Error('no corner bar was laid');
-                    t.mem.pieces = pieces();
-                    var w1 = wall();
-                    var laid = w1 ? A().riggingCornerPiecesOf(w1) : [];
-                    t.mem.part = laid.length ? RiggingMath.cornerName(laid[0].size, 'header') : '';
-                    t.mem.bars = headerBars();
-                    var list = $('#rigging-total-breakdown');
-                    t.mem.list = String((list && list.textContent) || '').replace(/\n/g, ', ');
                     var box = $('#rigging-total-count');
                     return t.spot((box && box.closest('[data-tooltip]')) || box).then(function () { return t.pause(PACE.opened); });
                 }).then(function () {
-                    // the wall back as the Curve step left it
-                    if (t.mem.custom) return t.click('.rigging-tool-btn[data-tool="custom"]');
-                }).then(function () {
-                    if (!t.mem.curve) return true;
-                    return t.click('#rigging-curve-on').then(function () {
-                        return t.wait(function () { return curveLaid() && !A().riggingCurveBusy() && pieces() === 1; }, 10000);
-                    });
-                }).then(function (ok) {
-                    if (!ok) throw new Error('the curve was not laid again');
+                    if (custom) return t.click('.rigging-tool-btn[data-tool="custom"]');
                 });
             },
-            check: function (mem) {
-                return mem.pieces === 1 && mem.part && /Corner \(\d panel\): 1/.test(mem.list || '')
-                    ? 'Auto split DEMO WALL at its corner: ' + mem.bars.split(',').join(' + ') + ' and a ' + mem.part + '. The totals read ' + mem.list + '.' : null;
+            // Read as the tab stands when the note is written.
+            check: function () {
+                var w = wall();
+                var laid = w ? A().riggingCornerPiecesOf(w) : [];
+                var part = laid.length ? RiggingMath.cornerName(laid[0].size, 'header') : '';
+                var list = $('#rigging-total-breakdown');
+                var totals = String((list && list.textContent) || '').replace(/\n/g, ', ');
+                var bars = headerBars();
+                if (laid.length !== 1 || !part || !bars || A().riggingCurveBusy() || !/Corner \(\d panel\): 1/.test(totals)) return null;
+                return 'Auto split DEMO WALL at its corner: ' + bars.split(',').join(' + ') + ' and a ' + part + '. The totals read ' + totals + '.';
             }
         },
         riggingCornerSide: {
@@ -7618,6 +7627,30 @@
                 return wall2().name + "'s bottom edge stands 0.5 m up, " + $('#s3d-y').value + ' ft with the panel back in feet.';
             }
         },
+        // The figures work as fields in 3D software do (app-stage3d-panel.js):
+        // DEMO WALL 2's X dragged 48 px to the right, an inch a pixel.
+        s3dDrag: {
+            since: '1.7.0',
+            target: '#s3d-x', ring: ['#s3d-y', '#s3d-z'], place: 'right', title: 'Drag a figure',
+            body: 'Press on a figure and drag sideways to change it: Shift for fine steps, Ctrl (Cmd on a Mac) to snap. A click types instead, and Up and Down nudge.',
+            before: function () { return open3d().then(function () { only(wall2()); }); },
+            act: function (t) {
+                var a = A(), w2 = wall2();
+                t.mem.x = a._s3dShownOf(w2, a._s3dPlacementOf(w2)).x;
+                return fieldDrag(t, '#s3d-x', 48).then(function () {
+                    return t.wait(function () {
+                        var x = Number(placed(wall2()).x);
+                        return Number.isFinite(x) && Math.abs(x - t.mem.x - 48 * 25.4) < 0.5;
+                    }, 2000);
+                });
+            },
+            check: function (mem) {
+                var a = A(), w2 = wall2();
+                var x = w2 ? a._s3dShownOf(w2, a._s3dPlacementOf(w2)).x : null;
+                if (x == null || mem.x == null || Math.abs(x - mem.x - 48 * 25.4) > 0.5) return null;
+                return w2.name + ' slid 4 ft along X in one drag, one step to undo.';
+            }
+        },
         // Getting around with standard 3D navigation: a middle drag
         // round DEMO WALL 2, then the wheel toward it.
         s3dLook: {
@@ -7664,7 +7697,7 @@
             since: '1.7.0',
             target: '#s3d-tool-move', ring: ['#s3d-tool-move', '#s3d-tool-rotate'], place: 'bottom', title: 'Move with the handles',
             avoid: [function () { var h = s3dHandles(); return h && h.grips && h.grips.x ? { x: h.grips.x[0], y: h.grips.x[1] } : null; }],
-            body: 'Drag a colored arrow to slide the screen along one axis; hold Ctrl (Cmd on a Mac) to snap to 6 in steps. Press E for rings that turn it, W for the arrows again.',
+            body: 'Drag a colored arrow to slide the screen along one axis, or a square between two to move it on that plane; Ctrl (Cmd on a Mac) snaps to 6 in. E shows rings that turn it, W the arrows again.',
             before: function () {
                 return open3d().then(function () {
                     only(wall2());
@@ -7701,37 +7734,109 @@
                 return wall2().name + ' slid 1 ft along X, in two snapped steps of 6 in.';
             }
         },
-        s3dCurve: {
+        // G and R from the keyboard (app-stage3d-handles.js): G, Z to lock
+        // the move toward the audience, 1 typed, Enter. DEMO WALL 2 steps
+        // 1 ft downstage in one undo step.
+        s3dKeys: {
             since: '1.7.0',
-            target: '#s3d-curve-col', place: 'right', title: 'Bend the column joints',
-            body: 'Column joints bends every joint between two columns, up to 15&deg; either way. Here 5&deg; curves the screen toward the audience.',
-            before: function () { return open3d().then(function () { only(wall2()); }); },
-            act: function (t) {
-                return t.type('#s3d-curve-col', '5').then(function () {
-                    return t.wait(function () { return placed(wall2()).curveCol === 5; });
+            target: '#s3d-view', place: 'left', title: 'Move from the keyboard',
+            avoid: [function () { return stagePoint(wall2()); }],
+            body: 'Press G to move the selected screens with the mouse, or R to turn them. X, Y or Z locks an axis, a typed figure sets it, Enter keeps it and Esc puts it back.',
+            before: function () {
+                return open3d().then(function () {
+                    only(wall2());
+                    var a = A();
+                    if (a._s3dUnits && a._s3dUnits() !== 'ft') a._s3dSetUnits('ft');
                 });
             },
-            check: function () {
-                if (placed(wall2()).curveCol !== 5) return null;
-                var arc = $('#s3d-arc-col');
-                return 'Every column joint bends 5°' +(arc && arc.textContent ? ': ' + arc.textContent + '.' : '.');
+            act: function (t) {
+                var d = s3dDebug();
+                if (!d || !d.webgl) return t.pause(PACE.rest);
+                var a = A(), w2 = wall2();
+                t.mem.z = a._s3dShownOf(w2, a._s3dPlacementOf(w2)).z;
+                var press = function (key) {
+                    keyEvent('keydown', window, key);
+                    keyEvent('keyup', window, key);
+                    return t.pause(PACE.acted);
+                };
+                var at = stagePoint(w2);
+                return (at ? t.hover(at, { badge: 'G' }) : Promise.resolve()).then(function () {
+                    return press('g');
+                }).then(function () { return press('z'); }).then(function () {
+                    return press('1');
+                }).then(function () { return press('Enter'); }).then(function () {
+                    return t.wait(function () {
+                        var w = wall2();
+                        return Math.abs(a._s3dShownOf(w, a._s3dPlacementOf(w)).z - t.mem.z - 304.8) < 0.01;
+                    }, 2000);
+                });
+            },
+            check: function (mem) {
+                var d = s3dDebug();
+                if (d && !d.webgl) return 'Without WebGL here, the X, Y and Z fields move the screen the same way.';
+                var a = A(), w2 = wall2();
+                var z = w2 ? a._s3dShownOf(w2, a._s3dPlacementOf(w2)).z : null;
+                if (z == null || mem.z == null || Math.abs(z - mem.z - 304.8) > 0.01) return null;
+                return 'G, Z, 1, Enter: ' + w2.name + ' stepped 1 ft toward the audience in one undo step.';
             }
         },
+        // The gentle bends come from the Curve (the riggingCurve step left
+        // DEMO WALL curved): the 3D panel shows it as it stands, read only,
+        // with a link to its settings on the Header/Footer tab.
+        s3dCurve: {
+            since: '1.7.0',
+            target: '#s3d-curve-info', ring: ['#s3d-curve-info', '#s3d-curve-edit'], place: 'right', title: 'The Curve in 3D',
+            body: 'The gentle bends come from the Curve on the Header/Footer tab, shown here as they stand. Curve settings opens it for this screen.',
+            before: function () { return open3d().then(function () { only(wall()); }); },
+            act: function (t) {
+                return t.spot($('#s3d-curve-info')).then(function () { return t.pause(PACE.opened); });
+            },
+            check: function () {
+                var a = A(), w = wall(), info = $('#s3d-curve-info');
+                var text = info ? info.textContent : '';
+                if (!w || !a.currentLayer || a.currentLayer.id !== w.id || text.indexOf('Curve: ') !== 0) return null;
+                return w.name + ' stands curved by its Curve: ' + text.slice(7);
+            }
+        },
+        // A rotation field's right-click: +90 turns DEMO WALL 2 a quarter,
+        // Reset stands it square again, so the steps after find it as it was.
         s3dYaw: {
             since: '1.7.0',
-            target: '[data-s3d-axis="yaw"] [data-s3d-step="15"]', ring: ['#s3d-yaw', '[data-s3d-axis="yaw"]'],
-            place: 'right', title: 'Turn the screen',
-            body: 'The +15 and -15 buttons turn the screen in steps, or type any angle in Pitch, Yaw or Roll.',
+            target: '#s3d-yaw', ring: ['#s3d-pitch', '#s3d-roll'], place: 'right', title: 'Turn the screen',
+            avoid: ['#s3d-field-menu'],
+            body: 'Drag Pitch, Yaw or Roll, or type an angle; their colors match the rings in the view. Right-click one for +90, -90 and Reset.',
             before: function () { return open3d().then(function () { only(wall2()); }); },
             act: function (t) {
-                t.mem.yaw = Number(placed(wall2()).yaw) || 0;
-                return t.click('[data-s3d-axis="yaw"] [data-s3d-step="15"]').then(function () {
-                    return t.wait(function () { return Math.abs((Number(placed(wall2()).yaw) || 0) - t.mem.yaw - 15) < 0.01; });
+                var yaw = function () { return Number(placed(wall2()).yaw) || 0; };
+                t.mem.yaw = yaw();
+                var menu = function () {
+                    return t.hover('#s3d-yaw', { badge: 'Right-click' }).then(function (p) {
+                        var f = $('#s3d-yaw').closest('.s3d-field');
+                        ripple(p.x, p.y);
+                        f.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, view: window,
+                            clientX: p.x, clientY: p.y, button: 2 }));
+                        return t.wait(function () { return $('#s3d-field-menu'); }, 2000);
+                    });
+                };
+                return menu().then(function (m) {
+                    if (!m) throw new Error('the rotation menu did not open');
+                    return t.click('#s3d-field-menu [data-s3d-menu="+90"]');
+                }).then(function () {
+                    return t.wait(function () { return Math.abs(yaw() - t.mem.yaw - 90) < 0.01; }, 2000);
+                }).then(function (ok) {
+                    t.mem.turned = !!ok;
+                    return t.pause(PACE.acted).then(menu);
+                }).then(function (m) {
+                    if (!m) throw new Error('the rotation menu did not open');
+                    return t.click('#s3d-field-menu [data-s3d-menu="reset"]');
+                }).then(function () {
+                    return t.wait(function () { return Math.abs(yaw()) < 0.01; }, 2000);
                 });
             },
             check: function (mem) {
                 var yaw = Number(placed(wall2()).yaw) || 0;
-                return Math.abs(yaw - mem.yaw - 15) < 0.01 ? wall2().name + ' turns to a yaw of ' + Math.round(yaw) + '°.' : null;
+                return mem.turned && Math.abs(yaw) < 0.01
+                    ? wall2().name + ' turned a quarter with +90, and Reset stood it square again.' : null;
             }
         },
         s3dCamera: {
@@ -7820,35 +7925,60 @@
                     + ' panels. Bars hid them and brought them back.';
             }
         },
-        s3dJoint: {
+        // Corners on the 3D tab are 90 degrees, Interior or Exterior (owner,
+        // 2026-11-10), the Header/Footer tab's own riggingCorners: a click on
+        // the seam between panels 3 and 4 of DEMO WALL 2 sets an Interior
+        // corner, and None takes it off again, so the wall is as it was.
+        s3dCorner: {
             since: '1.7.0',
-            target: '#s3d-joint-angle', ring: ['#s3d-joint-label', '#s3d-joint-angle'], place: 'right', title: 'Bend one joint',
-            avoid: ['#s3d-joint-angle', function () {
-                var w2 = wall2(), at = w2 && A()._s3dDebugSeam ? A()._s3dDebugSeam(w2.id, 'col', 2) : null;
+            target: '#s3d-view', place: 'left', title: '90&deg; corners',
+            avoid: ['#s3d-corner-pop', function () {
+                var w2 = wall2(), at = w2 && A()._s3dDebugSpot ? A()._s3dDebugSpot(w2.id, 3.5) : null;
                 return at ? { x: at[0], y: at[1] } : null;
             }],
-            body: 'Click the seam between two columns, then give that joint its own angle. The other joints keep the screen&rsquo;s own figure.',
+            body: 'Click a seam, or the middle of a panel, on the selected screen for a 90&deg; corner, Interior or Exterior. It is the same corner the Header/Footer tab sets.',
             before: function () { return open3d().then(function () { only(wall2()); }); },
             act: function (t) {
-                var w2 = wall2();
-                var at = A()._s3dDebugSeam(w2.id, 'col', 2);
-                if (!at) throw new Error('the seam is not in the view');
-                return stagePress(t, { x: at[0], y: at[1] }).then(function () {
-                    return t.wait(function () {
-                        var jt = A()._s3d && A()._s3d.joint;
-                        return jt && jt.layerId === w2.id && jt.axis === 'col' && jt.index === 2;
-                    }, 2000);
-                }).then(function (picked) {
-                    if (!picked) throw new Error('the joint was not picked');
-                    return t.type('#s3d-joint-angle', '12');
+                var d = s3dDebug();
+                if (!d || !d.webgl) return t.pause(PACE.rest);
+                var corners = function () { var w = wall2(); return (w && Array.isArray(w.riggingCorners)) ? w.riggingCorners : []; };
+                var popUp = function () { var p = $('#s3d-corner-pop'); return p && !p.hidden ? p : null; };
+                var pick = function () {
+                    var at = A()._s3dDebugSpot(wall2().id, 3.5);
+                    if (!at) throw new Error('the seam is not in the view');
+                    return stagePress(t, { x: at[0], y: at[1] }).then(function () { return t.wait(popUp, 2000); });
+                };
+                return pick().then(function (pop) {
+                    if (!pop) throw new Error('the corner picker did not open');
+                    return t.click('#s3d-corner-pop [data-s3d-corner="interior"]');
                 }).then(function () {
-                    return t.wait(function () { return (placed(wall2()).jointsCol || {})['2'] === 12; });
+                    return t.wait(function () {
+                        var c = corners();
+                        return c.length === 1 && c[0].at === 3.5 && c[0].side === 'interior';
+                    }, 4000);
+                }).then(function (ok) {
+                    t.mem.corner = !!ok;
+                    // the stage folds the wall, then the seam is found again
+                    return t.wait(function () {
+                        var e = (s3dDebug() || { screens: [] }).screens.find(function (s) { return s.id === wall2().id; });
+                        return e && e.world && e.world.max[2] - e.world.min[2] > 100;
+                    }, 3000);
+                }).then(function () {
+                    return t.pause(PACE.acted).then(pick);
+                }).then(function (pop) {
+                    if (!pop) throw new Error('the corner picker did not open');
+                    return t.click('#s3d-corner-pop [data-s3d-corner="none"]');
+                }).then(function () {
+                    return t.wait(function () { return corners().length === 0; }, 4000);
                 });
             },
-            check: function () {
-                var p = placed(wall2());
-                return (p.jointsCol || {})['2'] === 12
-                    ? 'The joint between columns 3 and 4 bends 12°; the other column joints stay at ' + p.curveCol + '°.' : null;
+            check: function (mem) {
+                var d = s3dDebug();
+                if (d && !d.webgl) return 'Without WebGL here, corners are set under Corners on the Header/Footer tab.';
+                var w2 = wall2();
+                var none = !w2 || !Array.isArray(w2.riggingCorners) || !w2.riggingCorners.length;
+                return mem.corner && none
+                    ? w2.name + ' took an Interior 90° corner between panels 3 and 4, and None took it off again.' : null;
             }
         },
         outputOpen: {
@@ -8224,8 +8354,8 @@
                     'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurve',
                     'riggingCorner', 'riggingCornerBars', 'riggingCornerSide',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
-                    's3dOpen', 's3dSelect', 's3dHeight', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
-                    's3dBars', 's3dJoint',
+                    's3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',
+                    's3dCamera', 's3dFocus', 's3dBars', 's3dCorner',
                     'outputOpen', 'outputChoices',
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
                     'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist',
