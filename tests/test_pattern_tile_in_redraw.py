@@ -443,20 +443,47 @@ def test_a_power_tile_during_a_circuit_redraw_fills_only_that_circuit(page):
 
 def test_a_save_landing_while_the_menu_is_open_frees_the_live_screen(page):
     """The intermittent, made certain: a save's reply lands between the
-    right-click and the menu click and replaces the page's copy of the
-    screen. The redraw frees the live copy's ports, and a marquee and a
-    tile fill the freed cabinets instead of refusing them as wired."""
+    right-click and the menu click. It used to replace the page's copy of
+    the screen, and the redraw freed the ports of the copy the menu had
+    opened on. Since 2026-11-10 the reply is written into the screen the
+    page holds (app-core _takeServerCopy), so the menu's screen is the
+    live one and carries the server's copy. The redraw frees the live
+    screen's ports, and a marquee and a tile fill the freed cabinets
+    instead of refusing them as wired."""
     lid = reset(page)
 
     def save_lands():
-        swapped = page.evaluate("""async (id) => {
+        got = page.evaluate("""async (id) => {
             const app = window.app, was = window.__ptr.layer(id);
-            app.updateLayers([was]);
-            await app._layerSavesSettled();
-            await new Promise(r => setTimeout(r, 50));
-            return window.__ptr.layer(id) !== was;
+            const taken = [], take = app._takeServerCopy;
+            app._takeServerCopy = function (index, copy) {
+                const held = take.call(this, index, copy);
+                const keys = Object.keys(copy);
+                taken.push({ id: copy && copy.id, intoHeld: held === was,
+                             same: keys.length === Object.keys(held).length
+                                 && keys.every(k => JSON.stringify(copy[k]) === JSON.stringify(held[k])) });
+                return held;
+            };
+            try {
+                app.updateLayers([was]);
+                await app._layerSavesSettled();
+                await new Promise(r => setTimeout(r, 50));
+            } finally {
+                app._takeServerCopy = take;
+            }
+            // the server's screen, as it stands: the held one carries it
+            const served = (await (await fetch('/api/project')).json()).layers.find(l => l.id === id);
+            // (the server writes an object's keys sorted: compared as values)
+            const canon = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
+                ? Object.fromEntries(Object.keys(x).sort().map(n => [n, x[n]])) : x));
+            const differ = Object.keys(served).filter(k => canon(served[k]) !== canon(was[k]));
+            return { taken, differ, live: window.__ptr.layer(id) === was, current: app.currentLayer === was };
         }""", lid)
-        assert swapped, 'the reply did not replace the screen copy'
+        assert got['taken'] and got['taken'][-1]['id'] == lid, ('the reply never landed', got)
+        # written into the screen the menu opened on, as the server sent it
+        assert got['taken'][-1] == {'id': lid, 'intoHeld': True, 'same': True}, got
+        assert got['live'] and got['current'], ('the page let go of its screen', got)
+        assert got['differ'] == [], ("the screen does not carry the server's values", got)
     pick_and_open(page, lid, after_menu=save_lands)
     got = paths(page, lid)
     assert 42 not in got and 43 not in got, 'the redraw opened over ports still drawn'
