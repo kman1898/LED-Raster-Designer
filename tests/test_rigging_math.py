@@ -374,35 +374,38 @@ def test_the_1_panel_and_2_panel_corner_bars_are_two_parts():
 
 
 @needs_node
-def test_only_a_90_degree_corner_takes_a_corner_bar():
+def test_every_corner_takes_a_corner_bar_whatever_angle_it_was_saved_with():
+    """Every corner is 90 degrees (owner, 2026-11-10): one saved under 90 by
+    a 1.7.0 beta takes its corner bar like any other."""
     corners = [{'at': 2, 'angle': 90}, {'at': 4.5, 'angle': 45}, {'at': 7, 'angle': 89.9}, {'at': 9.5}]
     pieces = _node(f"R.cornerPieces({json.dumps(corners)}, 12)")
-    assert [(p['at'], p['start'], p['size']) for p in pieces] == [(2, 1, 1), (9.5, 8, 2)]
-    # under 90: the seam at 4.5 breaks at edge 4, the panel at 7 at edges 6 and 7
-    assert _node(f"R.cornerBreaks({json.dumps(corners)}, 12)") == [4, 6, 7]
-    assert _node(f"R.cornerBreaks({json.dumps(corners)}, 12, true)") == [5, 6, 8]
-    # the seam of a corner under 90 is a flat joint; a folded panel's is not
-    assert _node(f"R.cornerFlatJoints({json.dumps(corners)}, 12)") == [3]
+    assert [(p['at'], p['start'], p['size']) for p in pieces] == [(2, 1, 1), (4.5, 3, 2), (7, 6, 1), (9.5, 8, 2)]
+    # read right to left on a screen turned half way round
+    mirrored = _node(f"R.cornerPieces({json.dumps(corners)}, 12, true)")
+    assert [(p['at'], p['start'], p['size']) for p in mirrored] == [(9.5, 2, 2), (7, 5, 1), (4.5, 7, 2), (2, 10, 1)]
+    # nothing is left of the angle rules
+    for gone in ('isFull', 'cornerBreaks', 'cornerFlatJoints', 'crossesBreak', 'CORNER_FULL'):
+        assert _node(f"typeof R.{gone}") == 'undefined', gone
 
 
 @needs_node
-@pytest.mark.parametrize('breaks, expected', [
-    ([3], [[0, 1], [1, 2], [3, 1], [4, 2]]),           # a seam under 90: split at it
-    ([2, 3], [[0, 2], [2, 1], [3, 1], [4, 2]]),        # down panel 3: it takes a single
-    ([], [[0, 2], [2, 2], [4, 2]]),                    # no corner: as it always was
+@pytest.mark.parametrize('pieces, expected', [
+    ([[3, 1]], [[0, 1], [1, 2], [4, 2]]),                # a 1 panel corner bar in panel 4
+    ([[2, 2]], [[0, 2], [4, 2]]),                        # a 2 panel one on panels 3 and 4
+    ([], [[0, 2], [2, 2], [4, 2]]),                      # no corner: as it always was
 ])
-def test_auto_bars_never_cross_a_corner_under_90(breaks, expected):
-    got = _pairs(_node(f"R.fitAround(6, [1, 2], [], {json.dumps(breaks)})"))
+def test_auto_bars_run_up_to_the_corner_bar_on_each_side(pieces, expected):
+    got = _pairs(_node(f"R.fitAround(6, [1, 2], {_bars(pieces)})"))
     assert got == expected
     for start, size in got:
-        assert not any(start < e < start + size for e in breaks)
+        assert not any(start < p + n and p < start + size for p, n in pieces)
 
 
 @needs_node
-def test_a_bar_across_a_corner_under_90_is_wrong_in_any_row():
-    problem = _node(f"R.rowProblem({_bars([[2, 2]])}, 6, [[0, 6]], true, [], [3])")
-    assert problem['across'] is True
-    assert _node(f"R.rowProblem({_bars([[0, 3], [3, 3]])}, 6, [[0, 6]], false, [], [3])") is None
-    # Custom by hand: a drag over the break lays bars on each side of it
-    lay = _node(f"R.layAround(0, 5, 2, 6, [], [3])")
-    assert _pairs(lay['adds']) == [[0, 2], [3, 2]]
+def test_a_bar_on_a_corner_bars_panels_is_wrong_in_any_row():
+    problem = _node(f"R.rowProblem({_bars([[2, 2]])}, 6, [[0, 6]], true, {_bars([[3, 1]])})")
+    assert problem['corner'] is True
+    assert _node(f"R.rowProblem({_bars([[0, 3], [4, 2]])}, 6, [[0, 6]], false, {_bars([[3, 1]])})") is None
+    # Custom by hand: a drag over the corner lays bars on each side and its corner bar
+    lay = _node(f"R.layAround(0, 5, 2, 6, {_bars([[2, 2]])})")
+    assert _pairs(lay['adds']) == [[0, 2], [4, 2]] and lay['corners'] == [0]

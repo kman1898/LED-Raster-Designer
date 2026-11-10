@@ -2,7 +2,7 @@
 // signed column-joint angles out (curve-math.js screenCurve, cleanCurve,
 // parseAngles). Run by tests/test_curve_math.py.
 import { describe, it, expect, report } from './harness.mjs';
-import { cleanCurve, CURVE_DEFAULTS, curvePickKey, parseAngles, screenCurve, solveCurve, makeCurve, stockCovers } from '../../src/static/js/curve-math.js';
+import { cleanCurve, CURVE_DEFAULTS, curvePickKey, curveSides, faceRadiusForAngle, parseAngles, screenCurve, sideName, solveCurve, makeCurve, stockCovers } from '../../src/static/js/curve-math.js';
 
 const on = (over = {}) => ({ ...CURVE_DEFAULTS, on: true, ...over });
 
@@ -159,77 +159,136 @@ describe('cleanCurve and parseAngles', () => {
     });
 });
 
-// A screen's corners (owner, 2026-11-10): a 90 degree corner keeps its
-// corner bar with the Curve on, and the Curve lays its bars on each side
-// up to it; a corner under 90 splits the bars at its seam, held flat.
-describe('a curved screen with corners', () => {
+// A screen's corners (owner, 2026-11-10): every corner is 90 degrees and
+// takes its corner bar, the corner bars split the screen into sides, and
+// the Curve's % applies to each side as its own wall: each side is worked
+// out exactly as a screen of that side's width at the same settings.
+describe('a curved screen with corners, curved side by side', () => {
     const covers = (placed, n) => {
         let at = 0;
         for (const b of placed) { if (b.start !== at) return false; at += b.size; }
         return at === n;
     };
-    const inside = (out) => {
-        const set = new Set();
-        for (const b of out.placed) for (let k = 1; k < b.size; k++) set.add(b.start + k - 1);
-        return set;
-    };
-    it('a 2 panel corner bar on its seam, the bars on each side up to it', () => {
+    const alone = (n, over = {}, sizes = [1, 2]) => screenCurve({ panels: n, panelWidthM: 0.5, sizes, settings: on(over) });
+    it('the sides are the panels between the corner bars and the ends', () => {
+        expect(curveSides(12, [{ start: 5, size: 2 }])).toEqual([{ start: 0, panels: 5 }, { start: 7, panels: 5 }]);
+        expect(curveSides(14, [{ start: 9, size: 1 }, { start: 3, size: 2 }]))
+            .toEqual([{ start: 0, panels: 3 }, { start: 5, panels: 4 }, { start: 10, panels: 4 }]);
+        expect(curveSides(8, [{ start: 0, size: 1 }])).toEqual([{ start: 1, panels: 7 }]);
+        expect(curveSides(8, [])).toEqual([{ start: 0, panels: 8 }]);
+        expect([sideName(0, 2), sideName(1, 2), sideName(0, 3), sideName(2, 3)])
+            .toEqual(['left side', 'right side', 'side 1', 'side 3']);
+    });
+    it('each side of a 2 panel corner bar bends exactly as a wall of its own width', () => {
         const out = screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [1, 2], settings: on(), pieces: [{ start: 5, size: 2 }] });
         expect(out.errors).toEqual([]);
+        expect(out.result).toBe(null);
+        expect(out.sides.map((s) => [s.name, s.start, s.panels])).toEqual([['left side', 0, 5], ['right side', 7, 5]]);
+        const five = alone(5);
+        expect(out.joints.slice(0, 4)).toEqual(five.joints);
+        expect(out.joints.slice(7, 11)).toEqual(five.joints);
+        expect(out.sides[0].out.result.achieved.radius_face_m).toBeCloseTo(five.result.achieved.radius_face_m, 9);
+        // the corner bar's joints, inside it and at its ends, stay flat
+        expect(out.joints.slice(4, 7)).toEqual([0, 0, 0]);
         expect(covers(out.placed, 12)).toBe(true);
         expect(out.placed.filter((b) => b.corner)).toEqual([{ start: 5, size: 2, corner: true }]);
-        // the corner's own seam (joint 5) is inside the corner bar: flat
-        expect(out.joints[5]).toBe(0);
-        out.joints.forEach((a, i) => { if (inside(out).has(i)) expect(a).toBe(0); });
-        expect(out.joints.some((a) => a !== 0)).toBe(true);
-        expect(out.result.options.length > 0).toBe(true);
+        expect(out.placed.filter((b) => !b.corner).map((b) => b.size)).toEqual([...five.bars, ...five.bars]);
     });
-    it('a 1 panel corner bar with doubles on each side', () => {
-        const out = screenCurve({ panels: 11, panelWidthM: 0.5, sizes: [2], settings: on(), pieces: [{ start: 4, size: 1 }] });
+    it('sides of different widths each take the same % at their own radius', () => {
+        // 11 panels, a 1 panel corner bar in panel 5: four panels on the
+        // left, six on the right, 30 degrees of sweep each
+        const settings = { entry: 'degrees', value: 30, angles: [5, 7.5] };
+        const out = screenCurve({ panels: 11, panelWidthM: 0.5, sizes: [1], settings: on(settings), pieces: [{ start: 4, size: 1 }] });
         expect(out.errors).toEqual([]);
-        expect(out.placed.map((b) => [b.start, b.size, b.corner])).toEqual(
-            [[0, 2, false], [2, 2, false], [4, 1, true], [5, 2, false], [7, 2, false], [9, 2, false]]);
+        const left = alone(4, settings, [1]);
+        const right = alone(6, settings, [1]);
+        expect(out.joints).toEqual([...left.joints, 0, 0, ...right.joints]);
+        expect(left.joints).toEqual([7.5, 7.5, 7.5]);
+        expect(right.joints).toEqual([5, 5, 5, 5, 5]);
+        expect(out.sides[0].out.result.achieved.sweep_deg).toBeCloseTo(30, 6);
+        expect(out.sides[1].out.result.achieved.sweep_deg).toBeCloseTo(30, 6);
+        expect(out.sides[0].out.result.achieved.radius_face_m).toBeCloseTo(faceRadiusForAngle(0.5, 7.5), 9);
+        expect(out.sides[1].out.result.achieved.radius_face_m).toBeCloseTo(faceRadiusForAngle(0.5, 5), 9);
     });
-    it('leftover stock is refused for each side, and nothing is laid', () => {
+    it('two corners make three sides, each its own wall', () => {
+        const pieces = [{ start: 3, size: 2 }, { start: 9, size: 1 }];
+        const out = screenCurve({ panels: 14, panelWidthM: 0.5, sizes: [1, 2], settings: on(), pieces });
+        expect(out.errors).toEqual([]);
+        expect(out.sides.map((s) => [s.name, s.start, s.panels])).toEqual([['side 1', 0, 3], ['side 2', 5, 4], ['side 3', 10, 4]]);
+        expect(out.joints).toEqual([...alone(3).joints, 0, 0, 0, ...alone(4).joints, 0, 0, ...alone(4).joints]);
+        expect(covers(out.placed, 14)).toBe(true);
+    });
+    it('a convex curve, degrees of sweep and every goal hold side by side', () => {
+        for (const over of [{ bend: 'convex' }, { entry: 'degrees', value: 45 }, { goal: 'even' }, { goal: 'tightest' }]) {
+            const out = screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [1, 2], settings: on(over), pieces: [{ start: 5, size: 1 }] });
+            expect(out.joints).toEqual([...alone(5, over).joints, 0, 0, ...alone(6, over).joints]);
+        }
+    });
+    it('a side one panel wide is one bar, flat', () => {
+        const out = screenCurve({ panels: 8, panelWidthM: 0.5, sizes: [1, 2], settings: on(), pieces: [{ start: 1, size: 2 }] });
+        expect(out.errors).toEqual([]);
+        expect(out.placed[0]).toEqual({ start: 0, size: 1, corner: false });
+        expect(out.joints.slice(3)).toEqual(alone(5).joints);
+    });
+    it('leftover stock is refused for each side, said by name, and nothing is laid', () => {
         const out = screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [2], settings: on(), pieces: [{ start: 5, size: 1 }] });
-        expect(out.errors).toEqual(['These bar sizes leave 1 panel uncovered beside the corners on a 12-panel wall. Light another size.']);
+        expect(out.errors).toEqual(['These bar sizes leave 1 panel uncovered on the left side (5 panels). Light another size.']);
         expect(out.bars).toEqual([]);
         expect(out.placed).toEqual([]);
         // the whole wall alone is covered by doubles: no refusal there
         expect(screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [2], settings: on() }).errors).toEqual([]);
+        const three = screenCurve({ panels: 14, panelWidthM: 0.5, sizes: [2], settings: on(), pieces: [{ start: 3, size: 2 }, { start: 9, size: 1 }] });
+        expect(three.errors).toEqual(['These bar sizes leave 1 panel uncovered on side 1 (3 panels). Light another size.']);
+        // an error every side has is said once
+        const bad = screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [1], settings: on({ angles: [95] }), pieces: [{ start: 5, size: 2 }] });
+        expect(bad.errors).toEqual(['Lock angles must be under 90°.']);
     });
-    it('a corner under 90 on a seam: no bar crosses it, and the seam stays flat', () => {
-        const out = screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [1, 2], settings: on(), breaks: [6], flat: [5] });
-        expect(out.errors).toEqual([]);
-        expect(out.placed.some((b) => b.corner)).toBe(false);
-        expect(out.placed.some((b) => b.start < 6 && b.start + b.size > 6)).toBe(false);
-        expect(out.joints[5]).toBe(0);
-    });
-    it('a corner under 90 down a panel: the folded panel takes a bar of its own', () => {
-        const out = screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [1, 2], settings: on(), breaks: [5, 6] });
-        expect(out.errors).toEqual([]);
-        expect(out.placed.some((b) => b.start === 5 && b.size === 1)).toBe(true);
-    });
-    it('every way to build it keeps to the corners, and a picked way holds', () => {
+    it('Ways to build it and a pick are each side\'s own', () => {
         const args = { panels: 12, panelWidthM: 0.5, sizes: [1, 2], pieces: [{ start: 5, size: 2 }] };
         const out = screenCurve({ ...args, settings: on() });
-        const other = out.result.options.find((o) => o.id !== out.result.chosen_option_id);
+        expect(out.sides.every((s) => s.out.result.options.length > 0)).toBe(true);
+        const right = out.sides[1].out;
+        const other = right.result.options.find((o) => o.id !== right.result.chosen_option_id);
         expect(!!other).toBe(true);
-        const picked = screenCurve({ ...args, settings: on({ pick: { id: other.id, key: out.pickKey } }) });
-        expect(picked.result.chosen_option_id).toBe(other.id);
+        const picked = screenCurve({ ...args, settings: on({ sidePicks: [null, { id: other.id, key: right.pickKey }] }) });
+        expect(picked.sides[1].out.result.chosen_option_id).toBe(other.id);
+        expect(picked.sides[0].out.result.chosen_option_id).toBe(out.sides[0].out.result.chosen_option_id);
+        expect(picked.joints.slice(0, 7)).toEqual(out.joints.slice(0, 7));
         expect(picked.placed.filter((b) => b.corner)).toEqual([{ start: 5, size: 2, corner: true }]);
-        // a pick made without the corner does not hold once it is there
-        const bare = screenCurve({ ...args, pieces: undefined, settings: on() });
-        expect(bare.pickKey === out.pickKey).toBe(false);
+        // a pick is one side's: the left side and the whole wall have keys of their own
+        expect(new Set([out.sides[0].out.pickKey, right.pickKey,
+                        screenCurve({ ...args, pieces: undefined, settings: on() }).pickKey]).size).toBe(3);
+        // a pick for one side does not hold once the corner moves
+        const moved = screenCurve({ ...args, pieces: [{ start: 4, size: 2 }], settings: on({ sidePicks: [null, { id: other.id, key: right.pickKey }] }) });
+        expect(moved.sides[1].out.result.config.pattern_choice).toBe('auto');
+    });
+    it('Build from: Left, Center and Right are each side\'s own, a spot is on its side', () => {
+        const args = { panels: 12, panelWidthM: 0.5, sizes: [1, 2], pieces: [{ start: 5, size: 2 }] };
+        const froms = (from) => screenCurve({ ...args, settings: on({ from }) }).sides.map((s) => s.out.result.config.build_from);
+        expect(froms('left')).toEqual(['left', 'left']);
+        expect(froms('center')).toEqual(['center', 'center']);
+        // panel 10 is the third panel of the right side; the left side
+        // builds from its end nearest it
+        expect(froms(10)).toEqual(['right', 3]);
+        expect(froms(2)).toEqual([2, 'left']);
+        expect(screenCurve({ ...args, settings: on({ from: 10 }) }).datum_at).toBe(10);
+    });
+    it('cleanCurve keeps each side\'s pick, and a screen without one keeps its shape', () => {
+        expect(cleanCurve({ sidePicks: [null, { id: '5', key: 'k' }, 'junk'] }).sidePicks).toEqual([null, { id: '5', key: 'k' }]);
+        expect('sidePicks' in cleanCurve({ sidePicks: [null, 'junk'] })).toBe(false);
+        expect('sidePicks' in cleanCurve({})).toBe(false);
     });
     it('a screen without corners asks and answers exactly as before', () => {
         const a = screenCurve({ panels: 16, panelWidthM: 0.5, sizes: [1, 2], settings: on() });
-        const b = screenCurve({ panels: 16, panelWidthM: 0.5, sizes: [1, 2], settings: on(), pieces: [], breaks: [], flat: [] });
+        const b = screenCurve({ panels: 16, panelWidthM: 0.5, sizes: [1, 2], settings: on(), pieces: [] });
         expect(b.pickKey).toBe(a.pickKey);
         expect(a.pickKey).toBe(curvePickKey({ panels: 16, panelWidthM: 0.5, sizes: [1, 2], settings: on() }));
         expect(b.bars).toEqual(a.bars);
         expect(b.joints).toEqual(a.joints);
-        expect(a.placed.every((p) => !p.corner)).toBe(true);
+        expect(a.sides).toBe(undefined);
+        expect(a.errors).toEqual([]);
+        expect(screenCurve({ panels: 15, panelWidthM: 0.5, sizes: [2], settings: on() }).errors)
+            .toEqual(['These bar sizes leave 1 panel uncovered on a 15-panel wall. Light another size.']);
     });
 });
 

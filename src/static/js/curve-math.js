@@ -2345,7 +2345,7 @@ export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'me
     const name = sideName(index, runs.length);
     const pickKey = curvePickKey({ panels: run.panels, panelWidthM, sizes, settings: s,
                                    side: { index, count: runs.length, start: run.start } });
-    const where = `the ${name} (${run.panels} panel${run.panels === 1 ? '' : 's'})`;
+    const where = `${name.startsWith('side ') ? '' : 'the '}${name} (${run.panels} panel${run.panels === 1 ? '' : 's'})`;
     let out;
     if (run.panels < 2) {
       // One panel has no joint to bend: a single bar, flat.

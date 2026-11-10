@@ -166,15 +166,15 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   points at it go in the same folder. A group is one model, with each
   screen in it by name, unless its Names switch on Show Look is Screens.
   The dialog lists every file before it saves.
-- NEW: Corners, under the Curve, bend a screen between two columns or
-  down the middle of a panel, any angle up to 90 degrees, Interior or
-  Exterior, hinged at the panels' front. Add corner puts a 90 degree
-  corner in the middle of the screen; pick where it goes, its angle and
-  its side, and a small plan shows the screen from above as it bends. A
-  six panel column with a 90 degree fold in the middle of a panel is one
-  screen. The 3D tab and Export OBJ build every corner, with the picture
-  running on around it. Interior folds the sides toward the audience and
-  Exterior folds them away.
+- NEW: Corners, under the Curve, bend a screen 90 degrees between two
+  columns or down the middle of a panel, Interior or Exterior, hinged at
+  the panels' front. Every corner is 90 degrees; for a gentler bend, use
+  the Curve. Add corner puts a corner in the middle of the screen; pick
+  where it goes and its side, and a small plan shows the screen from
+  above as it bends. A six panel column with a 90 degree fold in the
+  middle of a panel is one screen. The 3D tab and Export OBJ build every
+  corner, with the picture running on around it. Interior folds the sides
+  toward the audience and Exterior folds them away.
 - NEW: The side at the Curve's Build from point stays where it stood in 3D
   and the rest of the screen folds away from it; without a Curve, the
   middle stays put. The Corners block says which.
@@ -183,8 +183,8 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   too. The Where list and the plan show which seams the curve bends, and
   the Curve's strip marks the corner's seam. Take the corner off and the
   seam's own angle comes back.
-- NEW: Header and footer bars split at a corner. A 90 degree corner takes
-  a corner bar over the panels touching it, and there are two of them:
+- NEW: Header and footer bars split at a corner. Every corner takes a
+  corner bar over the panels touching it, and there are two of them:
   a Header Bar - Corner (1 panel) for a corner down a panel's middle,
   250 mm either side of the fold on a 500 mm panel, and
   a Header Bar - Corner (2 panel) for a corner on a seam, one panel
@@ -192,17 +192,14 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   the tab's totals, the pull sheet and the binder's Header/Footer and pull
   sheets. Auto fits regular bars to each side. The Header/Footer tab draws
   the corner bars, and the 3D tab stands each one as an L that folds with
-  the panels.
-- NEW: Only a 90 degree corner takes a corner bar. Under 90, the regular
-  bars split at the corner instead: at its seam, or either side of its
-  folded panel, which takes a bar of its own. The corner's row and the
-  Corners block say so. Adding, moving or taking off a corner, or taking
-  its angle to or from 90, lays an Auto row again in the same step.
-- NEW: With the Curve on, a 90 degree corner keeps its corner bar, and the
-  Curve lays its bars on each side up to it. A corner under 90 splits the
-  Curve's bars the same way. Ways to build it, Use this and the check for
-  uncovered panels work for every side, and any change to the corners
-  lays the Curve again in the same step.
+  the panels. Adding, moving or taking off a corner lays an Auto row
+  again in the same step.
+- NEW: With the Curve on, a corner splits the screen into sides and each
+  side curves as its own wall, at the same % or degrees, with its bars
+  running up to the corner bar. Two corners make three sides. The
+  readouts, Ways to build it, Use this and the check for uncovered panels
+  are each side's, named left side and right side, or side 1, side 2 and
+  so on. Any change to the corners lays the Curve again in the same step.
 - NEW: In Custom, a click on a corner's panels lays its corner bar, a bar
   laid beside a corner stops at it, and one that no longer fits there is
   refused and said. A bar laid by hand on a corner's panels makes way for

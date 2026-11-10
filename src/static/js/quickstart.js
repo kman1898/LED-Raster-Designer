@@ -6126,13 +6126,14 @@
             }
         },
         // The Header/Footer tab's Corners (1.7.0, app-corners.js): Add
-        // corner folds the wall 90 degrees in its middle; the step moves it
-        // to the middle of a panel. The next step turns it Exterior and
-        // takes it off again, so the 3D steps find the wall as it was.
+        // corner folds the wall 90 degrees in its middle (every corner is
+        // 90); the step moves it to the middle of a panel. A later step
+        // turns it Exterior and takes it off again, so the 3D steps find
+        // the wall as it was.
         riggingCorner: {
             since: '1.7.0',
             target: '#rigging-corners', place: 'right', title: 'Bend a corner',
-            body: 'Add corner folds the screen 90 degrees at the panels&rsquo; front; pick a seam or a panel&rsquo;s middle and any angle up to 90. The side at the Build from point stays put in 3D, and the corner&rsquo;s seam takes no curve angle.',
+            body: 'Add corner folds the screen 90 degrees, on a seam or down a panel&rsquo;s middle, and the side at Build from stays put in 3D. Every corner is 90&deg;, so a gentler bend comes from the Curve.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -6167,13 +6168,13 @@
         },
         // Bars split at a corner (1.7.0): with the Curve off, Auto lays the
         // corner's own Header Bar - Corner (1 panel) over its panel and fits
-        // each side. The Curve is ticked again afterwards and lays its bars
-        // around the same corner bar, so the wall goes on as the Curve step
-        // left it.
+        // each side. The Curve is ticked again afterwards and curves each
+        // side as its own wall up to the same corner bar, so the wall goes
+        // on as the Curve step left it.
         riggingCornerBars: {
             since: '1.7.0',
             target: '#rigging-total-count', place: 'right', title: 'Corner bars',
-            body: 'Auto splits the bars at a corner: a 90&deg; corner takes a Header Bar - Corner over the panels touching it, and regular bars fill each side. With the Curve on, the Curve lays them the same way.',
+            body: 'Auto splits the bars at a corner: its Header Bar - Corner covers the panels touching it and regular bars fill each side. With the Curve on, each side curves as its own wall up to it.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -6239,7 +6240,7 @@
         riggingCornerSide: {
             since: '1.7.0',
             target: '#rigging-corner-list', place: 'right', title: 'Interior or Exterior',
-            body: 'Interior folds the sides toward the audience, Exterior away from them. The &times; takes the corner off and the screen goes straight again.',
+            body: 'Interior folds the two sides 90&deg; toward the audience, Exterior away from them. The &times; takes the corner off and the screen goes straight again.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
