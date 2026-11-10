@@ -114,6 +114,18 @@
   .btn-primary:hover { background: var(--accent-hi); }
   .btn-ghost { flex: 0 0 auto; padding: 0 18px; background: transparent; color: var(--muted); border-color: var(--border); }
   .btn-ghost:hover { background: var(--surface); color: var(--text); }
+
+  /* Quit with unsaved changes (LauncherAPI.request_quit): asked here, over
+     the whole window, since the icon's menu cannot ask. */
+  .ask { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+         background: rgba(0, 0, 0, .62); padding: 18px; z-index: 10; }
+  .ask.open { display: flex; }
+  .ask-card { width: 100%; background: var(--surface); border: 1px solid var(--border);
+              border-left: 3px solid var(--accent); border-radius: 8px; padding: 16px; }
+  .ask-title { font-size: 15px; font-weight: 700; }
+  .ask-text { margin-top: 8px; font-size: 13px; line-height: 1.45; color: #cfcfcf; }
+  .ask-buttons { display: flex; gap: 10px; margin-top: 16px; }
+  .ask-buttons .btn { flex: 1; height: 40px; font-size: 13.5px; }
 </style>
 </head>
 <body>
@@ -175,7 +187,20 @@
   <div class="footer">
     <button class="btn btn-primary" onclick="api('launch_gui')">Launch GUI</button>
     <button class="btn btn-ghost" onclick="api('hide')">Hide</button>
-    <button class="btn btn-ghost" onclick="api('quit')">Quit</button>
+    <button class="btn btn-ghost" onclick="requestQuit()">Quit</button>
+  </div>
+</div>
+
+<div class="ask" id="quit-ask" role="dialog" aria-modal="true" aria-labelledby="quit-ask-title">
+  <div class="ask-card">
+    <div class="ask-title" id="quit-ask-title">Quit LED Raster Designer?</div>
+    <div class="ask-text">The show has changes that are not saved. If you quit now, they are lost.
+      To keep them, choose Cancel and save in the designer. Any connected tablets and computers
+      will disconnect.</div>
+    <div class="ask-buttons">
+      <button class="btn btn-primary" id="quit-ask-cancel" onclick="closeQuitAsk()">Cancel</button>
+      <button class="btn btn-ghost" id="quit-ask-quit" onclick="api('quit')">Quit anyway</button>
+    </div>
   </div>
 </div>
 
@@ -199,6 +224,25 @@
       console.log('api(' + method + ')', args);
     }
   }
+
+  // Quit: asks first when the show has unsaved changes (request_quit
+  // answers {ask: true}); otherwise the app quits.
+  function requestQuit() {
+    if (!(window.pywebview && window.pywebview.api && window.pywebview.api.request_quit)) return;
+    window.pywebview.api.request_quit('window').then(function (r) {
+      if (r && r.ask) showQuitAsk();
+    });
+  }
+  window.showQuitAsk = function () {
+    document.getElementById('quit-ask').classList.add('open');
+    document.getElementById('quit-ask-cancel').focus();
+  };
+  function closeQuitAsk() {
+    document.getElementById('quit-ask').classList.remove('open');
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeQuitAsk();
+  });
 
   function applyState(s) {
     if (!s) return;

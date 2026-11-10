@@ -43,6 +43,13 @@
             <div class="menu-option" data-action="export-binder" data-label="Export Binder"></div>
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="preferences" data-label="Preferences" data-shortcut-mac="Cmd+," data-shortcut-win="Ctrl+,"></div>
+            {% if can_quit %}
+            <!-- The host's pages only, and only under the launcher
+                 (routes_version can_quit_here). No Cmd+Q / Ctrl+Q: the
+                 browser owns those keys. -->
+            <div class="menu-divider"></div>
+            <div class="menu-option" id="menu-quit-app" data-action="quit-app" data-label="Quit LED Raster Designer"></div>
+            {% endif %}
         </div>
 
         <div id="menu-edit" class="menu-dropdown">
@@ -1924,76 +1931,66 @@
                      are built here once and only their values change, so a
                      round trip never takes focus from a field. -->
                 <div class="panel tab-panel" data-tab="3d" style="display: none;">
-                    <div class="panel-header" data-tooltip="3D Placement, Where the selected screen stands on the stage: its position, its rotation and how far each joint between its cabinets bends.">
+                    <div class="panel-header" data-tooltip="3D Placement, Where the selected screen stands on the stage: its position and rotation, its Curve and its 90&deg; corners.">
                         <h2>3D Placement</h2>
                     </div>
                     <div class="panel-content">
                         <div id="s3d-none" class="s3d-note">Select a screen to place it: click it in the view or in the Screens list.</div>
                         <div id="s3d-fields" hidden>
-                            <div id="s3d-screen-name" class="s3d-name"></div>
-                            <div id="s3d-group-note" class="s3d-note" hidden></div>
-                            <div class="s3d-sub s3d-sub-row"><span>Position</span>
+                            <div class="s3d-head">
+                                <div id="s3d-screen-name" class="s3d-name"></div>
                                 <span class="s3d-seg" role="group" aria-label="3D units" data-tooltip="Units, Feet or meters for X, Y and Z, the snap, the figures shown while dragging and the arrow-key steps. Saved with the show; nothing else in the show changes.">
                                     <button type="button" id="s3d-units-ft" class="btn s3d-seg-btn" data-s3d-units="ft">ft</button><button type="button" id="s3d-units-m" class="btn s3d-seg-btn" data-s3d-units="m">m</button>
                                 </span>
                             </div>
-                            <div class="info-row" data-tooltip="X, Left and right on the stage, measured to the middle of the screen's bottom edge. Math OK (e.g., 10+2.5). A figure with its unit works in either: 12' 6&quot; or 3.5m.">
-                                <label for="s3d-x">X</label>
-                                <input type="text" id="s3d-x" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
+                            <div id="s3d-group-note" class="s3d-note" hidden></div>
+                            <!-- Each figure is a compact field with its axis tag, colored as
+                                 the move arrows and the rings are. Press and drag sideways to
+                                 change it (Shift fine, Ctrl or Cmd snaps), click to type,
+                                 Up and Down nudge (app-stage3d-panel.js). -->
+                            <div class="s3d-sub s3d-sub-row"><span>Position <span class="s3d-sub-unit" data-s3d-unit>ft</span></span>
+                                <button type="button" id="s3d-reset-position" class="s3d-reset" aria-label="Reset position" data-tooltip="Reset position, Back to where Show Look stands this screen, on the stage line. The rotation stays."><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8a4.5 4.5 0 1 0 1.4-3.3"/><path d="M2.8 2.4v3h3"/></svg></button>
                             </div>
-                            <div class="info-row" data-tooltip="Y, Height of the screen's bottom edge above the floor: 0 stands it on the floor. Math OK.">
-                                <label for="s3d-y">Y</label>
-                                <input type="text" id="s3d-y" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
+                            <div class="s3d-vec" role="group" aria-label="Position">
+                                <div class="s3d-field" data-tooltip="X, Left and right on the stage, to the middle of the screen's bottom edge. Drag sideways to change it, or drag down first to take Y and Z along. Click to type: math OK (10+2.5, *2), and 12' 6&quot; or 3.5m work in either unit. Right-click for Reset, copy and paste.">
+                                    <span class="s3d-tag s3d-ax-x" aria-hidden="true">X</span><button type="button" class="s3d-nudge s3d-nudge-dn" data-s3d-nudge="-1" tabindex="-1" aria-label="X down a step" data-tooltip="X down a step, 1 in, or 1 cm in meters. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 2.5 2 6l3.5 3.5"/></svg></button><input type="text" id="s3d-x" class="s3d-num" data-s3d-key="x" aria-label="X" inputmode="decimal" autocomplete="off" spellcheck="false"><button type="button" class="s3d-nudge s3d-nudge-up" data-s3d-nudge="1" tabindex="-1" aria-label="X up a step" data-tooltip="X up a step, 1 in, or 1 cm in meters. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5 6 6l-3.5 3.5"/></svg></button>
+                                </div>
+                                <div class="s3d-field" data-tooltip="Y, Height of the screen's bottom edge, or of its footer when it has one: 0 stands it on the floor. Drag sideways to change it, click to type. Right-click for Reset, copy and paste.">
+                                    <span class="s3d-tag s3d-ax-y" aria-hidden="true">Y</span><button type="button" class="s3d-nudge s3d-nudge-dn" data-s3d-nudge="-1" tabindex="-1" aria-label="Y down a step" data-tooltip="Y down a step, 1 in, or 1 cm in meters. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 2.5 2 6l3.5 3.5"/></svg></button><input type="text" id="s3d-y" class="s3d-num" data-s3d-key="y" aria-label="Y" inputmode="decimal" autocomplete="off" spellcheck="false"><button type="button" class="s3d-nudge s3d-nudge-up" data-s3d-nudge="1" tabindex="-1" aria-label="Y up a step" data-tooltip="Y up a step, 1 in, or 1 cm in meters. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5 6 6l-3.5 3.5"/></svg></button>
+                                </div>
+                                <div class="s3d-field" data-tooltip="Z, Upstage and downstage, to the middle of the screen's bottom edge. Positive is toward the audience. Drag sideways to change it, click to type. Right-click for Reset, copy and paste.">
+                                    <span class="s3d-tag s3d-ax-z" aria-hidden="true">Z</span><button type="button" class="s3d-nudge s3d-nudge-dn" data-s3d-nudge="-1" tabindex="-1" aria-label="Z down a step" data-tooltip="Z down a step, 1 in, or 1 cm in meters. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 2.5 2 6l3.5 3.5"/></svg></button><input type="text" id="s3d-z" class="s3d-num" data-s3d-key="z" aria-label="Z" inputmode="decimal" autocomplete="off" spellcheck="false"><button type="button" class="s3d-nudge s3d-nudge-up" data-s3d-nudge="1" tabindex="-1" aria-label="Z up a step" data-tooltip="Z up a step, 1 in, or 1 cm in meters. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5 6 6l-3.5 3.5"/></svg></button>
+                                </div>
                             </div>
-                            <div class="info-row" data-tooltip="Z, Upstage and downstage, measured to the middle of the screen's bottom edge. Positive is towards the audience. Math OK.">
-                                <label for="s3d-z">Z</label>
-                                <input type="text" id="s3d-z" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit" data-s3d-unit>ft</span>
+                            <div class="s3d-field-note" data-s3d-note="position" role="status" hidden></div>
+                            <div class="s3d-sub s3d-sub-row"><span>Rotation <span class="s3d-sub-unit">&deg;</span></span>
+                                <button type="button" id="s3d-reset-rotation" class="s3d-reset" aria-label="Reset rotation" data-tooltip="Reset rotation, Upright and facing the audience again: pitch, yaw and roll 0. The position stays."><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8a4.5 4.5 0 1 0 1.4-3.3"/><path d="M2.8 2.4v3h3"/></svg></button>
                             </div>
-                            <div class="s3d-sub">Rotation</div>
-                            <div class="info-row" data-tooltip="Pitch, Tilt the screen forward or back, in degrees, about the left-right line along its bottom edge. Math OK.">
-                                <label for="s3d-pitch">Pitch</label>
-                                <input type="text" id="s3d-pitch" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
+                            <div class="s3d-vec" role="group" aria-label="Rotation">
+                                <div class="s3d-field" data-tooltip="Pitch, Tilt forward or back about the left-right line along the bottom edge, in degrees. Drag sideways to change it, click to type. Right-click for Reset, copy, paste, +90 and -90.">
+                                    <span class="s3d-tag s3d-ax-x" aria-hidden="true">P</span><button type="button" class="s3d-nudge s3d-nudge-dn" data-s3d-nudge="-1" tabindex="-1" aria-label="Pitch down a step" data-tooltip="Pitch down a step, 1&deg;. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 2.5 2 6l3.5 3.5"/></svg></button><input type="text" id="s3d-pitch" class="s3d-num" data-s3d-key="pitch" aria-label="Pitch" inputmode="decimal" autocomplete="off" spellcheck="false"><button type="button" class="s3d-nudge s3d-nudge-up" data-s3d-nudge="1" tabindex="-1" aria-label="Pitch up a step" data-tooltip="Pitch up a step, 1&deg;. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5 6 6l-3.5 3.5"/></svg></button>
+                                </div>
+                                <div class="s3d-field" data-tooltip="Yaw, Turn left or right about the upright line through the middle of the bottom edge, in degrees. Drag sideways to change it, click to type. Right-click for Reset, copy, paste, +90 and -90.">
+                                    <span class="s3d-tag s3d-ax-y" aria-hidden="true">Y</span><button type="button" class="s3d-nudge s3d-nudge-dn" data-s3d-nudge="-1" tabindex="-1" aria-label="Yaw down a step" data-tooltip="Yaw down a step, 1&deg;. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 2.5 2 6l3.5 3.5"/></svg></button><input type="text" id="s3d-yaw" class="s3d-num" data-s3d-key="yaw" aria-label="Yaw" inputmode="decimal" autocomplete="off" spellcheck="false"><button type="button" class="s3d-nudge s3d-nudge-up" data-s3d-nudge="1" tabindex="-1" aria-label="Yaw up a step" data-tooltip="Yaw up a step, 1&deg;. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5 6 6l-3.5 3.5"/></svg></button>
+                                </div>
+                                <div class="s3d-field" data-tooltip="Roll, Lean sideways about the line toward the audience through the middle of the bottom edge, in degrees. Drag sideways to change it, click to type. Right-click for Reset, copy, paste, +90 and -90.">
+                                    <span class="s3d-tag s3d-ax-z" aria-hidden="true">R</span><button type="button" class="s3d-nudge s3d-nudge-dn" data-s3d-nudge="-1" tabindex="-1" aria-label="Roll down a step" data-tooltip="Roll down a step, 1&deg;. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 2.5 2 6l3.5 3.5"/></svg></button><input type="text" id="s3d-roll" class="s3d-num" data-s3d-key="roll" aria-label="Roll" inputmode="decimal" autocomplete="off" spellcheck="false"><button type="button" class="s3d-nudge s3d-nudge-up" data-s3d-nudge="1" tabindex="-1" aria-label="Roll up a step" data-tooltip="Roll up a step, 1&deg;. Shift for a tenth."><svg viewBox="0 0 8 12" width="8" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5 6 6l-3.5 3.5"/></svg></button>
+                                </div>
                             </div>
-                            <div class="s3d-steps" data-s3d-axis="pitch">
-                                <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
-                            </div>
-                            <div class="info-row" data-tooltip="Yaw, Turn the screen left or right, in degrees, about the upright line through the middle of its bottom edge. Math OK.">
-                                <label for="s3d-yaw">Yaw</label>
-                                <input type="text" id="s3d-yaw" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
-                            </div>
-                            <div class="s3d-steps" data-s3d-axis="yaw">
-                                <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
-                            </div>
-                            <div class="info-row" data-tooltip="Roll, Lean the screen sideways, in degrees, about the line towards the audience through the middle of its bottom edge. Math OK.">
-                                <label for="s3d-roll">Roll</label>
-                                <input type="text" id="s3d-roll" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
-                            </div>
-                            <div class="s3d-steps" data-s3d-axis="roll">
-                                <button type="button" class="btn btn-secondary" data-s3d-step="-90">-90</button><button type="button" class="btn btn-secondary" data-s3d-step="-15">-15</button><button type="button" class="btn btn-secondary" data-s3d-step="15">+15</button><button type="button" class="btn btn-secondary" data-s3d-step="90">+90</button>
-                            </div>
+                            <div class="s3d-field-note" data-s3d-note="rotation" role="status" hidden></div>
+                            <!-- The gentle bends are the Curve's (the Header/Footer tab, the
+                                 owner's calculator), shown here as they stand; the corners are
+                                 90 degrees, Interior or Exterior, picked by clicking a seam or a
+                                 panel's middle in the view. Both write what the Header/Footer
+                                 tab writes, so the two tabs always agree. -->
                             <div class="s3d-sub">Curve</div>
-                            <div class="info-row" data-tooltip="Column joints, How far every joint between two columns bends, in degrees, -15 to 15. Positive brings the ends of the screen towards the audience (a curved wall around the audience); negative takes them away.">
-                                <label for="s3d-curve-col">Column joints</label>
-                                <input type="text" id="s3d-curve-col" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
-                            </div>
-                            <div id="s3d-arc-col" class="s3d-arc"></div>
-                            <div class="info-row" data-tooltip="Row joints, How far every joint between two rows bends, in degrees, -15 to 15. Positive brings the top and bottom of the screen towards the audience; negative takes them away.">
-                                <label for="s3d-curve-row">Row joints</label>
-                                <input type="text" id="s3d-curve-row" class="s3d-num" inputmode="decimal" autocomplete="off"><span class="s3d-unit">&deg;</span>
-                            </div>
-                            <div id="s3d-arc-row" class="s3d-arc"></div>
-                            <div class="s3d-sub">Joint</div>
-                            <div id="s3d-joint-label" class="s3d-note">Click a seam between two columns or two rows of the selected screen to bend that joint alone.</div>
-                            <div class="info-row" data-tooltip="Joint angle, The bend at the joint picked in the view, in degrees, -15 to 15. Leave it empty to follow the screen's own figure.">
-                                <label for="s3d-joint-angle">Joint angle</label>
-                                <input type="text" id="s3d-joint-angle" class="s3d-num" inputmode="decimal" autocomplete="off" disabled><span class="s3d-unit">&deg;</span>
-                            </div>
+                            <div id="s3d-curve-info" class="s3d-read"></div>
+                            <button type="button" id="s3d-curve-edit" class="s3d-link" data-tooltip="Curve settings, Opens the Header/Footer tab at this screen's Curve, where the angles come from.">Curve settings on the Header/Footer tab</button>
+                            <div class="s3d-sub">Corners</div>
+                            <div id="s3d-corner-info" class="s3d-read"></div>
+                            <div class="s3d-note s3d-hint-line">Click a seam, or the middle of a panel, on the selected screen to set a 90&deg; corner there.</div>
                             <div class="s3d-buttons">
-                                <button type="button" id="s3d-joint-clear" class="btn btn-secondary" data-tooltip="Use screen figure, The picked joint goes back to the screen's own Column joints or Row joints figure.">Use screen figure</button>
-                                <button type="button" id="s3d-clear-joints" class="btn btn-secondary" data-tooltip="Clear joint angles, Every joint of this screen goes back to the screen's own figures.">Clear joint angles</button>
-                            </div>
-                            <div class="s3d-buttons">
-                                <button type="button" id="s3d-reset" class="btn" data-tooltip="Reset to Show Look, Put this screen (and its group) back where its Show Look position stands it: upright, flat, facing the audience.">Reset to Show Look</button>
+                                <button type="button" id="s3d-reset" class="btn" data-tooltip="Reset to Show Look, Put this screen (and its group) back where its Show Look position stands it: upright, facing the audience.">Reset to Show Look</button>
                             </div>
                         </div>
                     </div>
@@ -2473,8 +2470,8 @@
                     <!-- The 3D view's camera bar: shown in place of the raster
                          and zoom controls while the 3D tab is open. -->
                     <span id="s3d-toolbar" hidden>
-                        <button type="button" id="s3d-tool-move" class="s3d-toggle" data-tooltip="Move handles (W), Arrows on the selected screens slide them along one axis: X red, Y green, Z blue. Hold Ctrl (Cmd on a Mac) while dragging to snap to 6 in steps, or 0.1 m in meters.">Move</button>
-                        <button type="button" id="s3d-tool-rotate" class="s3d-toggle" data-tooltip="Rotate handles (E), Rings on the selected screens turn them: Pitch red, Yaw green, Roll blue. Hold Ctrl (Cmd on a Mac) while dragging to snap to 15&deg; steps.">Rotate</button>
+                        <button type="button" id="s3d-tool-move" class="s3d-toggle" data-tooltip="Move handles (W), Arrows on the selected screens slide them along one axis: X red, Y green, Z blue; the squares between two arrows move them on that plane, and G moves them from the keyboard. Hold Ctrl (Cmd on a Mac) while dragging to snap to 6 in steps, or 0.1 m in meters.">Move</button>
+                        <button type="button" id="s3d-tool-rotate" class="s3d-toggle" data-tooltip="Rotate handles (E), Rings on the selected screens turn them: Pitch red, Yaw green, Roll blue, and R turns them from the keyboard. Hold Ctrl (Cmd on a Mac) while dragging to snap to 15&deg; steps.">Rotate</button>
                         <span class="s3d-bar-gap"></span>
                         <button type="button" id="s3d-mode-persp" class="s3d-toggle" data-tooltip="Perspective, Draw the stage the way a camera sees it.">Perspective</button>
                         <button type="button" id="s3d-mode-ortho" class="s3d-toggle" data-tooltip="Orthographic, Draw the stage without perspective, so sizes read true across the view.">Orthographic</button>
@@ -2523,6 +2520,18 @@
                              takes a line of the camera bar, and a narrow view cuts it
                              short (the tooltip and Keyboard Shortcuts hold the rest). -->
                         <span id="s3d-hint" class="s3d-bar-hint" data-tooltip="Getting around, Middle-drag orbits around the point under the cursor; Shift+middle-drag or right-drag pans; the wheel zooms toward the cursor. On a trackpad, drag with two fingers to orbit, add Shift to pan, and pinch to zoom. With no middle button, Alt+drag orbits and Alt+Shift+drag pans. Click a screen to select it, Shift+click or Ctrl+click (Cmd+click on a Mac) to add one, or drag across empty space to box-select. Right-click, or Control+click on a Mac, opens the screen menu. The arrow keys nudge the selection, Page Up and Page Down raise and lower it, and Shift makes the step bigger. Help > Keyboard Shortcuts lists every gesture.">Middle-drag orbits, Shift+middle-drag pans, wheel zooms. Trackpad: two fingers orbit, pinch zooms.</span>
+                    </div>
+                    <!-- The corner picker a click on a seam or a panel's middle of the
+                         selected screen opens beside the cursor (app-stage3d-panel.js):
+                         None, Interior 90 or Exterior 90, written as the Header/Footer
+                         tab's Corners write them. Outside the view, so the view's own
+                         press handling never sees a press on it. -->
+                    <div id="s3d-corner-pop" role="dialog" aria-label="Corner" hidden>
+                        <div id="s3d-corner-pop-title" class="s3d-pop-title"></div>
+                        <div class="s3d-pop-seg" role="group" aria-label="Corner">
+                            <button type="button" class="btn" data-s3d-corner="none">None</button><button type="button" class="btn" data-s3d-corner="interior" data-tooltip="Interior 90&deg;, The two sides fold toward the audience.">Interior 90&deg;</button><button type="button" class="btn" data-s3d-corner="exterior" data-tooltip="Exterior 90&deg;, The two sides fold away from the audience.">Exterior 90&deg;</button>
+                        </div>
+                        <div id="s3d-corner-pop-note" class="s3d-pop-note" hidden></div>
                     </div>
                 </div>
                 <!-- The hardware dock: the tray the Data and Power views'
@@ -3758,6 +3767,12 @@
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span> while dragging</td><td>Snap moves to 6 in (0.1 m) and turns to 15&deg;</td></tr>
                     <tr><td class="sc-key">Arrow keys / Page Up, Page Down</td><td>Nudge the selection across the floor / up and down; Shift for bigger steps</td></tr>
                     <tr><td class="sc-key">Esc while dragging</td><td>Put the screens back where the drag started</td></tr>
+                    <tr><td class="sc-key">Drag a figure in the 3D panel</td><td>Change it as you drag; Shift for fine steps, <span data-sc-mod>Ctrl</span> snaps to 1 in (1 cm) or 15&deg;. Drag down first to take the next figures along</td></tr>
+                    <tr><td class="sc-key">Click / double-click a figure</td><td>Type at that spot / select the whole figure; Tab and Shift+Tab go X, Y, Z, Pitch, Yaw, Roll; Up and Down nudge; the &lsaquo; &rsaquo; arrows step</td></tr>
+                    <tr><td class="sc-key">Right-click a figure</td><td>Reset, copy or paste it or all three; Pitch, Yaw and Roll also +90 and -90</td></tr>
+                    <tr><td class="sc-key">G / R</td><td>Move / turn the selection with the mouse; X, Y or Z locks an axis, type a figure, Enter or a click keeps it, Esc puts it back</td></tr>
+                    <tr><td class="sc-key">Drag a square between two arrows</td><td>Move the selection on that plane</td></tr>
+                    <tr><td class="sc-key">Click a seam or the middle of a panel</td><td>On the selected screen: a 90&deg; corner there, None, Interior or Exterior</td></tr>
                 </table>
             </section>
             <section class="sc-group">

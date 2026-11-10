@@ -613,6 +613,22 @@ def set_quit_handler(fn):
     _quit_handler = fn
 
 
+def quit_available():
+    """Is there a launcher to quit? A server run on its own (from source,
+    the CI smoke run, the tests) has none, and File > Quit is not offered
+    there (routes_version api_app_quit)."""
+    return _quit_handler is not None
+
+
+def schedule_app_quit(delay=1.0):
+    """File > Quit: quit the way the launcher's Quit does, once the route
+    has answered the page. False when there is no launcher to quit."""
+    if _quit_handler is None:
+        return False
+    _schedule_quit(delay)
+    return True
+
+
 def _quit_app():
     fn = _quit_handler
     try:

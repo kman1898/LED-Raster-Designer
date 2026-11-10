@@ -790,10 +790,15 @@ def strip_copied_feeds(layer):
 #                        towards the audience): Y is the bottom edge's
 #                        height, 0 on the floor (2026-11-09)
 #   {pitch, yaw, roll}   degrees, turned about that same point
-#   curveCol / curveRow  the bend at every joint between columns / rows,
-#                        degrees, one figure for the whole screen
-#   jointsCol / jointsRow  per-joint overrides {"<joint index>": degrees};
-#                        joint i sits between column (row) i and i + 1
+#   jointsCol            the Curve's angle at each joint between two
+#                        columns {"<joint index>": degrees}; joint i sits
+#                        between column i and i + 1. Joints, curves and
+#                        corners are between columns only, never rows
+#                        (owner, 2026-11-10), and the Curve on the
+#                        Header/Footer tab is what writes them. The first
+#                        1.7.0 betas also kept curveCol, curveRow and
+#                        jointsRow: they are dropped here, on save and on
+#                        load, so such a screen opens flat between its rows.
 #   pivot                'bottom': x, y and z are the bottom middle. A
 #                        block without it was saved by the first 1.7.0
 #                        betas, whose x, y and z were the screen's centre;
@@ -837,12 +842,13 @@ def _stage3d_joint(value):
 
 def sanitize_stage3d(value):
     """The `stage3d` block held to its shape: the six placement figures as
-    finite numbers, both curves and every joint override clamped to the
-    joint limit, joint keys as non-negative integer strings, the bottom
-    pivot marker kept when it is exactly 'bottom', anything else
-    dropped. None when `value` is not a dict (the key is then removed).
-    Idempotent - the client's own copy of this rule (app-stage3d.js
-    s3dSanitize) produces the same block, so a restore never re-adopts."""
+    finite numbers, the Curve's column angles held to the joint limit with
+    their keys as non-negative integer strings, the bottom pivot marker
+    kept when it is exactly 'bottom', anything else (the first betas'
+    curveCol, curveRow and jointsRow among it) dropped. None when `value`
+    is not a dict (the key is then removed). Idempotent - the client's own
+    copy of this rule (app-stage3d.js s3dSanitize) produces the same block,
+    so a restore never re-adopts."""
     if not isinstance(value, dict):
         return None
     out = {}
@@ -850,20 +856,17 @@ def sanitize_stage3d(value):
         out[key] = _stage3d_number(value.get(key), 0.0)
     if value.get('pivot') == STAGE3D_PIVOT:
         out['pivot'] = STAGE3D_PIVOT
-    for key in ('curveCol', 'curveRow'):
-        out[key] = _stage3d_joint(value.get(key))
-    for key in ('jointsCol', 'jointsRow'):
-        raw = value.get(key)
-        joints = {}
-        if isinstance(raw, dict):
-            for idx, deg in raw.items():
-                text = str(idx).strip()
-                if not text.isdigit():
-                    continue
-                if isinstance(deg, bool) or _stage3d_number(deg, None) is None:
-                    continue
-                joints[str(int(text))] = _stage3d_joint(deg)
-        out[key] = joints
+    raw = value.get('jointsCol')
+    joints = {}
+    if isinstance(raw, dict):
+        for idx, deg in raw.items():
+            text = str(idx).strip()
+            if not text.isdigit():
+                continue
+            if isinstance(deg, bool) or _stage3d_number(deg, None) is None:
+                continue
+            joints[str(int(text))] = _stage3d_joint(deg)
+    out['jointsCol'] = joints
     return out
 
 
@@ -1699,7 +1702,11 @@ def index():
     log_event('page_load', {'path': '/'})
     # Expose the host OS so the client can show the custom (Apple-style) color
     # picker on Windows while leaving the native picker in place on macOS.
-    response = make_response(render_template('index.html', server_platform=sys.platform))
+    # File > Quit is on the host's pages only, and only when a launcher
+    # runs the server (routes_version can_quit_here).
+    from routes_version import can_quit_here
+    response = make_response(render_template('index.html', server_platform=sys.platform,
+                                              can_quit=can_quit_here()))
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'

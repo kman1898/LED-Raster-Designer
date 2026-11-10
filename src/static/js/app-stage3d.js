@@ -4,8 +4,8 @@
 // Map drawing on the front and plain dark grey behind.
 //
 // Each screen keeps its place on the layer as `stage3d` (mm, Y up, +Z
-// towards the audience; pitch / yaw / roll in degrees; the bend at every
-// joint between columns and rows - the server's app.sanitize_stage3d holds
+// towards the audience; pitch / yaw / roll in degrees; the Curve's angle at
+// every joint between columns - the server's app.sanitize_stage3d holds
 // the shape). X, Y and Z are the middle of the screen's bottom edge (the
 // owner's ruling, 2026-11-09): Y is how high the bottom edge stands, so a
 // screen on the floor reads 0, and the screen turns about that point, so a
@@ -73,27 +73,41 @@ function clampJoint(v) {
 
 // The client's copy of app.sanitize_stage3d - the same block for the same
 // input, so a restore through the server never comes back "repaired".
+//
+// JOINTS, CURVES AND CORNERS ARE BETWEEN COLUMNS ONLY, never between rows
+// (owner, 2026-11-10: "it is allowing me to make horizontal joints which is
+// not right"), and the only joint angles are the Curve's: `jointsCol`, which
+// the Curve on the Header/Footer tab writes (app-curve.js). The first 1.7.0
+// betas also kept a screen-wide figure for the columns and the rows
+// (curveCol, curveRow) and per-joint row angles (jointsRow), typed on the 3D
+// tab: they are dropped here, so such a screen opens flat between its rows.
 export function s3dSanitize(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const out = {};
     ['x', 'y', 'z', 'pitch', 'yaw', 'roll'].forEach(k => { out[k] = finite(value[k], 0); });
     if (value.pivot === PIVOT) out.pivot = PIVOT;
-    out.curveCol = clampJoint(value.curveCol);
-    out.curveRow = clampJoint(value.curveRow);
-    ['jointsCol', 'jointsRow'].forEach(k => {
-        const raw = value[k];
-        const joints = {};
-        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-            Object.keys(raw).forEach(idx => {
-                const text = String(idx).trim();
-                if (!/^\d+$/.test(text)) return;
-                if (finite(raw[idx], null) === null) return;
-                joints[String(parseInt(text, 10))] = clampJoint(raw[idx]);
-            });
-        }
-        out[k] = joints;
-    });
+    const raw = value.jointsCol;
+    const joints = {};
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        Object.keys(raw).forEach(idx => {
+            const text = String(idx).trim();
+            if (!/^\d+$/.test(text)) return;
+            if (finite(raw[idx], null) === null) return;
+            joints[String(parseInt(text, 10))] = clampJoint(raw[idx]);
+        });
+    }
+    out.jointsCol = joints;
     return out;
+}
+
+// Is the screen's Curve (the Header/Footer tab's) on? Only then are its
+// stored column angles its own: turned off, the Curve takes its angles
+// away (app-curve.js _curveUnlay), and a first beta's 3D tab angles on a
+// screen without a Curve are left out, so the screen stands flat but for
+// its corners.
+export function s3dCurveOn(layer) {
+    const c = layer && layer.riggingCurve;
+    return !!c && typeof c === 'object' && c.on === true;
 }
 
 function mmPerPx(layer, axis) {
@@ -119,11 +133,12 @@ export function s3dCopyPlacement(layer, dxPx, dyPx, ref = null) {
     return p;
 }
 
+// The Curve's angle at column joint j. A joint between two rows never
+// bends: 0, so the 3D view and the OBJ stand every row straight.
 function jointAt(p, axis, j) {
-    const table = axis === 'col' ? p.jointsCol : p.jointsRow;
-    const own = table ? table[String(j)] : undefined;
-    if (finite(own, null) !== null) return clampJoint(own);
-    return clampJoint(axis === 'col' ? p.curveCol : p.curveRow);
+    if (axis !== 'col') return 0;
+    const own = p && p.jointsCol ? p.jointsCol[String(j)] : undefined;
+    return finite(own, null) !== null ? clampJoint(own) : 0;
 }
 
 export function wrap180(deg) {
@@ -547,9 +562,19 @@ export function s3dBaseOffset(layer, placement) {
 // bottom edge. A block saved before the marker held the screen's centre:
 // the centre is moved to the bottom middle by the screen's own turn, so
 // every cabinet stands exactly where it stood. Null with no block.
+//
+// THE ONLY JOINT ANGLES ARE THE CURVE'S (owner, 2026-11-10: corners are 90
+// only, gentle bends come from the Curve, curves are columns only). The
+// block as read keeps `jointsCol`, the angles the Curve writes, only
+// while the screen's Curve is on (s3dCurveOn): a first beta's 3D tab
+// angles on a screen without a Curve read as none, so it stands flat but
+// for its corners, the same on the 3D tab, in the OBJ and on the Corners
+// plan. None of them could be a corner: every one was held to 15 degrees.
 export function s3dResolve(layer, block) {
     const p = s3dSanitize(block);
-    if (!p || p.pivot === PIVOT) return p;
+    if (!p) return p;
+    if (!s3dCurveOn(layer)) p.jointsCol = {};
+    if (p.pivot === PIVOT) return p;
     const off = quatRotate(quatFromPlacement(p), s3dBaseOffset(layer, p));
     return { ...p, x: p.x + off[0], y: p.y + off[1], z: p.z + off[2], pivot: PIVOT };
 }
@@ -737,7 +762,7 @@ class _Stage3D {
                 active: false, loading: null, T: null, Orbit: null, failed: '',
                 renderer: null, webgl: false, scene: null, root: null, gridGroup: null,
                 persp: null, ortho: null, camera: null, controls: null, raycaster: null,
-                entries: new Map(), joint: null, epoch: null, cam: null,
+                entries: new Map(), corner: null, epoch: null, cam: null,
                 units: 'ft', grid: true, bars: true, timer: null, frame: 0, gridKey: '',
                 wired: false, drag: null, down: null, needsFit: false, saveTimer: null,
                 orthoHalf: 5000,
@@ -762,8 +787,12 @@ class _Stage3D {
         if (view) view.hidden = !st.active;
         if (bar) bar.hidden = !st.active;
         if (!st.active) {
-            // Nudges already made land; a drag under way goes back.
+            // Nudges already made land; a drag under way goes back, a
+            // panel field's too, and the corner picker closes.
             this._s3dNudgeCommit();
+            this._s3dFieldCancel();
+            if (st.keyX) this._s3dKeyTransformEnd(true);
+            this._s3dPickCorner(null);
             this._s3dCancelDrag();
             this._s3dEndCameraMove(true);
             return;
@@ -938,11 +967,17 @@ class _Stage3D {
     _s3dPlacementOf(layer, layout) {
         const own = layer ? s3dResolve(layer, layer.stage3d) : null;
         if (own) return own;
+        return this._s3dShowLookPlacement(layer, layout);
+    }
+
+    // The place Show Look gives `layer`, whatever it stores (the panel's
+    // Reset position goes back to it).
+    _s3dShowLookPlacement(layer, layout) {
         const lay = layout || this._s3dLayout();
         const rect = this._s3dShowRect(layer, lay.byId);
         return {
             x: round(rect.left + rect.w / 2, 3), y: round(rect.bottom + lay.lift, 3), z: 0,
-            pitch: 0, yaw: 0, roll: 0, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {}, pivot: PIVOT,
+            pitch: 0, yaw: 0, roll: 0, jointsCol: {}, pivot: PIVOT,
         };
     }
 
@@ -1060,8 +1095,35 @@ class _Stage3D {
     // `next` is the edited screen's new placement. Its group follows
     // rigidly: every peer is carried by the same move and turn about the
     // edited screen's bottom middle (a peer with no 3D place yet starts from its
-    // Show Look one). Curves stay each screen's own. One updateLayers call,
-    // one undo step.
+    // Show Look one). Curves stay each screen's own. Changes nothing: the
+    // placements by id, { layer, placed }, for a commit or a live preview
+    // (a drag on a panel field, app-stage3d-panel.js).
+    _s3dPlanEdit(layer, next, layout = null) {
+        const lay = layout || this._s3dLayout();
+        const prev = this._s3dPlacementOf(layer, lay);
+        const placed = s3dSanitize(next);
+        ['x', 'y', 'z'].forEach(k => { placed[k] = round(placed[k], 3); });
+        ['pitch', 'yaw', 'roll'].forEach(k => { placed[k] = round(wrap180(placed[k]), 6); });
+        const out = new Map([[layer.id, { layer, placed }]]);
+        const turned = placed.pitch !== prev.pitch || placed.yaw !== prev.yaw || placed.roll !== prev.roll;
+        const dq = turned ? quatMul(quatFromPlacement(placed), quatInv(quatFromPlacement(prev))) : null;
+        for (const peer of this._s3dGroupPeers(layer)) {
+            const mp = this._s3dPlacementOf(peer, lay);
+            const rel = [mp.x - prev.x, mp.y - prev.y, mp.z - prev.z];
+            const moved = dq ? quatRotate(dq, rel) : rel;
+            const o = { ...mp, x: round(placed.x + moved[0], 3), y: round(placed.y + moved[1], 3), z: round(placed.z + moved[2], 3) };
+            if (dq) {
+                const a = anglesFromQuat(quatMul(dq, quatFromPlacement(mp)));
+                o.pitch = round(wrap180(a.pitch), 6);
+                o.yaw = round(wrap180(a.yaw), 6);
+                o.roll = round(wrap180(a.roll), 6);
+            }
+            out.set(peer.id, { layer: peer, placed: s3dSanitize(o) });
+        }
+        return out;
+    }
+
+    // The edit planned above, saved: one updateLayers call, one undo step.
     //
     // A locked screen stays where it is, and a group with a locked member
     // counts as locked whole (app-cross-layer-paths.js _layerLocked), so
@@ -1073,30 +1135,13 @@ class _Stage3D {
             this._s3dRefreshPanel(true);
             return;
         }
-        const layout = this._s3dLayout();
-        const prev = this._s3dPlacementOf(layer, layout);
-        const placed = s3dSanitize(next);
-        ['x', 'y', 'z'].forEach(k => { placed[k] = round(placed[k], 3); });
-        ['pitch', 'yaw', 'roll'].forEach(k => { placed[k] = round(wrap180(placed[k]), 6); });
-        const changed = [layer];
-        const turned = placed.pitch !== prev.pitch || placed.yaw !== prev.yaw || placed.roll !== prev.roll;
-        const dq = turned ? quatMul(quatFromPlacement(placed), quatInv(quatFromPlacement(prev))) : null;
-        for (const peer of this._s3dGroupPeers(layer)) {
-            const mp = this._s3dPlacementOf(peer, layout);
-            const rel = [mp.x - prev.x, mp.y - prev.y, mp.z - prev.z];
-            const moved = dq ? quatRotate(dq, rel) : rel;
-            const out = { ...mp, x: round(placed.x + moved[0], 3), y: round(placed.y + moved[1], 3), z: round(placed.z + moved[2], 3) };
-            if (dq) {
-                const a = anglesFromQuat(quatMul(dq, quatFromPlacement(mp)));
-                out.pitch = round(wrap180(a.pitch), 6);
-                out.yaw = round(wrap180(a.yaw), 6);
-                out.roll = round(wrap180(a.roll), 6);
-            }
-            peer.stage3d = s3dSanitize(out);
-            changed.push(peer);
+        const plan = this._s3dPlanEdit(layer, next);
+        const changed = [];
+        for (const { layer: l, placed } of plan.values()) {
+            l.stage3d = placed;
+            changed.push(l);
         }
-        layer.stage3d = placed;
-        sendClientLog('stage3d_edit', { action, ids: changed.map(l => l.id), placed });
+        sendClientLog('stage3d_edit', { action, ids: changed.map(l => l.id), placed: layer.stage3d });
         this.updateLayers(changed, true, action);
         this._s3dSchedule();
         this._s3dRefreshPanel();
@@ -1121,77 +1166,22 @@ class _Stage3D {
         return Number.isFinite(v) ? v : null;
     }
 
-    // One field of the panel, committed on change (Enter ends the edit and
-    // fires it - helpers.js installEnterEndsEdit).
-    _s3dCommitField(key) {
-        const layer = this._s3dCurrentScreen();
-        const el = document.getElementById(`s3d-${key}`);
-        if (!layer || !el) return;
-        const prev = this._s3dShownOf(layer, this._s3dPlacementOf(layer));
-        const next = { ...prev, jointsCol: { ...prev.jointsCol }, jointsRow: { ...prev.jointsRow } };
-        if (key === 'x' || key === 'y' || key === 'z') {
-            const mm = this._s3dParseLength(el.value);
-            if (mm === null) { this._s3dRefreshPanel(true); return; }
-            next[key] = mm;
-            this._s3dCommitShown(layer, next, 'Move Screen (3D)');
-        } else if (key === 'pitch' || key === 'yaw' || key === 'roll') {
-            const deg = this._s3dParseAngle(el.value);
-            if (deg === null) { this._s3dRefreshPanel(true); return; }
-            next[key] = deg;
-            this._s3dCommitShown(layer, next, 'Rotate Screen (3D)');
-        } else if (key === 'curve-col' || key === 'curve-row') {
-            const deg = this._s3dParseAngle(el.value);
-            if (deg === null) { this._s3dRefreshPanel(true); return; }
-            next[key === 'curve-col' ? 'curveCol' : 'curveRow'] = clampJoint(deg);
-            this._s3dCommitShown(layer, next, 'Curve Screen (3D)');
-        } else if (key === 'joint-angle') {
-            const st = this._s3dState();
-            const jt = st.joint;
-            if (!jt || jt.layerId !== layer.id) return;
-            const table = jt.axis === 'col' ? next.jointsCol : next.jointsRow;
-            const deg = this._s3dParseAngle(el.value);
-            if (deg === null) delete table[String(jt.index)];
-            else table[String(jt.index)] = clampJoint(deg);
-            this._s3dCommitShown(layer, next, 'Bend Joint (3D)');
-        }
-    }
-
-    _s3dRotateBy(axis, step) {
-        const layer = this._s3dCurrentScreen();
-        if (!layer || !['pitch', 'yaw', 'roll'].includes(axis) || !Number.isFinite(step)) return;
-        const prev = this._s3dShownOf(layer, this._s3dPlacementOf(layer));
-        this._s3dCommitShown(layer, { ...prev, [axis]: prev[axis] + step }, 'Rotate Screen (3D)');
-    }
-
-    _s3dClearJoint() {
-        const layer = this._s3dCurrentScreen();
-        const jt = this._s3dState().joint;
-        if (!layer || !jt || jt.layerId !== layer.id) return;
-        const prev = this._s3dShownOf(layer, this._s3dPlacementOf(layer));
-        const next = { ...prev, jointsCol: { ...prev.jointsCol }, jointsRow: { ...prev.jointsRow } };
-        const table = jt.axis === 'col' ? next.jointsCol : next.jointsRow;
-        if (!(String(jt.index) in table)) return;
-        delete table[String(jt.index)];
-        this._s3dCommitShown(layer, next, 'Bend Joint (3D)');
-    }
-
-    _s3dClearAllJoints() {
-        const layer = this._s3dCurrentScreen();
-        if (!layer) return;
-        const prev = this._s3dShownOf(layer, this._s3dPlacementOf(layer));
-        if (!Object.keys(prev.jointsCol).length && !Object.keys(prev.jointsRow).length) return;
-        this._s3dCommitShown(layer, { ...prev, jointsCol: {}, jointsRow: {} }, 'Clear Joint Angles (3D)');
-    }
-
     // Back to the Show Look place: the screen and its group lose their 3D
     // block (null, so the PUT carries the removal - the route drops the key).
+    // A screen whose Curve is on keeps the Curve's angles: it stands at its
+    // Show Look place, still curved.
     _s3dReset() {
         const layer = this._s3dCurrentScreen();
         if (!layer) return;
         const all = this._writableLayers([layer, ...this._s3dGroupPeers(layer)].filter(l => l.stage3d));
         if (!all.length) return;
-        all.forEach(l => { l.stage3d = null; });
-        this._s3dState().joint = null;
+        const layout = this._s3dLayout();
+        all.forEach(l => {
+            const own = s3dResolve(l, l.stage3d);
+            l.stage3d = own && Object.keys(own.jointsCol).length
+                ? { ...this._s3dShowLookPlacement(l, layout), jointsCol: own.jointsCol } : null;
+        });
+        this._s3dPickCorner(null);
         this.updateLayers(all, true, 'Reset 3D Placement');
         this._s3dSchedule();
         this._s3dRefreshPanel();
@@ -1223,17 +1213,9 @@ class _Stage3D {
             const el = document.getElementById(id);
             if (el) el.addEventListener(ev, fn);
         };
-        ['x', 'y', 'z', 'pitch', 'yaw', 'roll', 'curve-col', 'curve-row', 'joint-angle'].forEach(key => {
-            on(`s3d-${key}`, 'change', () => this._s3dCommitField(key));
-        });
-        document.querySelectorAll('[data-s3d-step]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const row = btn.closest('[data-s3d-axis]');
-                this._s3dRotateBy(row ? row.dataset.s3dAxis : '', Number(btn.dataset.s3dStep));
-            });
-        });
-        on('s3d-joint-clear', 'click', () => this._s3dClearJoint());
-        on('s3d-clear-joints', 'click', () => this._s3dClearAllJoints());
+        // The figure fields, the reset icons, the Curve link and the corner
+        // picker (app-stage3d-panel.js).
+        this._s3dWirePanel();
         on('s3d-reset', 'click', () => this._s3dReset());
         document.querySelectorAll('[data-s3d-units]').forEach(btn => {
             btn.addEventListener('click', () => this._s3dSetUnits(btn.dataset.s3dUnits));
@@ -1252,7 +1234,8 @@ class _Stage3D {
     }
 
     // Values only - the fields are never rebuilt, and the one being typed in
-    // is left alone (`force` rewrites it too, after a value it refused).
+    // (or dragged) is left alone (`force` rewrites it too, after a value it
+    // refused).
     _s3dRefreshPanel(force = false) {
         const st = this._s3dState();
         const layer = this._s3dCurrentScreen();
@@ -1276,15 +1259,12 @@ class _Stage3D {
         const none = byId('s3d-none'), fields = byId('s3d-fields');
         if (none) none.hidden = !!layer;
         if (fields) fields.hidden = !layer;
-        if (!layer) return;
+        if (!layer) {
+            this._s3dPickCorner(null);
+            return;
+        }
         const p = this._s3dPlacementOf(layer);
         const shown = this._s3dShownOf(layer, p);
-        const set = (id, value) => {
-            const el = byId(id);
-            if (!el) return;
-            if (!force && document.activeElement === el) return;
-            if (el.value !== value) el.value = value;
-        };
         const name = byId('s3d-screen-name');
         if (name) name.textContent = layer.name || 'Screen';
         const peers = this._s3dGroupPeers(layer);
@@ -1292,50 +1272,10 @@ class _Stage3D {
         if (note) {
             const group = peers.length ? (this.project.groups || []).find(g => g && g.id === layer.group_id) : null;
             note.hidden = !group;
-            note.textContent = group ? `Moves and turns with its group, ${group.name || 'Group'}. The curve is this screen's own.` : '';
+            note.textContent = group ? `Moves and turns with its group, ${group.name || 'Group'}. The curve and corners are this screen's own.` : '';
         }
-        set('s3d-x', this._s3dFormatLength(shown.x));
-        set('s3d-y', this._s3dFormatLength(shown.y));
-        set('s3d-z', this._s3dFormatLength(shown.z));
-        set('s3d-pitch', String(round(p.pitch, 2)));
-        set('s3d-yaw', String(round(p.yaw, 2)));
-        set('s3d-roll', String(round(p.roll, 2)));
-        set('s3d-curve-col', String(round(p.curveCol, 2)));
-        set('s3d-curve-row', String(round(p.curveRow, 2)));
-        const counts = this._s3dGridCounts(layer);
-        // A corner's seam carries no joint angle (its corner takes its place).
-        const cornerSeams = s3dCornerSeams(layer, counts.cols);
-        const arc = (axis, n) => {
-            let total = 0;
-            for (let j = 0; j < n - 1; j++) if (!(axis === 'col' && cornerSeams.has(j))) total += jointAt(p, axis, j);
-            const joints = Math.max(0, n - 1);
-            const own = Object.keys(axis === 'col' ? p.jointsCol : p.jointsRow).length;
-            const corners = axis === 'col' ? cornerSeams.size : 0;
-            return `${joints} joint${joints === 1 ? '' : 's'}, ${round(total, 1)}° in all`
-                + (own ? ` (${own} set alone)` : '')
-                + (corners ? `, ${corners === 1 ? 'a corner' : `${corners} corners`} not counted` : '');
-        };
-        const arcCol = byId('s3d-arc-col'), arcRow = byId('s3d-arc-row');
-        if (arcCol) arcCol.textContent = arc('col', counts.cols);
-        if (arcRow) arcRow.textContent = arc('row', counts.rows);
-        const jt = st.joint && st.joint.layerId === layer.id ? st.joint : null;
-        const label = byId('s3d-joint-label'), input = byId('s3d-joint-angle');
-        const atCorner = jt && jt.axis === 'col' ? cornerSeams.get(jt.index) : null;
-        if (label) {
-            label.textContent = jt
-                ? (jt.axis === 'col'
-                    ? `Joint between columns ${jt.index + 1} and ${jt.index + 2}.`
-                        + (atCorner ? ` It is a 90° ${atCorner.side === 'exterior' ? 'Exterior' : 'Interior'} corner, set under Corners on the Header/Footer tab, so it takes no joint angle.` : '')
-                    : `Joint between rows ${jt.index + 1} and ${jt.index + 2}.`)
-                : 'Click a seam between two columns or two rows of the selected screen to bend that joint alone.';
-        }
-        if (input) {
-            input.disabled = !jt || !!atCorner;
-            const table = jt ? (jt.axis === 'col' ? p.jointsCol : p.jointsRow) : null;
-            const own = table ? table[String(jt.index)] : undefined;
-            input.placeholder = jt ? String(round(jt.axis === 'col' ? p.curveCol : p.curveRow, 2)) : '';
-            set('s3d-joint-angle', own === undefined ? '' : String(round(own, 2)));
-        }
+        this._s3dPanelFigures(shown, force);
+        this._s3dPanelReadouts(layer, p);
     }
 
     _s3dGridCounts(layer) {
@@ -1362,7 +1302,7 @@ class _Stage3D {
             st.units = this._s3dShowUnits();
             st.grid = p.stage3dGrid !== false;
             st.bars = p.stage3dBars !== false;
-            st.joint = null;
+            st.corner = null;
             st.cam = (p.stage3dCamera && Array.isArray(p.stage3dCamera.position)
                 && Array.isArray(p.stage3dCamera.target)) ? JSON.parse(JSON.stringify(p.stage3dCamera)) : null;
             // Applied by the next stage sync, once the library is in.
@@ -1638,7 +1578,7 @@ class _Stage3D {
         for (const id of [...st.entries.keys()]) {
             if (!seen.has(id)) this._s3dDropEntry(id);
         }
-        if (st.joint && !st.entries.has(st.joint.layerId)) st.joint = null;
+        if (st.corner && !st.entries.has(st.corner.layerId)) this._s3dPickCorner(null);
         const tokens = this._s3dTokens();
         if (st.renderer) st.renderer.setClearColor(tokens.canvas, 1);
         this._s3dHighlight(tokens);
@@ -1691,7 +1631,7 @@ class _Stage3D {
         const geoKey = JSON.stringify([
             (layer.panels || []).map(p => [p.row, p.col, p.x, p.y, p.width, p.height, !!p.hidden, !!p.blank]),
             layer.panel_width_mm, layer.panel_height_mm, layer.cabinet_width, layer.cabinet_height,
-            placement.curveCol, placement.curveRow, placement.jointsCol, placement.jointsRow,
+            placement.jointsCol,
             s3dCleanCorners(layer.riggingCorners).map(c => [c.at, c.side]),
             // where the corners fold from (the Curve's build-from point)
             s3dCornerAnchor(layer, Number(layer.columns) || 1),
@@ -1778,7 +1718,7 @@ class _Stage3D {
         e.lineGeo.setAttribute('position', new T.BufferAttribute(lines, 3));
         // The screen's writing - name plate, sizes, corner readouts - on
         // the same cabinets 5 mm proud of the front: over the seam lines
-        // (2 mm) and a picked joint's strip (4 mm), so the seams never cross
+        // (2 mm) and a picked corner spot's strip (4 mm), so the seams never cross
         // a label (Matt, 2026-11-09). It is depth tested, so a screen truly
         // in front of this one still hides it, writes no depth, and is
         // drawn after the seams (renderOrder); never picked.
@@ -2127,8 +2067,8 @@ class _Stage3D {
         this._s3dRequestRender();
     }
 
-    // The selected screens' seams in the accent colour, and the picked
-    // joint as a strip along its seam.
+    // The selected screens' seams in the accent colour, and the spot picked
+    // for a corner (a seam or a panel's middle) as a strip down the screen.
     _s3dHighlight(tokens) {
         const st = this._s3dState();
         const T = st.T;
@@ -2138,8 +2078,8 @@ class _Stage3D {
             const on = sel.has(e.id);
             e.lineMat.color.set(on ? accent : new T.Color(0x0a0a0a));
             e.lineMat.opacity = on ? 1 : 0.9;
-            const jt = st.joint && st.joint.layerId === e.id ? st.joint : null;
-            const key = jt ? `${jt.axis}:${jt.index}:${e.geoKey.length}:${tokens.accent}` : '';
+            const spot = st.corner && st.corner.layerId === e.id ? st.corner : null;
+            const key = spot ? `${spot.at}:${e.geoKey.length}:${tokens.accent}` : '';
             if (e.seamKey === key && (key || !e.seam)) continue;
             e.seamKey = key;
             if (e.seam) {
@@ -2148,8 +2088,8 @@ class _Stage3D {
                 e.seam.material.dispose();
                 e.seam = null;
             }
-            if (!jt || !e.built) continue;
-            const strip = this._s3dSeamStrip(e.built, jt.axis, jt.index);
+            if (!spot || !e.built) continue;
+            const strip = this._s3dSpotStrip(e.built, spot.at);
             if (!strip) continue;
             const geo = new T.BufferGeometry();
             geo.setAttribute('position', new T.BufferAttribute(strip, 3));
@@ -2158,32 +2098,35 @@ class _Stage3D {
         }
     }
 
-    // Triangles along one joint's seam, a little proud of both faces.
-    _s3dSeamStrip(built, axis, index) {
-        const segs = [];
-        const nCols = built.colLen.length, nRows = built.rowLen.length;
-        // a tenth of a cabinet each side of the seam, so it reads at a glance
+    // Where a corner spot `at` (half steps: 3 the middle of panel 3, 3.5
+    // the seam between 3 and 4) lies on a built screen: the column and how
+    // far across it, or null off the screen.
+    _s3dSpotColumn(built, at) {
+        const n = built.colLen.length;
+        if (Number.isInteger(at)) {
+            if (at < 1 || at > n) return null;
+            return { i: at - 1, u: built.colLen[at - 1] / 2 };
+        }
+        const i = Math.round(at - 0.5);
+        if (i < 1 || i > n - 1) return null;
+        return { i, u: 0 };
+    }
+
+    // Triangles down one corner spot, a little proud of both faces.
+    _s3dSpotStrip(built, at) {
+        const where = this._s3dSpotColumn(built, at);
+        if (!where) return null;
+        const { i, u } = where;
+        const nRows = built.rowLen.length;
+        // a tenth of a cabinet each side of the line, so it reads at a glance
         const cab = Math.min(...built.colLen, ...built.rowLen) || 500;
         const halfW = Math.max(30, cab * 0.1);
-        if (axis === 'col') {
-            if (index < 0 || index >= nCols - 1) return null;
-            const i = index + 1;
-            const h = built.colHeads[i] || 0;
-            const across = [Math.cos(h), 0, Math.sin(h)];
-            for (let k = 0; k < nRows; k++) {
-                segs.push([built.point(i, 0, k, 0), built.point(i, 0, k, built.rowLen[k]), across]);
-            }
-        } else {
-            if (index < 0 || index >= nRows - 1) return null;
-            const k = index + 1;
-            for (let i = 0; i < nCols; i++) {
-                const a = built.point(i, 0, k, 0), b = built.point(i, built.colLen[i], k, 0);
-                const down = norm(sub(built.point(i, 0, k, 1), a));
-                segs.push([a, b, down]);
-            }
-        }
+        const len = built.colLen[i];
         const out = [];
-        for (const [a, b, across] of segs) {
+        for (let k = 0; k < nRows; k++) {
+            const a = built.point(i, u, k, 0), b = built.point(i, u, k, built.rowLen[k]);
+            // across the screen here: halfway between the two sides of a fold
+            const across = norm(sub(built.point(i, Math.min(len, u + 1), k, 0), built.point(i, Math.max(0, u - 1), k, 0)));
             const along = sub(b, a);
             const nrm = norm(cross(along, across));
             for (const lift of [4, -4]) {
@@ -2272,55 +2215,14 @@ class _Stage3D {
         return { layerId: e.id, entry: e, point: hit.point.clone(), quad: Math.floor(hit.faceIndex / 2) };
     }
 
-    // Which joint a hit lies on, if it is close to a seam of its cabinet.
-    _s3dSeamAt(hit) {
-        if (!hit || !hit.entry.built) return null;
-        const built = hit.entry.built;
-        const q = built.quads[hit.quad];
-        if (!q) return null;
-        const local = hit.entry.obj.worldToLocal(hit.point.clone());
-        const p = [local.x, local.y, local.z];
-        const ax = sub(q.tr, q.tl), ay = sub(q.bl, q.tl);
-        const W = Math.hypot(...ax), H = Math.hypot(...ay);
-        if (!W || !H) return null;
-        const u = dot(sub(p, q.tl), ax) / W, w = dot(sub(p, q.tl), ay) / H;
-        const near = Math.min(120, 0.18 * Math.min(W, H));
-        const nCols = built.colLen.length, nRows = built.rowLen.length;
-        const cands = [];
-        if (u < near && q.ci > 0 && q.u0 < 1) cands.push([u, 'col', q.ci - 1]);
-        if (W - u < near && q.ci < nCols - 1 && Math.abs(q.u1 - built.colLen[q.ci]) < 1) cands.push([W - u, 'col', q.ci]);
-        if (w < near && q.ri > 0 && q.w0 < 1) cands.push([w, 'row', q.ri - 1]);
-        if (H - w < near && q.ri < nRows - 1 && Math.abs(q.w1 - built.rowLen[q.ri]) < 1) cands.push([H - w, 'row', q.ri]);
-        if (!cands.length) return null;
-        cands.sort((a, b) => a[0] - b[0]);
-        return { axis: cands[0][1], index: cands[0][2] };
-    }
-
-    // Pick one joint of one screen for the Joint angle field (null clears).
-    _s3dSelectJoint(layerId, axis, index) {
-        const st = this._s3dState();
-        if (layerId == null) {
-            st.joint = null;
-        } else {
-            const layer = ((this.project && this.project.layers) || []).find(l => l.id === layerId);
-            const counts = this._s3dGridCounts(layer);
-            const n = axis === 'col' ? counts.cols : counts.rows;
-            if (!layer || (axis !== 'col' && axis !== 'row') || !(index >= 0 && index < n - 1)) return false;
-            st.joint = { layerId, axis, index };
-        }
-        this._s3dRefreshPanel();
-        if (st.T) {
-            this._s3dHighlight(this._s3dTokens());
-            this._s3dRequestRender();
-        }
-        return true;
-    }
-
+    // A click on a screen selects it; a click on the screen already picked
+    // alone, on a seam or a panel's middle (_s3dSpotAt), offers a corner
+    // there (app-stage3d-panel.js _s3dPickCorner).
     _s3dClick(hit, ev) {
         const st = this._s3dState();
         const layers = (this.project && this.project.layers) || [];
         if (!hit) {
-            if (st.joint) this._s3dSelectJoint(null);
+            if (st.corner) this._s3dPickCorner(null);
             // A click on empty space lets go of the selection, as in any 3D
             // view; with Shift or Ctrl / Cmd held it keeps it.
             const keep = ev && (ev.shiftKey || ev.metaKey || ev.ctrlKey);
@@ -2339,16 +2241,16 @@ class _Stage3D {
             return;
         }
         if (!sel.has(layer.id) || sel.size > 1 || !this.currentLayer || this.currentLayer.id !== layer.id) {
-            st.joint = null;
+            this._s3dPickCorner(null);
             this.selectLayer(layer);
             if (typeof this.renderLayers === 'function') this.renderLayers();
             if (window.canvasRenderer) window.canvasRenderer.render();
             this._s3dRefreshPanel();
             return;
         }
-        const seam = this._s3dSeamAt(hit);
-        if (seam) this._s3dSelectJoint(layer.id, seam.axis, seam.index);
-        else if (st.joint) this._s3dSelectJoint(null);
+        const at = this._s3dSpotAt(hit);
+        if (at !== null) this._s3dPickCorner(layer.id, at, ev ? ev.clientX : null, ev ? ev.clientY : null);
+        else if (st.corner) this._s3dPickCorner(null);
     }
 
     // Everything a drag of `layerIds` carries: those screens and the rest of
@@ -2427,7 +2329,7 @@ class _Stage3D {
             message: (document.getElementById('s3d-message') || {}).hidden === false
                 ? document.getElementById('s3d-message').textContent : '',
             units: this._s3dUnits(), grid: st.grid, bars: st.bars,
-            joint: st.joint ? { ...st.joint } : null,
+            corner: st.corner ? { layerId: st.corner.layerId, at: st.corner.at } : null,
             camera: this._s3dCameraState(),
             gliding: !!st.glide, wheel: st.wheel ? st.wheel.kind : null,
             tool: st.tool === 'rotate' ? 'rotate' : 'move',

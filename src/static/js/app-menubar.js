@@ -384,6 +384,9 @@ class _MenuBar {
             case 'preferences':
                 this.openPreferencesModal();
                 break;
+            case 'quit-app':
+                this.quitApp();
+                break;
             case 'undo':
                 this.undo();
                 break;

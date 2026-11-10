@@ -263,9 +263,15 @@ def test_a_corners_seam_takes_no_curve_angle_and_the_other_seams_keep_theirs(pag
 
 
 def test_the_where_list_the_note_and_the_plan_show_the_seam_has_no_curve_angle(page):
+    # The angles are the Curve's (since 2026-11-10 the only joint angles a
+    # screen has): its Curve on, five degrees at every joint. With a header
+    # AND a footer the Curve cannot be laid again, so the angles stay as
+    # they are while the corner comes and moves.
     five = {str(j): 5 for j in range(5)}
-    ids = reset(page, [dict(COLUMN, extra={'stage3d': {'x': 0, 'y': 0, 'z': 0, 'pitch': 0, 'yaw': 0, 'roll': 0,
-                                                        'jointsCol': five, 'pivot': 'bottom'}})])
+    ids = reset(page, [dict(COLUMN, extra={'riggingCurve': {'on': True},
+                                           'riggingBars': [6], 'riggingFooterBars': [6],
+                                           'stage3d': {'x': 0, 'y': 0, 'z': 0, 'pitch': 0, 'yaw': 0, 'roll': 0,
+                                                       'jointsCol': five, 'pivot': 'bottom'}})])
     open_rigging(page)
     page.click('#rigging-corner-add')
     sel = f"{row(page, 3.5)} [data-corner-at] option"

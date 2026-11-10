@@ -526,10 +526,15 @@ def test_an_old_show_opens_with_nothing_moved_and_nothing_written(page):
         page.evaluate(f"window.app.setSelectedLayersByIds([{i}], {i})")
         page.wait_for_timeout(60)
     open_3d(page, len(ids))
-    # the stage stands the old blocks where the first betas did
+    # the stage stands the old blocks where the first betas did; one that
+    # carried their free curve figures (gone since 2026-11-10, these screens
+    # have no Curve) stands as the same block without them, flat
+    bare_js = """async (c) => { const m = await import('/static/js/app-stage3d.js');
+        return m.s3dWorldCorners(c.layer, {...c.block, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {}}); }"""
     for layer_id, case in zip(ids, cases):
         have = {(q['row'], q['col']): q['corners'] for q in s3d_quads(page, layer_id)}
-        for w in case['corners']:
+        bent = any(case['block'].get(k) for k in ('curveCol', 'curveRow', 'jointsCol', 'jointsRow'))
+        for w in (page.evaluate(bare_js, case) if bent else case['corners']):
             for a, b in zip(have[(w['row'], w['col'])], w['corners']):
                 assert all(abs(x - y) <= 0.01 for x, y in zip(a, b)), (case['name'], a, b)
     # an edit that leaves the footer as it is moves nothing

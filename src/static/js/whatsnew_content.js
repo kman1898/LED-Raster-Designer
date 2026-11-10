@@ -19,24 +19,24 @@
  */
 window.WHATS_NEW_CONTENT = {
     '1.7': {
-        title: 'Quick Palettes, header and footer bars, screens in 3D, a canvas on a second display, and the IDM Locator',
+        title: 'Quick Palettes, header and footer bars, curves and corners, screens in 3D, a canvas on a second display, and the IDM Locator',
         items: [
             { h: 'Quick Palettes',
-              d: 'The Pixel Map tab has a new Quick Palettes section under Colors: eight Color 1 and Color 2 checkerboard pairs built around the selected screen\'s color, all equally bright so white cabinet IDs stay easy to read. Select your screens and click one. In Tonal, Palette 1 is the screen\'s own colors, so there\'s always a way back. Bold carries more color, Split pairs two nearby hues, and Shuffle builds a new eight.' },
-            { h: 'A Hue slider, and your own eight',
-              d: 'Drag Hue to turn the eight and the selected screens together, one degree at a time. A drag or a run of arrow keys is one undo step, and clicking the degrees puts it back to 0. Preferences > Palettes keeps eight pairs of your own, and the Pixel Map tab shows them instead of the built set.' },
+              d: 'The Pixel Map tab has a new Quick Palettes section under Colors: eight Color 1 and Color 2 checkerboard pairs built around the selected screen\'s color, all equally bright so white cabinet IDs stay easy to read. Select your screens and click one. Drag Hue to turn the eight and the screens together; a drag is one undo step. Preferences > Palettes keeps eight pairs of your own.' },
             { h: 'Header and footer bars',
               d: 'The new Header/Footer tab, right of Power, builds the bars above or below each wall. Light the sizes you stock and Auto fits the fewest bars across it, or pick Custom and click or drag along the edge to lay them yourself. Grouped screens share one row across the seam, and the counts go on the pull sheet and the binder.' },
+            { h: 'Curves and 90 degree corners',
+              d: 'Tick Curve on the Header/Footer tab and the app lays the bars you have and sets the angle at every join for the curve you ask. Add corner folds a screen 90 degrees, Interior or Exterior, on a seam or down the middle of a panel, and lays its corner bar. With both, each side of a corner curves as its own wall.' },
             { h: 'Screens on a stage in 3D',
-              d: 'The 3D tab builds every Show Look screen from its cabinets with its Pixel Map on the front. Place and turn each screen, and bend any column or row joint up to 15 degrees. The header and footer bars stand above and below each wall in their own colors, and Bars hides them. Tick Curve on the Header/Footer tab and the app lays the bars you have and sets the angle at every join for the curve you ask, and File > Export OBJ saves each screen as a 3D model mapped to its canvas.' },
+              d: 'The 3D tab builds every Show Look screen from its cabinets with its Pixel Map on the front, curved and cornered as the Header/Footer tab sets it. Drag a figure in the panel to move or turn a screen, the way 3D software does, and click a seam or a panel\'s middle for a 90 degree corner. The bars stand above and below each wall, and File > Export OBJ saves each screen as a 3D model mapped to its canvas.' },
             { h: 'A canvas on a second display',
-              d: 'View > Output to Display opens a canvas in its own window, fit to the display or pixel for pixel, and follows every edit live.' },
+              d: 'View > Output to Display sends a canvas full screen to another display at 1:1, one canvas pixel per display pixel from the top-left corner, and follows every edit live. Open one for each display you need.' },
             { h: 'The IDM Locator',
-              d: 'The IDM Locator tab fills the wall with white, red, green, blue, black or your own color, with module edges, labels and ticks in the field\'s own color, never black. Type a screen\'s modules across and down, then click or drag to mark a bad module with a color or an X. The list names each mark by screen, cabinet ID and module.' },
-            { h: 'Point at a module, see it on the wall',
-              d: 'Hover, use the arrow keys or tap on a tablet, and the module blinks on the wall output. Space or the Mark button marks it. Module ID labels every module in the Cabinet ID style, A1 B1 / A2 B2, starting again in each cabinet.' },
-            { h: 'A checklist in the Notes',
-              d: 'Add items under the notes, tick them off and drag to reorder. The list saves with the show.' }
+              d: 'The IDM Locator tab fills the wall with white, red, green, blue, black or your own color to find bad modules. Type a screen\'s modules across and down, then click or drag to mark a bad module with a color or an X. Hover, use the arrow keys or tap on a tablet, and the module blinks on the wall output.' },
+            { h: 'Processor IP addresses, and a checklist',
+              d: 'Each processor and its backup take an IP address, a subnet mask, a gateway and a note under Network on its gear, and the binder prints them on a Network page. Under the notes, add a checklist, tick items off and drag to reorder.' },
+            { h: 'A setup file for Windows, and one-click updates',
+              d: 'Windows gets a setup file: the app goes in your Start menu with an uninstaller, without an administrator password. Once installed with it, Update downloads the new version, installs it and reopens the app.' }
         ]
     },
     '1.6': {

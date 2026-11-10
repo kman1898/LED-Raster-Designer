@@ -20,7 +20,8 @@
 //   keys                 F frames the selection (every screen with none),
 //                        Home goes back to the starting view, 1 to 6 are
 //                        the view buttons, W and E pick the move or turn
-//                        handles, the arrows and Page Up / Down nudge
+//                        handles, G and R move or turn from the keyboard,
+//                        the arrows and Page Up / Down nudge
 //                        (app-stage3d-handles.js), Esc cancels a drag.
 //
 // The orbit controls (static/vendor/three) keep touch only; the mouse and
@@ -612,7 +613,7 @@ class _Stage3DNav {
         caught.forEach(id => { if (!ids.includes(id)) ids.push(id); });
         const primary = add && this.currentLayer && ids.includes(this.currentLayer.id)
             ? this.currentLayer.id : (caught[0] || null);
-        st.joint = null;
+        this._s3dPickCorner(null);
         sendClientLog('stage3d_box_select', { caught, add, ids });
         this.setSelectedLayersByIds(ids, primary);
         this._s3dRefreshPanel();
@@ -746,6 +747,8 @@ class _Stage3DNav {
     _s3dKeyDown(ev) {
         const st = this._s3dState();
         if (!st.active || !st.renderer || ev.defaultPrevented || ev.isComposing) return;
+        // G or R under way takes every key itself (app-stage3d-handles.js).
+        if (st.keyX) return;
         if (ev.key === 'Escape') {
             if ((st.nav && st.nav.kind !== 'press') || st.nudge) {
                 this._s3dCancelDrag();
@@ -772,6 +775,8 @@ class _Stage3DNav {
         else if (key === 'Home') act = () => this._s3dHome();
         else if (letter === 'w') act = () => this._s3dSetTool('move');
         else if (letter === 'e') act = () => this._s3dSetTool('rotate');
+        else if (letter === 'g') act = () => this._s3dKeyTransformStart('move');
+        else if (letter === 'r') act = () => this._s3dKeyTransformStart('rotate');
         else if (digit && !ev.shiftKey) act = () => this._s3dPreset(VIEW_KEYS[digit - 1]);
         if (!act) return;
         ev.preventDefault();
