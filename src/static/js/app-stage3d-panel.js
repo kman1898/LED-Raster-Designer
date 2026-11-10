@@ -677,7 +677,9 @@ class _Stage3DPanel {
     // The corner spot a click on the picked screen lands on, in half steps
     // (3 the middle of panel 3, 3.5 the seam between 3 and 4), or null: a
     // seam between two columns, or the middle of a panel, within a short
-    // reach. Columns only.
+    // reach. COLUMNS ONLY (owner, 2026-11-10: "it is allowing me to make
+    // horizontal joints which is not right"): a click on or near a seam
+    // between two rows picks nothing.
     _s3dSpotAt(hit) {
         if (!hit || !hit.entry || !hit.entry.built) return null;
         const built = hit.entry.built;
@@ -699,7 +701,16 @@ class _Stage3DPanel {
         if (q.ci < n - 1) cands.push([len - across, q.ci + 1.5]);
         cands.push([Math.abs(across - len / 2), q.ci + 1]);
         const best = cands.filter(c => c[0] < near).sort((a, b) => a[0] - b[0])[0];
-        return best ? best[1] : null;
+        if (!best) return null;
+        // nearer a seam between two rows than to the column spot: nothing
+        const down = ((p[0] - q.tl[0]) * (q.bl[0] - q.tl[0]) + (p[1] - q.tl[1]) * (q.bl[1] - q.tl[1])
+            + (p[2] - q.tl[2]) * (q.bl[2] - q.tl[2])) / H;
+        const nRows = built.rowLen.length;
+        const rowLen = built.rowLen[q.ri] || H;
+        const along = q.w0 + down;
+        const rowSeam = Math.min(q.ri > 0 ? along : Infinity, q.ri < nRows - 1 ? rowLen - along : Infinity);
+        if (rowSeam < near && rowSeam <= best[0]) return null;
+        return best[1];
     }
 
     // Pick spot `at` of screen `layerId` for a corner (null lets go): the

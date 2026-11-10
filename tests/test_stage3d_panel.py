@@ -650,6 +650,38 @@ def test_a_spot_too_close_to_a_corner_offers_none_and_esc_closes(page):
     assert page.errors == []
 
 
+def test_a_seam_between_two_rows_picks_nothing_and_rows_never_bend(page):
+    """Joints, curves and corners are between columns only (the owner,
+    2026-11-10: "it is allowing me to make horizontal joints which is not
+    right"): a click on a seam between two rows offers nothing, and no
+    figure a block carries bends a row, on the stage or in the build."""
+    ids = reset(page, [{'name': 'Wall', 'columns': 6, 'rows': 3, 'offset_x': 0, 'offset_y': 0}])
+    wall = ids[0]
+    open_3d(page, 1)
+    view_from(page, 'front')
+    start = history_len(page)
+    for index in (0, 1):
+        pt = page.evaluate(f"window.app._s3dDebugSeam({wall}, 'row', {index})")
+        assert pt, 'the row seam is not on the page'
+        page.mouse.click(pt[0], pt[1])
+        page.wait_for_timeout(300)
+        assert not pop_open(page) and dbg(page)['corner'] is None, index
+    assert corners_of(page, wall) == [] and history_len(page) == start
+    # a column seam on the same screen still offers a corner
+    click_spot(page, wall, 2.5)
+    assert pop_open(page)
+    page.keyboard.press('Escape')
+    # the build: a first beta's row figures stand every row straight
+    flat = page.evaluate("""async (id) => {
+        const m = await import('/static/js/app-stage3d.js');
+        const l = window.app.project.layers.find(x => x.id === id);
+        const p = {x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, curveRow: 20, jointsRow: {'0': 30, '1': -45}};
+        return m.s3dBuild(l, p).quads.flatMap(q => [q.tl[2], q.tr[2], q.br[2], q.bl[2]]);
+    }""", wall)
+    assert all(abs(z) < 1e-9 for z in flat)
+    assert page.errors == []
+
+
 def test_a_locked_screen_refuses_a_corner(page):
     ids = reset(page, ONE)
     wall = ids[0]

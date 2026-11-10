@@ -4,8 +4,8 @@
 // Map drawing on the front and plain dark grey behind.
 //
 // Each screen keeps its place on the layer as `stage3d` (mm, Y up, +Z
-// towards the audience; pitch / yaw / roll in degrees; the bend at every
-// joint between columns and rows - the server's app.sanitize_stage3d holds
+// towards the audience; pitch / yaw / roll in degrees; the Curve's angle at
+// every joint between columns - the server's app.sanitize_stage3d holds
 // the shape). X, Y and Z are the middle of the screen's bottom edge (the
 // owner's ruling, 2026-11-09): Y is how high the bottom edge stands, so a
 // screen on the floor reads 0, and the screen turns about that point, so a
@@ -28,7 +28,12 @@
 import { LEDRasterApp } from './app-core.js';
 import { evaluateMathExpression, sendClientLog } from './helpers.js';
 
-const JOINT_LIMIT = 15;          // degrees, either way, at any joint
+// Degrees, either way, at any joint: a half turn. A joint keeps the angle
+// it is given, so 3D and the OBJ draw exactly what the Curve lays (QA,
+// 2026-11-10: every joint was held to 15, and a 20 degree Curve drew
+// shallower than the wall it builds); only a figure past a half turn is
+// held to it. app.py STAGE3D_JOINT_LIMIT is the same.
+const JOINT_LIMIT = 180;
 export const FT_MM = 304.8;
 // X, Y and Z measure the middle of the bottom edge (the block's marker).
 export const PIVOT = 'bottom';
@@ -67,26 +72,30 @@ function clampJoint(v) {
 
 // The client's copy of app.sanitize_stage3d - the same block for the same
 // input, so a restore through the server never comes back "repaired".
+//
+// JOINTS, CURVES AND CORNERS ARE BETWEEN COLUMNS ONLY, never between rows
+// (owner, 2026-11-10: "it is allowing me to make horizontal joints which is
+// not right"), and the only joint angles are the Curve's: `jointsCol`, which
+// the Curve on the Header/Footer tab writes (app-curve.js). The first 1.7.0
+// betas also kept a screen-wide figure for the columns and the rows
+// (curveCol, curveRow) and per-joint row angles (jointsRow), typed on the 3D
+// tab: they are dropped here, so such a screen opens flat between its rows.
 export function s3dSanitize(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const out = {};
     ['x', 'y', 'z', 'pitch', 'yaw', 'roll'].forEach(k => { out[k] = finite(value[k], 0); });
     if (value.pivot === PIVOT) out.pivot = PIVOT;
-    out.curveCol = clampJoint(value.curveCol);
-    out.curveRow = clampJoint(value.curveRow);
-    ['jointsCol', 'jointsRow'].forEach(k => {
-        const raw = value[k];
-        const joints = {};
-        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-            Object.keys(raw).forEach(idx => {
-                const text = String(idx).trim();
-                if (!/^\d+$/.test(text)) return;
-                if (finite(raw[idx], null) === null) return;
-                joints[String(parseInt(text, 10))] = clampJoint(raw[idx]);
-            });
-        }
-        out[k] = joints;
-    });
+    const raw = value.jointsCol;
+    const joints = {};
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        Object.keys(raw).forEach(idx => {
+            const text = String(idx).trim();
+            if (!/^\d+$/.test(text)) return;
+            if (finite(raw[idx], null) === null) return;
+            joints[String(parseInt(text, 10))] = clampJoint(raw[idx]);
+        });
+    }
+    out.jointsCol = joints;
     return out;
 }
 
@@ -123,11 +132,12 @@ export function s3dCopyPlacement(layer, dxPx, dyPx, ref = null) {
     return p;
 }
 
+// The Curve's angle at column joint j. A joint between two rows never
+// bends: 0, so the 3D view and the OBJ stand every row straight.
 function jointAt(p, axis, j) {
-    const table = axis === 'col' ? p.jointsCol : p.jointsRow;
-    const own = table ? table[String(j)] : undefined;
-    if (finite(own, null) !== null) return clampJoint(own);
-    return clampJoint(axis === 'col' ? p.curveCol : p.curveRow);
+    if (axis !== 'col') return 0;
+    const own = p && p.jointsCol ? p.jointsCol[String(j)] : undefined;
+    return finite(own, null) !== null ? clampJoint(own) : 0;
 }
 
 export function wrap180(deg) {
@@ -555,17 +565,13 @@ export function s3dBaseOffset(layer, placement) {
 // THE ONLY JOINT ANGLES ARE THE CURVE'S (owner, 2026-11-10: corners are 90
 // only, gentle bends come from the Curve, curves are columns only). The
 // block as read keeps `jointsCol`, the angles the Curve writes, only
-// while the screen's Curve is on (s3dCurveOn); the first 1.7.0 betas' 3D
-// tab figures (curveCol, curveRow, jointsRow, and jointsCol on a screen
-// without a Curve) read as 0, so such a screen stands flat but for its
-// corners, the same on the 3D tab, in the OBJ and on the Corners plan.
-// None of them could be a corner: every one was held to 15 degrees.
+// while the screen's Curve is on (s3dCurveOn): a first beta's 3D tab
+// angles on a screen without a Curve read as none, so it stands flat but
+// for its corners, the same on the 3D tab, in the OBJ and on the Corners
+// plan. None of them could be a corner: every one was held to 15 degrees.
 export function s3dResolve(layer, block) {
     const p = s3dSanitize(block);
     if (!p) return p;
-    p.curveCol = 0;
-    p.curveRow = 0;
-    p.jointsRow = {};
     if (!s3dCurveOn(layer)) p.jointsCol = {};
     if (p.pivot === PIVOT) return p;
     const off = quatRotate(quatFromPlacement(p), s3dBaseOffset(layer, p));
@@ -958,7 +964,7 @@ class _Stage3D {
         const rect = this._s3dShowRect(layer, lay.byId);
         return {
             x: round(rect.left + rect.w / 2, 3), y: round(rect.bottom + lay.lift, 3), z: 0,
-            pitch: 0, yaw: 0, roll: 0, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {}, pivot: PIVOT,
+            pitch: 0, yaw: 0, roll: 0, jointsCol: {}, pivot: PIVOT,
         };
     }
 

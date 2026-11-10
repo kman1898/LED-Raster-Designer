@@ -223,6 +223,8 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   laid beside a corner stops at it, and one that no longer fits there is
   refused and said. A bar laid by hand on a corner's panels makes way for
   the corner bar. Click a corner bar and press Delete to take it off.
+  Move a corner or take it off and the app names any panels its corner
+  bar leaves with no bar on them.
 
 A CANVAS ON A SECOND DISPLAY
 

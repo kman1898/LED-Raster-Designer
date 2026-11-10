@@ -301,9 +301,9 @@ def test_old_centre_blocks_resolve_to_the_same_corners(page):
         assert out['pivot'] == 'bottom', out['name']
         # a block read once is read the same way again
         assert out['again'] == out['resolved'], out['name']
-        # the free figures read as 0 (these screens have no Curve)
+        # the free figures are gone (these screens have no Curve)
         r = out['resolved']
-        assert (r['curveCol'], r['curveRow'], r['jointsCol'], r['jointsRow']) == (0, 0, {}, {}), out['name']
+        assert r['jointsCol'] == {} and not any(k in r for k in ('curveCol', 'curveRow', 'jointsRow')), out['name']
         if _bent(case):
             want_list = out['bare']
         else:
@@ -334,8 +334,8 @@ def test_the_bottom_middle_and_the_footer_datum(page):
         const footed = m.s3dShown(wall, pitched, m.FOOTER_BAR_MM);
         return {
             base: m.s3dBaseOffset(wall, flat),
-            bentBase: m.s3dBaseOffset(wall, {...flat, curveRow: 10}),
-            curvedAcrossBase: m.s3dBaseOffset(wall, {...flat, curveCol: 12}),
+            rowFigureBase: m.s3dBaseOffset(wall, {...flat, curveRow: 10, jointsRow: {'0': 10}}),
+            curvedAcrossBase: m.s3dBaseOffset(wall, {...flat, jointsCol: {'0': 12, '1': 12, '2': 12}}),
             // a first beta's row figure, read from a stored block: dropped
             rowRead: m.s3dResolve(wall, {...flat, curveRow: 10, pivot: 'bottom'}),
             oldCentre: m.s3dResolve(wall, {...flat, y: 500}),
@@ -352,11 +352,10 @@ def test_the_bottom_middle_and_the_footer_datum(page):
     assert out['base'] == pytest.approx([0, -500, 0])
     # a column curve leaves the bottom middle under the middle column
     assert out['curvedAcrossBase'] == pytest.approx([0, -500, 0])
-    # a row bend brings the foot of the bottom row forward
-    assert out['bentBase'][1] > -500 and out['bentBase'][2] > 0
-    # but rows never bend on the stage (curves are columns only, 2026-11-10):
-    # a stored block's row figure reads as 0
-    assert out['rowRead']['curveRow'] == 0 and out['rowRead']['jointsRow'] == {}
+    # rows never bend (joints are between columns only, 2026-11-10): a first
+    # beta's row figures are dropped and the bottom middle is the flat one
+    assert out['rowFigureBase'] == pytest.approx([0, -500, 0])
+    assert 'curveRow' not in out['rowRead'] and 'jointsRow' not in out['rowRead']
     # an old centre 500 mm up on a 1000 mm wall stands its bottom edge on 0
     assert (out['oldCentre']['y'], out['oldCentre']['pivot']) == (pytest.approx(0), 'bottom')
     assert out['footerFlat'] == pytest.approx([0, -152.4, 0])
@@ -710,6 +709,46 @@ def test_adding_a_footer_lifts_the_panels_6_in_and_y_still_reads_the_same(page):
         for p, q in zip(a['corners'], b['corners']):
             assert close(p, q, tol=0.01)
     assert field(page, 'y') == y_before
+    assert page.errors == []
+
+
+def test_an_old_block_with_a_footer_opens_exactly_as_saved(page):
+    """The owner's ruling (2026-11-10, "leave as is i will fix"): a screen
+    placed before the footer lift, its panels on the floor and its footer
+    under it (Y reads -0.50 ft), opens exactly as saved: no lift, no
+    warning, nothing written. The lift is only for a footer that is added
+    or appears later."""
+    flat = {'x': 0, 'y': 500, 'z': 0}                          # centre of 2000 x 1000
+    leaning = {'x': 3000, 'y': 500, 'z': 0, 'pitch': 10}
+    ids = reset(page, [{'name': 'Old foot', 'columns': 4, 'rows': 2, 'footer': [2, 2], 'stage3d': flat},
+                       {'name': 'Old lean', 'columns': 4, 'rows': 2, 'offset_x': 700, 'footer': [2, 2],
+                        'stage3d': leaning}])
+    page.evaluate("() => { const h = document.getElementById('app-toast-host'); if (h) h.innerHTML = ''; }")
+    open_3d(page, 2)
+    foot = screen(page, ids[0])
+    # the panels stand where the block put them, on the floor; the footer
+    # hangs 6 in under it and Y says so
+    assert foot['footerMm'] == pytest.approx(152.4)
+    assert foot['world']['min'][1] == pytest.approx(0, abs=0.01)
+    assert foot['datum'][1] == pytest.approx(-152.4, abs=0.01)
+    bars = {r['row']: r for r in foot['bars']}['footer']
+    assert bars['first'][1] == pytest.approx(0, abs=0.001)          # still touching the panels
+    # every cabinet where the plain read of the block puts it, leaning too
+    for i, block in zip(ids, (flat, leaning)):
+        plain = page.evaluate("""async ([id, block]) => {
+            const m = await import('/static/js/app-stage3d.js');
+            const l = window.app.project.layers.find(x => x.id === id);
+            return m.s3dWorldCorners(l, block);
+        }""", [i, block])
+        assert _shift(corners(page, i), plain) == pytest.approx([0, 0, 0], abs=0.001)
+        assert_obj_matches_stage(page, i, f'old {i}')
+    # looking writes nothing, and nothing says anything
+    for i in ids:
+        assert 'pivot' not in stored(page, i) and 'pivot' not in served(page, i)
+    page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {ids[0]}))")
+    page.wait_for_timeout(200)
+    assert field(page, 'y') == '-0.50'
+    assert page.evaluate("() => (document.getElementById('app-toast-host') || {}).textContent || ''") == ''
     assert page.errors == []
 
 

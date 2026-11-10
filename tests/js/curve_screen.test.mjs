@@ -398,4 +398,34 @@ describe('a curved screen with corners, curved side by side up to each fold', ()
     });
 });
 
+// QA, 2026-11-10: the "Out of range" warning quoted the arc's angle times
+// the widest bar in STOCK, not in the build it chose. Nine 500 mm panels
+// with singles and doubles lit: the Curve lays singles at 7.5 and 10
+// degrees and lands close, but the warning said the curve wants 16 per
+// joint and the wall falls short; at 50% with locks of 20 and 25 it said
+// 40 while the head says 20 fits.
+describe('the per-joint angle a curve wants is read off the build it lays', () => {
+    const at = (value, angles) => screenCurve({ panels: 9, panelWidthM: 0.5, sizes: [1, 2],
+        settings: on({ value, angles }), system: 'imperial' });
+    it('20% on singles and doubles: singles at 7.5 and 10, 8 a joint, no Out of range', () => {
+        const out = at(20, [2.5, 5, 7.5, 10]);
+        expect(out.bars).toEqual(new Array(9).fill(1));
+        expect(out.result.ideal_angle_deg).toBeCloseTo(8, 9);
+        expect(out.warnings.some((w) => w.includes('Out of range'))).toBe(false);
+    });
+    it('50% with locks of 20 and 25: 20 a joint, which the locks reach', () => {
+        const out = at(50, [20, 25]);
+        expect(out.joints.every((a) => a === 20)).toBe(true);
+        expect(out.result.ideal_angle_deg).toBeCloseTo(20, 9);
+        expect(out.warnings.some((w) => w.includes('Out of range'))).toBe(false);
+    });
+    it('a build of doubles still quotes what each double joint has to do', () => {
+        const out = screenCurve({ panels: 8, panelWidthM: 0.5, sizes: [2], settings: on({ value: 20, angles: [5] }) });
+        expect(out.bars).toEqual([2, 2, 2, 2]);
+        // 72 degrees over eight panels is 9 a panel, so 18 at each double joint
+        expect(out.result.ideal_angle_deg).toBeCloseTo(18, 9);
+        expect(out.warnings.find((w) => w.includes('Out of range'))).toContain('wants 18°');
+    });
+});
+
 report();

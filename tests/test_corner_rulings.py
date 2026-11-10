@@ -487,6 +487,39 @@ def test_a_bar_laid_by_hand_across_a_new_corner_makes_way_for_the_corner_bar(pag
     assert page.errors == []
 
 
+def test_panels_a_corner_bar_leaves_bare_in_a_custom_row_are_named(page):
+    """QA, 2026-11-10: in a custom row a corner's bar takes the place of the
+    bars laid by hand on its panels; moved on (or taken off), it left those
+    panels with no bar and nothing said so, since a custom row may have
+    gaps. The panels it leaves bare are named, with what to do."""
+    ids = reset(page)
+    open_rigging(page)
+    page.evaluate("() => window.app.setRiggingTool('custom')")
+    page.evaluate("""(id) => { const a = window.app; a._riggingCustomSize = 2;
+        const l = a.project.layers.find(x => x.id === id);
+        for (const at of [0, 2, 4]) { const d = a.riggingBeginPlace(l, 'header', at); a.riggingPreviewPlace(d, at); a.riggingEndDrag(d, true); } }""",
+                  ids[0])
+    assert layer(page, ids[0])['riggingBars'] == [2, 2, 2]
+    page.click('#rigging-corner-add')
+    lay = settled(page, lambda: layer(page, ids[0]), lambda v: v.get('riggingCorners'))
+    assert lay['riggingBars'] == [2, 2] and lay['riggingBarStarts'] == [0, 4]
+    # moved one seam right: its bar now covers panels 4 and 5, the double
+    # there makes way, and panel 3 is left with nothing on it
+    clear_toasts(page)
+    page.evaluate("() => window.app.setRiggingCorner(3.5, 'at', 4.5)")
+    lay = settled(page, lambda: layer(page, ids[0]), lambda v: v['riggingCorners'][0]['at'] == 4.5)
+    assert lay['riggingBars'] == [2] and lay['riggingCorners'][0].get('bar') is True
+    said = settled(page, lambda: toasts(page), lambda s: 'Panel 3 of COLUMN' in s)
+    assert 'Panel 3 of COLUMN is left without a header bar' in said, said
+    # taken off: its two panels are left bare too
+    clear_toasts(page)
+    page.click(f'{row(page, 4.5)} [data-corner-remove]')
+    settled(page, lambda: layer(page, ids[0]), lambda v: v['riggingCorners'] == [])
+    said = settled(page, lambda: toasts(page), lambda s: 'of COLUMN' in s)
+    assert 'Panels 4 and 5 of COLUMN are left without a header bar' in said, said
+    assert page.errors == []
+
+
 def test_a_row_crossing_a_corner_says_so_and_auto_splits_it(page):
     """Bars stored across a corner (a show from before corner bars, or
     laid while the Curve owned the bars) are never changed silently: the

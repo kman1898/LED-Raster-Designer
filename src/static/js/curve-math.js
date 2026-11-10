@@ -1930,13 +1930,7 @@ export function solveCurve(config, system = 'metric') {
   //
   // With a mixed run the footers do not all carry the same share, so the angle
   // quoted is what the widest footer joint has to do, the one that runs out of
-  // hardware first.
-  // (On a side of a screen with corners the stock is laid around its arms,
-  // so that is the widest bar in stock.)
-  const constrained = !!(config.layout_constraints && config.layout_constraints.pieces && config.layout_constraints.pieces.length);
-  const idealPerSegment = ideal * (constrained
-    ? Math.max(1, ...hardware.footer_widths_m.map((w) => panelsUnder(w, panel.width_m)))
-    : plan.maxPanels);
+  // hardware first: the widest bar in the build laid (idealPerSegment, below).
 
   const widths = new Array(panel.count).fill(panel.width_m);
   const jointCount = panel.count - 1;
@@ -2061,6 +2055,10 @@ export function solveCurve(config, system = 'metric') {
   const chosen = manualPick ?? recommended;
   const angles = chosen.joints;
   const chosenPlan = footerPlan(config, chosen.run_m);
+  // The widest bar in the build it lays, not in stock (QA, 2026-11-10:
+  // singles laid from singles and doubles in stock read "wants 16 per
+  // joint" for an 8 degree curve, and said the wall would fall short).
+  const idealPerSegment = ideal * chosenPlan.maxPanels;
   const built = buildCurve({ ...common, joints: angles });
   const level = levelAngle(built.placements);
   // The depth dimension's two ends are drawing aids, so they travel with the
