@@ -342,8 +342,9 @@ def test_a_corner_down_a_panels_middle_curves_both_its_seams(page):
 def test_two_corners_make_three_sides_each_curved_on_its_own(page):
     """Fourteen panels, a corner down the middle of panel 4 and one on the
     seam between panels 10 and 11: sides of 3.5, 6.5 and 4 panels, each up
-    to its folds."""
-    spec = dict(CURVED, columns=14, extra={**CURVED['extra'], 'riggingCorners': [
+    to its folds. At 15% (20% would ask 20.6 degrees a joint of the 3.5
+    panel side, past the 20 a curve lock takes: owner, 2026-11-10)."""
+    spec = dict(CURVED, columns=14, extra={**CURVED['extra'], 'riggingCurve': {'on': True, 'value': 15}, 'riggingCorners': [
         {'at': 4, 'angle': 90, 'side': 'interior'}, {'at': 10.5, 'angle': 90, 'side': 'exterior'}]})
     ids = reset(page, [spec])
     open_rigging(page)
