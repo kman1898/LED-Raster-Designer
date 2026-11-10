@@ -314,7 +314,7 @@ def test_tab_keeps_focus_and_a_taken_spot_cannot_be_picked(page):
     # the second goes on the free spot nearest the middle whose corner bar
     # would not share a panel with the first's (panels 3 and 4)
     assert [c['at'] for c in have] == [2, 3.5]
-    # a spot another corner holds, or too close to it, is greyed out
+    # a spot another corner holds, or too close to it, is grayed out
     opts = page.evaluate(f"[...document.querySelectorAll('{row(page, 2)} [data-corner-at] option')].map(o => [o.value, o.disabled, o.textContent])")
     assert [v for v, off, _ in opts if off] == ['2.5', '3', '3.5', '4', '4.5']
     assert dict((v, t) for v, _, t in opts)['3.5'] == 'Between panels 3 and 4, has a corner'

@@ -23,7 +23,7 @@
 //   a corner lays an Auto row again around the corners in the same step;
 //   in a custom row a bar on the corner's panels makes way for the
 //   corner's piece, said in a toast. Two corners whose pieces would share
-//   a panel cannot both be set: those spots are greyed out.
+//   a panel cannot both be set: those spots are grayed out.
 //
 // Stored on the layer as riggingCorners (app-stage3d.js s3dCleanCorners
 // holds its shape). Every change is one undo step. The rows show the
@@ -444,7 +444,7 @@ class _Corners {
         }
         pts.push(at(n - 1, built.colLen[n - 1]));
         corners.filter(c => !Number.isInteger(c.at)).forEach(c => dots.push(at(c.at - 0.5, 0)));
-        // Grey: a seam the curve bends. A corner's seam is red only, with
+        // Gray: a seam the curve bends. A corner's seam is red only, with
         // no curve angle on it.
         const bends = [];
         built.colJ.forEach((a, j) => {

@@ -291,7 +291,7 @@ _UNIT_WORDS = {'metre', 'metres'}
 
 # The bar part names the owner chose keep their " - " (2026-11-09): it is
 # part of the name, never a dash.
-_BAR_PART_NAMES = r'(?:Header|Footer) Bar - (?:Single|Double|Triple|Quad|Corner)'
+_BAR_PART_NAMES = r'\b(?:Header|Footer) Bar - (?:Single|Double|Triple|Quad|Corner)\b'
 
 
 def _plain_wording_hits(text, first_line=1):
