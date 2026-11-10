@@ -1228,6 +1228,18 @@ export function searchLayouts(input) {
   const { panelCount: n, panelWidthM, sizes, angles, idealDeg, beamWidth, keep } = input;
   if (n < 2) return [{ run_m: sizes.length ? [sizes[0]] : [panelWidthM], joints: [], rough_dev: 0 }];
 
+  // One side of a screen with corners (screenCurve): `fixed` are the arms
+  // of its corner bars, each its own bar at its own panels whatever the
+  // stock ({ start, size } in panels from the left). The stock fills the
+  // panels between them. Without them the search is the calculator's own.
+  const fixed = input.fixed || [];
+  const constrained = fixed.length > 0;
+  const fixedAt = new Map(fixed.map((p) => [p.start, p.size]));
+  const stops = [...new Set([...fixed.flatMap((p) => [p.start, p.start + p.size]), n])]
+    .filter((x) => x > 0 && x <= n)
+    .sort((a, b) => a - b);
+  const stopAfter = (at) => stops.find((x) => x > at) ?? n;
+
   // Where a true arc puts each panel corner, walking from the left end.
   const track = [{ x: 0, y: 0 }];
   let th = 0;
@@ -1256,11 +1268,15 @@ export function searchLayouts(input) {
   while (live.length) {
     const next = [];
     for (const s of live) {
-      const remaining = n - s.placed;
+      // An arm starts here: it is the only bar that can.
+      const piece = fixedAt.get(s.placed);
+      // Up to the next arm, or the wall's end.
+      const remaining = piece || stopAfter(s.placed) - s.placed;
       // Only footers that leave a remainder the stock can still fill. When the
       // stock cannot tile the wall at all, a part footer at the end is the only
       // way out, and that is flagged downstream.
-      const fits = inPanels.filter((k) => k <= remaining && (!exact || fills[remaining - k]));
+      const exactHere = constrained ? fills[remaining] : exact;
+      const fits = piece ? [piece] : inPanels.filter((k) => k <= remaining && (!exactHere || fills[remaining - k]));
       const usable = fits.length ? fits : [inPanels.find((k) => k >= remaining) ?? inPanels[inPanels.length - 1]];
 
       for (const k of usable) {
@@ -1275,7 +1291,7 @@ export function searchLayouts(input) {
           dev = Math.max(dev, Math.hypot(x - t.x, y - t.y));
         }
         const placed = s.placed + panels;
-        const run = [...s.run, bySize.get(k) ];
+        const run = [...s.run, piece ? piece * panelWidthM : bySize.get(k)];
         const joints = [...s.joints, ...new Array(panels - 1).fill(0)];
 
         if (placed >= n) {
@@ -1915,7 +1931,12 @@ export function solveCurve(config, system = 'metric') {
   // With a mixed run the footers do not all carry the same share, so the angle
   // quoted is what the widest footer joint has to do, the one that runs out of
   // hardware first.
-  const idealPerSegment = ideal * plan.maxPanels;
+  // (On a side of a screen with corners the stock is laid around its arms,
+  // so that is the widest bar in stock.)
+  const constrained = !!(config.layout_constraints && config.layout_constraints.pieces && config.layout_constraints.pieces.length);
+  const idealPerSegment = ideal * (constrained
+    ? Math.max(1, ...hardware.footer_widths_m.map((w) => panelsUnder(w, panel.width_m)))
+    : plan.maxPanels);
 
   const widths = new Array(panel.count).fill(panel.width_m);
   const jointCount = panel.count - 1;
@@ -1926,7 +1947,27 @@ export function solveCurve(config, system = 'metric') {
     ? [...new Set(hardware.footer_widths_m)].sort((a, b) => a - b)
     : [panel.width_m];
   const onlySize = sizes.length === 1 ? panelsUnder(sizes[0], panel.width_m) : null;
-  const layoutIsForced = onlySize !== null && panel.count % onlySize === 0;
+  // One side of a screen with corners (screenCurve): its corner bars' arms
+  // sit where they sit, each its own bar, and every build is searched
+  // around them; any that ignores them is left out. The joint where an
+  // arm meets the next bar is a bar joint like any other.
+  const fixed = (config.layout_constraints && config.layout_constraints.pieces) || [];
+  const layoutIsForced = !fixed.length && onlySize !== null && panel.count % onlySize === 0;
+  const respects = (candidate) => {
+    if (!fixed.length) return true;
+    const starts = new Map();
+    let at = 0;
+    for (const w of candidate.run_m) {
+      const k = panelsUnder(w, panel.width_m);
+      starts.set(at, k);
+      at += k;
+    }
+    return fixed.every((p) => starts.get(p.start) === p.size);
+  };
+  // The joints that are real seams, when the wall is worked in half panels
+  // (a side ending at a fold down a panel's middle): the counts of bent
+  // and flat joints and the warnings count only these.
+  const seamJoints = Array.isArray(config.seam_joints) ? new Set(config.seam_joints) : null;
 
   // Tightest fit means the closest wall; the others will give up a few mm for
   // an evenly spread pattern.
@@ -1935,11 +1976,11 @@ export function solveCurve(config, system = 'metric') {
   const panelToMeters = (k) => sizes.find((w) => panelsUnder(w, panel.width_m) === k) ?? panel.width_m;
 
   const candidates = (subset) => [
-    ...fitted(subset),
+    ...fitted(subset).filter(respects),
     // Even walls are built directly, a regular spacing is not something the
     // fitter aims for, and the crew's "5° every third panel" should always be
     // on the table.
-    ...evenBuilds(subset, panel.count, stockPanels, panelToMeters),
+    ...evenBuilds(subset, panel.count, stockPanels, panelToMeters).filter(respects),
 ];
 
   const fitted = (subset) => {
@@ -1967,6 +2008,7 @@ export function solveCurve(config, system = 'metric') {
       idealDeg: ideal,
       beamWidth: 160,
       keep: 24,
+      fixed,
     })) {
       const free = footerPlan(config, layout.run_m).free;
       const mask = [...free].sort((a, b) => a - b).join(',');
@@ -2009,6 +2051,10 @@ export function solveCurve(config, system = 'metric') {
     }),
     config.fit_goal,
 );
+  // Nothing builds around the arms (the stock was checked first, so this is
+  // a guard, not a case anyone meets).
+  if (!ranked.length) return zeroed(config, ['These bar sizes cannot be laid around the corners. Light another size.']);
+  if (seamJoints) ranked.forEach((o) => { o.flat_joints = seamJoints.size - o.curved_joints; });
   const recommended = ranked[0];
   const manualPick =
     config.pattern_choice !== 'auto' ? ranked.find((o) => o.id === config.pattern_choice) : undefined;
@@ -2041,7 +2087,7 @@ export function solveCurve(config, system = 'metric') {
       plan: chosenPlan,
       achieved: built.measurements,
       target: wanted.measurements,
-      chosen,
+      chosen: seamJoints ? { ...chosen, joints: chosen.joints.filter((_, i) => seamJoints.has(i)) } : chosen,
       options: ranked,
       manual: Boolean(manualPick),
       system,
@@ -2183,11 +2229,19 @@ export function makeCurve(name = 'Curve 1') {
 // A SCREEN WITH CORNERS IS CURVED SIDE BY SIDE (owner, 2026-11-10): every
 // corner is 90 degrees and takes its corner bar, which splits the screen
 // into sides, and the Curve's % (or degrees) applies to EACH SIDE as its
-// own wall. A side is the panels between two corner bars, or a corner bar
-// and the screen's end; it is worked out exactly as a screen of that many
-// panels, its bars run up to the corner bars, and the joints inside the
-// corner bars stay flat. Ways to build it, a build picked by hand and the
-// leftover-stock refusal are each side's own.
+// own wall. "the corner itself is flat due to the edge the opposite side
+// of the 90 is curvable" (owner, 2026-11-10): ONLY THE FOLD takes no curve
+// angle. A side runs from one fold (or the screen's end) right up to the
+// next, its corner bars' arms included: on a seam corner's 2 panel bar
+// each arm is the panel on that side, on a mid-panel corner's 1 panel bar
+// the half of the panel on that side. An arm is one bar, so the joint
+// where it meets the next bar is a bar joint and takes the side's curve
+// angle like any other. A side is worked out exactly as a wall of its own
+// width, its arms fixed bars at its ends and the stock between them; a
+// side with a half-panel arm is worked in half panels (the panel is two
+// halves in line, every bar a whole number of panels, so only seams can
+// bend). Ways to build it, a build picked by hand and the leftover-stock
+// refusal (the panels between the arms) are each side's own.
 
 export const CURVE_DEFAULTS = Object.freeze({
   on: false,
@@ -2251,35 +2305,46 @@ export function curvePickKey({ panels, panelWidthM, sizes, settings, side = null
   const stock = [...new Set((sizes || []).map((n) => Math.round(finiteOr(n, 0))).filter((n) => n >= 1))].sort((a, b) => a - b);
   const key = [Math.round(finiteOr(panels, 0)), finiteOr(panelWidthM, 0), stock,
     s.entry, s.value, s.bend, s.goal, s.toleranceMm, s.angles];
-  // One side of a screen with corners: which side, of how many, from where.
-  if (side) key.push(['side', side.index, side.count, side.start]);
+  // One side of a screen with corners: which side, of how many, where it
+  // runs and its corner bars' arms at each end.
+  if (side) key.push(['side', side.index, side.count, side.start, side.panels, side.armL, side.armR]);
   return JSON.stringify(key);
 }
 
 /**
  * The sides of a screen `count` panels wide around its corner bars
- * (`pieces`, { start, size } in panels from the left): the runs of panels
- * between them and the screen's ends, left to right, as { start, panels }.
- * No corner bars: the whole screen is one side.
+ * (`pieces`, { start, size } in panels from the left; a 1 panel bar folds
+ * down its panel's middle, a 2 panel bar on the seam between its panels).
+ * Each side runs from one fold, or the screen's left end, to the next, or
+ * its right end, its corner bars' arms included, left to right:
+ * { start, panels, armL, armR } in panels from the left (a fold down a
+ * panel's middle is half way across it), `armL` and `armR` the arms at its
+ * ends (1 for a 2 panel bar's, 0.5 for a 1 panel bar's, 0 at the screen's
+ * end). The panels between the arms are whole. No corner bars: the whole
+ * screen is one side.
  */
 export function curveSides(count, pieces) {
   const n = Math.max(0, Math.round(finiteOr(count, 0)));
   const out = [];
   let from = 0;
-  for (const p of [...cleanPieces(n, pieces), { start: n, size: 0 }]) {
-    if (p.start > from) out.push({ start: from, panels: p.start - from });
-    from = Math.max(from, p.start + p.size);
+  let armL = 0;
+  for (const p of cleanPieces(n, pieces)) {
+    const fold = p.start + p.size / 2;
+    out.push({ start: from, panels: fold - from, armL, armR: p.size / 2 });
+    from = fold;
+    armL = p.size / 2;
   }
+  if (n > from) out.push({ start: from, panels: n - from, armL, armR: 0 });
   return out;
 }
 
-// Corner bars that sit on the screen, whole panels, none sharing a panel.
+// Corner bars that sit on the screen, 1 or 2 whole panels, none sharing a panel.
 function cleanPieces(n, pieces) {
   const out = [];
   for (const raw of Array.isArray(pieces) ? pieces : []) {
     const start = raw ? finiteOr(raw.start, NaN) : NaN;
     const size = raw ? finiteOr(raw.size, NaN) : NaN;
-    if (!Number.isInteger(start) || !Number.isInteger(size) || size < 1 || start < 0 || start + size > n) continue;
+    if (!Number.isInteger(start) || (size !== 1 && size !== 2) || start < 0 || start + size > n) continue;
     if (out.some((q) => start < q.start + q.size && q.start < start + size)) continue;
     out.push({ start, size });
   }
@@ -2326,10 +2391,14 @@ export function parseAngles(text) {
  * its corner bars, `pieces` ({ start, size } in panels from the left).
  * { errors, warnings, result, bars: [panels...], joints: [signed degrees] }:
  * on an error, bars and joints are empty and the result is the zeroed one.
- * With corner bars the answer is each side's (`sides`, left to right, each
- * { name, start, panels, out }, `out` this same answer for that side
- * alone) put together: `placed` every bar where it sits, the corner bars
- * marked, and `joints` across the whole screen; `result` is null.
+ * With corner bars the answer is each side's put together: `sides`, left
+ * to right, each { name, start, panels, armL, armR, seams, out } as
+ * curveSides lays them, `seams` the screen's joints (0-based) inside it and
+ * `out` this same answer for that side alone (its `bars` the stock bars
+ * between its arms, at `starts` panels from the side's start, its `joints`
+ * one per seam in `seams`); `placed` every bar where it sits, the corner
+ * bars marked, and `joints` across the whole screen, a corner's own seam
+ * 0; `result` is null.
  */
 export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'metric', pieces }) {
   const s = cleanCurve(settings);
@@ -2340,24 +2409,34 @@ export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'me
     return solveWall(count, panelWidthM, sizes, s, system, s.pick, pickKey, `a ${count}-panel wall`);
   }
   const runs = curveSides(count, corners);
-  const lit = (sizes || []).map((k) => Math.round(finiteOr(k, 0))).filter((k) => k >= 1);
-  const sides = runs.map((run, index) => {
+  const sides = runs.map((side, index) => {
     const name = sideName(index, runs.length);
-    const pickKey = curvePickKey({ panels: run.panels, panelWidthM, sizes, settings: s,
-                                   side: { index, count: runs.length, start: run.start } });
-    const where = `${name.startsWith('side ') ? '' : 'the '}${name} (${run.panels} panel${run.panels === 1 ? '' : 's'})`;
+    const pickKey = curvePickKey({ panels: side.panels, panelWidthM, sizes, settings: s,
+                                   side: { index, count: runs.length, ...side } });
+    const where = `${name.startsWith('side ') ? '' : 'the '}${name} (${side.panels} panel${side.panels === 1 ? '' : 's'})`;
+    // A half-panel arm: the side is worked in half panels.
+    const unit = Number.isInteger(side.armL) && Number.isInteger(side.armR) ? 1 : 0.5;
+    const units = Math.round(side.panels / unit);
+    // The seams inside the side, as panel edges from the screen's left.
+    const edges = [];
+    for (let x = Math.floor(side.start) + 1; x < side.start + side.panels - 1e-9; x++) edges.push(x);
     let out;
-    if (run.panels < 2) {
-      // One panel has no joint to bend: a single bar, flat.
-      out = lit.includes(1)
-        ? { errors: [], warnings: [], result: null, bars: [1], joints: [], pickKey }
-        : { errors: [`These bar sizes leave 1 panel uncovered on ${where}. Light another size.`],
-            warnings: [], result: null, bars: [], joints: [], pickKey };
+    if (units < 2) {
+      // Only an arm: no joint to bend, nothing for the stock to cover.
+      out = { errors: [], warnings: [], result: null, bars: [], starts: [], joints: [], pickKey };
     } else {
-      const local = { ...s, from: sideFrom(s.from, run, count) };
-      out = solveWall(run.panels, panelWidthM, sizes, local, system, (s.sidePicks || [])[index] || null, pickKey, where);
+      const fixed = [];
+      if (side.armL) fixed.push({ start: 0, size: Math.round(side.armL / unit) });
+      if (side.armR) fixed.push({ start: units - Math.round(side.armR / unit), size: Math.round(side.armR / unit) });
+      const shape = {
+        unit, fixed,
+        inner: side.panels - side.armL - side.armR,
+        seams: unit === 1 ? null : edges.map((x) => Math.round((x - side.start) / unit) - 1),
+      };
+      const local = { ...s, from: sideFrom(s.from, side, count, unit) };
+      out = solveWall(units, panelWidthM, sizes, local, system, (s.sidePicks || [])[index] || null, pickKey, where, shape);
     }
-    return { name, start: run.start, panels: run.panels, out };
+    return { name, ...side, seams: edges.map((x) => x - 1), out };
   });
   const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
   // An error every side has is said once; one side's says which side.
@@ -2370,9 +2449,8 @@ export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'me
   const joints = new Array(Math.max(0, count - 1)).fill(0);
   const warnings = [];
   for (const side of sides) {
-    let at = side.start;
-    for (const size of side.out.bars) { placed.push({ start: at, size, corner: false }); at += size; }
-    side.out.joints.forEach((a, j) => { joints[side.start + j] = a; });
+    side.out.bars.forEach((size, i) => placed.push({ start: side.start + side.out.starts[i], size, corner: false }));
+    side.seams.forEach((j, i) => { joints[j] = side.out.joints[i]; });
     side.out.warnings.forEach((w) => warnings.push(`${cap(side.name)}: ${w}`));
   }
   placed.sort((a, b) => a.start - b.start);
@@ -2381,37 +2459,45 @@ export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'me
 }
 
 // Where a side builds from: the screen's Left, Center or Right is each
-// side's own; a spot on the screen is that spot on the side it falls on,
-// and every other side builds from its end nearest it.
-function sideFrom(from, run, count) {
+// side's own; a spot on the screen is that spot on the side it falls on
+// (in the side's own steps, `unit` panels each), and every other side
+// builds from its end nearest it.
+function sideFrom(from, side, count, unit) {
   if (typeof from !== 'number') return from;
-  const at = snapDatum(from, count);
-  if (at <= run.start + 0.5) return 'left';
-  if (at >= run.start + run.panels + 0.5) return 'right';
-  return at - run.start;
+  const x = snapDatum(from, count) - 0.5;
+  if (x <= side.start) return 'left';
+  if (x >= side.start + side.panels) return 'right';
+  return (x - side.start) / unit + 0.5;
 }
 
 // One wall: `count` panels, settings `s`, a build picked by hand `pick`
 // that holds while its key is `pickKey`. `where` names the wall in the
-// leftover-stock refusal.
-function solveWall(count, panelWidthM, sizes, s, system, pick, pickKey, where) {
+// leftover-stock refusal. One side of a screen with corners has a `shape`:
+// { unit, fixed, inner, seams }, worked in steps of `unit` panels (the
+// count is in those steps), its corner bars' arms `fixed` bars at its
+// ends, `inner` the panels between them the stock covers, and `seams` the
+// steps' joints that are real seams (null when every one is).
+function solveWall(count, panelWidthM, sizes, s, system, pick, pickKey, where, shape = null) {
   // Leftover stock is refused, never hung past the edge (owner, 2026-11-09):
   // a wall the lit sizes cannot cover exactly lays nothing.
   const lit = (sizes || []).filter((k) => Math.round(finiteOr(k, 0)) >= 1);
-  if (count >= 2 && lit.length) {
-    const gap = count - stockCovers(count, lit);
+  const cover = shape ? shape.inner : count;
+  if ((shape ? cover >= 1 : count >= 2) && lit.length) {
+    const gap = cover - stockCovers(cover, lit);
     if (gap > 0) {
       return {
         errors: [`These bar sizes leave ${gap} panel${gap === 1 ? '' : 's'} uncovered on ${where}. Light another size.`],
-        warnings: [], result: null, bars: [], joints: [], pickKey,
+        warnings: [], result: null, bars: [], starts: [], joints: [], pickKey,
       };
     }
   }
+  const unit = shape ? shape.unit : 1;
+  const panelM = finiteOr(panelWidthM, 0);
   const config = makeCurve('Screen');
   config.panel.count = count;
-  config.panel.width_m = finiteOr(panelWidthM, 0);
+  config.panel.width_m = panelM * unit;
   const stock = [...new Set((sizes || []).map((n) => Math.round(finiteOr(n, 0))).filter((n) => n >= 1))].sort((a, b) => a - b);
-  config.hardware.footer_widths_m = stock.map((n) => n * config.panel.width_m);
+  config.hardware.footer_widths_m = stock.map((n) => n * panelM);
   config.hardware.detents_deg = [...s.angles];
   config.target = s.entry === 'degrees'
     ? { mode: 'sweep_deg', value: s.value, radius_ref: 'face' }
@@ -2420,14 +2506,26 @@ function solveWall(count, panelWidthM, sizes, s, system, pick, pickKey, where) {
   config.build_from = typeof s.from === 'number' ? snapDatum(s.from, config.panel.count) : s.from;
   config.fit_goal = s.goal;
   config.tolerance_m = s.toleranceMm / 1000;
+  if (shape) {
+    config.layout_constraints = { pieces: shape.fixed };
+    if (shape.seams) config.seam_joints = shape.seams;
+  }
   // A build picked by hand holds while nothing the joints depend on changed.
   config.pattern_choice = pick && pick.key === pickKey ? pick.id : 'auto';
   const result = solveCurve(config, system);
   if (result.errors.length) {
-    return { errors: result.errors, warnings: [], result, bars: [], joints: [], pickKey };
+    return { errors: result.errors, warnings: [], result, bars: [], starts: [], joints: [], pickKey };
   }
-  const bars = result.footers.map((f) => f.panels);
+  // The stock bars, in panels, the arms left out (they are the corner bars).
+  const arm = (f) => !!shape && shape.fixed.some((p) => p.start === f.from - 1 && p.size === f.panels);
+  const stockBars = result.footers.filter((f) => !arm(f));
+  const bars = stockBars.map((f) => Math.round(f.panels * unit));
+  const starts = stockBars.map((f) => (f.from - 1) * unit);
   const sign = s.bend === 'concave' ? 1 : -1;
-  const joints = result.joints.map((j) => (j.angle_deg === 0 ? 0 : sign * j.angle_deg));
-  return { errors: [], warnings: result.warnings, result, bars, joints, pickKey };
+  const signed = result.joints.map((j) => (j.angle_deg === 0 ? 0 : sign * j.angle_deg));
+  const joints = shape && shape.seams ? shape.seams.map((i) => signed[i]) : signed;
+  // Worked in half panels, the bars line counts halves: the build sheet
+  // strip says it in panels instead.
+  const said = shape && shape.seams ? result.warnings.filter((w) => !/^Bars:/.test(w)) : result.warnings;
+  return { errors: [], warnings: said, result, bars, starts, joints, pickKey };
 }

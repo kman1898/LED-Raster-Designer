@@ -41,13 +41,18 @@
 // corner bar, and a corner's seam carries no curve angle (owner,
 // 2026-11-09); the build sheet strip marks it Corner. WITH A CORNER, THE
 // CURVE'S % APPLIES TO EACH SIDE AS ITS OWN WALL (owner, 2026-11-10): the
-// corner bars split the screen into sides (curve-math.js screenCurve
-// `pieces`), each side is worked out exactly as a screen of its own width
-// at the same settings, and its bars run up to the corner bars. The
-// readouts, Ways to build it, Use this and the leftover-stock refusal are
-// each side's and say which side ("left side", "right side", or "side 2"
-// with more corners). The strip and the plan show the whole screen. Any
-// change to the corners lays the Curve again in the same step.
+// corners split the screen into sides at their folds (curve-math.js
+// screenCurve `pieces`, curveSides). Only the fold itself is flat: each
+// side runs right up to it, its corner bar's arm included (a panel for a
+// seam corner, half a panel for one down a panel's middle), so the joint
+// where an arm meets the next bar takes the side's curve angle. Each side
+// is worked out exactly as a wall of its own width at the same settings,
+// the stock laid between its arms. The readouts, Ways to build it, Use
+// this and the leftover-stock refusal are each side's and say which side
+// ("left side", "right side", or "side 2" with more corners). The strip
+// and the plan show the whole screen. Any change to the corners lays the
+// Curve again in the same step. A pick saved for a side before sides ran
+// up to the fold no longer matches its key, so the app picks again.
 //
 // Stored on the layer as riggingCurve (curve-math.js cleanCurve holds its
 // shape); a show without it has every screen off, unchanged. The reference
@@ -610,11 +615,12 @@ class _Curve {
             : [{ side: null, name: '', panels: 0, r: out.result }];
         const named = (g, text) => (g.name ? `${g.name}: ${text}` : text);
         const head = document.getElementById('rigging-curve-head');
-        if (head) head.textContent = groups.map(g => named(g, g.r ? this._curveHeadline(g.r) : 'one panel, flat')).join('\n');
+        // (a side that is only its corner bar's arm has no joint to bend)
+        if (head) head.textContent = groups.map(g => named(g, g.r ? this._curveHeadline(g.r) : 'only the corner bar, flat')).join('\n');
         const len = (m) => formatLength(m, system);
         const rows = [];
         groups.forEach(g => {
-            if (g.name) rows.push([`${g.name}, ${g.panels} panel${g.panels === 1 ? '' : 's'}`, g.r ? '' : 'one bar, flat', true]);
+            if (g.name) rows.push([`${g.name}, ${g.panels} panel${g.panels === 1 ? '' : 's'}`, g.r ? '' : 'flat', true]);
             if (!g.r) return;
             const a = g.r.achieved;
             rows.push(['Sweep', `${formatAngle(a.sweep_deg, 1)}, ${a.percent_circle.toFixed(1)}% of a circle`]);
@@ -881,9 +887,10 @@ class _Curve {
     }
 
     // A screen with corners from above as the Curve lays it, audience at
-    // the bottom: each side bent by its own curve, the corner bars' panels
-    // straight, each corner folding 90 degrees, and each side's drawn arc
-    // dashed. The red mark is the datum, dragged as on a plain wall.
+    // the bottom: each side bent by its own curve right up to its fold
+    // (the corner bars' arms with it), each corner folding 90 degrees, and
+    // each side's drawn arc dashed. The red mark is the datum, dragged as
+    // on a plain wall.
     _curveDrawCornerPlan(host, layer, out) {
         if (!host) return;
         const n = out.joints.length + 1;
@@ -916,13 +923,15 @@ class _Curve {
                 h += seam ? turn(seam) : (out.joints[p] || 0) * Math.PI / 180;
             }
         }
-        // Each side's drawn arc, carried onto its panels.
+        // Each side's drawn arc, carried onto its panels: from one fold (a
+        // seam, or the middle of a folded panel) or end to the next.
+        const pointAt = (x) => (Number.isInteger(x) ? edge[x] : mids[Math.floor(x)]);
         const arcs = out.sides.filter(sd => sd.out.result).map(sd => {
             const r = sd.out.result;
             const own = [];
             r.placements.forEach((pl, i) => { if (i === 0) own.push(pl.face[0]); own.push(pl.face[1]); });
             const f0 = own[0], f1 = own[own.length - 1];
-            const a = edge[sd.start], b = edge[sd.start + sd.panels];
+            const a = pointAt(sd.start), b = pointAt(sd.start + sd.panels);
             const spin = Math.atan2(b.y - a.y, b.x - a.x) - Math.atan2(f1.y - f0.y, f1.x - f0.x);
             const c = Math.cos(spin), s = Math.sin(spin);
             return r.target_vertices.map(q => ({ x: a.x + (q.x - f0.x) * c - (q.y - f0.y) * s, y: a.y + (q.x - f0.x) * s + (q.y - f0.y) * c }));

@@ -31,10 +31,14 @@
 // - A corner down a panel's middle takes a "Header Bar - Corner (1
 //   panel)", one on a seam a "Header Bar - Corner (2 panel)": two parts,
 //   each its own line wherever bars are counted.
-// - Every corner takes its corner bar. With the Curve on, the corner bars
+// - Every corner takes its corner bar. With the Curve on, the corners
 //   split the screen into sides and each side is curved as its own wall
-//   (app-curve.js), its bars up to the corner bars; any change to the
-//   corners lays the Curve again in the same step.
+//   (app-curve.js); any change to the corners lays the Curve again in the
+//   same step.
+// - "the corner itself is flat due to the edge the opposite side of the
+//   90 is curvable": only the fold takes no curve angle. Each side runs
+//   right up to it, the corner bar's arm on that side included, and the
+//   joint where the arm meets the next bar takes the side's curve angle.
 //
 // Stored on the layer as riggingCorners (app-stage3d.js s3dCleanCorners
 // holds its shape). Every change is one undo step. The rows show the
