@@ -251,6 +251,9 @@
             return;
         }
         installing = true;
+        // The page dims while the app is away, saying it is updating rather
+        // than that it needs starting (app-server-link.js).
+        window.__lrdUpdateInstalling = true;
         stopPolling();
         setAction(null);
         setProgress(null);

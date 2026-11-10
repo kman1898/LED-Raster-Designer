@@ -6,6 +6,9 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
+// What quitting does beyond this page (File > Quit, quitApp).
+const QUIT_DISCONNECTS = 'Any connected tablets and computers will disconnect.';
+
 class _ProjectIo {
     // The build this page is: what a saved project is stamped with as
     // `app_version` (the server stamps the same on every POST /api/project
@@ -218,12 +221,15 @@ class _ProjectIo {
         if (!this.projectHasUnsavedChanges()) return true;
         const name = (this.project && this.project.name) || 'this project';
         const doing = what === 'new' ? 'starting a new project'
-            : what === 'update' ? 'the app closes to install the update' : 'opening another show';
+            : what === 'update' ? 'the app closes to install the update'
+            : what === 'quit' ? 'the app quits' : 'opening another show';
         sendClientLog('unsaved_changes_asked', { what: what || null });
         const answer = await this.appAsk({
             id: 'unsaved-changes-modal',
             title: 'Save changes?',
             message: `Save the changes to ${name} before ${doing}? If you don't save, your changes are lost.`,
+            // File > Quit says what else quitting does (quitApp).
+            detail: what === 'quit' ? QUIT_DISCONNECTS : undefined,
             buttons: [
                 { label: 'Save', value: 'save', primary: true },
                 { label: "Don't Save", value: 'discard' },
@@ -236,6 +242,67 @@ class _ProjectIo {
         if (answer !== 'save') return false;
         const saved = await this.saveProjectToFile();
         return !!(saved && saved.saved);
+    }
+
+    // File > Quit (the host's pages only: app.index renders the item by
+    // routes_version can_quit_here). One question: Quit?, or with unsaved
+    // changes the Save / Don't Save / Cancel one New and Open ask, which
+    // says the same. Then the app quits the way the launcher's Quit does
+    // and this page dims with every other (app-server-link.js).
+    async quitApp() {
+        const unsaved = this.projectHasUnsavedChanges();
+        sendClientLog('quit_app_asked', { unsaved });
+        if (unsaved) {
+            if (!(await this.confirmUnsavedChanges('quit'))) return false;
+            // A Save tells the server the show is saved; let that land first.
+            if (this._unsavedPost) { try { await this._unsavedPost; } catch (_) { /* said again */ } }
+        } else {
+            const go = await this.appAsk({
+                id: 'quit-app-modal',
+                title: 'Quit LED Raster Designer?',
+                message: QUIT_DISCONNECTS,
+                buttons: [
+                    { label: 'Quit', value: true, primary: true },
+                    { label: 'Cancel', value: false },
+                ],
+                cancel: false,
+            });
+            if (!go) return false;
+        }
+        const post = (discard) => fetch('/api/app/quit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ discard }),
+        }).then(r => r.json().then(body => Object.assign(body, { _status: r.status })));
+        let answer;
+        try {
+            answer = await post(unsaved);
+            // Another page holds unsaved changes the server knows of.
+            if (answer._status === 409 && answer.unsaved) {
+                const go = await this.appAsk({
+                    id: 'quit-app-unsaved-modal',
+                    title: 'Quit LED Raster Designer?',
+                    message: 'The show has changes that are not saved. If you quit now, they are lost.',
+                    detail: QUIT_DISCONNECTS,
+                    buttons: [
+                        { label: 'Cancel', value: false, primary: true },
+                        { label: 'Quit anyway', value: true, danger: true },
+                    ],
+                    cancel: false,
+                });
+                if (!go) return false;
+                answer = await post(true);
+            }
+        } catch (error) {
+            answer = { ok: false, error: String(error && error.message || error) };
+        }
+        sendClientLog('quit_app_answered', { ok: !!answer.ok, status: answer._status || null });
+        if (!answer.ok) {
+            this._toast(answer.error || 'The app could not be quit.', true, 6000);
+            return false;
+        }
+        if (typeof this._linkQuitting === 'function') this._linkQuitting('page');
+        return true;
     }
 
     // File > New and the toolbar's New: asks about unsaved changes, then

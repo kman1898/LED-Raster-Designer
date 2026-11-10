@@ -105,6 +105,50 @@ def api_update_install():
     return jsonify(result), (200 if result.get('ok') else 400)
 
 
+# ── File > Quit (the host only) ─────────────────────────────────────────
+
+MSG_QUIT_NOT_HOST = 'Only the computer running the app can quit it.'
+MSG_QUIT_UNAVAILABLE = ("This copy of the app was not started from its launcher, "
+                        "so it can't be quit from here. Stop it where it was started.")
+
+
+def can_quit_here():
+    """Is File > Quit offered on this page? Only on the host, and only when
+    a launcher runs the server (app.index renders the menu item by it)."""
+    return updater.quit_available() and _from_host()
+
+
+@version_bp.route('/api/app/quit', methods=['POST'])
+def api_app_quit():
+    """Quit the app the way the launcher's Quit does: the server stops, the
+    launcher window and its icon go, and every open page dims with "LED
+    Raster Designer isn't running" (app-server-link.js).
+
+    The page asks first (Quit? and, with unsaved changes, Save, Don't Save
+    or Cancel) and says {"discard": true} once the person answered. Any
+    page still holding unsaved changes otherwise refuses the quit (409),
+    as Install and restart does. A tablet is refused (403), and a server
+    with no launcher answers that quitting is not available here (409)
+    rather than stopping a process somebody else started."""
+    if not _from_host():
+        log_event('app_quit_rejected_remote', {'remote_addr': request.remote_addr})
+        return jsonify({'ok': False, 'error': MSG_QUIT_NOT_HOST}), 403
+    if not updater.quit_available():
+        log_event('app_quit_unavailable', {})
+        return jsonify({'ok': False, 'available': False, 'error': MSG_QUIT_UNAVAILABLE}), 409
+    import routes_project
+    data = request.get_json(silent=True) or {}
+    if routes_project.project_unsaved() and data.get('discard') is not True:
+        log_event('app_quit_unsaved', {})
+        return jsonify({'ok': False, 'unsaved': True,
+                        'error': 'The show has changes that are not saved.'}), 409
+    log_event('app_quit', {'discard': data.get('discard') is True})
+    # The launcher's quit tells every open page first (launcher_window
+    # _announce_quit), so the other pages dim at once too.
+    updater.schedule_app_quit()
+    return jsonify({'ok': True})
+
+
 @version_bp.route('/api/version', methods=['GET'])
 def api_version():
     """Return the current app version."""

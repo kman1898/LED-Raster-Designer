@@ -327,6 +327,98 @@ def start_flask_server(settings):
         _server_running = False
 
 
+def _show_has_unsaved_changes():
+    """The server's answer to "does the show have unsaved changes?" (the
+    pages keep it current: routes_project project_unsaved)."""
+    try:
+        import routes_project
+        return bool(routes_project.project_unsaved())
+    except Exception:
+        return False
+
+
+def _announce_quit():
+    """Tell every open page the app is quitting, so it dims at once rather
+    than after its reconnect grace (app-server-link.js 'app_quitting').
+    Best effort: a page that misses it notices the server is gone anyway."""
+    sio = _socketio
+    if sio is None:
+        return
+    try:
+        sio.emit('app_quitting', {})
+        time.sleep(0.3)      # let the message leave before the process does
+    except Exception:
+        pass
+
+
+def _windows_quit_anyway():
+    """No launcher window to ask in (it could not start): a plain Windows
+    message box instead. True to quit."""
+    try:
+        import ctypes
+        MB_YESNO, MB_ICONWARNING, MB_DEFBUTTON2, IDYES = 0x4, 0x30, 0x100, 6
+        answer = ctypes.windll.user32.MessageBoxW(
+            None,
+            'The show has changes that are not saved. If you quit now, they '
+            'are lost. Any connected tablets and computers will disconnect.\n\n'
+            'Quit anyway?',
+            'Quit LED Raster Designer?',
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2)
+        return answer == IDYES
+    except Exception:
+        return True
+
+
+# The launcher's API once it exists. The server can be asked to quit (File >
+# Quit, an update's Install and restart) as soon as it serves, which is
+# before the window is up: quit_now covers that gap.
+_LAUNCHER_API = None
+
+
+def quit_now():
+    """The launcher's Quit with no questions (the caller asked them): the
+    route behind File > Quit and Install and restart (updater)."""
+    api = _LAUNCHER_API
+    if api is not None:
+        api.quit()
+    os._exit(0)
+
+
+def _closing_is_app_quit():
+    """Is the launcher window closing because the app was told to quit?
+
+    On macOS the app menu's Quit, Cmd+Q and a logout reach pywebview's
+    applicationShouldTerminate_, which asks the same closing event the
+    window's red X does. Answered as the X (hide), Cmd+Q only hid the
+    launcher and the server kept serving every open page (owner,
+    2026-11-10). The caller's frames say which one asked."""
+    frame = sys._getframe(1)
+    while frame is not None:
+        if frame.f_code.co_name == 'applicationShouldTerminate_':
+            return True
+        frame = frame.f_back
+    return False
+
+
+def _on_closing_for(api):
+    """The launcher window's closing handler.
+
+    Close-to-hide: the window's X hides to the tray / menu-bar icon instead
+    of quitting; closing the launcher would stop the server for every
+    connected device. Quit lives in the window and the icon menu. The macOS
+    app menu's Quit and Cmd+Q arrive here too, and they quit
+    (_closing_is_app_quit): the close is cancelled and the Quit goes the
+    way the menu bar's does, asking first when the show is unsaved."""
+    def on_closing():
+        if _closing_is_app_quit():
+            threading.Thread(target=api.request_quit, args=('app_menu',),
+                             name='lrd-quit', daemon=True).start()
+            return False
+        api.hide()
+        return False  # cancel the close
+    return on_closing
+
+
 def restart_flask_server(settings):
     if _socketio:
         try:
@@ -455,7 +547,64 @@ class LauncherAPI:
             if sys.platform == 'darwin':
                 _mac_bring_window_front()
 
+    # ── quitting ───────────────────────────────────────────────────────────
+    #
+    # Quitting stops the server: every open page, here and on any tablet,
+    # then dims with "LED Raster Designer isn't running" (app-server-link.js)
+    # and comes back by itself when the app is started again. The window's
+    # X only hides the launcher (run_window on_closing); every Quit, the
+    # window's, the tray / menu-bar icon's, the macOS app menu's and Cmd+Q,
+    # comes through request_quit, and the designer's File > Quit, which has
+    # asked its own questions already, through quit (routes_version).
+
+    def request_quit(self, source='launcher'):
+        """A Quit the person chose in the launcher, the icon's menu or the
+        macOS app menu. A show with unsaved changes asks first, in the
+        launcher window (the designer asks its own: File > Quit). Returns
+        {'ask': True} while the question is up; otherwise the app quits."""
+        _launcher_log('launcher_quit_requested', {'source': source})
+        if _show_has_unsaved_changes():
+            if self._ask_quit_unsaved(source):
+                return {'ask': True}
+        self.quit()
+        return None
+
+    def _ask_quit_unsaved(self, source):
+        """Put the unsaved-changes question in front of the person. True
+        while the app must not quit yet: the question is up (its answer
+        comes back through quit() or the window's Cancel), or the person
+        said no. False to quit now."""
+        if self._window_unavailable or not self._window:
+            if sys.platform == 'win32':
+                return not _windows_quit_anyway()
+            return False
+        try:
+            self.show()
+        except Exception:
+            pass
+        if source == 'window':
+            return True      # the window's own Quit shows the question itself
+
+        def ask():
+            # Never on the GUI thread: evaluate_js waits on it (macOS).
+            try:
+                self._window.evaluate_js('window.showQuitAsk && window.showQuitAsk()')
+            except Exception as exc:
+                _launcher_log('launcher_quit_ask_failed', {
+                    'error': f'{type(exc).__name__}: {exc}'})
+        threading.Thread(target=ask, name='lrd-quit-ask', daemon=True).start()
+        return True
+
     def quit(self):
+        """Quit now: the icon goes, every page is told, the window goes,
+        and the process (with its server) exits."""
+        icon = getattr(self, '_tray_icon', None)
+        try:
+            if icon is not None:
+                icon.stop()
+        except Exception:
+            pass
+        _announce_quit()
         try:
             if self._window:
                 self._window.destroy()
@@ -522,10 +671,9 @@ def _start_tray_windows(api):
         api.open_browser()
 
     def quit_app(icon, item):
-        try:
-            icon.stop()
-        finally:
-            api.quit()
+        # The same Quit as the window's and the menu bar's: asks first when
+        # the show has unsaved changes; quit() takes the icon away.
+        api.request_quit('tray')
 
     icon = pystray.Icon(
         name='LED Raster Designer',
@@ -566,7 +714,9 @@ def _start_statusitem_mac(api):
             self._api.open_browser()
 
         def quitApp_(self, sender):
-            self._api.quit()
+            # Off the main thread: the question, if any, waits on it.
+            threading.Thread(target=self._api.request_quit, args=('menubar',),
+                             name='lrd-quit', daemon=True).start()
 
     def make():
         # No Dock icon at all: pywebview's cocoa backend
@@ -632,7 +782,9 @@ def run_window(settings):
     """Create and run the launcher window (blocks the main thread)."""
     import webview  # pywebview
 
+    global _LAUNCHER_API
     api = LauncherAPI(settings)
+    _LAUNCHER_API = api
 
     # Position explicitly: in the frozen menu-bar (LSUIElement) app, default
     # placement put the window off-screen (observed at x=-922 on a single-
@@ -666,28 +818,7 @@ def run_window(settings):
     )
     api._window = window
 
-    # Close-to-hide: the window's X hides to the tray / menu-bar icon
-    # instead of quitting — closing the launcher would stop the server for
-    # every connected device. Quit lives in the window and the icon menu.
-    def on_closing():
-        api.hide()
-        return False  # cancel the close
-
-    window.events.closing += on_closing
-
-    # Install and restart (updater.install_update) closes the app the way the
-    # tray's Quit does: the icon goes, the window goes, the process exits.
-    def quit_for_update():
-        icon = getattr(api, '_tray_icon', None)
-        try:
-            if icon is not None:
-                icon.stop()
-        except Exception:
-            pass
-        api.quit()
-
-    import updater
-    updater.set_quit_handler(quit_for_update)
+    window.events.closing += _on_closing_for(api)
 
     _register_native_outputs(webview, api)
 
@@ -942,6 +1073,13 @@ def main():
               f"(port {settings.get('port', 8050)})")
         start_flask_server(settings)  # blocks on the main thread
         return
+
+    # Install and restart (updater.install_update) and File > Quit
+    # (routes_version) close the app the way the tray's Quit does: the icon
+    # goes, the window goes, the process exits. Set before the server
+    # serves, so a page that loads before the window is up can quit too.
+    import updater
+    updater.set_quit_handler(quit_now)
 
     server_thread = threading.Thread(target=start_flask_server, args=(settings,), daemon=True)
     server_thread.start()

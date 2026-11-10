@@ -43,6 +43,13 @@
             <div class="menu-option" data-action="export-binder" data-label="Export Binder"></div>
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="preferences" data-label="Preferences" data-shortcut-mac="Cmd+," data-shortcut-win="Ctrl+,"></div>
+            {% if can_quit %}
+            <!-- The host's pages only, and only under the launcher
+                 (routes_version can_quit_here). No Cmd+Q / Ctrl+Q: the
+                 browser owns those keys. -->
+            <div class="menu-divider"></div>
+            <div class="menu-option" id="menu-quit-app" data-action="quit-app" data-label="Quit LED Raster Designer"></div>
+            {% endif %}
         </div>
 
         <div id="menu-edit" class="menu-dropdown">

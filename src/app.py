@@ -1698,7 +1698,11 @@ def index():
     log_event('page_load', {'path': '/'})
     # Expose the host OS so the client can show the custom (Apple-style) color
     # picker on Windows while leaving the native picker in place on macOS.
-    response = make_response(render_template('index.html', server_platform=sys.platform))
+    # File > Quit is on the host's pages only, and only when a launcher
+    # runs the server (routes_version can_quit_here).
+    from routes_version import can_quit_here
+    response = make_response(render_template('index.html', server_platform=sys.platform,
+                                              can_quit=can_quit_here()))
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'

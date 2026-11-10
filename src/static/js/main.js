@@ -2,6 +2,9 @@
 // Load order matters only in that app-core must come first; the feature
 // modules each attach their methods to LEDRasterApp.prototype on import.
 import { LEDRasterApp } from './app-core.js';
+// First of the mixins: its input guard has to see every key and click
+// before any handler the app adds (app-server-link.js).
+import './app-server-link.js';
 import './app-wiring.js';
 import './app-dialogs.js';
 import './app-client-props.js';

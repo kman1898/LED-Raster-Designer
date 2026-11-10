@@ -28,11 +28,21 @@ const NOT_SHOW_WRITES = new Set(['/api/project/unsaved', '/api/project/stage3d',
     '/api/port-assignments/resolve', '/api/port-assignments/link-check']);
 export const LIVE_WRITES = { out: 0, onSettled: null, onGuideRefused: null };
 
+// THE APP, STILL RUNNING? (2026-11-10, app-server-link.js). Once the page
+// has found the app gone (`gone`), nothing it sends changes the show: a
+// write is refused here before it leaves, so none can wait to land on
+// whatever server answers next (the app started again holds the truth,
+// never this page's copy). `lost` says a write did not land: one refused
+// here, one that failed on its way, or one still out when the app went.
+// `onTrouble` hears of a request that could not reach the server at all.
+export const SERVER_LINK = { gone: false, lost: false, onTrouble: null };
+
 (function tagOwnRequests() {
     if (typeof window === 'undefined' || typeof window.fetch !== 'function' || window.fetch.__lrdTagged) return;
     const native = window.fetch;
     const tagged = function (input, init) {
         let write = false;
+        let send = false;   // anything but a read or the page's log
         try {
             const url = typeof input === 'string' ? input : (input instanceof URL ? input.href : null);
             if (url !== null) {
@@ -44,10 +54,26 @@ export const LIVE_WRITES = { out: 0, onSettled: null, onGuideRefused: null };
                     const method = String((init && init.method) || 'GET').toUpperCase();
                     write = method !== 'GET' && method !== 'HEAD'
                         && SHOW_WRITE.test(at.pathname) && !NOT_SHOW_WRITES.has(at.pathname);
+                    send = method !== 'GET' && method !== 'HEAD' && at.pathname !== '/api/log';
                 }
             }
         } catch (_) { /* sent as it was */ }
-        const sent = native.call(this, input, init);
+        if (send && SERVER_LINK.gone) {
+            SERVER_LINK.lost = true;
+            return Promise.reject(new TypeError('LED Raster Designer is not running'));
+        }
+        const raw = native.call(this, input, init);
+        // A request that never reached the server (not one it answered
+        // with an error) has the page check whether the app is still up.
+        const sent = raw.catch((err) => {
+            if (err && err.name !== 'AbortError') {
+                if (send) SERVER_LINK.lost = true;
+                if (typeof SERVER_LINK.onTrouble === 'function') {
+                    try { SERVER_LINK.onTrouble(); } catch (_) { /* checked anyway */ }
+                }
+            }
+            throw err;
+        });
         if (!write) return sent;
         LIVE_WRITES.out += 1;
         const landed = () => {
@@ -932,6 +958,10 @@ export class LEDRasterApp {
             // the Quick Palettes may now come from the user's own eight
             if (typeof this.renderQuickPalettes === 'function') this.renderQuickPalettes();
         });
+        // The app quit or went away: the page dims and waits for it
+        // (app-server-link.js). After the handlers above, so a connect
+        // has been counted when it asks.
+        if (typeof this._wireServerLink === 'function') this._wireServerLink();
     }
 
     // layer_updated: a screen as the server now holds it. `echo` names the
