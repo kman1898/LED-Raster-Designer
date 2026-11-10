@@ -493,3 +493,42 @@ def test_no_first_run_guide_on_a_joining_page(e2e_server, pw_browser):
     finally:
         host_ctx.close()
         tablet_ctx.close()
+
+
+def test_a_tablet_at_the_computer_s_address_joins_live(e2e_server, pw_browser, monkeypatch):
+    """A page from another machine (the address check says so, as it does
+    for a tablet at the computer's IP) joins with no start page, even as
+    the first page of the run, and leaves the launch to the host: the
+    host's own first page still gets the start page, and the tablet's
+    reload still joins."""
+    import routes_dialog
+    _fresh_launch(e2e_server)
+    tablet_ctx = _context(pw_browser, BOTH)
+    host_ctx = _context(pw_browser, BOTH)
+    try:
+        monkeypatch.setattr(routes_dialog, '_is_same_machine', lambda addr: False)
+        claims = []
+        tablet = tablet_ctx.new_page()
+        problems = _watch(tablet)
+        tablet.on('response', lambda r: claims.append(r.json()) if r.url.endswith('/api/launch/claim') else None)
+        tablet.goto(e2e_server, wait_until='domcontentloaded')
+        _loaded(tablet)
+        _settle(tablet)
+        assert _role(tablet) == 'join'
+        assert claims == [{'startPage': False, 'why': 'remote'}], claims
+        assert not _start_up(tablet) and not _picker_up(tablet)
+        assert _layers(tablet) == [l['name'] for l in _server_project(e2e_server)['layers']] == ['Screen1']
+        tablet.reload(wait_until='domcontentloaded')
+        _loaded(tablet)
+        _settle(tablet)
+        assert not _start_up(tablet) and not _picker_up(tablet)
+        assert claims[-1] == {'startPage': False, 'why': 'remote'}, claims
+        monkeypatch.undo()
+        host, more = _open(host_ctx, e2e_server)
+        _wait_start(host)
+        assert _role(host) == 'launch'
+        assert not _start_up(tablet)
+        assert problems == [] and more == [], problems + more
+    finally:
+        tablet_ctx.close()
+        host_ctx.close()
