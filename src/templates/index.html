@@ -1853,11 +1853,12 @@
                              screen; the plan shows the wall from above. -->
                         <div id="rigging-corners" style="margin-bottom: 10px; font-size: 12px;">
                             <div style="display: flex; align-items: center; gap: 6px;">
-                                <span style="flex: 1; color: #ccc;" data-tooltip="Corners, bend the selected screens between two columns or down the middle of a panel, up to 90 degrees. The 3D tab and Export OBJ build them.">Corners</span>
+                                <span style="flex: 1; color: #ccc;" data-tooltip="Corners, bend the selected screens between two columns or down the middle of a panel, up to 90 degrees. The 3D tab and Export OBJ build them, and the header or footer bars split at each corner with a corner bar.">Corners</span>
                                 <button type="button" id="rigging-corner-add" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px;" data-tooltip="Add corner, a 90 degree interior corner in the middle of each selected screen. Then pick where it goes, its angle and Interior or Exterior.">Add corner</button>
                             </div>
                             <div id="rigging-corner-list" style="margin-top: 4px;"></div>
-                            <div id="rigging-corner-plan" style="margin-top: 4px;" data-tooltip="Plan, the screen from above with the audience at the bottom, every corner and curve as built. Red dots are the corners."></div>
+                            <div id="rigging-corner-plan" style="margin-top: 4px;" data-tooltip="Plan, the screen from above with the audience at the bottom, every corner and curve as built. Red dots are the corners, grey dots the seams the curve bends. A corner's seam has no curve angle."></div>
+                            <div id="rigging-corner-hold" style="display: none; color: #888; font-size: 11px; margin-top: 2px;" data-tooltip="Stays put, the side at the Curve's Build from (the middle without a Curve) stands where it stood, and the rest of the screen folds away from it."></div>
                         </div>
                         <button type="button" id="rigging-select-all-btn" class="btn btn-secondary" style="width: 100%; margin-bottom: 4px;" data-tooltip="Select every screen in the show, on every canvas, so Auto and Clear act on all of them at once">Select All Screens</button>
                         <div style="display: flex; gap: 4px;">

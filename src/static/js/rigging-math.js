@@ -216,13 +216,144 @@ const RiggingMath = (() => {
 
     // What a bar of this many panels is called: single, double, triple,
     // quad. A wider one, saved before the picker stopped at 4, reads 5-way.
+    // CORNER is the corner piece (below), the owner's own name for it.
     function sizeWord(size) {
+        if (size === CORNER) return 'Corner';
         return { 1: 'Single', 2: 'Double', 3: 'Triple', 4: 'Quad' }[size] || `${size}-way`;
     }
 
     // The bar's name wherever it is listed: the pull list, the binder.
     function barName(size, kind) {
         return `${kind === 'footer' ? 'Footer' : 'Header'} Bar - ${sizeWord(size)}`;
+    }
+
+    // ---- corner pieces --------------------------------------------------------
+    //
+    // A ROW OF BARS SPLITS AT A CORNER (owner, 2026-11-09): the corner's
+    // own piece, "Header Bar - Corner" / "Footer Bar - Corner", covers the
+    // panels touching the corner, folded with them, and regular bars fill
+    // each side. A corner down the middle of panel n covers that one panel
+    // (its two halves either side of the fold); a corner on the seam
+    // between panels n and n + 1 covers both of them, one either side.
+    // The piece is not stored with the bars: it rides on the corner itself
+    // (riggingCorners[i].bar, app-corners.js), so it moves and goes with
+    // the corner, and the stored bars stay sizes as they always were.
+    const CORNER = 'corner';
+
+    // The panels (0-based, in the screen's own columns) a corner's piece
+    // covers: { start, size }. `at` counts as the Curve's build-from point
+    // does: 3 is the middle of panel 3, 3.5 the seam between 3 and 4.
+    function cornerSlots(at) {
+        return Number.isInteger(at) ? { start: at - 1, size: 1 } : { start: Math.round(at - 1.5), size: 2 };
+    }
+
+    // The pieces of `corners` (each { at, bar }) on a screen `cols` panels
+    // wide, left to right, as { at, start, size, bar }: every corner that
+    // lands on the screen, `bar` true where its piece is laid. Two corners
+    // whose pieces would share a panel cannot both have one: the one on
+    // the left keeps it (the Corners rows never let a second one that
+    // close; this only reads an older list). `mirror` reads the panels
+    // right to left (a screen turned half way round).
+    function cornerPieces(corners, cols, mirror = false) {
+        const out = [];
+        const taken = new Set();
+        const list = (Array.isArray(corners) ? corners : []).filter(c => c && Number.isFinite(c.at))
+            .slice().sort((a, b) => a.at - b.at);
+        for (const c of list) {
+            const s = cornerSlots(c.at);
+            if (s.start < 0 || s.start + s.size > cols) continue;
+            let clash = false;
+            for (let p = s.start; p < s.start + s.size; p++) if (taken.has(p)) clash = true;
+            if (clash) continue;
+            for (let p = s.start; p < s.start + s.size; p++) taken.add(p);
+            const start = mirror ? cols - s.start - s.size : s.start;
+            out.push({ at: c.at, start, size: s.size, bar: c.bar === true });
+        }
+        return out.sort((a, b) => a.start - b.start);
+    }
+
+    // Do two corner spots' pieces share a panel?
+    function cornersClash(a, b) {
+        const p = cornerSlots(a), q = cornerSlots(b);
+        return p.start < q.start + q.size && q.start < p.start + p.size;
+    }
+
+    // The runs of a row `width` panels wide left free by `blocked`
+    // ({ start, size } each): [[from, to)] left to right.
+    function freeRuns(width, blocked) {
+        const out = [];
+        const hit = (p) => (blocked || []).some(b => p >= b.start && p < b.start + b.size);
+        let from = null;
+        for (let p = 0; p <= width; p++) {
+            const free = p < width && !hit(p);
+            if (free && from === null) from = p;
+            if (!free && from !== null) { out.push([from, p]); from = null; }
+        }
+        return out;
+    }
+
+    // Auto across a row with corner pieces: each free run between the
+    // pieces (and the row's ends) fitted on its own, so no bar crosses a
+    // corner. Placed bars left to right, or null when a run cannot be made
+    // with these sizes.
+    function fitAround(width, sizes, pieces) {
+        const out = [];
+        for (const [a, b] of freeRuns(width, pieces)) {
+            const bars = fitBars(b - a, sizes);
+            if (!bars) return null;
+            let at = a;
+            for (const size of bars) { out.push({ start: at, size }); at += size; }
+        }
+        return out;
+    }
+
+    // Custom by hand across a row with corners (`spots`, every corner's
+    // panels, laid or not): a click or drag from panel `from` to `to` with
+    // bars of `size`. A panel of a corner takes that corner's piece, never
+    // a regular bar; the regular bars are laid on each side of it up to
+    // the corner, whole bars only, from the side the drag started on. A
+    // bar that would run onto a corner is pulled back to end at it, as one
+    // at the wall's edge is. { adds, corners: [indexes into `spots` of the
+    // corners whose pieces it lays] }.
+    function layAround(from, to, size, width, spots) {
+        const list = spots || [];
+        const spotOf = (p) => list.find(s => p >= s.start && p < s.start + s.size) || null;
+        const a = Math.max(0, Math.min(width - 1, Math.round(from)));
+        const b = Math.max(0, Math.min(width - 1, Math.round(to)));
+        const lo = Math.min(a, b), hi = Math.max(a, b);
+        const corners = [];
+        list.forEach((s, i) => {
+            if (s.start <= hi && s.start + s.size - 1 >= lo) corners.push(i);
+        });
+        const adds = [];
+        for (const [r0, r1] of freeRuns(width, list)) {
+            const s0 = Math.max(r0, lo), s1 = Math.min(r1 - 1, hi);
+            if (s0 > s1) continue;
+            const room = r1 - r0;
+            if (!Number.isInteger(size) || size <= 0 || size > room) continue;
+            if (s0 === s1 && lo === hi) {
+                // a click: one bar, kept inside its run
+                const start = Math.max(r0, Math.min(s0, r1 - size));
+                adds.push({ start, size });
+                continue;
+            }
+            // a drag over this run: whole bars from the end it came in at
+            const fwd = b >= a;
+            const span = s1 - s0 + 1;
+            let n = Math.floor(span / size);
+            if (n < 1) {
+                // shorter than a bar: one, kept inside the run
+                const start = fwd ? Math.max(r0, Math.min(s0, r1 - size)) : Math.max(r0, Math.min(s1 + 1 - size, r1 - size));
+                adds.push({ start, size });
+                continue;
+            }
+            for (let k = 0; k < n; k++) {
+                adds.push(fwd ? { start: s0 + k * size, size } : { start: s1 + 1 - (k + 1) * size, size });
+            }
+        }
+        // a click on a corner's own panel lays its piece and nothing else
+        if (lo === hi && spotOf(lo)) return { adds: [], corners };
+        return { adds: adds.sort((x, y) => x.start - y.start), corners };
     }
 
     // ---- placed bars --------------------------------------------------------
@@ -413,15 +544,21 @@ const RiggingMath = (() => {
     //               bars on one panel, is wrong.
     // { have, wall, past, overlap, gap }: `have` the bars' panels, `wall`
     // the panels of the members they claim, `past` panels past the end.
-    function rowProblem(placed, width, spans, custom) {
-        const list = (placed || []).slice().sort((a, b) => a.start - b.start);
+    // `pieces` are the row's laid corner pieces ({ start, size }): they
+    // cover their panels like any bar, and a regular bar on a corner's
+    // panels (`corner`) is wrong in any row, the bar must split there.
+    function rowProblem(placed, width, spans, custom, pieces = []) {
+        const own = (placed || []).slice().sort((a, b) => a.start - b.start);
+        const laid = (pieces || []).filter(p => p && p.size > 0);
+        const list = [...own, ...laid].sort((a, b) => a.start - b.start);
         if (!list.length) return null;
         const end = Math.max(...list.map(b => b.start + b.size));
         const past = Math.max(0, end - width);
         let overlap = false;
-        for (let i = 1; i < list.length; i++) {
-            if (list[i].start < list[i - 1].start + list[i - 1].size) overlap = true;
+        for (let i = 1; i < own.length; i++) {
+            if (own[i].start < own[i - 1].start + own[i - 1].size) overlap = true;
         }
+        const corner = own.some(b => laid.some(p => b.start < p.start + p.size && p.start < b.start + b.size));
         const have = list.reduce((s, b) => s + b.size, 0);
         const covers = (p) => list.some(b => p >= b.start && p < b.start + b.size);
         const claimed = (spans && spans.length ? spans : [[0, width]])
@@ -433,12 +570,13 @@ const RiggingMath = (() => {
                 for (let p = o; p < o + n; p++) if (!covers(p)) { gap = true; break; }
             }
         }
-        if (!past && !overlap && !gap) return null;
-        return { have, wall, past, overlap, gap, custom: !!custom };
+        if (!past && !overlap && !gap && !corner) return null;
+        return { have, wall, past, overlap, gap, corner, custom: !!custom };
     }
 
     return { cleanSizes, arrangeSymmetric, isSymmetric, fitBars, moveBar, moveBarWithSlot, resizeBoundary, tally, sizeWord, barName,
              wallPanels, barPanels, barsFit,
+             CORNER, cornerSlots, cornerPieces, cornersClash, freeRuns, fitAround, layAround,
              placedOf, storeOf, placeBars, barsForClick, barsForDrag, barAtPanel, resizeEdgeAt, moveInBlock,
              runsOf, ownerIndex, distribute, clipTo, rowProblem };
 })();

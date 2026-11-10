@@ -43,6 +43,14 @@ Object.assign(CanvasRenderer.prototype, {
             const hit = edge || bar;
             const layer = hit && app && app.project
                 ? app.project.layers.find(l => l.id === hit.layerId) : null;
+            // A corner piece is fixed to its corner: a press picks it
+            // (Delete takes it off) and never moves it.
+            if (layer && bar && bar.corner != null) {
+                if (app._riggingGhost) app._riggingGhost = null;
+                app.pickRiggingBar(bar);
+                this.render();
+                return;
+            }
             if (layer) {
                 const d = app.riggingBeginDrag(layer, hit.row);
                 if (!d) { this.render(); return; }
@@ -2051,13 +2059,26 @@ Object.assign(CanvasRenderer.prototype, {
             over = !!z;
             if (z && z.kind !== 'both') {
                 const size = app.riggingCustomSize();
-                const bar = RiggingMath.barsForClick(z.offset + z.panel, size, z.rowWidth)[0];
-                if (bar) ghost = { layerId: z.layerId, rowKey: z.rowKey, start: bar.start, size };
+                const layer = app.project && app.project.layers.find(l => l.id === z.layerId);
+                const row = layer && typeof app.riggingRow === 'function' ? app.riggingRow(layer, z.kind) : null;
+                const panel = z.offset + z.panel;
+                if (row && (row.spots || []).length) {
+                    // Around a corner: its own piece on its panels, a bar
+                    // stopped at it beside them (app-rigging riggingCustomLay).
+                    const lay = app.riggingCustomLay(row, panel, panel, size);
+                    const spot = lay.spots[0];
+                    if (spot) ghost = { layerId: z.layerId, rowKey: z.rowKey, start: spot.start, size: spot.size, corner: spot.at };
+                    else if (lay.adds[0]) ghost = { layerId: z.layerId, rowKey: z.rowKey, start: lay.adds[0].start, size };
+                } else {
+                    const bar = RiggingMath.barsForClick(panel, size, z.rowWidth)[0];
+                    if (bar) ghost = { layerId: z.layerId, rowKey: z.rowKey, start: bar.start, size };
+                }
             }
         }
         const was = app._riggingGhost;
         const same = (!was && !ghost) || (was && ghost && was.layerId === ghost.layerId
-            && was.rowKey === ghost.rowKey && was.start === ghost.start && was.size === ghost.size);
+            && was.rowKey === ghost.rowKey && was.start === ghost.start && was.size === ghost.size
+            && was.corner === ghost.corner);
         app._riggingGhost = ghost;
         if (!same) this.render();
         return over;

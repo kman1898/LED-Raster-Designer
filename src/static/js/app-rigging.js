@@ -48,8 +48,25 @@
 // the edit lands (riggingFitCheck), the canvas draws them at their true
 // width (canvas-rigging.js), and the pull rows, the binder and every export
 // say so too.
+//
+// A ROW SPLITS AT A CORNER (owner, 2026-11-09): a screen's corners (the
+// Corners under the Curve, app-corners.js) each take a corner piece,
+// "Header Bar - Corner" / "Footer Bar - Corner", over the panels touching
+// the corner (rigging-math.js cornerPieces): the folded panel of a corner
+// down a panel's middle, one panel either side of a corner on a seam.
+// Regular bars fill each side; none crosses a corner. Auto lays every
+// corner's piece and fits each side on its own; Clear takes them off with
+// the bars. In Custom, a click or drag over a corner's panels lays its
+// piece, a bar that would run onto a corner stops at it (or is refused,
+// said, when it no longer fits there), and a picked piece comes off with
+// Delete. A piece is kept on its corner (`bar`), so it is counted once,
+// on its screen, everywhere bars are: the tab's totals, the pull list and
+// the binder's Header/Footer and pull sheets. A screen turned a quarter
+// (its bars run along its folds) and a curved screen (the Curve lays its
+// bars) take no pieces.
 import { LEDRasterApp } from './app-core.js';
 import { setupColorPickerWithHex } from './helpers.js';
+import { s3dCleanCorners, s3dCornersOn } from './app-stage3d.js';
 
 // Bars come single, double, triple and quad, 1 to 4 panels wide.
 const RIGGING_SIZES = [1, 2, 3, 4];
@@ -161,6 +178,50 @@ class _Rigging {
     riggingPlaced(layer, kind) {
         const k = kind === 'footer' ? 'footer' : 'header';
         return layer ? RiggingMath.placedOf(layer[BAR_FIELD[k]], layer[START_FIELD[k]]) : [];
+    }
+
+    // ---- corner pieces (rigging-math.js cornerPieces) ------------------
+
+    // Can a screen's corners take pieces on its row? Not when the screen
+    // is turned a quarter (its bars run along its folds), nor while its
+    // Curve lays its bars.
+    _riggingCornersApply(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return false;
+        const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
+        if (deg === 90 || deg === 270) return false;
+        if (typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(layer)) return false;
+        return true;
+    }
+
+    // Every corner of a screen with the panels its piece covers, in the
+    // screen's own bar panels (left to right as it stands):
+    // [{ at, start, size, bar }], `bar` where the piece is laid.
+    riggingCornerSpots(layer) {
+        if (!this._riggingCornersApply(layer)) return [];
+        const cols = Number(layer.columns) || 0;
+        const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
+        return RiggingMath.cornerPieces(s3dCornersOn(layer, cols), cols, deg === 180);
+    }
+
+    // The corner pieces laid on a screen.
+    riggingCornerPiecesOf(layer) {
+        return this.riggingCornerSpots(layer).filter(s => s.bar);
+    }
+
+    // Lay (on) or take off the pieces of the corners at `ats` on a screen.
+    _riggingSetCornerBars(layer, ats, on) {
+        const want = new Set(ats);
+        const list = s3dCleanCorners(layer && layer.riggingCorners);
+        let changed = false;
+        const next = list.map(c => {
+            if (!want.has(c.at) || (c.bar === true) === on) return c;
+            changed = true;
+            const out = { at: c.at, angle: c.angle, side: c.side };
+            if (on) out.bar = true;
+            return out;
+        });
+        if (changed) layer.riggingCorners = next;
+        return changed;
     }
 
     _riggingWrite(layer, kind, placed) {
@@ -280,10 +341,20 @@ class _Rigging {
         placed.forEach((b, i) => { b.runIndex = i; });
         const custom = run.layers.some(m => m.riggingCustom === true);
         const spans = run.offsets.map((o, i) => [o, run.panels[i]]);
+        // Every corner along the row, in the row's panels (`spots`), and
+        // the pieces laid on them (`pieces`): only on a screen whose own
+        // side this row is.
+        const spots = [];
+        run.layers.forEach((m, i) => {
+            if (!this._riggingKindsOf(m).includes(k)) return;
+            this.riggingCornerSpots(m).forEach(sp => spots.push({ ...sp, start: run.offsets[i] + sp.start, owner: m }));
+        });
+        spots.sort((a, b) => a.start - b.start);
+        const pieces = spots.filter(sp => sp.bar);
         return {
             key: `${k}:${run.ids.join(',')}`, kind: k, layers: run.layers, ids: run.ids,
-            offsets: run.offsets, panels: run.panels, width: run.width, placed, custom,
-            problem: RiggingMath.rowProblem(placed, run.width, spans, custom),
+            offsets: run.offsets, panels: run.panels, width: run.width, placed, custom, spots, pieces,
+            problem: RiggingMath.rowProblem(placed, run.width, spans, custom, pieces),
         };
     }
 
@@ -452,13 +523,19 @@ class _Rigging {
         return open;
     }
 
-    // Bars of the lit sizes, end to end across the row.
+    // Bars of the lit sizes, end to end across the row: every corner
+    // along it takes its piece and each side between them is fitted on
+    // its own (RiggingMath.fitAround), so no bar crosses a corner. A row
+    // without corners fits exactly as it always did.
     _riggingFitRow(row, sizes) {
-        const bars = RiggingMath.fitBars(row.width, sizes);
-        if (!bars) return false;
-        let at = 0;
-        this._riggingWriteRow(row, bars.map(size => { const b = { start: at, size }; at += size; return b; }));
-        row.layers.forEach(m => { m.riggingCustom = false; });
+        const placed = RiggingMath.fitAround(row.width, sizes, row.spots || []);
+        if (!placed) return false;
+        this._riggingWriteRow(row, placed);
+        row.layers.forEach(m => {
+            m.riggingCustom = false;
+            const ats = (row.spots || []).filter(sp => sp.owner === m).map(sp => sp.at);
+            if (ats.length) this._riggingSetCornerBars(m, ats, true);
+        });
         return true;
     }
 
@@ -535,7 +612,7 @@ class _Rigging {
     // groups), whichever side.
     clearRiggingBars() {
         const withBars = this._riggingWithGroups(this._riggingScreens())
-            .filter(l => KINDS.some(k => this.riggingBarsOf(l, k).length));
+            .filter(l => KINDS.some(k => this.riggingBarsOf(l, k).length) || this.riggingCornerPiecesOf(l).length);
         if (withBars.length === 0) return;
         const screens = this._writableLayers(withBars);
         if (screens.length === 0) return;
@@ -548,6 +625,12 @@ class _Rigging {
             });
             l.riggingSide = side === 'footer' ? 'footer' : 'header';
             l.riggingCustom = false;
+            // The corner pieces come off with the bars.
+            const laid = s3dCleanCorners(l.riggingCorners).filter(c => c.bar).map(c => c.at);
+            if (laid.length) {
+                this._riggingSetCornerBars(l, laid, false);
+                kinds.add(side === 'footer' ? 'footer' : 'header');
+            }
             // A curve with its bars taken off is a curve no more: Clear
             // turns it off and the joints go back to flat (app-curve.js).
             if (typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(l)) {
@@ -571,7 +654,7 @@ class _Rigging {
 
     _riggingFieldsOf(layers) {
         return layers.map(l => ({
-            l, side: l.riggingSide, custom: l.riggingCustom,
+            l, side: l.riggingSide, custom: l.riggingCustom, corners: l.riggingCorners,
             f: KINDS.map(k => [l[BAR_FIELD[k]], l[START_FIELD[k]]]),
         }));
     }
@@ -591,7 +674,7 @@ class _Rigging {
         }
         const original = plain(row.placed);
         return { layerId: layer.id, row: row.kind, rowObj: row, original, placed: original,
-                 kept: this._riggingFieldsOf(row.layers) };
+                 kept: this._riggingFieldsOf(row.layers), cornersWere: this._riggingCornerSig(row.layers) };
     }
 
     // Custom: a press on the panel `localPanel` of `layer` along its bar
@@ -610,10 +693,41 @@ class _Rigging {
         return d;
     }
 
+    // The laid corner pieces of `layers`, for telling a gesture changed them.
+    _riggingCornerSig(layers) {
+        return JSON.stringify((layers || []).map(l => s3dCleanCorners(l.riggingCorners).filter(c => c.bar).map(c => c.at)));
+    }
+
+    // What a Custom click or drag from row panel `from` to `to` lays:
+    // bars of `size` on each side of any corner, and the pieces of the
+    // corners it covers (RiggingMath.layAround). { adds, spots }.
+    riggingCustomLay(row, from, to, size) {
+        const spots = row.spots || [];
+        const lay = RiggingMath.layAround(from, to, size, row.width, spots);
+        return { adds: lay.adds, spots: lay.corners.map(i => spots[i]) };
+    }
+
     riggingPreviewPlace(d, runPanel) {
         const row = d.rowObj;
-        d.adds = RiggingMath.barsForDrag(d.from, runPanel, d.size, row.width);
-        d.placed = RiggingMath.placeBars(d.original, d.adds);
+        const lay = this.riggingCustomLay(row, d.from, runPanel, d.size);
+        d.adds = lay.adds;
+        d.refused = !lay.adds.length && !lay.spots.length;
+        d.cornerAdds = lay.spots.map(sp => sp.at);
+        // A bar on a corner's panels makes way for the corner's piece.
+        const pieces = lay.spots;
+        const kept = pieces.length
+            ? d.original.filter(b => !pieces.some(p => b.start < p.start + p.size && p.start < b.start + b.size))
+            : d.original;
+        d.placed = RiggingMath.placeBars(kept, d.adds);
+        // The corners as the press found them, then the pieces this lays.
+        d.kept.forEach(({ l, corners }) => {
+            if (corners === undefined) delete l.riggingCorners;
+            else l.riggingCorners = corners;
+        });
+        row.layers.forEach(m => {
+            const ats = pieces.filter(p => p.owner === m).map(p => p.at);
+            if (ats.length) this._riggingSetCornerBars(m, ats, true);
+        });
         this._riggingWriteRow(row, d.placed);
     }
 
@@ -630,20 +744,27 @@ class _Rigging {
     }
 
     _riggingPutBack(kept) {
-        kept.forEach(({ l, side, custom, f }) => {
+        kept.forEach(({ l, side, custom, corners, f }) => {
             KINDS.forEach((k, i) => { l[BAR_FIELD[k]] = f[i][0]; l[START_FIELD[k]] = f[i][1]; });
             l.riggingSide = side;
             l.riggingCustom = custom;
+            if (corners === undefined) delete l.riggingCorners;
+            else l.riggingCorners = corners;
         });
     }
 
     // The gesture let go: saved as one undo step when it changed the row
     // (and `keep`), put back exactly as it was otherwise.
     riggingEndDrag(d, keep = true) {
-        const changed = JSON.stringify(plain(d.placed)) !== JSON.stringify(d.original);
+        const cornersMoved = d.cornersWere !== undefined && this._riggingCornerSig(d.rowObj.layers) !== d.cornersWere;
+        const changed = JSON.stringify(plain(d.placed)) !== JSON.stringify(d.original) || cornersMoved;
         const word = KIND_WORD[d.row];
+        // A click whose bar fits nowhere on its side of a corner says so.
+        if (keep && !changed && d.kind === 'place' && d.refused) {
+            this._toast(`A ${RiggingMath.sizeWord(d.size).toLowerCase()} does not fit between this corner and the next corner or edge. Pick a smaller size.`, true, 5000);
+        }
         if (keep && changed) {
-            const n = (d.adds || []).length;
+            const n = (d.adds || []).length + (cornersMoved ? 1 : 0);
             const action = d.kind === 'place' ? `Add ${word} Bar${n > 1 ? 's' : ''}`
                 : d.kind === 'edge' ? `Resize ${word} Bar` : `Move ${word} Bar`;
             this.updateLayers(d.rowObj.layers, true, action);
@@ -659,7 +780,7 @@ class _Rigging {
     // menu's Remove Bar) takes it off.
     pickRiggingBar(hit) {
         this._riggingPicked = hit ? { layerId: hit.layerId, kind: hit.row === 'footer' ? 'footer' : 'header',
-                                      start: hit.start } : null;
+                                      start: hit.start, corner: hit.corner == null ? null : hit.corner } : null;
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
@@ -683,6 +804,15 @@ class _Rigging {
         const locked = row.layers.filter(l => this._layerLocked(l));
         if (locked.length) { this._showLockedError(locked); return false; }
         if (typeof this.riggingCurveRefusesHand === 'function' && this.riggingCurveRefusesHand(row.layers)) return false;
+        if (p.corner != null) {
+            // A corner piece: off its corner, its panels left open.
+            if (!this._riggingSetCornerBars(layer, [p.corner], false)) return false;
+            row.layers.forEach(l => { l.riggingCustom = true; });
+            this.updateLayers(row.layers, true, `Remove ${KIND_WORD[row.kind]} Bar`);
+            this.refreshRiggingPanel();
+            if (window.canvasRenderer) window.canvasRenderer.render();
+            return true;
+        }
         const at = row.offsets[row.layers.indexOf(layer)] + p.start;
         const rest = row.placed.filter(b => !(b.owner === layer && b.start === at));
         if (rest.length === row.placed.length) return false;
@@ -704,7 +834,8 @@ class _Rigging {
         const hit = r.riggingBarAt(x - rect.left, y - rect.top);
         if (!hit) return null;
         this.pickRiggingBar(hit);
-        return { label: 'Remove Bar', title: `Take this ${RiggingMath.sizeWord(hit.span).toLowerCase()} bar off` };
+        return { label: 'Remove Bar', title: hit.corner != null ? 'Take this corner bar off'
+            : `Take this ${RiggingMath.sizeWord(hit.span).toLowerCase()} bar off` };
     }
 
     // ---- the panel --------------------------------------------------------
@@ -768,7 +899,8 @@ class _Rigging {
             const where = side === 'footer' ? 'below' : 'above';
             hint.textContent = `Click in the bar strip ${where} a wall to drop a ${RiggingMath.sizeWord(this.riggingCustomSize()).toLowerCase()}, or drag along it to lay a row. Click a bar and press Delete to take it off.`;
         }
-        if (clear) clear.disabled = !this._riggingWithGroups(screens).some(l => KINDS.some(k => this.riggingBarsOf(l, k).length));
+        if (clear) clear.disabled = !this._riggingWithGroups(screens).some(l => KINDS.some(k => this.riggingBarsOf(l, k).length)
+            || this.riggingCornerPiecesOf(l).length);
         if (typeof this.refreshRiggingCurve === 'function') this.refreshRiggingCurve();
         if (typeof this.refreshRiggingCorners === 'function') this.refreshRiggingCorners();
 
@@ -825,7 +957,9 @@ class _Rigging {
     riggingMisfitLine(m, named = true) {
         const p = m.problem || { have: m.have, wall: m.wall };
         let said;
-        if (p.custom) {
+        if (p.corner) {
+            said = `${m.word} bars cross a corner, where the corner bar goes.`;
+        } else if (p.custom) {
             said = p.past ? `${m.word} bars run ${p.past} panel${p.past === 1 ? '' : 's'} past the wall's edge.`
                 : `${m.word} bars overlap.`;
         } else if (p.have !== p.wall) {
@@ -935,12 +1069,26 @@ class _Rigging {
             const list = document.getElementById(listId);
             if (!count || !list) return;
             const { total, bySize } = RiggingMath.tally(screens.map(l => this.riggingBarsOf(l, kind)));
-            count.textContent = String(total);
-            list.textContent = Object.keys(bySize).map(Number).sort((a, b) => b - a)
-                .map(size => `${RiggingMath.sizeWord(size)}: ${bySize[size]}`).join('\n');
+            const corners = this.riggingCornerCount(screens, kind);
+            count.textContent = String(total + corners);
+            const lines = Object.keys(bySize).map(Number).sort((a, b) => b - a)
+                .map(size => `${RiggingMath.sizeWord(size)}: ${bySize[size]}`);
+            if (corners) lines.push(`${RiggingMath.sizeWord(RiggingMath.CORNER)}: ${corners}`);
+            list.textContent = lines.join('\n');
         };
         fill('header', 'rigging-total-count', 'rigging-total-breakdown');
         fill('footer', 'rigging-footer-total-count', 'rigging-footer-total-breakdown');
+    }
+
+    // How many corner pieces `layers` carry on their `kind` side, each
+    // counted on the screen whose corner it is.
+    riggingCornerCount(layers, kind) {
+        let n = 0;
+        for (const l of layers || []) {
+            if (!this._riggingKindsOf(l).includes(kind)) continue;
+            n += this.riggingCornerPiecesOf(l).length;
+        }
+        return n;
     }
 
     // ---- the binder's Screens sheets --------------------------------------
@@ -956,7 +1104,10 @@ class _Rigging {
         return row.placed
             .filter(b => b.owner === layer || (b.start < o + n && b.start + b.size > o))
             .map(b => ({ start: b.start - o, size: b.size, own: b.owner === layer, owner: b.owner,
-                         shared: row.layers.length > 1 && ((k > 0 && b.start < o) || (k < row.layers.length - 1 && b.start + b.size > o + n)) }));
+                         shared: row.layers.length > 1 && ((k > 0 && b.start < o) || (k < row.layers.length - 1 && b.start + b.size > o + n)) }))
+            // its corner pieces, which never leave it
+            .concat((row.pieces || []).filter(p => p.owner === layer)
+                .map(p => ({ start: p.start - o, size: p.size, own: true, owner: layer, shared: false, corner: p.at })));
     }
 
     // The bars across a seam that touch `layer`, for its sheet's note:
@@ -1018,7 +1169,11 @@ class _Rigging {
             const bars = row.placed
                 .filter(b => (b.owner === layer || b.owner.visible !== false)
                     && ((b.start < o + n && b.start + b.size > o) || (end && b.start >= o + n)))
-                .map(b => ({ start: b.start - o, size: b.size }));
+                .map(b => ({ start: b.start - o, size: b.size }))
+                // its corner pieces, folded with the panels (s3dBarRows)
+                .concat((row.pieces || []).filter(p => p.owner === layer)
+                    .map(p => ({ start: p.start - o, size: p.size, corner: true })))
+                .sort((a, b) => a.start - b.start);
             return { row: row.kind, bars, end, fits: !row.problem };
         }).filter(s => s.bars.length);
     }
@@ -1040,8 +1195,12 @@ class _Rigging {
         for (const kind of KINDS) {
             const miss = misfits.find(m => m.kind === kind);
             const bySize = RiggingMath.tally([this.riggingBarsOf(layer, kind)]).bySize;
-            Object.keys(bySize).map(Number).sort((a, b) => b - a).forEach(size => rows.push({
-                type: RiggingMath.barName(size, kind), length: 'EA', qty: bySize[size],
+            const corners = this.riggingCornerCount([layer], kind);
+            const sizes = Object.keys(bySize).map(Number).sort((a, b) => b - a);
+            if (corners) sizes.push(RiggingMath.CORNER);
+            sizes.forEach(size => rows.push({
+                type: RiggingMath.barName(size, kind), length: 'EA',
+                qty: size === RiggingMath.CORNER ? corners : bySize[size],
                 label: miss ? `${name} (bars no longer fit)` : name,
                 notes: miss ? `${this.riggingMisfitLine(miss, false)} Press Auto on the Header/Footer tab.` : '',
                 side: 'rigging',

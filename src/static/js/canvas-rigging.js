@@ -92,7 +92,7 @@ Object.assign(CanvasRenderer.prototype, {
         const side = app.riggingSideOf(layer);
         const rows = app.riggingRowsOf(layer);
         const shows = (row) => (solo ? app.riggingSliceOf(layer, row.kind).length > 0
-            : row.placed.some(b => b.owner === layer));
+            : row.placed.some(b => b.owner === layer) || (row.pieces || []).some(p => p.owner === layer));
         if (!interactive && !rows.some(shows)) return;
 
         const box = this.getLayerFootprintInActiveView(layer);
@@ -280,6 +280,30 @@ Object.assign(CanvasRenderer.prototype, {
                              y0: m.d * top + m.f, y1: m.d * (top + barH) + m.f, unitPx, dir });
             }
         }
+        // Its corner pieces (app-rigging.js), each over the panels touching
+        // its corner, "Corner" on it and a dashed line where it folds. A
+        // click picks one (Delete takes it off); it never moves.
+        for (const pc of (row.pieces || [])) {
+            if (pc.owner !== layer) continue;
+            const x = rowX + pc.start * unit;
+            const w = pc.size * unit;
+            const on = !this.exportMode && ((p && p.kind === row.kind && p.layerId === layer.id && p.corner === pc.at)
+                || (d && d.kind === 'place' && d.rowObj && d.rowObj.key === row.key
+                    && (d.cornerAdds || []).includes(pc.at)));
+            ctx.fillStyle = fillOf(on);
+            ctx.fillRect(x, top, w, barH);
+            line(on);
+            ctx.strokeRect(x, top, w, barH);
+            this._drawRiggingFold(x + w / 2, top, barH, style.textColor);
+            this._riggingCornerLabel(x, w, top, barH, style);
+            if (hits) {
+                const sx0 = m.a * x + m.e, sx1 = m.a * (x + w) + m.e;
+                hits.push({ layerId: layer.id, row: row.kind, rowKey: row.key, index: -1, runIndex: -1,
+                            start: pc.start - off, span: pc.size, corner: pc.at,
+                            x0: Math.min(sx0, sx1), x1: Math.max(sx0, sx1),
+                            y0: m.d * top + m.f, y1: m.d * (top + barH) + m.f, unitPx, dir });
+            }
+        }
         // The mark, drawn once per row, by the screen holding its last bar.
         if (row.problem && row.placed.length) {
             const end = row.placed.reduce((a, b) => (b.start + b.size >= a.start + a.size ? b : a));
@@ -287,6 +311,36 @@ Object.assign(CanvasRenderer.prototype, {
                 this._drawRiggingMisfit(rowX, row.width * unit, top, barH, rowX + (end.start + end.size) * unit, style.minFont);
             }
         }
+    },
+
+    // The fold down a corner piece: a dashed line across the bar.
+    _drawRiggingFold(x, top, barH, color) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = Math.max(1, barH * 0.04);
+        ctx.setLineDash([Math.max(2, barH * 0.12), Math.max(2, barH * 0.08)]);
+        ctx.beginPath();
+        ctx.moveTo(x, top);
+        ctx.lineTo(x, top + barH);
+        ctx.stroke();
+        ctx.restore();
+    },
+
+    // "Corner" on a corner piece, as big as fits.
+    _riggingCornerLabel(x, w, top, barH, style, color = null) {
+        const ctx = this.ctx;
+        const text = 'Corner';
+        let fontPx = Math.max(style.minFont || 10, barH * 0.5);
+        ctx.font = `bold ${fontPx}px sans-serif`;
+        // never wider than the piece
+        const fit = (w * 0.85) / Math.max(1, ctx.measureText(text).width) * fontPx;
+        fontPx = Math.max(4, Math.min(fontPx, fit));
+        ctx.fillStyle = color || style.textColor;
+        ctx.font = `bold ${fontPx}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        this._fillText(text, x + w / 2, top + barH / 2);
     },
 
     // A color that shows on white paper: the bar's fill, or its text
@@ -318,6 +372,12 @@ Object.assign(CanvasRenderer.prototype, {
         ctx.setLineDash([Math.max(4, barH * 0.2), Math.max(3, barH * 0.12)]);
         ctx.strokeRect(x, top, w, barH);
         ctx.setLineDash([]);
+        if (g.corner != null) {
+            // a click here lays the corner's own piece
+            this._riggingCornerLabel(x, w, top, barH, style, '#4A90E2');
+            ctx.restore();
+            return;
+        }
         const fontPx = Math.max(style.minFont || 10, Math.min(barH * 0.6, w * 0.5));
         ctx.fillStyle = '#4A90E2';
         ctx.font = `bold ${fontPx}px sans-serif`;
