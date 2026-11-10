@@ -516,6 +516,65 @@ def test_extra_held_deletes_never_fire_later(e2e_server, pw_browser):
         context.close()
 
 
+def test_an_undo_pressed_while_a_delete_lands_undoes_the_delete(e2e_server, pw_browser):
+    """The screen leaves the page as the DELETE answers; the delete's undo
+    step is taken when the project read after it comes back. Ctrl+Z in
+    that gap used to step back over the edit before the delete, and the
+    delete's step then cut the redo off. Here the read is held until
+    Ctrl+Z is in, however fast the machine: the undo brings the screen
+    back and leaves the edit before it alone. (1.7.0 CI, one Linux run
+    in fifteen.)"""
+    _fresh_project(e2e_server)
+    _post(e2e_server, '/api/layer/add', json.dumps(
+        {'name': 'Second', 'columns': 2, 'rows': 2, 'cabinet_width': 128, 'cabinet_height': 128,
+         'offset_x': 1200, 'offset_y': 0}).encode('utf-8'))
+    context, pg, problems = _open_page(pw_browser, e2e_server)
+    try:
+        first, second = pg.evaluate("() => window.app.project.layers.map(l => l.id)")
+        # an edit before the delete, so a wrong undo has something to take
+        pg.locator(f'#layers-list .layer-item[data-layer-id="{first}"] .layer-info').click()
+        pg.wait_for_function("(id) => window.app.currentLayer && window.app.currentLayer.id === id", arg=first)
+        pg.locator('#offset-x').click()
+        pg.keyboard.press('Control+A')
+        pg.keyboard.type('64')
+        pg.keyboard.press('Enter')
+        pg.wait_for_function("() => window.app.currentLayer.offset_x === 64")
+        pg.evaluate("() => window.app._layerSavesSettled && window.app._layerSavesSettled()")
+        steps = pg.evaluate("() => window.app.historyIndex")
+        pg.locator(f'#layers-list .layer-item[data-layer-id="{second}"] .layer-info').click()
+        pg.wait_for_function("(id) => window.app.currentLayer && window.app.currentLayer.id === id", arg=second)
+        # hold the project read that follows the DELETE
+        pg.evaluate("""() => {
+            const real = window.fetch;
+            let open;
+            const gate = new Promise(r => { open = r; });
+            let armed = false;
+            window.__openRead = () => { window.fetch = real; open(); };
+            window.fetch = (url, opts) => {
+                const u = String(url);
+                if (opts && opts.method === 'DELETE' && u.includes('/api/layer/')) armed = true;
+                const read = armed && u.endsWith('/api/project') && !(opts && opts.method);
+                return read ? gate.then(() => real(url, opts)) : real(url, opts);
+            };
+        }""")
+        pg.keyboard.press('Delete')
+        pg.wait_for_function("() => window.app.project.layers.length === 1")
+        assert pg.evaluate("() => window.app.deletionInProgress") is True
+        pg.keyboard.press('Control+z')
+        pg.evaluate("() => window.__openRead()")
+        pg.wait_for_function("() => window.app.project.layers.length === 2 && !window.app.deletionInProgress")
+        assert sorted(_names(pg)) == ['Screen1', 'Second']
+        assert pg.evaluate("(id) => window.app.project.layers.find(l => l.id === id).offset_x", first) == 64
+        # one step on from the edit: the delete, now undone, with redo kept
+        assert pg.evaluate("() => [window.app.historyIndex, window.app.history.length]") == [steps, steps + 2]
+        pg.keyboard.press('Control+Shift+z')
+        pg.wait_for_function("() => window.app.project.layers.length === 1")
+        assert _names(pg) == ['Screen1']
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
 def test_recent_files_count_screens(e2e_server, pw_browser):
     context, pg, problems = _open_page(pw_browser, e2e_server)
     try:

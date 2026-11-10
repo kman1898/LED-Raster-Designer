@@ -195,6 +195,14 @@ class _History {
     }
 
     undo() {
+        // A delete still landing has not taken its step yet: the screen is
+        // gone from the page as soon as the server answers the DELETE, and
+        // its 'Delete Layer' entry is taken only once the project read that
+        // follows comes back. An undo in that gap stepped back over the edit
+        // before the delete (or did nothing), and the delete's entry then
+        // cut the redo off. Held, it plays once the delete has its step
+        // (1.7.0 CI, caught on a Linux runner with the page's log).
+        if (this._holdHistoryKey('undo')) return;
         // Land any in-flight debounced snapshot first, so Ctrl+Z steps back
         // over the edit the user just made instead of skipping past it (and
         // so the timer can't overwrite the restored state a moment later).
@@ -461,6 +469,7 @@ class _History {
     }
 
     redo() {
+        if (this._holdHistoryKey('redo')) return;
         this._flushPendingSaveState();
 
         if (this.historyIndex < this.history.length - 1) {
@@ -644,6 +653,9 @@ class _History {
                             this.deleteCurrentLayer();
                             if (this.deletionInProgress) this._deletesQueued = held - 1;
                         }
+                        // Undo and redo pressed meanwhile play now, in the
+                        // order pressed, once no delete is left landing.
+                        if (!this.deletionInProgress) this._playHeldHistoryKeys();
                     });
                 return;
             }
@@ -666,6 +678,24 @@ class _History {
         deleteNext([...idsToDelete]);
     }
     
+    // Undo or redo pressed while a delete lands waits for it (see undo()).
+    // True when the key was held.
+    _holdHistoryKey(key) {
+        if (!this.deletionInProgress) return false;
+        (this._heldHistoryKeys || (this._heldHistoryKeys = [])).push(key);
+        sendClientLog('history_key_held_for_delete', { key, held: this._heldHistoryKeys.length });
+        return true;
+    }
+
+    _playHeldHistoryKeys() {
+        const keys = this._heldHistoryKeys || [];
+        this._heldHistoryKeys = [];
+        for (const key of keys) {
+            if (key === 'redo') this.redo();
+            else this.undo();
+        }
+    }
+
     hexToRgb(hex) {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
         return result ? {

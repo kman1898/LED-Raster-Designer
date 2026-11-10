@@ -285,6 +285,9 @@ FIXES
   other screens too, where its first screen falls.
 - FIX: Delete pressed twice quickly deletes twice, or says the last screen
   cannot be deleted. The second press used to be lost without a word.
+- FIX: Undo pressed right after deleting a screen brings the screen back.
+  It used to undo the change made before the delete instead, and leave the
+  screen deleted.
 - FIX: Delete removes a screen only on the Pixel Map tab, so a stray key
   never costs a screen. On Header/Footer it clears the bars, on the IDM
   Locator the mark, and elsewhere it does nothing. The canvas right-click
