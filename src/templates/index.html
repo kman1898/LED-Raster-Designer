@@ -37,6 +37,7 @@
             <div class="menu-option" data-action="export-svg" data-label="Export SVG"></div>
             <div class="menu-option" data-action="export-pdf" data-label="Export PDF"></div>
             <div class="menu-option" data-action="export-resolume-xml" data-label="Export Resolume XML"></div>
+            <div class="menu-option" data-action="export-obj" data-label="Export OBJ"></div>
             <div class="menu-option" data-action="pull-sheet" data-label="Pull Sheet…"></div>
             <div class="menu-option" data-action="export-pull-sheet" data-label="Export Pull Sheet"></div>
             <div class="menu-option" data-action="export-binder" data-label="Export Binder"></div>
@@ -1787,6 +1788,64 @@
                                 <button type="button" class="btn btn-secondary rigging-size-btn" data-size="4" style="flex: 1; padding: 4px 6px; font-size: 11px;">4</button>
                             </div>
                         </div>
+                        <!-- Curve: the curve calculator on the selected
+                             screens (app-curve.js). Ticked, it lays the bars
+                             from the lit sizes and sets the angle at every
+                             join between them. -->
+                        <div id="rigging-curve" style="margin-bottom: 10px;">
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #ccc; cursor: pointer;" data-tooltip="Curve, curve the selected screens with their bars. The lit sizes are the bars you have; the Curve picks where each one goes and the angle at every join between them, and lays them as this screen's bars.">
+                                <input type="checkbox" id="rigging-curve-on"> Curve
+                            </label>
+                            <div id="rigging-curve-note" style="display: none; color: #aaa; font-size: 11px; margin-top: 4px;"></div>
+                            <div id="rigging-curve-fields" style="display: none; margin-top: 6px; font-size: 12px;">
+                                <div style="display: flex; gap: 4px; align-items: center; margin-bottom: 4px;" data-tooltip="Curve, how much of a full circle the wall covers, measured on the front face: 20% is 72 degrees of sweep, 0 is straight. Switching between % and degrees keeps the same curve.">
+                                    <input type="text" id="rigging-curve-value" autocomplete="off" style="width: 56px; padding: 3px 5px;">
+                                    <div id="rigging-curve-entry" style="display: flex; gap: 2px;">
+                                        <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="percent" style="padding: 3px 7px; font-size: 11px;">%</button>
+                                        <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="degrees" style="padding: 3px 7px; font-size: 11px;">°</button>
+                                    </div>
+                                    <span id="rigging-curve-value-unit" style="color: #888; font-size: 11px;"></span>
+                                </div>
+                                <div id="rigging-curve-bend" style="display: flex; gap: 2px; margin-bottom: 4px;" data-tooltip="Bends, concave wraps around the audience, the ends come toward them; convex bows the middle out toward them.">
+                                    <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="concave" style="flex: 1; padding: 3px 6px; font-size: 11px;">Concave</button>
+                                    <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="convex" style="flex: 1; padding: 3px 6px; font-size: 11px;">Convex</button>
+                                </div>
+                                <div id="rigging-curve-goal" style="display: flex; gap: 2px; margin-bottom: 4px;" data-tooltip="Pick angles for, Simplest uses the fewest different angles that land close enough to the drawing. Even sets one angle at a regular spacing, like 5 degrees after every third panel. Tightest lands as close to the drawing as the angles allow.">
+                                    <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="simplest" style="flex: 1; padding: 3px 4px; font-size: 11px;">Simplest</button>
+                                    <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="even" style="flex: 1; padding: 3px 4px; font-size: 11px;">Even</button>
+                                    <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="tightest" style="flex: 1; padding: 3px 4px; font-size: 11px;">Tightest</button>
+                                </div>
+                                <div style="display: flex; gap: 4px; align-items: center; margin-bottom: 4px;" data-tooltip="Close enough, how far off the drawn curve still counts as on it. 25 mm, about an inch, by default.">
+                                    <span style="flex: none; width: 74px; color: #aaa;">Close enough</span>
+                                    <input type="text" id="rigging-curve-tol" autocomplete="off" style="width: 56px; padding: 3px 5px;">
+                                    <span id="rigging-curve-tol-unit" style="color: #888;">mm</span>
+                                </div>
+                                <div style="display: flex; gap: 4px; align-items: center; margin-bottom: 4px;" data-tooltip="Lock angles, the angles your bars can lock at, in degrees, like 2.5, 5, 7.5, 10. A joint can always be left flat.">
+                                    <span style="flex: none; width: 74px; color: #aaa;">Lock angles</span>
+                                    <input type="text" id="rigging-curve-angles" autocomplete="off" style="flex: 1; min-width: 0; padding: 3px 5px;">
+                                </div>
+                                <div style="margin-bottom: 6px;" data-tooltip="Build from, where the crew sets out from: the center, the left or right end, or any panel or joint by dragging the red dot on the plan. The wall touches the drawing there and any drift lands away from it.">
+                                    <div style="color: #aaa; margin-bottom: 2px;">Build from</div>
+                                    <div id="rigging-curve-from" style="display: flex; gap: 2px;">
+                                        <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="left" style="flex: 1; min-width: 0; padding: 3px 2px; font-size: 11px;">Left</button>
+                                        <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="center" style="flex: 1; min-width: 0; padding: 3px 2px; font-size: 11px;">Center</button>
+                                        <button type="button" class="btn btn-secondary rigging-curve-btn" data-value="right" style="flex: 1; min-width: 0; padding: 3px 2px; font-size: 11px;">Right</button>
+                                    </div>
+                                    <div id="rigging-curve-from-label" style="color: #888; font-size: 11px; margin-top: 2px;"></div>
+                                </div>
+                                <div id="rigging-curve-working" style="display: none; color: #aaa; font-size: 11px; margin-bottom: 4px;" data-tooltip="Working, the Curve is working out the bars and the angles. The rest of the app carries on meanwhile.">Working</div>
+                                <div id="rigging-curve-errors" style="display: none; color: #ff6b6b; white-space: pre-line;"></div>
+                                <div id="rigging-curve-result" style="padding: 6px; background: #111; border: 1px solid #4a4a4a; border-radius: 4px;">
+                                    <div id="rigging-curve-head" style="font-weight: 600; color: #fff; margin-bottom: 4px;" data-tooltip="Set the bars to, the angle to lock each join to and how many joins get it. The strip below shows which."></div>
+                                    <div id="rigging-curve-sheet" style="overflow-x: auto; margin-bottom: 4px;" data-tooltip="Build sheet, the bars left to right with their size, the angle on every join that bends, and a red mark where the build starts."></div>
+                                    <div id="rigging-curve-plan" style="margin-bottom: 4px;" data-tooltip="Plan, the wall from above with the audience at the bottom: red as built, dashed as drawn. Drag the red dot onto any panel middle or joint to build from there."></div>
+                                    <div id="rigging-curve-readouts" style="display: flex; flex-direction: column; gap: 1px;" data-tooltip="Readouts, what the wall builds, measured off the built wall: the sweep, the radius to the front face, the width end to end, the depth of the bow, and the farthest it lands from the drawn curve."></div>
+                                    <div id="rigging-curve-reason" style="color: #aaa; font-size: 11px; margin-top: 4px;"></div>
+                                    <div id="rigging-curve-warnings" style="display: none; color: #f5a623; font-size: 11px; margin-top: 4px; white-space: pre-line;"></div>
+                                    <div id="rigging-curve-ways" data-tooltip="Ways to build it, every way these angles can build the curve, best first by the Curve's rule, the closest and the closest even one among them. Use this builds the wall that way until the curve, the bars or the wall change."></div>
+                                </div>
+                            </div>
+                        </div>
                         <button type="button" id="rigging-select-all-btn" class="btn btn-secondary" style="width: 100%; margin-bottom: 4px;" data-tooltip="Select every screen in the show, on every canvas, so Auto and Clear act on all of them at once">Select All Screens</button>
                         <div style="display: flex; gap: 4px;">
                             <button type="button" id="rigging-auto-btn" class="btn btn-primary" style="flex: 1;" disabled data-tooltip="Auto, fit the fewest bars of the lit sizes across each selected screen, on its side. Grouped screens standing edge to edge get one row across them.">Auto</button>
@@ -2661,6 +2720,7 @@
                     <option value="resolume-xml">Resolume XML (Advanced Output)</option>
                     <option value="pull-sheet">Pull Sheet (Excel workbook, gear list by position)</option>
                     <option value="binder">Binder (PDF)</option>
+                    <option value="obj">OBJ (3D model of each screen, mapped to its canvas)</option>
                     <!-- NovaStar SCR export is parked, not gone: the .scr file
                          layer lives in src/scr_project.py / scr_encoder.py /
                          scr_decoder.py with a working CLI in
@@ -2669,6 +2729,7 @@
                          export-confirm handler, and a route that calls
                          scr_project.build_sections. -->
                 </select>
+                <div id="export-obj-note" style="display: none; margin-top: 6px; font-size: 11px; color: #888;" data-tooltip="OBJ, a 3D model of every screen on the 3D stage in meters, bent and curved as it stands there, with each cabinet mapped to where it sits in its canvas, the canvas's Pixel Map PNG and the .mtl that points at it. A group is one model; set its Names switch on Show Look to Screens to get a model per screen.">One model per screen as it stands on the 3D stage, in meters. A group is one model unless its Names switch on Show Look is Screens.</div>
             </div>
 
             <!-- Pull Sheet (format pull-sheet only): the project's jumper names

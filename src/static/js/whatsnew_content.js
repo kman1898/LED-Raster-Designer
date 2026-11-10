@@ -28,7 +28,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Header and footer bars',
               d: 'The new Header/Footer tab, right of Power, builds the bars above or below each wall. Light the sizes you stock and Auto fits the fewest bars across it, or pick Custom and click or drag along the edge to lay them yourself. Grouped screens share one row across the seam, and the counts go on the pull sheet and the binder.' },
             { h: 'Screens on a stage in 3D',
-              d: 'The 3D tab builds every Show Look screen from its cabinets with its Pixel Map on the front. Place and turn each screen, and bend any column or row joint up to 15 degrees. The header and footer bars stand above and below each wall in their own colors, and Bars hides them.' },
+              d: 'The 3D tab builds every Show Look screen from its cabinets with its Pixel Map on the front. Place and turn each screen, and bend any column or row joint up to 15 degrees. The header and footer bars stand above and below each wall in their own colors, and Bars hides them. Tick Curve on the Header/Footer tab and the app lays the bars you have and sets the angle at every join for the curve you ask, and File > Export OBJ saves each screen as a 3D model mapped to its canvas.' },
             { h: 'A canvas on a second display',
               d: 'View > Output to Display opens a canvas in its own window, fit to the display or pixel for pixel, and follows every edit live.' },
             { h: 'The IDM Locator',

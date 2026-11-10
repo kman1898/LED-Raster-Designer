@@ -3329,7 +3329,10 @@ class _PullList {
             if (el) el.style.display = on ? '' : 'none';
         };
         show('export-pull-sheet-section', isSheet);
-        show('export-canvases-section', !isSheet);
+        // OBJ takes its screens off the 3D stage, not a canvas pick
+        // (app-obj-export.js): no canvas list for it either.
+        const isObj = !!formatEl && formatEl.value === 'obj';
+        show('export-canvases-section', !isSheet && !isObj);
         show('export-options-section', !isSheet);
         if (isSheet) show('export-views-section', false);
     }

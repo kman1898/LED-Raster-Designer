@@ -321,6 +321,9 @@ class _Clipboard {
                 ? layer.riggingFooterBarStarts.slice() : layer.riggingFooterBarStarts,
             riggingSide: layer.riggingSide,
             riggingCustom: layer.riggingCustom,
+            // The Curve and its settings (app-curve.js): a copy is the same
+            // curved wall, its joints ride in its 3D place.
+            riggingCurve: layer.riggingCurve ? JSON.parse(JSON.stringify(layer.riggingCurve)) : undefined,
             // ...but a member of a row that crosses a group's seam keeps
             // only the bars over it, cut at its edges (riggingCopyFields).
             ...((typeof this.riggingCopyFields === 'function' && this.riggingCopyFields(layer)) || {}),

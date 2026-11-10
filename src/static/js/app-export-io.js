@@ -27,8 +27,32 @@ class _ExportIo {
         // views) and for the pull sheet (a workbook, not a picture).
         const viewSection = document.getElementById('export-views-section');
         if (viewSection) {
-            const geometryOnly = (format === 'resolume-xml' || format === 'pull-sheet' || format === 'binder');
+            const geometryOnly = (format === 'resolume-xml' || format === 'pull-sheet' || format === 'binder' || format === 'obj');
             viewSection.style.display = geometryOnly ? 'none' : '';
+        }
+        // OBJ's note under the format. Which sections show is each format's
+        // own sync (syncPullSheetControls, syncBinderControls), never here:
+        // this runs after them and would undo them.
+        const objNote = document.getElementById('export-obj-note');
+        if (objNote) objNote.style.display = format === 'obj' ? '' : 'none';
+
+        if (format === 'obj') {
+            // Every file the export writes, one per line (app-obj-export.js).
+            const names = typeof this.objExportFileNames === 'function' ? this.objExportFileNames(projectName) : [];
+            if (!names.length) {
+                preview.textContent = '(No screens on the 3D stage)';
+                preview.classList.remove('value-accent');
+                preview.style.color = '#ff6b6b';
+                return;
+            }
+            preview.classList.add('value-accent');
+            preview.style.color = '';
+            preview.textContent = '';
+            names.forEach((n, i) => {
+                if (i) preview.appendChild(document.createElement('br'));
+                preview.appendChild(document.createTextNode(n));
+            });
+            return;
         }
 
         if (format === 'binder') {
@@ -736,6 +760,10 @@ class _ExportIo {
             await this.downloadAsPsd(projectName, renderedItems);
         } else if (format === 'svg') {
             await this.downloadAsSvg(projectName, renderedItems);
+        } else if (format === 'obj') {
+            // The Pixel Map PNGs an OBJ export saves beside its models
+            // (app-obj-export.js objExportFiles).
+            return renderedItems;
         }
     }
     

@@ -710,6 +710,7 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
 #output-display-modal .od-row > label { flex: 0 0 64px; color: var(--ps-dim, #ccc); font-size: 12px; }
 #output-display-modal .od-row > select { flex: 1; min-width: 0; padding: 5px 8px; font-size: 12px; }
 #output-display-modal .od-note { margin: 2px 16px 12px; min-height: 16px; color: var(--ps-faint, #999); font-size: 11px; line-height: 1.45; }
+#output-display-modal .od-note.od-warn { color: #e8a33d; }
 #output-display-modal .od-open { margin: 0 16px 12px; border: 1px solid var(--ps-dark, #333); border-radius: 3px; background: var(--ps-panel-2, #222); }
 #output-display-modal .od-open[hidden] { display: none; }
 #output-display-modal .od-open-title { padding: 6px 10px; font-size: 11px; color: var(--ps-dim, #aaa); text-transform: uppercase; letter-spacing: 0.04em; }

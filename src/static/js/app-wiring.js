@@ -2566,6 +2566,24 @@ class _Wiring {
                 return;
             }
 
+            // OBJ: one model per physical screen off the 3D stage, with the
+            // .mtl and the Pixel Map PNGs it points at (app-obj-export.js).
+            if (format === 'obj') {
+                document.getElementById('export-modal').style.display = 'none';
+                document.getElementById('status-message').textContent = 'Exporting OBJ...';
+                try {
+                    await this.exportObj(projectName);
+                    document.getElementById('status-message').textContent = 'Export complete!';
+                    setTimeout(() => { document.getElementById('status-message').textContent = 'Ready'; }, 3000);
+                } catch (error) {
+                    console.error('OBJ export error:', error);
+                    document.getElementById('status-message').textContent = 'Export failed!';
+                    sendClientLog('export_failed', { message: error.message, format: 'obj' });
+                    if (typeof this._toast === 'function') this._toast(error.message, true, 6000);
+                }
+                return;
+            }
+
             // Resolume XML export, no views needed, just geometry
             if (format === 'resolume-xml') {
                 document.getElementById('export-modal').style.display = 'none';

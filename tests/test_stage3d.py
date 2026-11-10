@@ -835,14 +835,22 @@ def test_the_bars_follow_the_curve_and_a_change_on_the_tab(page):
     open_3d(page, 2)
     flat = bars_of(page, ids[0])['header']
     type_field(page, 's3d-curve-col', '10')
-    page.wait_for_timeout(400)
-    bent = bars_of(page, ids[0])['header']
+    # The stage rebuilds on its debounce (SYNC_MS) after the edit, so the
+    # test waits for the rebuild itself, never a fixed time: under load the
+    # timer and the rebuild ran past a 400 ms sleep.
+    bent = settled(page, lambda: bars_of(page, ids[0])['header'],
+                   lambda b: b['first'][2] > flat['first'][2] + 10, 5000)
     # the ends come forward with the wall's ends, and the bar keeps its length
     assert bent['first'][2] > flat['first'][2] + 10 and bent['last'][2] > flat['last'][2] + 10
     assert bent['lengthMm'] == pytest.approx(flat['lengthMm'])
-    # a change on the Header/Footer tab redraws them
+    # A change on the Header/Footer tab redraws them. set_bars commits with
+    # updateLayers, which redraws (and so rebuilds the stage) once the
+    # server has answered the PUT: a reply held past the old 300 ms sleep
+    # (2026-11-09, reproduced with the replies held 900 ms) read the bars
+    # from before the change. Wait for the stage itself.
     set_bars(page, ids[0], [1, 3], [4])
-    now = bars_of(page, ids[0])
+    now = settled(page, lambda: bars_of(page, ids[0]),
+                  lambda r: r.get('header', {}).get('bars') == [1, 3] and 'footer' in r, 5000)
     assert now['header']['bars'] == [1, 3] and now['footer']['fits']
 
 
