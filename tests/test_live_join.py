@@ -567,7 +567,13 @@ def _server_layer_names(url):
     return [l['name'] for l in _server_project(url)['layers']]
 
 
-def _wait_server(url, want, timeout=20.0):
+def _wait_server(url, want, timeout=20.0, pg=None):
+    """`pg`: the page whose requests the wait is for. It waits through the
+    page, not a plain sleep: a test asleep in Python stops reading the
+    browser's events (each page's console and responses), and once enough
+    are queued the page's own requests stop going out with them (measured
+    2026-11-10: the other tab's PUT of the person's Preferences sat unsent
+    for the whole wait, and went at once when the page was waited on)."""
     import time
     deadline = time.time() + timeout
     names = None
@@ -575,7 +581,10 @@ def _wait_server(url, want, timeout=20.0):
         names = _server_layer_names(url)
         if want(names):
             return names
-        time.sleep(0.2)
+        if pg is not None:
+            pg.wait_for_timeout(200)
+        else:
+            time.sleep(0.2)
     raise AssertionError(f'the server project never got there: {names}')
 
 
@@ -654,7 +663,7 @@ def test_a_guide_s_tab_closed_mid_guide_hands_the_project_back_through_the_other
         _settle(second)
         assert 'DEMO WALL' in _server_layer_names(e2e_server)
         first.close()
-        _wait_server(e2e_server, lambda n: n == ['MY WALL'], timeout=20.0)
+        _wait_server(e2e_server, lambda n: n == ['MY WALL'], timeout=20.0, pg=second)
         second.wait_for_function("(k) => !localStorage.getItem(k)", arg=STASH_KEY, timeout=10000)
         # the page that put it back has it
         second.wait_for_function("() => window.app.project.layers.map(l => l.name).join() === 'MY WALL'",
