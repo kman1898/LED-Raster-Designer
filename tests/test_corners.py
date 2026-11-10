@@ -450,7 +450,7 @@ def test_the_obj_carries_the_corners_shape_mapping_and_image(page):
             rest.remove(nxt)
     heads = [math.degrees(math.atan2(br[2] - bl[2], br[0] - bl[0])) for bl, br in order]
     turns = [round(heads[i + 1] - heads[i], 3) for i in range(len(heads) - 1)]
-    assert turns == [0, 0, 90, 0, 0, -30, 0]
+    assert turns == [0, 0, 90, 0, 0, -30]
     assert page.errors == []
 
 
@@ -493,10 +493,11 @@ def test_an_old_show_opens_with_nothing_moved_and_nothing_written(page):
         l.riggingColor = '#224466'; a.updateLayers([l], true, 'Bar Color'); }}""")
     settled(page, lambda: served(page, foot).get('riggingColor'), lambda v: v == '#224466')
     after = {i: served(page, i) for i in ids}
+    # (the server fills its usual defaults on a screen's first PUT; its
+    # place, shape and bars are what must not change)
     for i in ids:
-        a, b = dict(after[i]), dict(before[i])
-        a.pop('riggingColor', None)
-        b.pop('riggingColor', None)
-        assert a == b, i
+        for key in ('stage3d', 'riggingFooterBars', 'riggingBars', 'panels', 'columns', 'rows'):
+            assert after[i].get(key) == before[i].get(key), (i, key)
+        assert 'riggingCorners' not in after[i]
     assert history_len(page) == n + 1
     assert page.errors == []

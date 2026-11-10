@@ -119,6 +119,11 @@ class _Corners {
             const v = Number(String(raw).replace(/[°\s]/g, ''));
             if (!Number.isFinite(v) || v <= 0 || v > CORNER_MAX) {
                 this._toast('Corner angle, type an angle above 0 and up to 90 degrees.', true, 5000);
+                // the field goes back to the angle the corner has
+                const primary = this._riggingPrimary(screens);
+                const had = primary ? this.riggingCornersOf(primary).find(c => c.at === at) : null;
+                const el = document.querySelector(`#rigging-corner-list [data-corner="${at}"] [data-corner-angle]`);
+                if (el && had) el.value = String(had.angle);
                 this.refreshRiggingPanel();
                 return;
             }
