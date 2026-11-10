@@ -605,10 +605,14 @@ def test_a_tab_opened_during_a_guide_leaves_the_guide_s_show_alone(e2e_server, p
         first.evaluate("() => window.QuickStart.end()")
         _wait_server(e2e_server, lambda n: n == ['MY WALL'])
         first.wait_for_function("(k) => !localStorage.getItem(k)", arg=STASH_KEY, timeout=10000)
-        second.wait_for_function("() => window.app.project.layers.map(l => l.name).join() === 'MY WALL'",
-                                 timeout=10000)
-        # and the second tab never puts anything back on its own later
+        # the second tab never puts anything back on its own later, and
+        # its reload opens on the person's project
         second.wait_for_timeout(2500)
+        assert _server_layer_names(e2e_server) == ['MY WALL']
+        second.reload(wait_until='domcontentloaded')
+        _loaded(second)
+        _settle(second)
+        assert _layers(second) == ['MY WALL']
         assert _server_layer_names(e2e_server) == ['MY WALL']
         assert problems == [] and more == [], problems + more
     finally:
@@ -630,6 +634,7 @@ def test_a_guide_s_tab_closed_mid_guide_hands_the_project_back_through_the_other
         first.close()
         _wait_server(e2e_server, lambda n: n == ['MY WALL'], timeout=20.0)
         second.wait_for_function("(k) => !localStorage.getItem(k)", arg=STASH_KEY, timeout=10000)
+        # the page that put it back has it
         second.wait_for_function("() => window.app.project.layers.map(l => l.name).join() === 'MY WALL'",
                                  timeout=10000)
         assert more == [], more
