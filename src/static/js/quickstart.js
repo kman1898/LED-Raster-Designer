@@ -6114,6 +6114,41 @@
                     ? n.textContent + ' header bars in the show: ' + String((list && list.textContent) || '').replace(/\n/g, ', ') + '.' : null;
             }
         },
+        // A panel's curve lock positions (1.7.0, app-curve.js): the only
+        // angles the Curve lays. The demo wall's panel is named by hand, so
+        // the library has none for it: Edit sets them for the show, and the
+        // next step curves the wall with them.
+        riggingCurveLocks: {
+            since: '1.7.0',
+            target: '#rigging-curve-locks', place: 'right', title: 'Lock positions',
+            body: 'The Curve lays only the angles a panel\'s curve locks set at. Edit sets them for every screen of this panel in the show; the panel library fills them in where it knows them.',
+            before: function () {
+                switchView('rigging');
+                var w = wall();
+                if (w) A().setSelectedLayersByIds([w.id], w.id);
+                A().refreshRiggingPanel();
+            },
+            act: function (t) {
+                return t.click('#rigging-curve-lock-edit').then(function () {
+                    return t.type('#rigging-curve-lock-input', '-7.5, -5, 5, 7.5');
+                }).then(function () {
+                    return t.click('#rigging-curve-lock-save');
+                }).then(function () {
+                    return t.wait(function () { var w = wall(); return w && A().curveLocksOf(w).source === 'user'; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the lock positions were not saved');
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function () {
+                var w = wall();
+                var locks = w && A().curveLocksOf(w);
+                return locks && locks.source === 'user' && (locks.list || []).join(',') === '-7.5,-5,0,5,7.5'
+                    ? (w.name || 'The wall') + '\'s panel locks at ' + Array.prototype.map.call(
+                        document.querySelectorAll('#rigging-curve-lock-chips [data-lock]'),
+                        function (c) { return c.textContent; }).join(', ') + ', set by you.' : null;
+            }
+        },
         // The Header/Footer tab's Curve (1.7.0, app-curve.js): ticked, the
         // curve calculator lays the wall's bars from the lit sizes and sets
         // the angle at every join between them. Left on, so the 3D steps
@@ -8351,7 +8386,7 @@
                     'cableStockPieces', 'powerCableTags',
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
-                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurve',
+                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurveLocks', 'riggingCurve',
                     'riggingCorner', 'riggingCornerBars', 'riggingCornerSide',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
                     's3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',

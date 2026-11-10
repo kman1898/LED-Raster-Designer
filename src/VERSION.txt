@@ -165,15 +165,27 @@ CURVED WALLS
 
 Tick Curve on the Header/Footer tab and the app works out how to curve the
 selected screen with the bars you have. Say how much of a circle the wall
-covers, as a % or in degrees of sweep, concave or convex, and the angles
-your bars lock at. The sizes you have lit are the stock: the Curve decides
-where each bar goes and the angle to set at every join between bars, then
-lays them as the screen's real bars, so the totals, the pull sheet and the
-binder count them, and the 3D view bends the wall to match. A joint inside
-a bar never bends, and any joint can stay flat. A curve lock bends up to
-20 degrees: a lock angle past that is refused, and so is a curve that
-needs more than 20 degrees at each joint, with how much curve the wall
-can take.
+covers, as a % or in degrees of sweep, concave or convex. The sizes you
+have lit are the stock: the Curve decides where each bar goes and the
+angle to set at every join between bars, then lays them as the screen's
+real bars, so the totals, the pull sheet and the binder count them, and
+the 3D view bends the wall to match. A joint inside a bar never bends, and
+any joint can stay flat. A curve that needs more than 20 degrees at each
+joint is refused, with how much curve the wall can take.
+
+A panel's curve locks set at fixed positions, and the Curve lays only
+those: ROE Graphite tiles lock at -5, 0 and +5 degrees, so a Graphite wall
+only ever gets those. The positions show as chips above the form, with
+where they came from: the panel library, the built-in list, or set by you.
+
+- NEW: Edit sets a panel's lock positions, up to 20 degrees either way,
+  for every screen of that panel in the show. They save with the show and
+  in panel presets, Undo takes them back, and every curved screen of that
+  panel is laid again from them.
+- NEW: A panel with no lock positions can't be curved until they are set,
+  and the Curve says so.
+- NEW: A curve saved at an angle its panel doesn't lock at opens as it was
+  and says so; Auto or Use this lays it again from the panel's positions.
 
 Under the form, a strip shows the bars left to right with the angle on
 every join that bends, a small plan shows the wall from above against the
@@ -189,10 +201,10 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   takes the bars off and turns the Curve off.
 - NEW: Build from the center or either end, or drag the red dot on the
   plan onto any panel or the joint between two.
-- NEW: Ways to build it lists every way your angles can make the curve,
-  best first, with how many joints bend, the % it builds and how far off
-  the drawing it lands. Use this builds the wall that way until you change
-  the curve, the bars or the wall.
+- NEW: Ways to build it lists every way the lock positions can make the
+  curve, best first, with how many joints bend, the % it builds and how
+  far off the drawing it lands. Use this builds the wall that way until
+  you change the curve, the bars or the wall.
 - NEW: The Curve works it out in the background, so the app never stops
   while it does; the tab says Working until the bars land.
 - NEW: If the sizes you have lit can't cover the wall exactly, the Curve

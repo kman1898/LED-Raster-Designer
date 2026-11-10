@@ -57,12 +57,37 @@
 // Stored on the layer as riggingCurve (curve-math.js cleanCurve holds its
 // shape); a show without it has every screen off, unchanged. The reference
 // table of every joint at one angle is left out to keep the tab compact.
+//
+// THE CURVE LAYS ONLY THE PANEL'S LOCK POSITIONS (owner, 2026-11-10): a
+// fixed list of signed angles per panel (curve-math.js cleanLocks), shown
+// as chips above the form with where they came from: the show's own list
+// for that panel ("Set by you"), the panel library's `curve_locks` ("From
+// the panel library") or the owner's list (curve-math.js OWNER_CURVE_LOCKS,
+// "Owner list"), first found. Edit opens a small list editor; Save writes
+// the show's list for the panel (project.panelCurveLocks, keyed by
+// curveLockKey) as one undo step, and every curved screen of that panel is
+// laid again from it. A panel preset carries the show's list
+// (serializeLayerAsPreset `curveLocks`), and a screen made from the preset
+// hands it to a show that has none for that panel. A panel with no
+// positions cannot be curved: the Curve says so and its checkbox waits. A
+// saved curve laid at an angle the panel's list does not have opens as it
+// was, flagged, until Auto or Use this lays it again from the list. The
+// typed "Lock angles" of the first 1.7.0 builds (riggingCurve.angles) are
+// no longer read.
 import { LEDRasterApp } from './app-core.js';
 import { s3dCleanCorners, s3dCornerSeams, s3dCornerTurn, s3dResolve, s3dSanitize } from './app-stage3d.js';
 import {
-    cleanCurve, convertCurveEntry, datumLabel, formatAngle, formatLength, formatSmall, parseAngles,
-    screenCurve, snapDatum, CURVE_MAX_JOINT_DEG,
+    cleanCurve, cleanLocks, convertCurveEntry, datumLabel, formatAngle, formatLength, formatLock, formatSmall,
+    hasLockPositions, ownerCurveLocks, parseLocks, screenCurve, snapDatum,
+    CURVE_MAX_JOINT_DEG, NO_LOCKS_MESSAGE,
 } from './curve-math.js';
+
+// Where a panel's lock positions came from, as the tab says it.
+const LOCK_SOURCE_WORDS = {
+    user: 'Set by you',
+    library: 'From the panel library',
+    owner: 'Built-in list',
+};
 
 const CACHE_MAX = 40;
 const NS = 'http://www.w3.org/2000/svg';
@@ -92,7 +117,7 @@ class _Curve {
         };
         field('rigging-curve-value', 'value');
         field('rigging-curve-tol', 'tolerance');
-        field('rigging-curve-angles', 'angles');
+        this._wireCurveLockEditor();
         const ways = document.getElementById('rigging-curve-ways');
         if (ways) ways.addEventListener('click', (e) => {
             const btn = e.target && e.target.closest ? e.target.closest('[data-pick]') : null;
@@ -120,6 +145,253 @@ class _Curve {
         return (typeof this.cableUnit === 'function' && this.cableUnit() === 'm') ? 'metric' : 'imperial';
     }
 
+    // ---- the panel's lock positions ----------------------------------------
+
+    // Which panel a screen is, for its lock positions: the library model it
+    // saved ("ROE|Graphite GP2.6 Full Tile"), else the name typed for it,
+    // else its cabinet's size in mm and pixels. Every screen with the same
+    // key shares one list in the show.
+    curveLockKey(layer) {
+        const id = String((layer && layer.panelModelId) || '').trim();
+        if (id) return id;
+        const name = String((layer && layer.panelModelName) || '').trim();
+        if (name) return `name:${name}`;
+        const n = (v) => Number(v) || 0;
+        return `cabinet:${n(layer && layer.panel_width_mm)}x${n(layer && layer.panel_height_mm)}mm:`
+            + `${n(layer && layer.cabinet_width)}x${n(layer && layer.cabinet_height)}px`;
+    }
+
+    // The show's own lists, by curveLockKey.
+    _curveShowLocks() {
+        const m = this.project && this.project.panelCurveLocks;
+        return m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+    }
+
+    // The panel's list without the show's own: the library's curve_locks
+    // where it has some for this model, else the owner's list; null when
+    // neither speaks for it. Only a library model (panelModelId) has one.
+    _curveBaseLocks(layer) {
+        const id = String((layer && layer.panelModelId) || '');
+        const cut = id.indexOf('|');
+        if (cut < 0) return null;
+        const saved = typeof this._catalogSavedPanel === 'function' ? this._catalogSavedPanel(layer) : undefined;
+        const F = saved && saved.F;
+        const lib = F ? cleanLocks(F.curve_locks) : null;
+        if (hasLockPositions(lib)) {
+            return { list: lib, source: 'library', note: typeof F.curve_locks_source === 'string' ? F.curve_locks_source : '' };
+        }
+        const own = ownerCurveLocks(id.slice(0, cut), id.slice(cut + 1));
+        return own ? { list: cleanLocks(own), source: 'owner', note: '' } : null;
+    }
+
+    // A screen's lock positions: { key, list, source, note, base }, `list`
+    // null and `source` null when its panel has none. `base` is what the
+    // panel would have without the show's own list.
+    curveLocksOf(layer) {
+        const key = this.curveLockKey(layer);
+        const base = this._curveBaseLocks(layer);
+        const mine = cleanLocks(this._curveShowLocks()[key]);
+        if (mine) return { key, list: mine, source: 'user', note: '', base };
+        return base ? { key, ...base, base } : { key, list: null, source: null, note: '', base: null };
+    }
+
+    // The angles a curved screen stands at that its panel's list does not
+    // have, signed, each once ([] when every one is on it).
+    _curveOffList(layer, list) {
+        const table = (layer && layer.stage3d && layer.stage3d.jointsCol) || {};
+        const have = new Set((list || []).map(a => Math.round(a * 1000)));
+        const off = new Set();
+        Object.values(table).forEach(v => {
+            const a = Number(v);
+            if (Number.isFinite(a) && a !== 0 && !have.has(Math.round(a * 1000))) off.add(a);
+        });
+        return [...off].sort((a, b) => a - b);
+    }
+
+    // Save the show's list for one panel (null takes it away, and the
+    // panel's library or owner list applies again). One undo step: every
+    // curved screen of that panel is laid again from it in the same step.
+    setPanelCurveLocks(key, list, action = 'Curve Lock Positions') {
+        if (!this.project || !key) return false;
+        const now = this._curveShowLocks();
+        const map = { ...now };
+        if (list === null) delete map[key];
+        else {
+            const clean = cleanLocks(list);
+            if (!hasLockPositions(clean)) return false;
+            map[key] = clean;
+        }
+        if (JSON.stringify(map) === JSON.stringify(now)) return false;
+        this.project.panelCurveLocks = map;
+        this._curveSendShowLocks();
+        const curved = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen'
+            && this.curveLockKey(l) === key && this.riggingCurveOn(l) && !this._curveCannot(l)
+            && !(typeof this._layerLocked === 'function' && this._layerLocked(l)));
+        if (!(curved.length && this.riggingCurveRelayLater(curved, action, curved))) this.saveState(action);
+        this.refreshRiggingPanel();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        return true;
+    }
+
+    // The show's lists to the server, in order with the screens' saves.
+    _curveSendShowLocks() {
+        const body = JSON.stringify({ panelCurveLocks: this._curveShowLocks() });
+        const p = fetch('/api/project', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+        if (typeof this._trackProjectSync === 'function') this._trackProjectSync(p);
+        return p;
+    }
+
+    // A screen made from (or changed to) a panel preset that carries a list
+    // of its own: the show takes it for that panel when it has none, and
+    // keeps its own when it does. Rides the caller's undo step.
+    _curveAdoptPresetLocks(layer, raw) {
+        if (!this.project || !layer || !Array.isArray(raw)) return false;
+        const clean = cleanLocks(raw);
+        if (!hasLockPositions(clean)) return false;
+        const key = this.curveLockKey(layer);
+        const now = this._curveShowLocks();
+        if (now[key]) return false;
+        this.project.panelCurveLocks = { ...now, [key]: clean };
+        this._curveSendShowLocks();
+        return true;
+    }
+
+    // ---- the list editor -------------------------------------------------
+
+    _wireCurveLockEditor() {
+        const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
+        on('rigging-curve-lock-edit', 'click', () => this.openCurveLockEditor());
+        on('rigging-curve-lock-add', 'click', () => this.addCurveLockDraft());
+        on('rigging-curve-lock-save', 'click', () => this.saveCurveLockDraft());
+        on('rigging-curve-lock-cancel', 'click', () => this.closeCurveLockEditor());
+        on('rigging-curve-lock-reset', 'click', () => {
+            const ed = this._curveLockEdit;
+            this.closeCurveLockEditor();
+            if (ed) this.setPanelCurveLocks(ed.key, null);
+        });
+        // Enter adds what is typed (and keeps the editor open).
+        on('rigging-curve-lock-input', 'keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            this.addCurveLockDraft();
+        });
+        on('rigging-curve-lock-draft', 'click', (e) => {
+            const btn = e.target && e.target.closest ? e.target.closest('[data-remove-lock]') : null;
+            if (btn) this.removeCurveLockDraft(Number(btn.dataset.removeLock));
+        });
+    }
+
+    // Edit: the primary screen's panel list, ready to change.
+    openCurveLockEditor() {
+        const primary = this._riggingPrimary(this._riggingScreens());
+        if (!primary) return;
+        const locks = this.curveLocksOf(primary);
+        this._curveLockEdit = { key: locks.key, draft: [...(locks.list || [0])] };
+        const input = document.getElementById('rigging-curve-lock-input');
+        if (input) input.value = '';
+        this.refreshRiggingCurve();
+        if (input) input.focus();
+    }
+
+    closeCurveLockEditor() {
+        this._curveLockEdit = null;
+        this.refreshRiggingCurve();
+    }
+
+    // Add what is typed: every number in it, each within 20 degrees either
+    // way. One past that is refused and the box keeps what was typed.
+    addCurveLockDraft(text = null) {
+        const ed = this._curveLockEdit;
+        if (!ed) return false;
+        const input = document.getElementById('rigging-curve-lock-input');
+        const raw = text !== null ? text : (input ? input.value : '');
+        const list = parseLocks(raw);
+        if (!list) {
+            this._toast('Lock positions, type angles in degrees, like -5, 5.', true, 5000);
+            return false;
+        }
+        const over = list.filter(a => Math.abs(a) > CURVE_MAX_JOINT_DEG + 1e-9);
+        if (over.length) {
+            this._toast(`Lock positions, ${over.map(a => formatLock(a)).join(' and ')} is past the ${CURVE_MAX_JOINT_DEG}° a curve lock bends. Type positions from -${CURVE_MAX_JOINT_DEG}° to +${CURVE_MAX_JOINT_DEG}°.`, true, 6000);
+            return false;
+        }
+        ed.draft = cleanLocks([...ed.draft, ...list]);
+        if (input && text === null) input.value = '';
+        this.refreshRiggingCurve();
+        return true;
+    }
+
+    removeCurveLockDraft(a) {
+        const ed = this._curveLockEdit;
+        if (!ed || !Number.isFinite(a) || a === 0) return;
+        ed.draft = cleanLocks(ed.draft.filter(x => x !== a));
+        this.refreshRiggingCurve();
+    }
+
+    // Save: anything still typed is added first. A list with no position
+    // but flat is refused.
+    saveCurveLockDraft() {
+        const ed = this._curveLockEdit;
+        if (!ed) return false;
+        const input = document.getElementById('rigging-curve-lock-input');
+        if (input && input.value.trim() && !this.addCurveLockDraft()) return false;
+        if (!hasLockPositions(ed.draft)) {
+            this._toast('Lock positions, add at least one angle besides flat, like -5, 5.', true, 5000);
+            return false;
+        }
+        const { key, draft } = ed;
+        this._curveLockEdit = null;
+        if (!this.setPanelCurveLocks(key, draft)) this.refreshRiggingCurve();
+        return true;
+    }
+
+    // The chips, where they came from, and the editor when it is open.
+    _curveDrawLocks(primary, locks) {
+        const chip = (text, extra = '') => `<span class="rigging-curve-lock" style="display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border: 1px solid #4a4a4a; border-radius: 9px; background: #1d1d1d; color: #ddd; font-size: 11px;"${extra}>${text}</span>`;
+        const chipsEl = document.getElementById('rigging-curve-lock-chips');
+        const srcEl = document.getElementById('rigging-curve-lock-source');
+        const noneEl = document.getElementById('rigging-curve-lock-none');
+        const has = hasLockPositions(locks.list);
+        if (chipsEl) {
+            const html = has ? locks.list.map(a => chip(formatLock(a), ` data-lock="${a}"`)).join('') : '';
+            if (chipsEl.innerHTML !== html) chipsEl.innerHTML = html;
+        }
+        if (srcEl) {
+            srcEl.style.display = has ? '' : 'none';
+            srcEl.textContent = has ? LOCK_SOURCE_WORDS[locks.source] || '' : '';
+            srcEl.title = locks.note || '';
+            srcEl.dataset.source = locks.source || '';
+        }
+        if (noneEl) {
+            noneEl.style.display = has ? 'none' : '';
+            noneEl.textContent = has ? '' : NO_LOCKS_MESSAGE;
+        }
+        // The editor belongs to one panel: another screen's panel closes it.
+        const ed = this._curveLockEdit && this._curveLockEdit.key === locks.key ? this._curveLockEdit : null;
+        if (!ed) this._curveLockEdit = null;
+        const editor = document.getElementById('rigging-curve-lock-editor');
+        if (editor) editor.style.display = ed ? '' : 'none';
+        const editBtn = document.getElementById('rigging-curve-lock-edit');
+        if (editBtn) editBtn.style.display = ed ? 'none' : '';
+        if (!ed) return;
+        const draftEl = document.getElementById('rigging-curve-lock-draft');
+        if (draftEl) {
+            const html = ed.draft.map(a => (a === 0
+                ? chip(formatLock(a), ' data-draft-lock="0" data-tooltip="Flat is always a position."')
+                : chip(`${formatLock(a)}<button type="button" data-remove-lock="${a}" aria-label="Remove ${formatLock(a)}" style="border: none; background: none; color: #aaa; cursor: pointer; padding: 0; font-size: 11px; line-height: 1;">×</button>`,
+                    ` data-draft-lock="${a}"`))).join('');
+            if (draftEl.innerHTML !== html) draftEl.innerHTML = html;
+        }
+        const reset = document.getElementById('rigging-curve-lock-reset');
+        if (reset) {
+            const mine = locks.source === 'user';
+            reset.style.display = mine ? '' : 'none';
+            reset.textContent = !mine ? '' : locks.base
+                ? (locks.base.source === 'library' ? 'Use the panel library list' : 'Use the built-in list')
+                : 'Clear';
+        }
+    }
+
     // Why a screen cannot take a Curve, or '' when it can.
     // A Pixel Map rotation is no reason: it turns only the picture, and the
     // bars and the joints stay the wall's own columns (owner, 2026-11-10).
@@ -140,6 +412,8 @@ class _Curve {
             sizes: this._riggingSizesOf(layer),
             settings: { ...s, on: true },
             system: this._curveSystem(),
+            // the panel's lock positions, the only angles the Curve lays
+            locks: this.curveLocksOf(layer).list || null,
             ...(this._curveCornersOf(layer) || {}),
         };
     }
@@ -391,12 +665,15 @@ class _Curve {
         const screens = this._curveTargets(false);
         const changed = [];
         const refused = [];
+        const noLocks = [];
         for (const l of screens) {
             const s = this.riggingCurveOf(l);
             if (on) {
                 const why = this._curveCannot(l);
                 if (why) { refused.push([l, why]); continue; }
                 if (s.on) continue;
+                // No positions, no curve: it waits until they are set.
+                if (!hasLockPositions(this.curveLocksOf(l).list)) { noLocks.push(l); continue; }
                 l.riggingCurve = { ...s, on: true };
             } else {
                 if (!s.on) continue;
@@ -405,8 +682,13 @@ class _Curve {
             }
             changed.push(l);
         }
-        if (refused.length) {
-            this._toast(refused.map(([l, why]) => `${l.name || `Screen ${l.id}`} cannot take a Curve: ${why}.`).join(' '), true, 7000);
+        if (refused.length || noLocks.length) {
+            const lines = refused.map(([l, why]) => `${l.name || `Screen ${l.id}`} cannot take a Curve: ${why}.`);
+            if (noLocks.length) {
+                lines.push(screens.length === 1 ? NO_LOCKS_MESSAGE
+                    : `${listWords(noLocks.map(l => l.name || `Screen ${l.id}`))}: ${NO_LOCKS_MESSAGE.replace('this screen', noLocks.length === 1 ? 'it' : 'them')}`);
+            }
+            this._toast(lines.join(' '), true, 7000);
         }
         if (changed.length) {
             if (!on || !this.riggingCurveRelayLater(changed, 'Curve On', changed)) {
@@ -472,22 +754,6 @@ class _Curve {
             const v = Number(String(raw).replace(/[a-z"\s]/gi, ''));
             if (!Number.isFinite(v) || v < 0) { this.refreshRiggingPanel(); return; }
             patch.toleranceMm = this._curveSystem() === 'metric' ? v : v * 25.4;
-        } else if (key === 'angles') {
-            const list = parseAngles(raw);
-            if (!list || !list.length) {
-                this._toast('Lock angles, type the angles the bars lock at, like 2.5, 5, 7.5, 10.', true, 5000);
-                this.refreshRiggingPanel();
-                return;
-            }
-            // A curve lock bends at most CURVE_MAX_JOINT_DEG a joint (owner,
-            // 2026-11-10): past it the field goes back to what it held.
-            const over = list.filter(a => a > CURVE_MAX_JOINT_DEG + 1e-9);
-            if (over.length) {
-                this._toast(`Lock angles, ${over.map(a => formatAngle(a)).join(' and ')} is past the ${CURVE_MAX_JOINT_DEG}° a curve lock bends. Type angles up to ${CURVE_MAX_JOINT_DEG}°.`, true, 6000);
-                this.refreshRiggingPanel();
-                return;
-            }
-            patch.angles = list;
         } else {
             return;
         }
@@ -538,6 +804,17 @@ class _Curve {
         const onCount = screens.filter(l => this.riggingCurveOn(l)).length;
         box.checked = s.on;
         box.indeterminate = onCount > 0 && onCount < screens.length;
+        // The panel's lock positions: none, and the Curve waits for them.
+        // A library model reads the library's list once it has loaded.
+        if (primary.panelModelId && !this._panelCatalog && typeof this._ensurePanelCatalogData === 'function'
+            && !this._curveCatalogAsked) {
+            this._curveCatalogAsked = true;
+            this._ensurePanelCatalogData().then(() => this.refreshRiggingCurve(), () => {});
+        }
+        const locks = this.curveLocksOf(primary);
+        const hasLocks = hasLockPositions(locks.list);
+        box.disabled = !s.on && onCount === 0 && !hasLocks;
+        this._curveDrawLocks(primary, locks);
         // The settings always show and always save, Curve on or off: set
         // the curve up, then tick Curve to lay it.
         const fields = document.getElementById('rigging-curve-fields');
@@ -546,11 +823,20 @@ class _Curve {
         if (note) {
             note.style.display = '';
             note.textContent = !s.on
-                ? 'Tick Curve to lay these bars and angles on the screen.'
-                : this._riggingToolNow() === 'custom'
-                    ? 'The Curve lays this screen\'s bars, so Custom does not. Turn Curve off to lay them by hand.'
-                    : 'The Curve lays this screen\'s bars from the lit sizes. Auto lays it again.';
+                ? (hasLocks ? 'Tick Curve to lay these bars and angles on the screen.' : 'Set this panel\'s lock positions below, then tick Curve.')
+                : !hasLocks
+                    ? 'This screen keeps the angles it was laid at until its panel\'s lock positions are set.'
+                    : this._riggingToolNow() === 'custom'
+                        ? 'The Curve lays this screen\'s bars, so Custom does not. Turn Curve off to lay them by hand.'
+                        : 'The Curve lays this screen\'s bars from the lit sizes. Auto lays it again.';
         }
+        // A saved curve laid at angles its panel does not lock at opens as
+        // it was, flagged, until Auto or Use this lays it from the list.
+        const offList = s.on && hasLocks ? this._curveOffList(primary, locks.list) : [];
+        if (note && offList.length) {
+            note.textContent = `This screen is laid at ${listWords(offList.map(a => formatLock(a)))}, which this panel does not lock at. Press Auto to lay it again from its lock positions.`;
+        }
+        if (note) note.dataset.offList = offList.length ? '1' : '';
         const working = document.getElementById('rigging-curve-working');
 
         const lit = (sel, value) => document.querySelectorAll(sel).forEach(btn => {
@@ -575,7 +861,6 @@ class _Curve {
         set('rigging-curve-tol', system === 'metric'
             ? String(Math.round(s.toleranceMm * 10) / 10)
             : String(Math.round(s.toleranceMm / 25.4 * 100) / 100));
-        set('rigging-curve-angles', s.angles.join(', '));
         const tolUnit = document.getElementById('rigging-curve-tol-unit');
         if (tolUnit) tolUnit.textContent = system === 'metric' ? 'mm' : 'in';
         const valueUnit = document.getElementById('rigging-curve-value-unit');
@@ -603,14 +888,16 @@ class _Curve {
             return;
         }
         if (errorsEl) {
-            errorsEl.style.display = out.errors.length ? '' : 'none';
-            errorsEl.textContent = out.errors.join('\n');
+            // (no lock positions is said once, by the lock positions row)
+            const said = out.errors.filter(e => e !== NO_LOCKS_MESSAGE);
+            errorsEl.style.display = said.length ? '' : 'none';
+            errorsEl.textContent = said.join('\n');
         }
         if (result) result.style.display = out.errors.length ? 'none' : '';
         if (out.errors.length) return;
         // A redo can bring back an edit whose answer never landed: say so
         // rather than show a curve the screen does not carry.
-        if (note && !this.riggingCurveBusy() && !this._curveLaidMatches(primary, out)) {
+        if (note && !offList.length && !this.riggingCurveBusy() && !this._curveLaidMatches(primary, out)) {
             note.textContent = 'These bars and angles are not this curve\'s yet. Press Auto to lay it.';
         }
         // The seams a corner takes over (app-corners.js): no curve angle.

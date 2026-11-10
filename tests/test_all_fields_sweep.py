@@ -219,6 +219,11 @@ SKIP = {
     'power-jump-unit':
         'writes project.cableUnit, not the layer; driven end-to-end by '
         'tests/test_show_unit_switch.py',
+    # The Curve's lock positions editor (app-curve.js): a staging box for
+    # Add; Save writes the show's list for the panel (project.panelCurveLocks).
+    'rigging-curve-lock-input':
+        'staging box for Add; Save writes project.panelCurveLocks, not the '
+        'layer; driven end-to-end by tests/test_curve_locks.py',
 }
 
 ALL_FIELDS = _discover_fields()
@@ -646,6 +651,16 @@ _PREPARE_JS = {
             b.dispatchEvent(new Event('change', { bubbles: true }));
         }
         window.app.refreshSocaRuns();
+    }""",
+    # The Curve waits for its panel's lock positions (app-curve.js): a
+    # panel with none cannot be curved, so the checkbox is disabled. The
+    # sweep's screen names no panel; it is given positions through the
+    # app's own setter first, and the tab is drawn again.
+    'rigging-curve-on': """() => {
+        const app = window.app;
+        const l = app.getSelectedLayers()[0] || app.currentLayer;
+        app.setPanelCurveLocks(app.curveLockKey(l), [-5, 0, 5]);
+        app.refreshRiggingPanel();
     }""",
 }
 
