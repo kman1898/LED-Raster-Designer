@@ -83,8 +83,24 @@ other edit.
 
 - NEW: The bars from the Header/Footer tab stand above and below each
   wall in 3D, in the bar and text colors you set, each with its size, and
-  follow the wall's curve. Bars that no longer fit show at their true
-  width. The Bars button hides them, and the show remembers it.
+  follow the wall's curve. Header bars stand 3.5 in, footer bars 6 in,
+  against the panels. Bars that no longer fit show at their true width.
+  The Bars button hides them, and the show remembers it.
+- NEW: Y is the height of a screen's bottom edge, so a screen on the floor
+  reads 0, and pitch, yaw and roll turn it about the middle of that edge,
+  so it stays on the floor. With a footer, Y is the footer's bottom: the
+  footer stands on the floor and the panels start 6 in up. X and Z are the
+  middle of that same edge. A show saved by an earlier 1.7.0 beta opens
+  with every screen exactly where it stood.
+- NEW: A ft | m switch beside Position sets the 3D panel's units: X, Y and
+  Z, the snap, the figure beside the cursor and the arrow-key steps. It is
+  saved with the show and starts on the show's own unit; nothing else in
+  the show changes. A figure typed with its unit works either way: 2m,
+  250 mm or 6' 6".
+- NEW: The wheel zooms in until a single LED pixel fills the view, in
+  perspective and orthographic, without cutting into the screen. Up close,
+  pixels show as crisp squares, and a screen too big for its everyday
+  texture is drawn again at one texel per pixel, one screen at a time.
 - NEW: The 3D view moves the standard 3D way. Middle-drag orbits around
   the point under the cursor, Shift+middle-drag or right-drag pans, and
   the wheel zooms toward the cursor. On a trackpad, drag with two fingers

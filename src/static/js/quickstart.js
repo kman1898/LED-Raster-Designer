@@ -3297,6 +3297,13 @@
         return T.wait(s3dReady, 10000).then(function () { return T.pause(120); });
     }
     function placed(l) { return (l && l.stage3d) || {}; }
+    // The height the Y field shows for a screen: its bottom edge, or its
+    // footer's (app-stage3d.js _s3dShownOf).
+    function s3dShownY(l) {
+        var a = A();
+        if (!l || !a || !a._s3dShownOf) return null;
+        try { return a._s3dShownOf(l, a._s3dPlacementOf(l)).y; } catch (e) { return null; }
+    }
     // The client point of a screen's centre on the stage, as drawn now.
     function stagePoint(l) {
         var d = s3dDebug();
@@ -7158,6 +7165,37 @@
                     ? w2.name + ' is selected; its position, rotation and curve fill the panel.' : null;
             }
         },
+        // Y is the bottom edge's height (2026-11-09), and the ft | m switch
+        // beside Position is the 3D panel's own: DEMO WALL 2 typed 0.5 m
+        // up in meters, then the panel back in feet.
+        s3dHeight: {
+            since: '1.7.0',
+            target: '#s3d-y', ring: ['#s3d-y', '.s3d-seg'], place: 'right', title: 'Height and units',
+            body: 'Y is the height of the screen&rsquo;s bottom edge, or of its footer when it has one, so 0 stands it on the floor. The ft | m switch sets this panel&rsquo;s units only.',
+            before: function () {
+                return open3d().then(function () {
+                    only(wall2());
+                    var a = A();
+                    if (a._s3dUnits && a._s3dUnits() !== 'ft') a._s3dSetUnits('ft');
+                });
+            },
+            act: function (t) {
+                return t.click('#s3d-units-m', { rest: PACE.acted }).then(function () {
+                    return t.type('#s3d-y', '0.5');
+                }).then(function () {
+                    return t.wait(function () { var y = s3dShownY(wall2()); return y != null && Math.abs(y - 500) < 0.01; });
+                }).then(function () {
+                    return t.click('#s3d-units-ft', { rest: PACE.acted });
+                }).then(function () {
+                    return t.wait(function () { return A()._s3dUnits() === 'ft'; });
+                });
+            },
+            check: function () {
+                var y = s3dShownY(wall2());
+                if (y == null || Math.abs(y - 500) > 0.01 || A()._s3dUnits() !== 'ft') return null;
+                return wall2().name + "'s bottom edge stands 0.5 m up, " + $('#s3d-y').value + ' ft with the panel back in feet.';
+            }
+        },
         // Getting around with standard 3D navigation: a middle drag
         // round DEMO WALL 2, then the wheel toward it.
         s3dLook: {
@@ -7763,7 +7801,7 @@
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
-                    's3dOpen', 's3dSelect', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
+                    's3dOpen', 's3dSelect', 's3dHeight', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
                     's3dBars', 's3dJoint',
                     'outputOpen', 'outputChoices',
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
