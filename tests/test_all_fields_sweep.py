@@ -652,6 +652,16 @@ _PREPARE_JS = {
         }
         window.app.refreshSocaRuns();
     }""",
+    # The Curve waits for its panel's lock positions (app-curve.js): a
+    # panel with none cannot be curved, so the checkbox is disabled. The
+    # sweep's screen names no panel; it is given positions through the
+    # app's own setter first, and the tab is drawn again.
+    'rigging-curve-on': """() => {
+        const app = window.app;
+        const l = app.getSelectedLayers()[0] || app.currentLayer;
+        app.setPanelCurveLocks(app.curveLockKey(l), [-5, 0, 5]);
+        app.refreshRiggingPanel();
+    }""",
 }
 
 
