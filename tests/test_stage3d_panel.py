@@ -270,16 +270,31 @@ def test_a_single_click_puts_the_caret_where_it_lands(page):
     assert field(page, 'x') == '12.50'
     box = page.locator('#s3d-x').bounding_box()
     sel_js = "(() => { const e = document.getElementById('s3d-x'); return [e.selectionStart, e.selectionEnd]; })()"
+    # Where the figure's text actually sits, in this browser's own font
+    # (Linux and Windows draw the digits at different widths): its left
+    # and right edges in page pixels. The text is right-aligned.
+    text = page.evaluate("""() => {
+        const e = document.getElementById('s3d-x'), cs = getComputedStyle(e);
+        const c = document.createElement('canvas').getContext('2d');
+        c.font = cs.font;
+        const w = c.measureText(e.value).width;
+        const r = e.getBoundingClientRect();
+        const right = r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+        return { left: right - w, right };
+    }""")
     # the middle of the figure: the caret inside it, nothing selected (the
     # step arrows take the field's first and last 12 px while it is hovered)
-    page.mouse.click(box['x'] + box['width'] - 4 - 2.5 * 7, box['y'] + box['height'] / 2)
+    page.mouse.click((text['left'] + text['right']) / 2, box['y'] + box['height'] / 2)
     page.wait_for_timeout(100)
     assert focused(page) == 's3d-x'
     a, b = page.evaluate(sel_js)
     assert a == b and 0 < a < 5, (a, b)
     page.keyboard.press('Escape')
-    # left of the figure: the caret before its first digit
-    page.mouse.click(box['x'] + 14, box['y'] + box['height'] / 2)
+    # left of the figure, clear of the step arrow: the caret before its
+    # first digit
+    left_x = max(box['x'] + 14, min(text['left'] - 3, text['left'] - 1))
+    assert left_x < text['left'], (left_x, text)
+    page.mouse.click(left_x, box['y'] + box['height'] / 2)
     page.wait_for_timeout(100)
     assert focused(page) == 's3d-x'
     assert page.evaluate(sel_js) == [0, 0]
