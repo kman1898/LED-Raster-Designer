@@ -191,14 +191,16 @@ export function anglesFromQuat(q) {
 // ── Corners ──────────────────────────────────────────────────────────────
 
 // A screen's corners (the Header/Footer tab's Corners, app-corners.js): a
-// bend between two columns or down the middle of one panel, any angle up
-// to 90 degrees, Interior or Exterior (owner, 2026-11-09). Stored on the
-// layer as riggingCorners, [{ at, angle, side }]: `at` in half steps as
-// the Curve's build-from point counts them (3 is the middle of panel 3,
-// 3.5 the seam between panels 3 and 4), `angle` in degrees, `side`
-// 'interior' (the sides fold toward the audience, like a concave curve)
-// or 'exterior' (they fold away). Columns only: a corner never runs
-// along a row. The hinge is the panels' front face.
+// 90 degree bend between two columns or down the middle of one panel,
+// Interior or Exterior (owner, 2026-11-09). EVERY CORNER IS EXACTLY 90
+// DEGREES (owner, 2026-11-10); gentler bends come from the Curve. Stored
+// on the layer as riggingCorners, [{ at, angle, side }]: `at` in half
+// steps as the Curve's build-from point counts them (3 is the middle of
+// panel 3, 3.5 the seam between panels 3 and 4), `angle` always 90 (a
+// corner saved under 90 by a 1.7.0 beta opens as 90 at the same spot and
+// side), `side` 'interior' (the sides fold toward the audience, like a
+// concave curve) or 'exterior' (they fold away). Columns only: a corner
+// never runs along a row. The hinge is the panels' front face.
 //
 // A CORNER'S SEAM CARRIES NO CURVE ANGLE (owner, 2026-11-09: "think of the
 // 90 as the edge of a wall, so the 90 itself cannot have an angle on it,
@@ -216,26 +218,22 @@ export function anglesFromQuat(q) {
 // `bar` (true) marks a corner whose header or footer piece is laid, the
 // "Header Bar - Corner" (rigging-math.js cornerPieces); it never changes
 // the shape. A show without corners builds as it always did.
-export const CORNER_MAX = 90;
+export const CORNER_ANGLE = 90;
 export const CORNER_SIDES = ['interior', 'exterior'];
 
 // The corners as they are kept: each `at` a half step from 1 (any panel
 // middle or seam; the screen's own width is checked where it is built),
-// each angle above 0 and at most 90 to the tenth of a degree, one corner
-// per spot (the last one kept), left to right, `bar` only where true.
-// Junk is dropped.
+// every angle 90, one corner per spot (the last one kept), left to right,
+// `bar` only where true. Junk is dropped.
 export function s3dCleanCorners(raw) {
     const out = new Map();
     for (const c of (Array.isArray(raw) ? raw : [])) {
         if (!c || typeof c !== 'object') continue;
         const at = finite(c.at, null);
-        const angle = finite(c.angle, null);
-        if (at === null || angle === null) continue;
+        if (at === null) continue;
         if (at < 1 || Math.abs(at * 2 - Math.round(at * 2)) > 1e-9) continue;
-        const a = Math.round(Math.min(CORNER_MAX, angle) * 10) / 10;
-        if (!(a > 0)) continue;
         const spot = Math.round(at * 2) / 2;
-        const kept = { at: spot, angle: a, side: c.side === 'exterior' ? 'exterior' : 'interior' };
+        const kept = { at: spot, angle: CORNER_ANGLE, side: c.side === 'exterior' ? 'exterior' : 'interior' };
         if (c.bar === true) kept.bar = true;
         out.set(spot, kept);
     }
@@ -273,7 +271,7 @@ export function s3dCornersOn(layer, cols) {
 }
 
 // A corner's turn in the column chain's terms: interior positive.
-export const s3dCornerTurn = (c) => (c.side === 'exterior' ? -c.angle : c.angle);
+export const s3dCornerTurn = (c) => (c.side === 'exterior' ? -CORNER_ANGLE : CORNER_ANGLE);
 
 // ── Building a screen from its cabinets ──────────────────────────────────
 
@@ -1309,7 +1307,7 @@ class _Stage3D {
             label.textContent = jt
                 ? (jt.axis === 'col'
                     ? `Joint between columns ${jt.index + 1} and ${jt.index + 2}.`
-                        + (atCorner ? ` It is a ${round(atCorner.angle, 1)}° ${atCorner.side === 'exterior' ? 'Exterior' : 'Interior'} corner, set under Corners on the Header/Footer tab, so it takes no joint angle.` : '')
+                        + (atCorner ? ` It is a 90° ${atCorner.side === 'exterior' ? 'Exterior' : 'Interior'} corner, set under Corners on the Header/Footer tab, so it takes no joint angle.` : '')
                     : `Joint between rows ${jt.index + 1} and ${jt.index + 2}.`)
                 : 'Click a seam between two columns or two rows of the selected screen to bend that joint alone.';
         }
@@ -1676,7 +1674,7 @@ class _Stage3D {
             (layer.panels || []).map(p => [p.row, p.col, p.x, p.y, p.width, p.height, !!p.hidden, !!p.blank]),
             layer.panel_width_mm, layer.panel_height_mm, layer.cabinet_width, layer.cabinet_height,
             placement.curveCol, placement.curveRow, placement.jointsCol, placement.jointsRow,
-            s3dCleanCorners(layer.riggingCorners).map(c => [c.at, c.angle, c.side]),
+            s3dCleanCorners(layer.riggingCorners).map(c => [c.at, c.side]),
             // where the corners fold from (the Curve's build-from point)
             s3dCornerAnchor(layer, Number(layer.columns) || 1),
         ]);

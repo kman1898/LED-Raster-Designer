@@ -1,12 +1,14 @@
 // app-corners: the Header/Footer tab's Corners, under the Curve. A screen
-// bends between two columns or down the middle of one panel, any angle up
-// to 90 degrees, Interior or Exterior (owner, 2026-11-09: "being able to
-// set a point and bend 90 degree angles too", a column screen six panels
-// wide with a 90 degree bend in the middle of a panel). Columns only.
+// bends 90 degrees between two columns or down the middle of one panel,
+// Interior or Exterior (owner, 2026-11-09: "being able to set a point and
+// bend 90 degree angles too", a column screen six panels wide with a 90
+// degree bend in the middle of a panel). Columns only. EVERY CORNER IS
+// EXACTLY 90 DEGREES (owner, 2026-11-10): there is no angle to type, and
+// gentler bends come from the Curve.
 //
-// Add corner puts a 90 degree Interior corner in the middle of each
-// selected screen; each row then picks where it goes (any seam or panel
-// middle), its angle and its side, and x takes it off. A small plan of the
+// Add corner puts an Interior corner in the middle of each selected
+// screen; each row then picks where it goes (any seam or panel middle)
+// and its side, and x takes it off. A small plan of the
 // screen from above, as the 3D tab builds it, shows every corner and any
 // curve live. The 3D tab and Export > OBJ build the corners
 // (app-stage3d.js s3dBuild).
@@ -29,14 +31,10 @@
 // - A corner down a panel's middle takes a "Header Bar - Corner (1
 //   panel)", one on a seam a "Header Bar - Corner (2 panel)": two parts,
 //   each its own line wherever bars are counted.
-// - Only a full 90 degree corner takes a corner bar. Under 90 the regular
-//   bars split at the corner: at the seam, or either side of the folded
-//   panel, which takes a bar of its own. The row and the block say so.
-//   Taking a corner's angle from 90 to less, or back, lays an Auto row
-//   again in the same step, as adding one does.
-// - With the Curve on, a 90 degree corner still takes its piece: the
-//   Curve lays its bars on each side up to it (app-curve.js), and any
-//   change to the corners lays the Curve again in the same step.
+// - Every corner takes its corner bar. With the Curve on, the corner bars
+//   split the screen into sides and each side is curved as its own wall
+//   (app-curve.js), its bars up to the corner bars; any change to the
+//   corners lays the Curve again in the same step.
 //
 // Stored on the layer as riggingCorners (app-stage3d.js s3dCleanCorners
 // holds its shape). Every change is one undo step. The rows show the
@@ -44,7 +42,7 @@
 // spot on every selected screen that has one there, so twin columns edit
 // together.
 import { LEDRasterApp } from './app-core.js';
-import { CORNER_MAX, s3dBuild, s3dCleanCorners, s3dCornerAnchor, s3dCornersOn } from './app-stage3d.js';
+import { CORNER_ANGLE, s3dBuild, s3dCleanCorners, s3dCornerAnchor, s3dCornersOn } from './app-stage3d.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const KIND_WORD = { header: 'Header', footer: 'Footer' };
@@ -93,7 +91,6 @@ class _Corners {
             if (!row) return;
             const at = Number(row.dataset.corner);
             if (el.matches('[data-corner-at]')) this.setRiggingCorner(at, 'at', el.value);
-            else if (el.matches('[data-corner-angle]')) this.setRiggingCorner(at, 'angle', el.value);
         });
         list.addEventListener('click', (e) => {
             const btn = e.target && e.target.closest ? e.target.closest('button') : null;
@@ -138,13 +135,12 @@ class _Corners {
         return spots.length ? spots[0] : null;
     }
 
-    // After the corners of `layers` moved, came or went, or an angle went
-    // to or from 90: the rows of bars they sit on split at the corners
-    // again, in the same undo step. An Auto row is laid again around its
-    // corners with its own lit sizes (one that cannot be is left as it
-    // is, and the tab says it no longer fits). In a custom row a bar on a
-    // 90 degree corner's panels makes way for that corner's piece, and one
-    // across a corner under 90 comes off, and a toast says so. A curved
+    // After the corners of `layers` moved, came or went: the rows of bars
+    // they sit on split at the corners again, in the same undo step. An
+    // Auto row is laid again around its corners with its own lit sizes
+    // (one that cannot be is left as it is, and the tab says it no longer
+    // fits). In a custom row a bar on a corner's panels makes way for that
+    // corner's piece, and a toast says so. A curved
     // screen is handed back in `curved`: its Curve lays its bars again
     // around its corners (app-curve.js). A row with a locked screen on it
     // is left as it is. { others, curved }: `others` the other screens it
@@ -154,7 +150,6 @@ class _Corners {
         const curved = [];
         const seen = new Set();
         let became = 0;
-        let crossed = 0;
         let word = 'Header';
         let pieceWord = 'Corner';
         for (const l of layers || []) {
@@ -175,27 +170,19 @@ class _Corners {
                 continue;
             }
             const on = (b, s) => b.start < s.start + s.size && s.start < b.start + b.size;
-            const onPiece = (b) => row.spots.some(s => on(b, s));
-            const gone = row.placed.filter(b => onPiece(b) || RiggingMath.crossesBreak(b, row.breaks));
+            const gone = row.placed.filter(b => row.spots.some(s => on(b, s)));
             if (!gone.length) continue;
             this._riggingWriteRow(row, row.placed.filter(b => !gone.includes(b)).map(b => ({ start: b.start, size: b.size })));
             const made = row.spots.filter(s => gone.some(b => on(b, s)));
             made.forEach(s => this._riggingSetCornerBars(s.owner, [s.at], true));
-            const n = gone.filter(onPiece).length;
-            became += n;
-            crossed += gone.length - n;
+            became += gone.length;
             word = KIND_WORD[row.kind] || 'Header';
             if (made.length) pieceWord = RiggingMath.cornerWord(made[0].size);
             out.push(...row.layers);
         }
-        const said = [];
         if (became) {
-            said.push(`${became === 1 ? 'A bar' : `${became} bars`} on a corner's panels made way for the ${word} Bar - ${pieceWord}.`);
+            this._toast(`${became === 1 ? 'A bar' : `${became} bars`} on a corner's panels made way for the ${word} Bar - ${pieceWord}. Lay the panels beside it again by hand, or press Auto.`, false, 7000);
         }
-        if (crossed) {
-            said.push(`${crossed === 1 ? 'A bar' : `${crossed} bars`} across a corner came off: bars split at a corner.`);
-        }
-        if (said.length) this._toast(`${said.join(' ')} Lay the panels beside it again by hand, or press Auto.`, false, 7000);
         return { others: out.filter((l, i) => out.indexOf(l) === i && !(layers || []).includes(l)), curved };
     }
 
@@ -218,7 +205,7 @@ class _Corners {
             const list = this.riggingCornersOf(l);
             const at = this._cornerMiddle(l, new Set(list.map(c => c.at)));
             if (at === null) continue;
-            l.riggingCorners = s3dCleanCorners([...list, { at, angle: CORNER_MAX, side: 'interior' }]);
+            l.riggingCorners = s3dCleanCorners([...list, { at, angle: CORNER_ANGLE, side: 'interior' }]);
             changed.push(l);
         }
         if (changed.length) this._cornerCommit(changed, this._cornerRelayBars(changed), 'Add Corner');
@@ -236,19 +223,6 @@ class _Corners {
             const n = Number(raw);
             if (!Number.isFinite(n)) return;
             patch.at = n;
-        } else if (key === 'angle') {
-            const v = Number(String(raw).replace(/[°\s]/g, ''));
-            if (!Number.isFinite(v) || v <= 0 || v > CORNER_MAX) {
-                this._toast('Corner angle, type an angle above 0 and up to 90 degrees.', true, 5000);
-                // the field goes back to the angle the corner has
-                const primary = this._riggingPrimary(screens);
-                const had = primary ? this.riggingCornersOf(primary).find(c => c.at === at) : null;
-                const el = document.querySelector(`#rigging-corner-list [data-corner="${at}"] [data-corner-angle]`);
-                if (el && had) el.value = String(had.angle);
-                this.refreshRiggingPanel();
-                return;
-            }
-            patch.angle = v;
         } else if (key === 'side') {
             if (raw !== 'interior' && raw !== 'exterior') return;
             patch.side = raw;
@@ -257,9 +231,6 @@ class _Corners {
         }
         const changed = [];
         const blocked = [];
-        // A corner whose angle went to or from 90 takes or gives up its
-        // corner bar: its row splits again.
-        let flipped = false;
         for (const l of screens) {
             const list = this.riggingCornersOf(l);
             const i = list.findIndex(c => c.at === at);
@@ -271,10 +242,6 @@ class _Corners {
                 if (!this._cornerSpotFree(patch.at, others)) { blocked.push(l); continue; }
             }
             const next = list.map((c, k) => (k === i ? { ...c, ...patch } : c));
-            const full = RiggingMath.isFull(next[i]);
-            if (full !== RiggingMath.isFull(list[i])) flipped = true;
-            // under 90 there is no corner bar to keep laid
-            if (!full) delete next[i].bar;
             const clean = s3dCleanCorners(next);
             if (JSON.stringify(clean) === JSON.stringify(list)) continue;
             l.riggingCorners = clean;
@@ -283,9 +250,8 @@ class _Corners {
         if (blocked.length) {
             this._toast(`${cornerSpotLabel(patch.at)} is taken or too close to another corner on ${blocked.map(l => l.name || `Screen ${l.id}`).join(', ')}. Corners need a panel of their own for their corner bars.`, true, 6000);
         }
-        // A corner that moved splits its bars somewhere else; one that went
-        // to or from 90 takes or gives up its corner bar.
-        const relay = patch.at !== undefined || flipped ? this._cornerRelayBars(changed) : null;
+        // A corner that moved splits its bars somewhere else.
+        const relay = patch.at !== undefined ? this._cornerRelayBars(changed) : null;
         this._cornerCommit(changed, relay, 'Corner');
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
@@ -320,7 +286,7 @@ class _Corners {
         const spots = cornerSpots(cols);
         // Rebuilt only when the rows change shape; otherwise each row is
         // brought up to date in place, so a field being typed in keeps its
-        // focus (Tab from one row's angle lands in the next control).
+        // focus (Tab from one row's control lands in the next one).
         // The angle the Curve (or the 3D tab) gives each seam, as the screen
         // stands without its corners: a corner on a seam takes its place.
         const seamAngles = this._cornerSeamAngles(primary);
@@ -363,23 +329,6 @@ class _Corners {
             } else if (gone) {
                 gone.remove();
             }
-            // Under 90 degrees: no corner bar, said on the row.
-            let split = row.querySelector('.rigging-corner-split');
-            if (!RiggingMath.isFull(c)) {
-                if (!split) {
-                    split = document.createElement('div');
-                    split.className = 'rigging-corner-split';
-                    split.style.cssText = 'color: #aaa; font-size: 11px; margin-top: 2px;';
-                    row.appendChild(split);
-                }
-                const text = `Only a 90° corner takes a corner bar. ${Number.isInteger(c.at)
-                    ? 'Here the folded panel takes a bar of its own.' : 'Here the bars split at the seam.'}`;
-                if (split.textContent !== text) split.textContent = text;
-            } else if (split) {
-                split.remove();
-            }
-            const angle = row.querySelector('[data-corner-angle]');
-            if (angle && document.activeElement !== angle) angle.value = String(c.angle);
             row.querySelectorAll('[data-corner-side]').forEach(b => {
                 b.classList.toggle('active', b.dataset.cornerSide === c.side);
             });
@@ -407,9 +356,6 @@ class _Corners {
                 + (curved ? ' (the Curve\'s Build from).' : '.');
             if (hold.textContent !== text) hold.textContent = text;
         }
-        // Only a 90 degree corner takes a corner bar (owner, 2026-11-10).
-        const rule = document.getElementById('rigging-corner-rule');
-        if (rule) rule.style.display = list.length ? '' : 'none';
         this._cornerDrawPlan(document.getElementById('rigging-corner-plan'), primary);
     }
 
@@ -444,15 +390,6 @@ class _Corners {
             o.textContent = cornerSpotLabel(s);
             sel.appendChild(o);
         });
-        const angle = document.createElement('input');
-        angle.type = 'text';
-        angle.autocomplete = 'off';
-        angle.setAttribute('data-corner-angle', '');
-        angle.style.cssText = 'width: 34px; padding: 2px 4px; font-size: 11px;';
-        angle.setAttribute('data-tooltip', 'Angle, how far the screen bends here, above 0 and up to 90 degrees.');
-        const deg = document.createElement('span');
-        deg.textContent = '°';
-        deg.style.color = '#888';
         const side = document.createElement('div');
         side.style.cssText = 'display: flex; gap: 2px; flex: 1; min-width: 0;';
         [['interior', 'Interior', 'Interior, the two sides fold toward the audience, the inside of the corner faces them.'],
@@ -480,7 +417,7 @@ class _Corners {
         remove.style.setProperty('padding', '2px 6px', 'important');
         remove.style.setProperty('font-size', '11px', 'important');
         top.append(sel, remove);
-        bottom.append(angle, deg, side);
+        bottom.append(side);
         row.append(top, bottom);
         return row;
     }

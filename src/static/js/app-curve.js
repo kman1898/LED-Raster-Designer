@@ -37,22 +37,23 @@
 // it. A build picked by hand from Ways to build it holds until anything
 // the joints depend on changes, then the app picks again (curvePickKey).
 //
-// CORNERS (app-corners.js): a corner on a seam takes the place of that
-// joint's curve angle (owner, 2026-11-09), and the build sheet strip
-// marks the seam Corner. WITH THE CURVE ON, A 90 DEGREE CORNER STILL
-// TAKES ITS CORNER BAR (owner, 2026-11-10): the calculator works the wall
-// out around the screen's corners (curve-math.js screenCurve `pieces`,
-// `breaks`, `flat`), so each corner bar sits on its corner's panels, the
-// Curve's bars run on each side up to it, a bar never crosses a corner
-// under 90, and a corner's seam stays flat. Ways to build it, the picks
-// and the leftover-stock refusal hold for every side. Any change to the
-// corners lays the Curve again in the same step (app-corners.js).
+// CORNERS (app-corners.js): every corner is 90 degrees and takes its
+// corner bar, and a corner's seam carries no curve angle (owner,
+// 2026-11-09); the build sheet strip marks it Corner. WITH A CORNER, THE
+// CURVE'S % APPLIES TO EACH SIDE AS ITS OWN WALL (owner, 2026-11-10): the
+// corner bars split the screen into sides (curve-math.js screenCurve
+// `pieces`), each side is worked out exactly as a screen of its own width
+// at the same settings, and its bars run up to the corner bars. The
+// readouts, Ways to build it, Use this and the leftover-stock refusal are
+// each side's and say which side ("left side", "right side", or "side 2"
+// with more corners). The strip and the plan show the whole screen. Any
+// change to the corners lays the Curve again in the same step.
 //
 // Stored on the layer as riggingCurve (curve-math.js cleanCurve holds its
 // shape); a show without it has every screen off, unchanged. The reference
 // table of every joint at one angle is left out to keep the tab compact.
 import { LEDRasterApp } from './app-core.js';
-import { s3dCornerSeams, s3dResolve, s3dSanitize } from './app-stage3d.js';
+import { s3dCleanCorners, s3dCornerSeams, s3dCornerTurn, s3dResolve, s3dSanitize } from './app-stage3d.js';
 import {
     cleanCurve, convertCurveEntry, datumLabel, formatAngle, formatLength, formatSmall, parseAngles,
     screenCurve, snapDatum,
@@ -61,6 +62,8 @@ import {
 const CACHE_MAX = 40;
 const NS = 'http://www.w3.org/2000/svg';
 const WORKER_URL = '/static/js/curve-worker.js';
+
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
 const listWords = (names) => (names.length <= 1 ? (names[0] || '')
     : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
@@ -88,7 +91,10 @@ class _Curve {
         const ways = document.getElementById('rigging-curve-ways');
         if (ways) ways.addEventListener('click', (e) => {
             const btn = e.target && e.target.closest ? e.target.closest('[data-pick]') : null;
-            if (btn) this.setRiggingCurveField('pick', btn.dataset.pick);
+            if (!btn) return;
+            // a side's own Ways to build it on a screen with corners
+            const side = btn.closest('[data-side]');
+            this.setRiggingCurveField('pick', btn.dataset.pick, side ? Number(side.dataset.side) : null);
         });
         this._wireCurvePlanDrag(document.getElementById('rigging-curve-plan'));
     }
@@ -135,15 +141,19 @@ class _Curve {
         };
     }
 
-    // A screen's corners in the calculator's terms, in its own bar panels,
-    // or null: `pieces` its 90 degree corners' bars, `breaks` the panel
-    // edges its bars split at for a corner under 90, `flat` those seams.
+    // A screen's corner bars in the calculator's terms, in its own bar
+    // panels: { pieces }, or null when it has no corners.
     _curveCornersOf(layer) {
         if (typeof this.riggingCornerSpots !== 'function') return null;
         const pieces = this.riggingCornerSpots(layer).map(sp => ({ start: sp.start, size: sp.size }));
-        const breaks = this.riggingCornerBreaks(layer);
-        const flat = this.riggingCornerFlatJoints(layer);
-        return pieces.length || breaks.length || flat.length ? { pieces, breaks, flat } : null;
+        return pieces.length ? { pieces } : null;
+    }
+
+    // An answer's joints in the screen's own column order: a screen with
+    // corners turned half way round has its bar panels right to left.
+    _curveJoints(layer, out) {
+        const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
+        return deg === 180 && out.sides ? [...out.joints].reverse() : out.joints;
     }
 
     // ---- the background calculator -----------------------------------------
@@ -253,7 +263,7 @@ class _Curve {
         if (ats.length) this._riggingSetCornerBars(layer, ats, true);
         layer.riggingCustom = false;
         const jointsCol = {};
-        out.joints.forEach((a, j) => { jointsCol[String(j)] = a; });
+        this._curveJoints(layer, out).forEach((a, j) => { jointsCol[String(j)] = a; });
         const prev = this._s3dPlacementOf(layer);
         layer.stage3d = s3dSanitize({ ...prev, jointsCol });
     }
@@ -266,8 +276,9 @@ class _Curve {
         if (JSON.stringify(bars.map(b => [b.start, b.size])) !== JSON.stringify(want.map(b => [b.start, b.size]))) return false;
         if (typeof this.riggingCornerSpots === 'function' && this.riggingCornerSpots(layer).some(sp => !sp.bar)) return false;
         const table = (layer.stage3d && layer.stage3d.jointsCol) || {};
-        const placed = s3dSanitize({ jointsCol: Object.fromEntries(out.joints.map((a, j) => [String(j), a])) }).jointsCol;
-        return out.joints.every((_, j) => table[String(j)] === placed[String(j)]);
+        const joints = this._curveJoints(layer, out);
+        const placed = s3dSanitize({ jointsCol: Object.fromEntries(joints.map((a, j) => [String(j), a])) }).jointsCol;
+        return joints.every((_, j) => table[String(j)] === placed[String(j)]);
     }
 
     // Curve off: the column joints go back to the screen-wide figure. An
@@ -400,8 +411,9 @@ class _Curve {
     }
 
     // One field of the form, on every selected screen with its Curve on,
-    // laid again. One undo step.
-    setRiggingCurveField(key, raw) {
+    // laid again. One undo step. A pick on a screen with corners is one
+    // side's (`side`, its index left to right).
+    setRiggingCurveField(key, raw, side = null) {
         // Every selected screen: a curve that is off keeps its settings for
         // when it is ticked, one that is on is laid again.
         const screens = this._curveTargets(false);
@@ -425,12 +437,20 @@ class _Curve {
             else return;
         } else if (key === 'pick') {
             if (!base.on) return;
-            if (raw === 'auto') {
-                patch.pick = null;
-            } else {
-                const out = this.riggingCurveCached(primary);
+            const whole = this.riggingCurveCached(primary);
+            const out = side === null ? whole : (whole && whole.sides && whole.sides[side] ? whole.sides[side].out : null);
+            let pick = null;
+            if (raw !== 'auto') {
                 if (!out || !out.result || !out.result.options.some(o => o.id === raw)) return;
-                patch.pick = { id: String(raw), key: out.pickKey };
+                pick = { id: String(raw), key: out.pickKey };
+            }
+            if (side === null) {
+                patch.pick = pick;
+            } else {
+                const list = (base.sidePicks || []).slice();
+                while (list.length <= side) list.push(null);
+                list[side] = pick;
+                patch.sidePicks = list;
             }
         } else if (key === 'value') {
             const v = Number(String(raw).replace(/[%°\s]/g, ''));
@@ -459,7 +479,7 @@ class _Curve {
         const changed = [];
         for (const l of screens) {
             const s = this.riggingCurveOf(l);
-            const next = { ...s, ...patch };
+            const next = cleanCurve({ ...s, ...patch });
             if (typeof next.from === 'number') next.from = snapDatum(next.from, Number(l.columns) || 1);
             // Switching % and degrees says the same curve the other way:
             // the wall does not change.
@@ -581,36 +601,39 @@ class _Curve {
         // The seams a corner takes over (app-corners.js): no curve angle.
         const cornerSeams = s3dCornerSeams(primary, Number(primary.columns) || 0);
         this._curveDrawSheet(document.getElementById('rigging-curve-sheet'), out, cornerSeams);
-        this._curveDrawPlan(document.getElementById('rigging-curve-plan'), out);
-        const r = out.result;
-        const a = r.achieved;
+        if (out.sides) this._curveDrawCornerPlan(document.getElementById('rigging-curve-plan'), primary, out);
+        else this._curveDrawPlan(document.getElementById('rigging-curve-plan'), out);
+        // One group per side on a screen with corners, each named; the
+        // screen itself without.
+        const groups = out.sides
+            ? out.sides.map((sd, i) => ({ side: i, name: cap(sd.name), panels: sd.panels, r: sd.out.result }))
+            : [{ side: null, name: '', panels: 0, r: out.result }];
+        const named = (g, text) => (g.name ? `${g.name}: ${text}` : text);
         const head = document.getElementById('rigging-curve-head');
-        if (head) head.textContent = this._curveHeadline(r);
+        if (head) head.textContent = groups.map(g => named(g, g.r ? this._curveHeadline(g.r) : 'one panel, flat')).join('\n');
         const len = (m) => formatLength(m, system);
-        const rows = [
-            ['Sweep', `${formatAngle(a.sweep_deg, 1)}, ${a.percent_circle.toFixed(1)}% of a circle`],
-            ['Radius', Number.isFinite(a.radius_face_m) ? `${len(a.radius_face_m)} to the face` : 'straight'],
-            ['Width', len(a.chord_m)],
-            ['Depth', len(a.depth_m)],
-            ['Off the drawing', `${formatSmall(r.max_arc_deviation_m, system)} at worst`],
-        ];
-        // A corner's seam carries no curve angle: what the curve turns as built.
-        const leftOut = [...cornerSeams.keys()].reduce((t, j) => t + Math.abs(out.joints[j] || 0), 0);
-        if (leftOut > 0) {
-            const turn = Math.max(0, (Number(a.total_turn_deg) || 0) - leftOut);
-            rows.push(['Corners', `${formatAngle(leftOut, 1)} left out, turns ${formatAngle(turn, 1)} in all`]);
-        }
+        const rows = [];
+        groups.forEach(g => {
+            if (g.name) rows.push([`${g.name}, ${g.panels} panel${g.panels === 1 ? '' : 's'}`, g.r ? '' : 'one bar, flat', true]);
+            if (!g.r) return;
+            const a = g.r.achieved;
+            rows.push(['Sweep', `${formatAngle(a.sweep_deg, 1)}, ${a.percent_circle.toFixed(1)}% of a circle`]);
+            rows.push(['Radius', Number.isFinite(a.radius_face_m) ? `${len(a.radius_face_m)} to the face` : 'straight']);
+            rows.push(['Width', len(a.chord_m)]);
+            rows.push(['Depth', len(a.depth_m)]);
+            rows.push(['Off the drawing', `${formatSmall(g.r.max_arc_deviation_m, system)} at worst`]);
+        });
         const read = document.getElementById('rigging-curve-readouts');
         if (read) {
             const sig = JSON.stringify(rows);
             if (read.dataset.sig !== sig) {
                 read.dataset.sig = sig;
                 read.innerHTML = '';
-                rows.forEach(([k, v]) => {
+                rows.forEach(([k, v, title]) => {
                     const row = document.createElement('div');
-                    row.style.cssText = 'display: flex; justify-content: space-between; gap: 8px;';
+                    row.style.cssText = `display: flex; justify-content: space-between; gap: 8px;${title ? ' margin-top: 4px;' : ''}`;
                     const kEl = document.createElement('span');
-                    kEl.style.color = '#aaa';
+                    kEl.style.cssText = title ? 'color: #fff; font-weight: 600;' : 'color: #aaa;';
                     kEl.textContent = k;
                     const vEl = document.createElement('span');
                     vEl.textContent = v;
@@ -621,15 +644,15 @@ class _Curve {
             }
         }
         const reason = document.getElementById('rigging-curve-reason');
-        if (reason) reason.textContent = r.choice_reason;
+        if (reason) reason.textContent = groups.filter(g => g.r).map(g => named(g, g.r.choice_reason)).join('\n');
         const warn = document.getElementById('rigging-curve-warnings');
         if (warn) {
             // The bars warning restates the build sheet strip above it.
-            const shown = out.warnings.filter(w => !w.startsWith('Bars:'));
+            const shown = out.warnings.filter(w => !/^([A-Z][a-z]* side: |Side \d+: )?Bars:/.test(w));
             warn.style.display = shown.length ? '' : 'none';
             warn.textContent = shown.join('\n\n');
         }
-        this._curveDrawWays(document.getElementById('rigging-curve-ways'), r, system);
+        this._curveDrawWays(document.getElementById('rigging-curve-ways'), groups.filter(g => g.r), system);
     }
 
     // "7.5° at 9 joints, 6 flat"
@@ -642,72 +665,88 @@ class _Curve {
 
     // Ways to build it: every candidate build, ranked as the calculator
     // ranks them (the closest and the closest even always among them),
-    // the one in use marked, every other with Use this.
-    _curveDrawWays(host, r, system) {
+    // the one in use marked, every other with Use this. `groups` are
+    // { side, name, r }: the screen alone (side null, no name), or each
+    // side of a screen with corners, its list headed with its name.
+    _curveDrawWays(host, groups, system) {
         if (!host) return;
-        const manual = r.config.pattern_choice !== 'auto' && r.chosen_option_id !== r.recommended_option_id;
-        const rows = r.options.map(o => ({
-            id: o.id,
-            angles: o.used_angles_deg.length ? o.used_angles_deg.map(a => formatAngle(a)).join(' + ') : 'All flat',
-            even: o.even && o.used_angles_deg.length > 0,
-            joints: `${o.curved_joints} bent, ${o.flat_joints} flat`,
-            builds: `${o.percent_circle.toFixed(1)}%`,
-            off: `${formatSmall(o.deviation_m, system)} off${o.within_tolerance ? '' : ', over'}`,
-            over: !o.within_tolerance,
-            chosen: o.id === r.chosen_option_id,
-            app: o.id === r.recommended_option_id,
-        }));
-        const sig = JSON.stringify([rows, manual]);
+        const lists = groups.map(g => {
+            const r = g.r;
+            return {
+                side: g.side, name: g.name,
+                manual: r.config.pattern_choice !== 'auto' && r.chosen_option_id !== r.recommended_option_id,
+                rows: r.options.map(o => ({
+                    id: o.id,
+                    angles: o.used_angles_deg.length ? o.used_angles_deg.map(a => formatAngle(a)).join(' + ') : 'All flat',
+                    even: o.even && o.used_angles_deg.length > 0,
+                    joints: `${o.curved_joints} bent, ${o.flat_joints} flat`,
+                    builds: `${o.percent_circle.toFixed(1)}%`,
+                    off: `${formatSmall(o.deviation_m, system)} off${o.within_tolerance ? '' : ', over'}`,
+                    over: !o.within_tolerance,
+                    chosen: o.id === r.chosen_option_id,
+                    app: o.id === r.recommended_option_id,
+                })),
+            };
+        });
+        const sig = JSON.stringify(lists);
         if (host.dataset.sig === sig) return;
         host.dataset.sig = sig;
         host.innerHTML = '';
-        const title = document.createElement('div');
-        title.style.cssText = 'font-weight: 600; color: #fff; margin: 6px 0 2px;';
-        title.textContent = 'Ways to build it';
-        host.appendChild(title);
-        if (manual) {
-            const line = document.createElement('div');
-            line.style.cssText = 'display: flex; align-items: center; gap: 6px; color: #aaa; font-size: 11px; margin-bottom: 2px;';
-            const words = document.createElement('span');
-            words.textContent = 'You picked this one by hand.';
-            const back = document.createElement('button');
-            back.type = 'button';
-            back.className = 'btn btn-secondary';
-            back.dataset.pick = 'auto';
-            back.textContent = 'Let the app pick';
-            back.style.setProperty('padding', '1px 6px', 'important');
-            back.style.setProperty('font-size', '11px', 'important');
-            line.append(words, back);
-            host.appendChild(line);
-        }
-        rows.forEach(row => {
-            const el = document.createElement('div');
-            el.className = 'rigging-curve-way';
-            el.dataset.way = row.id;
-            el.style.cssText = `display: flex; align-items: center; gap: 6px; padding: 3px 0; border-top: 1px solid #2a2a2a; font-size: 11px; color: ${row.chosen ? '#fff' : '#bbb'};`;
-            const text = document.createElement('div');
-            text.style.cssText = 'flex: 1; min-width: 0;';
-            const top = document.createElement('div');
-            top.style.cssText = 'font-weight: 600;';
-            top.textContent = row.angles + (row.even ? ', even' : '') + (row.chosen ? ', in use' : (row.app ? ', the app\'s pick' : ''));
-            const bottom = document.createElement('div');
-            bottom.style.color = row.over ? '#f5a623' : '#999';
-            bottom.textContent = `${row.joints}, ${row.builds}, ${row.off}`;
-            text.append(top, bottom);
-            el.appendChild(text);
-            if (!row.chosen) {
-                const use = document.createElement('button');
-                use.type = 'button';
-                use.className = 'btn btn-secondary';
-                use.dataset.pick = row.id;
-                use.textContent = 'Use this';
-                use.style.setProperty('padding', '2px 6px', 'important');
-                use.style.setProperty('font-size', '11px', 'important');
-                use.style.flex = 'none';
-                use.setAttribute('data-tooltip', `Use this, build the wall with ${row.angles === 'All flat' ? 'every joint flat' : row.angles}. It holds until the curve, the bars or the wall change.`);
-                el.appendChild(use);
+        lists.forEach(list => {
+            const box = document.createElement('div');
+            if (list.side !== null) box.dataset.side = String(list.side);
+            const title = document.createElement('div');
+            title.style.cssText = 'font-weight: 600; color: #fff; margin: 6px 0 2px;';
+            title.textContent = list.name ? `Ways to build it, ${list.name.toLowerCase()}` : 'Ways to build it';
+            box.appendChild(title);
+            if (list.manual) {
+                const line = document.createElement('div');
+                line.style.cssText = 'display: flex; align-items: center; gap: 6px; color: #aaa; font-size: 11px; margin-bottom: 2px;';
+                const words = document.createElement('span');
+                words.textContent = 'You picked this one by hand.';
+                const back = document.createElement('button');
+                back.type = 'button';
+                back.className = 'btn btn-secondary';
+                back.dataset.pick = 'auto';
+                back.textContent = 'Let the app pick';
+                back.style.setProperty('padding', '1px 6px', 'important');
+                back.style.setProperty('font-size', '11px', 'important');
+                line.append(words, back);
+                box.appendChild(line);
             }
-            host.appendChild(el);
+            list.rows.forEach(row => {
+                const el = document.createElement('div');
+                el.className = 'rigging-curve-way';
+                el.dataset.way = row.id;
+                el.style.cssText = `display: flex; align-items: center; gap: 6px; padding: 3px 0; border-top: 1px solid #2a2a2a; font-size: 11px; color: ${row.chosen ? '#fff' : '#bbb'};`;
+                const text = document.createElement('div');
+                text.style.cssText = 'flex: 1; min-width: 0;';
+                const top = document.createElement('div');
+                top.style.cssText = 'font-weight: 600;';
+                top.textContent = row.angles + (row.even ? ', even' : '') + (row.chosen ? ', in use' : (row.app ? ', the app\'s pick' : ''));
+                const bottom = document.createElement('div');
+                bottom.style.color = row.over ? '#f5a623' : '#999';
+                bottom.textContent = `${row.joints}, ${row.builds}, ${row.off}`;
+                text.append(top, bottom);
+                el.appendChild(text);
+                if (!row.chosen) {
+                    const use = document.createElement('button');
+                    use.type = 'button';
+                    use.className = 'btn btn-secondary';
+                    use.dataset.pick = row.id;
+                    use.textContent = 'Use this';
+                    use.style.setProperty('padding', '2px 6px', 'important');
+                    use.style.setProperty('font-size', '11px', 'important');
+                    use.style.flex = 'none';
+                    const what = row.angles === 'All flat' ? 'every joint flat' : row.angles;
+                    use.setAttribute('data-tooltip', list.name
+                        ? `Use this, build the ${list.name.toLowerCase()} with ${what}. It holds until the curve, the bars or the corners change.`
+                        : `Use this, build the wall with ${what}. It holds until the curve, the bars or the wall change.`);
+                    el.appendChild(use);
+                }
+                box.appendChild(el);
+            });
+            host.appendChild(box);
         });
     }
 
@@ -719,7 +758,7 @@ class _Curve {
         const bars = out.bars;
         const joints = out.joints;
         const panels = joints.length + 1;
-        const datum = out.result.datum_at;
+        const datum = out.result ? out.result.datum_at : out.datum_at;
         const room = Math.max(120, (host.clientWidth || 200) - 2);
         const sig = JSON.stringify([bars, joints, datum, room, [...cornerSeams.keys()], (out.placed || []).map(b => !!b.corner)]);
         if (host.dataset.sig === sig) return;
@@ -838,6 +877,103 @@ class _Curve {
         mark.style.cursor = 'grab';
         svg.appendChild(mark);
         host._curvePlan = { spots, mark, svg, panels: face.length - 1, at: r.datum_at };
+        host.appendChild(svg);
+    }
+
+    // A screen with corners from above as the Curve lays it, audience at
+    // the bottom: each side bent by its own curve, the corner bars' panels
+    // straight, each corner folding 90 degrees, and each side's drawn arc
+    // dashed. The red mark is the datum, dragged as on a plain wall.
+    _curveDrawCornerPlan(host, layer, out) {
+        if (!host) return;
+        const n = out.joints.length + 1;
+        const w = (Number(layer.panel_width_mm) || 500) / 1000;
+        const corners = s3dCleanCorners(layer.riggingCorners);
+        const spots = this.riggingCornerSpots(layer);
+        const turn = (sp) => s3dCornerTurn(corners.find(c => c.at === sp.at) || {}) * Math.PI / 180;
+        // Walk the wall left to right: concave turns left, as the
+        // calculator walks it (curve-math.js buildCurve).
+        let x = 0, y = 0, h = 0;
+        const face = [{ x, y }];
+        const edge = [{ x, y }];
+        const mids = [];
+        const go = (len) => { x += len * Math.cos(h); y += len * Math.sin(h); face.push({ x, y }); };
+        for (let p = 0; p < n; p++) {
+            const fold = spots.find(sp => sp.size === 1 && sp.start === p);
+            const from = { x, y };
+            if (fold) {
+                go(w / 2);
+                mids.push({ x, y });
+                h += turn(fold);
+                go(w / 2);
+            } else {
+                go(w);
+                mids.push({ x: (from.x + x) / 2, y: (from.y + y) / 2 });
+            }
+            edge.push({ x, y });
+            if (p < n - 1) {
+                const seam = spots.find(sp => sp.size === 2 && sp.start === p);
+                h += seam ? turn(seam) : (out.joints[p] || 0) * Math.PI / 180;
+            }
+        }
+        // Each side's drawn arc, carried onto its panels.
+        const arcs = out.sides.filter(sd => sd.out.result).map(sd => {
+            const r = sd.out.result;
+            const own = [];
+            r.placements.forEach((pl, i) => { if (i === 0) own.push(pl.face[0]); own.push(pl.face[1]); });
+            const f0 = own[0], f1 = own[own.length - 1];
+            const a = edge[sd.start], b = edge[sd.start + sd.panels];
+            const spin = Math.atan2(b.y - a.y, b.x - a.x) - Math.atan2(f1.y - f0.y, f1.x - f0.x);
+            const c = Math.cos(spin), s = Math.sin(spin);
+            return r.target_vertices.map(q => ({ x: a.x + (q.x - f0.x) * c - (q.y - f0.y) * s, y: a.y + (q.x - f0.x) * s + (q.y - f0.y) * c }));
+        });
+        const datum = out.datum_at;
+        const sig = JSON.stringify([face.map(q => [Math.round(q.x * 1000), Math.round(q.y * 1000)]), datum, host.clientWidth, arcs.length]);
+        if (host.dataset.sig === sig) return;
+        host.dataset.sig = sig;
+        host.innerHTML = '';
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const q of face.concat(...arcs)) {
+            x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x);
+            y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y);
+        }
+        const W = Math.max(120, (host.clientWidth || 200) - 2), pad = 8;
+        const span = Math.max(1e-6, x1 - x0, y1 - y0);
+        const H = Math.max(28, Math.min(110, Math.round((y1 - y0) / span * (W - 2 * pad) + 2 * pad)));
+        const k = Math.min((W - 2 * pad) / Math.max(1e-6, x1 - x0), (H - 2 * pad) / Math.max(1e-6, y1 - y0));
+        const ox = (W - (x1 - x0) * k) / 2 - x0 * k;
+        const oy = (H - (y1 - y0) * k) / 2 - y0 * k;
+        const to = (q) => ({ x: q.x * k + ox, y: q.y * k + oy });
+        const svg = document.createElementNS(NS, 'svg');
+        svg.setAttribute('width', String(W));
+        svg.setAttribute('height', String(H));
+        svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+        svg.style.display = 'block';
+        const line = (list, attrs) => {
+            const el = document.createElementNS(NS, 'polyline');
+            el.setAttribute('points', list.map(q => { const t = to(q); return `${t.x.toFixed(1)},${t.y.toFixed(1)}`; }).join(' '));
+            el.setAttribute('fill', 'none');
+            Object.entries(attrs).forEach(([a, v]) => el.setAttribute(a, String(v)));
+            svg.appendChild(el);
+        };
+        arcs.forEach(arc => line(arc, { stroke: '#888', 'stroke-width': 1, 'stroke-dasharray': '3 3' }));
+        line(face, { stroke: '#e22330', 'stroke-width': 2 });
+        // Every spot a crew can set out from: each joint and panel middle.
+        const marks = [];
+        edge.forEach((q, i) => marks.push({ at: i + 0.5, ...to(q) }));
+        mids.forEach((q, i) => marks.push({ at: i + 1, ...to(q) }));
+        const here = marks.find(m => m.at === datum) || marks[0];
+        const mark = document.createElementNS(NS, 'circle');
+        mark.setAttribute('cx', here.x.toFixed(1));
+        mark.setAttribute('cy', here.y.toFixed(1));
+        mark.setAttribute('r', '5');
+        mark.setAttribute('fill', '#e22330');
+        mark.setAttribute('stroke', '#fff');
+        mark.setAttribute('stroke-width', '1.5');
+        mark.setAttribute('data-datum', String(datum));
+        mark.style.cursor = 'grab';
+        svg.appendChild(mark);
+        host._curvePlan = { spots: marks, mark, svg, panels: n, at: datum };
         host.appendChild(svg);
     }
 
