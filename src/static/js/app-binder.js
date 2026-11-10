@@ -7098,6 +7098,8 @@ class _Binder {
         if (!layer || (layer.type || 'screen') !== 'screen') return false;
         if ((Array.isArray(layer.riggingBars) && layer.riggingBars.length > 0)
                 || (Array.isArray(layer.riggingFooterBars) && layer.riggingFooterBars.length > 0)) return true;
+        // a screen whose only bars are corner pieces
+        if (typeof this.riggingCornerPiecesOf === 'function' && this.riggingCornerPiecesOf(layer).length) return true;
         return typeof this.riggingSharedBarsOf === 'function' && this.riggingSharedBarsOf(layer).length > 0;
     }
 
@@ -7165,9 +7167,20 @@ class _Binder {
     _bRiggingBlocks(book, target) {
         const layers = this._bSubject(target).layers;
         const list = (l, field) => (Array.isArray(l[field]) ? l[field] : []);
+        // The corner pieces on each side, by the panels each covers (one
+        // for a corner down a panel's middle, two for one on a seam).
+        const pieces = (kind) => {
+            const by = {};
+            for (const l of layers) {
+                if (typeof this.riggingCornerPiecesOf !== 'function' || !this._riggingKindsOf(l).includes(kind)) continue;
+                for (const pc of this.riggingCornerPiecesOf(l)) by[pc.size] = (by[pc.size] || 0) + 1;
+            }
+            return by;
+        };
+        const corner = { Header: pieces('header'), Footer: pieces('footer') };
         const rows = [['Header', layers.map(l => list(l, 'riggingBars'))],
                       ['Footer', layers.map(l => list(l, 'riggingFooterBars'))]]
-            .filter(([, lists]) => lists.some(bars => bars.length));
+            .filter(([word, lists]) => lists.some(bars => bars.length) || Object.keys(corner[word]).length);
         // Rows that no longer fit their wall say so above the tables, the
         // way a screen that cannot fit a circuit does; a row across a
         // group's seam once.
@@ -7196,7 +7209,13 @@ class _Binder {
             const kind = word === 'Footer' ? 'footer' : 'header';
             const lines = Object.keys(bySize).map(Number).sort((a, b) => b - a)
                 .map(size => ({ cells: [RiggingMath.barName(size, kind), String(size), this._bQty(bySize[size])] }));
-            lines.push({ cells: ['Total', '', this._bQty(total)], bold: true });
+            // the corner pieces, in the same table
+            let corners = 0;
+            Object.keys(corner[word]).map(Number).sort((a, b) => a - b).forEach(size => {
+                corners += corner[word][size];
+                lines.push({ cells: [RiggingMath.barName(RiggingMath.CORNER, kind), String(size), this._bQty(corner[word][size])] });
+            });
+            lines.push({ cells: ['Total', '', this._bQty(total + corners)], bold: true });
             return { lines: this._bTableLines(book, {
                 title: `${word} bars`,
                 cols: [{ title: `${word.toLowerCase()} bar`, w: 1.7 }, { title: 'panels', w: 0.8, align: 'right' },

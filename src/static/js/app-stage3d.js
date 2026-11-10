@@ -196,17 +196,34 @@ export function anglesFromQuat(q) {
 // layer as riggingCorners, [{ at, angle, side }]: `at` in half steps as
 // the Curve's build-from point counts them (3 is the middle of panel 3,
 // 3.5 the seam between panels 3 and 4), `angle` in degrees, `side`
-// 'interior' (the wings come toward the audience, like a concave curve)
-// or 'exterior'. Columns only: a corner never runs along a row. The hinge
-// is the panels' front face. A corner on a seam that also carries a curve
-// angle adds to it. A show without corners builds as it always did.
+// 'interior' (the sides fold toward the audience, like a concave curve)
+// or 'exterior' (they fold away). Columns only: a corner never runs
+// along a row. The hinge is the panels' front face.
+//
+// A CORNER'S SEAM CARRIES NO CURVE ANGLE (owner, 2026-11-09: "think of the
+// 90 as the edge of a wall, so the 90 itself cannot have an angle on it,
+// but the other side of the panel could"): a corner on a seam takes the
+// place of whatever angle the Curve or the 3D tab gives that joint; every
+// other seam keeps its own, the seams either side of a folded panel too.
+// The stored angles are left as they are, so taking the corner off brings
+// the joint's own angle back.
+//
+// THE SIDE AT THE BUILD-FROM POINT STAYS PUT (owner, 2026-11-09): the
+// screen stands where it stood without its corners at the Curve's
+// build-from point (s3dCornerAnchor), and the rest folds away from it. A
+// corner exactly at that point folds both sides evenly.
+//
+// `bar` (true) marks a corner whose header or footer piece is laid, the
+// "Header Bar - Corner" (rigging-math.js cornerPieces); it never changes
+// the shape. A show without corners builds as it always did.
 export const CORNER_MAX = 90;
 export const CORNER_SIDES = ['interior', 'exterior'];
 
 // The corners as they are kept: each `at` a half step from 1 (any panel
 // middle or seam; the screen's own width is checked where it is built),
 // each angle above 0 and at most 90 to the tenth of a degree, one corner
-// per spot (the last one kept), left to right. Junk is dropped.
+// per spot (the last one kept), left to right, `bar` only where true.
+// Junk is dropped.
 export function s3dCleanCorners(raw) {
     const out = new Map();
     for (const c of (Array.isArray(raw) ? raw : [])) {
@@ -218,9 +235,34 @@ export function s3dCleanCorners(raw) {
         const a = Math.round(Math.min(CORNER_MAX, angle) * 10) / 10;
         if (!(a > 0)) continue;
         const spot = Math.round(at * 2) / 2;
-        out.set(spot, { at: spot, angle: a, side: c.side === 'exterior' ? 'exterior' : 'interior' });
+        const kept = { at: spot, angle: a, side: c.side === 'exterior' ? 'exterior' : 'interior' };
+        if (c.bar === true) kept.bar = true;
+        out.set(spot, kept);
     }
     return [...out.values()].sort((p, q) => p.at - q.at);
+}
+
+// Where a screen's corners fold from: the Curve's build-from point when
+// its Curve is on ('left', 'right', 'center', or a spot in half panels:
+// 3 the middle of panel 3, 3.5 the seam between 3 and 4), else the
+// middle, the Curve's own default.
+export function s3dCornerAnchor(layer, cols) {
+    const c = layer && layer.riggingCurve;
+    if (!c || typeof c !== 'object' || c.on !== true) return 'center';
+    const from = c.from;
+    if (typeof from === 'number' && Number.isFinite(from) && from > 0) {
+        const half = Math.round(from * 2) / 2;
+        return Math.min(Math.max(half, 0.5), Math.max(1, cols) + 0.5);
+    }
+    return ['left', 'right', 'center'].includes(from) ? from : 'center';
+}
+
+// The seams (0-based joint index j, between columns j + 1 and j + 2) a
+// corner on `layer` takes over: { j: corner }.
+export function s3dCornerSeams(layer, cols) {
+    const out = new Map();
+    for (const c of s3dCornersOn(layer, cols)) if (!Number.isInteger(c.at)) out.set(Math.round(c.at - 1.5), c);
+    return out;
 }
 
 // The corners of `layer` that land on a screen `cols` columns wide: a
@@ -241,7 +283,7 @@ export const s3dCornerTurn = (c) => (c.side === 'exterior' ? -c.angle : c.angle)
 // axis - a curve bends about the screen's own centre and never walks off.
 // Positive turns towards the second axis (the audience), so both ends of a
 // positively curved screen come forward.
-function s3dChain(lengths, joints) {
+function s3dWalk(lengths, joints) {
     const n = lengths.length;
     const raw = [];
     const heads = [];
@@ -253,6 +295,54 @@ function s3dChain(lengths, joints) {
         b += lengths[i] * Math.sin(th);
         if (i < n - 1) th += (joints[i] || 0) * DEG;
     }
+    return { raw, heads };
+}
+
+// Where a chain (its segments' `starts`, `heads` and `lengths`) is `s` mm
+// along its length, and which way it heads there: { p, h }. On a joint
+// the heading is halfway between the two segments' (an end takes its own
+// segment's), so a fold right at `s` turns both sides evenly about it.
+function s3dChainPoint(starts, heads, lengths, s) {
+    const n = lengths.length;
+    if (!n) return { p: [0, 0], h: 0 };
+    let acc = 0;
+    for (let k = 0; k < n; k++) {
+        const end = acc + lengths[k];
+        if (s <= end + 1e-6 || k === n - 1) {
+            const t = Math.max(0, Math.min(lengths[k], s - acc));
+            const p = [starts[k][0] + t * Math.cos(heads[k]), starts[k][1] + t * Math.sin(heads[k])];
+            let h = heads[k];
+            if (t < 1e-6 && k > 0) h = (heads[k - 1] + heads[k]) / 2;
+            else if (lengths[k] - t < 1e-6 && k < n - 1) h = (heads[k] + heads[k + 1]) / 2;
+            return { p, h };
+        }
+        acc = end;
+    }
+    return { p: [0, 0], h: 0 };
+}
+
+// The column chain with corners, held so the point `anchorMm` along it
+// stands exactly where it stands on `ref` (the same screen's chain
+// without its corners, s3dChain's frame) and heads the same way there:
+// the side at the build-from point stays put and the rest folds away.
+function s3dChainHeld(lengths, joints, ref, refLengths, anchorMm) {
+    const { raw, heads } = s3dWalk(lengths, joints);
+    const total = lengths.reduce((s, v) => s + v, 0);
+    if (!lengths.length) return { starts: [], heads: [], total: 0 };
+    const want = s3dChainPoint(ref.starts, ref.heads, refLengths, anchorMm);
+    const have = s3dChainPoint(raw, heads, lengths, anchorMm);
+    const dh = want.h - have.h;
+    const c = Math.cos(dh), s = Math.sin(dh);
+    const starts = raw.map(([x, y]) => {
+        const dx = x - have.p[0], dy = y - have.p[1];
+        return [dx * c - dy * s + want.p[0], dx * s + dy * c + want.p[1]];
+    });
+    return { starts, heads: heads.map(h => h + dh), total };
+}
+
+function s3dChain(lengths, joints) {
+    const n = lengths.length;
+    const { raw, heads } = s3dWalk(lengths, joints);
     const total = lengths.reduce((s, v) => s + v, 0);
     if (!n) return { starts: [], heads: [], total: 0 };
     const half = total / 2;
@@ -294,11 +384,14 @@ function s3dChain(lengths, joints) {
 // row first and the result carried by its column, so a screen curved both
 // ways opens small gaps at the corners rather than warping a cabinet.
 //
-// Corners (s3dCornersOn) bend the column chain too: one on a seam adds its
-// turn to that joint's angle; one down the middle of a panel splits that
-// column into two halves hinged at its middle, so each cabinet of the
-// column is two quads (`fold` 0 and 1), each with its own share of the
-// drawing. `colHeads` is the heading each column starts on.
+// Corners (s3dCornersOn) bend the column chain too: one on a seam takes
+// that joint's angle in place of the curve's; one down the middle of a
+// panel splits that column into two halves hinged at its middle, so each
+// cabinet of the column is two quads (`fold` 0 and 1), each with its own
+// share of the drawing. The chain is then held at the build-from point
+// (s3dCornerAnchor) where the same screen without corners stands, so that
+// side stays put. `colHeads` is the heading each column starts on;
+// `cornerSeams` the joints a corner took over (index -> corner).
 export function s3dBuild(layer, placement) {
     const panels = Array.isArray(layer.panels) ? layer.panels : [];
     const mx = mmPerPx(layer, 'x'), my = mmPerPx(layer, 'y');
@@ -322,14 +415,16 @@ export function s3dBuild(layer, placement) {
     const colLen = cols.map(c => (colSpan.get(c)[1] - colSpan.get(c)[0]) * mx);
     const rowLen = rows.map(r => (rowSpan.get(r)[1] - rowSpan.get(r)[0]) * my);
     const rowJ = rows.slice(0, -1).map((_, j) => jointAt(placement, 'row', j));
-    // The corners: a seam's turn added to its joint, a panel's own fold.
+    // The corners: a seam's turn in place of its joint's, a panel's own fold.
     const fold = cols.map(() => 0);
-    const seamTurn = cols.slice(0, -1).map(() => 0);
-    for (const c of s3dCornersOn(layer, cols.length)) {
-        if (Number.isInteger(c.at)) fold[c.at - 1] += s3dCornerTurn(c);
-        else seamTurn[c.at - 1.5] += s3dCornerTurn(c);
+    const corners = s3dCornersOn(layer, cols.length);
+    const seams = new Map();
+    for (const c of corners) {
+        if (Number.isInteger(c.at)) fold[c.at - 1] = s3dCornerTurn(c);
+        else seams.set(Math.round(c.at - 1.5), c);
     }
-    const colJ = cols.slice(0, -1).map((_, j) => jointAt(placement, 'col', j) + seamTurn[j]);
+    const ownJ = cols.slice(0, -1).map((_, j) => jointAt(placement, 'col', j));
+    const colJ = ownJ.map((a, j) => (seams.has(j) ? s3dCornerTurn(seams.get(j)) : a));
     // The column chain's segments: a column, or the two halves of a folded one.
     const segLen = [], segJ = [], colSeg = [];
     colLen.forEach((len, i) => {
@@ -342,7 +437,29 @@ export function s3dBuild(layer, placement) {
             segLen.push(len);
         }
     });
-    const cc = s3dChain(segLen, segJ);
+    let cc;
+    if (corners.length) {
+        // Held at the build-from point where the straight screen stands.
+        const ref = s3dChain(colLen, ownJ);
+        const anchor = s3dCornerAnchor(layer, cols.length);
+        const cum = [0];
+        colLen.forEach(len => cum.push(cum[cum.length - 1] + len));
+        const total = cum[cum.length - 1];
+        let at = total / 2;
+        if (anchor === 'left') at = 0;
+        else if (anchor === 'right') at = total;
+        else if (typeof anchor === 'number') {
+            if (Number.isInteger(anchor)) {
+                const k = Math.min(cols.length, Math.max(1, anchor)) - 1;
+                at = cum[k] + colLen[k] / 2;
+            } else {
+                at = cum[Math.min(cols.length, Math.max(0, Math.round(anchor - 0.5)))];
+            }
+        }
+        cc = s3dChainHeld(segLen, segJ, ref, colLen, at);
+    } else {
+        cc = s3dChain(segLen, segJ);
+    }
     const rc = s3dChain(rowLen, rowJ);
     // Where column i folds (mm across it), or null.
     const foldAt = (i) => (fold[i] ? colLen[i] / 2 : null);
@@ -409,7 +526,7 @@ export function s3dBuild(layer, placement) {
         }
     }
     return {
-        quads, point, colLen, rowLen, colJ, rowJ, base, foldAt,
+        quads, point, colLen, rowLen, colJ, rowJ, base, foldAt, cornerSeams: seams,
         colHeads: colSeg.map(s => cc.heads[s] || 0), rowHeads: rc.heads,
         bounds: { x: bx0, y: by0, w: Math.max(1, bx1 - bx0), h: Math.max(1, by1 - by0) },
         widthMm: cc.total, heightMm: rc.total,
@@ -581,7 +698,10 @@ function s3dBarRows(layer, built, slices) {
         }
         const slots = list.length;
         const fits = sl.fits == null ? (bars.reduce((a, b) => a + b.size, 0) === n) : !!sl.fits;
-        out.push({ row: sl.row, bars: bars.map(b => b.size), starts: bars.map(b => b.start), from, span,
+        // `corners` marks each corner piece (riggingStageSlices): it is
+        // drawn "Corner", and its quads already fold with the panels.
+        out.push({ row: sl.row, bars: bars.map(b => b.size), starts: bars.map(b => b.start),
+                   corners: bars.map(b => b.corner === true), from, span,
                    slots, wallSlots: n, fits, heightMm: h, lengthMm, quads });
     }
     return out;
@@ -1167,28 +1287,34 @@ class _Stage3D {
         set('s3d-curve-col', String(round(p.curveCol, 2)));
         set('s3d-curve-row', String(round(p.curveRow, 2)));
         const counts = this._s3dGridCounts(layer);
+        // A corner's seam carries no joint angle (its corner takes its place).
+        const cornerSeams = s3dCornerSeams(layer, counts.cols);
         const arc = (axis, n) => {
             let total = 0;
-            for (let j = 0; j < n - 1; j++) total += jointAt(p, axis, j);
+            for (let j = 0; j < n - 1; j++) if (!(axis === 'col' && cornerSeams.has(j))) total += jointAt(p, axis, j);
             const joints = Math.max(0, n - 1);
             const own = Object.keys(axis === 'col' ? p.jointsCol : p.jointsRow).length;
+            const corners = axis === 'col' ? cornerSeams.size : 0;
             return `${joints} joint${joints === 1 ? '' : 's'}, ${round(total, 1)}° in all`
-                + (own ? ` (${own} set alone)` : '');
+                + (own ? ` (${own} set alone)` : '')
+                + (corners ? `, ${corners === 1 ? 'a corner' : `${corners} corners`} not counted` : '');
         };
         const arcCol = byId('s3d-arc-col'), arcRow = byId('s3d-arc-row');
         if (arcCol) arcCol.textContent = arc('col', counts.cols);
         if (arcRow) arcRow.textContent = arc('row', counts.rows);
         const jt = st.joint && st.joint.layerId === layer.id ? st.joint : null;
         const label = byId('s3d-joint-label'), input = byId('s3d-joint-angle');
+        const atCorner = jt && jt.axis === 'col' ? cornerSeams.get(jt.index) : null;
         if (label) {
             label.textContent = jt
                 ? (jt.axis === 'col'
                     ? `Joint between columns ${jt.index + 1} and ${jt.index + 2}.`
+                        + (atCorner ? ` It is a ${round(atCorner.angle, 1)}° ${atCorner.side === 'exterior' ? 'Exterior' : 'Interior'} corner, set under Corners on the Header/Footer tab, so it takes no joint angle.` : '')
                     : `Joint between rows ${jt.index + 1} and ${jt.index + 2}.`)
                 : 'Click a seam between two columns or two rows of the selected screen to bend that joint alone.';
         }
         if (input) {
-            input.disabled = !jt;
+            input.disabled = !jt || !!atCorner;
             const table = jt ? (jt.axis === 'col' ? p.jointsCol : p.jointsRow) : null;
             const own = table ? table[String(jt.index)] : undefined;
             input.placeholder = jt ? String(round(jt.axis === 'col' ? p.curveCol : p.curveRow, 2)) : '';
@@ -1550,7 +1676,9 @@ class _Stage3D {
             (layer.panels || []).map(p => [p.row, p.col, p.x, p.y, p.width, p.height, !!p.hidden, !!p.blank]),
             layer.panel_width_mm, layer.panel_height_mm, layer.cabinet_width, layer.cabinet_height,
             placement.curveCol, placement.curveRow, placement.jointsCol, placement.jointsRow,
-            s3dCleanCorners(layer.riggingCorners),
+            s3dCleanCorners(layer.riggingCorners).map(c => [c.at, c.angle, c.side]),
+            // where the corners fold from (the Curve's build-from point)
+            s3dCornerAnchor(layer, Number(layer.columns) || 1),
         ]);
         if (e.geoKey !== geoKey) {
             e.geoKey = geoKey;
@@ -1729,12 +1857,21 @@ class _Stage3D {
             ctx.strokeStyle = ink;
             ctx.lineWidth = line;
             ctx.strokeRect(x + line / 2, line / 2, w - line, texH - line);
-            const fontPx = Math.max(10, Math.min(texH * 0.6, w * 0.5));
+            // A corner piece says so; its fold runs down the middle of a
+            // one panel piece or along the seam of a two panel one.
+            const corner = !!(row.corners && row.corners[b]);
+            const text = corner ? 'Corner' : String(span);
+            let fontPx = Math.max(10, Math.min(texH * 0.6, w * 0.5));
             ctx.fillStyle = ink;
             ctx.font = `bold ${fontPx}px sans-serif`;
+            if (corner) {
+                const fit = (w * 0.8) / Math.max(1, ctx.measureText(text).width) * fontPx;
+                fontPx = Math.max(8, Math.min(texH * 0.5, fit));
+                ctx.font = `bold ${fontPx}px sans-serif`;
+            }
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(String(span), x + w / 2, texH / 2);
+            ctx.fillText(text, x + w / 2, texH / 2);
         }
         return canvas;
     }
@@ -2255,6 +2392,11 @@ class _Stage3D {
                 datum: this._s3dDatumWorld(e),
                 bars: (e.barRows || []).map(r => ({
                     row: r.row, bars: r.bars.slice(), starts: r.starts.slice(), slots: r.slots, wallSlots: r.wallSlots, fits: r.fits,
+                    corners: (r.corners || []).slice(),
+                    // each quad's slot and its bottom and top edges, in the screen's frame
+                    quads: r.quads.map(q => ({ slot: q.slot, f0: q.f0, f1: q.f1,
+                        tl: q.tl.map(v => round(v, 3)), tr: q.tr.map(v => round(v, 3)),
+                        bl: q.bl.map(v => round(v, 3)), br: q.br.map(v => round(v, 3)) })),
                     heightMm: round(r.heightMm, 3), lengthMm: round(r.lengthMm, 3),
                     first: r.quads[0].tl.map(v => round(v, 3)), last: r.quads[r.quads.length - 1].tr.map(v => round(v, 3)),
                     tex: r.canvas ? [r.canvas.width, r.canvas.height] : null,

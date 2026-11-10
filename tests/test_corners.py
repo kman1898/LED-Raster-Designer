@@ -5,7 +5,11 @@ s3dBuild), the owner's rulings of 2026-11-09:
 * A corner goes on a seam between two panels or down the middle of one,
   any angle up to 90 degrees, Interior or Exterior. Columns only.
 * The hinge is the panels' front face: the two sides meet there.
-* A corner on a seam that also has a curve angle adds to it.
+* Interior folds the sides toward the audience, Exterior away.
+* A corner's seam carries no curve angle: the corner takes its place, and
+  the seams beside it keep theirs (tests/test_corner_rulings.py).
+* The side at the Curve's build-from point stays put; the middle without a
+  Curve (tests/test_corner_rulings.py).
 * The 3D tab and Export > OBJ build it: shape, mapping and image, one file
   per physical screen.
 * The controls sit under the Curve on the Header/Footer tab: Add corner,
@@ -211,9 +215,9 @@ def test_a_corner_folds_the_wall_at_its_seam_or_down_a_panel_hinged_at_the_front
     assert turns == [0, 0, pytest.approx(90), 0, 0, 0]
     _, turns = plan_turns(out['foldOut'], 0)
     assert turns == [0, 0, pytest.approx(-60), 0, 0, 0]
-    # a curve angle on the same seam adds to the corner's
+    # a curve angle on the same seam is left out: the corner takes its place
     _, turns = plan_turns(out['added'], 1)
-    assert turns == [0, 0, pytest.approx(55), 0, 0]
+    assert turns == [0, 0, pytest.approx(45), 0, 0]
     # a fold in the first or last panel, at their own middles
     _, turns = plan_turns(out['twoFolds'], 0)
     assert turns == [pytest.approx(30)] + [0] * 5 + [pytest.approx(30)]
@@ -307,13 +311,16 @@ def test_tab_keeps_focus_and_a_taken_spot_cannot_be_picked(page):
     page.click('#rigging-corner-add')
     page.click('#rigging-corner-add')
     have = corners_of(page, ids[0])
-    # the second goes on the free spot nearest the middle
-    assert [c['at'] for c in have] == [3, 3.5]
-    # a spot another corner holds is greyed out in the list
-    disabled = page.evaluate(f"[...document.querySelectorAll('{row(page, 3)} [data-corner-at] option')].filter(o => o.disabled).map(o => o.value)")
-    assert disabled == ['3.5']
-    page.fill(f'{row(page, 3)} [data-corner-angle]', '30')
-    page.press(f'{row(page, 3)} [data-corner-angle]', 'Tab')
+    # the second goes on the free spot nearest the middle whose corner bar
+    # would not share a panel with the first's (panels 3 and 4)
+    assert [c['at'] for c in have] == [2, 3.5]
+    # a spot another corner holds, or too close to it, is grayed out
+    opts = page.evaluate(f"[...document.querySelectorAll('{row(page, 2)} [data-corner-at] option')].map(o => [o.value, o.disabled, o.textContent])")
+    assert [v for v, off, _ in opts if off] == ['2.5', '3', '3.5', '4', '4.5']
+    assert dict((v, t) for v, _, t in opts)['3.5'] == 'Between panels 3 and 4, has a corner'
+    assert dict((v, t) for v, _, t in opts)['3'] == 'Middle of panel 3, too close'
+    page.fill(f'{row(page, 2)} [data-corner-angle]', '30')
+    page.press(f'{row(page, 2)} [data-corner-angle]', 'Tab')
     assert settled(page, lambda: corners_of(page, ids[0]), lambda v: v[0]['angle'] == 30)[0]['angle'] == 30
     page.wait_for_timeout(300)
     assert page.evaluate("document.activeElement && document.activeElement !== document.body")

@@ -9,9 +9,21 @@
 // middle), its angle and its side, and x takes it off. A small plan of the
 // screen from above, as the 3D tab builds it, shows every corner and any
 // curve live. The 3D tab and Export > OBJ build the corners
-// (app-stage3d.js s3dBuild); a corner on a seam that also has a curve
-// angle adds to it. Corners are shape only: no bar, total or pull list
-// changes.
+// (app-stage3d.js s3dBuild).
+//
+// The owner's rulings of 2026-11-09:
+// - Interior folds the sides toward the audience, Exterior away.
+// - The side at the Curve's build-from point (the middle without a
+//   Curve) stays put in 3D and the rest folds away; the block says which.
+// - A corner's seam carries no curve angle: the corner takes its place,
+//   and the Where list and the plan say so. The stored curve is left as
+//   it is, so taking the corner off brings the angle back.
+// - Bars split at a corner: its "Header Bar - Corner" (or Footer) covers
+//   the panels touching it (app-rigging.js). Moving, adding or taking off
+//   a corner lays an Auto row again around the corners in the same step;
+//   in a custom row a bar on the corner's panels makes way for the
+//   corner's piece, said in a toast. Two corners whose pieces would share
+//   a panel cannot both be set: those spots are grayed out.
 //
 // Stored on the layer as riggingCorners (app-stage3d.js s3dCleanCorners
 // holds its shape). Every change is one undo step. The rows show the
@@ -19,13 +31,28 @@
 // spot on every selected screen that has one there, so twin columns edit
 // together.
 import { LEDRasterApp } from './app-core.js';
-import { CORNER_MAX, s3dBuild, s3dCleanCorners, s3dCornersOn } from './app-stage3d.js';
+import { CORNER_MAX, s3dBuild, s3dCleanCorners, s3dCornerAnchor, s3dCornersOn } from './app-stage3d.js';
 
 const NS = 'http://www.w3.org/2000/svg';
+const KIND_WORD = { header: 'Header', footer: 'Footer' };
 
 // "Middle of panel 3", "Between panels 3 and 4"
 export function cornerSpotLabel(at) {
     return Number.isInteger(at) ? `Middle of panel ${at}` : `Between panels ${at - 0.5} and ${at + 0.5}`;
+}
+
+// "5°", "7.5°"
+const degWord = (a) => `${Math.round(Math.abs(a) * 10) / 10}°`;
+
+// Where the corners fold from, in words: "the middle", "the left end",
+// "panel 3", "the seam between panels 3 and 4".
+export function cornerAnchorWords(anchor, cols) {
+    if (anchor === 'left' || anchor === 0.5) return 'the left end';
+    if (anchor === 'right' || anchor === cols + 0.5) return 'the right end';
+    if (typeof anchor === 'number') {
+        return Number.isInteger(anchor) ? `panel ${anchor}` : `the seam between panels ${anchor - 0.5} and ${anchor + 0.5}`;
+    }
+    return 'the middle';
 }
 
 // Every spot a corner can go on a screen `cols` columns wide, left to
@@ -81,13 +108,63 @@ class _Corners {
         return this._writableLayers(this._riggingScreens());
     }
 
+    // Is a spot free for a corner: no corner there, and none whose bar
+    // would share a panel with this one's (`others`, the other corners'
+    // spots)?
+    _cornerSpotFree(at, others) {
+        return !others.some(o => o === at || RiggingMath.cornersClash(o, at));
+    }
+
     // The middle of a screen, or the free spot nearest it.
     _cornerMiddle(layer, taken) {
         const cols = this._cornerCols(layer);
         const mid = (cols + 1) / 2;
-        const spots = cornerSpots(cols).filter(s => !taken.has(s));
+        const others = [...taken];
+        const spots = cornerSpots(cols).filter(s => this._cornerSpotFree(s, others));
         spots.sort((a, b) => Math.abs(a - mid) - Math.abs(b - mid) || a - b);
         return spots.length ? spots[0] : null;
+    }
+
+    // After the corners of `layers` moved, came or went: the rows of bars
+    // they sit on split at the corners again, in the same undo step. An
+    // Auto row is laid again around its corners with its own lit sizes
+    // (one that cannot be is left as it is, and the tab says it no longer
+    // fits). In a custom row a bar on a corner's panels makes way for that
+    // corner's piece, and a toast says so. A curved screen's bars are the
+    // Curve's; a row with a locked screen on it is left as it is. Returns
+    // the other screens it changed, to save with the edit.
+    _cornerRelayBars(layers) {
+        const out = [];
+        const seen = new Set();
+        let became = 0;
+        let word = 'Header';
+        for (const l of layers || []) {
+            if (typeof this.riggingRow !== 'function' || !this._riggingCornersApply(l)) continue;
+            const side = this.riggingSideOf(l);
+            if (side === 'both') continue;
+            const row = this.riggingRow(l, side);
+            if (seen.has(row.key)) continue;
+            seen.add(row.key);
+            if (!row.placed.length && !row.pieces.length) continue;
+            if (row.layers.some(m => this._layerLocked(m))) continue;
+            if (row.layers.some(m => typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(m))) continue;
+            if (!row.custom) {
+                if (this._riggingFitRow(row, this._riggingSizesOf(row.layers[0]))) out.push(...row.layers);
+                continue;
+            }
+            const on = (b, s) => b.start < s.start + s.size && s.start < b.start + b.size;
+            const gone = row.placed.filter(b => row.spots.some(s => on(b, s)));
+            if (!gone.length) continue;
+            this._riggingWriteRow(row, row.placed.filter(b => !gone.includes(b)).map(b => ({ start: b.start, size: b.size })));
+            row.spots.filter(s => gone.some(b => on(b, s))).forEach(s => this._riggingSetCornerBars(s.owner, [s.at], true));
+            became += gone.length;
+            word = KIND_WORD[row.kind] || 'Header';
+            out.push(...row.layers);
+        }
+        if (became) {
+            this._toast(`${became === 1 ? 'A bar' : `${became} bars`} on a corner's panels made way for the ${word} Bar - Corner. Lay the panels beside it again by hand, or press Auto.`, false, 7000);
+        }
+        return out.filter((l, i) => out.indexOf(l) === i && !(layers || []).includes(l));
     }
 
     addRiggingCorner() {
@@ -100,8 +177,8 @@ class _Corners {
             l.riggingCorners = s3dCleanCorners([...list, { at, angle: CORNER_MAX, side: 'interior' }]);
             changed.push(l);
         }
-        if (changed.length) this.updateLayers(changed, true, 'Add Corner');
-        else if (screens.length) this._toast('Every panel and seam of this screen already has a corner.', true, 5000);
+        if (changed.length) this.updateLayers(changed.concat(this._cornerRelayBars(changed)), true, 'Add Corner');
+        else if (screens.length) this._toast('This screen has no room for another corner. Corners need a panel of their own for their corner bars.', true, 5000);
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
@@ -143,7 +220,8 @@ class _Corners {
             if (patch.at !== undefined && patch.at !== at) {
                 const cols = this._cornerCols(l);
                 if (!cornerSpots(cols).includes(patch.at)) continue;
-                if (list.some(c => c.at === patch.at)) { blocked.push(l); continue; }
+                const others = list.filter(c => c.at !== at).map(c => c.at);
+                if (!this._cornerSpotFree(patch.at, others)) { blocked.push(l); continue; }
             }
             const next = list.map((c, k) => (k === i ? { ...c, ...patch } : c));
             const clean = s3dCleanCorners(next);
@@ -152,9 +230,11 @@ class _Corners {
             changed.push(l);
         }
         if (blocked.length) {
-            this._toast(`${cornerSpotLabel(patch.at)} already has a corner on ${blocked.map(l => l.name || `Screen ${l.id}`).join(', ')}.`, true, 5000);
+            this._toast(`${cornerSpotLabel(patch.at)} is taken or too close to another corner on ${blocked.map(l => l.name || `Screen ${l.id}`).join(', ')}. Corners need a panel of their own for their corner bars.`, true, 6000);
         }
-        if (changed.length) this.updateLayers(changed, true, 'Corner');
+        // A corner that moved splits its bars somewhere else.
+        const relaid = patch.at !== undefined ? this._cornerRelayBars(changed) : [];
+        if (changed.length) this.updateLayers(changed.concat(relaid), true, 'Corner');
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
@@ -167,7 +247,7 @@ class _Corners {
             l.riggingCorners = list.filter(c => c.at !== at);
             changed.push(l);
         }
-        if (changed.length) this.updateLayers(changed, true, 'Remove Corner');
+        if (changed.length) this.updateLayers(changed.concat(this._cornerRelayBars(changed)), true, 'Remove Corner');
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
@@ -189,20 +269,47 @@ class _Corners {
         // Rebuilt only when the rows change shape; otherwise each row is
         // brought up to date in place, so a field being typed in keeps its
         // focus (Tab from one row's angle lands in the next control).
+        // The angle the Curve (or the 3D tab) gives each seam, as the screen
+        // stands without its corners: a corner on a seam takes its place.
+        const seamAngles = this._cornerSeamAngles(primary);
         const sig = JSON.stringify([primary.id, cols, list.map(c => c.at)]);
         if (host.dataset.sig !== sig) {
             host.dataset.sig = sig;
             host.innerHTML = '';
             list.forEach(c => host.appendChild(this._cornerRow(c, spots)));
         }
-        const used = new Set(list.map(c => c.at));
+        const used = list.map(c => c.at);
         host.querySelectorAll('[data-corner]').forEach(row => {
             const c = list.find(x => x.at === Number(row.dataset.corner));
             if (!c) return;
             const sel = row.querySelector('[data-corner-at]');
             if (sel) {
-                [...sel.options].forEach(o => { o.disabled = Number(o.value) !== c.at && used.has(Number(o.value)); });
+                const others = used.filter(a => a !== c.at);
+                [...sel.options].forEach(o => {
+                    const v = Number(o.value);
+                    o.disabled = v !== c.at && !this._cornerSpotFree(v, others);
+                    // A seam the Curve bends says so: a corner there takes
+                    // the place of that angle.
+                    const a = Number.isInteger(v) ? 0 : (seamAngles[Math.round(v - 1.5)] || 0);
+                    const text = cornerSpotLabel(v) + (a ? `, curve ${degWord(a)}` : '')
+                        + (o.disabled ? (used.includes(v) ? ', has a corner' : ', too close') : '');
+                    if (o.textContent !== text) o.textContent = text;
+                });
                 if (document.activeElement !== sel) sel.value = String(c.at);
+            }
+            // The seam's own curve angle, left out while the corner is there.
+            let gone = row.querySelector('.rigging-corner-replaces');
+            const a = Number.isInteger(c.at) ? 0 : (seamAngles[Math.round(c.at - 1.5)] || 0);
+            if (a) {
+                if (!gone) {
+                    gone = document.createElement('div');
+                    gone.className = 'rigging-corner-replaces';
+                    gone.style.cssText = 'color: #aaa; font-size: 11px; margin-top: 2px;';
+                    row.appendChild(gone);
+                }
+                gone.textContent = `This seam has no curve angle while the corner is on it. Its ${degWord(a)} comes back if the corner goes.`;
+            } else if (gone) {
+                gone.remove();
             }
             const angle = row.querySelector('[data-corner-angle]');
             if (angle && document.activeElement !== angle) angle.value = String(c.angle);
@@ -223,7 +330,31 @@ class _Corners {
         } else if (note) {
             note.remove();
         }
+        // Which side stays put in 3D, and the corner bars a curved screen
+        // does not take.
+        const hold = document.getElementById('rigging-corner-hold');
+        if (hold) {
+            hold.style.display = list.length ? '' : 'none';
+            const curved = typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(primary);
+            const words = cornerAnchorWords(s3dCornerAnchor(primary, cols), cols);
+            const text = `In 3D, ${words} stays put and the rest folds away from it`
+                + (curved ? ' (the Curve\'s Build from).' : '.')
+                + (curved ? ' The Curve lays this screen\'s bars, so its corners take no corner bar.' : '');
+            if (hold.textContent !== text) hold.textContent = text;
+        }
         this._cornerDrawPlan(document.getElementById('rigging-corner-plan'), primary);
+    }
+
+    // The angle at each seam (0-based joint) the screen has without its
+    // corners: the Curve's, or the 3D tab's.
+    _cornerSeamAngles(layer) {
+        let placement = null;
+        try { placement = this._s3dPlacementOf(layer); } catch (_) { placement = null; }
+        try {
+            return s3dBuild({ ...layer, riggingCorners: [] }, placement || {}).colJ;
+        } catch (_) {
+            return [];
+        }
     }
 
     _cornerRow(c, spots) {
@@ -313,8 +444,14 @@ class _Corners {
         }
         pts.push(at(n - 1, built.colLen[n - 1]));
         corners.filter(c => !Number.isInteger(c.at)).forEach(c => dots.push(at(c.at - 0.5, 0)));
+        // Gray: a seam the curve bends. A corner's seam is red only, with
+        // no curve angle on it.
+        const bends = [];
+        built.colJ.forEach((a, j) => {
+            if (a && !(built.cornerSeams && built.cornerSeams.has(j))) bends.push(at(j + 1, 0));
+        });
         const W = Math.max(120, (host.clientWidth || 200) - 2);
-        const sig = JSON.stringify([pts.map(p => [Math.round(p.x), Math.round(p.y)]), dots.length, W]);
+        const sig = JSON.stringify([pts.map(p => [Math.round(p.x), Math.round(p.y)]), dots.length, bends.length, W]);
         if (host.dataset.sig === sig) return;
         host.dataset.sig = sig;
         host.innerHTML = '';
@@ -341,6 +478,16 @@ class _Corners {
         line.setAttribute('stroke', '#ddd');
         line.setAttribute('stroke-width', '2');
         svg.appendChild(line);
+        bends.forEach(p => {
+            const [cx, cy] = to(p);
+            const d = document.createElementNS(NS, 'circle');
+            d.setAttribute('cx', cx.toFixed(1));
+            d.setAttribute('cy', cy.toFixed(1));
+            d.setAttribute('r', '2.5');
+            d.setAttribute('fill', '#888');
+            d.setAttribute('data-curve-dot', '');
+            svg.appendChild(d);
+        });
         dots.forEach(p => {
             const [cx, cy] = to(p);
             const d = document.createElementNS(NS, 'circle');

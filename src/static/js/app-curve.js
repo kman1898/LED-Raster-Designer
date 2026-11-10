@@ -37,11 +37,20 @@
 // it. A build picked by hand from Ways to build it holds until anything
 // the joints depend on changes, then the app picks again (curvePickKey).
 //
+// CORNERS (app-corners.js): a corner on a seam takes the place of that
+// joint's curve angle (owner, 2026-11-09). The Curve still works the
+// wall out whole and keeps every angle it laid, so taking the corner off
+// brings it back; the build sheet strip marks the seam Corner, and the
+// readouts say how much of the curve's turn the corners leave out and
+// what it turns in all as built. The calculator is not run again around
+// the corner: it pins no joint by hand (its house rules), and its bars
+// are laid for the whole wall.
+//
 // Stored on the layer as riggingCurve (curve-math.js cleanCurve holds its
 // shape); a show without it has every screen off, unchanged. The reference
 // table of every joint at one angle is left out to keep the tab compact.
 import { LEDRasterApp } from './app-core.js';
-import { s3dResolve, s3dSanitize } from './app-stage3d.js';
+import { s3dCornerSeams, s3dResolve, s3dSanitize } from './app-stage3d.js';
 import {
     cleanCurve, convertCurveEntry, datumLabel, formatAngle, formatLength, formatSmall, parseAngles,
     screenCurve, snapDatum,
@@ -545,7 +554,9 @@ class _Curve {
         if (note && !this.riggingCurveBusy() && !this._curveLaidMatches(primary, out)) {
             note.textContent = 'These bars and angles are not this curve\'s yet. Press Auto to lay it.';
         }
-        this._curveDrawSheet(document.getElementById('rigging-curve-sheet'), out);
+        // The seams a corner takes over (app-corners.js): no curve angle.
+        const cornerSeams = s3dCornerSeams(primary, Number(primary.columns) || 0);
+        this._curveDrawSheet(document.getElementById('rigging-curve-sheet'), out, cornerSeams);
         this._curveDrawPlan(document.getElementById('rigging-curve-plan'), out);
         const r = out.result;
         const a = r.achieved;
@@ -559,6 +570,12 @@ class _Curve {
             ['Depth', len(a.depth_m)],
             ['Off the drawing', `${formatSmall(r.max_arc_deviation_m, system)} at worst`],
         ];
+        // A corner's seam carries no curve angle: what the curve turns as built.
+        const leftOut = [...cornerSeams.keys()].reduce((t, j) => t + Math.abs(out.joints[j] || 0), 0);
+        if (leftOut > 0) {
+            const turn = Math.max(0, (Number(a.total_turn_deg) || 0) - leftOut);
+            rows.push(['Corners', `${formatAngle(leftOut, 1)} left out, turns ${formatAngle(turn, 1)} in all`]);
+        }
         const read = document.getElementById('rigging-curve-readouts');
         if (read) {
             const sig = JSON.stringify(rows);
@@ -673,14 +690,14 @@ class _Curve {
     // The build sheet strip: the bars left to right, sized to their panels
     // and marked with their size, a tag with the angle on every join that
     // bends, and the datum marked under the strip.
-    _curveDrawSheet(host, out) {
+    _curveDrawSheet(host, out, cornerSeams = new Map()) {
         if (!host) return;
         const bars = out.bars;
         const joints = out.joints;
         const panels = joints.length + 1;
         const datum = out.result.datum_at;
         const room = Math.max(120, (host.clientWidth || 200) - 2);
-        const sig = JSON.stringify([bars, joints, datum, room]);
+        const sig = JSON.stringify([bars, joints, datum, room, [...cornerSeams.keys()]]);
         if (host.dataset.sig === sig) return;
         host.dataset.sig = sig;
         host.innerHTML = '';
@@ -713,14 +730,17 @@ class _Curve {
         // second line where it would run into the one before.
         const ends = [-Infinity, -Infinity];
         joints.forEach((a, j) => {
-            if (!a) return;
+            // A corner's seam: "Corner", no curve angle on it.
+            const corner = cornerSeams.has(j);
+            if (!a && !corner) return;
             const x = (j + 1) * px;
-            const text = formatAngle(Math.abs(a));
+            const text = corner ? 'Corner' : formatAngle(Math.abs(a));
             const half = text.length * 2.7 + 1;
             const line = x - half > ends[0] ? 0 : (x - half > ends[1] ? 1 : 0);
             ends[line] = x + half;
             add('line', { x1: x, y1: line ? 11 : barTop - 3, x2: x, y2: barTop + barH, stroke: '#e22330', 'stroke-width': 1.5 });
-            add('text', { x, y: line ? 19 : 9, 'text-anchor': 'middle', 'font-size': 9, fill: '#f0f0f0', 'data-angle': j }, text);
+            add('text', { x, y: line ? 19 : 9, 'text-anchor': 'middle', 'font-size': 9, fill: corner ? '#f5a623' : '#f0f0f0',
+                [corner ? 'data-corner-seam' : 'data-angle']: j }, text);
         });
         // The datum: where the crew sets out from (0.5 is the left end).
         const dx = (datum - 0.5) * px;

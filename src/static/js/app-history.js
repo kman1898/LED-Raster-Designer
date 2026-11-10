@@ -92,6 +92,24 @@ class _History {
             }
         }
 
+        // A footer that came or went on a screen already placed in 3D lifts
+        // or drops its panels 6 in (app-stage3d.js _s3dFollowFooters), by
+        // whatever edit made it: bars, a group made or broken, a screen
+        // moved into or out of line with a grouped neighbor, a neighbor
+        // shown or hidden. updateLayers has already moved and sent the
+        // screens its own edit lifted; any other is moved here, before the
+        // entry is taken so the lift undoes with the edit, and sent.
+        if (typeof this._s3dFollowFooters === 'function') {
+            try {
+                const moved = this._s3dFollowFooters();
+                if (moved.length && typeof this._putLayer === 'function') {
+                    moved.forEach(l => this._putLayer(l.id, { stage3d: l.stage3d }));
+                }
+            } catch (e) {
+                sendClientLog('stage3d_footer_follow_failed', { action, error: String(e && e.message || e) });
+            }
+        }
+
         const json = JSON.stringify(this.project, this._snapshotReplacer);
 
         // Undo audit: an action that changed nothing must not grow a step.

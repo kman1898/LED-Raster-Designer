@@ -6108,7 +6108,7 @@
         riggingCorner: {
             since: '1.7.0',
             target: '#rigging-corners', place: 'right', title: 'Bend a corner',
-            body: 'Add corner folds the screen 90 degrees, hinged at the panels&rsquo; front. Pick a seam or the middle of a panel and any angle up to 90; the 3D tab and Export OBJ build it.',
+            body: 'Add corner folds the screen 90 degrees at the panels&rsquo; front; pick a seam or a panel&rsquo;s middle and any angle up to 90. The side at the Build from point stays put in 3D, and the corner&rsquo;s seam takes no curve angle.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -6136,6 +6136,71 @@
                 var c = (w && w.riggingCorners) || [];
                 return c.length === 1 && c[0].at === mem.at && c[0].angle === 90 && c[0].side === 'interior'
                     ? 'DEMO WALL folds 90° Interior in the middle of panel ' + mem.at + '.' : null;
+            }
+        },
+        // Bars split at a corner (1.7.0): with the Curve off, Auto lays the
+        // corner's own Header Bar - Corner over its panel and fits each
+        // side. The Curve is ticked again afterwards, so the wall goes on
+        // as the Curve step left it.
+        riggingCornerBars: {
+            since: '1.7.0',
+            target: '#rigging-total-count', place: 'right', title: 'Corner bars',
+            body: 'With the Curve off, Auto splits the bars at a corner: a Header Bar - Corner covers the panels touching it and regular bars fill each side. The totals, the pull sheet and the binder count it.',
+            before: function () {
+                switchView('rigging');
+                var w = wall();
+                if (!w) return;
+                A().setSelectedLayersByIds([w.id], w.id);
+                // Played alone: the corner the step before adds.
+                if (!(Array.isArray(w.riggingCorners) && w.riggingCorners.length)) {
+                    var mid = Math.max(1, Math.round((Number(w.columns) || 2) / 2));
+                    w.riggingCorners = [{ at: mid, angle: 90, side: 'interior' }];
+                    A().updateLayers([w], true, 'Add Corner');
+                }
+                A().refreshRiggingPanel();
+            },
+            act: function (t) {
+                var w0 = wall();
+                t.mem.curve = !!(w0 && w0.riggingCurve && w0.riggingCurve.on);
+                t.mem.custom = A()._riggingToolNow() === 'custom';
+                var pieces = function () { var w = wall(); return w ? A().riggingCornerPiecesOf(w).length : 0; };
+                var curveLaid = function () {
+                    var w = wall();
+                    var j = w && w.stage3d && w.stage3d.jointsCol;
+                    return w && w.riggingCurve && w.riggingCurve.on && j && Object.keys(j).length === w.columns - 1;
+                };
+                var chain = Promise.resolve();
+                if (t.mem.curve) {
+                    chain = chain.then(function () { return t.click('#rigging-curve-on'); }).then(function () {
+                        return t.wait(function () { var w = wall(); return w && !(w.riggingCurve && w.riggingCurve.on); });
+                    });
+                }
+                if (t.mem.custom) chain = chain.then(function () { return t.click('.rigging-tool-btn[data-tool="auto"]'); });
+                return chain.then(function () {
+                    return t.click('#rigging-auto-btn');
+                }).then(function () {
+                    return t.wait(function () { return pieces() > 0; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('no corner bar was laid');
+                    t.mem.pieces = pieces();
+                    t.mem.bars = headerBars();
+                    var list = $('#rigging-total-breakdown');
+                    t.mem.list = String((list && list.textContent) || '').replace(/\n/g, ', ');
+                    var box = $('#rigging-total-count');
+                    return t.spot((box && box.closest('[data-tooltip]')) || box).then(function () { return t.pause(PACE.opened); });
+                }).then(function () {
+                    // the wall back as the Curve step left it
+                    if (t.mem.custom) return t.click('.rigging-tool-btn[data-tool="custom"]');
+                }).then(function () {
+                    if (!t.mem.curve) return true;
+                    return t.click('#rigging-curve-on').then(function () { return t.wait(curveLaid, 10000); });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the curve was not laid again');
+                });
+            },
+            check: function (mem) {
+                return mem.pieces === 1 && /Corner: 1/.test(mem.list || '')
+                    ? 'Auto split DEMO WALL at its corner: ' + mem.bars.split(',').join(' + ') + ' and a Header Bar - Corner. The totals read ' + mem.list + '.' : null;
             }
         },
         riggingCornerSide: {
@@ -8120,7 +8185,7 @@
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
                     'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurve',
-                    'riggingCorner', 'riggingCornerSide',
+                    'riggingCorner', 'riggingCornerBars', 'riggingCornerSide',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
                     's3dOpen', 's3dSelect', 's3dHeight', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
                     's3dBars', 's3dJoint',
