@@ -902,6 +902,16 @@ export class LEDRasterApp {
         // under load, mid-drag, so a drag back to the tray missed its
         // drop (full suite, 2026-10-19). Other windows' echoes apply.
         const own = !!(echo && echo.client === this._echoClientId);
+        // A guide running here on its demo show, after another page put a
+        // show of its own on the server (_onProjectReplaced): that page's
+        // screens are not the demo's, whatever their ids.
+        if (!own && this._guideShowReplaced) {
+            if (typeof this._guideHoldsWindow === 'function' && this._guideHoldsWindow()) {
+                sendClientLog('socket_layer_updated_held_by_guide', { id: layer.id });
+                return;
+            }
+            this._guideShowReplaced = false;
+        }
         // The echo of this page's own save, while a hand is still on a
         // gesture (a drag, a slider, a picker): held until it lets go,
         // then run as it would have (_holdForGesture).
@@ -992,10 +1002,15 @@ export class LEDRasterApp {
         // A guide running on this page works on its own demo show and puts
         // the person's project back when it ends; it is never pulled out
         // from under the person watching it.
+        // The other page's screens that follow it (their layer_updated
+        // echoes) are of that other show too, and are let go as well
+        // (_onSocketLayerUpdated) until the guide ends.
         if (typeof this._guideHoldsWindow === 'function' && this._guideHoldsWindow()) {
+            this._guideShowReplaced = true;
             sendClientLog('socket_project_replaced_held_by_guide', { reason, from: mark.client || null });
             return;
         }
+        this._guideShowReplaced = false;
         this._foreignReplaces = (this._foreignReplaces || 0) + 1;
         // From here no save of the show going reaches the server, where it
         // would write its screens into the new show under the same ids
