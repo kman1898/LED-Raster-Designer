@@ -668,6 +668,51 @@ def test_the_reference_wall_reads_the_calculator_radius_and_chord_off_the_obj(pa
     assert pts[0][1] > pts[8][1] and pts[16][1] > pts[8][1]
 
 
+CALC_JS = """async (cases) => {
+    const m = await import('/static/js/curve-math.js');
+    return cases.map(([n, angle]) => {
+        const got = m.buildCurve({widths: new Array(n).fill(0.5), joints: new Array(n - 1).fill(angle),
+            direction: 'concave', pivotOffsetM: 0, panelDepthM: 0.085, wallHeightM: 6}).measurements;
+        return {face: got.radius_face_m, joints: got.radius_joints_m, chord: got.chord_m,
+                faceAgain: m.faceRadiusForAngle(0.5, angle), jointsAgain: m.radiusForAngle(0.5, angle)};
+    });
+}"""
+
+# (cabinets, degrees at every joint): the calculator's reference wall
+# (5.725941 m to the face, 7.368141 m chord), and two more.
+RADIUS_CASES = [(16, 5), (24, 2.5), (10, 7.5)]
+
+
+@pytest.mark.parametrize('n,angle', RADIUS_CASES, ids=[f'{n}x500mm_at_{a}deg' for n, a in RADIUS_CASES])
+def test_every_obj_face_sits_on_the_calculators_face_radius(page, n, angle):
+    """The radii and chord come from curve-math.js itself (buildCurve and
+    its closed forms, which must agree), not typed in; then every face of
+    the exported OBJ, one at a time, sits with its middle on the face
+    radius and both its edges on the joint radius, to 0.1 mm, about one
+    centre, and the ends are the chord apart."""
+    want = page.evaluate(CALC_JS, [[n, angle]])[0]
+    assert want['face'] == pytest.approx(want['faceAgain'], abs=1e-9)
+    assert want['joints'] == pytest.approx(want['jointsAgain'], abs=1e-9)
+    if (n, angle) == (16, 5):
+        # the reference wall's published figures
+        assert want['face'] == pytest.approx(5.725941, abs=1e-6)
+        assert want['chord'] == pytest.approx(7.368141, abs=1e-6)
+    ids = reset(page, [dict(WALL, columns=n)])
+    set_joints(page, ids[0], [angle] * (n - 1))
+    obj = read_obj(obj_files(page)['Test_Show_WALL.obj'])
+    pts = face_corners_xz(obj)
+    assert len(pts) == n + 1
+    c = circumcenter(pts[0], pts[n // 2], pts[n])
+    for i in range(n):
+        a, b = pts[i], pts[i + 1]
+        mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        assert abs(math.dist(mid, c) - want['face']) < 1e-4, (i, math.dist(mid, c), want['face'])
+        assert abs(math.dist(a, c) - want['joints']) < 1e-4, (i, math.dist(a, c), want['joints'])
+    assert abs(math.dist(pts[-1], c) - want['joints']) < 1e-4
+    assert abs(math.dist(pts[0], pts[-1]) - want['chord']) < 1e-4
+    assert page.errors == []
+
+
 def test_an_obj_of_a_curved_screen_reads_back_right(page):
     ids = reset(page)
     open_rigging(page)
