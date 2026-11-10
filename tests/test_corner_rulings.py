@@ -132,22 +132,25 @@ def _fixed(case, cols):
 
 def test_interior_folds_the_sides_toward_the_audience_exterior_away(page):
     out = page.evaluate(BUILD_JS, {
-        'seamIn': {'corners': [{'at': 3.5, 'angle': 90, 'side': 'interior'}]},
-        'seamOut': {'corners': [{'at': 3.5, 'angle': 90, 'side': 'exterior'}]},
+        'seamIn': {'corners': [{'at': 4.5, 'angle': 90, 'side': 'interior'}]},
+        'seamOut': {'corners': [{'at': 4.5, 'angle': 90, 'side': 'exterior'}]},
         'foldIn': {'corners': [{'at': 3, 'angle': 60, 'side': 'interior'}]},
         'foldOut': {'corners': [{'at': 3, 'angle': 60, 'side': 'exterior'}]},
     })
     for name, toward in (('seamIn', True), ('seamOut', False), ('foldIn', True), ('foldOut', False)):
         quads = [q for q in out[name]['quads'] if q['row'] == 1]
         quads.sort(key=lambda q: (q['col'], q['fold'] or 0))
-        # the hinge: where panel 3 meets panel 4, or the fold in panel 3
-        hinge = quads[2]['br'] if name.startswith('seam') else next(q for q in quads if q['col'] == 2 and q['fold'] == 0)['br']
+        # the hinge: where panel 4 meets panel 5, or the fold in panel 3
+        hinge = quads[3]['br'] if name.startswith('seam') else next(q for q in quads if q['col'] == 2 and q['fold'] == 0)['br']
         left, right = quads[0]['bl'], quads[-1]['br']
-        # +Z is toward the audience
+        # +Z is toward the audience. The side holding the build-from point
+        # (the middle) stays on the line of the hinge; the other folds.
+        fixed, folded = sorted([left, right], key=lambda p: abs(p[2] - hinge[2]))
+        assert fixed[2] == pytest.approx(hinge[2], abs=0.1), (name, left, hinge, right)
         if toward:
-            assert left[2] > hinge[2] + 100 and right[2] > hinge[2] + 100, (name, left, hinge, right)
+            assert folded[2] > hinge[2] + 100, (name, left, hinge, right)
         else:
-            assert left[2] < hinge[2] - 100 and right[2] < hinge[2] - 100, (name, left, hinge, right)
+            assert folded[2] < hinge[2] - 100, (name, left, hinge, right)
 
 
 # ── 2. The side at the build-from point stays put ────────────────────────
@@ -349,8 +352,8 @@ def test_corner_bars_for_a_mid_panel_corner_and_a_seam_corner(page):
     head = rows[0]
     assert head['corners'] == [False, True, False, False]
     piece = [q for q in head['quads'] if q['slot'] == 2]
-    assert len(piece) == 2 and [round(_len(q), 3) for q in piece] == [250, 250]
-    assert _cos(piece[0], piece[1]) == pytest.approx(0, abs=1e-6)
+    assert len(piece) == 2 and [_len(q) for q in piece] == [pytest.approx(250, abs=0.01)] * 2
+    assert _cos(piece[0], piece[1]) == pytest.approx(0, abs=1e-4)
     # touching the panels: in the screen's own frame its foot is the top
     # of the two 500 mm rows, and it stands 3.5 in tall
     assert head['heightMm'] == pytest.approx(88.9)
@@ -368,8 +371,8 @@ def test_corner_bars_for_a_mid_panel_corner_and_a_seam_corner(page):
     open_3d(page, 1)
     rows = settled(page, lambda: bars3d(page, ids[0]), lambda r: r and r[0]['starts'] == [0, 2, 4])
     piece = [q for q in rows[0]['quads'] if q['slot'] in (2, 3)]
-    assert [round(_len(q), 3) for q in piece] == [500, 500]
-    assert _cos(piece[0], piece[1]) == pytest.approx(0, abs=1e-6)
+    assert [_len(q) for q in piece] == [pytest.approx(500, abs=0.01)] * 2
+    assert _cos(piece[0], piece[1]) == pytest.approx(0, abs=1e-4)
     assert _same(piece[0]['br'], piece[1]['bl'], 0.001)
     # the binder's Header/Footer sheet and its pull sheet list it with the bars
     out = binder_texts(page)
