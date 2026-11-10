@@ -213,7 +213,7 @@ _BROWSERS = (
     (re.compile(r'\bEdg(?:e|A|iOS)?/(\d+)'), 'Edge'),
     (re.compile(r'\bOPR/(\d+)'), 'Opera'),
     (re.compile(r'\b(?:Firefox|FxiOS)/(\d+(?:\.\d+)?)'), 'Firefox'),
-    (re.compile(r'\b(?:CriOS|Chrome)/(\d+)'), 'Chrome'),
+    (re.compile(r'\b(?:CriOS|HeadlessChrome|Chrome)/(\d+)'), 'Chrome'),
     (re.compile(r'\bVersion/(\d+(?:\.\d+)?)[^ ]*(?: Mobile/\S+)? Safari/'), 'Safari'),
 )
 
