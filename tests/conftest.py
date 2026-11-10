@@ -1,5 +1,6 @@
 """Shared pytest fixtures for LED Raster Designer tests."""
 
+import json
 import sys
 import os
 import pytest
@@ -179,6 +180,13 @@ def settled(page, read, ok, timeout_ms=5000):
 # with nothing to say why.) So every unhandled_exception the server logs
 # during a test is kept, and a failing test's report carries them.
 _SERVER_ERRORS = []
+# The page's own log (POST /api/log: save_state, undo, history_reset and
+# the rest) goes to the same thrown-away file, and it is what says what the
+# page did between two requests. A failing test's report carries the last
+# of it too. (1.7.0 CI: Delete then undo left two screens at one, once, on
+# a runner, with no request after the delete to say why.)
+_CLIENT_EVENTS = []
+_CLIENT_EVENTS_KEPT = 80
 
 
 def _capture_server_errors(app_module):
@@ -194,13 +202,32 @@ def _capture_server_errors(app_module):
     log_event._keeps_server_errors = True
     app_module.log_event = log_event
 
+    import routes_logs
+    real_route = routes_logs.log_event
+
+    def client_log_event(action, details=None, *args, **kwargs):
+        if kwargs.get('source') == 'client':
+            try:
+                text = json.dumps(details, default=str)
+            except (TypeError, ValueError):
+                text = repr(details)
+            _CLIENT_EVENTS.append(f"{action} {text[:400]}")
+            del _CLIENT_EVENTS[:-_CLIENT_EVENTS_KEPT]
+        return real_route(action, details, *args, **kwargs)
+
+    routes_logs.log_event = client_log_event
+
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     if call.when == 'setup':
         _SERVER_ERRORS.clear()
+        _CLIENT_EVENTS.clear()
     outcome = yield
     report = outcome.get_result()
+    if report.failed and _CLIENT_EVENTS:
+        report.sections.append(('page log during this test (last %d)' % len(_CLIENT_EVENTS),
+                                '\n'.join(_CLIENT_EVENTS)))
     if report.failed and _SERVER_ERRORS:
         lines = []
         for d in _SERVER_ERRORS:
