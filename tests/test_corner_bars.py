@@ -8,13 +8,18 @@ curve-math.js screenCurve):
   Header/Footer sheet and its pull sheet.
 * Every corner is 90 degrees and takes its corner bar; one saved under 90
   by a 1.7.0 beta opens as 90 (tests/test_corners.py too).
-* With the Curve on, the corner bars split the screen into sides and the
-  Curve's % applies to each side as its own wall: each side's angles are
-  curve-math.js's for a wall of that side's width at the same settings,
-  its bars run up to the corner bar, and the readouts, Ways to build it,
-  Use this and the leftover-stock refusal are each side's, by name. Two
-  corners make three sides. The OBJ puts each side's faces on its own
-  radius.
+* With the Curve on, the corners split the screen into sides and the
+  Curve's % applies to each side as its own wall. "the corner itself is
+  flat due to the edge the opposite side of the 90 is curvable": only the
+  fold takes no curve angle. Each side runs right up to the fold, its
+  corner bar's arm included (a panel for a seam corner, half a panel for
+  one down a panel's middle), so the joint where the arm meets the next
+  bar takes the side's angle. Each side's angles are curve-math.js's for a
+  wall of that side's width at the same settings, its stock bars run up
+  to the corner bar, and the readouts, Ways to build it, Use this and the
+  leftover-stock refusal are each side's, by name. Two corners make three
+  sides. The OBJ puts each side's faces, the arm's too, on its own radius.
+  A show saved before opens with its bars and angles as they were.
 * Corners whose pieces would share a panel stay grayed out
   (tests/test_corners.py), and shows without corners are unchanged
   (tests/test_corner_rulings.py).
@@ -22,8 +27,10 @@ curve-math.js screenCurve):
 Run locally:
     python -m pytest tests/test_corner_bars.py -n 4 --dist loadfile -p no:cacheprovider
 """
+import json
 import math
 import os
+import re
 import sys
 
 import pytest
@@ -32,7 +39,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from conftest import settled  # noqa: E402
-from test_corners import COLUMN, OBJ_FILES_JS, RESET_JS, history_len, layer, open_rigging, read_obj  # noqa: E402
+from test_corners import COLUMN, OBJ_FILES_JS, RESET_JS, history_len, layer, open_rigging, read_obj, served  # noqa: E402
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
@@ -176,26 +183,56 @@ def test_a_corner_saved_under_90_takes_its_corner_bar_with_the_curve_on(page):
 
 # ── 3. With the Curve on, each side curves as its own wall ───────────────
 
-# The calculator's answer for one wall `panels` wide with the screen's own
-# lit sizes and Curve settings, no pick (curve-math.js screenCurve), and
-# the joints the screen carries.
+# curve-math.js's own answer for one wall `panels` wide, its corner bars'
+# arms `armL` and `armR` fixed bars at its ends (half panels worked in
+# halves), with the screen's own lit sizes and Curve settings, no pick,
+# built straight from the calculator (solveCurve): its joints at its seams,
+# its stock bars as [start, size] in panels from its left end, and its face
+# radius. And the joints the screen carries.
 SIDES_JS = """async ([id, sides]) => {
     const m = await import('/static/js/curve-math.js');
     const a = window.app;
     const l = a.project.layers.find(x => x.id === id);
-    const settings = { ...l.riggingCurve, pick: null, sidePicks: [] };
-    const alone = sides.map(([start, panels]) => m.screenCurve({ panels, panelWidthM: 0.5,
-        sizes: a._riggingSizesOf(l), settings }));
+    const s = m.cleanCurve({ ...l.riggingCurve, pick: null, sidePicks: [] });
+    const sizes = a._riggingSizesOf(l);
+    const alone = sides.map(([panels, armL, armR, from]) => {
+        const unit = Number.isInteger(armL) && Number.isInteger(armR) ? 1 : 0.5;
+        const n = Math.round(panels / unit);
+        const c = m.makeCurve('Side');
+        c.panel.count = n;
+        c.panel.width_m = 0.5 * unit;
+        c.hardware.footer_widths_m = sizes.map(k => k * 0.5);
+        c.hardware.detents_deg = [...s.angles];
+        c.target = { mode: s.entry === 'degrees' ? 'sweep_deg' : 'percent_circle', value: s.value, radius_ref: 'face' };
+        c.direction = s.bend;
+        c.build_from = from || s.from;
+        c.fit_goal = s.goal;
+        c.tolerance_m = s.toleranceMm / 1000;
+        const fixed = [...(armL ? [{ start: 0, size: armL / unit }] : []),
+                       ...(armR ? [{ start: n - armR / unit, size: armR / unit }] : [])];
+        c.layout_constraints = { pieces: fixed };
+        const seams = [...Array(n - 1).keys()].filter(j => Number.isInteger((j + 1) * unit + (armL === 0.5 ? 0.5 : 0)));
+        if (unit < 1) c.seam_joints = seams;
+        const r = m.solveCurve(c);
+        const sign = s.bend === 'concave' ? 1 : -1;
+        const signed = r.joints.map(j => (j.angle_deg ? sign * j.angle_deg : 0));
+        const bars = r.footers.filter(f => !fixed.some(p => p.start === f.from - 1 && p.size === f.panels))
+            .map(f => [(f.from - 1) * unit, f.panels * unit]);
+        return { joints: unit < 1 ? seams.map(j => signed[j]) : signed, bars, errors: r.errors,
+                 radius: r.achieved.radius_face_m };
+    });
     const table = (l.stage3d && l.stage3d.jointsCol) || {};
-    return { alone: alone.map(o => ({ joints: o.joints, bars: o.bars, errors: o.errors,
-                                       radius: o.result ? o.result.achieved.radius_face_m : null })),
-             joints: [...Array((Number(l.columns) || 1) - 1).keys()].map(j => table[String(j)]) };
+    return { alone, joints: [...Array((Number(l.columns) || 1) - 1).keys()].map(j => table[String(j)]) };
 }"""
 
 
 def side_titles(page):
     return page.evaluate("""() => [...document.querySelectorAll('#rigging-curve-ways [data-side]')]
         .map(b => [b.dataset.side, b.firstElementChild.textContent])""")
+
+
+def _shift(start, bars):
+    return [[start + s, z] for s, z in bars]
 
 
 def test_with_the_curve_on_each_side_of_a_corner_curves_as_its_own_wall(page):
@@ -205,7 +242,7 @@ def test_with_the_curve_on_each_side_of_a_corner_curves_as_its_own_wall(page):
     settled(page, lambda: placed(page, ids[0]), lambda b: b and curve_idle(page), 15000)
     n = history_len(page)
     # Add corner: between panels 6 and 7, its corner bar on panels 6 and 7,
-    # five panels on each side, laid by the Curve in one step
+    # each side six panels up to the seam, laid by the Curve in one step
     page.click('#rigging-corner-add')
     settled(page, lambda: pieces(page, ids[0]), lambda p: p and curve_idle(page), 15000)
     assert pieces(page, ids[0]) == [[6.5, 5, 2]]
@@ -215,23 +252,31 @@ def test_with_the_curve_on_each_side_of_a_corner_curves_as_its_own_wall(page):
     assert not any(s < 7 and 5 < s + z for s, z in bars), bars
     covered = sorted(p for s, z in bars for p in range(s, s + z)) + [5, 6]
     assert sorted(covered) == list(range(12))
-    # each side's angles are a five panel wall's at the same setting
-    got = page.evaluate(SIDES_JS, [ids[0], [[0, 5], [7, 5]]])
+    # each side's angles are a six panel wall's at the same setting, the
+    # corner bar's arm its last (or first) panel
+    got = page.evaluate(SIDES_JS, [ids[0], [[6, 0, 1], [6, 1, 0]]])
     left, right = got['alone']
     assert left['errors'] == [] and any(left['joints'])
-    assert got['joints'][0:4] == left['joints']
-    assert got['joints'][7:11] == right['joints']
-    # the corner bar's joints, inside it and at its ends, are flat
-    assert got['joints'][4:7] == [0, 0, 0]
-    assert [b for b in bars if b[0] < 5] == [[s, z] for s, z in _run(0, left['bars'])]
-    assert [b for b in bars if b[0] >= 7] == [[s, z] for s, z in _run(7, right['bars'])]
+    assert got['joints'][0:5] == left['joints']
+    assert got['joints'][6:11] == right['joints']
+    # the corner's own seam, 6|7, takes no curve angle; the far joints of
+    # its corner bar, 5|6 and 7|8, take their side's
+    assert got['joints'][5] == 0
+    assert got['joints'][4] and got['joints'][6]
+    assert [b for b in bars if b[0] < 5] == left['bars']
+    assert [b for b in bars if b[0] >= 7] == _shift(6, right['bars'])
     # the tab says each side: its readouts, its headline, its ways to build it
     read = page.inner_text('#rigging-curve-readouts')
-    assert 'Left side, 5 panels' in read and 'Right side, 5 panels' in read
+    assert 'Left side, 6 panels' in read and 'Right side, 6 panels' in read
     head = page.inner_text('#rigging-curve-head').split('\n')
     assert [h.split(':')[0] for h in head] == ['Left side', 'Right side']
     assert side_titles(page) == [['0', 'Ways to build it, left side'], ['1', 'Ways to build it, right side']]
+    # the strip: the corner bar, the corner on its seam, and an angle on
+    # each of its far joints
     assert page.locator('#rigging-curve-sheet [data-corner-bar]').count() == 1
+    assert page.locator('#rigging-curve-sheet [data-corner-seam="5"]').count() == 1
+    assert page.locator('#rigging-curve-sheet [data-angle="4"]').count() == 1
+    assert page.locator('#rigging-curve-sheet [data-angle="6"]').count() == 1
     assert page.locator('#rigging-curve-plan svg [data-datum]').count() == 1
     assert pull_rig(page)[0] == ['Header Bar - Corner (2 panel)', 1]
     assert not page.locator('#rigging-fit-warning').is_visible()
@@ -246,8 +291,8 @@ def test_with_the_curve_on_each_side_of_a_corner_curves_as_its_own_wall(page):
     curve = layer(page, ids[0])['riggingCurve']
     assert curve['sidePicks'][0] is None and curve['sidePicks'][1]['id'] == pick
     assert curve.get('pick') is None
-    after = page.evaluate(SIDES_JS, [ids[0], [[0, 5], [7, 5]]])['joints']
-    assert after[0:7] == got['joints'][0:7]
+    after = page.evaluate(SIDES_JS, [ids[0], [[6, 0, 1], [6, 1, 0]]])['joints']
+    assert after[0:6] == got['joints'][0:6]
     assert pieces(page, ids[0]) == [[6.5, 5, 2]]
     assert 'You picked this one by hand' in page.inner_text('#rigging-curve-ways [data-side="1"]')
     assert 'You picked this one by hand' not in page.inner_text('#rigging-curve-ways [data-side="0"]')
@@ -262,17 +307,42 @@ def test_with_the_curve_on_each_side_of_a_corner_curves_as_its_own_wall(page):
     assert page.errors == []
 
 
-def _run(start, sizes):
-    out = []
-    for z in sizes:
-        out.append((start, z))
-        start += z
-    return out
+def test_a_corner_down_a_panels_middle_curves_both_its_seams(page):
+    """Twelve panels, a corner down the middle of panel 3: the left side is
+    panels 1, 2 and the left half of 3, the right side the right half of 3
+    onward. The fold is the 90; the panel's own seams, 2|3 and 3|4, are on
+    their sides' arcs, each side as curve-math works a wall that wide."""
+    spec = dict(CURVED, extra={**CURVED['extra'], 'riggingSizes': [1],
+                               'riggingCurve': {'on': True, 'entry': 'degrees', 'value': 12.5,
+                                                'angles': [3.75, 5], 'goal': 'tightest'},
+                               'riggingCorners': [{'at': 3, 'angle': 90, 'side': 'interior'}]})
+    ids = reset(page, [spec])
+    open_rigging(page)
+    page.click('#rigging-auto-btn')
+    settled(page, lambda: pieces(page, ids[0]), lambda p: p and curve_idle(page), 15000)
+    assert pieces(page, ids[0]) == [[3, 2, 1]]
+    got = page.evaluate(SIDES_JS, [ids[0], [[2.5, 0, 0.5], [9.5, 0.5, 0]]])
+    left, right = got['alone']
+    assert left['errors'] == [] and right['errors'] == []
+    assert got['joints'][0:2] == left['joints']
+    assert got['joints'][2:] == right['joints']
+    assert got['joints'][1] and got['joints'][2]
+    assert placed(page, ids[0]) == [[0, 1], [1, 1]] + [[p, 1] for p in range(3, 12)]
+    read = page.inner_text('#rigging-curve-readouts')
+    assert 'Left side, 2.5 panels' in read and 'Right side, 9.5 panels' in read
+    # Ways to build it counts each side's seams: two on the left
+    rows = page.inner_text('#rigging-curve-ways [data-side="0"]')
+    assert all(int(b) + int(f) == 2 for b, f in
+               re.findall(r'(\d+) bent, (\d+) flat', rows)), rows
+    assert page.locator('#rigging-curve-sheet [data-angle="1"]').count() == 1
+    assert page.locator('#rigging-curve-sheet [data-angle="2"]').count() == 1
+    assert page.errors == []
 
 
 def test_two_corners_make_three_sides_each_curved_on_its_own(page):
     """Fourteen panels, a corner down the middle of panel 4 and one on the
-    seam between panels 10 and 11: sides of 3, 5 and 3 panels."""
+    seam between panels 10 and 11: sides of 3.5, 6.5 and 4 panels, each up
+    to its folds."""
     spec = dict(CURVED, columns=14, extra={**CURVED['extra'], 'riggingCorners': [
         {'at': 4, 'angle': 90, 'side': 'interior'}, {'at': 10.5, 'angle': 90, 'side': 'exterior'}]})
     ids = reset(page, [spec])
@@ -280,20 +350,22 @@ def test_two_corners_make_three_sides_each_curved_on_its_own(page):
     page.click('#rigging-auto-btn')
     settled(page, lambda: pieces(page, ids[0]), lambda p: len(p) == 2 and curve_idle(page), 15000)
     assert pieces(page, ids[0]) == [[4, 3, 1], [10.5, 9, 2]]
-    got = page.evaluate(SIDES_JS, [ids[0], [[0, 3], [4, 5], [11, 3]]])
+    got = page.evaluate(SIDES_JS, [ids[0], [[3.5, 0, 0.5], [6.5, 0.5, 1], [4, 1, 0]]])
     one, two, three = got['alone']
-    assert got['joints'] == one['joints'] + [0, 0] + two['joints'] + [0, 0, 0] + three['joints']
+    # the seam corner's own seam, 10|11, is the only flat one
+    assert got['joints'] == one['joints'] + two['joints'] + [0] + three['joints']
     assert side_titles(page) == [['0', 'Ways to build it, side 1'], ['1', 'Ways to build it, side 2'],
                                  ['2', 'Ways to build it, side 3']]
     read = page.inner_text('#rigging-curve-readouts')
-    assert 'Side 1, 3 panels' in read and 'Side 2, 5 panels' in read and 'Side 3, 3 panels' in read
+    assert 'Side 1, 3.5 panels' in read and 'Side 2, 6.5 panels' in read and 'Side 3, 4 panels' in read
     assert page.errors == []
 
 
 def test_with_the_curve_on_leftover_stock_is_refused_for_each_side(page):
     """Doubles only on a twelve panel wall with a 1 panel corner bar in the
-    middle of panel 6: five panels on its left, six on its right. The
-    Curve says which side is left uncovered and lays nothing."""
+    middle of panel 6: five panels between the left end and the corner
+    bar, six on its right. The Curve says which side is left uncovered
+    and lays nothing."""
     spec = dict(CURVED, extra={**CURVED['extra'], 'riggingSizes': [2],
                                'riggingCorners': [{'at': 6, 'angle': 90, 'side': 'interior'}]})
     ids = reset(page, [spec])
@@ -301,7 +373,7 @@ def test_with_the_curve_on_leftover_stock_is_refused_for_each_side(page):
     page.click('#rigging-auto-btn')
     text = settled(page, lambda: page.inner_text('#rigging-curve-errors') if page.locator('#rigging-curve-errors').is_visible() else '',
                    lambda t: 'uncovered' in t, 15000)
-    assert text == 'These bar sizes leave 1 panel uncovered on the left side (5 panels). Light another size.'
+    assert text == 'These bar sizes leave 1 panel uncovered on the left side (5.5 panels). Light another size.'
     assert placed(page, ids[0]) == [] and pieces(page, ids[0]) == []
     # light singles too: each side is covered and the corner bar is laid
     page.click('#rigging-size-picker .rigging-size-btn[data-size="1"]')
@@ -309,6 +381,41 @@ def test_with_the_curve_on_leftover_stock_is_refused_for_each_side(page):
     assert pieces(page, ids[0]) == [[6, 5, 1]]
     assert not any(s <= 5 < s + z for s, z in placed(page, ids[0]))
     assert not page.locator('#rigging-curve-errors').is_visible()
+    assert page.errors == []
+
+
+def test_a_show_saved_before_opens_with_its_bars_and_angles_as_they_were(page):
+    """A curved screen with a seam corner saved when each side stopped at
+    the corner bar: its arms' far joints flat, and a pick for the right
+    side under the key of then. It opens with every stored bar, angle and
+    setting as saved; the tab says the curve is not laid yet, and Auto
+    lays it with the arms' far joints bent and the old pick dropped."""
+    old_key = json.dumps([5, 0.5, [1, 2], 'percent', 20, 'concave', 'simplest', 25, [2.5, 5, 7.5, 10],
+                          ['side', 1, 2, 7]], separators=(',', ':'))
+    joints = {str(j): (0 if 4 <= j <= 6 else 10) for j in range(11)}
+    curve = {'on': True, 'sidePicks': [None, {'id': '10', 'key': old_key}]}
+    spec = dict(CURVED, extra={**CURVED['extra'], 'riggingCurve': curve,
+                               'riggingCorners': [{'at': 6.5, 'angle': 90, 'side': 'interior', 'bar': True}],
+                               'riggingBars': [1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 'riggingBarStarts': [0, 1, 2, 3, 4, 7, 8, 9, 10, 11],
+                               'stage3d': {'x': 0, 'y': 0, 'z': 0, 'pitch': 0, 'yaw': 0, 'roll': 0,
+                                           'jointsCol': joints, 'pivot': 'bottom'}})
+    ids = reset(page, [spec])
+    before = served(page, ids[0])
+    open_rigging(page)
+    settled(page, lambda: page.inner_text('#rigging-curve-note'), lambda t: 'not this curve' in t, 15000)
+    page.wait_for_timeout(300)
+    after = served(page, ids[0])
+    for key in ('stage3d', 'riggingBars', 'riggingBarStarts', 'riggingCurve', 'riggingCorners', 'panels'):
+        assert after.get(key) == before.get(key), key
+    assert layer(page, ids[0])['stage3d']['jointsCol'] == joints
+    # the old pick no longer matches a side: the right side is the app's pick
+    assert 'You picked this one by hand' not in page.inner_text('#rigging-curve-ways')
+    page.click('#rigging-auto-btn')
+    got = settled(page, lambda: page.evaluate(SIDES_JS, [ids[0], [[6, 0, 1], [6, 1, 0]]]),
+                  lambda g: g['joints'][4] and curve_idle(page), 15000)
+    assert got['joints'][0:5] == got['alone'][0]['joints']
+    assert got['joints'][6:11] == got['alone'][1]['joints']
+    assert got['joints'][5] == 0 and got['joints'][4] and got['joints'][6]
     assert page.errors == []
 
 
@@ -340,22 +447,35 @@ def _circumcenter(a, b, c):
             a[1] + (bx * (cx * cx + cy * cy) - cx * (bx * bx + by * by)) / d)
 
 
-def test_the_obj_faces_sit_on_each_sides_own_radius(page):
-    """Eleven 500 mm panels, 30 degrees of sweep, a corner down the middle
-    of panel 5: the left side is four panels at 7.5 degrees a joint, the
-    right side six at 5 degrees. In the OBJ every face of each side sits
-    with its middle on that side's face radius, from curve-math.js, about
-    one centre per side, to 0.1 mm."""
-    spec = dict(COLUMN, columns=11, extra={'riggingSizes': [1], 'riggingCorners': [{'at': 5, 'angle': 90, 'side': 'interior'}],
+def _on_one_circle(edges, joint_r, face_r):
+    """Every edge's ends on one circle of radius joint_r, its middle at
+    face_r[i] from the same centre (face_r one per edge), to 0.1 mm."""
+    pts = [edges[0][0]] + [e[1] for e in edges]
+    c = _circumcenter(pts[0], pts[len(pts) // 2], pts[-1])
+    for (a, b), want in zip(edges, face_r):
+        mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        assert abs(math.dist(mid, c) - want) < 1e-4, (math.dist(mid, c), want)
+        assert abs(math.dist(a, c) - joint_r) < 1e-4, (math.dist(a, c), joint_r)
+        assert abs(math.dist(b, c) - joint_r) < 1e-4, (math.dist(b, c), joint_r)
+
+
+def test_the_obj_faces_sit_on_each_sides_own_radius_arms_included(page):
+    """Ten 500 mm panels, 30 degrees of sweep, a corner on the seam between
+    panels 4 and 5: the left side is panels 1 to 4 at 7.5 degrees a joint,
+    the right side panels 5 to 10 at 5 degrees, the corner bar's arms (4
+    and 5) on them. In the OBJ every face of each side, the arm's too,
+    sits on that side's radius from curve-math.js, to 0.1 mm."""
+    spec = dict(COLUMN, columns=10, extra={'riggingSizes': [1], 'riggingCorners': [{'at': 4.5, 'angle': 90, 'side': 'interior'}],
                                             'riggingCurve': {'on': True, 'entry': 'degrees', 'value': 30, 'angles': [5, 7.5]}})
     ids = reset(page, [spec])
     open_rigging(page)
     page.click('#rigging-auto-btn')
     settled(page, lambda: pieces(page, ids[0]), lambda p: p and curve_idle(page), 15000)
-    got = page.evaluate(SIDES_JS, [ids[0], [[0, 4], [5, 6]]])
+    got = page.evaluate(SIDES_JS, [ids[0], [[4, 0, 1], [6, 1, 0]]])
     left, right = got['alone']
     assert left['joints'] == [7.5, 7.5, 7.5] and right['joints'] == [5, 5, 5, 5, 5]
-    assert got['joints'] == [7.5, 7.5, 7.5, 0, 0, 5, 5, 5, 5, 5]
+    # the arms' far joints, 3|4 and 5|6, bend; the corner's seam does not
+    assert got['joints'] == [7.5, 7.5, 7.5, 0, 5, 5, 5, 5, 5]
     want = page.evaluate("""async () => { const m = await import('/static/js/curve-math.js');
         return { face: [m.faceRadiusForAngle(0.5, 7.5), m.faceRadiusForAngle(0.5, 5)],
                  joints: [m.radiusForAngle(0.5, 7.5), m.radiusForAngle(0.5, 5)] }; }""")
@@ -363,19 +483,45 @@ def test_the_obj_faces_sit_on_each_sides_own_radius(page):
     assert right['radius'] == pytest.approx(want['face'][1], abs=1e-9)
     obj = read_obj(page.evaluate(OBJ_FILES_JS, 'Test Show')['Test_Show_COLUMN.obj'])
     chain = _bottom_chain(obj)
-    # four faces, the two halves of panel 5, then six faces
-    assert len(chain) == 12
-    for k, (edges, face_r, joint_r) in enumerate(((chain[:4], want['face'][0], want['joints'][0]),
-                                                   (chain[6:], want['face'][1], want['joints'][1]))):
-        pts = [edges[0][0]] + [e[1] for e in edges]
-        c = _circumcenter(pts[0], pts[len(pts) // 2], pts[-1])
-        for a, b in edges:
-            mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-            assert abs(math.dist(mid, c) - face_r) < 1e-4, (k, math.dist(mid, c), face_r)
-            assert abs(math.dist(a, c) - joint_r) < 1e-4, (k, math.dist(a, c), joint_r)
+    assert len(chain) == 10
+    _on_one_circle(chain[:4], want['joints'][0], [want['face'][0]] * 4)
+    _on_one_circle(chain[4:], want['joints'][1], [want['face'][1]] * 6)
     # the two sides have radii of their own
     assert abs(want['face'][0] - want['face'][1]) > 1
-    # and the corner folds 90 degrees between them, in the folded panel
+    # and the corner folds 90 degrees between them, on the seam
+    heads = [math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) for a, b in chain]
+    assert round((heads[4] - heads[3] + 180) % 360 - 180, 3) == 90
+    assert page.errors == []
+
+
+def test_the_obj_puts_a_folded_panels_halves_on_their_sides_radius(page):
+    """Eleven 500 mm panels, a corner down the middle of panel 5, built
+    from the fold: 4.5 panels on the left and 6.5 on the right, 23.4
+    degrees of sweep each, 2.6 and 1.8 degrees a half panel. A whole panel
+    takes twice that at its joints and the half panel's far joint one and
+    a half times, so each side is a true arc: in the OBJ every face, the
+    folded panel's halves too, sits on its side's circle, to 0.1 mm."""
+    spec = dict(COLUMN, columns=11, extra={'riggingSizes': [1], 'riggingCorners': [{'at': 5, 'angle': 90, 'side': 'interior'}],
+                                            'riggingCurve': {'on': True, 'entry': 'degrees', 'value': 23.4, 'from': 5,
+                                                             'goal': 'tightest', 'angles': [2.7, 3.6, 3.9, 5.2]}})
+    ids = reset(page, [spec])
+    open_rigging(page)
+    page.click('#rigging-auto-btn')
+    settled(page, lambda: pieces(page, ids[0]), lambda p: p and curve_idle(page), 15000)
+    got = page.evaluate(SIDES_JS, [ids[0], [[4.5, 0, 0.5, 'right'], [6.5, 0.5, 0, 'left']]])
+    left, right = got['alone']
+    assert left['joints'] == [5.2, 5.2, 5.2, 3.9] and right['joints'] == [2.7, 3.6, 3.6, 3.6, 3.6, 3.6]
+    assert got['joints'] == left['joints'] + right['joints']
+    want = page.evaluate("""async () => { const m = await import('/static/js/curve-math.js');
+        return { joints: [m.radiusForAngle(0.5, 5.2), m.radiusForAngle(0.5, 3.6)],
+                 face: [m.faceRadiusForAngle(0.5, 5.2), m.faceRadiusForAngle(0.5, 3.6)],
+                 half: [m.faceRadiusForAngle(0.25, 2.6), m.faceRadiusForAngle(0.25, 1.8)] }; }""")
+    obj = read_obj(page.evaluate(OBJ_FILES_JS, 'Test Show')['Test_Show_COLUMN.obj'])
+    chain = _bottom_chain(obj)
+    # four faces, the two halves of panel 5, then six faces
+    assert len(chain) == 12
+    _on_one_circle(chain[:5], want['joints'][0], [want['face'][0]] * 4 + [want['half'][0]])
+    _on_one_circle(chain[5:], want['joints'][1], [want['half'][1]] + [want['face'][1]] * 6)
     heads = [math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) for a, b in chain]
     assert round((heads[5] - heads[4] + 180) % 360 - 180, 3) == 90
     assert page.errors == []

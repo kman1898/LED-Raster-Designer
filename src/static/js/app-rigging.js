@@ -66,6 +66,7 @@
 // sheets. A screen turned a quarter (its bars run along its folds) takes
 // no pieces. A curved screen's Curve lays its bars on each side up to its
 // corners, and the pieces with them, each side curved as its own wall
+// right up to the fold, the piece's arm on that side included
 // (app-curve.js).
 import { LEDRasterApp } from './app-core.js';
 import { setupColorPickerWithHex } from './helpers.js';

@@ -6169,12 +6169,12 @@
         // Bars split at a corner (1.7.0): with the Curve off, Auto lays the
         // corner's own Header Bar - Corner (1 panel) over its panel and fits
         // each side. The Curve is ticked again afterwards and curves each
-        // side as its own wall up to the same corner bar, so the wall goes
+        // side as its own wall right up to the fold, so the wall goes
         // on as the Curve step left it.
         riggingCornerBars: {
             since: '1.7.0',
             target: '#rigging-total-count', place: 'right', title: 'Corner bars',
-            body: 'Auto splits the bars at a corner: its Header Bar - Corner covers the panels touching it and regular bars fill each side. With the Curve on, each side curves as its own wall up to it.',
+            body: 'Auto splits the bars at a corner: its Header Bar - Corner covers the panels touching it and regular bars fill each side. With the Curve on, each side curves as its own wall right up to the fold.',
             before: function () {
                 switchView('rigging');
                 var w = wall();

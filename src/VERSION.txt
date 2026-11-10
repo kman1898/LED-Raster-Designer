@@ -195,11 +195,15 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   the panels. Adding, moving or taking off a corner lays an Auto row
   again in the same step.
 - NEW: With the Curve on, a corner splits the screen into sides and each
-  side curves as its own wall, at the same % or degrees, with its bars
-  running up to the corner bar. Two corners make three sides. The
-  readouts, Ways to build it, Use this and the check for uncovered panels
-  are each side's, named left side and right side, or side 1, side 2 and
-  so on. Any change to the corners lays the Curve again in the same step.
+  side curves as its own wall, at the same % or degrees, right up to the
+  corner. Only the 90 degree fold itself stays flat: the corner bar's arm
+  on each side belongs to that side, a panel on a seam corner or half a
+  panel on one down a panel's middle, so the joint where the arm meets the
+  next bar takes that side's curve angle. Two corners make three sides.
+  The readouts, Ways to build it, Use this and the check for uncovered
+  panels are each side's, named left side and right side, or side 1,
+  side 2 and so on. Any change to the corners lays the Curve again in the
+  same step.
 - NEW: In Custom, a click on a corner's panels lays its corner bar, a bar
   laid beside a corner stops at it, and one that no longer fits there is
   refused and said. A bar laid by hand on a corner's panels makes way for
