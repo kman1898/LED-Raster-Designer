@@ -43,9 +43,9 @@
 // setRiggingCornerAt, the same riggingCorners the Header/Footer tab
 // writes, so the two tabs always agree.
 import { LEDRasterApp } from './app-core.js';
-import { evaluateMathExpression, sendClientLog } from './helpers.js';
+import { sendClientLog } from './helpers.js';
 import {
-    DEG, round, wrap180, s3dCornersOn, s3dCornerSeams, s3dCurveOn, s3dStoredFrom,
+    DEG, round, wrap180, s3dCornersOn, s3dCornerSeams, s3dCurveOn, s3dParseLength, s3dStoredFrom,
 } from './app-stage3d.js';
 import { cornerSpotLabel } from './app-corners.js';
 
@@ -64,6 +64,20 @@ const FINE = 0.1;
 const NOTE_MS = 3500;
 
 const isLength = (key) => LENGTH_KEYS.includes(key);
+
+// A typed sum as a number, or null when it is not one: only figures, + - *
+// / and brackets, at least one figure, and a finite answer ("abc" and "2+"
+// are not figures; the app's lenient evaluator would read them as 0).
+function strictMath(text) {
+    const t = String(text == null ? '' : text).trim();
+    if (!t || !/\d/.test(t) || !/^[\d\s.+\-*/()]+$/.test(t)) return null;
+    try {
+        const v = new Function(`return (${t});`)();
+        return typeof v === 'number' && Number.isFinite(v) ? v : null;
+    } catch (e) {
+        return null;
+    }
+}
 const rowOf = (key) => (isLength(key) ? LENGTH_KEYS : ANGLE_KEYS);
 
 class _Stage3DPanel {
@@ -132,11 +146,12 @@ class _Stage3DPanel {
         const scale = t.match(/^([*/])\s*(.+)$/);
         if (scale) {
             if (current === null || !Number.isFinite(current)) return null;
-            const k = evaluateMathExpression(scale[2]);
-            if (!Number.isFinite(k) || (scale[1] === '/' && k === 0)) return null;
+            const k = strictMath(scale[2]);
+            if (k === null || (scale[1] === '/' && k === 0)) return null;
             return scale[1] === '*' ? current * k : current / k;
         }
-        return isLength(key) ? this._s3dParseLength(t) : this._s3dParseAngle(t);
+        if (isLength(key)) return s3dParseLength(t, this._s3dUnits(), strictMath);
+        return strictMath(t.replace(/°/g, ''));
     }
 
     // The screen's figure as the panel shows it (X, Y and Z at the datum).

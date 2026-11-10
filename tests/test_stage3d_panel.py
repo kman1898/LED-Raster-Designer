@@ -34,6 +34,7 @@ Run locally:
     python -m pytest tests/test_stage3d_panel.py -p no:cacheprovider
 """
 
+import math
 import os
 import sys
 
@@ -273,18 +274,22 @@ def test_a_single_click_puts_the_caret_where_it_lands(page):
     page.wait_for_timeout(300)
     assert field(page, 'x') == '12.50'
     box = page.locator('#s3d-x').bounding_box()
-    # the far right of the figure: the caret after its last digit
-    page.mouse.click(box['x'] + box['width'] - 3, box['y'] + box['height'] / 2)
+    sel_js = "(() => { const e = document.getElementById('s3d-x'); return [e.selectionStart, e.selectionEnd]; })()"
+    # the middle of the figure: the caret inside it, nothing selected (the
+    # step arrows take the field's first and last 12 px while it is hovered)
+    page.mouse.click(box['x'] + box['width'] - 4 - 2.5 * 7, box['y'] + box['height'] / 2)
     page.wait_for_timeout(100)
-    sel = page.evaluate("(() => { const e = document.getElementById('s3d-x'); return [e.selectionStart, e.selectionEnd]; })()")
-    assert sel == [5, 5], sel
+    assert focused(page) == 's3d-x'
+    a, b = page.evaluate(sel_js)
+    assert a == b and 0 < a < 5, (a, b)
     page.keyboard.press('Escape')
     # left of the figure: the caret before its first digit
-    page.mouse.click(box['x'] + 4, box['y'] + box['height'] / 2)
+    page.mouse.click(box['x'] + 14, box['y'] + box['height'] / 2)
     page.wait_for_timeout(100)
-    sel = page.evaluate("(() => { const e = document.getElementById('s3d-x'); return [e.selectionStart, e.selectionEnd]; })()")
-    assert sel == [0, 0], sel
+    assert focused(page) == 's3d-x'
+    assert page.evaluate(sel_js) == [0, 0]
     page.keyboard.press('Escape')
+    assert field(page, 'x') == '12.50', 'the clicks stepped nothing'
     assert page.errors == []
 
 
@@ -696,19 +701,30 @@ def test_a_square_between_two_arrows_moves_on_its_plane_in_one_step(page):
     assert set(h['grips']) >= {'x', 'y', 'z', 'xy', 'xz', 'yz'}, h['grips']
     before = screen(page, ids[0])['placement']
     start = history_len(page)
-    gx, gy = h['grips']['xz']
-    page.mouse.move(gx, gy)
-    page.mouse.down()
-    for i in range(1, 11):
-        page.mouse.move(gx + 6 * i, gy + 3 * i)
-        page.wait_for_timeout(20)
-    page.mouse.up()
-    page.wait_for_timeout(400)
+    def drag(grip, dx, dy):
+        gx, gy = grip
+        page.mouse.move(gx, gy)
+        page.mouse.down()
+        for i in range(1, 11):
+            page.mouse.move(gx + dx * i / 10, gy + dy * i / 10)
+            page.wait_for_timeout(20)
+        page.mouse.up()
+        page.wait_for_timeout(400)
+    drag(h['grips']['xz'], 30, 60)
     after = stored(page, ids[0])
     assert after, 'the square moved nothing'
     assert after['y'] == pytest.approx(before['y'], abs=0.01), 'the floor square keeps the height'
-    assert abs(after['x'] - before['x']) > 50 and abs(after['z'] - before['z']) > 50, (before, after)
+    assert math.hypot(after['x'] - before['x'], after['z'] - before['z']) > 100, (before, after)
     assert history_len(page) == start + 1
+    # the XY square keeps the depth
+    h = settled(page, lambda: page.evaluate('window.app._s3dHandlesDebug()'),
+                lambda v: v and v.get('shown') and v['grips'].get('xy'), 4000)
+    drag(h['grips']['xy'], 40, -40)
+    again = stored(page, ids[0])
+    assert again['z'] == pytest.approx(after['z'], abs=0.01)
+    assert math.hypot(again['x'] - after['x'], again['y'] - after['y']) > 100, (after, again)
+    assert history_len(page) == start + 2
+    undo(page)
     undo(page)
     assert stored(page, ids[0]) is None
     assert page.errors == []
