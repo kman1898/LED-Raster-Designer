@@ -1233,7 +1233,27 @@ class _Presets {
     // waiting for a choice as the page went, with the reason it had then
     // (app-start-page.js resumeOrLaunch). A launch opens a new browser
     // tab and still comes here every time.
+    //
+    // Only the app's first page after the server starts is a launch
+    // (owner, 2026-11-09: "Treated like a live service once it is already
+    // running."). Another tab, browser or device joins the show as it
+    // stands: 'launch' asks nothing there (app-start-page.js
+    // _claimLaunchPage). File > New ('new') still opens the picker on any
+    // page.
     maybeOpenStartupPicker(reason) {
+        if (reason === 'launch' && this._launchRole !== 'launch') {
+            if (this._launchRole !== undefined || !this._launchClaim) return false;
+            // The server has not answered yet: ask again when it has. A
+            // reload meanwhile counts it as still to come.
+            this._startupWaiting = 'launch';
+            const token = this._startupPickerToken = (this._startupPickerToken || 0) + 1;
+            this._launchClaim.then(() => {
+                if (token !== this._startupPickerToken) return;
+                this._startupWaiting = null;
+                this.maybeOpenStartupPicker('launch');
+            });
+            return true;
+        }
         const startPage = reason === 'launch' && typeof this._startPageAllowed === 'function'
             && this._startPageAllowed();
         // File > New made while the start page stood: the picker takes over.
@@ -1321,7 +1341,12 @@ class _Presets {
     _dropStartupScreen(id) {
         const settled = typeof this._layerSavesSettled === 'function'
             ? this._layerSavesSettled() : Promise.resolve();
-        return settled.then(() => fetch(`/api/layer/${id}?keep_pristine=1`, { method: 'DELETE' })).then(res => {
+        // The launch's question is answered first, so a page that loads
+        // once the screen is gone finds the project as this page leaves it
+        // (app.index adds no startup screen after that).
+        const answered = typeof this._settleLaunch === 'function'
+            ? this._settleLaunch('startup_screen_replaced') : Promise.resolve();
+        return Promise.all([settled, answered]).then(() => fetch(`/api/layer/${id}?keep_pristine=1`, { method: 'DELETE' })).then(res => {
             if (!res.ok) throw new Error(`DELETE /api/layer/${id} answered ${res.status}`);
             return res.json();
         }).then((answer) => {

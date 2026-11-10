@@ -42,6 +42,21 @@
 // the same one that wrote it (a tab reloaded after the app was quit and
 // started again is a launch). Storage that cannot be read or written, a
 // navigation of any other kind, or no record at all is a launch.
+//
+// A launch is once per server run (owner, 2026-11-09): "It should only do
+// that on the app originally opening. Treated like a live service once it
+// is already running." Another tab, another browser on this computer, or
+// a tablet at the computer's address joins the show as it stands, with no
+// start page, no launch picker and no first-run guide. The server keeps
+// the rule (routes_project.py _claim_launch): each page asks once at boot
+// (_claimLaunchPage), the first page on the host to ask is the launch
+// page, and the question stays open until somebody answers it (the X, a
+// pick or Cancel in the startup picker, File > New, a show opened:
+// _settleLaunch). The launch page's own reload hands its claim on (its id
+// rides in the reload record), so the start page up at a reload still
+// comes back; one closed with it up gives it to the next page on the host.
+// Automated browsers ask only when a test sets __lrdStartPage or
+// __lrdStartupPicker.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 
@@ -56,6 +71,73 @@ class _StartPage {
             return typeof window !== 'undefined' && window.__lrdStartPage === true;
         }
         return true;
+    }
+
+    // ── One launch per server run (owner, 2026-11-09) ──
+
+    // This page's id, made once: the server knows the launch page by it,
+    // and its socket carries it (app-core.js connectWebSocket).
+    launchPageId() {
+        if (!this._launchPageId) {
+            let id = null;
+            try {
+                if (window.crypto && typeof window.crypto.randomUUID === 'function') id = window.crypto.randomUUID();
+            } catch (_) { id = null; }
+            this._launchPageId = id || `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+        }
+        return this._launchPageId;
+    }
+
+    // Boot: is this page the launch? Asked once, beside the project's
+    // read; resolves true for the launch page. This page's reload record
+    // names the page before it, so the launch page's reload keeps the
+    // claim. An automated browser asks only when a test wants the launch
+    // UI; any answer the server cannot give is a join.
+    _claimLaunchPage() {
+        if (this._launchClaim) return this._launchClaim;
+        const automated = typeof navigator !== 'undefined' && navigator.webdriver
+            && window.__lrdStartPage !== true && window.__lrdStartupPicker !== true;
+        if (automated) {
+            this._launchRole = 'join';
+            this._launchClaim = Promise.resolve(false);
+            return this._launchClaim;
+        }
+        const place = this._reloadPlace;
+        const prior = place ? [place.page, place.before].filter(p => typeof p === 'string' && p) : [];
+        this._launchPrior = prior.length ? prior[0] : null;
+        this._launchClaim = fetch('/api/launch/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ page: this.launchPageId(), prior }),
+        }).then(res => (res.ok ? res.json() : null)).then((answer) => {
+            const start = !!(answer && answer.startPage === true);
+            this._launchRole = start ? 'launch' : 'join';
+            sendClientLog('launch_claim', { startPage: start, why: answer && answer.why ? answer.why : null, reload: prior.length > 0 });
+            return start;
+        }).catch((error) => {
+            this._launchRole = 'join';
+            sendClientLog('launch_claim_failed', { error: String(error && error.message || error) });
+            return false;
+        });
+        return this._launchClaim;
+    }
+
+    // The launch's question is answered: nobody gets the start page again
+    // this run, and a page load adds no startup screen (app.index). Sent
+    // once per page; resolves either way.
+    _settleLaunch(why) {
+        if (this._launchSettleSent) return this._launchSettleSent;
+        let sent;
+        try {
+            sent = fetch('/api/launch/settle', {
+                method: 'POST',
+                keepalive: true,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ why: why || null }),
+            }).then(() => true, () => false);
+        } catch (_) { sent = Promise.resolve(false); }
+        this._launchSettleSent = sent;
+        return sent;
     }
 
     startPageOpen() {
@@ -195,9 +277,15 @@ class _StartPage {
     // X or Esc: an empty project, the startup picker's Cancel result. Over
     // a project the launch brought back, the page just closes.
     dismissStartPage() {
+        const guide = this._startPageReason === 'guide';
         if (!this.closeStartPage()) return;
         sendClientLog('start_page_closed', { kept: this._startupTargetId == null });
-        if (this._startupTargetId == null) return;
+        if (this._startupTargetId == null) {
+            // The launch's answer: keep what is here. (_startEmpty answers
+            // for the other case.)
+            if (!guide) this._settleLaunch('start_page_closed');
+            return;
+        }
         this._startEmpty();
     }
 
@@ -266,6 +354,8 @@ class _StartPage {
             tab: typeof place.tab === 'string' ? place.tab : null,
             pending: place.pending === 'launch' || place.pending === 'new' ? place.pending : null,
             empty: place.empty === true,
+            page: typeof place.page === 'string' ? place.page : null,
+            before: typeof place.before === 'string' ? place.before : null,
         };
         return this._reloadPlace;
     }
@@ -276,9 +366,10 @@ class _StartPage {
         let place;
         if (!this._reloadPlaceSettled) {
             // Gone before the boot finished: what the boot was about to do.
+            // A page that joined the live show was about to do nothing.
             place = this._reloadPlace
                 ? Object.assign({}, this._reloadPlace)
-                : { tab: null, pending: 'launch', empty: false };
+                : { tab: null, pending: this._launchRole === 'join' ? null : 'launch', empty: false };
         } else {
             const guide = this._guideHoldsWindow();
             const active = document.querySelector('#view-tabs .view-tab.active[data-mode]');
@@ -291,6 +382,11 @@ class _StartPage {
             };
         }
         place.server = this._serverSessionId || null;
+        // Who this page was: the launch page's reload keeps its claim
+        // (_claimLaunchPage). Gone before the server answered, the claim
+        // may still be the page's before it, so that one is named too.
+        place.page = this.launchPageId();
+        place.before = this._launchRole === undefined && this._launchPrior ? this._launchPrior : null;
         try {
             window.sessionStorage.setItem(RELOAD_PLACE_KEY, JSON.stringify(place));
         } catch (_) { /* no storage: the next load is a launch */ }

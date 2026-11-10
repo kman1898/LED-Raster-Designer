@@ -242,6 +242,9 @@ class _ProjectIo {
     // makes the new project.
     async requestNewProject() {
         if (!(await this.confirmUnsavedChanges('new'))) return false;
+        // A new project answers the launch's question on every page
+        // (app-start-page.js _settleLaunch).
+        if (typeof this._settleLaunch === 'function') this._settleLaunch('new_project');
         this.createNewProject();
         return true;
     }
@@ -347,6 +350,9 @@ class _ProjectIo {
             // startup screen it stood over.
             if (typeof this.closeStartPage === 'function') this.closeStartPage();
             this._startupTargetId = null;
+            // and answers the launch's question, on whichever page it opens
+            // (app-start-page.js _settleLaunch).
+            if (typeof this._settleLaunch === 'function') this._settleLaunch('show_opened');
             // Clean-slate reset so stale sidebar values can't leak into new project
             this.resetApplicationState();
             // Until the server holds the opened show, a layer

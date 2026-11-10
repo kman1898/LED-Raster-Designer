@@ -306,6 +306,13 @@ FIXES
   the pixel grid when zoomed in close, the outline of selected cabinets, a
   group's circle and X or the canvas outline. A screen lying over another
   still covers it.
+- FIX: The start page shows only when the app first opens. Opening the
+  running app in another tab, or from a tablet or another computer at this
+  computer's address, now goes straight into the show as it stands. It used
+  to ask again which project to open, and could show the first-run guide.
+- FIX: Opening the app in a second tab while a guide runs in the first no
+  longer puts your own project back in the middle of that guide. It comes
+  back when the guide ends, or when the guide's tab is closed.
 
 v1.6.0 - November 6, 2026
 ----------------------------

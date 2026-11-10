@@ -90,6 +90,11 @@ export class LEDRasterApp {
             // A reload of this browser tab keeps its place; anything else
             // is a launch (app-start-page.js).
             if (typeof this._takeReloadPlace === 'function') this._takeReloadPlace();
+            // Only the app's first page after the server starts is the
+            // launch; every other page joins the live show (owner,
+            // 2026-11-09). Asked beside the project's read, answered
+            // before the load's resumeOrLaunch acts on it.
+            if (typeof this._claimLaunchPage === 'function') this._claimLaunchPage();
             this.loadProject();
             // A reload or a closing window says "unsaved" one last time,
             // so a debounced edit still waiting is counted too, and notes
@@ -706,7 +711,11 @@ export class LEDRasterApp {
     }
     
     connectWebSocket() {
-        this.socket = io();
+        // The page's id goes with the socket: the server lets a launch page
+        // closed with its start page up give the start page to the next
+        // page once this socket is gone (app-start-page.js _claimLaunchPage).
+        const page = typeof this.launchPageId === 'function' ? this.launchPageId() : '';
+        this.socket = page ? io({ query: { page } }) : io();
         this.socket.on('connect', () => {
             this._socketConnects = (this._socketConnects || 0) + 1;
             document.getElementById('status-message').textContent = 'Connected';
@@ -1162,7 +1171,9 @@ export class LEDRasterApp {
                 // (app-presets.js maybeOpenStartupPicker). A reload of
                 // this browser tab goes back to its tab instead and asks
                 // only if the start page was still up (app-start-page.js
-                // resumeOrLaunch).
+                // resumeOrLaunch). Only the app's first page after the
+                // server starts is a launch; any other page joins the show
+                // as it stands (_claimLaunchPage).
                 if (typeof this.resumeOrLaunch === 'function') this.resumeOrLaunch();
                 else if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker('launch');
 

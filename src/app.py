@@ -1686,7 +1686,13 @@ def index():
     # you left empty stays empty, after a reload too). The pristine project
     # the start page's X emptied still gets one, and a reload of that tab
     # takes it out again (app-start-page.js resumeOrLaunch).
-    if current_project.get('is_pristine') is True:
+    #
+    # Once the launch's question is answered (routes_project, owner
+    # 2026-11-09) the app is a live show and a page load adds no screen: a
+    # tab or a tablet joining the project the start page's X emptied finds
+    # it empty, as the launch page has it, and so does that page's reload.
+    import routes_project
+    if current_project.get('is_pristine') is True and not routes_project.launch_settled():
         initialize_default_layer()
     log_event('page_load', {'path': '/'})
     # Expose the host OS so the client can show the custom (Apple-style) color
@@ -2602,6 +2608,11 @@ def _rebuild_layer_geometry_from_panel_states(layer):
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
+    # The page's id rides on the socket's query: a launch page closed with
+    # its start page still open gives it up once its socket is gone
+    # (routes_project._claim_launch).
+    import routes_project
+    routes_project.launch_socket_connected(request.args.get('page'), getattr(request, 'sid', None))
     # A snapshot, for the reason _emit_snapshot gives: a tablet joining while
     # a save lands must not walk the live project.
     emit('project_data', json.loads(json.dumps(current_project)))
@@ -2609,6 +2620,8 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     print('Client disconnected')
+    import routes_project
+    routes_project.launch_socket_gone(getattr(request, 'sid', None))
 
 
 @socketio.on('idm_highlight')

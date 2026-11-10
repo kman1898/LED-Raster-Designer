@@ -243,6 +243,26 @@ import app as app_module
 from app import app, socketio, _build_initial_project
 
 
+def new_server_run():
+    """What a launch of the app finds about its start page: nobody has had
+    it yet this run (routes_project.py _claim_launch). The live e2e server
+    runs for the whole session, so a test that models quitting and
+    launching the app again calls this between the launches."""
+    import routes_project
+    routes_project.reset_launch_state()
+
+
+@pytest.fixture(autouse=True)
+def _each_test_is_a_new_server_run():
+    """The start page is once per server run (owner, 2026-11-09), and the
+    e2e server is one run for the session. Every test starts as a fresh
+    launch would, so a page a test opens with the launch UI asked for is
+    the launch page unless the test opens another before it, and no test
+    inherits an answered launch from the one before."""
+    new_server_run()
+    yield
+
+
 @pytest.fixture()
 def client():
     """Create a Flask test client with a fresh project state."""

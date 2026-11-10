@@ -24,6 +24,13 @@ reload path took it out again, so an empty project anyone had worked on
 Screen1 back. The server now leaves a project that is no longer pristine
 as it is (app.index).
 
+A launch is once per server run (owner, 2026-11-09): another tab, another
+browser or another device joins the show as it stands, with no start page
+(test_live_join.py). Each test here starts as a fresh server run would
+(conftest new_server_run); the tests that open a second tab now expect it
+to join, and the one that models the app quitting and starting again
+starts a new run.
+
 Only the host dialogs a page could open here are routed (save-file,
 open-file, select-directory), each answered as unavailable.
 
@@ -35,6 +42,8 @@ import json
 import urllib.request
 
 import pytest
+
+from conftest import new_server_run
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
@@ -319,9 +328,9 @@ def test_a_start_page_still_waiting_behind_a_dialog_comes_after_a_reload(e2e_ser
 # ── (c) the emptied launch project ────────────────────────────────────────
 
 def test_a_reload_over_the_project_the_x_emptied_keeps_it_empty(e2e_server, pw_browser):
-    """X on the launch's start page leaves an empty project. The server
-    puts a startup screen back on every page load; the reload takes it
-    out again and shows no start page."""
+    """X on the launch's start page leaves an empty project. The X answers
+    the launch, so a page load no longer puts a startup screen back
+    (app.index); the reload finds it empty and shows no start page."""
     _new_pristine_project(e2e_server)
     context = _new_context(pw_browser, START_PAGE)
     try:
@@ -490,9 +499,9 @@ def test_an_empty_project_saved_and_reopened_stays_empty(e2e_server, pw_browser)
         context.close()
 
 
-def test_a_launch_over_an_empty_project_opens_on_it(e2e_server, pw_browser):
-    """A new tab is a launch. Worked on, the project is not a startup one:
-    the start page opens over it as it stands, and its X just closes."""
+def test_another_tab_joins_an_empty_project_as_it_stands(e2e_server, pw_browser):
+    """A new tab on the running app joins the show (owner, 2026-11-09):
+    no start page over the empty project somebody worked on."""
     _new_pristine_project(e2e_server)
     context = _new_context(pw_browser, START_PAGE)
     try:
@@ -503,18 +512,17 @@ def test_a_launch_over_an_empty_project_opens_on_it(e2e_server, pw_browser):
         _add_canvas(pg)
         want = _worked_on(pg)
         other, more = _open_tab(context, e2e_server)
-        _wait_start(other)
-        assert other.evaluate("() => window.app.project.layers.length") == 0
-        _close_start_page(other)
         _stayed_empty(other, want)
         assert problems == [] and more == [], problems + more
     finally:
         context.close()
 
 
-def test_a_launch_over_the_pristine_project_the_x_emptied_is_a_launch(e2e_server, pw_browser):
-    """Nothing done since the X: still the launch's project, so a new tab
-    gets the startup screen for its start page to stand over."""
+def test_another_tab_joins_the_project_the_x_emptied_and_finds_it_empty(e2e_server, pw_browser):
+    """Nothing done since the X: the project is still the pristine one,
+    and a page load used to put a startup screen in it for a new tab's
+    start page. A new tab joins now, and finds it empty as the first tab
+    has it."""
     _new_pristine_project(e2e_server)
     context = _new_context(pw_browser, START_PAGE)
     try:
@@ -523,9 +531,13 @@ def test_a_launch_over_the_pristine_project_the_x_emptied_is_a_launch(e2e_server
         _close_start_page(pg)
         pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
         other, more = _open_tab(context, e2e_server)
-        _wait_start(other)
-        assert other.evaluate("() => window.app.project.layers.map(l => l.name)") == ['Screen1']
-        assert other.evaluate("() => window.app._startupTargetId") is not None
+        _settle(other)
+        assert not _start_up(other)
+        assert other.evaluate("() => window.app.project.layers.length") == 0
+        assert other.evaluate("() => window.app._startupTargetId") is None
+        srv = other.evaluate("async () => (await fetch('/api/project')).json()")
+        assert srv['layers'] == [] and srv['is_pristine'] is True, srv['layers']
+        assert pg.evaluate("() => window.app.project.layers.length") == 0
         assert problems == [] and more == [], problems + more
     finally:
         context.close()
@@ -572,9 +584,13 @@ def test_a_late_echo_of_the_startup_screen_never_brings_it_back(e2e_server, pw_b
         # The launch's X takes the same screen out under the same echo.
         pg.wait_for_function("() => window.__lateEchoes >= 1", timeout=10000)
         assert pg.evaluate("() => window.app.project.layers.length") == 0
+        # The X answered the launch, so a reload's page load puts no
+        # startup screen in (app.index): nothing to echo, nothing to come
+        # back.
         for _ in range(2):
             _reload(pg)
-            pg.wait_for_function("() => window.__lateEchoes >= 1", timeout=10000)
+            _settle(pg)
+            assert pg.evaluate("() => window.__lateEchoes") == 0
             assert pg.evaluate("() => window.app.project.layers.length") == 0
             assert not _start_up(pg)
             srv = pg.evaluate("async () => (await fetch('/api/project')).json()")
@@ -586,7 +602,7 @@ def test_a_late_echo_of_the_startup_screen_never_brings_it_back(e2e_server, pw_b
 
 # ── (d) a launch is a new browser tab ─────────────────────────────────────
 
-def test_a_new_tab_is_a_launch_and_never_takes_another_tab_s_place(e2e_server, pw_browser):
+def test_a_new_tab_joins_and_never_takes_another_tab_s_place(e2e_server, pw_browser):
     _seed_show(e2e_server)
     context = _new_context(pw_browser, START_PAGE)
     try:
@@ -594,20 +610,25 @@ def test_a_new_tab_is_a_launch_and_never_takes_another_tab_s_place(e2e_server, p
         _wait_start(first)
         _close_start_page(first)
         _click_tab(first, 'power')
-        # A launch on the same browser: the start page, on the default tab.
+        # Another tab on the same browser joins the show: no start page, on
+        # the default tab.
         second, problems2 = _open_tab(context, e2e_server)
-        _wait_start(second)
+        _settle(second)
+        assert not _start_up(second)
         assert _tab(second) == 'pixel-map'
+        assert second.evaluate("() => window.app.project.name") == 'Reload Show'
         assert _logged(second, 'reload_resume') == []
         # The first tab's reload is still its own.
         _reload(first)
         _wait_tab(first, 'power')
         _settle(first)
         assert not _start_up(first)
-        # The address opened again in the same tab is not a reload either.
+        # The address opened again in the same tab is not a reload either:
+        # it joins like any new page, on the default tab.
         first.goto(e2e_server, wait_until='domcontentloaded')
         _loaded(first)
-        _wait_start(first)
+        _settle(first)
+        assert not _start_up(first)
         assert _tab(first) == 'pixel-map'
         assert problems == [] and problems2 == [], problems + problems2
     finally:
@@ -616,7 +637,10 @@ def test_a_new_tab_is_a_launch_and_never_takes_another_tab_s_place(e2e_server, p
 
 # ── what a reload does not trust ──────────────────────────────────────────
 
-def test_with_no_session_storage_a_reload_is_a_launch(e2e_server, pw_browser):
+def test_with_no_session_storage_a_reload_starts_on_the_default_tab(e2e_server, pw_browser):
+    """No record to read: the tab is not kept. The X answered the launch,
+    so the start page does not come back either (it did when every new
+    page was a launch)."""
     no_storage = ("Object.defineProperty(window, 'sessionStorage', { configurable: true,"
                   " get() { throw new DOMException('blocked', 'SecurityError'); } });")
     _seed_show(e2e_server)
@@ -627,7 +651,8 @@ def test_with_no_session_storage_a_reload_is_a_launch(e2e_server, pw_browser):
         _close_start_page(pg)
         _click_tab(pg, 'power')
         _reload(pg)
-        _wait_start(pg)
+        _settle(pg)
+        assert not _start_up(pg)
         assert _tab(pg) == 'pixel-map'
         assert problems == [], problems
     finally:
@@ -645,6 +670,8 @@ def test_a_tab_reloaded_on_another_server_is_a_launch(e2e_server, pw_browser):
         _close_start_page(pg)
         _click_tab(pg, 'power')
         pg.evaluate("() => { window.app._serverSessionId = 'a-server-gone-since'; }")
+        # The app started again: a new run, whose first page is the launch.
+        new_server_run()
         _reload(pg)
         _wait_start(pg)
         assert _tab(pg) == 'pixel-map'
