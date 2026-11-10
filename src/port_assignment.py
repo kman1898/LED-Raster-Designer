@@ -53,6 +53,8 @@ PortAssignments on the client and is subtle enough already (custom flow, ports
 that cross into a group peer, Low Latency derating); a second implementation
 would agree in the office and disagree on a wall.
 """
+import copy as _copy
+
 import processor_catalog as catalog
 # The per-port capacity tables (app-core.js portCapacityTables' twin): the
 # one source the link cap below multiplies, never a table of its own.
@@ -1358,7 +1360,74 @@ def mirror_mismatch(source, mirror, shapes=None):
 # above it stands, and the dock offers to match (app-mirror-screens.js
 # _mirrorSettingDifferences, the same reading in the same words). This holds
 # where a mirror is SET and nowhere else: an existing mirror's settings are
-# copied from its source (the client's _syncMirrorScreens), never checked.
+# copied from its source (copy_mirror_maps below, and the client's
+# _syncMirrorScreens), never checked.
+
+
+# THE SERVER KEEPS A MIRROR'S MAP ITS SOURCE'S (2026-11-10). The page that
+# changed a source used to be the only one that wrote the copy, from its
+# saveState (app-mirror-screens.js _syncMirrorScreens). A page following
+# another page's change writes nothing back (app-core FOLLOWING), so a
+# mirror stored out of date - a script's save of the source, an old file, a
+# page that went away mid-save - stayed that way until some page edited the
+# show again. The server now makes the copy itself: on every save of a
+# source or of a mirror (routes_layers update_layer) and once when a show is
+# loaded, restored or saved whole (routes_project), and every page is told.
+#
+# The fields that make a screen's data port map, exactly the client's
+# MIRROR_DATA_FIELDS (tests/test_follow_fields.py holds the two equal).
+MIRROR_DATA_FIELDS = (
+    'flowPattern', 'lastFlowPattern', 'portMappingMode', 'portNumberOrder',
+    'customPortPaths', 'customPortIndex', 'customPortOverrides',
+    'processorType', 'bitDepth', 'frameRate', 'lowLatency',
+)
+
+
+def mirror_source(project, layer):
+    """The screen `layer` copies, read as the client reads it
+    (mirrorSourceOf, and _syncMirrorScreens's skip of a source that is a
+    mirror itself): a screen of this project other than itself, that copies
+    no other. None for anything else, a stale id included."""
+    if not isinstance(layer, dict) or layer.get('dataMirrorOf') in (None, ''):
+        return None
+    wanted = str(layer.get('dataMirrorOf'))
+    for other in (project or {}).get('layers') or []:
+        if not isinstance(other, dict) or str(other.get('id')) != wanted:
+            continue
+        if other is layer or (other.get('type') or 'screen') != 'screen':
+            return None
+        if other.get('dataMirrorOf') not in (None, ''):
+            return None
+        return other
+    return None
+
+
+def copy_mirror_maps(project, only=None):
+    """Copy each mirror's source's MIRROR_DATA_FIELDS onto it, as the
+    client's _takeMirrorFields does: a field the source lacks is stored as
+    None (the null the client's PUT stores), and None and a missing field
+    read as the same blank, so an equal pair is left as it is. `only`: the
+    ids (any type) of the screens just saved; a mirror is copied when it or
+    its source is one of them. Returns the mirrors that changed."""
+    want = None if only is None else {str(i) for i in only}
+    changed = []
+    for layer in (project or {}).get('layers') or []:
+        source = mirror_source(project, layer)
+        if source is None:
+            continue
+        if want is not None and str(layer.get('id')) not in want \
+                and str(source.get('id')) not in want:
+            continue
+        moved = False
+        for key in MIRROR_DATA_FIELDS:
+            have, take = layer.get(key), source.get(key)
+            if have == take:
+                continue
+            layer[key] = _copy.deepcopy(take)
+            moved = True
+        if moved:
+            changed.append(layer)
+    return changed
 
 _MIRROR_FLOW_CORNERS = {'tl': 'Top-left', 'tr': 'Top-right',
                         'bl': 'Bottom-left', 'br': 'Bottom-right'}
