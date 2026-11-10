@@ -86,7 +86,7 @@ import {
 const LOCK_SOURCE_WORDS = {
     user: 'Set by you',
     library: 'From the panel library',
-    owner: 'Owner list',
+    owner: 'Built-in list',
 };
 
 const CACHE_MAX = 40;
@@ -387,7 +387,7 @@ class _Curve {
             const mine = locks.source === 'user';
             reset.style.display = mine ? '' : 'none';
             reset.textContent = !mine ? '' : locks.base
-                ? (locks.base.source === 'library' ? 'Use the panel library list' : 'Use the owner list')
+                ? (locks.base.source === 'library' ? 'Use the panel library list' : 'Use the built-in list')
                 : 'Clear';
         }
     }

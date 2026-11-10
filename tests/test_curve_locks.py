@@ -94,7 +94,7 @@ def test_a_graphite_screen_only_gets_minus_5_0_and_plus_5(page):
     # the owner's list, shown as chips with where it came from
     assert locks_of(page, ids[0]) == [-5, 0, 5]
     assert chips(page) == ['-5°', '0°', '+5°']
-    assert source(page) == 'Owner list'
+    assert source(page) == 'Built-in list'
     assert not page.is_visible('#rigging-curve-lock-none')
     act(page, lambda: page.check('#rigging-curve-on'))
     lay = layer(page, ids[0])
@@ -230,9 +230,9 @@ def test_a_user_list_is_saved_with_the_show_used_by_every_screen_of_the_panel_an
     assert source(page) == 'Set by you'
     # back to the owner list: the button says which list applies again
     page.click('#rigging-curve-lock-edit')
-    assert page.inner_text('#rigging-curve-lock-reset') == 'Use the owner list'
+    assert page.inner_text('#rigging-curve-lock-reset') == 'Use the built-in list'
     act(page, lambda: page.click('#rigging-curve-lock-reset'))
-    assert locks_of(page, ids[0]) == [-5, 0, 5] and source(page) == 'Owner list'
+    assert locks_of(page, ids[0]) == [-5, 0, 5] and source(page) == 'Built-in list'
     assert set(joints_of(layer(page, ids[1]))) <= {0, 5}
     assert page.errors == []
 
