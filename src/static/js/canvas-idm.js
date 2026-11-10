@@ -660,9 +660,22 @@ Object.assign(CanvasRenderer.prototype, {
             }
             ctx.restore();
         }
-        // Module ID labels over the field and the marks (under the live
-        // highlight, which is drawn after every screen).
-        if (field.moduleIds) this._idmDrawModuleIds(ctx, layer, field);
+        // The Module ID labels wait for render()'s label pass
+        // (renderIdmModuleIds), over every grid line and outline.
+        ctx.restore();
+    },
+
+    // The Module ID labels of one screen, in its own frame: over the field,
+    // the marks, the module grid and the cabinet edges, under the live
+    // highlight (drawn after every screen).
+    renderIdmModuleIds(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen' || !Array.isArray(layer.panels)) return;
+        const field = this.idmFieldSpec();
+        if (!field.moduleIds) return;
+        const ctx = this.ctx;
+        ctx.save();
+        this._clipToActiveRaster();
+        this._idmDrawModuleIds(ctx, layer, field);
         ctx.restore();
     },
 

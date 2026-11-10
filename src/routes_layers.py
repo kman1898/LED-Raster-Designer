@@ -78,8 +78,11 @@ def add_layer():
         # the left edge (null otherwise), the side a screen with no bars is
         # on, whether its row was laid by hand, the screen's bar colors, and
         # the tab's own screen-name settings (shown, size, dragged position).
+        # riggingCurve is the tab's Curve (app-curve.js): its on switch and
+        # its settings; the client holds it to its shape (curve-math.js
+        # cleanCurve), so a duplicate or paste carries it as it is.
         'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
-        'riggingBarStarts', 'riggingFooterBarStarts', 'riggingSide', 'riggingCustom',
+        'riggingBarStarts', 'riggingFooterBarStarts', 'riggingSide', 'riggingCustom', 'riggingCurve',
         'showLabelNameRigging', 'screenNameSizeRigging',
         'screenNameOffsetXRigging', 'screenNameOffsetYRigging',
         'showLabelName', 'showLabelNameCabinet', 'showLabelNameDataFlow', 'showLabelNamePower',
@@ -435,6 +438,8 @@ def update_layer(layer_id):
                 'powerMaximize', 'powerOrganized', 'powerNumberOrder', 'powerCustomPath', 'powerFlowPattern', 'powerLineWidth',
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
                 'riggingBarStarts', 'riggingFooterBarStarts', 'riggingSide', 'riggingCustom',
+                # The Header/Footer tab's Curve: on, and its settings.
+                'riggingCurve',
                 'showLabelNameRigging', 'screenNameSizeRigging',
                 'screenNameOffsetXRigging', 'screenNameOffsetYRigging', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',
                 'powerLabelTemplate', 'powerLabelOverrides', 'powerCustomPaths', 'powerCustomIndex',

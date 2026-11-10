@@ -682,6 +682,103 @@ class CanvasRenderer {
         if (ctx && typeof ctx.__lrdGroup === 'function') ctx.__lrdGroup(name, layer || null);
     }
 
+    // One screen's writing for render()'s label pass, drawn in the screen's
+    // own frame turned with it (`rotating`): the Cabinet IDs, the IDM
+    // Locator's module IDs, the data or power runs with their discs, tags
+    // and brackets, and the name plate with its sizes. The corner readouts
+    // are drawn upright, by the pass itself.
+    _renderLayerWriting(layer, rotating) {
+        // Cabinet ID numbers in world space (scales with zoom)
+        if (this.viewMode === 'cabinet-id' && this._stageOn('Cabinet IDs')) {
+            this._svgGroup('Cabinet IDs', layer);
+            this.renderCabinetIDNumbers(layer);
+        }
+        // IDM Locator: the module IDs over the field's grid and edges.
+        if (this._idmPass) this.renderIdmModuleIds(layer);
+
+        // Data/Power flow arrows rotate with the panels, but their
+        // technical labels (P1/R1, port/circuit info) stay upright.
+        if (this.viewMode === 'data-flow' && this._stageOn('Data')) {
+            this._svgGroup('Data', layer);
+            this._keepTextUpright = rotating;
+            this.renderDataFlowArrows(layer);
+            this._keepTextUpright = false;
+        }
+        if (this.viewMode === 'power' && this._stageOn('Power')) {
+            this._svgGroup('Power', layer);
+            this._keepTextUpright = rotating;
+            this.renderPowerArrows(layer);
+            // A ganged circuit says so on the wall: the Nfer
+            // bracket under its runs' feet (2026-08-30). Always
+            // on - a share that barely reads is the problem it
+            // exists to fix - and in exports too: it lives
+            // BELOW the screen, the soca brackets above, so
+            // the two never fight.
+            this.renderNferBrackets(layer);
+            // Brackets draw only when explicitly ticked (=== true,
+            // matching the soca panel's checkbox): the user asked
+            // for them off by default.
+            if (layer.showSocaBrackets === true) this.renderSocaBrackets(layer);
+            // A plug drag over this screen previews its box as
+            // a dashed bracket even with brackets off: gesture
+            // feedback, not paperwork, so it needs no tick -
+            // and with no drag on, an unticked screen draws no
+            // bracket at all (the multiselect suite pins it).
+            else if (this._pendingPlugFor(layer)) this.renderSocaBrackets(layer, true);
+            this._keepTextUpright = false;
+        }
+
+        // The screen name rotates with the screen (keepTextUpright is off
+        // here). A group member's labels in the Data and Power views wait
+        // for a pass of their own after the crossing runs: a port or circuit
+        // run that crosses into a peer is drawn in the overlay after every
+        // member, and it was painting over the member names (Matt,
+        // 2026-09-22: "the screen 2 name on power and data tab is under the
+        // cables when grouped").
+        this._svgGroup('Screen name', layer);
+        if (!this._idmPass && this._stageOn('Screen name')) {
+            if (this._memberLabelsDeferred(layer)) this._deferredMemberLabels.push(layer);
+            else this.renderLayerLabels(layer);
+        }
+    }
+
+    // The label pass draws a screen's writing after every screen, so a
+    // screen, image or text layer drawn LATER that lies over this one must
+    // still cover it there, as it did when the writing was drawn in the
+    // screen's own pass. Clips away, in the canvas's frame (render()'s
+    // _withLayerWs), where each later layer overlaps this screen. Writing
+    // that hangs OUTSIDE the screen (a bracket under it, a tag) is never
+    // clipped: on a stacked wall it sits over its neighbour's cabinets.
+    _clipOutLaterLayers(layer, later) {
+        if (!Array.isArray(later) || !later.length) return;
+        // One footprint per layer per frame: render() empties the memo.
+        const memo = this._labelPassRects || (this._labelPassRects = new Map());
+        const rectOf = (l) => {
+            let b = memo.get(l);
+            if (!b) {
+                b = (l.type || 'screen') === 'screen'
+                    ? this.getLayerFootprintInActiveView(l)
+                    : this.getLayerBoundsInActiveView(l);
+                memo.set(l, b);
+            }
+            return b;
+        };
+        const own = rectOf(layer);
+        const BIG = 1e7;
+        later.forEach(other => {
+            if (!other || other === layer || !other.visible) return;
+            const b = rectOf(other);
+            const x0 = Math.max(own.x, b.x), y0 = Math.max(own.y, b.y);
+            const x1 = Math.min(own.x + own.width, b.x + b.width);
+            const y1 = Math.min(own.y + own.height, b.y + b.height);
+            if (!(x1 - x0 > 1e-6 && y1 - y0 > 1e-6)) return;
+            this.ctx.beginPath();
+            this.ctx.rect(-BIG, -BIG, 2 * BIG, 2 * BIG);
+            this.ctx.rect(x0, y0, x1 - x0, y1 - y0);
+            this.ctx.clip('evenodd');
+        });
+    }
+
     /**
      * Build a clip path that constrains drawing to the active raster bounds
      * in *screen* space, even when the caller is currently inside a per-layer
@@ -2279,6 +2376,16 @@ class CanvasRenderer {
         // cross-member overlay pass, not in the member's own pass (see
         // _memberLabelsDeferred). Cleared here for the same reason as above.
         this._deferredMemberLabels = [];
+        // The label pass (Matt, 2026-11-09: "screen labels and stuff to be
+        // overtop of borders"): every screen the loop below draws is queued
+        // here, and its writing - name plate, sizes, corner readouts,
+        // Cabinet IDs, module IDs, the data and power runs with their discs
+        // and tags - is drawn once every border, outline, selection box and
+        // grid line is down. `_labelPassDrawn` is the loop's draw order, so
+        // a screen's writing can still go under a screen drawn over it.
+        this._labelPassLayers = [];
+        this._labelPassDrawn = [];
+        this._labelPassRects = new Map();
         // v0.11.0: frame counter, so _powerCircuitForPanel can tell a peer's
         // circuit maps it built itself THIS frame from ones left over from the
         // last one. Without it a peer drawn after its owner would keep tinting
@@ -2452,6 +2559,10 @@ class CanvasRenderer {
                         if (needsShift) this.ctx.restore();
                         return;
                     }
+                    // Drawn in this order on this canvas: the label pass
+                    // keeps a screen's writing under whatever comes later
+                    // and covers it (_clipOutLaterLayers).
+                    this._labelPassDrawn.push({ layer, canvasId: canvas.id || null });
                     if ((layer.type || 'screen') === 'image') {
                         this._svgGroup('Images', layer);
                         if (this._stageOn('Image')) this.renderImageLayer(layer);
@@ -2527,61 +2638,11 @@ class CanvasRenderer {
                     this._svgGroup('Test pattern', layer);
                     if (!this._idmPass && this._stageOn('Test pattern')) this.renderCircleWithX(layer);
 
-                    // Render Cabinet ID numbers in world space (scales with zoom)
-                    if (this.viewMode === 'cabinet-id' && this._stageOn('Cabinet IDs')) {
-                        this._svgGroup('Cabinet IDs', layer);
-                        this.renderCabinetIDNumbers(layer);
-                    }
+                    // The screen's writing waits for the label pass, after
+                    // every border, outline and grid line (_renderLayerWriting).
+                    this._labelPassLayers.push(layer);
 
-                    // Data/Power flow arrows rotate with the panels, but their
-                    // technical labels (P1/R1, port/circuit info) stay upright.
-                    if (this.viewMode === 'data-flow' && this._stageOn('Data')) {
-                        this._svgGroup('Data', layer);
-                        this._keepTextUpright = _rotating;
-                        this.renderDataFlowArrows(layer);
-                        this._keepTextUpright = false;
-                    }
-                    if (this.viewMode === 'power' && this._stageOn('Power')) {
-                        this._svgGroup('Power', layer);
-                        this._keepTextUpright = _rotating;
-                        this.renderPowerArrows(layer);
-                        // A ganged circuit says so on the wall: the Nfer
-                        // bracket under its runs' feet (2026-08-30). Always
-                        // on - a share that barely reads is the problem it
-                        // exists to fix - and in exports too: it lives
-                        // BELOW the screen, the soca brackets above, so
-                        // the two never fight.
-                        this.renderNferBrackets(layer);
-                        // Brackets draw only when explicitly ticked (=== true,
-                        // matching the soca panel's checkbox): the user asked
-                        // for them off by default.
-                        if (layer.showSocaBrackets === true) this.renderSocaBrackets(layer);
-                        // A plug drag over this screen previews its box as
-                        // a dashed bracket even with brackets off: gesture
-                        // feedback, not paperwork, so it needs no tick -
-                        // and with no drag on, an unticked screen draws no
-                        // bracket at all (the multiselect suite pins it).
-                        else if (this._pendingPlugFor(layer)) this.renderSocaBrackets(layer, true);
-                        this._keepTextUpright = false;
-                    }
-
-                    // Render labels as part of each layer so upper layers naturally
-                    // paint over lower layers' labels (no bleed-through). The screen
-                    // name rotates with the screen (keepTextUpright is off here).
-                    // A group member's labels in the Data and Power views wait
-                    // for the post pass instead: a port or circuit run that
-                    // crosses into a peer is drawn in the overlay after every
-                    // member, and it was painting over the member names
-                    // (Matt, 2026-09-22: "the screen 2 name on power and data
-                    // tab is under the cables when grouped").
-                    this._svgGroup('Screen name', layer);
-                    if (!this._idmPass && this._stageOn('Screen name')) {
-                        if (this._memberLabelsDeferred(layer)) this._deferredMemberLabels.push(layer);
-                        else this.renderLayerLabels(layer);
-                    }
-
-                    // v0.9.3: end the rotation before the corner readouts so the
-                    // X,Y coordinates stay upright and unrotated.
+                    // v0.9.3: end the rotation.
                     if (_rotating) {
                         this.ctx.restore();          // pop the rotation transform
                         this._layerRotating = false;
@@ -2589,10 +2650,6 @@ class CanvasRenderer {
                         this._activeRotationRad = 0;
                         this.ctx.restore();          // pop the raster clip
                     }
-
-                    // Render offsets / corner X,Y readouts (pixel-map only), upright
-                    this._svgGroup('Screen name', layer);
-                    if (!this._idmPass && this._stageOn('Screen name')) this.renderLayerOffsets(layer);
 
                     if (needsShift) this.ctx.restore();
                 }
@@ -2626,120 +2683,6 @@ class CanvasRenderer {
             // (overlays, badges, hit-testing during this render) sees the
             // active canvas's raster via the getter again.
             this._activeRenderCanvas = null;
-
-            // v0.11.0 screen groups: the manual paths that cross from one member
-            // to the next, drawn now that every member's cabinets are down.
-            // Deliberately NOT gated on exportMode - a wall wired across two
-            // members has to appear on the printed map too, and drawing it here
-            // is also the only way it survives being covered by a peer that
-            // renders after its owner.
-            if ((this.viewMode === 'data-flow' && this._stageOn('Data'))
-                    || (this.viewMode === 'power' && this._stageOn('Power'))) {
-                this._renderCrossMemberPaths(this.viewMode === 'power' ? 'power' : 'data');
-            }
-
-            // Group members' name plates, held back from the loop above so
-            // they sit on top of the crossing runs the overlay just drew.
-            // Each member is redrawn in the frame its own pass used: canvas
-            // workspace and mirror (_withLayerWs), Show Look offset, and its
-            // rotation with the raster clip that goes with it.
-            const _deferredLabels = this._deferredMemberLabels || [];
-            this._deferredMemberLabels = [];
-            _deferredLabels.forEach(layer => {
-                if (!layer || !layer.visible) return;
-                const _cid = this._effectiveLayerCanvasId(layer);
-                const _prevCanvas = this._activeRenderCanvas;
-                this._activeRenderCanvas = (_cid && _canvasById[_cid]) || null;
-                try {
-                    _withLayerWs(layer, () => {
-                        const { dx, dy } = this.getLayerRenderOffset(layer);
-                        this.ctx.save();
-                        if (dx || dy) this.ctx.translate(dx, dy);
-                        this._renderDx = dx;
-                        this._renderDy = dy;
-                        const _deg = this._layerRotationDeg(layer);
-                        const _rot = (_deg === 90 || _deg === 180 || _deg === 270);
-                        if (_rot) {
-                            this.ctx.save();
-                            this.ctx.beginPath();
-                            this.ctx.rect(-dx, -dy, this.rasterWidth, this.rasterHeight);
-                            this.ctx.clip();
-                            this._layerRotating = true;
-                            this._activeRotationRad = _deg * Math.PI / 180;
-                            this._beginLayerRotation(layer);
-                        }
-                        this._svgGroup('Screen name', layer);
-                        this.renderLayerLabels(layer);
-                        if (_rot) {
-                            this.ctx.restore();
-                            this._layerRotating = false;
-                            this._keepTextUpright = false;
-                            this._activeRotationRad = 0;
-                            this.ctx.restore();
-                        }
-                        this._renderDx = 0;
-                        this._renderDy = 0;
-                        this.ctx.restore();
-                    });
-                } finally {
-                    this._activeRenderCanvas = _prevCanvas;
-                }
-            });
-
-            // IDM Locator: the live highlight, over every screen. The output
-            // window's frame is drawn without it (_idmNoHighlight) and has
-            // it laid on by app-output-display.js, so a blink costs that
-            // window one copy, not a render.
-            if (this._idmPass && !this._idmNoHighlight) this.renderIdmHighlight();
-
-            // The custom-run readout in the canvas strip follows this frame:
-            // whichever view is up, if no badge call fired (not custom mode,
-            // another view, no layer) the readout hides. An export render
-            // never touches it - the strip is not on paper and the next
-            // interactive frame is the one that decides.
-            if (!this.exportMode) this._activeBadgeShown = false;
-            if (!this.exportMode && this.viewMode === 'data-flow') {
-                this.renderCustomSelectionOverlay();
-                this.renderCustomActivePortBadge();
-            }
-            if (!this.exportMode && this.viewMode === 'power') {
-                this.renderPowerSelectionOverlay();
-                this.renderPowerActiveCircuitBadge();
-            }
-            if (!this.exportMode && !this._activeBadgeShown) this._syncCustomRunReadout(null);
-            if (!this.exportMode && this.viewMode === 'pixel-map' && !this._idmPass) {
-                this.renderPixelMapSelectionOverlay();
-                this.renderPixelMapSelectionBadge();
-            }
-            // Always show the perspective badge (BACK VIEW) in wiring views
-            // when in back perspective. Renders in both interactive view and
-            // export so the printed map is unambiguous.
-            // The badge and the error overlays belong to the wiring they
-            // annotate: the Data stage on the Data view, Power on Power.
-            const _wiringStageOn = this.viewMode === 'data-flow' ? this._stageOn('Data')
-                : this.viewMode === 'power' ? this._stageOn('Power') : true;
-            if ((this.viewMode === 'data-flow' || this.viewMode === 'power') && _wiringStageOn) {
-                this._svgGroup('Back view');
-                this.renderPerspectiveBadge();
-            }
-
-            // Third pass: render capacity error overlays ON TOP of labels (Data Flow mode only)
-            if (this.viewMode === 'data-flow' && _wiringStageOn) {
-                window.app.project.layers.forEach(layer => {
-                    if (layer.visible) {
-                        this._svgGroup('Data', layer);
-                        _withLayerWs(layer, () => this.renderCapacityErrorOverlay(layer));
-                    }
-                });
-            }
-            if (this.viewMode === 'power' && _wiringStageOn) {
-                window.app.project.layers.forEach(layer => {
-                    if (layer.visible) {
-                        this._svgGroup('Power', layer);
-                        _withLayerWs(layer, () => this.renderPowerErrorOverlay(layer));
-                    }
-                });
-            }
 
             // The Rigging view's header bars sit above each wall.
             if (this.viewMode === 'rigging') {
@@ -2895,11 +2838,175 @@ class CanvasRenderer {
                 }
             }
 
-            // Final pass: render pixel grid ON TOP of everything (all view modes, 1000%+ zoom)
+            // The Pixel Map's cabinet selection: a tint and an outline on
+            // each picked cabinet, under the writing (its count badge is
+            // drawn after it).
+            if (!this.exportMode && this.viewMode === 'pixel-map' && !this._idmPass) {
+                this.renderPixelMapSelectionOverlay();
+            }
+
+            // The pixel grid (all view modes, 1000%+ zoom), over every cabinet
+            // and under the writing
             if (this.zoom >= 10) {
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
                         _withLayerWs(layer, () => this.renderPixelGrid(layer));
+                    }
+                });
+            }
+
+            // ── The label pass ──────────────────────────────────────────
+            // Every screen's writing, in the order the screens were drawn,
+            // now that every border, outline, selection box and grid line
+            // is down (Matt, 2026-11-09: "on any screen or canvas ... we
+            // need to have screen labels and stuff to be overtop of borders
+            // etc."). Each screen is put back in the frame its own pass
+            // used: its canvas's workspace and Front/Back mirror
+            // (_withLayerWs), its Show Look offset and its rotation with
+            // the raster clip that goes with it. A screen, image or text
+            // layer drawn LATER over this one still covers its writing
+            // where the two overlap (_clipOutLaterLayers): only lines went
+            // under, never another screen.
+            //
+            // _inLayerFrame(layer, later, rotated, upright): `rotated`
+            // runs turned with the screen, `upright` after the turn is
+            // popped (the corner readouts). `later` is the draw-order list
+            // whose layers after this one cover it, or null.
+            const _inLayerFrame = (layer, later, rotated, upright) => {
+                const _cid = this._effectiveLayerCanvasId(layer);
+                const _prevCanvas = this._activeRenderCanvas;
+                this._activeRenderCanvas = (_cid && _canvasById[_cid]) || null;
+                try {
+                    _withLayerWs(layer, () => {
+                        this.ctx.save();
+                        if (later) this._clipOutLaterLayers(layer, later);
+                        const { dx, dy } = this.getLayerRenderOffset(layer);
+                        if (dx || dy) this.ctx.translate(dx, dy);
+                        this._renderDx = dx;
+                        this._renderDy = dy;
+                        const _deg = this._layerRotationDeg(layer);
+                        const _rot = (_deg === 90 || _deg === 180 || _deg === 270);
+                        if (_rot) {
+                            this.ctx.save();
+                            this.ctx.beginPath();
+                            this.ctx.rect(-dx, -dy, this.rasterWidth, this.rasterHeight);
+                            this.ctx.clip();
+                            this._layerRotating = true;
+                            this._activeRotationRad = _deg * Math.PI / 180;
+                            this._beginLayerRotation(layer);
+                        }
+                        try {
+                            rotated(_rot);
+                        } finally {
+                            if (_rot) {
+                                this.ctx.restore();
+                                this._layerRotating = false;
+                                this._keepTextUpright = false;
+                                this._activeRotationRad = 0;
+                                this.ctx.restore();
+                            }
+                        }
+                        if (upright) upright();
+                        this._renderDx = 0;
+                        this._renderDy = 0;
+                        this.ctx.restore();
+                    });
+                } finally {
+                    this._activeRenderCanvas = _prevCanvas;
+                }
+            };
+            const _labelLayers = this._labelPassLayers || [];
+            const _drawn = this._labelPassDrawn || [];
+            this._labelPassLayers = [];
+            this._labelPassDrawn = [];
+            _labelLayers.forEach(layer => {
+                if (!layer || !layer.visible) return;
+                const at = _drawn.findIndex(d => d.layer === layer);
+                const later = at < 0 ? null : _drawn.slice(at + 1)
+                    .filter(d => d.canvasId === _drawn[at].canvasId).map(d => d.layer);
+                _inLayerFrame(layer, later,
+                    (rotating) => this._renderLayerWriting(layer, rotating),
+                    () => {
+                        // The corner X,Y readouts (Pixel Map only), upright.
+                        this._svgGroup('Screen name', layer);
+                        if (!this._idmPass && this._stageOn('Screen name')) this.renderLayerOffsets(layer);
+                    });
+            });
+
+            // v0.11.0 screen groups: the manual paths that cross from one member
+            // to the next, drawn now that every member's cabinets are down.
+            // Deliberately NOT gated on exportMode - a wall wired across two
+            // members has to appear on the printed map too, and drawing it here
+            // is also the only way it survives being covered by a peer that
+            // renders after its owner.
+            if ((this.viewMode === 'data-flow' && this._stageOn('Data'))
+                    || (this.viewMode === 'power' && this._stageOn('Power'))) {
+                this._renderCrossMemberPaths(this.viewMode === 'power' ? 'power' : 'data');
+            }
+
+            // Group members' name plates, held back from the loop above so
+            // they sit on top of the crossing runs the overlay just drew,
+            // each in the frame its own pass used.
+            const _deferredLabels = this._deferredMemberLabels || [];
+            this._deferredMemberLabels = [];
+            _deferredLabels.forEach(layer => {
+                if (!layer || !layer.visible) return;
+                _inLayerFrame(layer, null, () => {
+                    this._svgGroup('Screen name', layer);
+                    this.renderLayerLabels(layer);
+                });
+            });
+
+            // IDM Locator: the live highlight, over every screen. The output
+            // window's frame is drawn without it (_idmNoHighlight) and has
+            // it laid on by app-output-display.js, so a blink costs that
+            // window one copy, not a render.
+            if (this._idmPass && !this._idmNoHighlight) this.renderIdmHighlight();
+
+            // The custom-run readout in the canvas strip follows this frame:
+            // whichever view is up, if no badge call fired (not custom mode,
+            // another view, no layer) the readout hides. An export render
+            // never touches it - the strip is not on paper and the next
+            // interactive frame is the one that decides.
+            if (!this.exportMode) this._activeBadgeShown = false;
+            if (!this.exportMode && this.viewMode === 'data-flow') {
+                this.renderCustomSelectionOverlay();
+                this.renderCustomActivePortBadge();
+            }
+            if (!this.exportMode && this.viewMode === 'power') {
+                this.renderPowerSelectionOverlay();
+                this.renderPowerActiveCircuitBadge();
+            }
+            if (!this.exportMode && !this._activeBadgeShown) this._syncCustomRunReadout(null);
+            if (!this.exportMode && this.viewMode === 'pixel-map' && !this._idmPass) {
+                this.renderPixelMapSelectionBadge();
+            }
+            // Always show the perspective badge (BACK VIEW) in wiring views
+            // when in back perspective. Renders in both interactive view and
+            // export so the printed map is unambiguous.
+            // The badge and the error overlays belong to the wiring they
+            // annotate: the Data stage on the Data view, Power on Power.
+            const _wiringStageOn = this.viewMode === 'data-flow' ? this._stageOn('Data')
+                : this.viewMode === 'power' ? this._stageOn('Power') : true;
+            if ((this.viewMode === 'data-flow' || this.viewMode === 'power') && _wiringStageOn) {
+                this._svgGroup('Back view');
+                this.renderPerspectiveBadge();
+            }
+
+            // Third pass: render capacity error overlays ON TOP of labels (Data Flow mode only)
+            if (this.viewMode === 'data-flow' && _wiringStageOn) {
+                window.app.project.layers.forEach(layer => {
+                    if (layer.visible) {
+                        this._svgGroup('Data', layer);
+                        _withLayerWs(layer, () => this.renderCapacityErrorOverlay(layer));
+                    }
+                });
+            }
+            if (this.viewMode === 'power' && _wiringStageOn) {
+                window.app.project.layers.forEach(layer => {
+                    if (layer.visible) {
+                        this._svgGroup('Power', layer);
+                        _withLayerWs(layer, () => this.renderPowerErrorOverlay(layer));
                     }
                 });
             }
