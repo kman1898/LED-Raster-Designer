@@ -11,7 +11,9 @@
 // and its side, and x takes it off. A small plan of the
 // screen from above, as the 3D tab builds it, shows every corner and any
 // curve live. The 3D tab and Export > OBJ build the corners
-// (app-stage3d.js s3dBuild).
+// (app-stage3d.js s3dBuild). The 3D tab sets them too: a click on a seam
+// or a panel's middle of the selected screen offers None, Interior 90 or
+// Exterior 90 (setRiggingCornerAt), the same data, so the tabs agree.
 //
 // The owner's rulings of 2026-11-09:
 // - Interior folds the sides toward the audience, Exterior away.
@@ -274,6 +276,48 @@ class _Corners {
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
+    // The corner at spot `at` on ONE screen set to `side` ('interior' or
+    // 'exterior'), or taken off (null or 'none'): the 3D tab's corner
+    // picker (app-stage3d-panel.js). The same riggingCorners the rows above
+    // write, through the same steps: a corner that comes or goes splits the
+    // bars again and lays a Curve again, a side change does neither, and it
+    // is one undo step. A locked screen is refused and named; a spot taken
+    // or too close to another corner is refused and said. True when it
+    // changed something.
+    setRiggingCornerAt(layer, at, side) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return false;
+        const spot = Number(at);
+        if (!cornerSpots(this._cornerCols(layer)).includes(spot)) return false;
+        if (side !== null && side !== 'none' && side !== 'interior' && side !== 'exterior') return false;
+        const off = side === null || side === 'none';
+        const list = this.riggingCornersOf(layer);
+        const had = list.find(c => c.at === spot) || null;
+        if (off ? !had : (had && had.side === side)) return false;
+        if (this._lockedRefused(layer)) return false;
+        let next;
+        let action;
+        if (off) {
+            next = list.filter(c => c.at !== spot);
+            action = 'Remove Corner';
+        } else if (had) {
+            next = list.map(c => (c.at === spot ? { ...c, side } : c));
+            action = 'Corner';
+        } else {
+            if (!this._cornerSpotFree(spot, list.map(c => c.at))) {
+                this._toast(`${cornerSpotLabel(spot)} is too close to another corner on ${layer.name || 'this screen'}. Corners need a panel of their own for their corner bars.`, true, 6000);
+                return false;
+            }
+            next = [...list, { at: spot, angle: CORNER_ANGLE, side }];
+            action = 'Add Corner';
+        }
+        layer.riggingCorners = s3dCleanCorners(next);
+        const relay = had && !off ? null : this._cornerRelayBars([layer]);
+        this._cornerCommit([layer], relay, action);
+        if (typeof this.refreshRiggingPanel === 'function') this.refreshRiggingPanel();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        return true;
+    }
+
     // ---- the panel --------------------------------------------------------
 
     refreshRiggingCorners() {
@@ -291,7 +335,7 @@ class _Corners {
         // Rebuilt only when the rows change shape; otherwise each row is
         // brought up to date in place, so a field being typed in keeps its
         // focus (Tab from one row's control lands in the next one).
-        // The angle the Curve (or the 3D tab) gives each seam, as the screen
+        // The angle the Curve gives each seam, as the screen
         // stands without its corners: a corner on a seam takes its place.
         const seamAngles = this._cornerSeamAngles(primary);
         const sig = JSON.stringify([primary.id, cols, list.map(c => c.at)]);
@@ -364,7 +408,7 @@ class _Corners {
     }
 
     // The angle at each seam (0-based joint) the screen has without its
-    // corners: the Curve's, or the 3D tab's.
+    // corners: the Curve's.
     _cornerSeamAngles(layer) {
         let placement = null;
         try { placement = this._s3dPlacementOf(layer); } catch (_) { placement = null; }

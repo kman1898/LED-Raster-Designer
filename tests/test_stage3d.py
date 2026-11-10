@@ -2,8 +2,9 @@
 
 The tab stands every screen Show Look shows on the stage, built from its own
 cabinets with its Pixel Map drawing on the front. Each screen's place lives
-on the layer as `stage3d` (mm and degrees, joint bends held to +/-15); the
-camera, units and grid are the view's own, saved with the project.
+on the layer as `stage3d` (mm and degrees; the only joint angles are the
+Curve's, held to +/-90); the camera, units and grid are the view's own,
+saved with the project.
 
 What this file pins:
 
@@ -17,9 +18,11 @@ What this file pins:
   turning point, the ft | m switch and the footer's 6 in are pinned in
   tests/test_stage3d_pivot.py.)
 * Edits from the panel (typed lengths in feet, feet-and-inches, degrees,
-  curves, a joint picked by clicking its seam) land on the layer and the
-  server, survive a reload, and undo / redo as one step each.
-* A group moves and turns as one wall; the curve stays each member's own.
+  a rotation field's right-click +90) land on the layer and the server,
+  survive a reload, and undo / redo as one step each. (Dragging a field,
+  its keys, and the corners picked in the view are pinned in
+  tests/test_stage3d_panel.py.)
+* A group moves and turns as one wall; corners stay each member's own.
 * Copies are nudged, not stacked; old files load; no WebGL is survivable.
 
 Run locally:
@@ -43,20 +46,21 @@ FT = 304.8
 
 # ── 1. The server's shape rule (no browser) ──────────────────────────────
 
-def test_sanitize_clamps_joints_and_drops_junk():
+def test_sanitize_keeps_the_curves_angles_and_drops_the_free_figures():
+    """The only joint angles are the Curve's, jointsCol, held to +/-90 (a
+    corner's own turn). The first betas' 3D tab figures (curveCol,
+    curveRow, jointsRow) are dropped, whatever they held."""
     raw = {
         'x': '1200.5', 'y': None, 'z': float('nan'), 'pitch': 10, 'yaw': True, 'roll': -5,
         'curveCol': 40, 'curveRow': -99,
-        'jointsCol': {'2': 30, '03': -4, 'x': 3, '-1': 5, '4': 'bad'},
-        'jointsRow': [1, 2],
+        'jointsCol': {'2': 130, '03': -4, '4': 30, 'x': 3, '-1': 5, '5': 'bad'},
+        'jointsRow': {'1': 2},
         'stray': 'dropped',
     }
     out = app_module.sanitize_stage3d(raw)
     assert out == {
         'x': 1200.5, 'y': 0.0, 'z': 0.0, 'pitch': 10.0, 'yaw': 0.0, 'roll': -5.0,
-        'curveCol': 15.0, 'curveRow': -15.0,
-        'jointsCol': {'2': 15.0, '3': -4.0},
-        'jointsRow': {},
+        'jointsCol': {'2': 90.0, '3': -4.0, '4': 30.0},
     }, out
     # idempotent: what the funnels store is what they would store again
     assert app_module.sanitize_stage3d(out) == out
@@ -72,7 +76,7 @@ def test_normalize_stage3d_runs_over_the_project():
     ]}
     changed = app_module.normalize_stage3d(project)
     assert changed == [1, 2]
-    assert project['layers'][0]['stage3d']['curveCol'] == 15.0
+    assert 'curveCol' not in project['layers'][0]['stage3d']
     assert 'stage3d' not in project['layers'][1]
     assert 'stage3d' not in project['layers'][2]
     assert app_module.normalize_stage3d(project) == []
@@ -93,10 +97,11 @@ def test_layer_put_clamps_and_null_removes(client_with_layer):
     client = client_with_layer
     layer_id = app_module.current_project['layers'][0]['id']
     resp = client.put(f'/api/layer/{layer_id}', json={'stage3d': {
-        'x': 100, 'curveCol': 25, 'jointsRow': {'1': -40}}})
+        'x': 100, 'curveCol': 25, 'jointsRow': {'1': -40}, 'jointsCol': {'1': -140}}})
     assert resp.status_code == 200
     placed = resp.get_json()['stage3d']
-    assert placed['curveCol'] == 15 and placed['jointsRow'] == {'1': -15} and placed['x'] == 100
+    assert placed['jointsCol'] == {'1': -90} and placed['x'] == 100
+    assert 'curveCol' not in placed and 'jointsRow' not in placed
     resp = client.put(f'/api/layer/{layer_id}', json={'stage3d': None})
     assert 'stage3d' not in resp.get_json()
     assert 'stage3d' not in app_module.current_project['layers'][0]
@@ -106,11 +111,11 @@ def test_add_route_and_restore_funnel_hold_the_shape(client):
     resp = client.post('/api/layer/add', json={
         'name': 'Copy', 'columns': 2, 'rows': 2,
         'stage3d': {'x': 5, 'curveRow': 50}})
-    assert resp.get_json()['stage3d']['curveRow'] == 15
+    assert 'curveRow' not in resp.get_json()['stage3d']
     project = client.get('/api/project').get_json()
     project['layers'][0]['stage3d'] = {'jointsCol': {'0': 99}}
     restored = client.put('/api/project', json=project).get_json()
-    assert restored['layers'][0]['stage3d']['jointsCol'] == {'0': 15}
+    assert restored['layers'][0]['stage3d']['jointsCol'] == {'0': 90}
     # a file without the key loads without it
     del project['layers'][0]['stage3d']
     restored = client.put('/api/project', json=project).get_json()
@@ -353,7 +358,7 @@ def test_a_screen_with_no_3d_place_stands_at_its_show_look_position(page):
     for s in (upper, lower):
         p = s['placement']
         assert not s['stored']
-        assert (p['z'], p['pitch'], p['yaw'], p['roll'], p['curveCol'], p['curveRow']) == (0, 0, 0, 0, 0, 0)
+        assert (p['z'], p['pitch'], p['yaw'], p['roll'], p['jointsCol']) == (0, 0, 0, 0, {})
     # the lowest screen's bottom edge is on the floor
     assert lower['world']['min'][1] == pytest.approx(0, abs=0.01)
     # Show Look's 600 px down is 600 x 500/128 mm down; up is up
@@ -367,7 +372,14 @@ def test_a_screen_with_no_3d_place_stands_at_its_show_look_position(page):
     assert stored(page, ids[0]) is None and served(page, ids[0]) is None
 
 
-def test_typed_position_rotation_and_curve_persist_and_undo(page):
+def rotation_menu(page, key, item):
+    """A rotation field's right-click menu: +90, -90 or Reset."""
+    page.click(f'#s3d-{key}', button='right')
+    page.click(f'#s3d-field-menu [data-s3d-menu="{item}"]')
+    page.wait_for_timeout(400)
+
+
+def test_typed_position_and_rotation_persist_and_undo(page):
     ids = reset(page)
     open_3d(page, 2)
     upper = ids[0]
@@ -378,24 +390,22 @@ def test_typed_position_rotation_and_curve_persist_and_undo(page):
     type_field(page, 's3d-z', "-12' 6\"")
     assert stored(page, upper)['z'] == pytest.approx(-(12 * FT + 6 * 25.4))
     type_field(page, 's3d-yaw', '20+10')
-    type_field(page, 's3d-curve-col', '7')
-    page.click('[data-s3d-axis="pitch"] [data-s3d-step="-15"]')
-    page.wait_for_timeout(400)
+    rotation_menu(page, 'pitch', '-90')
     want = stored(page, upper)
-    assert want['yaw'] == 30 and want['curveCol'] == 7 and want['pitch'] == -15, want
-    assert history_len(page) == start + 5, page.evaluate('window.app.history.map(h => h.action)')
+    assert want['yaw'] == 30 and want['pitch'] == -90, want
+    assert history_len(page) == start + 4, page.evaluate('window.app.history.map(h => h.action)')
     got = settled(page, lambda: served(page, upper), lambda v: v == want)
     assert got == want
 
-    # the stage follows: the curve bends the ends forward
+    # the stage follows
     s = settled(page, lambda: screen(page, upper), lambda v: v['placement'] == want)
     assert s['placement'] == want
 
     undo(page)
     assert stored(page, upper)['pitch'] == 0
     undo(page)
-    assert stored(page, upper)['curveCol'] == 0
-    assert settled(page, lambda: served(page, upper), lambda v: v and v['curveCol'] == 0)['curveCol'] == 0
+    assert stored(page, upper)['yaw'] == 0
+    assert settled(page, lambda: served(page, upper), lambda v: v and v['yaw'] == 0)['yaw'] == 0
     redo(page)
     redo(page)
     assert stored(page, upper) == want
@@ -425,50 +435,6 @@ def test_metres_are_offered_and_kept_with_the_project(page):
     page.click('#s3d-units-ft')
     page.wait_for_timeout(300)
     assert page.evaluate("document.getElementById('s3d-y').value") == f'{2500 / FT:.2f}'
-
-
-def test_curves_and_joints_clamp_and_a_seam_click_picks_its_joint(page):
-    ids = reset(page, [{'name': 'Wall', 'columns': 6, 'rows': 3, 'offset_x': 0, 'offset_y': 0}])
-    wall = ids[0]
-    open_3d(page, 1)
-    type_field(page, 's3d-curve-col', '40')
-    assert stored(page, wall)['curveCol'] == 15
-    assert page.evaluate("document.getElementById('s3d-curve-col').value") == '15'
-    type_field(page, 's3d-curve-row', '-99')
-    assert stored(page, wall)['curveRow'] == -15
-    assert '5 joints, 75° in all' in page.evaluate("document.getElementById('s3d-arc-col').textContent")
-
-    # the joint field waits for a seam
-    assert page.evaluate("document.getElementById('s3d-joint-angle').disabled")
-    view_from(page, 'front')
-    at = page.evaluate(f"window.app._s3dDebugSeam({wall}, 'col', 2)")
-    assert at, 'the seam is not on the page'
-    page.mouse.click(at[0], at[1])
-    page.wait_for_timeout(300)
-    assert dbg(page)['joint'] == {'layerId': wall, 'axis': 'col', 'index': 2}
-    assert not page.evaluate("document.getElementById('s3d-joint-angle').disabled")
-    assert 'columns 3 and 4' in page.evaluate("document.getElementById('s3d-joint-label').textContent")
-    type_field(page, 's3d-joint-angle', '30')
-    assert stored(page, wall)['jointsCol'] == {'2': 15}
-    type_field(page, 's3d-joint-angle', '-4')
-    assert stored(page, wall)['jointsCol'] == {'2': -4}
-    assert '(1 set alone)' in page.evaluate("document.getElementById('s3d-arc-col').textContent")
-    assert settled(page, lambda: served(page, wall),
-                   lambda v: v and v['jointsCol'] == {'2': -4})['jointsCol'] == {'2': -4}
-
-    # the server holds the line too, whatever a client sends
-    resp = page.evaluate("""async (id) => {
-        const r = await fetch(`/api/layer/${id}`, {method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({stage3d: {curveCol: 80, jointsRow: {'0': -60}}})});
-        return (await r.json()).stage3d;
-    }""", wall)
-    assert resp['curveCol'] == 15 and resp['jointsRow'] == {'0': -15}
-
-    # clearing the joint goes back to the screen's own figure
-    page.click('#s3d-joint-clear')
-    page.wait_for_timeout(300)
-    assert stored(page, wall)['jointsCol'] == {}
 
 
 def test_click_selects_and_selection_follows_the_screens_list(page):
@@ -542,8 +508,7 @@ def test_a_group_moves_and_turns_as_one_wall(page):
     assert b['x'] - a['x'] == pytest.approx(gap)
 
     start = history_len(page)
-    page.click('[data-s3d-axis="yaw"] [data-s3d-step="90"]')
-    page.wait_for_timeout(500)
+    rotation_menu(page, 'yaw', '+90')
     assert history_len(page) == start + 1
     a, b = stored(page, ids[0]), stored(page, ids[1])
     assert a['yaw'] == 90 and b['yaw'] == pytest.approx(90)
@@ -552,10 +517,13 @@ def test_a_group_moves_and_turns_as_one_wall(page):
     assert b['x'] == pytest.approx(a['x'], abs=0.01)
     assert b['z'] - a['z'] == pytest.approx(-gap, abs=0.01)
 
-    # the curve is each member's own
-    type_field(page, 's3d-curve-col', '6')
-    assert stored(page, ids[0])['curveCol'] == 6
-    assert stored(page, ids[1])['curveCol'] == 0
+    # a corner is each member's own
+    page.evaluate(f"""() => {{ const a = window.app;
+        a.setRiggingCornerAt(a.project.layers.find(l => l.id === {ids[0]}), 1.5, 'interior'); }}""")
+    page.wait_for_timeout(400)
+    corners = page.evaluate(f"""() => [{ids[0]}, {ids[1]}].map(id => window.app.project.layers.find(l => l.id === id))
+        .map(l => (l.riggingCorners || []).map(c => [c.at, c.side]))""")
+    assert corners == [[[1.5, 'interior']], []]
     assert settled(page, lambda: served(page, ids[1]),
                    lambda v: v and v['yaw'] == pytest.approx(90))['yaw'] == pytest.approx(90)
 
@@ -617,11 +585,28 @@ def group_two(page, ids):
     page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {ids[0]}))")
 
 
+def drag_field(page, key, dx, steps=8, modifiers=()):
+    """Press on a panel field and drag sideways `dx` page px."""
+    box = page.locator(f'#s3d-{key}').bounding_box()
+    x, y = box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
+    page.mouse.move(x, y)
+    for m in modifiers:
+        page.keyboard.down(m)
+    page.mouse.down()
+    for i in range(1, steps + 1):
+        page.mouse.move(x + dx * i / steps, y)
+        page.wait_for_timeout(15)
+    page.mouse.up()
+    for m in modifiers:
+        page.keyboard.up(m)
+    page.wait_for_timeout(400)
+
+
 def test_a_locked_screen_stays_put_on_the_stage_and_says_why(page):
     """The lock guards everything (the owner, 2026-10-16): a typed figure,
-    a step button, a curve, Reset and a drag all leave a locked screen as it
-    is, name it in the one red error and leave no undo step. Unlocked, the
-    same gestures take again."""
+    a dragged field, the rotation menu, Reset and a drag in the view all
+    leave a locked screen as it is, name it in the one red error and leave
+    no undo step. Unlocked, the same gestures take again."""
     ids = reset(page)
     page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {ids[0]}))")
     open_3d(page, 2)
@@ -637,11 +622,12 @@ def test_a_locked_screen_stays_put_on_the_stage_and_says_why(page):
     assert float(page.input_value('#s3d-z')) == pytest.approx(5), 'the field kept the refused figure'
     clear_toasts(page)
 
-    type_field(page, 's3d-curve-col', '6')
+    drag_field(page, 'x', 60)
     assert said in toast_says(page, said)
+    assert stored(page, ids[0]) == placed
     clear_toasts(page)
 
-    page.click('[data-s3d-axis="yaw"] [data-s3d-step="15"]')
+    rotation_menu(page, 'yaw', '+90')
     assert said in toast_says(page, said)
     clear_toasts(page)
 
@@ -668,9 +654,8 @@ def test_a_locked_screen_stays_put_on_the_stage_and_says_why(page):
     assert history_len(page) == start
 
     set_locked(page, ids[0], False)
-    page.click('[data-s3d-axis="yaw"] [data-s3d-step="15"]')
-    page.wait_for_timeout(400)
-    assert stored(page, ids[0])['yaw'] == 15
+    rotation_menu(page, 'yaw', '+90')
+    assert stored(page, ids[0])['yaw'] == 90
 
 
 def test_a_click_on_a_locked_screen_only_selects_it(page):
@@ -709,7 +694,7 @@ def test_a_group_with_a_locked_member_refuses_as_a_whole(page):
     assert said in toast_says(page, said)
     clear_toasts(page)
 
-    type_field(page, 's3d-curve-col', '6')
+    drag_field(page, 'z', 60)
     assert said in toast_says(page, said)
     clear_toasts(page)
 
@@ -733,26 +718,36 @@ def test_a_group_with_a_locked_member_refuses_as_a_whole(page):
 
 
 def test_an_old_project_without_3d_data_loads(page):
+    """A file without 3D data, and one from a first beta whose 3D tab gave a
+    screen free joint angles (no Curve on it): it opens without an error,
+    the free figures are gone and the screen stands flat."""
     ids = reset(page)
     page.evaluate("""async () => {
         const app = window.app;
         const p = await (await fetch('/api/project')).json();
         p.layers.forEach(l => { delete l.stage3d; });
-        p.layers[1].stage3d = {curveCol: 'oops', jointsCol: {'1': 77}};
+        p.layers[1].stage3d = {curveCol: 'oops', curveRow: 8, jointsCol: {'1': 12}, jointsRow: {'0': 5}};
         delete p.stage3dCamera;
         const r = await fetch('/api/project', {method: 'PUT',
             headers: {'Content-Type': 'application/json'}, body: JSON.stringify(p)});
         app.project = await r.json();
         app.dedupeProjectLayers('stage3d_old_file');
         app.resetHistory('Old file');
-        app.selectLayer(app.project.layers[0]);
+        app.selectLayer(app.project.layers[1]);
         app.updateUI();
     }""")
     d = open_3d(page, 2)
     assert d['failed'] == '' and page.errors == []
     assert not screen(page, ids[0])['stored']
     healed = served(page, ids[1])
-    assert healed['curveCol'] == 0 and healed['jointsCol'] == {'1': 15}
+    assert set(healed) == {'x', 'y', 'z', 'pitch', 'yaw', 'roll', 'jointsCol'}, healed
+    # read without a Curve on the screen, its stored angle is left out: flat
+    lower = screen(page, ids[1])
+    assert lower['placement']['jointsCol'] == {}
+    assert lower['world']['min'][2] == pytest.approx(lower['world']['max'][2], abs=0.01)
+    # the panel shows no curve and has no free angle field
+    assert 'No curve' in page.inner_text('#s3d-curve-info')
+    assert page.locator('#s3d-joint-angle, #s3d-curve-col, #s3d-curve-row').count() == 0
 
 
 def test_the_camera_is_saved_with_the_project(page):
@@ -828,13 +823,28 @@ def test_header_and_footer_bars_stand_on_the_stage_at_their_true_width(page):
     assert up['footer']['first'][1] == pytest.approx(0, abs=0.001)
 
 
+def set_curve(page, layer_id, angle):
+    """The screen as the Curve leaves it (app-curve.js _curveWrite): its
+    Curve on and `angle` at every column joint."""
+    page.evaluate("""([id, a]) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === id);
+        l.riggingCurve = {on: true, bend: a < 0 ? 'convex' : 'concave'};
+        const table = {};
+        for (let j = 0; j < (l.columns || 1) - 1; j++) table[String(j)] = a;
+        l.stage3d = {...app._s3dPlacementOf(l), jointsCol: table};
+        app.updateLayers([l], true, 'Test Curve');
+    }""", [layer_id, angle])
+    page.wait_for_timeout(300)
+
+
 def test_the_bars_follow_the_curve_and_a_change_on_the_tab(page):
     ids = reset(page)
     set_bars(page, ids[0], [4], [])
     page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {ids[0]}))")
     open_3d(page, 2)
     flat = bars_of(page, ids[0])['header']
-    type_field(page, 's3d-curve-col', '10')
+    set_curve(page, ids[0], 10)
     # The stage rebuilds on its debounce (SYNC_MS) after the edit, so the
     # test waits for the rebuild itself, never a fixed time: under load the
     # timer and the rebuild ran past a 400 ms sleep.

@@ -10,7 +10,10 @@ rulings, 2026-11-09).
   centre) is read as the centre and moved to the bottom middle by the
   screen's own shape and turn: every cabinet stands where it stood. The
   proof is tests/data/stage3d_centre_blocks.json, every cabinet corner as
-  those betas stood it, computed with app-stage3d.js at ff788956.
+  those betas stood it, computed with app-stage3d.js at ff788956. Since
+  2026-11-10 the only joint angles are the Curve's (the 3D tab's free
+  curve figures are gone): a case whose block carried them stands as the
+  same block without them, flat.
 * With a footer, Y measures from the footer's bottom: a footer on the floor
   reads 0 and the panels start 6 in up. The stored point stays the panels'
   edge. A footer added to a screen already placed lifts its panels 6 in,
@@ -252,29 +255,50 @@ ONE = [{'name': 'Wall', 'columns': 4, 'rows': 2}]
 
 # ── 1. the placement math, pure ───────────────────────────────────────────
 
+FREE_ANGLES = ('curveCol', 'curveRow', 'jointsCol', 'jointsRow')
+
+
+def _bent(case):
+    b = case['block']
+    return any(b.get(k) for k in FREE_ANGLES)
+
+
 def test_old_centre_blocks_resolve_to_the_same_corners(page):
     """Every old block, and the same block once a commit has rounded its
     bottom middle to the stored thousandth of a mm, stands every cabinet
-    corner within 0.01 mm of where the first betas stood it."""
+    corner within 0.01 mm of where the first betas stood it. A block that
+    carried the first betas' free curve figures (the 3D tab's Column joints,
+    Row joints and per-joint angles, gone since 2026-11-10; these screens
+    have no Curve) stands exactly as the same block without them: flat,
+    turned and placed as it was, and it opens without an error."""
     got = page.evaluate("""async (cases) => {
         const m = await import('/static/js/app-stage3d.js');
         return cases.map(c => {
             const r = m.s3dResolve(c.layer, c.block);
             const rounded = {...r, x: Math.round(r.x * 1000) / 1000, y: Math.round(r.y * 1000) / 1000,
                              z: Math.round(r.z * 1000) / 1000};
+            const bare = {...c.block, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {}};
             return {name: c.name, pivot: r.pivot, raw: m.s3dWorldCorners(c.layer, c.block),
-                    rounded: m.s3dWorldCorners(c.layer, rounded),
+                    rounded: m.s3dWorldCorners(c.layer, rounded), bare: m.s3dWorldCorners(c.layer, bare),
                     resolved: r, again: m.s3dResolve(c.layer, r)};
         });
     }""", _centre_cases())
+    assert sum(1 for c in _centre_cases() if not _bent(c)) >= 2
     for case, out in zip(_centre_cases(), got):
         assert out['pivot'] == 'bottom', out['name']
         # a block read once is read the same way again
         assert out['again'] == out['resolved'], out['name']
+        # the free figures are gone from what is read
+        assert not any(k in out['resolved'] for k in ('curveCol', 'curveRow', 'jointsRow')), out['name']
+        assert out['resolved']['jointsCol'] == {}, out['name']
+        if _bent(case):
+            want_list = out['bare']
+        else:
+            want_list = case['corners']
         for key in ('raw', 'rounded'):
             mine = {(q['row'], q['col']): q['corners'] for q in out[key]}
-            assert len(mine) == len(case['corners']), (case['name'], key)
-            for want in case['corners']:
+            assert len(mine) == len(want_list), (case['name'], key)
+            for want in want_list:
                 have = mine[(want['row'], want['col'])]
                 for a, b in zip(have, want['corners']):
                     assert close(a, b), (case['name'], key, want['row'], want['col'], a, b)
@@ -292,13 +316,13 @@ def test_the_bottom_middle_and_the_footer_datum(page):
                     panel_width_mm: 500, panel_height_mm: 500, panels};
         };
         const wall = grid(4, 2);
-        const flat = {x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {}};
+        const flat = {x: 0, y: 0, z: 0, pitch: 0, yaw: 0, roll: 0, jointsCol: {}};
         const pitched = {...flat, x: 100, y: 200, z: 300, pitch: 25, yaw: -40, roll: 10, pivot: 'bottom'};
         const footed = m.s3dShown(wall, pitched, m.FOOTER_BAR_MM);
         return {
             base: m.s3dBaseOffset(wall, flat),
-            bentBase: m.s3dBaseOffset(wall, {...flat, curveRow: 10}),
-            curvedAcrossBase: m.s3dBaseOffset(wall, {...flat, curveCol: 12}),
+            rowFigureBase: m.s3dBaseOffset(wall, {...flat, curveRow: 10, jointsRow: {'0': 10}}),
+            curvedAcrossBase: m.s3dBaseOffset(wall, {...flat, jointsCol: {'0': 12, '1': 12, '2': 12}}),
             oldCentre: m.s3dResolve(wall, {...flat, y: 500}),
             footerFlat: m.s3dDatumOffset(wall, flat, m.FOOTER_BAR_MM),
             noFooter: m.s3dDatumOffset(wall, flat, 0),
@@ -313,8 +337,9 @@ def test_the_bottom_middle_and_the_footer_datum(page):
     assert out['base'] == pytest.approx([0, -500, 0])
     # a column curve leaves the bottom middle under the middle column
     assert out['curvedAcrossBase'] == pytest.approx([0, -500, 0])
-    # a row bend brings the foot of the bottom row forward
-    assert out['bentBase'][1] > -500 and out['bentBase'][2] > 0
+    # rows never bend (curves are columns only, 2026-11-10): a first beta's
+    # row figure is dropped and the bottom middle is the flat one
+    assert out['rowFigureBase'] == pytest.approx([0, -500, 0])
     # an old centre 500 mm up on a 1000 mm wall stands its bottom edge on 0
     assert (out['oldCentre']['y'], out['oldCentre']['pivot']) == (pytest.approx(0), 'bottom')
     assert out['footerFlat'] == pytest.approx([0, -152.4, 0])
@@ -442,9 +467,11 @@ def test_a_typed_pitch_keeps_the_bottom_middle_where_it_is(page):
     p = stored(page, ids[0])
     assert (p['x'], p['y'], p['z']) == pytest.approx((4 * FT, 2 * FT, 0), abs=0.01)
     assert (field(page, 'x'), field(page, 'y'), field(page, 'z')) == ('4.00', '2.00', '0.00')
-    # the step buttons turn about the same point
-    page.click('[data-s3d-axis="pitch"] [data-s3d-step="15"]')
-    page.wait_for_timeout(400)
+    # the rotation field's right-click +90 turns about the same point
+    page.click('#s3d-pitch', button='right')
+    page.click('#s3d-field-menu [data-s3d-menu="+90"]')
+    settled(page, lambda: stored(page, ids[0])['pitch'], lambda v: v == pytest.approx(115))
+    settled(page, lambda: screen(page, ids[0])['placement']['pitch'], lambda v: v == pytest.approx(115))
     assert close(bottom_middle(corners(page, ids[0])), before)
 
 
