@@ -579,10 +579,27 @@ def save_project():
     app.normalize_idm_field(app.current_project)
     # ... and its stored highlight to a module the screens still have.
     app.normalize_idm_highlight(app.current_project)
+    # A whole-layers save (the Screens list's order) can carry a mirror
+    # behind its source: copied here (port_assignment.copy_mirror_maps).
+    mirrors = _copy_mirror_maps('save_project')
     log_event('save_project', {'name': app.current_project.get('name')})
     if before is None or _show_text(app.current_project) != before:
         emit_project_edited()
+    # The page that saved holds its own copy and lets its edit's message
+    # go: the mirror it did not know was behind reaches it, and every page,
+    # as the screen's own news.
+    for mirror in mirrors:
+        socketio.emit('layer_updated', mirror)
     return jsonify({'status': 'success'})
+
+
+def _copy_mirror_maps(at):
+    """Every mirror screen given its source's data map (2026-11-10,
+    port_assignment.copy_mirror_maps); the mirrors that changed."""
+    mirrors = port_assignment.copy_mirror_maps(app.current_project)
+    if mirrors:
+        log_event('mirror_maps_copied', {'at': at, 'mirrors': [m.get('id') for m in mirrors]})
+    return mirrors
 
 
 def _show_text(project):
@@ -776,6 +793,12 @@ def restore_project():
     # ... and its live highlight, kept as the file (or the undo snapshot,
     # which carries the one on screen) has it, on a module that is there.
     app.normalize_idm_highlight(app.current_project)
+    # A show loaded or restored with a mirror behind its source (an old
+    # file, a script's restore, a page that went away mid-save) holds the
+    # source's map from here: the answer and every page's message carry it
+    # (the page that asked takes in the answer: app-project-io
+    # _openProjectData, app-history _syncRestoredProject).
+    _copy_mirror_maps('restore_project')
     if release_ports:
         released = port_assignment.forget_released_port_cables(
             app.current_project, pins_before)

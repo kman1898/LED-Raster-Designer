@@ -38,9 +38,11 @@
 //
 //   * THE MAP IS THE SOURCE'S. Every field that decides which cabinet rides
 //     which port (MIRROR_DATA_FIELDS) is copied from the source onto the
-//     mirror at every history snapshot (_syncMirrorScreens, from saveState),
-//     so the canvas, the port count and every export read the mirror's own
-//     layer and find the source's map on it.
+//     mirror by the server on every save of the source and on a load
+//     (port_assignment.copy_mirror_maps), and on the page at every history
+//     snapshot (_syncMirrorScreens, from saveState), so the canvas, the port
+//     count and every export read the mirror's own layer and find the
+//     source's map on it.
 //   * THE MAP IS READ-ONLY on the mirror: its data-map controls are dimmed,
 //     and any attempt - a control, a custom run, a fill, a placement in the
 //     tray - is refused with an error naming the source (never silent, the
@@ -177,13 +179,16 @@ class _MirrorScreens {
         return fresh;
     }
 
-    // Copy the source's data map onto every mirror (MIRROR_DATA_FIELDS),
-    // and PUT the mirrors that changed. Called from saveState, so the
-    // snapshot, the save and the canvas all carry the copied map. Returns
-    // the mirrors it wrote. The page that changed the source sends the
-    // copy, with its own change; a page following that change, or joining
-    // the show, copies it for its canvas and sends nothing (_putLayer
-    // keeps it on the page during a follow pass, app-core FOLLOWING).
+    // Copy the source's data map onto every mirror (MIRROR_DATA_FIELDS) on
+    // this page. Called from saveState, so the snapshot and the canvas
+    // carry the copied map. Returns the mirrors it changed. Nothing is
+    // sent (2026-11-10): the SERVER copies a source's map onto its mirror
+    // whenever the source is saved, and when a show is loaded or restored
+    // (port_assignment.copy_mirror_maps, the same fields), and tells every
+    // page. Until then each page wrote the copy itself, the one that
+    // changed the source only (a following page writes nothing, app-core
+    // FOLLOWING), so a mirror stored out of date stayed so until a page
+    // edited the show again, and every source edit sent a second save.
     _syncMirrorScreens() {
         const layers = (this.project && this.project.layers) || [];
         const wrote = [];
@@ -191,10 +196,7 @@ class _MirrorScreens {
             const src = this.mirrorSourceOf(layer);
             if (!src || src.dataMirrorOf) return;
             const body = this._takeMirrorFields(layer, src);
-            if (Object.keys(body).length) {
-                wrote.push(layer);
-                if (typeof this._putLayer === 'function') this._putLayer(layer.id, body);
-            }
+            if (Object.keys(body).length) wrote.push(layer);
         });
         if (wrote.length) {
             sendClientLog('mirror_screens_synced',

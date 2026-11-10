@@ -433,6 +433,15 @@ FIXES
   used to be sent again from every page watching, so the page that made
   the change found an Undo step it never made, and two devices could send
   the same change back and forth.
+- FIX: A screen changed on one tab, browser or tablet now shows every
+  change on the others: its flow pattern, processor, frame rate, custom
+  data runs, power settings and the rest. The others used to keep their
+  own data map, power map and processor until they reloaded. A field
+  you are typing in on the other one keeps what you typed.
+- FIX: A mirror screen always holds its source's data map, even when the
+  show was saved or opened with the two out of step. The app itself now
+  copies the map whenever the source changes and when a show opens, and
+  every tab, browser and tablet shows it.
 - FIX: While a guide runs, other tabs, browsers and tablets can watch it
   but not change the show: Open, New, Undo and edits there say "A guide is
   running in another window. Finish it there first." Closing the guide's

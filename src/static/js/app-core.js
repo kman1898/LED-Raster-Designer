@@ -902,6 +902,9 @@ export class LEDRasterApp {
 
             this.project = data;
             this.dedupeProjectLayers('socket_project_data');
+            // The keys the server's copy of each screen holds, before the
+            // defaults below fill the rest in.
+            const serverKeys = new Map((this.project.layers || []).map(l => [l.id, new Set(Object.keys(l))]));
             if (data && data.raster_width && data.raster_height) {
                 this.syncRasterFromProject();
                 this.saveRasterSize();
@@ -932,14 +935,18 @@ export class LEDRasterApp {
             // already has the correct state from before the disconnect.
             this.loadClientSideProperties({ skipPreferences: this._initialLoadComplete });
             
-            // Also restore any in-memory props we had
+            // Also restore any in-memory props we had, where the server's
+            // copy holds none: the server's word is the truth after a
+            // disconnect, and a tablet waking from sleep shows the data map,
+            // power map and processor other pages gave the show meanwhile
+            // (applyServerLayer `follow`, 2026-11-10).
             if (this.project && this.project.layers) {
                 this.project.layers.forEach(layer => {
                     const memProps = savedClientProps[layer.id];
                     if (memProps) {
                         // Only apply if the value was actually set (not undefined)
                         Object.keys(memProps).forEach(key => {
-                            if (memProps[key] !== undefined) {
+                            if (memProps[key] !== undefined && !(serverKeys.get(layer.id) || new Set()).has(key)) {
                                 layer[key] = memProps[key];
                             }
                         });
@@ -1070,12 +1077,42 @@ export class LEDRasterApp {
         if (otherPage && typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
         sendClientLog('socket_layer_updated', { id: layer.id });
         // The server's copy of a screen is taken in and shown; nothing
-        // worked out on the way is written back (FOLLOWING).
+        // worked out on the way is written back (FOLLOWING). Another
+        // page's change, or the server's own, is followed field for field
+        // (applyServerLayer `follow`), and Screen Info shows it when the
+        // screen is selected here, a field being typed in kept as typed.
         this._asFollower(() => {
-            this.applyServerLayer(layer, 'socket_layer_updated', { ownEcho: own });
+            const typing = own ? null : this._typingInScreenInfo();
+            this.applyServerLayer(layer, 'socket_layer_updated', { ownEcho: own, follow: !own });
             if (otherPage) this._recordForeignStep();
             this.updateUI();
+            if (!own) this._showFollowedScreen(layer.id, typing);
         });
+    }
+
+    // The Screen Info field the person is typing in and has not committed,
+    // as {el, value}, or null (the rule a replace of the show keeps,
+    // _adoptReplacedProject).
+    _typingInScreenInfo() {
+        const el = document.activeElement;
+        if (!el || !el.id || !this._screenInfoShown || !this._screenInfoShown.has(el.id)) return null;
+        if (typeof this._screenInfoTouched !== 'function' || !this._screenInfoTouched(el)) return null;
+        return { el, value: el.value };
+    }
+
+    // A screen another page (or the server) changed, shown in Screen Info
+    // when it is one of the selection; the field being typed in keeps its
+    // typing, and the baseline beneath it is the server's value, so leaving
+    // the field still commits it.
+    _showFollowedScreen(layerId, typing) {
+        const selected = typeof this.getSelectedLayers === 'function' ? this.getSelectedLayers() : [];
+        if (!selected.some(l => l && l.id === layerId)) return;
+        if (typeof this.loadLayerToInputs !== 'function') return;
+        try { this.loadLayerToInputs(); } catch (_) { return; }
+        if (typing && document.activeElement === typing.el && typing.el.value !== typing.value) {
+            typing.el.value = typing.value;
+        }
+        sendClientLog('follow_screen_info_shown', { id: layerId, keptTyping: !!typing });
     }
 
     // ── THE WHOLE PROJECT REPLACED (2026-11-09) ──
@@ -1711,20 +1748,52 @@ export class LEDRasterApp {
         return live;
     }
 
+    // THE SERVER'S WORD WINS ON A FOLLOW (2026-11-10). `follow`: another
+    // page's save of the screen, or the server's own change to it (a
+    // mirror's copy, a panel toggle), as the socket brings it. Every field
+    // the server sends is taken, the client-side props too: they were kept
+    // here from when the server dropped them on every PUT (all of them are
+    // stored since, test_layer_appearance_persistence), and keeping them
+    // left a tablet on its own data map, power map or processor after a
+    // laptop changed them. Except a field the server's copy does not hold
+    // at all (a default this page filled in), and, while this page is
+    // still at work on the screen (a hand on a gesture, a save of it on its
+    // way), a field changed here since its last save (_keepUnsavedEdits,
+    // the rule its own echoes follow). A Screen Info field being typed in
+    // keeps its typing (_onSocketLayerUpdated).
     applyServerLayer(layer, reason = 'apply_server_layer', opts = {}) {
         if (!layer || !this.project || !this.project.layers) return false;
-        if (!(opts && opts.ownEcho)) this._noteLayerHeld(layer);
+        const follow = !!(opts && opts.follow);
+        const ownEcho = !!(opts && opts.ownEcho);
         const index = this.project.layers.findIndex(l => l.id === layer.id);
+        const live = index >= 0 ? this.project.layers[index] : null;
+        if (follow && live && (this._gestureHeld() || this._layerHasNewerPut(layer.id))) {
+            this._keepUnsavedEdits(live, layer);
+        } else if (!ownEcho) {
+            this._noteLayerHeld(layer);
+        }
+        // A followed screen, until this page next saves it whole
+        // (_putLayer): the echo of a save of this page's that went before
+        // the follow is the server's word too, never re-stamped with the
+        // followed values (the server stored this page's save after them).
+        if (follow) {
+            if (!this._followedLayers) this._followedLayers = new Set();
+            this._followedLayers.add(layer.id);
+        }
+        const followed = !!(this._followedLayers && this._followedLayers.has(layer.id));
         if (index >= 0) {
-            // Preserve client-side properties when server sends layer update
-            const clientProps = this.extractClientSideProps(this.project.layers[index]);
+            // Preserve client-side properties when server sends layer
+            // update: on a follow, and on any copy of a followed screen,
+            // only those the server's copy lacks.
+            const clientProps = this.extractClientSideProps(live);
+            const lacking = follow || followed;
             const held = this._takeServerCopy(index, layer);
 
             // Restore client props
             Object.keys(clientProps).forEach(key => {
-                if (clientProps[key] !== undefined) {
-                    held[key] = clientProps[key];
-                }
+                if (clientProps[key] === undefined) return;
+                if (lacking && Object.prototype.hasOwnProperty.call(layer, key)) return;
+                held[key] = clientProps[key];
             });
 
             if (this.currentLayer && this.currentLayer.id === layer.id) {
@@ -2282,6 +2351,11 @@ export class LEDRasterApp {
         const marker = (this._layerPutIsAnEdit() ? '?edited=1&' : '?')
             + `seq=${seq}&client=${this._echoClientId}`;
         const payload = this._noteLayerSent(id, body);
+        // A save of the whole screen carries what it followed.
+        if (this._followedLayers && body && this.project
+                && (this.project.layers || []).some(l => l.id === id && l === body)) {
+            this._followedLayers.delete(id);
+        }
         // A PUT still waiting its turn when the whole project is replaced
         // (file open, New, undo, redo) describes a screen that no longer
         // exists - and the new project's screen may carry the same id - so

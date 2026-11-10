@@ -716,6 +716,15 @@ def update_layer(layer_id):
 
     if edited:
         app.current_project['is_pristine'] = False
+    # A mirror's data map is its source's (port_assignment.copy_mirror_maps):
+    # a save of the source is copied onto its mirror here, and a save of the
+    # mirror itself (a page's older copy of it) keeps the source's map. The
+    # other screen's change goes to every page after this one's echo.
+    mirrors = [m for m in port_assignment.copy_mirror_maps(
+        app.current_project, only=[layer_id]) if m is not layer]
+    if mirrors:
+        log_event('mirror_maps_copied', {'at': 'update_layer', 'source': layer_id,
+                                         'mirrors': [m.get('id') for m in mirrors]})
     # The echo names the PUT it answers (?seq=&client=, query only, never
     # stored): a page drops the echo of its own older PUT, which on a laggy
     # socket could land after a newer edit and put the older copy back
@@ -728,6 +737,8 @@ def update_layer(layer_id):
             socketio.emit('layer_updated', layer)
     else:
         socketio.emit('layer_updated', layer)
+    for mirror in mirrors:
+        socketio.emit('layer_updated', mirror)
     return jsonify(layer)
 
 @layers_bp.route('/api/layer/<int:layer_id>', methods=['DELETE'])
