@@ -600,9 +600,13 @@ def obj_files(page, name='Test Show'):
 
 
 def set_joints(page, layer_id, joints):
+    """The screen as its Curve leaves it: the Curve on and these angles at
+    its column joints (the Curve is the only source of joint angles; a
+    screen with its Curve off stands flat)."""
     page.evaluate("""([id, joints]) => {
         const app = window.app;
         const l = app.project.layers.find(x => x.id === id);
+        l.riggingCurve = { ...(l.riggingCurve || {}), on: true };
         const p = app._s3dPlacementOf(l);
         const table = {};
         joints.forEach((a, j) => { table[String(j)] = a; });

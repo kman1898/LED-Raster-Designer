@@ -10,7 +10,10 @@
 // off the floor and the arrows start where the fields measure:
 //
 //   Move (W)     an arrow per stage axis, X red, Y green, Z blue; a drag
-//                slides the screens along that axis only
+//                slides the screens along that axis only. A small square
+//                between two arrows moves them on that plane (XZ, the
+//                floor, green; XY blue; YZ red, each the color of the axis
+//                it keeps still)
 //   Rotate (E)   a ring per angle, Pitch red, Yaw green, Roll blue, laid in
 //                the screen's own order (yaw, then pitch, then roll), so a
 //                ring turns that one angle and leaves the other two
@@ -26,15 +29,29 @@
 // The handles keep their size on the page at any zoom and draw over the
 // screens, so they can always be grabbed. The middle button never reaches
 // them: it belongs to the camera (app-stage3d-nav.js).
+//
+// G AND R, THE KEYBOARD WAY (owner, 2026-11-10, the way 3D software does
+// it; neither key was taken anywhere in the app): G moves the selection and
+// R turns it, following the mouse with no button held. X, Y or Z then locks
+// the move to that axis (the turn to pitch, yaw or roll; the same key again
+// unlocks), a typed figure sets the move in the panel's units or the turn
+// in degrees, and Enter or a click keeps it, Esc or a right-click puts it
+// back. Unlocked, G moves on the plane facing the view and R turns the yaw.
+// One gesture is one undo step, the same as a handle's drag.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { evaluateMathExpression, sendClientLog } from './helpers.js';
 import {
-    DEG, round, wrap180, quatFromPlacement, quatMul, quatRotate, anglesFromQuat, s3dSanitize,
+    DEG, FT_MM, round, wrap180, quatFromPlacement, quatMul, quatRotate, anglesFromQuat, s3dSanitize,
 } from './app-stage3d.js';
 
 const RED = 0xe5484d, GREEN = 0x4cbb5a, BLUE = 0x3d7ef2, HOT = 0xffd200;
 const AXES = { x: [1, 0, 0, RED], y: [0, 1, 0, GREEN], z: [0, 0, 1, BLUE] };
 const RINGS = { pitch: RED, yaw: GREEN, roll: BLUE };
+// A plane square between two arrows, colored as the axis it keeps still.
+const PLANES = { xy: ['x', 'y', BLUE], xz: ['x', 'z', GREEN], yz: ['y', 'z', RED] };
+const PLANE_AT = 30, PLANE_SIZE = 18, PLANE_OPACITY = 0.55;
+// G and R: the axis keys, and the angle each locks R to.
+const KEY_AXES = { x: 'pitch', y: 'yaw', z: 'roll' };
 const ANGLE_NAMES = { pitch: 'Pitch', yaw: 'Yaw', roll: 'Roll' };
 // Sizes on the page, px.
 const SHAFT_FROM = 24, SHAFT_TO = 92, TIP = 22, SHAFT_R = 2.2, TIP_R = 8, ARROW_PICK_R = 10;
@@ -76,6 +93,25 @@ class _Stage3DHandles {
             g.quaternion.setFromUnitVectors(Yup, new T.Vector3(x, y, z));
             move.add(g);
             parts[name] = { group: g, mat: m, color, pick, dir: new T.Vector3(x, y, z) };
+        }
+        const pickBoth = new T.MeshBasicMaterial({
+            colorWrite: false, depthTest: false, depthWrite: false, transparent: true, opacity: 0, side: T.DoubleSide,
+        });
+        for (const [name, [a, b, color]] of Object.entries(PLANES)) {
+            const g = new T.Group();
+            const m = mat(color);
+            m.side = T.DoubleSide;
+            m.opacity = PLANE_OPACITY;
+            const ua = new T.Vector3(...AXES[a].slice(0, 3)), ub = new T.Vector3(...AXES[b].slice(0, 3));
+            const normal = ua.clone().cross(ub);
+            const square = new T.Mesh(new T.PlaneGeometry(PLANE_SIZE, PLANE_SIZE), m);
+            const pick = new T.Mesh(new T.PlaneGeometry(PLANE_SIZE + 6, PLANE_SIZE + 6), pickBoth);
+            [square, pick].forEach(o => { o.position.set(PLANE_AT, PLANE_AT, 0); o.renderOrder = 1000; });
+            pick.userData.handle = { kind: 'plane', name };
+            g.add(square, pick);
+            g.quaternion.setFromRotationMatrix(new T.Matrix4().makeBasis(ua, ub, normal));
+            move.add(g);
+            parts[name] = { group: g, mat: m, color, pick, a: ua, b: ub, normal };
         }
         for (const [name, color] of Object.entries(RINGS)) {
             const g = new T.Group();
@@ -203,6 +239,13 @@ class _Stage3DHandles {
             p.mat.color.setHex(active === name || (!active && h.hover === name) ? HOT : p.color);
             p.mat.opacity = active && active !== name ? 0.35 : 1;
         }
+        for (const name of Object.keys(PLANES)) {
+            const p = h.parts[name];
+            // put away when seen edge on
+            p.group.visible = Math.abs(p.normal.dot(look)) > 0.2;
+            p.mat.color.setHex(active === name || (!active && h.hover === name) ? HOT : p.color);
+            p.mat.opacity = active && active !== name ? 0.2 : PLANE_OPACITY;
+        }
         for (const name of Object.keys(RINGS)) {
             const p = h.parts[name];
             p.group.quaternion.setFromUnitVectors(p.zUp, pose.axes[name]);
@@ -262,6 +305,11 @@ class _Stage3DHandles {
                 out.grips[name] = at(p.dir, gripPx);
             }
         }
+        // A plane square's middle.
+        for (const name of Object.keys(PLANES)) {
+            const p = h.parts[name];
+            if (p.group.visible) out.grips[name] = at(p.a.clone().add(p.b), PLANE_AT);
+        }
         // A ring's grip lies midway between the places the other two rings
         // cross it, on the side that shows most on the page.
         const centre = out.centre;
@@ -316,6 +364,13 @@ class _Stage3DHandles {
         if (handle.kind === 'axis') {
             d.axis = h.parts[handle.name].dir.clone();
             d.t0 = this._s3dAxisParam(n.x, n.y, d.pivot, d.axis);
+        } else if (handle.kind === 'plane') {
+            // on the plane of the square, or (G unlocked) the plane facing the view
+            d.normal = handle.name === 'view' ? st.camera.getWorldDirection(new T.Vector3())
+                : h.parts[handle.name].normal.clone();
+            d.plane = new T.Plane().setFromNormalAndCoplanarPoint(d.normal, d.pivot);
+            const ray = this._s3dRayAt(n.x, n.y);
+            d.p0 = ray && Math.abs(ray.direction.dot(d.normal)) > 0.1 ? ray.intersectPlane(d.plane, new T.Vector3()) : null;
         } else {
             d.axis = pose.axes[handle.name].clone();
             d.angle = 0;
@@ -363,6 +418,16 @@ class _Stage3DHandles {
                 if (e) e.obj.position.set(p.x + d.delta[0], p.y + d.delta[1], p.z + d.delta[2]);
             }
             text = `${d.handle.name.toUpperCase()} ${this._s3dSignedLength(dist)}`;
+        } else if (d.handle.kind === 'plane') {
+            if (!d.p0) return;
+            const ray = this._s3dRayAt(ev.clientX, ev.clientY);
+            const p = ray ? ray.intersectPlane(d.plane, new T.Vector3()) : null;
+            if (!p) return;
+            let v = p.sub(d.p0).toArray();
+            if (snap) v = v.map(c => this._s3dSnapLength(c));
+            this._s3dHandleShift(d, v);
+            text = ['X', 'Y', 'Z'].filter((_, i) => Math.abs(v[i]) > 1e-6)
+                .map(name => `${name} ${this._s3dSignedLength(v['XYZ'.indexOf(name)])}`).join(', ') || 'X +0 in';
         } else {
             if (d.plane) {
                 const ray = this._s3dRayAt(ev.clientX, ev.clientY);
@@ -386,6 +451,16 @@ class _Stage3DHandles {
         this._s3dLiveFields(d);
         this._s3dReadout(text, ev.clientX, ev.clientY);
         this._s3dRequestRender();
+    }
+
+    // Every screen of the drag carried `v` (stage mm) along.
+    _s3dHandleShift(d, v) {
+        const st = this._s3dState();
+        d.delta = v.map(c => c);
+        for (const [id, p] of d.starts) {
+            const e = st.entries.get(id);
+            if (e) e.obj.position.set(p.x + d.delta[0], p.y + d.delta[1], p.z + d.delta[2]);
+        }
     }
 
     // Every screen of the drag turned `turnDeg` round the ring's axis
@@ -423,7 +498,8 @@ class _Stage3DHandles {
         st.drag = null;
         if (st.handles) st.handles.drag = null;
         if (!d || d.kind !== 'handle') return;
-        const moved = d.handle.kind === 'axis' ? d.delta.some(v => v !== 0) : !!(d.next && d.turn);
+        const ring = d.handle.kind === 'ring';
+        const moved = !ring ? d.delta.some(v => v !== 0) : !!(d.next && d.turn);
         if (cancelled || !moved || !d.movers.length) {
             this._s3dRevertPreview(d);
             return;
@@ -433,7 +509,7 @@ class _Stage3DHandles {
             const p = d.starts.get(layer.id);
             if (!p) continue;
             let out;
-            if (d.handle.kind === 'axis') {
+            if (!ring) {
                 out = { ...p, x: p.x + d.delta[0], y: p.y + d.delta[1], z: p.z + d.delta[2] };
             } else {
                 out = d.next.get(layer.id);
@@ -444,14 +520,174 @@ class _Stage3DHandles {
             layer.stage3d = placed;
             changed.push(layer);
         }
-        const action = d.handle.kind === 'axis' ? 'Move Screen (3D)' : 'Rotate Screen (3D)';
+        const action = !ring ? 'Move Screen (3D)' : 'Rotate Screen (3D)';
         sendClientLog('stage3d_handle', {
             handle: d.handle.name, ids: changed.map(l => l.id),
-            delta: d.handle.kind === 'axis' ? d.delta : d.turn,
+            delta: !ring ? d.delta : d.turn,
         });
         this.updateLayers(changed, true, action);
         this._s3dSchedule();
         this._s3dRefreshPanel(true);
+    }
+
+    // ── G and R: move and turn from the keyboard ──────────────────────────
+
+    // G ('move') or R ('rotate') pressed on the 3D tab with screens picked.
+    _s3dKeyTransformStart(kind) {
+        const st = this._s3dState();
+        if (!st.T || !st.renderer || st.keyX || st.nav || st.drag) return false;
+        this._s3dHandlesFrame();
+        if (!this._s3dHandlesPose()) return false;
+        const rect = st.renderer.domElement.getBoundingClientRect();
+        const pt = st.pointer && st.pointer.x >= rect.left && st.pointer.x <= rect.right
+            && st.pointer.y >= rect.top && st.pointer.y <= rect.bottom
+            ? st.pointer : { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        const k = {
+            kind: kind === 'rotate' ? 'rotate' : 'move', axis: null, typed: '',
+            x0: pt.x, y0: pt.y, last: { clientX: pt.x, clientY: pt.y, shiftKey: false, ctrlKey: false, metaKey: false },
+        };
+        st.keyX = k;
+        k.onMove = (ev) => {
+            k.last = { clientX: ev.clientX, clientY: ev.clientY, shiftKey: ev.shiftKey, ctrlKey: ev.ctrlKey, metaKey: ev.metaKey };
+            if (!k.typed) this._s3dKeyXFollow();
+        };
+        k.onDown = (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this._s3dKeyTransformEnd(ev.button !== 0);
+        };
+        k.onMenu = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
+        k.onKey = (ev) => this._s3dKeyXKey(ev);
+        window.addEventListener('pointermove', k.onMove, true);
+        window.addEventListener('pointerdown', k.onDown, true);
+        window.addEventListener('contextmenu', k.onMenu, true);
+        window.addEventListener('keydown', k.onKey, true);
+        this._s3dKeyXBegin();
+        sendClientLog('stage3d_key_transform', { kind: k.kind });
+        return true;
+    }
+
+    // The gesture as a handle's drag from where it started: G unlocked on
+    // the plane facing the view, locked along its axis; R on the ring of
+    // the locked angle (yaw unlocked), turned by sideways travel.
+    _s3dKeyXBegin() {
+        const st = this._s3dState();
+        const k = st.keyX;
+        const handle = k.kind === 'move'
+            ? (k.axis ? { kind: 'axis', name: k.axis } : { kind: 'plane', name: 'view' })
+            : { kind: 'ring', name: KEY_AXES[k.axis] || 'yaw' };
+        this._s3dHandleStart({ handle, x: k.x0, y: k.y0 });
+        const d = st.drag;
+        if (d && handle.kind === 'ring') {
+            d.plane = null;
+            d.line = [1, 0];
+        }
+        if (k.typed) this._s3dKeyXTyped();
+        else this._s3dKeyXFollow();
+    }
+
+    _s3dKeyXFollow() {
+        const st = this._s3dState();
+        const k = st.keyX;
+        if (!k || !st.drag) return;
+        this._s3dHandleMove({ x: k.x0, y: k.y0 }, k.last);
+        this._s3dKeyXSay();
+    }
+
+    // A typed figure: the move in the panel's units, the turn in degrees.
+    _s3dKeyXTyped() {
+        const st = this._s3dState();
+        const k = st.keyX;
+        const d = st.drag;
+        if (!k || !d) return;
+        const v = k.typed && k.typed !== '-' ? evaluateMathExpression(k.typed) : 0;
+        const n = Number.isFinite(v) ? v : 0;
+        if (k.kind === 'move') {
+            const mm = n * (this._s3dUnits() === 'm' ? 1000 : FT_MM);
+            this._s3dHandleShift(d, d.axis.toArray().map(c => c * mm));
+        } else {
+            this._s3dTurnPreview(d, n);
+        }
+        this._s3dLiveFields(d);
+        this._s3dRequestRender();
+        this._s3dKeyXSay();
+    }
+
+    _s3dKeyXSay() {
+        const st = this._s3dState();
+        const k = st.keyX;
+        const d = st.drag;
+        if (!k || !d) return;
+        const lock = k.kind === 'move' ? (k.axis ? k.axis.toUpperCase() : 'free')
+            : ({ pitch: 'Pitch', yaw: 'Yaw', roll: 'Roll' })[KEY_AXES[k.axis] || 'yaw'];
+        let what;
+        if (k.kind === 'move') {
+            const i = k.axis ? 'xyz'.indexOf(k.axis) : -1;
+            what = i >= 0 ? this._s3dSignedLength(d.delta[i]) : d.delta.map(v => this._s3dSignedLength(v)).join(', ');
+        } else {
+            what = `${round(d.turn || 0, 2)}°`;
+        }
+        const typed = k.typed ? ` (typed ${k.typed})` : '';
+        this._s3dReadout(`${k.kind === 'move' ? 'Move' : 'Turn'} ${lock}: ${what}${typed}. Enter keeps it, Esc puts it back.`,
+            k.last.clientX, k.last.clientY);
+    }
+
+    _s3dKeyXKey(ev) {
+        const st = this._s3dState();
+        const k = st.keyX;
+        if (!k) return;
+        const key = ev.key || '';
+        if (/^(Shift|Control|Alt|Meta|OS|CapsLock)$/.test(key)) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (key === 'Escape') { this._s3dKeyTransformEnd(true); return; }
+        if (key === 'Enter') { this._s3dKeyTransformEnd(false); return; }
+        const letter = key.length === 1 ? key.toLowerCase() : '';
+        if (KEY_AXES[letter] !== undefined) {
+            k.axis = k.axis === letter ? null : letter;
+            this._s3dKeyXRestart();
+            return;
+        }
+        if (key === 'Backspace') {
+            k.typed = k.typed.slice(0, -1);
+        } else if (/^[0-9.+\-*/]$/.test(key)) {
+            k.typed += key;
+            // a figure moves along an axis: X until another is locked
+            if (k.kind === 'move' && !k.axis) {
+                k.axis = 'x';
+                this._s3dKeyXRestart();
+                return;
+            }
+        } else {
+            return;
+        }
+        if (k.typed) this._s3dKeyXTyped();
+        else this._s3dKeyXFollow();
+    }
+
+    // A new lock: the preview back where it started, then begun again.
+    _s3dKeyXRestart() {
+        const st = this._s3dState();
+        const d = st.drag;
+        st.drag = null;
+        if (st.handles) st.handles.drag = null;
+        if (d) this._s3dRevertPreview(d);
+        this._s3dKeyXBegin();
+    }
+
+    _s3dKeyTransformEnd(cancelled) {
+        const st = this._s3dState();
+        const k = st.keyX;
+        if (!k) return;
+        st.keyX = null;
+        window.removeEventListener('pointermove', k.onMove, true);
+        window.removeEventListener('pointerdown', k.onDown, true);
+        window.removeEventListener('keydown', k.onKey, true);
+        // the right-click's own menu event comes after its press
+        setTimeout(() => window.removeEventListener('contextmenu', k.onMenu, true), 300);
+        this._s3dReadout(null);
+        sendClientLog('stage3d_key_transform_end', { kind: k.kind, axis: k.axis, typed: k.typed, cancelled: !!cancelled });
+        this._s3dHandleEnd(!!cancelled);
     }
 
     // ── snapping and the figures shown ────────────────────────────────────

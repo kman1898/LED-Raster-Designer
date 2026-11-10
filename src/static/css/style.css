@@ -2906,21 +2906,88 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
     color: var(--ps-text, #f0f0f0); background: var(--ps-panel, #2e2e2e); border: 1px solid var(--ps-dark, #131313); }
 #s3d-message[hidden] { display: none; }
 .s3d-note { font-size: 11px; line-height: 1.4; color: var(--ps-faint, #969696); margin: 0 0 8px; }
-.s3d-name { font-size: 13px; font-weight: 600; color: var(--ps-text, #f0f0f0); margin: 0 0 6px; }
+.s3d-name { font-size: 13px; font-weight: 600; color: var(--ps-text, #f0f0f0); margin: 0;
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .s3d-sub { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ps-faint, #969696);
-    margin: 12px 0 6px; padding-top: 6px; border-top: 1px solid var(--ps-dark, #131313); }
-.tab-panel[data-tab="3d"] .info-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.tab-panel[data-tab="3d"] .info-row > label { flex: 0 0 92px; margin: 0; }
-.tab-panel[data-tab="3d"] .info-row input.s3d-num { flex: 1 1 auto; min-width: 0; width: auto; }
-.s3d-unit { flex: 0 0 18px; font-size: 11px; color: var(--ps-dim, #c0c0c0); }
-.s3d-steps { display: flex; gap: 3px; margin: -2px 0 8px 0; }
-.s3d-steps .btn { flex: 1; min-width: 0; padding: 2px 4px; font-size: 11px; }
-.s3d-arc { font-size: 11px; color: var(--ps-dim, #c0c0c0); margin: -2px 0 8px 0; text-align: right; }
-.s3d-buttons { display: flex; gap: 4px; margin: 4px 0; }
+    margin: 10px 0 5px; padding-top: 6px; border-top: 1px solid var(--ps-dark, #131313); }
+.s3d-sub-unit { text-transform: none; letter-spacing: 0; color: var(--ps-dim, #c0c0c0); margin-left: 2px; }
+/* The screen's name and the ft | m switch share the top line. */
+.s3d-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; }
+/* Position and Rotation: three compact fields on one row, each with its
+   axis tag colored as the view's arrows and rings (app-stage3d-handles.js:
+   X and pitch red, Y and yaw green, Z and roll blue). They share the row
+   and stop growing at 120 px, so a wide panel never makes wide boxes. */
+.s3d-vec { display: grid; grid-template-columns: repeat(3, minmax(0, 120px)); gap: 4px; margin-bottom: 2px; }
+.s3d-field { position: relative; display: flex; align-items: stretch; min-width: 0; height: 24px; box-sizing: border-box;
+    border: 1px solid #3a3a3a; border-radius: 4px; background: #1a1a1a; overflow: hidden; cursor: ew-resize;
+    touch-action: none; user-select: none; -webkit-user-select: none; }
+.s3d-field:hover { border-color: #555; }
+.s3d-field:focus-within { border-color: var(--ps-accent, #e22330); }
+.s3d-tag { flex: 0 0 16px; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: #fff; }
+.s3d-ax-x { background: #e5484d; }
+.s3d-ax-y { background: #4cbb5a; }
+.s3d-ax-z { background: #3d7ef2; }
+.tab-panel[data-tab="3d"] .s3d-field input.s3d-num { flex: 1 1 auto; min-width: 0; width: 100%; height: 100%; box-sizing: border-box;
+    margin: 0; padding: 0 4px; border: 0; border-radius: 0; background: transparent; color: var(--ps-text, #f0f0f0);
+    font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; outline: none; cursor: ew-resize; }
+.tab-panel[data-tab="3d"] .s3d-field input.s3d-num:focus { cursor: text; background: #111; user-select: text; -webkit-user-select: text; }
+body.s3d-scrubbing, body.s3d-scrubbing * { cursor: ew-resize !important; }
+/* The < > step arrows at each end of a field, shown while the pointer is
+   over it; they sit over the figure's ends rather than taking its room. */
+.s3d-nudge { position: absolute; top: 0; bottom: 0; z-index: 1; width: 12px; padding: 0; margin: 0; border: 0;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    color: var(--ps-text, #f0f0f0); background: rgba(40, 40, 40, 0.92); opacity: 0; pointer-events: none; }
+.s3d-nudge-dn { left: 16px; }
+.s3d-nudge-up { right: 0; }
+.s3d-field:hover .s3d-nudge { opacity: 1; pointer-events: auto; }
+.s3d-field:focus-within .s3d-nudge, body.s3d-scrubbing .s3d-nudge { opacity: 0; pointer-events: none; }
+.s3d-nudge:hover { background: var(--ps-control, #3a3a3a); }
+.s3d-nudge svg { display: block; }
+/* Fields gathered by a drag down, all changed together. */
+.s3d-field.s3d-gathered { border-color: var(--ps-accent, #e22330); background: #251416; }
+/* The short note a figure that is not one leaves under its row. */
+.s3d-field-note { font-size: 11px; color: #f5a623; margin: 3px 0 0; }
+.s3d-field-note[hidden] { display: none; }
+body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
+/* A section's reset: a small round arrow at the end of its heading. */
+.s3d-reset { width: 18px; height: 18px; padding: 0; margin: -2px 0; border: 0; border-radius: 3px; background: transparent;
+    color: var(--ps-faint, #969696); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.s3d-reset:hover { background: var(--ps-control, #3a3a3a); color: var(--ps-text, #f0f0f0); }
+.s3d-reset svg { display: block; width: 12px; height: 12px; }
+/* The Curve and the corners as they stand. */
+.s3d-read { font-size: 12px; line-height: 1.45; color: var(--ps-dim, #c0c0c0); margin: 0 0 4px; }
+.s3d-link { display: inline; padding: 0; margin: 0 0 4px; border: 0; background: none; font-size: 11px;
+    color: var(--ps-accent-hi, #ef3340); cursor: pointer; text-align: left; }
+.s3d-link:hover { text-decoration: underline; }
+.s3d-hint-line { margin-top: 2px; }
+#rigging-curve.s3d-flash { animation: s3d-flash 1.3s ease-out; }
+@keyframes s3d-flash { 0%, 30% { box-shadow: 0 0 0 2px var(--ps-accent, #e22330); } 100% { box-shadow: 0 0 0 2px transparent; } }
+/* The right-click menu of a rotation field. */
+#s3d-field-menu { position: fixed; z-index: 10050; display: flex; flex-direction: column; min-width: 90px; padding: 3px;
+    background: var(--ps-panel, #2e2e2e); border: 1px solid var(--ps-dark, #131313); border-radius: 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5); }
+#s3d-field-menu button { padding: 4px 10px; border: 0; border-radius: 3px; background: transparent; color: var(--ps-text, #f0f0f0);
+    font-size: 12px; text-align: left; cursor: pointer; }
+#s3d-field-menu button:hover:not(:disabled) { background: var(--ps-accent, #e22330); color: var(--ps-on-accent, #fff); }
+#s3d-field-menu button:disabled { opacity: 0.45; cursor: default; }
+/* The corner picker beside a click in the view. */
+#s3d-corner-pop { position: absolute; z-index: 6; padding: 6px; border-radius: 5px; max-width: calc(100% - 12px); box-sizing: border-box;
+    background: var(--ps-panel, #2e2e2e); border: 1px solid var(--ps-dark, #131313); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55); }
+#s3d-corner-pop[hidden] { display: none; }
+.s3d-pop-title { font-size: 11px; color: var(--ps-dim, #c0c0c0); margin: 0 0 5px; white-space: nowrap; }
+.s3d-pop-seg { display: flex; }
+.s3d-pop-seg .btn { padding: 3px 9px; font-size: 12px; border-radius: 0; white-space: nowrap; }
+.s3d-pop-seg .btn:first-child { border-radius: 4px 0 0 4px; }
+.s3d-pop-seg .btn:last-child { border-radius: 0 4px 4px 0; }
+.s3d-pop-seg .btn.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
+    color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }
+.s3d-pop-seg .btn:disabled { opacity: 0.45; cursor: default; }
+.s3d-pop-note { font-size: 11px; color: #f5a623; margin-top: 5px; max-width: 260px; }
+.s3d-buttons { display: flex; gap: 4px; margin: 10px 0 4px; }
 .s3d-buttons .btn { flex: 1; min-width: 0; padding: 4px 6px; font-size: 11px; }
 .s3d-toggle.active { background: linear-gradient(var(--ps-accent-hi, #ef3340), var(--ps-accent, #e22330)) !important;
     color: var(--ps-on-accent, #fff) !important; border-color: var(--ps-accent-deep, #8f1218) !important; }
-/* Position's heading carries the 3D tab's own ft | m switch on its right. */
+/* A section heading with its reset icon on the right; the ft | m switch beside the name. */
 .s3d-sub-row { display: flex; align-items: center; justify-content: space-between; }
 .s3d-seg { display: inline-flex; text-transform: none; letter-spacing: 0; }
 .s3d-seg .s3d-seg-btn { min-width: 30px; padding: 1px 8px; font-size: 11px; line-height: 16px; border-radius: 0; }
