@@ -455,8 +455,6 @@ def test_a_save_landing_while_the_menu_is_open_frees_the_live_screen(page):
     def save_lands():
         got = page.evaluate("""async (id) => {
             const app = window.app, was = window.__ptr.layer(id);
-            // a key the server does not keep: gone once its copy is taken
-            was.__notKept = 1;
             const taken = [], take = app._takeServerCopy;
             app._takeServerCopy = function (index, copy) {
                 const held = take.call(this, index, copy);
@@ -473,14 +471,19 @@ def test_a_save_landing_while_the_menu_is_open_frees_the_live_screen(page):
             } finally {
                 app._takeServerCopy = take;
             }
-            return { taken, live: window.__ptr.layer(id) === was,
-                     current: app.currentLayer === was, notKept: '__notKept' in was };
+            // the server's screen, as it stands: the held one carries it
+            const served = (await (await fetch('/api/project')).json()).layers.find(l => l.id === id);
+            // (the server writes an object's keys sorted: compared as values)
+            const canon = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
+                ? Object.fromEntries(Object.keys(x).sort().map(n => [n, x[n]])) : x));
+            const differ = Object.keys(served).filter(k => canon(served[k]) !== canon(was[k]));
+            return { taken, differ, live: window.__ptr.layer(id) === was, current: app.currentLayer === was };
         }""", lid)
         assert got['taken'] and got['taken'][-1]['id'] == lid, ('the reply never landed', got)
         # written into the screen the menu opened on, as the server sent it
         assert got['taken'][-1] == {'id': lid, 'intoHeld': True, 'same': True}, got
         assert got['live'] and got['current'], ('the page let go of its screen', got)
-        assert not got['notKept'], ("the screen kept a key the server's copy lacks", got)
+        assert got['differ'] == [], ("the screen does not carry the server's values", got)
     pick_and_open(page, lid, after_menu=save_lands)
     got = paths(page, lid)
     assert 42 not in got and 43 not in got, 'the redraw opened over ports still drawn'
