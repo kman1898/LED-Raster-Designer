@@ -499,8 +499,10 @@ def test_the_obj_puts_a_folded_panels_halves_on_their_sides_radius(page):
     from the fold: 4.5 panels on the left and 6.5 on the right, 23.4
     degrees of sweep each, 2.6 and 1.8 degrees a half panel. A whole panel
     takes twice that at its joints and the half panel's far joint one and
-    a half times, so each side is a true arc: in the OBJ every face, the
-    folded panel's halves too, sits on its side's circle, to 0.1 mm."""
+    a half times (true to a thousandth of a degree), so each side is a
+    true arc: in the OBJ every face, the folded panel's halves too, has its
+    ends on its side's circle and its middle where a chord that wide sits
+    inside it, to 0.1 mm."""
     spec = dict(COLUMN, columns=11, extra={'riggingSizes': [1], 'riggingCorners': [{'at': 5, 'angle': 90, 'side': 'interior'}],
                                             'riggingCurve': {'on': True, 'entry': 'degrees', 'value': 23.4, 'from': 5,
                                                              'goal': 'tightest', 'angles': [2.7, 3.6, 3.9, 5.2]}})
@@ -513,9 +515,9 @@ def test_the_obj_puts_a_folded_panels_halves_on_their_sides_radius(page):
     assert left['joints'] == [5.2, 5.2, 5.2, 3.9] and right['joints'] == [2.7, 3.6, 3.6, 3.6, 3.6, 3.6]
     assert got['joints'] == left['joints'] + right['joints']
     want = page.evaluate("""async () => { const m = await import('/static/js/curve-math.js');
-        return { joints: [m.radiusForAngle(0.5, 5.2), m.radiusForAngle(0.5, 3.6)],
-                 face: [m.faceRadiusForAngle(0.5, 5.2), m.faceRadiusForAngle(0.5, 3.6)],
-                 half: [m.faceRadiusForAngle(0.25, 2.6), m.faceRadiusForAngle(0.25, 1.8)] }; }""")
+        const r = [m.radiusForAngle(0.5, 5.2), m.radiusForAngle(0.5, 3.6)];
+        return { joints: r, face: [m.faceRadiusForAngle(0.5, 5.2), m.faceRadiusForAngle(0.5, 3.6)],
+                 half: r.map(R => Math.sqrt(R * R - 0.125 * 0.125)) }; }""")
     obj = read_obj(page.evaluate(OBJ_FILES_JS, 'Test Show')['Test_Show_COLUMN.obj'])
     chain = _bottom_chain(obj)
     # four faces, the two halves of panel 5, then six faces
