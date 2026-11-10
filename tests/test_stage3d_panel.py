@@ -120,12 +120,11 @@ def rows_of(page):
 def test_the_figures_sit_on_one_row_each_at_any_panel_width(page, width):
     reset(page, ONE)
     open_3d(page, 1)
-    page.evaluate(f"""() => {{
-        const p = document.querySelector('.tab-panel[data-tab="3d"]');
-        const side = p.closest('#left-sidebar, #right-sidebar, .lrd-panel') || p.parentElement;
-        side.style.width = '{width}px';
-    }}""")
-    page.wait_for_timeout(200)
+    # the left panel's width, as dragging its edge sets it (theme.js)
+    page.evaluate(f"document.documentElement.style.setProperty('--lrd-left-w', '{width}px')")
+    page.wait_for_timeout(300)
+    panel_w = page.evaluate("document.querySelector('.tab-panel[data-tab=\"3d\"]').getBoundingClientRect().width")
+    assert panel_w == pytest.approx(width - 20, abs=25), panel_w
     rows = rows_of(page)
     pos, rot = rows[:3], rows[3:]
     assert len({r['top'] for r in pos}) == 1 and len({r['top'] for r in rot}) == 1, rows
@@ -139,11 +138,7 @@ def test_the_figures_sit_on_one_row_each_at_any_panel_width(page, width):
     assert all(r['cursor'] == 'ew-resize' for r in rows)
     # the step buttons and the free angle fields are gone
     assert page.locator('[data-s3d-step], .s3d-steps, #s3d-curve-col, #s3d-curve-row, #s3d-joint-angle').count() == 0
-    page.evaluate("""() => {
-        const p = document.querySelector('.tab-panel[data-tab="3d"]');
-        const side = p.closest('#left-sidebar, #right-sidebar, .lrd-panel') || p.parentElement;
-        side.style.width = '';
-    }""")
+    page.evaluate("document.documentElement.style.removeProperty('--lrd-left-w')")
     assert page.errors == []
 
 
