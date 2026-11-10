@@ -8,6 +8,40 @@ import { evaluateMathExpression, sendClientLog, setupColorPickerWithHex, isTypin
 export const NAME_DISPLAY_VIEWS = ['pixel-map', 'cabinet-id', 'data-flow', 'power', 'show-look', 'rigging'];
 export const NAME_DISPLAY_VALUES = ['screens', 'group', 'both'];
 
+// THIS PAGE, AS THE SERVER KNOWS IT (2026-11-09). Every request the page
+// makes to the app's own /api/ routes says which page it came from (the
+// X-LRD-Page header), so a whole-project replace it caused comes back to
+// it marked as its own and is not applied a second time
+// (_onProjectReplaced). A layer PUT's echo is told apart the same way
+// (_putLayer's `client`). One id per page load.
+export const PAGE_CLIENT_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
+(function tagOwnRequests() {
+    if (typeof window === 'undefined' || typeof window.fetch !== 'function' || window.fetch.__lrdTagged) return;
+    const native = window.fetch;
+    const tagged = function (input, init) {
+        try {
+            const url = typeof input === 'string' ? input : (input instanceof URL ? input.href : null);
+            if (url !== null) {
+                const at = new URL(url, window.location.href);
+                if (at.origin === window.location.origin && at.pathname.startsWith('/api/')) {
+                    const headers = new Headers((init && init.headers) || undefined);
+                    headers.set('X-LRD-Page', PAGE_CLIENT_ID);
+                    init = Object.assign({}, init, { headers });
+                }
+            }
+        } catch (_) { /* sent as it was */ }
+        return native.call(this, input, init);
+    };
+    tagged.__lrdTagged = true;
+    window.fetch = tagged;
+})();
+
+// A replace that leaves the page on the same show (an undo, a redo, a group
+// change): the selection follows its ids, the undo history and a field
+// being typed in stay. Any other (a show opened, New, a guide's show) is a
+// different show: the page lands on it as a load would.
+const SAME_SHOW_REPLACES = new Set(['undo', 'redo', 'group']);
+
 export class LEDRasterApp {
     constructor() {
         this.project = null;
@@ -828,6 +862,16 @@ export class LEDRasterApp {
             if (layer) delete layer._echo;
             this._onSocketLayerUpdated(layer, echo);
         });
+        // A whole project replaced (routes_project _emit_project_replaced).
+        // The same message without `_replace` is a route's own restatement
+        // of the project (a processor, a canvas, the port map); the page
+        // reads those through its own requests.
+        this.socket.on('project_updated', (data) => {
+            const mark = data && data._replace;
+            if (!mark) return;
+            delete data._replace;
+            this._onProjectReplaced(data, mark);
+        });
         this.socket.on('preferences_updated', (prefs) => {
             console.log('WEBSOCKET preferences_updated received');
             this._serverPreferences = prefs;
@@ -898,6 +942,217 @@ export class LEDRasterApp {
         sendClientLog('socket_layer_updated', { id: layer.id });
         this.applyServerLayer(layer, 'socket_layer_updated', { ownEcho: own });
         this.updateUI();
+    }
+
+    // ── THE WHOLE PROJECT REPLACED (2026-11-09) ──
+    //
+    // Owner: once the app is running it is "treated like a live service":
+    // every tab, browser and tablet on it shows the show the server holds.
+    // A show opened, File > New, an undo or a redo, a group change, a
+    // guide's demo show and its end replace the whole project, and the
+    // server tells every page (routes_project _emit_project_replaced).
+    // Until now the pages dropped that message and kept showing the old
+    // show, and their next save wrote the old show's screens into the new.
+    //
+    // The query a replacing request carries (`reason`, and this page's
+    // number for the request, so its echo can be told apart). Noted with
+    // how many other pages' replaces this page had taken in when it went.
+    _replaceQuery(reason) {
+        const token = this._replaceTokenSeq = (this._replaceTokenSeq || 0) + 1;
+        if (!this._replacesSent) this._replacesSent = new Map();
+        this._replacesSent.set(token, this._foreignReplaces || 0);
+        return `reason=${encodeURIComponent(reason)}&token=${token}`;
+    }
+
+    _onProjectReplaced(project, mark) {
+        if (!project || !Array.isArray(project.layers) || !mark) return;
+        const reason = mark.reason || 'restore';
+        if (mark.client && mark.client === PAGE_CLIENT_ID) {
+            // This page's own request: it holds the project already. Unless
+            // another page's replace was taken in after the request went
+            // and the server then stored this one over it: the server holds
+            // this page's request again, and the page follows it.
+            const sent = this._replacesSent;
+            const at = sent && mark.token != null ? sent.get(mark.token) : undefined;
+            if (sent && mark.token != null) sent.delete(mark.token);
+            if (at === undefined || at === (this._foreignReplaces || 0)) {
+                sendClientLog('socket_project_replaced_own', { reason });
+                return;
+            }
+            sendClientLog('socket_project_replaced_own_after_other', { reason });
+        }
+        // Still loading: the load's own read may be from before the
+        // replace, so the project is read again once the load is done
+        // (loadProject).
+        if (!this._initialLoadComplete) {
+            this._replacedDuringLoad = true;
+            sendClientLog('socket_project_replaced_during_load', { reason });
+            return;
+        }
+        // A guide running on this page works on its own demo show and puts
+        // the person's project back when it ends; it is never pulled out
+        // from under the person watching it.
+        if (typeof this._guideHoldsWindow === 'function' && this._guideHoldsWindow()) {
+            sendClientLog('socket_project_replaced_held_by_guide', { reason, from: mark.client || null });
+            return;
+        }
+        this._foreignReplaces = (this._foreignReplaces || 0) + 1;
+        // From here no save of the show going reaches the server, where it
+        // would write its screens into the new show under the same ids
+        // (_putLayer). A hand still on a gesture (a drag, a slider) keeps
+        // the old show under it until it lets go, then the page follows.
+        this._retireProject(this.project);
+        if (this._holdForGesture('project_replaced', () => this._adoptReplacedProject(project, mark))) {
+            sendClientLog('socket_project_replaced_held_for_gesture', { reason });
+            return;
+        }
+        this._adoptReplacedProject(project, mark);
+    }
+
+    // The show going: its project and its screens, so a save made from
+    // either after the replace is dropped (_putLayer).
+    _retireProject(project) {
+        if (!project || typeof project !== 'object') return;
+        if (!this._retiredProjects) {
+            this._retiredProjects = new WeakSet();
+            this._retiredLayers = new WeakSet();
+        }
+        this._retiredProjects.add(project);
+        (Array.isArray(project.layers) ? project.layers : []).forEach(l => {
+            if (l && typeof l === 'object') this._retiredLayers.add(l);
+        });
+    }
+
+    _adoptReplacedProject(project, mark) {
+        const reason = mark.reason || 'restore';
+        const sameShow = SAME_SHOW_REPLACES.has(reason);
+        const before = this.project;
+        // What the person is typing and has not committed. On the same
+        // show it stays in its field (and commits to the screen of the same
+        // id when they press Enter or leave the field); on another show it
+        // goes, and the field shows the new show's value.
+        const active = document.activeElement;
+        let typed = null;
+        if (sameShow && active && active.id) {
+            if (active.id === 'project-name') {
+                if (before && active.value !== before.name) typed = active.value;
+            } else if (this._screenInfoShown && this._screenInfoShown.has(active.id)
+                    && typeof this._screenInfoTouched === 'function' && this._screenInfoTouched(active)) {
+                typed = active.value;
+            }
+        }
+        // A name being typed in the Screens list (or a canvas's, a group's,
+        // a beach's) commits when its field lets go, to the screen it was
+        // opened on. Another show's screen may carry the same id, so on a
+        // different show the name goes back and the field lets go now,
+        // while the show it belongs to is still the page's.
+        if (!sameShow && active && active.matches
+                && active.matches('.layer-name-input, .canvas-name-input, .screen-group-name-input, .beach-name-input')) {
+            active.value = active.defaultValue;
+            active.blur();
+        }
+        if (sameShow) {
+            // a snapshot still waiting is of this page's own edit, before the replace
+            if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
+        } else if (this._saveStateTimer) {
+            // the show it was of is gone, and its history with it
+            clearTimeout(this._saveStateTimer);
+            this._saveStateTimer = null;
+            this._pendingSaveAction = null;
+            this._pendingSaveKey = null;
+        }
+        this.project = project;
+        this.dedupeProjectLayers('socket_project_replaced');
+        this.project.layers.forEach(layer => {
+            if (typeof this.applyMissingLayerDefaults === 'function') this.applyMissingLayerDefaults(layer);
+            if (typeof this.normalizeLoadedPowerFlowPattern === 'function') this.normalizeLoadedPowerFlowPattern(layer);
+        });
+        // A group change this page still has on its way answers for the
+        // project before this one: let go (app-screen-groups
+        // _commitGroupChange drops a superseded answer).
+        this._groupCommitSeq = (this._groupCommitSeq || 0) + 1;
+        if (typeof this._resetMultiBaseline === 'function') this._resetMultiBaseline();
+        if (typeof this._qpProjectChanged === 'function') this._qpProjectChanged();
+        this._circuitTailCache = null;
+        if (sameShow) {
+            // the selection follows its ids; one that is gone is let go
+            if (typeof this._reconcileSelectionAfterRestore === 'function') this._reconcileSelectionAfterRestore();
+        } else {
+            // a different show: the page lands on it as a load does
+            this._editorDraft = null;
+            if (typeof this._selectOpeningScreen === 'function') this._selectOpeningScreen();
+        }
+        if (reason === 'new') this._takeNewProjectRaster();
+        if (typeof this.syncRasterFromProject === 'function') {
+            try { this.syncRasterFromProject(); } catch (_) { /* no canvas yet */ }
+        }
+        if (!sameShow) {
+            // This page's undo history was of the show that went: an Undo
+            // here would put it back over the new one. The new history
+            // starts from the show as it came, saved or not as the server
+            // says.
+            this._serverUnsaved = mark.unsaved === true;
+            this._unsavedCarried = mark.unsaved === true;
+            this.resetHistory('Initial State');
+            this._unsavedCarried = false;
+        }
+        // The launch's start page, or a startup picker, asked about the
+        // project that was there: a show opened or made new elsewhere
+        // answered it.
+        if (reason === 'open' || reason === 'new') this._launchAnsweredElsewhere();
+        try { this.updateCustomFlowUI(); } catch (_) { /* no flow panel */ }
+        try { this.updateCustomPowerUI(); } catch (_) { /* no power panel */ }
+        if (typeof this._refreshPowerPanelsAfterRestore === 'function') this._refreshPowerPanelsAfterRestore();
+        this.updateUI();
+        if (typeof this.loadLayerToInputs === 'function') {
+            try { this.loadLayerToInputs(); } catch (_) { /* inputs are optional here */ }
+        }
+        if (typed !== null && document.activeElement === active) active.value = typed;
+        if (!sameShow && window.canvasRenderer) window.canvasRenderer.fitToView();
+        else if (window.canvasRenderer) window.canvasRenderer.render();
+        // Following another window's guide onto its demo show: said once.
+        if (reason === 'guide' && !this._followingGuide && typeof this._toast === 'function') {
+            this._toast('A guide is running in another window. Your show comes back when the guide ends.', false, 6000);
+        }
+        this._followingGuide = reason === 'guide';
+        sendClientLog('socket_project_replaced', {
+            reason,
+            from: mark.client || null,
+            layers: this.project.layers.length,
+            selected: this.currentLayer ? this.currentLayer.id : null,
+            keptTyping: typed !== null,
+        });
+    }
+
+    // File > New on another page: the raster its page gives the new show
+    // (createNewProject: the preference size, sent with keep_pristine), so
+    // both pages show the same one.
+    _takeNewProjectRaster() {
+        if (typeof this.getPreferences !== 'function' || !this.project) return;
+        const prefs = this.getPreferences();
+        const w = Number(prefs && prefs.rasterWidth), h = Number(prefs && prefs.rasterHeight);
+        if (!(w > 0 && h > 0)) return;
+        const sizes = { raster_width: w, raster_height: h, show_raster_width: w, show_raster_height: h };
+        Object.assign(this.project, sizes);
+        const canvases = Array.isArray(this.project.canvases) ? this.project.canvases : [];
+        const active = canvases.find(c => c && c.id === this.project.active_canvas_id) || canvases[0];
+        if (active) Object.assign(active, sizes);
+    }
+
+    _launchAnsweredElsewhere() {
+        this._startupPickerToken = (this._startupPickerToken || 0) + 1;
+        if (this._startupWaiting === 'launch' || this._startupWaiting === 'new') this._startupWaiting = null;
+        if (typeof this.startPageOpen === 'function' && this.startPageOpen()
+                && this._startPageReason !== 'guide' && typeof this.closeStartPage === 'function') {
+            this.closeStartPage();
+        }
+        const picker = document.getElementById('preset-picker-modal');
+        if (picker && picker.style.display === 'block' && this._pickerMode === 'startup'
+                && typeof this.closePresetPicker === 'function') {
+            this._pickerFromStartPage = false;
+            this.closePresetPicker();
+        }
+        this._startupTargetId = null;
     }
 
     // Extract client-side only properties from a layer.
@@ -1154,6 +1409,15 @@ export class LEDRasterApp {
                 // is dropped after this (see the socket handler); a later one
                 // is a reconnect and does not re-apply preferences.
                 this._initialLoadComplete = true;
+                // Another page replaced the project while this load was on
+                // its way: read it again and follow it (_onProjectReplaced).
+                if (this._replacedDuringLoad) {
+                    this._replacedDuringLoad = false;
+                    fetch('/api/project').then(r => r.json()).then(p => {
+                        const unsaved = this._serverUnsaved === true;
+                        this._onProjectReplaced(p, { reason: 'restore', client: '', token: null, unsaved });
+                    }).catch(() => { /* the next replace brings it */ });
+                }
                 // The carried answer was used by the reset above (or the
                 // project is the pristine startup one, which never asks).
                 this._unsavedCarried = false;
@@ -1336,7 +1600,7 @@ export class LEDRasterApp {
 
     createNewProject() {
         this.resetApplicationState();
-        this._layerSavesSettled().then(() => fetch('/api/project/new', {
+        this._layerSavesSettled().then(() => fetch(`/api/project/new?${this._replaceQuery('new')}`, {
             method: 'POST'
         }))
             .then(res => res.json())
@@ -1574,7 +1838,7 @@ export class LEDRasterApp {
         // Numbered per screen so its echo can be told from an older one's
         // (the socket handler; routes_layers update_layer stamps `_echo`).
         if (!this._layerPutSeq) this._layerPutSeq = new Map();
-        if (!this._echoClientId) this._echoClientId = Math.random().toString(36).slice(2);
+        if (!this._echoClientId) this._echoClientId = PAGE_CLIENT_ID;
         const seq = (this._layerPutSeq.get(id) || 0) + 1;
         this._layerPutSeq.set(id, seq);
         const marker = (this._layerPutIsAnEdit() ? '?edited=1&' : '?')
@@ -1585,12 +1849,19 @@ export class LEDRasterApp {
         // exists - and the new project's screen may carry the same id - so
         // it is dropped, answered locally with its own body. Every caller
         // already ignores an echo from a project that is gone.
+        // The same goes for a save made from a show another page replaced
+        // (_onProjectReplaced): the project it was made on, or the screen
+        // object it carries, is the old show's, and the server's screen
+        // with that id is now the new show's.
         const sentProject = this.project;
+        const retired = () => !!(this._retiredProjects && (this._retiredProjects.has(sentProject)
+            || (body && typeof body === 'object' && this._retiredLayers.has(body))));
         if (!this._layerPutChains) this._layerPutChains = new Map();
         const prev = this._layerPutChains.get(id) || Promise.resolve();
         const sent = prev.then(() => undefined, () => undefined).then(() => (
-            this.project !== sentProject
-                ? new Response(payload, { status: 200, headers: { 'Content-Type': 'application/json' } })
+            (this.project !== sentProject || retired())
+                ? (retired() && sendClientLog('layer_put_dropped_show_replaced', { id }),
+                   new Response(payload, { status: 200, headers: { 'Content-Type': 'application/json' } }))
                 : fetch(`/api/layer/${id}${marker}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },

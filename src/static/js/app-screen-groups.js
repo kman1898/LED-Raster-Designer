@@ -540,7 +540,7 @@ class _ScreenGroups {
             this._groupCommitDepth = (this._groupCommitDepth || 0) + 1;
             let repaired = null;
             try {
-                const res = await fetch('/api/project', {
+                const res = await fetch(`/api/project?${this._replaceQuery('group')}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(releaseScreensPorts

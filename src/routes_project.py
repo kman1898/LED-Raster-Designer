@@ -246,6 +246,41 @@ def post_launch_settle():
     return jsonify({'settled': True})
 
 
+# ── A whole project replaced, told to every page (2026-11-09) ──
+#
+# The app runs as a live service: every tab, browser and tablet on it shows
+# the one show the server holds. A screen's edit reaches the other pages as
+# its layer_updated echo. A show opened, File > New, an undo or a redo, a
+# group change and a guide's demo show (and its end) replace the WHOLE
+# project, and the pages follow that through `project_updated` carrying
+# `_replace`: why it was replaced (`reason`), the page whose request did
+# it (`client`, the X-LRD-Page header every page's own requests carry,
+# app-core.js), that page's number for the request (`token`), and the
+# server's "unsaved" answer at that moment. The page that asked already
+# holds the project and lets its own echo go (app-core
+# _onProjectReplaced). A request with no page (a script, a test) is every
+# page's news.
+REPLACE_REASONS = ('open', 'new', 'undo', 'redo', 'group', 'guide', 'guide_end', 'restore')
+
+
+def _replace_marker(default):
+    reason = request.args.get('reason')
+    if reason not in REPLACE_REASONS:
+        reason = default
+    client = request.headers.get('X-LRD-Page')
+    client = client[:64] if isinstance(client, str) else ''
+    try:
+        token = int(request.args.get('token'))
+    except (TypeError, ValueError):
+        token = None
+    return {'reason': reason, 'client': client, 'token': token}
+
+
+def _emit_project_replaced(marker):
+    socketio.emit('project_updated', dict(app.current_project, _replace=dict(
+        marker, unsaved=project_unsaved())))
+
+
 @project_bp.route('/api/project/new', methods=['POST'])
 def new_project():
     app.next_layer_id = 1  # Reset counter for new project
@@ -268,6 +303,7 @@ def new_project():
     set_project_unsaved(False)
     log_event('new_project')
     socketio.emit('project_cleared')
+    _emit_project_replaced(_replace_marker('new'))
     return jsonify(app.current_project)
 
 
@@ -582,7 +618,7 @@ def restore_project():
         'layers': len(app.current_project.get('layers', [])),
         'layer_names': [l.get('name', '?') for l in app.current_project.get('layers', [])]
     })
-    socketio.emit('project_updated', app.current_project)
+    _emit_project_replaced(_replace_marker('restore'))
     # Slice 12: surface a one-time migration notice to the client when the
     # incoming file lacked a v0.8 format_version. Carried as a top-level
     # transient field on the response only, never stored on disk because
