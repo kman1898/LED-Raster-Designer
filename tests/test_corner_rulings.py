@@ -137,8 +137,8 @@ def test_interior_folds_the_sides_toward_the_audience_exterior_away(page):
     out = page.evaluate(BUILD_JS, {
         'seamIn': {'corners': [{'at': 4.5, 'angle': 90, 'side': 'interior'}]},
         'seamOut': {'corners': [{'at': 4.5, 'angle': 90, 'side': 'exterior'}]},
-        'foldIn': {'corners': [{'at': 3, 'angle': 60, 'side': 'interior'}]},
-        'foldOut': {'corners': [{'at': 3, 'angle': 60, 'side': 'exterior'}]},
+        'foldIn': {'corners': [{'at': 3, 'angle': 90, 'side': 'interior'}]},
+        'foldOut': {'corners': [{'at': 3, 'angle': 90, 'side': 'exterior'}]},
     })
     for name, toward in (('seamIn', True), ('seamOut', False), ('foldIn', True), ('foldOut', False)):
         quads = [q for q in out[name]['quads'] if q['row'] == 1]
@@ -170,7 +170,7 @@ def test_the_build_from_side_stays_put_to_a_tenth_of_a_mm(page):
         'left': {'corners': [{'at': 3.5, 'angle': 90}], 'joints': five, 'curve': {'on': True, 'from': 'left'}},
         'right': {'corners': [{'at': 2.5, 'angle': 90, 'side': 'exterior'}], 'joints': five,
                   'curve': {'on': True, 'from': 'right'}},
-        'spot': {'corners': [{'at': 4, 'angle': 45}], 'joints': five, 'curve': {'on': True, 'from': 2}},
+        'spot': {'corners': [{'at': 4, 'angle': 90}], 'joints': five, 'curve': {'on': True, 'from': 2}},
         'center': {'corners': [{'at': 4.5, 'angle': 90}], 'joints': five, 'curve': {'on': True, 'from': 'center'}},
         # a corner right on the build-from point folds both sides evenly
         'onIt': {'corners': [{'at': 3.5, 'angle': 90}]},

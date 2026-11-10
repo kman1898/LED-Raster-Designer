@@ -3,7 +3,9 @@
 s3dBuild), the owner's rulings of 2026-11-09:
 
 * A corner goes on a seam between two panels or down the middle of one,
-  any angle up to 90 degrees, Interior or Exterior. Columns only.
+  Interior or Exterior. Columns only. Every corner is 90 degrees (owner,
+  2026-11-10): there is no angle box, and a corner saved under 90 by a
+  1.7.0 beta opens as 90 at the same spot and side.
 * The hinge is the panels' front face: the two sides meet there.
 * Interior folds the sides toward the audience, Exterior away.
 * A corner's seam carries no curve angle: the corner takes its place, and
@@ -13,7 +15,7 @@ s3dBuild), the owner's rulings of 2026-11-09:
 * The 3D tab and Export > OBJ build it: shape, mapping and image, one file
   per physical screen.
 * The controls sit under the Curve on the Header/Footer tab: Add corner,
-  then where, the angle and Interior or Exterior, with a plan from above.
+  then where and Interior or Exterior, with a plan from above.
   Each change is one undo step; undo, redo and a reload keep it.
 * A show from before corners opens with nothing moved and nothing written.
 
@@ -170,12 +172,14 @@ BUILD_JS = """async () => {
         seam: quads(at([{at: 3.5, angle: 90, side: 'interior'}])),
         seamOut: quads(at([{at: 3.5, angle: 90, side: 'exterior'}])),
         fold: quads(at([{at: 3, angle: 90, side: 'interior'}])),
-        foldOut: quads(at([{at: 3, angle: 60, side: 'exterior'}])),
-        added: quads(at([{at: 3.5, angle: 45, side: 'interior'}]), {...flat, jointsCol: {'2': 10}}),
-        twoFolds: quads(at([{at: 1, angle: 30}, {at: 6, angle: 30}])),
+        foldOut: quads(at([{at: 3, angle: 90, side: 'exterior'}])),
+        added: quads(at([{at: 3.5, angle: 90, side: 'interior'}]), {...flat, jointsCol: {'2': 10}}),
+        twoFolds: quads(at([{at: 1, angle: 90}, {at: 6, angle: 90}])),
+        // a corner saved under 90 by a 1.7.0 beta builds as 90
+        old: quads(at([{at: 3.5, angle: 45, side: 'exterior'}])),
         clean: m.s3dCleanCorners([{at: 0, angle: 90}, {at: 2.25, angle: 90}, {at: 2, angle: 120, side: 'exterior'},
-                                  {at: 4.5, angle: -5}, {at: 4.5, angle: 0}, 'junk', null, {at: 3, angle: 12.34},
-                                  {at: 3, angle: 45, side: 'sideways'}, {at: '5.5', angle: '30'}]),
+                                  {at: 4.5, angle: -5}, 'junk', null, {at: 3, angle: 12.34},
+                                  {at: 3, angle: 45, side: 'sideways'}, {at: '5.5', angle: '30'}, {at: 6}]),
         on: m.s3dCornersOn(at([{at: 6, angle: 90}, {at: 6.5, angle: 90}, {at: 7, angle: 90}]), 6),
         base: [m.s3dBaseOffset(wall, flat), m.s3dBaseOffset(at([{at: 3, angle: 90}]), flat)],
     };
@@ -214,23 +218,30 @@ def test_a_corner_folds_the_wall_at_its_seam_or_down_a_panel_hinged_at_the_front
     _, turns = plan_turns(fold, 1)
     assert turns == [0, 0, pytest.approx(90), 0, 0, 0]
     _, turns = plan_turns(out['foldOut'], 0)
-    assert turns == [0, 0, pytest.approx(-60), 0, 0, 0]
+    assert turns == [0, 0, pytest.approx(-90), 0, 0, 0]
     # a curve angle on the same seam is left out: the corner takes its place
     _, turns = plan_turns(out['added'], 1)
-    assert turns == [0, 0, pytest.approx(45), 0, 0]
+    assert turns == [0, 0, pytest.approx(90), 0, 0]
     # a fold in the first or last panel, at their own middles
     _, turns = plan_turns(out['twoFolds'], 0)
-    assert turns == [pytest.approx(30)] + [0] * 5 + [pytest.approx(30)]
+    assert turns == [pytest.approx(90)] + [0] * 5 + [pytest.approx(90)]
+    # every corner is 90: one saved at 45 folds 90, on its own side
+    _, turns = plan_turns(out['old'], 1)
+    assert turns == [0, 0, pytest.approx(-90), 0, 0]
+    assert out['old'] == out['seamOut']
     # the screen's turning point stays the bottom middle of the wall
     assert out['base'][0] == out['base'][1]
 
 
-def test_corners_are_kept_to_their_shape(page):
+def test_corners_are_kept_to_their_shape_every_one_90(page):
     out = page.evaluate(BUILD_JS)
+    # the spot and the side are kept; every angle, however it was saved, is 90
     assert out['clean'] == [
         {'at': 2, 'angle': 90, 'side': 'exterior'},
-        {'at': 3, 'angle': 45, 'side': 'interior'},
-        {'at': 5.5, 'angle': 30, 'side': 'interior'},
+        {'at': 3, 'angle': 90, 'side': 'interior'},
+        {'at': 4.5, 'angle': 90, 'side': 'interior'},
+        {'at': 5.5, 'angle': 90, 'side': 'interior'},
+        {'at': 6, 'angle': 90, 'side': 'interior'},
     ]
     # a corner past the screen's last column is kept but not built
     assert out['on'] == [{'at': 6, 'angle': 90, 'side': 'interior'}]
@@ -238,7 +249,7 @@ def test_corners_are_kept_to_their_shape(page):
 
 # ── 2. the controls on the Header/Footer tab ─────────────────────────────
 
-def test_add_corner_then_pick_the_spot_the_angle_and_the_side_one_step_each(page):
+def test_add_corner_then_pick_the_spot_and_the_side_one_step_each(page):
     ids = reset(page)
     open_rigging(page)
     assert page.is_visible('#rigging-corner-add')
@@ -252,42 +263,36 @@ def test_add_corner_then_pick_the_spot_the_angle_and_the_side_one_step_each(page
     assert settled(page, lambda: served(page, ids[0]).get('riggingCorners'), lambda v: v == want) == want
     # the row reads it, and the plan shows the wall from above with its dot
     assert page.input_value(f'{row(page, 3.5)} [data-corner-at]') == '3.5'
-    assert page.input_value(f'{row(page, 3.5)} [data-corner-angle]') == '90'
     assert page.evaluate(f"document.querySelector('{row(page, 3.5)} [data-corner-side=\"interior\"]').classList.contains('active')")
     assert page.locator('#rigging-corner-plan svg [data-corner-dot]').count() == 1
     labels = page.evaluate(f"[...document.querySelectorAll('{row(page, 3.5)} [data-corner-at] option')].map(o => o.textContent)")
     assert labels[:3] == ['Middle of panel 1', 'Between panels 1 and 2', 'Middle of panel 2'] and len(labels) == 11
+    # every corner is 90 degrees: no angle box, nothing that says otherwise
+    assert page.locator('#rigging-corners input').count() == 0
+    assert page.locator('#rigging-corners [data-corner-angle], #rigging-corner-rule, .rigging-corner-split').count() == 0
+    assert 'under 90' not in page.inner_text('#rigging-corners')
+    # the row: where, x, and Interior or Exterior
+    assert page.locator(f'{row(page, 3.5)} select').count() == 1
+    assert page.evaluate(f"[...document.querySelectorAll('{row(page, 3.5)} button')].map(b => b.textContent)") == ['×', 'Interior', 'Exterior']
     # the middle of panel 3, as a person picks it
     page.select_option(f'{row(page, 3.5)} [data-corner-at]', '3')
     assert settled(page, lambda: corners_of(page, ids[0]), lambda v: v[0]['at'] == 3)[0]['at'] == 3
-    # 45 degrees, typed and Enter
-    page.fill(f'{row(page, 3)} [data-corner-angle]', '45')
-    page.press(f'{row(page, 3)} [data-corner-angle]', 'Enter')
-    assert settled(page, lambda: corners_of(page, ids[0]), lambda v: v[0]['angle'] == 45)[0]['angle'] == 45
     page.click(f'{row(page, 3)} [data-corner-side="exterior"]')
-    final = [{'at': 3, 'angle': 45, 'side': 'exterior'}]
+    final = [{'at': 3, 'angle': 90, 'side': 'exterior'}]
     assert corners_of(page, ids[0]) == final
-    assert history_len(page) == n + 4
+    assert history_len(page) == n + 3
     assert settled(page, lambda: served(page, ids[0]).get('riggingCorners'), lambda v: v == final) == final
-    # a bad angle is refused and said, nothing written
-    page.fill(f'{row(page, 3)} [data-corner-angle]', '120')
-    page.press(f'{row(page, 3)} [data-corner-angle]', 'Enter')
-    assert 'up to 90 degrees' in settled(page, lambda: page.inner_text('#app-toast-host'), lambda t: '90 degrees' in t)
-    assert corners_of(page, ids[0]) == final and history_len(page) == n + 4
-    assert page.input_value(f'{row(page, 3)} [data-corner-angle]') == '45'
     # undo walks back one change at a time, redo brings them back
-    for want_now in ([{'at': 3, 'angle': 45, 'side': 'interior'}], [{'at': 3, 'angle': 90, 'side': 'interior'}],
-                     [{'at': 3.5, 'angle': 90, 'side': 'interior'}]):
+    for want_now in ([{'at': 3, 'angle': 90, 'side': 'interior'}], [{'at': 3.5, 'angle': 90, 'side': 'interior'}]):
         page.evaluate('window.app.undo()')
         assert settled(page, lambda: corners_of(page, ids[0]), lambda v: v == want_now) == want_now
     page.evaluate('window.app.undo()')
     assert settled(page, lambda: corners_of(page, ids[0]) or [], lambda v: v == []) == []
     assert page.locator('#rigging-corner-list [data-corner]').count() == 0
-    for _ in range(4):
+    for _ in range(3):
         page.evaluate('window.app.redo()')
         page.wait_for_timeout(150)
     assert settled(page, lambda: corners_of(page, ids[0]), lambda v: v == final) == final
-    assert page.input_value(f'{row(page, 3)} [data-corner-angle]') == '45'
     # a reload keeps it and the tab shows it
     settled(page, lambda: served(page, ids[0]).get('riggingCorners'), lambda v: v == final)
     page.reload(wait_until='domcontentloaded')
@@ -296,7 +301,7 @@ def test_add_corner_then_pick_the_spot_the_angle_and_the_side_one_step_each(page
     page.evaluate(f"window.app.setSelectedLayersByIds([{ids[0]}], {ids[0]})")
     open_rigging(page)
     assert corners_of(page, ids[0]) == final
-    assert page.input_value(f'{row(page, 3)} [data-corner-angle]') == '45'
+    assert page.evaluate(f"document.querySelector('{row(page, 3)} [data-corner-side=\"exterior\"]').classList.contains('active')")
     # x takes it off, one step
     n = history_len(page)
     page.click(f'{row(page, 3)} [data-corner-remove]')
@@ -305,7 +310,39 @@ def test_add_corner_then_pick_the_spot_the_angle_and_the_side_one_step_each(page
     assert page.errors == []
 
 
-def test_tab_keeps_focus_and_a_taken_spot_cannot_be_picked(page):
+def test_an_old_corner_saved_under_90_opens_as_90_at_the_same_spot_and_side(page):
+    """Only a 1.7.0 beta could save a corner under 90 degrees. Such a show
+    opens with each one a 90 degree corner where it was, Interior or
+    Exterior as it was, and Auto lays its corner bar."""
+    ids = reset(page, [dict(COLUMN, extra={'riggingSizes': [1, 2], 'riggingCorners': [
+        {'at': 3.5, 'angle': 45, 'side': 'exterior'}]})])
+    assert served(page, ids[0])['riggingCorners'] == [{'at': 3.5, 'angle': 45, 'side': 'exterior'}]
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_function("() => window.app && window.app._initialLoadComplete")
+    page.wait_for_timeout(1200)
+    page.evaluate(f"window.app.setSelectedLayersByIds([{ids[0]}], {ids[0]})")
+    open_rigging(page)
+    got = page.evaluate(f"window.app.riggingCornersOf(window.app.project.layers.find(l => l.id === {ids[0]}))")
+    assert got == [{'at': 3.5, 'angle': 90, 'side': 'exterior'}]
+    assert page.locator(f'{row(page, 3.5)}').count() == 1
+    assert page.evaluate(f"document.querySelector('{row(page, 3.5)} [data-corner-side=\"exterior\"]').classList.contains('active')")
+    # it builds as a 90 degree Exterior corner on its seam
+    quads = page.evaluate(f"""async () => {{ const m = await import('/static/js/app-stage3d.js');
+        const l = window.app.project.layers.find(x => x.id === {ids[0]});
+        return m.s3dBuild(l, window.app._s3dPlacementOf(l)).quads.map(q => ({{row: q.row, col: q.col, fold: q.fold,
+            tl: q.tl, tr: q.tr, br: q.br, bl: q.bl}})); }}""")
+    _, turns = plan_turns(quads, 1)
+    assert turns == [0, 0, pytest.approx(-90), 0, 0]
+    # and takes its corner bar, as every corner does
+    page.click('#rigging-auto-btn')
+    lay = settled(page, lambda: layer(page, ids[0]), lambda v: v.get('riggingBars'))
+    assert lay['riggingCorners'] == [{'at': 3.5, 'angle': 90, 'side': 'exterior', 'bar': True}]
+    assert lay['riggingBars'] == [2, 2] and lay['riggingBarStarts'] == [0, 4]
+    assert page.inner_text('#rigging-total-breakdown').split('\n') == ['Double: 2', 'Corner (2 panel): 1']
+    assert page.errors == []
+
+
+def test_a_side_button_keeps_focus_and_a_taken_spot_cannot_be_picked(page):
     ids = reset(page)
     open_rigging(page)
     page.click('#rigging-corner-add')
@@ -319,11 +356,12 @@ def test_tab_keeps_focus_and_a_taken_spot_cannot_be_picked(page):
     assert [v for v, off, _ in opts if off] == ['2.5', '3', '3.5', '4', '4.5']
     assert dict((v, t) for v, _, t in opts)['3.5'] == 'Between panels 3 and 4, has a corner'
     assert dict((v, t) for v, _, t in opts)['3'] == 'Middle of panel 3, too close'
-    page.fill(f'{row(page, 2)} [data-corner-angle]', '30')
-    page.press(f'{row(page, 2)} [data-corner-angle]', 'Tab')
-    assert settled(page, lambda: corners_of(page, ids[0]), lambda v: v[0]['angle'] == 30)[0]['angle'] == 30
+    # a side picked on one row: the row is brought up to date in place, so
+    # the button keeps its focus
+    page.click(f'{row(page, 2)} [data-corner-side="exterior"]')
+    assert settled(page, lambda: corners_of(page, ids[0]), lambda v: v[0]['side'] == 'exterior')[0]['side'] == 'exterior'
     page.wait_for_timeout(300)
-    assert page.evaluate("document.activeElement && document.activeElement !== document.body")
+    assert page.evaluate(f"document.activeElement === document.querySelector('{row(page, 2)} [data-corner-side=\"exterior\"]')")
     assert page.errors == []
 
 
@@ -417,7 +455,7 @@ OBJ_FILES_JS = """async (name) => {
 def test_the_obj_carries_the_corners_shape_mapping_and_image(page):
     ids = reset(page)
     page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {ids[0]});
-        l.riggingCorners = [{{at: 3, angle: 90, side: 'interior'}}, {{at: 5.5, angle: 30, side: 'exterior'}}];
+        l.riggingCorners = [{{at: 3, angle: 90, side: 'interior'}}, {{at: 5.5, angle: 90, side: 'exterior'}}];
         a.updateLayers([l], true, 'Corner'); }}""")
     files = page.evaluate(OBJ_FILES_JS, 'Test Show')
     assert sorted(files) == ['Test_Show_COLUMN.mtl', 'Test_Show_COLUMN.obj', 'Test_Show_Canvas_1_Pixel_Map.png']
@@ -437,7 +475,7 @@ def test_the_obj_carries_the_corners_shape_mapping_and_image(page):
             uv = tuple(round(c, 9) for c in obj['vt'][ti - 1])
             seen.setdefault(key, set()).add(uv)
     assert all(len(v) == 1 for v in seen.values())
-    # the bottom edge, left to right: 90 degrees in panel 3, 30 out at the seam 5|6
+    # the bottom edge, left to right: 90 degrees in panel 3, 90 out at the seam 5|6
     ys = min(v[1] for v in obj['v'])
     bottom = []
     for f in faces:
@@ -457,7 +495,7 @@ def test_the_obj_carries_the_corners_shape_mapping_and_image(page):
             rest.remove(nxt)
     heads = [math.degrees(math.atan2(br[2] - bl[2], br[0] - bl[0])) for bl, br in order]
     turns = [round(heads[i + 1] - heads[i], 3) for i in range(len(heads) - 1)]
-    assert turns == [0, 0, 90, 0, 0, -30]
+    assert turns == [0, 0, 90, 0, 0, -90]
     assert page.errors == []
 
 
