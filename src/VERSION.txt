@@ -415,6 +415,12 @@ FIXES
   step of their own, so Undo never takes them back along with your own.
 - FIX: Two shows opened on two tabs at the same moment now leave every tab
   on the one the app kept, never one each.
+- FIX: A tab, browser or tablet that is only watching another one's change,
+  or that has just opened onto the show, no longer saves anything back.
+  A mirror screen's copied map, a footer's lift and the selected canvas
+  used to be sent again from every page watching, so the page that made
+  the change found an Undo step it never made, and two devices could send
+  the same change back and forth.
 - FIX: While a guide runs, other tabs, browsers and tablets can watch it
   but not change the show: Open, New, Undo and edits there say "A guide is
   running in another window. Finish it there first." Closing the guide's
