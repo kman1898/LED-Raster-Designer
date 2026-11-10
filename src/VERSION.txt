@@ -97,7 +97,9 @@ other edit.
   That holds however the footer comes or goes: its bars, a group made or
   broken, or a grouped neighbor moved, shown or hidden.
   X and Z are the middle of that same edge. Screens already placed in 3D
-  open exactly where they stood.
+  open exactly where they stood, and one with a footer stands its footer
+  where its panels stood, the panels 6 in up, so opening a show never
+  puts a footer under the floor.
 - NEW: A ft | m switch beside Position sets the 3D panel's units: X, Y and
   Z, the snap, the figure beside the cursor and the arrow-key steps. It is
   saved with the show and starts on the show's own unit; nothing else in
