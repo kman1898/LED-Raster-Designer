@@ -2616,6 +2616,11 @@ def handle_connect():
     # A snapshot, for the reason _emit_snapshot gives: a tablet joining while
     # a save lands must not walk the live project.
     emit('project_data', json.loads(json.dumps(current_project)))
+    # A guide running on another page holds the show: this page hears of
+    # it at once (routes_project, one guide at a time).
+    page = routes_project.guide_page()
+    if page:
+        emit('guide_state', {'page': page})
 
 @socketio.on('disconnect')
 def handle_disconnect():

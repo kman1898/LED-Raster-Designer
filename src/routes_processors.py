@@ -488,7 +488,8 @@ def _state(status=200, extra=None):
     catalog.settle_fiber(app.current_project,
                          g.get('fiber_used_before'))
     app.current_project['is_pristine'] = False
-    socketio.emit('project_updated', app.current_project)
+    import routes_project
+    routes_project.emit_project_edited()
     body = {
         # first, before the tree is read (app.processor_state_stamp)
         'stateStamp': app.processor_state_stamp(),

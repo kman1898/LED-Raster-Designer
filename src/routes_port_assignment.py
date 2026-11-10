@@ -246,7 +246,8 @@ def _saved(state, status=200, extra=None):
     again after taking its number (_payload), so an edit another request
     stored in between is in it and the number tells the page the truth."""
     app.current_project['is_pristine'] = False
-    socketio.emit('project_updated', app.current_project)
+    import routes_project
+    routes_project.emit_project_edited()
     body = _payload()
     if g.get('port_cables_forgotten'):
         # The tree changed with the pins (a released socket's cable went),

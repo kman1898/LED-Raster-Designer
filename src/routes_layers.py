@@ -15,6 +15,15 @@ from app import _assign_canvas_id, _build_panels, _find_canvas, _rebuild_layer_g
 layers_bp = Blueprint('layers', __name__)
 
 
+def _other_pages_follow():
+    """A screen added (a duplicate, a paste, a preset) or deleted: every
+    other page takes the show in (routes_project.emit_project_edited). The
+    delete also takes the screen out of its group and its ports off the
+    cards, which no single screen's message could say."""
+    import routes_project
+    routes_project.emit_project_edited()
+
+
 def _next_free_screen_name():
     """Add Screen's default name, ScreenN, stepping past any name in use
     (case-blind): with Screen1 deleted out of two, the next add is Screen3,
@@ -231,6 +240,7 @@ def add_layer():
     app.current_project['layers'].append(layer)
     app.current_project['is_pristine'] = False
     socketio.emit('layer_added', layer)
+    _other_pages_follow()
     return jsonify(layer)
 
 @layers_bp.route('/api/layer/add-image', methods=['POST'])
@@ -258,6 +268,7 @@ def add_image_layer():
     app.current_project['layers'].append(layer)
     app.current_project['is_pristine'] = False
     socketio.emit('layer_added', layer)
+    _other_pages_follow()
     return jsonify(layer)
 
 @layers_bp.route('/api/layer/add-text', methods=['POST'])
@@ -282,6 +293,7 @@ def add_text_layer():
     app.current_project['layers'].append(layer)
     app.current_project['is_pristine'] = False
     socketio.emit('layer_added', layer)
+    _other_pages_follow()
     return jsonify(layer)
 
 def _group_containing(layer_id):
@@ -761,6 +773,7 @@ def delete_layer(layer_id):
     app.current_project['is_pristine'] = keep_pristine
     log_event('delete_layer', {'id': layer_id, 'name': deleted_name, 'remaining_layers': len(app.current_project['layers'])})
     socketio.emit('layer_deleted', {'id': layer_id})
+    _other_pages_follow()
     return jsonify(app.current_project)
 
 
@@ -912,7 +925,8 @@ def move_layer_to_canvas(layer_id):
     # NEXT undo cleaned it up.
     app._enforce_group_integrity(app.current_project)
     app.current_project['is_pristine'] = False
-    socketio.emit('project_updated', app.current_project)
+    import routes_project
+    routes_project.emit_project_edited()
     return jsonify(app.current_project)
 
 
@@ -939,7 +953,8 @@ def move_layer_to_show_canvas(layer_id):
         'layer_id': layer_id, 'target_show_canvas_id': target_id,
     })
     app.current_project['is_pristine'] = False
-    socketio.emit('project_updated', app.current_project)
+    import routes_project
+    routes_project.emit_project_edited()
     return jsonify(app.current_project)
 
 
@@ -956,6 +971,8 @@ def toggle_panel_blank(layer_id, panel_id):
     panel['blank'] = not panel['blank']
     log_event('toggle_panel_blank', {'layer_id': layer_id, 'panel_id': panel_id, 'blank': panel['blank']})
     socketio.emit('panel_updated', {'layer_id': layer_id, 'panel': panel})
+    # the pages follow a screen's edit by its layer_updated (as toggle_hidden)
+    socketio.emit('layer_updated', layer)
     return jsonify(panel)
 
 @layers_bp.route('/api/layer/<int:layer_id>/panel/<int:panel_id>/toggle_hidden', methods=['POST'])
