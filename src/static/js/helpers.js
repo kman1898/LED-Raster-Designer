@@ -47,12 +47,21 @@ if (isMacOS()) {
     document.documentElement.classList.add('macos');
 }
 
+// Which page wrote a line of the log (app-core PAGE_CLIENT_ID). Two pages
+// on one show write the same url, and a failing test's page log could not
+// say whose lines were whose (2026-11-10).
+let clientLogPage = null;
+function setClientLogPage(page) {
+    clientLogPage = typeof page === 'string' && page ? page : null;
+}
+
 function sendClientLog(action, details = {}) {
     try {
         const payload = {
             action,
             details: {
                 clientTime: new Date().toISOString(),
+                ...(clientLogPage ? { page: clientLogPage } : {}),
                 url: window.location.href,
                 ...details
             }
@@ -694,7 +703,7 @@ function installNameDragSelects(doc) {
     }, true);
 }
 
-export { evaluateMathExpression, isMacOS, sendClientLog, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
+export { evaluateMathExpression, isMacOS, sendClientLog, setClientLogPage, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
     FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff };
 
 // Classic (non-module) scripts call these by name at runtime

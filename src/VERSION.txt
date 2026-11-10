@@ -417,6 +417,8 @@ FIXES
   the computer running it, asking first and offering to save unsaved
   changes. The tray and menu bar icon's Quit asks about unsaved changes
   too.
+- FIX: Two quick changes to one screen no longer show the first change
+  again for a moment while the second one saves.
 
 v1.6.0 - November 6, 2026
 ----------------------------
