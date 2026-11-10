@@ -30,9 +30,9 @@ class _ExportIo {
             const geometryOnly = (format === 'resolume-xml' || format === 'pull-sheet' || format === 'binder' || format === 'obj');
             viewSection.style.display = geometryOnly ? 'none' : '';
         }
-        // OBJ: the files come from the 3D stage, not a canvas pick.
-        const canvasSection = document.getElementById('export-canvases-section');
-        if (canvasSection) canvasSection.style.display = format === 'obj' ? 'none' : '';
+        // OBJ's note under the format. Which sections show is each format's
+        // own sync (syncPullSheetControls, syncBinderControls), never here:
+        // this runs after them and would undo them.
         const objNote = document.getElementById('export-obj-note');
         if (objNote) objNote.style.display = format === 'obj' ? '' : 'none';
 

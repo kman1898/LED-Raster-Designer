@@ -180,7 +180,10 @@ def test_the_curve_checkbox_lays_the_bars_and_the_angles(page):
     singles_only(page)
     before = history_len(page)
     assert page.is_visible('#rigging-curve-on')
-    assert not page.is_visible('#rigging-curve-fields')
+    # off, the settings show (and save) but nothing is laid or worked out
+    assert page.is_visible('#rigging-curve-fields')
+    assert not page.is_visible('#rigging-curve-result')
+    assert 'Tick Curve' in page.inner_text('#rigging-curve-note')
     page.check('#rigging-curve-on')
     idle(page)
     lay = layer(page, ids[0])
@@ -351,7 +354,7 @@ def test_an_old_show_opens_unchanged_and_looking_writes_nothing(page):
     open_rigging(page)
     n = history_len(page)
     assert not page.is_checked('#rigging-curve-on')
-    assert not page.is_visible('#rigging-curve-fields')
+    assert not page.is_visible('#rigging-curve-result')
     page.click('#view-tabs .view-tab[data-mode="3d"]')
     page.wait_for_timeout(800)
     open_rigging(page)
@@ -778,4 +781,78 @@ def test_the_dialog_lists_the_files_and_saves_them_to_a_folder(page):
     finally:
         page.unroute('**/api/native-dialog/**')
         page.route('**/api/native-dialog/**', lambda r: r.fulfill(status=503, body='{}'))
+    assert page.errors == []
+
+
+# Which sections of the Export dialog each format shows. Recorded off the
+# app before OBJ came in (8c6f7b87), every format opened and switched to,
+# and OBJ's own row added: its screens come off the 3D stage, so no views
+# and no canvas list, the background option kept, its note shown.
+EXPORT_SECTIONS = ['export-canvases-section', 'export-views-section', 'export-options-section',
+                   'export-pull-sheet-section', 'export-binder-section', 'export-obj-note',
+                   'export-scale-row', 'export-psd-layers-row']
+_PICTURE = (True, True, True, False, False, False, False, False)
+EXPORT_SHOWS = {
+    'png': _PICTURE,
+    'svg': _PICTURE,
+    'pdf': _PICTURE,
+    'psd': (True, True, True, False, False, False, True, True),
+    'resolume-xml': (True, False, True, False, False, False, False, False),
+    'pull-sheet': (False, False, False, True, False, False, False, False),
+    'binder': (False, False, False, False, True, False, False, False),
+    'obj': (False, False, True, False, False, True, False, False),
+}
+
+
+def test_every_export_format_shows_its_own_sections(page):
+    reset(page)
+    formats = page.evaluate("[...document.querySelectorAll('#export-format option')].map(o => o.value)")
+    assert sorted(formats) == sorted(EXPORT_SHOWS), formats
+    # Every format both ways: the dialog opened on it, and switched to from
+    # each other format, since each format's own sync runs on a switch.
+    walk = []
+    for fmt in formats:
+        walk.append((fmt, 'open', None))
+        for prev in formats:
+            if prev != fmt:
+                walk.append((fmt, 'switch', prev))
+    for fmt, how, prev in walk:
+        if how == 'open':
+            page.evaluate("(f) => { document.getElementById('export-modal').style.display = 'none'; window.app.openExportModal(f); }", fmt)
+        else:
+            page.evaluate("(f) => { document.getElementById('export-modal').style.display = 'none'; window.app.openExportModal(f); }", prev)
+            page.select_option('#export-format', fmt)
+        got = page.evaluate("(ids) => ids.map(id => { const e = document.getElementById(id); return !!e && e.offsetParent !== null; })",
+                            EXPORT_SECTIONS)
+        want = list(EXPORT_SHOWS[fmt])
+        assert got == want, (fmt, how, prev, dict(zip(EXPORT_SECTIONS, got)))
+    page.evaluate("() => { document.getElementById('export-modal').style.display = 'none'; }")
+    assert page.errors == []
+
+
+def test_settings_edited_with_the_curve_off_are_kept_and_lay_nothing(page):
+    """Every field that shows writes the screen (test_all_fields_sweep's
+    rule): with Curve off the settings are kept for when it is ticked, and
+    no bar or joint changes; focus stays in the form after Tab."""
+    ids = reset(page)
+    open_rigging(page)
+    singles_only(page)
+    n = history_len(page)
+    page.fill('#rigging-curve-value', '30')
+    page.press('#rigging-curve-value', 'Tab')
+    lay = settled(page, lambda: layer(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('value') == 30)
+    assert lay['riggingCurve']['on'] is False and lay['riggingCurve']['value'] == 30
+    assert not lay.get('stage3d') and not lay.get('riggingBars')
+    assert history_len(page) == n + 1
+    assert page.evaluate('document.activeElement && document.activeElement !== document.body')
+    page.fill('#rigging-curve-angles', '5 and 10')
+    page.press('#rigging-curve-angles', 'Tab')
+    assert settled(page, lambda: layer(page, ids[0])['riggingCurve']['angles'], lambda a: a == [5, 10]) == [5, 10]
+    srv = settled(page, lambda: served(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('angles') == [5, 10])
+    assert srv['riggingCurve']['value'] == 30 and srv['riggingCurve']['on'] is False
+    # ticking it lays the curve from those settings
+    act(page, lambda: page.check('#rigging-curve-on'))
+    on = layer(page, ids[0])
+    assert on['riggingCurve']['value'] == 30 and on['riggingBars'] == [1] * 16
+    assert {abs(a) for a in joints_of(on) if a} <= {5, 10}
     assert page.errors == []

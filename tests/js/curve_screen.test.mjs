@@ -152,7 +152,9 @@ describe('cleanCurve and parseAngles', () => {
     it('reads an angle list however it is typed', () => {
         expect(parseAngles('2.5, 5, 7.5 10')).toEqual([2.5, 5, 7.5, 10]);
         expect(parseAngles('10° 5°')).toEqual([5, 10]);
-        expect(parseAngles('5, x')).toBe(null);
+        expect(parseAngles('5, x')).toEqual([5]);
+        expect(parseAngles('5 deg, 10 degrees')).toEqual([5, 10]);
+        expect(parseAngles('none')).toBe(null);
         expect(parseAngles('')).toBe(null);
     });
 });

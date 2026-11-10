@@ -2252,12 +2252,14 @@ export function stockCovers(panels, sizes) {
   return best;
 }
 
-/** The angle list as typed: "2.5, 5, 7.5 10" -> [2.5, 5, 7.5, 10]; null when nothing reads. */
+/**
+ * The angle list as typed, every number in it: "2.5, 5, 7.5 10" and
+ * "5 deg 10°" both read; null when there is no number at all.
+ */
 export function parseAngles(text) {
-  const out = String(text == null ? '' : text).replace(/°/g, ' ').split(/[\s,;]+/)
-    .filter(Boolean).map(Number);
-  if (!out.length || out.some((n) => !Number.isFinite(n))) return null;
-  return [...new Set(out.map(Math.abs).filter((n) => n > 0))].sort((a, b) => a - b);
+  const out = (String(text == null ? '' : text).match(/\d+(?:\.\d+)?|\.\d+/g) || []).map(Number);
+  const list = [...new Set(out.filter((n) => Number.isFinite(n) && n > 0))].sort((a, b) => a - b);
+  return list.length ? list : null;
 }
 
 /**

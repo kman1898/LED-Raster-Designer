@@ -367,7 +367,9 @@ class _Curve {
     // One field of the form, on every selected screen with its Curve on,
     // laid again. One undo step.
     setRiggingCurveField(key, raw) {
-        const screens = this._curveTargets(true);
+        // Every selected screen: a curve that is off keeps its settings for
+        // when it is ticked, one that is on is laid again.
+        const screens = this._curveTargets(false);
         if (!screens.length) { this.refreshRiggingPanel(); return; }
         const primary = this._riggingPrimary(screens);
         const base = this.riggingCurveOf(primary);
@@ -387,6 +389,7 @@ class _Curve {
             else if (['center', 'left', 'right'].includes(raw)) patch.from = raw;
             else return;
         } else if (key === 'pick') {
+            if (!base.on) return;
             if (raw === 'auto') {
                 patch.pick = null;
             } else {
@@ -465,20 +468,20 @@ class _Curve {
         const onCount = screens.filter(l => this.riggingCurveOn(l)).length;
         box.checked = s.on;
         box.indeterminate = onCount > 0 && onCount < screens.length;
+        // The settings always show and always save, Curve on or off: set
+        // the curve up, then tick Curve to lay it.
         const fields = document.getElementById('rigging-curve-fields');
-        if (fields) fields.style.display = s.on ? '' : 'none';
+        if (fields) fields.style.display = '';
         const note = document.getElementById('rigging-curve-note');
         if (note) {
-            note.style.display = s.on ? '' : 'none';
-            note.textContent = this._riggingToolNow() === 'custom'
-                ? 'The Curve lays this screen\'s bars, so Custom does not. Turn Curve off to lay them by hand.'
-                : 'The Curve lays this screen\'s bars from the lit sizes. Auto lays it again.';
+            note.style.display = '';
+            note.textContent = !s.on
+                ? 'Tick Curve to lay these bars and angles on the screen.'
+                : this._riggingToolNow() === 'custom'
+                    ? 'The Curve lays this screen\'s bars, so Custom does not. Turn Curve off to lay them by hand.'
+                    : 'The Curve lays this screen\'s bars from the lit sizes. Auto lays it again.';
         }
         const working = document.getElementById('rigging-curve-working');
-        if (!s.on) {
-            if (working) working.style.display = 'none';
-            return;
-        }
 
         const lit = (sel, value) => document.querySelectorAll(sel).forEach(btn => {
             btn.classList.toggle('active', btn.dataset.value === value);
@@ -507,6 +510,13 @@ class _Curve {
         if (tolUnit) tolUnit.textContent = system === 'metric' ? 'mm' : 'in';
         const valueUnit = document.getElementById('rigging-curve-value-unit');
         if (valueUnit) valueUnit.textContent = s.entry === 'degrees' ? 'degrees of sweep' : '% of a circle';
+        if (!s.on) {
+            ['rigging-curve-working', 'rigging-curve-errors', 'rigging-curve-result'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+            return;
+        }
 
         // The answer for the screen as it stands: kept, or asked for in the
         // background and drawn when it comes.
