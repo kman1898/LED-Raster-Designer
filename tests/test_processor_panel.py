@@ -1638,14 +1638,15 @@ def test_a_project_with_no_processors_is_shaped_exactly_as_before(client):
     # and the server's refusals name one list - never project state, so
     # the project below stays byte-for-byte what it was.
     # `snakes` is the show's own list (2026-09-09) and rides the same
-    # payload, and so does `fiberCables` (2026-09-25); both empty here, and
+    # payload, and so does `fiberCables` (2026-09-25) and the show's
+    # subnet and gateway, `network` (2026-11-09); all empty here, and
     # reading them stamps nothing. `stateStamp` numbers the reply, never
     # the project (app.processor_state_stamp, 2026-10-30).
     body = resp.get_json()
     assert set(body.pop('stateStamp')) == {'boot', 'n'}
     assert body == {
         'processors': [], 'resolved': [], 'snakes': [], 'fiberCables': [],
-        'dataCableConnectors': catalog.data_cable_connectors()}
+        'network': {}, 'dataCableConnectors': catalog.data_cable_connectors()}
 
     after = client.get('/api/project').get_json()
     assert after == before, (

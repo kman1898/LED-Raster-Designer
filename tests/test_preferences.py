@@ -83,8 +83,9 @@ ALL_IDS = [i for ids in TABS.values() for i in ids]
 # 1.5 audit: the distro voltage + phase pair became one system picker.
 # Quick palettes: the source and sixteen pickers (105 + 17), and the
 # binder's Header/Footer default. The logo row went in 1.7.0: each show
-# keeps its own logo (test_binder_remembers.py).
-assert len(ALL_IDS) == 122
+# keeps its own logo (test_binder_remembers.py). The binder's Network
+# default came with processor IPs (2026-11-09).
+assert len(ALL_IDS) == 123
 
 # Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
 # the dialog is given, the preference key, the layer property it lands on).
