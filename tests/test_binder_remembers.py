@@ -62,9 +62,9 @@ def page(e2e_server, pw_browser):
 # inherited from whatever ran before: every sheet on, Color, both maps.
 PREFS = {'binderPalette': 'colour', 'binderMaps': 'both', 'binderCover': True, 'binderPull': True,
          'binderHardware': True, 'binderWiring': True, 'binderFiber': True, 'binderRigging': True,
-         'binderLogo': ''}
+         'binderNetwork': True, 'binderLogo': ''}
 PREF_CHOICES = {'palette': 'colour', 'maps': 'both', 'cover': True, 'pull': True, 'hardware': True,
-                'wiring': True, 'fiber': True, 'rigging': True}
+                'wiring': True, 'fiber': True, 'rigging': True, 'network': True}
 
 SET_PREFS_JS = """async (patch) => {
     const app = window.app;
@@ -101,6 +101,7 @@ DIALOG_JS = """() => {
              cover: on('export-binder-cover'), pull: on('export-binder-pull'),
              hardware: on('export-binder-hardware'), wiring: on('export-binder-wiring'),
              fiber: on('export-binder-fiber'), rigging: on('export-binder-rigging'),
+             network: on('export-binder-network'),
              scope: document.getElementById('export-binder-scope').value };
 }"""
 
@@ -187,10 +188,13 @@ def test_a_whole_show_export_is_remembered_per_show(page):
 
     _set_tick(pg, 'hardware', False)
     _set_tick(pg, 'fiber', False)
+    # the Network tick (2026-11-09) is remembered with the rest
+    _set_tick(pg, 'network', False)
     pg.locator('#export-binder-printer').check()
     pg.locator('#export-binder-side-power').check()
     _confirm(pg)
-    want = {**PREF_CHOICES, 'palette': 'printer', 'maps': 'power', 'hardware': False, 'fiber': False}
+    want = {**PREF_CHOICES, 'palette': 'printer', 'maps': 'power', 'hardware': False, 'fiber': False,
+            'network': False}
     after = _state(pg)
     assert after['sheets'] == want and after['served'] == want, after
     # one entry: the revision this export logged carries the choices too
@@ -282,7 +286,7 @@ def test_a_single_screen_export_leaves_the_shows_choices_alone(page):
     pg.wait_for_timeout(200)
     one = pg.evaluate(DIALOG_JS)
     assert one['scope'] == f"screen:{ids['b']}", one
-    assert (one['cover'], one['pull'], one['hardware'], one['fiber']) == (False, False, False, False), one
+    assert (one['cover'], one['pull'], one['hardware'], one['fiber'], one['network']) == (False,) * 5, one
     assert (one['wiring'], one['rigging']) == (True, True), one
     before = _state(pg)
     _set_tick(pg, 'hardware', True)

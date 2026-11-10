@@ -1169,6 +1169,8 @@ class _HardwareDock {
             title.appendChild(model);
             const procPills = [this._dockRedundancyPill(proc, null),
                                this._dockBackupProcPill(proc),
+                               // its IP once one is typed (app-network.js)
+                               typeof this._dockIpPill === 'function' ? this._dockIpPill(proc) : null,
                                this._dockAddUnitButton(proc)].filter(Boolean);
             // The processor's ≡: one cable list of every box on it, and its
             // own ports, folded or open (_dockProcSheetSections).
@@ -1180,8 +1182,8 @@ class _HardwareDock {
                 controls: procPills,
                 gear: {
                     id: `proc-${proc.id}`,
-                    title: 'Configure this processor: redundancy, slots, '
-                        + 'remove.',
+                    title: 'Configure this processor: redundancy, backup, '
+                        + 'IP addresses, slots, remove.',
                     build: () => {
                         const p = (this._processorsResolved || [])
                             .find(x => x.id === proc.id);

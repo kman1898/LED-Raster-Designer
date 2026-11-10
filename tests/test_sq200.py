@@ -352,7 +352,7 @@ def test_the_backup_sq200_feeds_qd_s_in_2_and_the_xds_keep_x1(client):
     xd = card['cvts'][0]
     assert (xd['fiberLinkKeys'], xd['backupInputs']) == (['p1'], False)
     assert proc['backupUnit'] == {'name': 'SQ A BU', 'typedName': '',
-                                  'boxes': []}
+                                  'network': {}, 'boxes': []}
     # IN 1 and IN 2 take their fiber at the QD-S's own URL
     st = _ok(client.post('/api/fiber-cables',
                          json={'kind': 'tac', 'strands': 12, 'ft': 300}), 201)

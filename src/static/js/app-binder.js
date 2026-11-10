@@ -37,7 +37,10 @@
 //   4.n  the PULL sheets - positions side by side, each position's
 //        sections flowing across the sheet in columns
 //   5.n  hardware - the services, then the distros side by side, then
-//        the processors with the show's pull list beside them where it fits
+//        the processors with the show's pull list beside them where it fits,
+//        then the NETWORK page (app-network.js) - every processor and
+//        backup unit with its IP, subnet, gateway and note - where a unit
+//        has an IP and the Network tick is on
 // The overview and the screens keep 1 and 2 whatever prints; the series
 // after them number in the order they print (_bPage, SUBJECT), so a set
 // without the Fiber page reads pull 3.n and hardware 4.n, and one without
@@ -311,14 +314,16 @@ const LOGO_DATA_URL = /^data:image\/(png|jpeg);base64,/;
 // fiber need to be remembered ... New projects reset these check boxes"):
 // the palette, the maps and the six sheet ticks a WHOLE-SHOW export
 // printed, kept as project.binder.sheets = { palette, maps, cover, pull,
-// hardware, wiring, fiber, rigging }. The dialog opens on them; a show
+// hardware, wiring, fiber, rigging, network }. The dialog opens on them; a show
 // with none (a new one, one saved before 1.7.0) opens on the Binder
 // preferences. Written at the export, never per tick, so ticking and
 // cancelling leaves the show as it was; a single-screen export writes
 // nothing (its show sheets start unticked whatever the show keeps).
-const BINDER_TICKS = ['cover', 'pull', 'hardware', 'wiring', 'fiber', 'rigging'];
+// (the Network page's tick since 1.7.0 too, 2026-11-09: a show stored
+// before it reads it on, as every tick it does not name)
+const BINDER_TICKS = ['cover', 'pull', 'hardware', 'wiring', 'fiber', 'rigging', 'network'];
 // the ticks a single screen's export starts unticked: the show's own sheets
-const SHOW_TICKS = ['cover', 'pull', 'hardware', 'fiber'];
+const SHOW_TICKS = ['cover', 'pull', 'hardware', 'fiber', 'network'];
 const BINDER_MAPS = ['power', 'data', 'both'];
 // Each sheet kind's SUBJECT, the series it numbers in. The overview and
 // the screens hold series 1 and 2 (SERIES) whatever prints; every subject
@@ -327,7 +332,8 @@ const BINDER_MAPS = ['power', 'data', 'both'];
 // hardware 4 without the Fiber page - so the numbers never leave a hole.
 const SUBJECT = { overview: 'overview', power: 'screens', data: 'screens', wiring: 'screens', rigging: 'screens',
                   fiber: 'fiber', pull: 'pull',
-                  service: 'hardware', distro: 'hardware', processor: 'hardware', totals: 'hardware' };
+                  service: 'hardware', distro: 'hardware', processor: 'hardware', totals: 'hardware',
+                  network: 'hardware' };
 const SERIES = { overview: 1, screens: 2 };
 
 class _Binder {
@@ -501,6 +507,10 @@ class _Binder {
         // page prints for nothing else (app-binder-fiber.js).
         const fiberTick = document.getElementById('export-binder-fiber-label');
         if (fiberTick) fiberTick.style.display = this.binderUsesFiber() ? 'flex' : 'none';
+        // ...and the Network tick to a show where a processor has an IP:
+        // the page prints for nothing else (app-network.js).
+        const netTick = document.getElementById('export-binder-network-label');
+        if (netTick) netTick.style.display = this.binderUsesNetwork() ? 'flex' : 'none';
         const scope = document.getElementById('export-binder-scope');
         if (scope) {
             const want = this._binderPresetScope != null
@@ -591,7 +601,8 @@ class _Binder {
             maps: prefs.binderMaps === 'power' || prefs.binderMaps === 'data' ? prefs.binderMaps : 'both',
         };
         const pref = { cover: 'binderCover', pull: 'binderPull', hardware: 'binderHardware',
-                       wiring: 'binderWiring', fiber: 'binderFiber', rigging: 'binderRigging' };
+                       wiring: 'binderWiring', fiber: 'binderFiber', rigging: 'binderRigging',
+                       network: 'binderNetwork' };
         for (const k of BINDER_TICKS) out[k] = prefs[pref[k]] !== false;
         return { ...out, saved: false };
     }
@@ -724,6 +735,9 @@ class _Binder {
             // the Fiber page (app-binder-fiber.js): a show's, printed only
             // where the show uses fiber
             fiber: on('export-binder-fiber', scope.kind === 'show'),
+            // the Network page (app-network.js): a show's, printed only
+            // where a processor has an IP
+            network: on('export-binder-network', scope.kind === 'show'),
             // the Wiring tick - one for both wiring sheets, each following
             // its own map through the Maps choice - is a SCREEN sheet's: on
             // whatever the scope
@@ -1590,6 +1604,12 @@ class _Binder {
         }
         if (opts.pull) hardware.push(this._bTotalsGroup(book));
         this._bHardwareSheets(book, hardware);
+        // THE NETWORK PAGE (owner, 2026-11-09): every processor and backup
+        // unit with its IP, subnet, gateway and note, one place to set the
+        // laptops up from - with the hardware, right after the processor
+        // sheets, only where a unit has an IP and only when asked (the
+        // dialog's Network tick). Never for one screen.
+        if (opts.network === true && !scopeLayer) this._bNetworkSheets(book);
         return this._binderFinish(book);
     }
 
@@ -8013,6 +8033,9 @@ class _Binder {
             pairs.push(['Processor', procName === proc.deviceName || !proc.deviceName
                 ? procName : `${procName} · ${proc.deviceName}`]);
             pairs.push(['Redundancy', this._bRedundancyText(proc)]);
+            // its IP, and its backup unit's (app-network.js), once any
+            // unit in the show has one
+            pairs.push(...this._bNetworkFacts(proc));
         }
         if (!procs.size) pairs.push(['Processor', 'not placed']);
         blocks.push({ lines: this._bKvLines(book, 'Facts', pairs) });
@@ -9286,6 +9309,9 @@ class _Binder {
                                                      String(b.portCount || ''), b.displayTitle || b.deviceName] })),
             }) });
         }
+        // its own IP (app-network.js), once any unit in the show has one
+        const net = this._bProcNetworkTable(book, proc, ['bu']);
+        if (net) blocks.push({ lines: net });
         // the backup inputs it feeds are in the main's Fiber connections,
         // beside the main's own (a backup is listed with its main)
         const text = this._bRedundancyText(proc).replace(/ · backed up by .*$/, '');
@@ -9418,6 +9444,10 @@ class _Binder {
         const taken = (card) => `${used(card.id)} / ${this._bCardPortCount(card) != null ? this._bCardPortCount(card) : '?'}`;
         const blocks = [];
         blocks.push({ lines: this._bTableLines(book, this._bUnitsTable(proc, cards, backupOf, taken)) });
+        // NETWORK: the unit's IP, subnet, gateway and note, and its backup
+        // unit's, once any unit in the show has an IP (app-network.js)
+        const net = this._bProcNetworkTable(book, proc, ['main', 'bu']);
+        if (net) blocks.push({ lines: net });
         // The breakout boxes hanging off the cards, each with the trunk it
         // takes, the sockets it delivers and its fiber trunk (2026-09-07).
         // A LOOP's two boxes (an SX40's XD A and B) sit together, the far
