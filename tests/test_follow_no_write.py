@@ -261,7 +261,8 @@ def test_a_following_page_writes_nothing_back(e2e_server, pw_browser):
         b.wait_for_function("() => window.app.project.name === 'Mirror Show Opened'")
         _quiet(a, 2000)
         assert writes_b == [], writes_b
-        # the source's map changed on A: the copy follows, written by A
+        # the source's map changed on A: the copy follows, written by the
+        # server with A's save of the source (port_assignment.copy_mirror_maps)
         a.evaluate(PATTERN_JS, [ids['Screen1'], 'br-v'])
         srv = _settled(e2e_server, lambda p: next(l for l in p['layers'] if l['id'] == ids['Screen2'])
                        .get('flowPattern') == 'br-v')
@@ -289,15 +290,21 @@ def test_a_following_page_writes_nothing_back(e2e_server, pw_browser):
 
 def test_a_page_joining_a_show_with_a_mirror_writes_nothing(e2e_server, pw_browser):
     """Page B opens while the show already holds a mirror whose stored
-    map is behind its source's (the source changed by a script, which no
-    page copied): B shows the copy as it should be and sends no write, so
-    page A, already on the show, hears of no change."""
+    map is behind its source's (left so in the server's own copy, as a
+    page that went away mid-save would; every save and load now has the
+    server copy it, test_follow_fields.py): B shows the copy as it should
+    be and sends no write, so page A, already on the show, hears of no
+    change."""
     ids = _seed(e2e_server)
     ctx_a, ctx_b = _context(pw_browser), _context(pw_browser)
     try:
         a, pa = _open(ctx_a, e2e_server)
         _make_mirror(a, ids, e2e_server)
         _call(e2e_server, 'PUT', f"/api/layer/{ids['Screen1']}", {'flowPattern': 'bl-h'})
+        import app as app_module
+        stale = next(l for l in app_module.current_project['layers'] if l['id'] == ids['Screen2'])
+        assert stale['flowPattern'] == 'bl-h', 'the server copied the source'
+        stale['flowPattern'] = 'tl-h'
         _quiet(a)
         before = _server(e2e_server)
         acts = _actions(a)
@@ -317,7 +324,7 @@ def test_a_page_joining_a_show_with_a_mirror_writes_nothing(e2e_server, pw_brows
         flows = b.evaluate("(ids) => ids.map(id => window.app.project.layers.find(l => l.id === id).flowPattern)",
                            [ids['Screen1'], ids['Screen2']])
         assert flows == ['bl-h', 'bl-h'], flows
-        # A changes the source: A writes the copy, B, following, nothing
+        # A changes the source: the server writes the copy, B, following, nothing
         a.evaluate(PATTERN_JS, [ids['Screen1'], 'tr-h'])
         _settled(e2e_server, lambda p: next(l for l in p['layers'] if l['id'] == ids['Screen2'])
                  .get('flowPattern') == 'tr-h')
