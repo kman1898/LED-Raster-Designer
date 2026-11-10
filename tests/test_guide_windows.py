@@ -81,7 +81,7 @@ SPEED = 3
 # (and so covered by the drives below).
 ADVANCED_RUNS = [
     ['sameAsLast', 'avgPower'],                              # picker:add
-    ['redundancy', 'backupProcessor'],                       # gear:proc
+    ['redundancy', 'backupProcessor', 'processorIp'],        # gear:proc
     ['distroPhase', 'distroRating', 'distroMain',
      'distroPreset', 'distroRows'],                          # gear:distro
     ['jumperNames', 'pullPanels'],                           # export:pull-sheet
@@ -146,22 +146,22 @@ def _tour_keys(page, name):
 def test_shared_window_runs_are_the_known_ones(page):
     """The runs, per guide: Advanced, Quick Start, and What's New from every
     1.5 version. The owner's two reports are among them: What's New from
-    1.5.2 steps 11 and 12 share the Export dialog on the pull sheet (14
-    and 15 since Quick Palettes, a 1.7.0 step, and Single mode or
-    multimode and Every box in one list, both 1.6.0 steps, came in before
-    them)."""
+    1.5.2 steps 11 and 12 share the Export dialog on the pull sheet (15
+    and 16 since Quick Palettes and IP addresses, both 1.7.0 steps, and
+    Single mode or multimode and Every box in one list, both 1.6.0 steps,
+    came in before them)."""
     assert _runs(page, _tour_keys(page, 'advanced')) == ADVANCED_RUNS
     assert _runs(page, _tour_keys(page, 'quick')) == QUICK_RUNS
     for after, want in WHATS_NEW_RUNS.items():
         keys = page.evaluate("(v) => window.QuickStart.newSteps(v, null)", after)
         assert _runs(page, keys) == want, after
     keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', null)")
-    # the owner's steps 11 and 12, three places on since Quick Palettes
-    # (1.7.0), Single mode or multimode and Every box in one list (both
-    # 1.6.0) came in ahead of them
-    assert keys[13:15] == ['jumperNames', 'pullPanels'], keys
-    assert 'fiberMode' in keys[:13] and 'procCableList' in keys[:13], keys
-    assert 'quickPalettes' in keys[:13], keys
+    # the owner's steps 11 and 12, four places on since Quick Palettes and
+    # IP addresses (1.7.0), Single mode or multimode and Every box in one
+    # list (both 1.6.0) came in ahead of them
+    assert keys[14:16] == ['jumperNames', 'pullPanels'], keys
+    assert 'fiberMode' in keys[:14] and 'procCableList' in keys[:14], keys
+    assert 'quickPalettes' in keys[:14] and 'processorIp' in keys[:14], keys
     assert page.evaluate("() => window.QuickStart.windowsOf('jumperNames')") == ['export:pull-sheet']
     # Cable stock, then A list for each kind of cable, then the stock
     # pieces typed into the tray (owner, 2026-11-04)
@@ -348,7 +348,7 @@ def test_whats_new_keeps_shared_windows_up(page, after):
     missing = _run_pairs(WHATS_NEW_RUNS[after]) - held
     assert not missing, f"no window was up to hold for {sorted(missing)}"
     if after == '1.5.2':
-        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 13
+        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 14
         assert ('cableStock', 'cableStockPerKind') in held, sorted(held)
         assert keys.index('cableStockPerKind') == keys.index('cableStock') + 1, keys
         assert keys.index('cableStockPieces') == keys.index('cableStockPerKind') + 1, keys
