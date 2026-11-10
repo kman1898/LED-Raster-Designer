@@ -3259,6 +3259,13 @@ def card_sec(ids, which):
 
 
 def seed_fold(panel_page):
+    # The Flask-client tests above rebuild the shared project with no page
+    # id, and the page follows that like any change made on another device
+    # (live sync, 1.7.0): its screen is gone by now. Put one back first.
+    if not panel_page.evaluate(
+            "() => window.app.project.layers.some(l => (l.type || 'screen') === 'screen')"):
+        assert panel_page.evaluate(RESET_LAYERS_JS), "test project was not created"
+        quiet(panel_page)
     ids = panel_page.evaluate(FOLD_SEED_JS)
     quiet(panel_page)
     return ids
