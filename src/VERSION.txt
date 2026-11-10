@@ -94,6 +94,8 @@ other edit.
   footer stands on the floor and the panels start 6 in up. Add a footer
   to a screen already placed and its panels lift 6 in, so the footer sits
   where they stood and Y reads the same; take it off and they drop back.
+  That holds however the footer comes or goes: its bars, a group made or
+  broken, or a grouped neighbor moved, shown or hidden.
   X and Z are the middle of that same edge. Screens already placed in 3D
   open exactly where they stood.
 - NEW: A ft | m switch beside Position sets the 3D panel's units: X, Y and
@@ -171,8 +173,29 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   its side, and a small plan shows the screen from above as it bends. A
   six panel column with a 90 degree fold in the middle of a panel is one
   screen. The 3D tab and Export OBJ build every corner, with the picture
-  running on around it, and a corner on a joint the Curve also bends adds
-  to that angle.
+  running on around it. Interior folds the sides toward the audience and
+  Exterior folds them away.
+- NEW: The side at the Curve's Build from point stays where it stood in 3D
+  and the rest of the screen folds away from it; without a Curve, the
+  middle stays put. The Corners block says which.
+- NEW: A corner is the edge of the wall, so its seam takes no curve angle.
+  The seams beside it keep theirs, the ones either side of a folded panel
+  too. The Where list and the plan show which seams the curve bends, the
+  Curve's strip marks the corner's seam, and the readouts say how much of
+  the curve's turn the corners leave out. Take the corner off and the
+  seam's own angle comes back.
+- NEW: Header and footer bars split at a corner. A Header Bar - Corner, or
+  a Footer Bar - Corner, covers the panels touching it: the folded panel
+  of a corner down a panel's middle, one panel either side of a corner on
+  a seam. Auto fits regular bars to each side, and the tab's totals, the
+  pull sheet and the binder's Header/Footer and pull sheets count the
+  corner bars in the same tables. The Header/Footer tab draws them, and
+  the 3D tab stands each one as an L that folds with the panels. Adding,
+  moving or taking off a corner lays an Auto row again in the same step.
+- NEW: In Custom, a click on a corner's panels lays its corner bar, a bar
+  laid beside a corner stops at it, and one that no longer fits there is
+  refused and said. A bar laid by hand on a corner's panels makes way for
+  the corner bar. Click a corner bar and press Delete to take it off.
 
 A CANVAS ON A SECOND DISPLAY
 

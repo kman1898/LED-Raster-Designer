@@ -2392,6 +2392,11 @@ class _Stage3D {
                 datum: this._s3dDatumWorld(e),
                 bars: (e.barRows || []).map(r => ({
                     row: r.row, bars: r.bars.slice(), starts: r.starts.slice(), slots: r.slots, wallSlots: r.wallSlots, fits: r.fits,
+                    corners: (r.corners || []).slice(),
+                    // each quad's slot and its bottom and top edges, in the screen's frame
+                    quads: r.quads.map(q => ({ slot: q.slot, f0: q.f0, f1: q.f1,
+                        tl: q.tl.map(v => round(v, 3)), tr: q.tr.map(v => round(v, 3)),
+                        bl: q.bl.map(v => round(v, 3)), br: q.br.map(v => round(v, 3)) })),
                     heightMm: round(r.heightMm, 3), lengthMm: round(r.lengthMm, 3),
                     first: r.quads[0].tl.map(v => round(v, 3)), last: r.quads[r.quads.length - 1].tr.map(v => round(v, 3)),
                     tex: r.canvas ? [r.canvas.width, r.canvas.height] : null,

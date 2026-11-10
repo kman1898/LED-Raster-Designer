@@ -289,10 +289,16 @@ PLAIN_US_WORDING = [
 _UNIT_WORDS = {'metre', 'metres'}
 
 
+# The bar part names the owner chose keep their " - " (2026-11-09): it is
+# part of the name, never a dash.
+_BAR_PART_NAMES = r'(?:Header|Footer) Bar - (?:Single|Double|Triple|Quad|Corner)'
+
+
 def _plain_wording_hits(text, first_line=1):
     hits = []
     # CSS arithmetic in a style string is not punctuation
     text = re.sub(r'calc\([^)]*\)', lambda m: ' ' * len(m.group(0)), text)
+    text = re.sub(_BAR_PART_NAMES, lambda m: m.group(0).replace(' - ', ' : '), text)
     for pattern, rule in PLAIN_US_WORDING:
         for m in re.finditer(pattern, text, re.I):
             line = first_line + text.count('\n', 0, m.start())
@@ -469,6 +475,9 @@ def test_plain_wording_guard_catches_each_word():
         "labeled, neighbors, color, centered, meters, millimeter, canceling, "
         "organize, fiber, catalog, SR-1 … SR-6, L21-30, Edison → TRUE1, "
         "analyze, analyses, analysis, max-width:calc(100vw - 32px)")
+    # the owner's bar part names keep their " - "; a dash beside one does not
+    assert not _plain_wording_hits('a Header Bar - Corner and a Footer Bar - Double')
+    assert _plain_wording_hits('a Header Bar - Corner - the fold')
     # markdown bullets and indented sub points are not dashes
     assert not _plain_wording_hits('- FIX: one\n  - a sub point\n   - **The first time**')
     # a .js file is checked by its strings: a comment or a unit word passes
