@@ -2975,6 +2975,11 @@
     function recoverStash() {
         var w = readStash();
         if (!w) return Promise.resolve(false);
+        // This page's own guide is up and the stash is its own: a guide
+        // started before the boot got here (Help opened at once) stashed
+        // it a moment ago, and putting it back now would pull the
+        // person's project in under the running guide.
+        if (S.visible || S.saved) return Promise.resolve(false);
         if (stashHeldElsewhere()) {
             // Another page's guide is running on it: that guide puts the
             // world back when it ends. Watch, in case that page dies first.
