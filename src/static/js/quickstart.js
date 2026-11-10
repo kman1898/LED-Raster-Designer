@@ -2785,6 +2785,8 @@
     // it ends. Only when that page is gone (closed, or crashed and quiet
     // past STASH_QUIET_MS) does a watching page put it back, after
     // STASH_HAND_ON_MS, so the owning tab's own reload takes it back first.
+    // A page loading after the owner went puts it back at once: it may be
+    // that reload, or the next launch, and either is the person's page now.
     var STASH_BEAT_KEY = 'lrd_tour_saved_world_beat';
     var STASH_TAB_KEY = 'lrd_tour_tab';
     var STASH_BEAT_MS = 1000;
@@ -2838,14 +2840,14 @@
     // and comes back from the browser's page cache, its guide still up
     window.addEventListener('pageshow', function (e) { if (e.persisted && stashBeatTimer) writeStashBeat(false); });
     // Is the stash another page's, still in use? A pulse of this page's
-    // own is never another's; a page gone in this same tab is this tab's
-    // reload, which takes its stash back at once.
-    function stashHeldElsewhere() {
+    // own is never another's. A page that was already up when the owner
+    // went (`watching`) gives the owner's tab its moment to reload first.
+    function stashHeldElsewhere(watching) {
         var b = readStashBeat();
         if (!b || b.page === stashPage) return false;
         var age = Date.now() - b.at;
         if (!b.gone) return age < STASH_QUIET_MS;
-        return b.tab !== stashTab() && age < STASH_HAND_ON_MS;
+        return !!watching && b.tab !== stashTab() && age < STASH_HAND_ON_MS;
     }
     // A page that left another page's stash alone: once that page is gone
     // with the stash still there, put the world back here.
@@ -2854,7 +2856,7 @@
         stashWatchTimer = setInterval(function () {
             if (S.visible || S.running || S.saved) return;
             if (!readStash()) { clearInterval(stashWatchTimer); stashWatchTimer = null; return; }
-            if (stashHeldElsewhere()) return;
+            if (stashHeldElsewhere(true)) return;
             clearInterval(stashWatchTimer);
             stashWatchTimer = null;
             recoverStash();

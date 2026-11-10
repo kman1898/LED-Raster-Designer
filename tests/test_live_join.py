@@ -571,9 +571,22 @@ def _wait_server(url, want, timeout=20.0):
 
 
 def _start_guide(pg, url):
+    """The guide up on its demo show, its stash written. On a slow run it
+    says where it stood."""
+    import time
     pg.evaluate("() => { window.QuickStart.setSpeed(4); window.QuickStart.start(); }")
-    pg.wait_for_function("() => window.QuickStart.state().visible && !window.QuickStart.state().running"
-                         " && !!localStorage.getItem('lrd_tour_saved_world')", timeout=20000)
+    deadline = time.time() + 30
+    st = None
+    while time.time() < deadline:
+        st = pg.evaluate("""() => { const q = window.QuickStart.state();
+            return { visible: q.visible, running: q.running, index: q.index, phase: q.phase,
+                     stash: !!localStorage.getItem('lrd_tour_saved_world'),
+                     layers: window.app.project.layers.map(l => l.name) }; }""")
+        if st['visible'] and st['stash'] and 'DEMO WALL' in st['layers']:
+            break
+        time.sleep(0.25)
+    else:
+        raise AssertionError(f'the guide did not come up: {st}')
     _wait_server(url, lambda n: 'DEMO WALL' in n and 'MY WALL' not in n)
 
 

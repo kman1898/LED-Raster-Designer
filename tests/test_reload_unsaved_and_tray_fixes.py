@@ -198,12 +198,14 @@ def test_a_show_a_guide_brought_back_stays_unsaved_across_a_reload(e2e_server, p
             context.close()
 
 
-# ── a launch over the emptied launch project ──────────────────────────────
+# ── a new tab over the emptied launch project ──────────────────────────────
 # A reload of the same tab keeps the project empty and shows no start page
-# (owner, 2026-11-04: tests/test_reload_keeps_place.py). A launch opens a
-# new browser tab, and that still opens as every launch does.
+# (owner, 2026-11-04: tests/test_reload_keeps_place.py). The start page is
+# the app's first page only (owner, 2026-11-09: tests/test_live_join.py):
+# the launch's X answered it, and a new tab joins the empty project as it
+# stands, with no startup screen put back under it.
 
-def test_a_launch_over_the_emptied_project_opens_like_any_launch(e2e_server, pw_browser):
+def test_a_new_tab_over_the_emptied_project_joins_it_empty(e2e_server, pw_browser):
     _new_pristine_project(e2e_server)
     context = None
     try:
@@ -218,12 +220,12 @@ def test_a_launch_over_the_emptied_project_opens_like_any_launch(e2e_server, pw_
             Dialogs().route(pg)
             pg.goto(e2e_server, wait_until='domcontentloaded')
             pg.wait_for_function("() => !!(window.app && window.app._initialLoadComplete)", timeout=20000)
-            _wait_start(pg)
-            # a startup screen under the page, as at launch
-            assert pg.evaluate("() => [window.app.project.layers.length,"
-                               " window.app._startupTargetId === window.app.project.layers[0].id]") == [1, True]
-            pg.locator('#start-page-close').click()
-            pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+            pg.wait_for_function("() => window.app._launchRole !== undefined", timeout=10000)
+            assert pg.evaluate("() => window.app._launchRole") == 'join'
+            # longer than a launch takes to put its start page up
+            pg.wait_for_timeout(2500)
+            assert not _start_up(pg)
+            assert pg.evaluate("() => [window.app.project.layers.length, window.app._startupTargetId]") == [0, None]
             srv = pg.evaluate("async () => (await fetch('/api/project')).json()")
             assert srv['layers'] == [] and srv['is_pristine'] is True, srv['layers']
         assert not _start_up(pg)
