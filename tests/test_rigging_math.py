@@ -362,3 +362,47 @@ def test_the_auto_or_custom_choice_is_saved_with_the_show(client):
     assert client.put('/api/project/rigging-tool', json={'tool': 'hand'}).get_json() == {'riggingTool': 'auto'}
     assert client.get('/api/project').get_json()['riggingTool'] == 'auto'
     assert client.put('/api/project/rigging-tool', json=['custom']).status_code == 400
+
+
+# ── Corner bars, the owner's rulings of 2026-11-10 ──
+
+@needs_node
+def test_the_1_panel_and_2_panel_corner_bars_are_two_parts():
+    assert _node("R.cornerName(1)") == 'Header Bar - Corner (1 panel)'
+    assert _node("R.cornerName(2, 'footer')") == 'Footer Bar - Corner (2 panel)'
+    assert _node("R.cornerWord(2)") == 'Corner (2 panel)'
+
+
+@needs_node
+def test_only_a_90_degree_corner_takes_a_corner_bar():
+    corners = [{'at': 2, 'angle': 90}, {'at': 4.5, 'angle': 45}, {'at': 7, 'angle': 89.9}, {'at': 9.5}]
+    pieces = _node(f"R.cornerPieces({json.dumps(corners)}, 12)")
+    assert [(p['at'], p['start'], p['size']) for p in pieces] == [(2, 1, 1), (9.5, 8, 2)]
+    # under 90: the seam at 4.5 breaks at edge 4, the panel at 7 at edges 6 and 7
+    assert _node(f"R.cornerBreaks({json.dumps(corners)}, 12)") == [4, 6, 7]
+    assert _node(f"R.cornerBreaks({json.dumps(corners)}, 12, true)") == [5, 6, 8]
+    # the seam of a corner under 90 is a flat joint; a folded panel's is not
+    assert _node(f"R.cornerFlatJoints({json.dumps(corners)}, 12)") == [3]
+
+
+@needs_node
+@pytest.mark.parametrize('breaks, expected', [
+    ([3], [[0, 1], [1, 2], [3, 1], [4, 2]]),           # a seam under 90: split at it
+    ([2, 3], [[0, 2], [2, 1], [3, 1], [4, 2]]),        # down panel 3: it takes a single
+    ([], [[0, 2], [2, 2], [4, 2]]),                    # no corner: as it always was
+])
+def test_auto_bars_never_cross_a_corner_under_90(breaks, expected):
+    got = _pairs(_node(f"R.fitAround(6, [1, 2], [], {json.dumps(breaks)})"))
+    assert got == expected
+    for start, size in got:
+        assert not any(start < e < start + size for e in breaks)
+
+
+@needs_node
+def test_a_bar_across_a_corner_under_90_is_wrong_in_any_row():
+    problem = _node(f"R.rowProblem({_bars([[2, 2]])}, 6, [[0, 6]], true, [], [3])")
+    assert problem['across'] is True
+    assert _node(f"R.rowProblem({_bars([[0, 3], [3, 3]])}, 6, [[0, 6]], false, [], [3])") is None
+    # Custom by hand: a drag over the break lays bars on each side of it
+    lay = _node(f"R.layAround(0, 5, 2, 6, [], [3])")
+    assert _pairs(lay['adds']) == [[0, 2], [3, 2]]

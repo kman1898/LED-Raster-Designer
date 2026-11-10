@@ -14,6 +14,9 @@ app-rigging.js and rigging-math.js, the shape in app-stage3d.js s3dBuild):
   (250 mm + 250 mm on a 500 mm panel) or one either side of a seam (500 mm
   + 500 mm), regular bars fill the rest, and it is counted with the other
   bars on the tab, the pull sheet and the binder. In 3D it stands as an L.
+  Since 2026-11-10 the 1 panel and the 2 panel piece are two parts,
+  "Header Bar - Corner (1 panel)" and "(2 panel)", each its own line
+  (tests/test_corner_bars.py has the rest of that day's rulings).
 * Custom: a click on a corner's panels lays its corner bar, a bar beside a
   corner stops at it or is refused, a bar laid by hand on a corner's
   panels makes way for the corner bar, and Delete takes a picked one off.
@@ -198,10 +201,12 @@ def test_the_build_from_side_stays_put_to_a_tenth_of_a_mm(page):
 def test_the_fixed_side_stays_put_on_the_3d_tab_and_in_the_obj(page):
     """A screen placed and turned on the stage, its Curve on and built from
     the left: Add corner (between panels 3 and 4) leaves panels 1 to 3
-    where they stood, cabinet for cabinet, on the 3D tab and in the OBJ."""
+    where they stood, cabinet for cabinet, on the 3D tab and in the OBJ.
+    The Curve lays its bars again around the corner (2026-11-10); a curve
+    of 0% lays every joint flat, so only the fold moves anything."""
     flat = {str(j): 0 for j in range(5)}
     spec = dict(COLUMN, extra={
-        'riggingCurve': {'on': True, 'from': 'left'},
+        'riggingCurve': {'on': True, 'from': 'left', 'value': 0},
         'stage3d': {'x': 1200, 'y': 300, 'z': -800, 'pitch': 0, 'yaw': 0, 'roll': 0,
                     'jointsCol': flat, 'pivot': 'bottom'},
     })
@@ -211,7 +216,10 @@ def test_the_fixed_side_stays_put_on_the_3d_tab_and_in_the_obj(page):
     obj_before = read_obj(page.evaluate(OBJ_FILES_JS, 'Rulings')['Rulings_COLUMN.obj'])
     open_rigging(page)
     page.click('#rigging-corner-add')
-    assert corners_of(page, ids[0]) == [{'at': 3.5, 'angle': 90, 'side': 'interior'}]
+    # the Curve lays its bars and the corner bar around the corner
+    got = settled(page, lambda: corners_of(page, ids[0]),
+                  lambda v: v and v[0].get('bar') and page.evaluate('!window.app.riggingCurveBusy()'), 15000)
+    assert got == [{'at': 3.5, 'angle': 90, 'side': 'interior', 'bar': True}]
     # the block says which side stays put
     assert 'the left end stays put' in page.inner_text('#rigging-corner-hold')
     open_3d(page, 1)
@@ -340,8 +348,8 @@ def test_corner_bars_for_a_mid_panel_corner_and_a_seam_corner(page):
     assert lay['riggingCorners'] == [{'at': 3, 'angle': 90, 'side': 'interior', 'bar': True}]
     assert history_len(page) == n + 1
     assert page.inner_text('#rigging-total-count') == '4'
-    assert page.inner_text('#rigging-total-breakdown').split('\n') == ['Double: 2', 'Single: 1', 'Corner: 1']
-    assert sorted(pull_rig(page)) == [['Header Bar - Corner', 1], ['Header Bar - Double', 2], ['Header Bar - Single', 1]]
+    assert page.inner_text('#rigging-total-breakdown').split('\n') == ['Double: 2', 'Single: 1', 'Corner (1 panel): 1']
+    assert sorted(pull_rig(page)) == [['Header Bar - Corner (1 panel)', 1], ['Header Bar - Double', 2], ['Header Bar - Single', 1]]
     assert not page.locator('#rigging-fit-warning').is_visible()
     # the Header/Footer tab draws it, a hit of its own
     hits = page.evaluate("() => { window.canvasRenderer.render(); return window.canvasRenderer._riggingHits.map(h => [h.start, h.span, h.corner == null ? null : h.corner]); }")
@@ -366,7 +374,7 @@ def test_corner_bars_for_a_mid_panel_corner_and_a_seam_corner(page):
     lay = settled(page, lambda: layer(page, ids[0]), lambda v: v['riggingCorners'][0]['at'] == 3.5)
     assert lay['riggingBars'] == [2, 2] and lay['riggingBarStarts'] == [0, 4]
     assert lay['riggingCorners'] == [{'at': 3.5, 'angle': 90, 'side': 'interior', 'bar': True}]
-    assert page.inner_text('#rigging-total-breakdown').split('\n') == ['Double: 2', 'Corner: 1']
+    assert page.inner_text('#rigging-total-breakdown').split('\n') == ['Double: 2', 'Corner (2 panel): 1']
     assert page.inner_text('#rigging-total-count') == '3'
     open_3d(page, 1)
     rows = settled(page, lambda: bars3d(page, ids[0]), lambda r: r and r[0]['starts'] == [0, 2, 4])
@@ -377,15 +385,15 @@ def test_corner_bars_for_a_mid_panel_corner_and_a_seam_corner(page):
     # the binder's Header/Footer sheet and its pull sheet list it with the bars
     out = binder_texts(page)
     head = out['sheet'][out['sheet'].index('HEADER BARS'):]
-    i = head.index('Header Bar - Corner')
+    i = head.index('Header Bar - Corner (2 panel)')
     assert head[i + 1:i + 3] == ['2', '1'], head
     assert head[head.index('Total') + 1:head.index('Total') + 3] in (['', '3'], ['3']), head
-    assert 'Header Bar - Corner' in out['pull'] and 'Header Bar - Double' in out['pull']
-    # on the footer side it is the Footer Bar - Corner
+    assert 'Header Bar - Corner (2 panel)' in out['pull'] and 'Header Bar - Double' in out['pull']
+    # on the footer side it is the Footer Bar - Corner (2 panel)
     open_rigging(page)
     page.click('#rigging-mode-picker .rigging-mode-btn[data-mode="footer"]')
-    settled(page, lambda: pull_rig(page), lambda r: ['Footer Bar - Corner', 1] in r)
-    assert sorted(pull_rig(page)) == [['Footer Bar - Corner', 1], ['Footer Bar - Double', 2]]
+    settled(page, lambda: pull_rig(page), lambda r: ['Footer Bar - Corner (2 panel)', 1] in r)
+    assert sorted(pull_rig(page)) == [['Footer Bar - Corner (2 panel)', 1], ['Footer Bar - Double', 2]]
     # Clear takes the corner bar off with the rest
     page.click('#rigging-clear-btn')
     lay = settled(page, lambda: layer(page, ids[0]), lambda v: not v.get('riggingFooterBars'))
@@ -449,7 +457,7 @@ def test_custom_lays_the_corner_bar_and_stops_bars_at_the_corner(page):
     page.evaluate("(id) => { const a = window.app; const l = a.project.layers.find(x => x.id === id); a._riggingWrite(l, 'header', []); }", ids[0])
     assert page.evaluate(lay_js, [ids[0], 0, 5, 2]) == {'bars': [[0, 2], [4, 2]], 'corner': [[3.5, 2, 2]]}
     # nothing on a corner's panels is counted twice
-    assert sorted(pull_rig(page)) == [['Header Bar - Corner', 1], ['Header Bar - Double', 2]]
+    assert sorted(pull_rig(page)) == [['Header Bar - Corner (2 panel)', 1], ['Header Bar - Double', 2]]
     assert page.errors == []
 
 
@@ -468,8 +476,8 @@ def test_a_bar_laid_by_hand_across_a_new_corner_makes_way_for_the_corner_bar(pag
     # the double on panels 3 and 4 is where the corner bar goes: it makes way
     assert lay['riggingBars'] == [2]
     assert lay['riggingCorners'] == [{'at': 3.5, 'angle': 90, 'side': 'interior', 'bar': True}]
-    assert 'made way for the Header Bar - Corner' in toasts(page)
-    assert sorted(pull_rig(page)) == [['Header Bar - Corner', 1], ['Header Bar - Double', 1]]
+    assert 'made way for the Header Bar - Corner (2 panel)' in toasts(page)
+    assert sorted(pull_rig(page)) == [['Header Bar - Corner (2 panel)', 1], ['Header Bar - Double', 1]]
     assert page.errors == []
 
 
