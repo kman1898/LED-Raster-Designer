@@ -321,17 +321,34 @@ def test_launcher_splash_demo_boot(page):
     pg.on('pageerror', lambda err: errors.append(str(err)))
     pg.goto('file://' + splash, wait_until='domcontentloaded')
     pg.wait_for_timeout(600)
+    # the buttons a user can see: the quit question's are in the page but
+    # shown only when a quit with unsaved changes asks it
+    shown_buttons = "() => [...document.querySelectorAll('.btn')].filter(b => b.checkVisibility()).map(b => b.textContent)"
     state = pg.evaluate("""() => ({
         status: document.getElementById('status-word').textContent,
         ifaceOptions: document.getElementById('iface').options.length,
         browserOptions: document.getElementById('browser').options.length,
-        buttons: [...document.querySelectorAll('.btn')].map(b => b.textContent),
     })""")
+    buttons = pg.evaluate(shown_buttons)
+    # The question (launcher_window.py request_quit asks it through
+    # window.showQuitAsk): over the window, Cancel first and focused;
+    # Escape puts it away.
+    pg.evaluate("window.showQuitAsk()")
+    asked = pg.evaluate("""() => ({
+        open: document.getElementById('quit-ask').checkVisibility(),
+        buttons: [...document.querySelectorAll('#quit-ask .btn')].filter(b => b.checkVisibility()).map(b => b.textContent),
+        focused: document.activeElement && document.activeElement.id,
+    })""")
+    pg.keyboard.press('Escape')
+    closed = not pg.evaluate("document.getElementById('quit-ask').checkVisibility()")
+    after = pg.evaluate(shown_buttons)
     pg.close()
     assert errors == [], f"splash JS errors: {errors}"
     assert state['status'] == 'Running'
     assert state['ifaceOptions'] > 0 and state['browserOptions'] > 0
-    assert state['buttons'] == ['Launch GUI', 'Hide', 'Quit']
+    assert buttons == ['Launch GUI', 'Hide', 'Quit']
+    assert asked == {'open': True, 'buttons': ['Cancel', 'Quit anyway'], 'focused': 'quit-ask-cancel'}
+    assert closed and after == ['Launch GUI', 'Hide', 'Quit']
 
 
 # ── Deep journeys: export, canvas interaction, views, persistence ────────

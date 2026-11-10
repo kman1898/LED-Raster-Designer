@@ -358,14 +358,40 @@ socketio.run(app, host='127.0.0.1', port={port}, allow_unsafe_werkzeug=True, log
 
 
 def _port_free(port):
+    """Whether the app's server could listen on `port` now: bound the way
+    its server binds (werkzeug's server sets SO_REUSEADDR before it binds,
+    socketserver.TCPServer.server_bind). On Linux and macOS a plain bind is
+    refused while the last run's connections sit in TIME_WAIT on the port,
+    for a minute after the process ended (CI, 2026-11-10: "port 40725 is
+    taken" right after a kill), though the app itself binds it at once.
+    Not on Windows: there SO_REUSEADDR lets a bind share a port another
+    socket is listening on, and a plain bind is not held up by TIME_WAIT."""
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
+        if os.name != 'nt':
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind(('127.0.0.1', port))
         return True
     except OSError:
         return False
     finally:
         probe.close()
+
+
+def test_the_app_s_server_takes_its_port_back_at_once():
+    """A quit and a start straight after reuse the fixed port (8050 unless
+    set), while the quit run's connections still sit in TIME_WAIT on it.
+    The launcher's socketio.run serves through werkzeug in the threading
+    mode, and werkzeug's server sets SO_REUSEADDR before it binds, so the
+    bind is not refused. A move to another server must keep that."""
+    from werkzeug.serving import make_server
+    from app import app, socketio
+    assert socketio.async_mode == 'threading'
+    server = make_server('127.0.0.1', 0, app, threaded=True)
+    try:
+        assert server.socket.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR) != 0
+    finally:
+        server.server_close()
 
 
 def _listening(port):

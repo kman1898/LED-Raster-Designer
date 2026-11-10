@@ -261,45 +261,81 @@ def test_a_click_types_enter_commits_esc_cancels(page):
     assert page.errors == []
 
 
+# Where the figure's text is drawn: the field's own text laid out in a span
+# with the field's font settings (tabular figures and letter spacing
+# included), so the edges between its characters are the browser's own, in
+# whatever font this machine falls back to. The figure is right-aligned.
+# (getComputedStyle(input).font is "" in Chromium, its font-variant-numeric
+# having no place in the shorthand: a canvas given it measures in its
+# default 10px sans-serif instead.)
+FIGURE_EDGES = """(id) => {
+    const e = document.getElementById(id), cs = getComputedStyle(e);
+    const s = document.createElement('span');
+    ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontStretch', 'fontVariantNumeric',
+     'fontFeatureSettings', 'fontKerning', 'letterSpacing', 'wordSpacing'].forEach(k => { s.style[k] = cs[k]; });
+    Object.assign(s.style, { position: 'fixed', left: '0', top: '0', whiteSpace: 'pre', visibility: 'hidden' });
+    document.body.appendChild(s);
+    const widths = [];
+    for (let i = 0; i <= e.value.length; i++) {
+        s.textContent = e.value.slice(0, i);
+        widths.push(s.getBoundingClientRect().width);
+    }
+    s.remove();
+    const r = e.getBoundingClientRect();
+    const right = r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
+    const left = right - widths[widths.length - 1];
+    return { left, right, edges: widths.map(w => left + w), box: [r.left, r.right] };
+}"""
+
+
 def test_a_single_click_puts_the_caret_where_it_lands(page):
     reset(page, ONE)
     open_3d(page, 1)
-    page.fill('#s3d-x', '12.5')
-    page.press('#s3d-x', 'Enter')
-    page.wait_for_timeout(300)
-    assert field(page, 'x') == '12.50'
-    box = page.locator('#s3d-x').bounding_box()
-    sel_js = "(() => { const e = document.getElementById('s3d-x'); return [e.selectionStart, e.selectionEnd]; })()"
-    # Where the figure's text actually sits, in this browser's own font
-    # (Linux and Windows draw the digits at different widths): its left
-    # and right edges in page pixels. The text is right-aligned.
-    text = page.evaluate("""() => {
-        const e = document.getElementById('s3d-x'), cs = getComputedStyle(e);
-        const c = document.createElement('canvas').getContext('2d');
-        c.font = cs.font;
-        const w = c.measureText(e.value).width;
-        const r = e.getBoundingClientRect();
-        const right = r.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth);
-        return { left: right - w, right };
-    }""")
-    # the middle of the figure: the caret inside it, nothing selected (the
-    # step arrows take the field's first and last 12 px while it is hovered)
-    page.mouse.click((text['left'] + text['right']) / 2, box['y'] + box['height'] / 2)
-    page.wait_for_timeout(100)
-    assert focused(page) == 's3d-x'
-    a, b = page.evaluate(sel_js)
-    assert a == b and 0 < a < 5, (a, b)
-    page.keyboard.press('Escape')
-    # left of the figure, clear of the step arrow: the caret before its
-    # first digit
-    left_x = max(box['x'] + 14, min(text['left'] - 3, text['left'] - 1))
-    assert left_x < text['left'], (left_x, text)
-    page.mouse.click(left_x, box['y'] + box['height'] / 2)
-    page.wait_for_timeout(100)
-    assert focused(page) == 's3d-x'
-    assert page.evaluate(sel_js) == [0, 0]
-    page.keyboard.press('Escape')
-    assert field(page, 'x') == '12.50', 'the clicks stepped nothing'
+    # The panel at its wide width, where the fields stop at 120 px. At the
+    # narrow default a field's figure fills it nearly edge to edge, and in
+    # a wider fallback font (Linux) its first digit sits under the < arrow
+    # that covers the field's first 12 px on hover: no spot is left of the
+    # figure and clear of the arrow there.
+    page.evaluate("document.documentElement.style.setProperty('--lrd-left-w', '460px')")
+    try:
+        page.wait_for_timeout(300)
+        page.fill('#s3d-x', '12.5')
+        page.press('#s3d-x', 'Enter')
+        page.wait_for_timeout(300)
+        assert field(page, 'x') == '12.50'
+        box = page.locator('#s3d-x').bounding_box()
+        y = box['y'] + box['height'] / 2
+        text = page.evaluate(FIGURE_EDGES, 's3d-x')
+        # the step arrows take the field's first and last 12 px on hover
+        free = (box['x'] + 13, box['x'] + box['width'] - 13)
+        assert text['left'] - free[0] >= 12, ('no room left of the figure', box, text)
+
+        def caret_after_click(x):
+            page.mouse.click(x, y)
+            page.wait_for_timeout(100)
+            assert focused(page) == 's3d-x'
+            got = page.evaluate("""() => { const e = document.getElementById('s3d-x');
+                return [e.selectionStart, e.selectionEnd]; }""")
+            page.keyboard.press('Escape')
+            page.wait_for_timeout(50)
+            # let go, so the next click is a first click again
+            assert focused(page) != 's3d-x'
+            return got
+
+        # left of the figure, clear of the arrow: before its first digit
+        left_x = (free[0] + text['left']) / 2
+        assert caret_after_click(left_x) == [0, 0], (left_x, text)
+        # on each edge between two characters, clear of the arrows: the
+        # caret there, nothing selected (half a character either side of
+        # an edge still lands on it)
+        inside = [(i, x) for i, x in enumerate(text['edges'])
+                  if 0 < i < len(text['edges']) - 1 and free[0] < x < free[1]]
+        assert len(inside) >= 3, ('too few edges clear of the arrows', text)
+        for i, x in inside:
+            assert caret_after_click(x) == [i, i], (i, x, text)
+        assert field(page, 'x') == '12.50', 'the clicks stepped nothing'
+    finally:
+        page.evaluate("document.documentElement.style.removeProperty('--lrd-left-w')")
     assert page.errors == []
 
 
