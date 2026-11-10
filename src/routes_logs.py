@@ -207,10 +207,38 @@ def reveal_logs_folder():
     return jsonify({'status': 'success', 'path': LOG_DIR_PATH})
 
 
+_BROWSERS = (
+    # Order matters: Edge and Opera also say "Chrome", Chrome also says
+    # "Safari", and the app's own WebKit windows say neither.
+    (re.compile(r'\bEdg(?:e|A|iOS)?/(\d+)'), 'Edge'),
+    (re.compile(r'\bOPR/(\d+)'), 'Opera'),
+    (re.compile(r'\b(?:Firefox|FxiOS)/(\d+(?:\.\d+)?)'), 'Firefox'),
+    (re.compile(r'\b(?:CriOS|Chrome)/(\d+)'), 'Chrome'),
+    (re.compile(r'\bVersion/(\d+(?:\.\d+)?)[^ ]*(?: Mobile/\S+)? Safari/'), 'Safari'),
+)
+
+
+def browser_name(ua):
+    """The browser a log line came from, said plainly ("Safari 27.2",
+    "Chrome 131"): the raw user agent leaves a report guessing, since every
+    browser claims to be several others."""
+    s = str(ua or '')
+    for pattern, name in _BROWSERS:
+        m = pattern.search(s)
+        if m:
+            return f'{name} {m.group(1)}'
+    if 'AppleWebKit/' in s:
+        return 'App window (WebKit)'
+    return 'Unknown browser'
+
+
 @logs_bp.route('/api/log', methods=['POST'])
 def client_log():
     data = request.json or {}
     action = data.get('action', 'client_log')
     details = data.get('details', {})
+    # Every page line says which browser sent it.
+    if isinstance(details, dict) and 'browser' not in details:
+        details = dict(details, browser=browser_name(request.headers.get('User-Agent')))
     log_event(action, details, source='client')
     return jsonify({'status': 'ok'})

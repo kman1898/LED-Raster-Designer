@@ -119,6 +119,9 @@
         }
         logLayout({
             native: !!feed,
+            // the app's own output window (its WebKit reads like Safari);
+            // a browser output leaves this to the server's reading
+            browser: feed ? 'App output window' : undefined,
             mac: isMac(),
             dpr: window.devicePixelRatio || 1,
             displayPxPerCss: k,

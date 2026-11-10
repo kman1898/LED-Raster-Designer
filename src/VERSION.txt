@@ -221,8 +221,9 @@ too. A canvas bigger than the display is never cut down or shrunk: the
 dialog warns before it opens, and the output stays black and says to set
 the display to the canvas size or use a smaller canvas.
 In the app, the dialog lists every display by name, resolution and
-position; pick one and Open output puts the canvas full screen on it,
-with nothing to drag or click. Esc on the output closes it, and so does
+position; pick one and Open output covers that whole display with the
+canvas, over the menu bar and the Dock on a Mac, with nothing to drag or
+click. Esc on the output closes it, and so does
 Close in the dialog's list.
 The output follows every edit as you make it.
 Output to Display can feed several displays at once: open another output

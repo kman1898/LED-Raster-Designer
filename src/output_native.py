@@ -21,8 +21,12 @@ pywebview 6.2.1, read for this:
   at once: cocoa queues it on the main run loop (AppHelper.callAfter), winforms
   Invokes it on the GUI thread. Both are safe from a Flask request thread.
 * cocoa puts a window with `screen=` on that screen (setFrameOrigin to the
-  screen's origin, then centers on it) and `fullscreen=True` sends it into
-  macOS full screen there (toggleFullScreen_, its own Space on that display).
+  screen's origin, then centers on it). Its `fullscreen=True` is NOT used:
+  it calls toggleFullScreen_ while the window is still being built, before
+  first_show orders it on screen, and on a Mac the window stayed a 960 x 540
+  box (1.7.0 beta.4). Once the window is shown it is laid over the whole
+  display instead (_cover_on_mac): the screen's own frame, above the menu
+  bar and Dock, on every Space.
 * winforms with `screen=` multiplies the screen's coordinates by the new
   window's DPI scale, which lands on the wrong display when Windows scaling is
   not 100%; its full screen then covers whichever display holds the window. So
@@ -129,11 +133,17 @@ class NativeOutputHost:
             except Exception:
                 pass
         windows = self._platform == 'win32'
-        w = max(320, min(960, int(screen.width)))
-        h = max(180, min(540, int(screen.height)))
+        mac = self._platform == 'darwin'
+        if mac:
+            # The display's own size from the start: the window is laid over
+            # the whole display once it is up (_cover_on_mac).
+            w, h = max(320, int(screen.width)), max(180, int(screen.height))
+        else:
+            w = max(320, min(960, int(screen.width)))
+            h = max(180, min(540, int(screen.height)))
         window = self._webview.create_window(
             title, url=url, screen=screen, width=w, height=h,
-            fullscreen=not windows, hidden=windows,
+            fullscreen=False, hidden=windows,
             frameless=True, easy_drag=False, resizable=True,
             background_color='#000000', text_select=False,
         )
@@ -149,11 +159,56 @@ class NativeOutputHost:
             self._place_on_windows(window, index)
             window.show()
             window.toggle_fullscreen()
+        if mac:
+            try:
+                window.events.shown += lambda: self._cover_on_mac(output_id, window, screen)
+            except Exception as exc:
+                self._log('output_native_cover_failed', {'id': output_id, 'error': f'{type(exc).__name__}: {exc}'})
         self._log('output_native_open', {
             'id': output_id, 'display': display, 'url': path,
             'platform': self._platform,
         })
         return display
+
+    # macOS window levels and collection behaviors (AppKit's values).
+    MAC_LEVEL_OVER_MENU_BAR = 24 + 1          # NSMainMenuWindowLevel + 1
+    MAC_BEHAVIOR = (1 << 0) | (1 << 4) | (1 << 6) | (1 << 8)
+    # CanJoinAllSpaces | Stationary | IgnoresCycle | FullScreenAuxiliary
+
+    def _cover_on_mac(self, output_id, window, screen):
+        """Lay the (borderless) window over the whole of its display: the
+        display's own frame, above the menu bar and the Dock, on every Space,
+        never moved by Mission Control. Not macOS full screen: that asks for
+        its own Space with an animation, and asked while pywebview builds the
+        window (before it is first shown) it never took (1.7.0 beta.4 on a
+        Mac: a 960 x 540 box, "fullscreen": false in the output's log)."""
+        frame = getattr(screen, 'frame', None)
+
+        def cover():
+            try:
+                ns = window.native
+                ns.setCollectionBehavior_(self.MAC_BEHAVIOR)
+                ns.setLevel_(self.MAC_LEVEL_OVER_MENU_BAR)
+                ns.setHasShadow_(False)
+                ns.setMovable_(False)
+                if frame is not None:
+                    ns.setFrame_display_(frame, True)
+                ns.orderFrontRegardless()
+                got = ns.frame()
+                self._log('output_native_covered', {
+                    'id': output_id,
+                    'frame': [int(got.origin.x), int(got.origin.y), int(got.size.width), int(got.size.height)],
+                    'display': [int(screen.width), int(screen.height)],
+                })
+            except Exception as exc:
+                self._log('output_native_cover_failed', {'id': output_id, 'error': f'{type(exc).__name__}: {exc}'})
+
+        self._on_mac_main(cover)
+
+    def _on_mac_main(self, fn):
+        """AppKit calls belong on the main thread."""
+        from PyObjCTools import AppHelper
+        AppHelper.callAfter(fn)
 
     def _place_on_windows(self, window, index):
         """Put the (hidden) form exactly on display `index`, in WinForms'

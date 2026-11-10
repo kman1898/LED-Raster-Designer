@@ -8,8 +8,10 @@ stood in for here; what is pinned:
   resolution as the OS shows it and its top-left corner (a Mac's bottom-up
   frames turned top-down), the main one marked;
 * an output opens with create_window(screen=<the chosen display>) on /output
-  with its feed id. macOS: fullscreen=True there (cocoa puts the window on
-  that screen, then full screen). Windows: opened hidden, put on the display's
+  with its feed id. macOS: the borderless window is laid over the display's
+  whole frame once shown, above the menu bar (not macOS full screen, which
+  never took on the window pywebview was still building). Windows: opened
+  hidden, put on the display's
   own bounds, shown, then full screen (winforms' own screen placement is off
   when Windows scaling is not 100%);
 * closing: from the dialog, from Esc in the output (the feed's close), or by
@@ -56,6 +58,7 @@ class FakeEvent:
 class FakeEvents:
     def __init__(self):
         self.closed = FakeEvent()
+        self.shown = FakeEvent()
 
 
 class FakeWindow:
@@ -126,22 +129,89 @@ def test_windows_displays_keep_their_coordinates():
     assert d[0]['main'] and not d[1]['main']
 
 
-def test_mac_opens_full_screen_on_the_chosen_screen():
-    host, wv, logs = host_for('darwin', mac_screens())
+class FakeRect:
+    def __init__(self, x, y, w, h):
+        self.origin = type('P', (), {'x': x, 'y': y})()
+        self.size = type('S', (), {'width': w, 'height': h})()
+
+
+class FakeNSWindow:
+    """The AppKit calls _cover_on_mac makes, in order."""
+    def __init__(self):
+        self.calls = []
+        self._frame = FakeRect(0, 0, 960, 540)
+
+    def setCollectionBehavior_(self, v):
+        self.calls.append(('behavior', v))
+
+    def setLevel_(self, v):
+        self.calls.append(('level', v))
+
+    def setHasShadow_(self, v):
+        self.calls.append(('shadow', v))
+
+    def setMovable_(self, v):
+        self.calls.append(('movable', v))
+
+    def setFrame_display_(self, frame, display):
+        self.calls.append(('frame', frame))
+        self._frame = frame
+
+    def orderFrontRegardless(self):
+        self.calls.append(('front',))
+
+    def frame(self):
+        return self._frame
+
+
+def test_mac_lays_the_window_over_the_whole_chosen_display(monkeypatch):
+    """Not macOS full screen (asked while pywebview builds the window it
+    never took: beta.4 on a Mac stayed a 960 x 540 box). Once shown, the
+    borderless window is set to the display's own frame, above the menu bar
+    and Dock, on every Space, on the main thread."""
+    screens = mac_screens()
+    screens[1].frame = FakeRect(1920, -880, 3840, 2160)
+    host, wv, logs = host_for('darwin', screens)
+    main = []
+    monkeypatch.setattr(host, '_on_mac_main', lambda fn: main.append(fn))
     shown = host.open('abc123def456', 1, '/output?canvas=c1&view=pixel-map&feed=abc123def456', 'Out')
     assert shown['index'] == 1 and shown['width'] == 3840
     (w,) = wv.created
     assert w.kwargs['screen'] is wv.screens[1]
-    assert w.kwargs['fullscreen'] is True
+    assert w.kwargs['fullscreen'] is False
     assert w.kwargs['hidden'] is False
     assert w.kwargs['frameless'] is True
+    assert (w.kwargs['width'], w.kwargs['height']) == (3840, 2160)
     assert w.kwargs['background_color'] == '#000000'
     assert w.kwargs['url'] == 'http://127.0.0.1:8050/output?canvas=c1&view=pixel-map&feed=abc123def456'
     assert w.kwargs['title'] == 'Out'
-    # cocoa goes full screen inside create_window; nothing else is called.
     assert wv.calls == ['create']
     assert host.is_open('abc123def456')
     assert logs[-1][0] == 'output_native_open'
+    # nothing touches AppKit until the window is up
+    assert main == []
+    w.native = FakeNSWindow()
+    w.events.shown.set()
+    assert len(main) == 1
+    main[0]()
+    calls = w.native.calls
+    assert ('level', 25) in calls                       # over the menu bar
+    assert ('behavior', 1 | 16 | 64 | 256) in calls     # every Space, stays put
+    assert ('frame', screens[1].frame) in calls         # the display's own frame
+    assert calls[-1] == ('front',)
+    covered = [d for a, d in logs if a == 'output_native_covered']
+    assert covered and covered[-1]['frame'] == [1920, -880, 3840, 2160]
+    assert covered[-1]['display'] == [3840, 2160]
+
+
+def test_mac_cover_failing_is_logged_not_raised(monkeypatch):
+    host, wv, logs = host_for('darwin', mac_screens())
+    monkeypatch.setattr(host, '_on_mac_main', lambda fn: fn())
+    host.open('abc123def457', 0, '/output?feed=abc123def457')
+    (w,) = wv.created
+    w.native = object()   # no AppKit methods
+    w.events.shown.set()
+    assert any(a == 'output_native_cover_failed' for a, _ in logs)
 
 
 def test_windows_places_the_hidden_window_then_goes_full_screen(monkeypatch):
