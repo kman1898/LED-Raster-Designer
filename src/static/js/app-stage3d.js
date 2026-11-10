@@ -206,14 +206,15 @@ function s3dChain(lengths, joints) {
 
 // The cabinets of one screen as rigid flat quads in the screen's own frame
 // (mm, origin at its centre, X right, Y up, the front facing +Z). Pure data:
-// no drawing library, so the debug hook and the tests read it as it is.
+// no drawing library, so the debug hook, the tests and the OBJ export
+// (app-obj-export.js) read it as it is.
 //
 // Columns and rows are the panels' own slots. The column chain bends the
 // screen about the upright (a curved wall), the row chain about the
 // left-right line (an arch, a ceiling, a kick); a cabinet is placed on its
 // row first and the result carried by its column, so a screen curved both
 // ways opens small gaps at the corners rather than warping a cabinet.
-function s3dBuild(layer, placement) {
+export function s3dBuild(layer, placement) {
     const panels = Array.isArray(layer.panels) ? layer.panels : [];
     const mx = mmPerPx(layer, 'x'), my = mmPerPx(layer, 'y');
     const colSpan = new Map(), rowSpan = new Map();
@@ -1195,10 +1196,12 @@ class _Stage3D {
         st.root.remove(e.obj);
         if (e.geo) e.geo.dispose();
         if (e.lineGeo) e.lineGeo.dispose();
+        if (e.labelGeo) e.labelGeo.dispose();
         if (e.tex) e.tex.dispose();
+        if (e.labelTex) e.labelTex.dispose();
         if (e.seam) { e.seam.geometry.dispose(); e.seam.material.dispose(); }
         this._s3dDropBars(e);
-        [e.frontMat, e.backMat, e.lineMat].forEach(m => { if (m) m.dispose(); });
+        [e.frontMat, e.backMat, e.lineMat, e.labelMat].forEach(m => { if (m) m.dispose(); });
         st.entries.delete(id);
     }
 
@@ -1211,6 +1214,9 @@ class _Stage3D {
             e.frontMat = new T.MeshBasicMaterial({ color: 0xffffff, side: T.FrontSide });
             e.backMat = new T.MeshLambertMaterial({ color: 0x2c2c2c, side: T.BackSide });
             e.lineMat = new T.LineBasicMaterial({ color: 0x0a0a0a, transparent: true, opacity: 0.9 });
+            // The screen's writing (_s3dPaint's label pass) on a sheet of its
+            // own over the seams: see _s3dBuildMesh.
+            e.labelMat = new T.MeshBasicMaterial({ transparent: true, depthWrite: false, side: T.FrontSide });
             e.obj.userData.layerId = layer.id;
             st.root.add(e.obj);
             st.entries.set(layer.id, e);
@@ -1261,8 +1267,10 @@ class _Stage3D {
         const uv = new Float32Array(n * 8);
         const idx = new Uint32Array(n * 6);
         const lines = new Float32Array(n * 2 * 8 * 3);
+        const over = new Float32Array(n * 12);
         const b = built.bounds;
         const off = 2;   // mm, seams off the faces
+        const labelOff = 5;   // mm, the writing off the front face
         built.quads.forEach((q, i) => {
             const corners = [q.tl, q.tr, q.br, q.bl];
             corners.forEach((c, k) => pos.set(c, i * 12 + k * 3));
@@ -1274,6 +1282,8 @@ class _Stage3D {
             idx.set([base + 3, base + 2, base + 1, base + 3, base + 1, base], i * 6);
             const nrm = norm(cross(sub(q.br, q.bl), sub(q.tr, q.bl)));
             q.normal = nrm;
+            corners.forEach((c, k) => over.set([c[0] + nrm[0] * labelOff, c[1] + nrm[1] * labelOff,
+                c[2] + nrm[2] * labelOff], i * 12 + k * 3));
             let li = i * 48;
             for (const sign of [1, -1]) {
                 const lift = (c) => [c[0] + nrm[0] * off * sign, c[1] + nrm[1] * off * sign, c[2] + nrm[2] * off * sign];
@@ -1285,6 +1295,7 @@ class _Stage3D {
         });
         if (e.geo) e.geo.dispose();
         if (e.lineGeo) e.lineGeo.dispose();
+        if (e.labelGeo) e.labelGeo.dispose();
         e.geo = new T.BufferGeometry();
         e.geo.setAttribute('position', new T.BufferAttribute(pos, 3));
         e.geo.setAttribute('uv', new T.BufferAttribute(uv, 2));
@@ -1293,16 +1304,31 @@ class _Stage3D {
         e.geo.computeBoundingSphere();
         e.lineGeo = new T.BufferGeometry();
         e.lineGeo.setAttribute('position', new T.BufferAttribute(lines, 3));
+        // The screen's writing - name plate, sizes, corner readouts - on
+        // the same cabinets 5 mm proud of the front: over the seam lines
+        // (2 mm) and a picked joint's strip (4 mm), so the seams never cross
+        // a label (Matt, 2026-11-09). It is depth tested, so a screen truly
+        // in front of this one still hides it, writes no depth, and is
+        // drawn after the seams (renderOrder); never picked.
+        e.labelGeo = new T.BufferGeometry();
+        e.labelGeo.setAttribute('position', new T.BufferAttribute(over, 3));
+        e.labelGeo.setAttribute('uv', new T.BufferAttribute(uv, 2));
+        e.labelGeo.setIndex(new T.BufferAttribute(idx, 1));
+        e.labelGeo.computeBoundingSphere();
         if (!e.front) {
             e.front = new T.Mesh(e.geo, e.frontMat);
             e.back = new T.Mesh(e.geo, e.backMat);
             e.lines = new T.LineSegments(e.lineGeo, e.lineMat);
+            e.labels = new T.Mesh(e.labelGeo, e.labelMat);
+            e.labels.renderOrder = 2;
+            e.labels.visible = !!e.labelMat.map;
             [e.front, e.back].forEach(m => { m.userData.layerId = e.id; });
-            e.obj.add(e.front, e.back, e.lines);
+            e.obj.add(e.front, e.back, e.lines, e.labels);
         } else {
             e.front.geometry = e.geo;
             e.back.geometry = e.geo;
             e.lines.geometry = e.lineGeo;
+            e.labels.geometry = e.labelGeo;
         }
         e.seamKey = '';
     }
@@ -1415,6 +1441,9 @@ class _Stage3D {
     // the raster clip off, framed on this screen's own bounds - and every
     // value put back afterwards. The Pixel Map rotation is a processor
     // mapping, not how the wall stands, so the drawing is taken unrotated.
+    // It is taken in two passes: the cabinets with every line on them onto
+    // the face, and the screen's writing alone (the Screen name stage) onto
+    // a transparent sheet laid over the seams (_s3dBuildMesh).
     _s3dPaint(e, layer) {
         const st = this._s3dState();
         const T = st.T;
@@ -1429,12 +1458,17 @@ class _Stage3D {
         e.canvas.width = w;
         e.canvas.height = h;
         const ctx = e.canvas.getContext('2d', { alpha: false });
+        if (!e.labelCanvas) e.labelCanvas = document.createElement('canvas');
+        e.labelCanvas.width = w;
+        e.labelCanvas.height = h;
+        const labelCtx = e.labelCanvas.getContext('2d', { alpha: true });
+        const stages = (window.CanvasRenderer && window.CanvasRenderer.RENDER_STAGES) || [];
         const proj = this.project;
         const canvases = (proj && Array.isArray(proj.canvases)) ? proj.canvases : [];
         const saved = {
             canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
             printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
-            hideNames: r.hideScreenNames, ignoreRaster: r.ignoreRasterBounds,
+            hideNames: r.hideScreenNames, ignoreRaster: r.ignoreRasterBounds, stages: r.renderStages,
             active: proj ? proj.active_canvas_id : null,
             canvasVis: canvases.map(c => [c, c.visible]),
             layerVis: (proj.layers || []).map(l => [l, l.visible]),
@@ -1460,7 +1494,16 @@ class _Stage3D {
             r.zoom = scale;
             r.panX = -(ws.wx + b.x) * scale;
             r.panY = -(ws.wy + b.y) * scale;
-            r.render();
+            if (stages.includes('Screen name')) {
+                r.renderStages = new Set(stages.filter(n => n !== 'Screen name'));
+                r.render();
+                r.canvas = e.labelCanvas;
+                r.ctx = labelCtx;
+                r.renderStages = new Set(['Screen name']);
+                r.render();
+            } else {
+                r.render();
+            }
         } catch (err) {
             sendClientLog('stage3d_paint_failed', { id: layer.id, error: String((err && err.message) || err) });
         } finally {
@@ -1476,6 +1519,7 @@ class _Stage3D {
             r.printerMode = saved.printer;
             r.hideScreenNames = saved.hideNames;
             r.ignoreRasterBounds = saved.ignoreRaster;
+            r.renderStages = saved.stages;
             r.viewMode = saved.viewMode;
             r.zoom = saved.zoom;
             r.panX = saved.panX;
@@ -1493,6 +1537,20 @@ class _Stage3D {
         }
         e.tex.needsUpdate = true;
         e.texSize = [w, h];
+        if (!e.labelTex) {
+            e.labelTex = new T.CanvasTexture(e.labelCanvas);
+            e.labelTex.colorSpace = T.SRGBColorSpace;
+            if (st.renderer) e.labelTex.anisotropy = st.renderer.capabilities.getMaxAnisotropy();
+            e.labelMat.map = e.labelTex;
+            e.labelMat.needsUpdate = true;
+        } else if (!e.labelTexSize || e.labelTexSize[0] !== w || e.labelTexSize[1] !== h) {
+            // a new size needs new storage on the card
+            e.labelTex.dispose();
+            e.labelTex.image = e.labelCanvas;
+        }
+        e.labelTexSize = [w, h];
+        e.labelTex.needsUpdate = true;
+        if (e.labels) e.labels.visible = true;
     }
 
     // The selected screens' seams in the accent colour, and the picked

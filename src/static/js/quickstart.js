@@ -3214,7 +3214,7 @@
     // The person's own state these steps touch that is NOT on the project
     // (the project itself comes back whole on exit): the Notes panel's
     // fold, the IDM Locator's next-mark style and colour (kept per viewer
-    // in localStorage), the Output to Display dialog's view and scale (the
+    // in localStorage), the Output to Display dialog's view (the
     // dialog keeps them between openings), and the 3D view's camera, which
     // is this machine's within one project - restore3d makes the next 3D
     // sync take the restored project's own camera, units and grid again.
@@ -3446,7 +3446,22 @@
                         return w && Number(w.cabinet_width) === 200 && Number(w.cabinet_height) === 200
                             && w.panels && w.panels[0] && Number(w.panels[0].width) === 200;
                     });
-                }).then(function () { frameWalls(); });
+                }).then(function (ok) {
+                    // Said in full when it does not take (1.7.0 CI: once, with
+                    // nothing to go on): what the screen holds, what the fields
+                    // show, and how many saves are still on their way.
+                    if (!ok) {
+                        var w = wall(), a = A();
+                        var pending = (a && a._inflightLayerPuts ? a._inflightLayerPuts.size : 0)
+                            + (a && a._layerPutChains ? a._layerPutChains.size : 0);
+                        var f = function (id) { var el = document.getElementById(id); return el ? el.value : '?'; };
+                        throw new Error('the screen holds ' + (w ? w.cabinet_width + ' x ' + w.cabinet_height
+                            + ', first panel ' + (w.panels && w.panels[0] ? w.panels[0].width : '?') : 'no screen')
+                            + '; the fields show ' + f('cabinet-width') + ' x ' + f('cabinet-height')
+                            + '; ' + pending + ' saves on their way');
+                    }
+                    frameWalls();
+                });
             },
             check: function () {
                 var w = wall();
@@ -5884,6 +5899,42 @@
                     ? n.textContent + ' header bars in the show: ' + String((list && list.textContent) || '').replace(/\n/g, ', ') + '.' : null;
             }
         },
+        // The Header/Footer tab's Curve (1.7.0, app-curve.js): ticked, the
+        // curve calculator lays the wall's bars from the lit sizes and sets
+        // the angle at every join between them. Left on, so the 3D steps
+        // show the wall curved.
+        riggingCurve: {
+            since: '1.7.0',
+            target: '#rigging-curve', place: 'right', title: 'Curve a wall',
+            body: 'Tick Curve and it lays the lit bar sizes and sets the angle at every join for the curve you ask. Drag the red dot on the plan to build from any panel, or pick another way below.',
+            before: function () {
+                switchView('rigging');
+                var w = wall();
+                if (w) A().setSelectedLayersByIds([w.id], w.id);
+                A().refreshRiggingPanel();
+            },
+            act: function (t) {
+                t.mem.before = headerBars();
+                return t.click('#rigging-curve-on').then(function () {
+                    return t.wait(function () {
+                        var w = wall();
+                        var j = w && w.stage3d && w.stage3d.jointsCol;
+                        return w && w.riggingCurve && w.riggingCurve.on && j && Object.keys(j).length === w.columns - 1;
+                    }, 10000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the curve was not laid');
+                    return t.spot($('#rigging-curve-result')).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var w = wall();
+                var j = (w && w.stage3d && w.stage3d.jointsCol) || {};
+                var bent = Object.keys(j).filter(function (k) { return j[k]; }).length;
+                var head = $('#rigging-curve-head');
+                return w && w.riggingCurve && w.riggingCurve.on && bent && headerBars()
+                    ? 'DEMO WALL curves 20% of a circle on ' + headerBars().split(',').join(' + ') + ': ' + ((head && head.textContent) || '') + '.' : null;
+            }
+        },
         // Services (1.5.3, app-services.js): the house power several
         // distros are fed from. One step adds the Service card, the next
         // drags the distro's header bar onto it.
@@ -6604,6 +6655,42 @@
             },
             check: function (mem) {
                 return mem.svg && !exportOpen() ? 'Export SVG opened the Export dialog with SVG picked; Cancel closed it and nothing was saved.' : null;
+            },
+            after: function () { hideMenus(); closeExport(); }
+        },
+        // Export OBJ (1.7.0, app-obj-export.js): the File menu opens the
+        // Export dialog on OBJ, and its preview lists every file.
+        objExport: {
+            since: '1.7.0',
+            target: '[data-menu="file"]', place: 'bottom', title: 'Export a 3D model',
+            avoid: ['#menu-file [data-action="export-obj"]', '#export-preview', '#export-cancel'],
+            body: 'Export OBJ saves each screen as it stands on the 3D stage, in meters, mapped to its canvas, with the Pixel Map PNG beside it. The dialog lists every file it writes.',
+            before: function () { closeExport(); hideMenus(); },
+            act: function (t) {
+                return t.click('[data-menu="file"]').then(function () {
+                    return t.wait(function () { var m = $('#menu-file'); return m && m.style.display === 'block' ? m : null; });
+                }).then(function (m) {
+                    if (!m) throw new Error('the File menu did not open');
+                    return t.click('#menu-file [data-action="export-obj"]');
+                }).then(function () {
+                    return t.wait(function () {
+                        var f = $('#export-format'), p = $('#export-preview');
+                        return exportOpen() && f && f.value === 'obj' && p && /\.obj/.test(p.textContent);
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Export dialog did not open on OBJ');
+                    t.mem.files = ($('#export-preview').innerText || '').split(/\s+/).filter(Boolean);
+                    return t.spot($('#export-preview')).then(function () { return t.pause(PACE.opened); });
+                }).then(function () {
+                    return t.click('#export-cancel');
+                }).then(function () {
+                    return t.wait(function () { return !exportOpen(); });
+                });
+            },
+            check: function (mem) {
+                var objs = (mem.files || []).filter(function (f) { return /\.obj$/.test(f); });
+                return objs.length && !exportOpen()
+                    ? 'OBJ would write ' + mem.files.length + ' files, ' + objs.length + ' model' + (objs.length === 1 ? '' : 's') + ' among them; Cancel closed it and nothing was saved.' : null;
             },
             after: function () { hideMenus(); closeExport(); }
         },
@@ -7396,7 +7483,7 @@
             window: 'output',
             target: '[data-menu="view"]', place: 'bottom', title: 'Output to Display',
             avoid: ['[data-menu="view"]', '#menu-view [data-action="output-to-display"]'],
-            body: 'View &rsaquo; Output to Display sends a canvas full screen to another display, and it follows every edit live. Open one for each display you need.',
+            body: 'View &rsaquo; Output to Display sends a canvas full screen to another display, live. Pick the canvas, view and display, then Open output; open one for each display you need.',
             before: function () { closeOutput(); },
             act: function (t) {
                 // Up already on a Back from the next step, which shares it.
@@ -7425,7 +7512,7 @@
             target: '#output-display-view', ring: ['#output-display-view', '#output-display-note'],
             place: 'right', title: 'The view, at 1:1',
             avoid: ['#output-display-view', '#output-display-note'],
-            body: 'Every tab but 3D can go out, the IDM Locator included. Every output is 1:1: one raster pixel on each display pixel, from the top-left corner.',
+            body: 'Every tab but 3D can go out, at 1:1: one canvas pixel per display pixel from the top-left corner. Unused canvas stays black, and a canvas bigger than the display is not sent.',
             before: function () {
                 var a = A();
                 if (!outputOpen() && a && typeof a.openOutputDisplayDialog === 'function') a.openOutputDisplayDialog();
@@ -7761,7 +7848,7 @@
                     'cableStockPieces', 'powerCableTags',
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
                     'addService', 'serviceRating', 'serviceDistro', 'feederLength',
-                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals',
+                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurve',
                     'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
                     's3dOpen', 's3dSelect', 's3dLook', 's3dHandles', 's3dCurve', 's3dYaw', 's3dCamera', 's3dFocus',
                     's3dBars', 's3dJoint',
@@ -7769,7 +7856,7 @@
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
                     'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist',
                     'groupScreens', 'groupNames', 'groupDrag',
-                    'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'preferences',
+                    'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'objExport', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
                     'redrawAsOne', 'sweepPorts', 'helpMenu', 'checkUpdates', 'outroAdvanced']
         }

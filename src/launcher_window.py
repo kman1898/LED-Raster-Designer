@@ -610,6 +610,24 @@ def _start_statusitem_mac(api):
     AppHelper.callAfter(make)
 
 
+def _register_native_outputs(webview, api):
+    """Output to Display opens its outputs as native windows owned by this
+    GUI loop: full screen on the display the crew picks, with no dragging
+    (output_native.py, routes_output.py). Without this the designer falls
+    back to browser windows."""
+    try:
+        import output_native
+        import routes_output
+        host = output_native.NativeOutputHost(
+            webview, lambda: get_display_url(api.settings), log=_launcher_log)
+        routes_output.set_native_host(host)
+    except Exception as exc:
+        _launcher_log('output_native_unavailable', {
+            'error': f'{type(exc).__name__}: {exc}',
+            'traceback': _format_exc(exc),
+        })
+
+
 def run_window(settings):
     """Create and run the launcher window (blocks the main thread)."""
     import webview  # pywebview
@@ -671,6 +689,8 @@ def run_window(settings):
     import updater
     updater.set_quit_handler(quit_for_update)
 
+    _register_native_outputs(webview, api)
+
     # A failure in any of this used to escape main() entirely. With no console
     # on the frozen Windows build the traceback went nowhere, and because
     # pystray's detached icon runs on a non-daemon thread the process then sat
@@ -715,6 +735,13 @@ def _launcher_window_fallback(settings, api, exc):
         'hint': hint,
     })
     api.mark_window_unavailable()
+    # No GUI loop, so no native output windows: the designer opens browser
+    # windows for its outputs instead.
+    try:
+        import routes_output
+        routes_output.set_native_host(None)
+    except Exception:
+        pass
 
     url = get_display_url(settings)
     try:

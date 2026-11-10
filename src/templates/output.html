@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- Output to Display (View menu): one canvas's raster, nothing else, for
-         a second monitor feeding an LED processor input. The designer window
-         that opened this page draws every frame into the canvas below with
-         its own renderer (app-output-display.js); this page only holds the
-         pixels, sizes them 1:1 and handles full screen. -->
+         a second monitor feeding an LED processor input. The designer draws
+         every frame with its own renderer (app-output-display.js) and hands
+         it to this page, directly in a browser window or through the server
+         in the desktop app's native full-screen window; this page only holds
+         the pixels, one canvas pixel per display pixel from the top-left
+         corner (output-display.js), and handles full screen and closing. -->
     <title>Output</title>
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
     <style>
