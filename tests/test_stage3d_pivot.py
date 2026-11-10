@@ -606,3 +606,67 @@ def test_adding_a_footer_leaves_the_panels_where_they_are(page):
     want = settled(page, lambda: field(page, 'y'), lambda v: v != '0.00')
     assert float(want) == pytest.approx(-152.4 * 0.9848 / FT, abs=0.01)
     assert page.errors == []
+
+
+# ── 6. Export > OBJ stands every screen where the stage does ─────────────
+
+# Each screen's OBJ faces (app-obj-export.js objFacesOf, in meters) back in
+# stage mm, corner order [tl, tr, br, bl] like _s3dDebugCorners.
+OBJ_CORNERS_JS = """(id) => {
+    const app = window.app;
+    const l = app.project.layers.find(x => x.id === id);
+    return app.objFacesOf(l, {w: 1920, h: 1080}).map(f => [3, 2, 1, 0].map(k => f.corners[k].map(n => n * 1000)));
+}"""
+
+
+def obj_corners(page, layer_id):
+    return page.evaluate(OBJ_CORNERS_JS, layer_id)
+
+
+def assert_obj_matches_stage(page, layer_id, label):
+    stage = corners(page, layer_id)
+    faces = obj_corners(page, layer_id)
+    assert len(faces) == len(stage), label
+    for face, quad in zip(faces, stage):
+        for a, b in zip(face, quad['corners']):
+            assert close(a, b, tol=0.01), (label, quad['row'], quad['col'], a, b)
+
+
+def test_the_obj_stands_every_screen_where_the_stage_does(page):
+    """Old centre blocks, a turned screen and a footed one: every OBJ corner
+    is the stage's own, so the OBJ's floor is the stage's floor (Y 0) and
+    its turning point the bottom middle."""
+    cases = _centre_cases()
+    specs = [dict(c['spec'], name=f'Old {i}', offset_x=i * 2000, stage3d=c['block'])
+             for i, c in enumerate(cases)]
+    specs.append({'name': 'Floor', 'columns': 4, 'rows': 2, 'offset_x': len(cases) * 2000})
+    specs.append({'name': 'Footed', 'columns': 4, 'rows': 2, 'offset_x': len(cases) * 2000 + 700,
+                  'footer': [2, 2]})
+    ids = reset(page, specs)
+    open_3d(page, len(ids))
+    for layer_id, case in zip(ids, cases):
+        assert_obj_matches_stage(page, layer_id, case['name'])
+        # and the stage stands the old block where the first betas did
+        want = {(q['row'], q['col']): q['corners'] for q in case['corners']}
+        for face, quad in zip(obj_corners(page, layer_id), corners(page, layer_id)):
+            for a, b in zip(face, want[(quad['row'], quad['col'])]):
+                assert close(a, b), (case['name'], a, b)
+    floor_id, foot_id = ids[-2], ids[-1]
+    # on the floor: the panels' bottom edge at Y 0 in the OBJ
+    ys = [p[1] for f in obj_corners(page, floor_id) for p in f]
+    assert min(ys) == pytest.approx(0, abs=0.001) and max(ys) == pytest.approx(1000, abs=0.001)
+    # a footer stands on the floor, so the panels start 6 in up
+    ys = [p[1] for f in obj_corners(page, foot_id) for p in f]
+    assert min(ys) == pytest.approx(152.4, abs=0.001)
+    # turned all three ways about the bottom middle: still the stage's own
+    page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {floor_id}))")
+    page.wait_for_timeout(200)
+    x_before = stored(page, floor_id) or screen(page, floor_id)['placement']
+    for name, deg in (('pitch', '20'), ('yaw', '35'), ('roll', '-10')):
+        type_field(page, name, deg)
+    turned = settled(page, lambda: stored(page, floor_id), lambda v: v and v.get('roll') == -10)
+    assert turned['pivot'] == 'bottom'
+    assert close([turned['x'], turned['y'], turned['z']], [x_before['x'], x_before['y'], x_before['z']], tol=0.001)
+    settled(page, lambda: screen(page, floor_id), lambda v: v['placement']['roll'] == -10)
+    assert_obj_matches_stage(page, floor_id, 'turned')
+    assert page.errors == []
