@@ -4427,6 +4427,33 @@
             },
             after: function () { closePopover(); }
         },
+        // IP addresses (owner, 2026-11-09): each unit's IP, subnet, gateway
+        // and note under NETWORK on the same gear, the backup unit's under
+        // the main's - the gear the step before left open. One IP typed,
+        // Enter commits it; the binder's Network page lists every unit.
+        processorIp: {
+            since: '1.7.0',
+            target: function () { var p = proc(); return p ? '[data-hwpop="proc-' + p.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'IP addresses',
+            body: 'Under NETWORK, type each unit&rsquo;s IP, and its backup&rsquo;s; a bad address turns red. The show&rsquo;s subnet and gateway fill any left blank, and every unit prints on the binder&rsquo;s Network page.',
+            window: procGearWindow,
+            before: function () { switchView('data-flow'); },
+            act: function (t) {
+                var p = proc();
+                return openGear(t, 'proc-' + p.id).then(function (pop) {
+                    if (!pop) throw new Error('the gear popover did not open');
+                    return t.type('[data-lrd-field="processor-net-ip-' + p.id + '"]', '10.0.0.10', { enter: true });
+                }).then(function () {
+                    return t.wait(function () { var q = proc(); return q && q.network && q.network.ip === '10.0.0.10'; });
+                });
+            },
+            check: function () {
+                var p = proc();
+                if (!p || !p.network || p.network.ip !== '10.0.0.10') return null;
+                return (p.name || p.deviceName) + ' is at 10.0.0.10. Its header shows the IP, and the binder prints it.';
+            },
+            after: function () { closePopover(); }
+        },
         // Mixed (owner, 2026-10-29: "on say H series i have 3 16 port
         // cards. and i want card 1 and 2 to be primary and backup but then
         // card 3 i want port level backup"). The guide's own processor is a
@@ -7967,7 +7994,7 @@
             seed: { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } },
             steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'startPage', 'startPanel', 'sameAsLast', 'avgPower', 'gridSize', 'fit', 'blankCabinet', 'quickPalettes',
                     'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'zPattern', 'addProcessor',
-                    'nameProcessor', 'redundancy', 'backupProcessor', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
+                    'nameProcessor', 'redundancy', 'backupProcessor', 'processorIp', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
                     'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'procCableList', 'panelWatts', 'panelInput', 'breakoutType',

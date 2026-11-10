@@ -215,6 +215,18 @@ A SETUP FILE FOR WINDOWS
   alone, so it does not ask for an administrator password, and the next
   version installs over this one with your presets and settings kept.
 
+IP ADDRESSES ON THE PROCESSORS
+
+- NEW: Each processor takes an IP address, a subnet mask, a gateway and a
+  short note, and so does its backup processor, under Network on the
+  processor's gear. Set the subnet and gateway once for the whole show and
+  any unit left blank uses them. An entry that isn't an address turns red,
+  and two units on one IP get a warning naming both. Nothing is blocked.
+- NEW: The binder prints them. Each processor's sheet lists its IPs, each
+  screen's Data sheet shows its processor's IP, and a new Network page puts
+  every unit in one table, so the crew can set up their laptops from one
+  place. It has its own tick in the export dialog.
+
 ALSO NEW
 
 - NEW: The Notes panel has a checklist under the notes: add items, tick

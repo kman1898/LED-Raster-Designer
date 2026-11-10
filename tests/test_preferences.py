@@ -55,7 +55,7 @@ TABS = {
     'binder': ['pref-binder-sheet', 'pref-binder-screen-order', 'pref-binder-colour',
                'pref-binder-printer', 'pref-binder-side-power', 'pref-binder-side-data',
                'pref-binder-side-both', 'pref-binder-cover', 'pref-binder-pull',
-               'pref-binder-hardware', 'pref-binder-wiring', 'pref-binder-fiber', 'pref-binder-rigging', 'pref-binder-title-block',
+               'pref-binder-hardware', 'pref-binder-wiring', 'pref-binder-fiber', 'pref-binder-rigging', 'pref-binder-network', 'pref-binder-title-block',
                'pref-binder-designer', 'pref-binder-pm-name', 'pref-binder-pm-phone',
                'pref-binder-pm-email', 'pref-binder-drafter'],
     'pull': ['pref-pull-engineer', 'pref-pull-rev', 'pref-pull-power-jump-name-true1',
@@ -83,8 +83,9 @@ ALL_IDS = [i for ids in TABS.values() for i in ids]
 # 1.5 audit: the distro voltage + phase pair became one system picker.
 # Quick palettes: the source and sixteen pickers (105 + 17), and the
 # binder's Header/Footer default. The logo row went in 1.7.0: each show
-# keeps its own logo (test_binder_remembers.py).
-assert len(ALL_IDS) == 122
+# keeps its own logo (test_binder_remembers.py). The binder's Network
+# default came with processor IPs (2026-11-09).
+assert len(ALL_IDS) == 123
 
 # Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
 # the dialog is given, the preference key, the layer property it lands on).
@@ -240,6 +241,7 @@ NEW_FIELDS = [
     ('pref-binder-wiring', True, 'binderWiring', True),
     ('pref-binder-fiber', False, 'binderFiber', False),
     ('pref-binder-rigging', False, 'binderRigging', False),
+    ('pref-binder-network', False, 'binderNetwork', False),
     ('pref-binder-title-block', False, 'binderTitleBlock', False),
     ('pref-binder-designer', 'Dee Signer', 'binderDesigner', 'Dee Signer'),
     ('pref-binder-pm-name', 'Pam Manager', 'binderPmName', 'Pam Manager'),
