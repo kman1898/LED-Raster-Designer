@@ -380,6 +380,8 @@ FIXES
   but not change the show: Open, New, Undo and edits there say "A guide is
   running in another window. Finish it there first." Closing the guide's
   tab frees them at once.
+- FIX: Two quick changes to one screen no longer show the first change
+  again for a moment while the second one saves.
 
 v1.6.0 - November 6, 2026
 ----------------------------
