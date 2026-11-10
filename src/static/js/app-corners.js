@@ -190,6 +190,47 @@ class _Corners {
         return { others: out.filter((l, i) => out.indexOf(l) === i && !(layers || []).includes(l)), curved };
     }
 
+    // The panels each corner bar on `layers` covers in a custom row, before
+    // a Corners edit moves or takes it off: Map(id -> { layer, kind,
+    // panels }). Auto rows are laid again and curved screens are the
+    // Curve's, so only custom rows are kept.
+    _cornerPiecesBefore(layers) {
+        const out = new Map();
+        for (const l of layers || []) {
+            if (typeof this.riggingRow !== 'function' || !this._riggingCornersApply(l)) continue;
+            const kind = this.riggingSideOf(l);
+            if (kind === 'both') continue;
+            const row = this.riggingRow(l, kind);
+            if (!row.custom || row.layers.some(m => this._layerLocked(m))) continue;
+            if (typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(l)) continue;
+            const panels = new Set();
+            for (const pc of this.riggingCornerPiecesOf(l)) for (let k = pc.start; k < pc.start + pc.size; k++) panels.add(k);
+            if (panels.size) out.set(l.id, { layer: l, kind, panels });
+        }
+        return out;
+    }
+
+    // After the edit: the panels a corner bar left in a custom row that no
+    // bar covers now are named (QA, 2026-11-10). A custom row may have
+    // gaps, so the tab's no-longer-fit box never names them; without this
+    // nothing said the bars laid there by hand had gone with the corner.
+    _cornerSayBare(before) {
+        const lines = [];
+        for (const { layer, kind, panels } of (before || new Map()).values()) {
+            const covered = new Set();
+            for (const b of this.riggingSliceOf(layer, kind)) for (let k = b.start; k < b.start + b.size; k++) covered.add(k);
+            const bare = [...panels].filter(k => !covered.has(k)).sort((a, b) => a - b).map(k => k + 1);
+            if (!bare.length) continue;
+            const run = bare.length > 2 && bare[bare.length - 1] - bare[0] === bare.length - 1;
+            const words = bare.length === 1 ? `Panel ${bare[0]}`
+                : run ? `Panels ${bare[0]} to ${bare[bare.length - 1]}`
+                    : `Panels ${bare.slice(0, -1).join(', ')} and ${bare[bare.length - 1]}`;
+            const name = layer.name || `Screen ${layer.id}`;
+            lines.push(`${words} of ${name} ${bare.length === 1 ? 'is' : 'are'} left without a ${kind} bar.`);
+        }
+        if (lines.length) this._toast(`${lines.join(' ')} Lay bars there by hand, or press Auto.`, false, 7000);
+    }
+
     // A Corners edit saved as one undo step: the screens it changed, the
     // others its bars changed, and a curved screen's Curve laid again
     // around its corners, all together (app-curve.js riggingCurveRelayLater).
@@ -235,6 +276,7 @@ class _Corners {
         }
         const changed = [];
         const blocked = [];
+        const before = key === 'at' ? this._cornerPiecesBefore(screens) : null;
         for (const l of screens) {
             const list = this.riggingCornersOf(l);
             const i = list.findIndex(c => c.at === at);
@@ -256,6 +298,7 @@ class _Corners {
         }
         // A corner that moved splits its bars somewhere else.
         const relay = patch.at !== undefined ? this._cornerRelayBars(changed) : null;
+        if (before) this._cornerSayBare(new Map([...before].filter(([id]) => changed.some(l => l.id === id))));
         this._cornerCommit(changed, relay, 'Corner');
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
@@ -263,13 +306,19 @@ class _Corners {
 
     removeRiggingCorner(at) {
         const changed = [];
-        for (const l of this._cornerTargets()) {
+        const targets = this._cornerTargets();
+        const before = this._cornerPiecesBefore(targets);
+        for (const l of targets) {
             const list = this.riggingCornersOf(l);
             if (!list.some(c => c.at === at)) continue;
             l.riggingCorners = list.filter(c => c.at !== at);
             changed.push(l);
         }
-        if (changed.length) this._cornerCommit(changed, this._cornerRelayBars(changed), 'Remove Corner');
+        if (changed.length) {
+            const relay = this._cornerRelayBars(changed);
+            this._cornerSayBare(new Map([...before].filter(([id]) => changed.some(l => l.id === id))));
+            this._cornerCommit(changed, relay, 'Remove Corner');
+        }
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
     }

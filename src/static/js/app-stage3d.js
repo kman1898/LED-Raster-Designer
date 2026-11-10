@@ -28,7 +28,12 @@
 import { LEDRasterApp } from './app-core.js';
 import { evaluateMathExpression, sendClientLog } from './helpers.js';
 
-const JOINT_LIMIT = 15;          // degrees, either way, at any joint
+// Degrees, either way, at any joint: a half turn. A joint keeps the angle
+// it is given, so 3D and the OBJ draw exactly what the Curve lays (QA,
+// 2026-11-10: every joint was held to 15, and a 20 degree Curve drew
+// shallower than the wall it builds); only a figure past a half turn is
+// held to it. app.py STAGE3D_JOINT_LIMIT is the same.
+const JOINT_LIMIT = 180;
 export const FT_MM = 304.8;
 // X, Y and Z measure the middle of the bottom edge (the block's marker).
 export const PIVOT = 'bottom';
@@ -103,11 +108,9 @@ function mmPerPx(layer, axis) {
 // copy is then placed from its own, already nudged, Show Look position.
 // `ref` is the screen whose mm per pixel sets the nudge (a group's copy
 // nudges every member by the first member's, so the wall keeps its shape).
-// `footerMm` is the source's footer (s3dResolve), so a copy of an old
-// block stands where its source stands.
-export function s3dCopyPlacement(layer, dxPx, dyPx, ref = null, footerMm = 0) {
+export function s3dCopyPlacement(layer, dxPx, dyPx, ref = null) {
     if (!layer || (layer.type || 'screen') !== 'screen') return undefined;
-    const p = s3dResolve(layer, layer.stage3d, footerMm);
+    const p = s3dResolve(layer, layer.stage3d);
     if (!p) return undefined;
     const scale = ref || layer;
     p.x = round(p.x + (Number(dxPx) || 0) * mmPerPx(scale, 'x'), 3);
@@ -543,21 +546,11 @@ export function s3dBaseOffset(layer, placement) {
 // bottom edge. A block saved before the marker held the screen's centre:
 // the centre is moved to the bottom middle by the screen's own turn, so
 // every cabinet stands exactly where it stood. Null with no block.
-//
-// Such a block was saved before the footer stood 6 in tall under the
-// panels, so it never made room for one: read as it was, a screen whose
-// panels stood on the floor hung its footer below it. With `footerMm`
-// (the screen's footer as it stands now, _s3dFooterMm) an old block reads
-// the way a footer added to a placed screen does (owner, 2026-11-09: the
-// footer lands where the panels stood, the panels go 6 in up their own
-// lean, and a footer never stays below the floor): the footer's foot is
-// the bottom middle the block gives. A marked block is never moved.
-export function s3dResolve(layer, block, footerMm = 0) {
+export function s3dResolve(layer, block) {
     const p = s3dSanitize(block);
     if (!p || p.pivot === PIVOT) return p;
     const off = quatRotate(quatFromPlacement(p), s3dBaseOffset(layer, p));
-    const out = { ...p, x: p.x + off[0], y: p.y + off[1], z: p.z + off[2], pivot: PIVOT };
-    return footerMm > 0 ? s3dStoredFrom(layer, out, footerMm) : out;
+    return { ...p, x: p.x + off[0], y: p.y + off[1], z: p.z + off[2], pivot: PIVOT };
 }
 
 // The world corners [tl, tr, br, bl] of every cabinet of `layer` placed by
@@ -930,7 +923,7 @@ class _Stage3D {
     // bottom edge, Y that edge's height (0 for the lowest screen, which
     // stands on the floor).
     _s3dPlacementOf(layer, layout) {
-        const own = layer ? this._s3dResolveOwn(layer) : null;
+        const own = layer ? s3dResolve(layer, layer.stage3d) : null;
         if (own) return own;
         const lay = layout || this._s3dLayout();
         const rect = this._s3dShowRect(layer, lay.byId);
@@ -938,16 +931,6 @@ class _Stage3D {
             x: round(rect.left + rect.w / 2, 3), y: round(rect.bottom + lay.lift, 3), z: 0,
             pitch: 0, yaw: 0, roll: 0, curveCol: 0, curveRow: 0, jointsCol: {}, jointsRow: {}, pivot: PIVOT,
         };
-    }
-
-    // `layer`'s own block as the placement it stands for (s3dResolve), an
-    // old block making room for the footer the screen stands now. Null
-    // with no block.
-    _s3dResolveOwn(layer) {
-        const block = layer && layer.stage3d;
-        if (!block) return null;
-        const old = !(typeof block === 'object' && block.pivot === PIVOT);
-        return s3dResolve(layer, block, old ? this._s3dFooterMm(layer) : 0);
     }
 
     // 6 in when `layer` stands a footer on the stage, else 0 (s3dFooterMm).
@@ -1000,16 +983,13 @@ class _Stage3D {
             if (!this._s3dIsScreen(layer) || !layer.stage3d) continue;
             const old = was.get(layer.id);
             if (!old || !old.stage3d) continue;
-            // An old block reads with the footer it stood then and stands now
-            // (s3dResolve): one whose footer came or went already reads with
-            // the footer under where the panels were, so it is left alone.
+            const now = s3dResolve(layer, layer.stage3d);
+            const prev = s3dResolve(old, old.stage3d);
+            if (!now || !prev) continue;
+            if (['x', 'y', 'z'].some(k => Math.abs(now[k] - prev[k]) > 1e-6)) continue;
             const footNow = this._s3dFooterMm(layer);
             if (!feet) feet = this._s3dFootersIn(before);
             const footWas = feet.get(layer.id) || 0;
-            const now = s3dResolve(layer, layer.stage3d, footNow);
-            const prev = s3dResolve(old, old.stage3d, footWas);
-            if (!now || !prev) continue;
-            if (['x', 'y', 'z'].some(k => Math.abs(now[k] - prev[k]) > 1e-6)) continue;
             if (footNow === footWas) continue;
             const shown = s3dShown(old, prev, footWas);
             const next = s3dStoredFrom(layer, { ...now, x: shown.x, y: shown.y, z: shown.z }, footNow);

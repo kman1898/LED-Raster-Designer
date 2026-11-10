@@ -58,7 +58,7 @@
 // shape); a show without it has every screen off, unchanged. The reference
 // table of every joint at one angle is left out to keep the tab compact.
 import { LEDRasterApp } from './app-core.js';
-import { s3dCleanCorners, s3dCornerSeams, s3dCornerTurn, s3dSanitize } from './app-stage3d.js';
+import { s3dCleanCorners, s3dCornerSeams, s3dCornerTurn, s3dResolve, s3dSanitize } from './app-stage3d.js';
 import {
     cleanCurve, convertCurveEntry, datumLabel, formatAngle, formatLength, formatSmall, parseAngles,
     screenCurve, snapDatum,
@@ -290,7 +290,7 @@ class _Curve {
     // old centre block is moved to the bottom middle first (s3dResolve), so
     // the block written back stands where it stood.
     _curveUnlay(layer) {
-        const prev = layer.stage3d ? this._s3dResolveOwn(layer) : null;
+        const prev = layer.stage3d ? s3dResolve(layer, layer.stage3d) : null;
         if (prev && Object.keys(prev.jointsCol).length) layer.stage3d = { ...prev, jointsCol: {} };
     }
 

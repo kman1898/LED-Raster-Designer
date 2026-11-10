@@ -97,9 +97,7 @@ other edit.
   That holds however the footer comes or goes: its bars, a group made or
   broken, or a grouped neighbor moved, shown or hidden.
   X and Z are the middle of that same edge. Screens already placed in 3D
-  open exactly where they stood, and one with a footer stands its footer
-  where its panels stood, the panels 6 in up, so opening a show never
-  puts a footer under the floor.
+  open exactly where they stood.
 - NEW: A ft | m switch beside Position sets the 3D panel's units: X, Y and
   Z, the snap, the figure beside the cursor and the arrow-key steps. It is
   saved with the show and starts on the show's own unit; nothing else in
@@ -210,6 +208,8 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   laid beside a corner stops at it, and one that no longer fits there is
   refused and said. A bar laid by hand on a corner's panels makes way for
   the corner bar. Click a corner bar and press Delete to take it off.
+  Move a corner or take it off and the app names any panels its corner
+  bar leaves with no bar on them.
 
 A CANVAS ON A SECOND DISPLAY
 

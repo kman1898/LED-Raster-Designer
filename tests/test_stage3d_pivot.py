@@ -668,64 +668,43 @@ def test_adding_a_footer_lifts_the_panels_6_in_and_y_still_reads_the_same(page):
     assert page.errors == []
 
 
-def test_an_old_block_with_a_footer_stands_its_footer_where_the_panels_stood(page):
-    """Found on a real show (2026-11-10): blocks saved before the bottom
-    middle marker held the screen's centre and never knew the 6 in footer.
-    Read as they were, the panels stood on the floor and the footer hung
-    6 in under it (Y read -0.50 ft), against the owner's ruling that a
-    footer never stays below the floor (2026-11-09). Such a block reads
-    the way a footer added to a placed screen does: the footer's foot
-    where the panels' bottom stood, the panels 6 in up their own lean, Y
-    reading what the panels' bottom read. Opening writes nothing; the
-    first edit writes the lifted place. A block without a footer, and a
-    block saved with the marker, read as before."""
+def test_an_old_block_with_a_footer_opens_exactly_as_saved(page):
+    """The owner's ruling (2026-11-10, "leave as is i will fix"): a screen
+    placed before the footer lift, its panels on the floor and its footer
+    under it (Y reads -0.50 ft), opens exactly as saved: no lift, no
+    warning, nothing written. The lift is only for a footer that is added
+    or appears later."""
     flat = {'x': 0, 'y': 500, 'z': 0}                          # centre of 2000 x 1000
     leaning = {'x': 3000, 'y': 500, 'z': 0, 'pitch': 10}
     ids = reset(page, [{'name': 'Old foot', 'columns': 4, 'rows': 2, 'footer': [2, 2], 'stage3d': flat},
                        {'name': 'Old lean', 'columns': 4, 'rows': 2, 'offset_x': 700, 'footer': [2, 2],
-                        'stage3d': leaning},
-                       {'name': 'Old bare', 'columns': 4, 'rows': 2, 'offset_x': 1400,
-                        'stage3d': {'x': 6000, 'y': 500, 'z': 0}}])
-    open_3d(page, 3)
-    foot, lean, bare = (screen(page, i) for i in ids)
-    # the footer's foot on the old floor, the panels 6 in up
+                        'stage3d': leaning}])
+    page.evaluate("() => { const h = document.getElementById('app-toast-host'); if (h) h.innerHTML = ''; }")
+    open_3d(page, 2)
+    foot = screen(page, ids[0])
+    # the panels stand where the block put them, on the floor; the footer
+    # hangs 6 in under it and Y says so
     assert foot['footerMm'] == pytest.approx(152.4)
-    assert foot['datum'][1] == pytest.approx(0, abs=0.01)
-    assert foot['world']['min'][1] == pytest.approx(152.4, abs=0.01)
+    assert foot['world']['min'][1] == pytest.approx(0, abs=0.01)
+    assert foot['datum'][1] == pytest.approx(-152.4, abs=0.01)
     bars = {r['row']: r for r in foot['bars']}['footer']
-    assert bars['first'][1] == pytest.approx(0, abs=0.001)          # touching the panels
-    # leaning: the same lift, along the bottom row's own lean
-    plain = page.evaluate("""async ([id, block]) => {
-        const m = await import('/static/js/app-stage3d.js');
-        const l = window.app.project.layers.find(x => x.id === id);
-        return {at: m.s3dResolve(l, block), corners: m.s3dWorldCorners(l, block)};
-    }""", [ids[1], leaning])
-    assert close(lean['datum'], [plain['at']['x'], plain['at']['y'], plain['at']['z']], tol=0.01)
-    up = _shift(corners(page, ids[1]), plain['corners'])
-    assert math.dist(up, [0, 0, 0]) == pytest.approx(152.4, abs=0.01)
-    assert up[1] == pytest.approx(152.4 * math.cos(math.radians(10)), abs=0.01)
-    # no footer: exactly as before
-    assert bare['footerMm'] == 0
-    assert bare['datum'][1] == pytest.approx(0, abs=0.01) and bare['world']['min'][1] == pytest.approx(0, abs=0.01)
-    # looking writes nothing
+    assert bars['first'][1] == pytest.approx(0, abs=0.001)          # still touching the panels
+    # every cabinet where the plain read of the block puts it, leaning too
+    for i, block in zip(ids, (flat, leaning)):
+        plain = page.evaluate("""async ([id, block]) => {
+            const m = await import('/static/js/app-stage3d.js');
+            const l = window.app.project.layers.find(x => x.id === id);
+            return m.s3dWorldCorners(l, block);
+        }""", [i, block])
+        assert _shift(corners(page, i), plain) == pytest.approx([0, 0, 0], abs=0.001)
+        assert_obj_matches_stage(page, i, f'old {i}')
+    # looking writes nothing, and nothing says anything
     for i in ids:
         assert 'pivot' not in stored(page, i) and 'pivot' not in served(page, i)
-    # the OBJ stands them where the stage does
-    for i, label in zip(ids, ('foot', 'lean', 'bare')):
-        assert_obj_matches_stage(page, i, label)
-    # Y reads the panels' old bottom; the first edit writes the lifted
-    # place and nothing moves
     page.evaluate(f"window.app.selectLayer(window.app.project.layers.find(l => l.id === {ids[0]}))")
     page.wait_for_timeout(200)
-    assert field(page, 'y') == '0.00'
-    before = corners(page, ids[0])
-    type_field(page, 'y', '0')
-    block = settled(page, lambda: served(page, ids[0]), lambda v: v and v.get('pivot') == 'bottom')
-    assert block['y'] == pytest.approx(152.4, abs=0.002) and block == stored(page, ids[0])
-    page.wait_for_timeout(300)
-    for a, b in zip(corners(page, ids[0]), before):
-        for p, q in zip(a['corners'], b['corners']):
-            assert close(p, q), (p, q)
+    assert field(page, 'y') == '-0.50'
+    assert page.evaluate("() => (document.getElementById('app-toast-host') || {}).textContent || ''") == ''
     assert page.errors == []
 
 

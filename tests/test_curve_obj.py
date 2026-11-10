@@ -908,3 +908,44 @@ def test_settings_edited_with_the_curve_off_are_kept_and_lay_nothing(page):
     assert on['riggingCurve']['value'] == 30 and on['riggingBars'] == [1] * 16
     assert {abs(a) for a in joints_of(on) if a} <= {5, 10}
     assert page.errors == []
+
+
+def test_the_curves_angles_over_15_reach_3d_and_the_obj_unchanged(page):
+    """Found in QA (2026-11-10): the Curve laid 20 degree joints (lock
+    angle 20) and the build sheet said so, but the 3D place held every
+    joint to 15, so the 3D tab and the OBJ drew a shallower wall than the
+    one the crew builds. The joints the Curve lays are stored, built and
+    exported exactly as laid."""
+    ids = reset(page, [dict(WALL, columns=9)])
+    open_rigging(page)
+    singles_only(page)
+    page.fill('#rigging-curve-angles', '20')
+    page.press('#rigging-curve-angles', 'Tab')
+    page.fill('#rigging-curve-value', '40')
+    page.press('#rigging-curve-value', 'Tab')
+    settled(page, lambda: layer(page, ids[0])['riggingCurve'],
+            lambda c: c and c.get('value') == 40 and c.get('angles') == [20])
+    act(page, lambda: page.check('#rigging-curve-on'))
+    want = expected(page, ids[0])
+    assert want['errors'] == []
+    assert max(want['joints']) == 20, want['joints']
+    # stored as laid, here and on the server
+    lay = layer(page, ids[0])
+    assert joints_of(lay) == want['joints']
+    srv = settled(page, lambda: served(page, ids[0]), lambda l: joints_of(l) == want['joints'])
+    assert joints_of(srv) == want['joints']
+    # built as laid: the 3D stage's own column chain
+    built = page.evaluate("""async (id) => {
+        const m = await import('/static/js/app-stage3d.js');
+        const l = window.app.project.layers.find(x => x.id === id);
+        return m.s3dBuild(l, window.app._s3dPlacementOf(l)).colJ;
+    }""", ids[0])
+    assert built == want['joints']
+    # exported as laid: the turn between neighboring faces, read off the OBJ
+    obj = read_obj(obj_files(page)['Test_Show_WALL.obj'])
+    pts = face_corners_xz(obj)
+    assert len(pts) == 10
+    heads = [math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) for a, b in zip(pts, pts[1:])]
+    turns = [h1 - h0 for h0, h1 in zip(heads, heads[1:])]
+    assert turns == pytest.approx(want['joints'], abs=1e-3)
+    assert page.errors == []
