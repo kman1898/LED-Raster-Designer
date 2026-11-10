@@ -438,10 +438,16 @@ def test_a_drag_under_way_keeps_its_show_until_it_lets_go_and_writes_nothing(e2e
         b, more = _open(ctx_b, e2e_server)
         layer = _server_project(e2e_server)['layers'][1]
         before = (layer['offset_x'], layer['offset_y'])
+        # Shift+drag moves the selected screen (canvas-input.js)
+        b.evaluate("(id) => window.app.selectLayer(window.app.project.layers.find(l => l.id === id))",
+                   layer['id'])
         sx, sy = _to_client(b, layer['id'], 100, 100)
         b.mouse.move(sx, sy)
+        b.keyboard.down('Shift')
         b.mouse.down()
         b.mouse.move(sx + 20, sy + 10, steps=4)
+        b.wait_for_function("() => (window.__clog || []).some(e => e.action === 'layer_drag_start')",
+                            timeout=5000)
         _open_show(a, 'Opened Show', ['UPSTAGE', 'DOWNSTAGE'])
         b.wait_for_function("() => (window.__clog || []).some(e => e.action"
                             " === 'socket_project_replaced_held_for_gesture')", timeout=10000)
@@ -449,8 +455,12 @@ def test_a_drag_under_way_keeps_its_show_until_it_lets_go_and_writes_nothing(e2e
         assert b.evaluate("() => window.app.project.name") == 'Before Show'
         b.mouse.move(sx + 80, sy + 40, steps=6)
         b.mouse.up()
+        b.keyboard.up('Shift')
         _follows(b, 'Opened Show')
         b.wait_for_timeout(1500)
+        # the drag's own save was made, of the show that went, and dropped
+        assert b.evaluate("() => (window.__clog || []).some(e => e.action"
+                          " === 'layer_put_dropped_show_replaced')")
         srv = _server_project(e2e_server)
         assert [l['name'] for l in srv['layers']] == ['UPSTAGE', 'DOWNSTAGE']
         moved = next(l for l in srv['layers'] if l['id'] == layer['id'])
