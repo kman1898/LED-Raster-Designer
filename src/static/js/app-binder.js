@@ -5538,6 +5538,7 @@ class _Binder {
             hideNames: r.hideScreenNames,
             ignoreRaster: r.ignoreRasterBounds,
             rigRoom: r.riggingTopRoom, rigRoomBelow: r.riggingBottomRoom, rigSolo: r.riggingSolo,
+            rigSides: r.riggingSideRooms,
             active: this.project ? this.project.active_canvas_id : null,
             canvasVis: canvases.map(c => [c, c.visible]),
             layerVis: (this.project.layers || []).map(l => [l, l.visible]),
@@ -5713,6 +5714,14 @@ class _Binder {
                 // wall: the gutter's height, in canvas units at this zoom.
                 r.riggingTopRoom = view === 'rigging' ? Math.max(0, G.top - 8) / zoom : null;
                 r.riggingBottomRoom = view === 'rigging' ? Math.max(0, G.bottom - 8) / zoom : null;
+                // A screen whose picture is turned (its Pixel Map rotation)
+                // has its bars beside the wall: each side's strip, the sheet's
+                // left and right swapped on a mirrored rear view.
+                const room = (g) => Math.max(0, g - 8) / zoom;
+                r.riggingSideRooms = view === 'rigging' ? {
+                    top: room(G.top), bottom: room(G.bottom),
+                    left: room(mirrored ? G.right : G.left), right: room(mirrored ? G.left : G.right),
+                } : null;
                 // A sheet of one screen draws its row's bars over it, a
                 // neighbor's too, and dashes what carries on over the
                 // neighbor (canvas-rigging.js renderRiggingBars).
@@ -5803,6 +5812,7 @@ class _Binder {
             r.printerMode = saved.printer;
             r.riggingTopRoom = saved.rigRoom;
             r.riggingBottomRoom = saved.rigRoomBelow;
+            r.riggingSideRooms = saved.rigSides;
             r.riggingSolo = saved.rigSolo;
             r.viewMode = saved.viewMode;
             r.zoom = saved.zoom;
@@ -7105,33 +7115,50 @@ class _Binder {
 
     // The map's gutters for a header/footer sheet: the default's room above
     // the wall for the header bars, and - only on a screen with footer bars
-    // over it - room below it for them too.
+    // over it - room below it for them too. A screen whose picture is
+    // turned (its Pixel Map rotation) has its bars on the picture's side
+    // its wall's top or bottom turns to, and that side gets the room.
     _bRiggingGutter(target) {
-        const footer = this._bSubject(target).layers.some(l => (typeof this.riggingSliceOf === 'function'
-            ? this.riggingSliceOf(l, 'footer').length > 0
-            : Array.isArray(l.riggingFooterBars) && l.riggingFooterBars.length > 0));
-        return footer ? { ...MAP_GUTTER, bottom: MAP_GUTTER.top } : MAP_GUTTER;
+        const has = (l, kind) => (typeof this.riggingSliceOf === 'function'
+            ? this.riggingSliceOf(l, kind).length > 0
+            : Array.isArray(l[kind === 'footer' ? 'riggingFooterBars' : 'riggingBars'])
+                && l[kind === 'footer' ? 'riggingFooterBars' : 'riggingBars'].length > 0);
+        const out = { ...MAP_GUTTER };
+        for (const l of this._bSubject(target).layers) {
+            const side = (s) => (typeof this.riggingPictureSide === 'function' ? this.riggingPictureSide(l, s) : s);
+            if (has(l, 'footer')) out[side('bottom')] = Math.max(out[side('bottom')], MAP_GUTTER.top);
+            if (has(l, 'header')) out[side('top')] = Math.max(out[side('top')], MAP_GUTTER.top);
+        }
+        return out;
     }
 
     // How far a one-screen Header/Footer sheet's bars reach past the wall
     // over a grouped neighbor, in the wall's own units (NO_OVERHANG when
     // none do). A rear view is mirrored, so left and right swap.
+    //
+    // A bar over a half column hangs past the wall too, at its full length
+    // (app-rigging riggingBarSpan), so the wall is framed with it. A screen
+    // whose picture is turned has its wall's left and right on the
+    // picture's sides they turn to.
     _bRiggingOverhang(layer, mirrored) {
         if (!layer || typeof this.riggingSliceOf !== 'function') return NO_OVERHANG;
         const n = this.riggingWallPanels(layer);
         if (!n) return NO_OVERHANG;
-        const unit = this._riggingRect(layer).w / n;
+        const cols = this.riggingColumns(layer);
         let left = 0, right = 0;
         for (const kind of ['header', 'footer']) {
             for (const b of this.riggingSliceOf(layer, kind)) {
-                if (!b.shared) continue;
-                left = Math.max(left, -b.start);
-                right = Math.max(right, b.start + b.size - n);
+                if (!b.shared && (b.start < 0 || b.start + b.size > n)) continue;
+                const [x0, x1] = this.riggingBarSpan(cols, b.start, b.size);
+                left = Math.max(left, -x0);
+                right = Math.max(right, x1 - cols.total);
             }
         }
-        if (!left && !right) return NO_OVERHANG;
-        const [l, r] = mirrored ? [right, left] : [left, right];
-        return { left: l * unit, right: r * unit, top: 0, bottom: 0 };
+        if (left < 1e-6 && right < 1e-6) return NO_OVERHANG;
+        const out = { left: 0, right: 0, top: 0, bottom: 0 };
+        out[this.riggingPictureSide(layer, 'left')] += Math.max(0, left);
+        out[this.riggingPictureSide(layer, 'right')] += Math.max(0, right);
+        return mirrored ? { ...out, left: out.right, right: out.left } : out;
     }
 
     // The Header/Footer sheet for ONE screen (a group's members each have

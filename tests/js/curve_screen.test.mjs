@@ -2,7 +2,7 @@
 // signed column-joint angles out (curve-math.js screenCurve, cleanCurve,
 // parseAngles). Run by tests/test_curve_math.py.
 import { describe, it, expect, report } from './harness.mjs';
-import { cleanCurve, CURVE_DEFAULTS, curvePickKey, curveSides, faceRadiusForAngle, parseAngles, screenCurve, sideName, solveCurve, makeCurve, stockCovers } from '../../src/static/js/curve-math.js';
+import { cleanCurve, CURVE_DEFAULTS, CURVE_MAX_JOINT_DEG, curvePickKey, curveSides, faceRadiusForAngle, parseAngles, screenCurve, sideName, solveCurve, makeCurve, stockCovers } from '../../src/static/js/curve-math.js';
 
 const on = (over = {}) => ({ ...CURVE_DEFAULTS, on: true, ...over });
 
@@ -126,9 +126,12 @@ describe('errors, not garbage', () => {
         const out = screenCurve({ panels: 1, panelWidthM: 0.5, sizes: [1], settings: on() });
         expect(out.errors).toContain('A curve needs at least 2 panels across.');
     });
-    it('a lock angle of 90 or more is refused', () => {
+    it('a lock angle past 20 is held to 20 (owner, 2026-11-10: "lets limit to 20")', () => {
+        expect(CURVE_MAX_JOINT_DEG).toBe(20);
+        expect(cleanCurve({ angles: [95, 25, 20.5, 10] }).angles).toEqual([10, 20]);
         const out = screenCurve({ panels: 8, panelWidthM: 0.5, sizes: [1], settings: on({ angles: [95] }) });
-        expect(out.errors).toContain('Lock angles must be under 90°.');
+        expect(out.errors).toEqual([]);
+        expect(out.result.options.every((o) => o.joints.every((a) => a <= 20))).toBe(true);
     });
     it('a flat wall reads straight, an infinite radius', () => {
         const out = screenCurve({ panels: 8, panelWidthM: 0.5, sizes: [1], settings: on({ value: 0 }) });
@@ -328,9 +331,12 @@ describe('a curved screen with corners, curved side by side up to each fold', ()
         expect(screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [2], settings: on(), pieces: [{ start: 4, size: 2 }] }).errors).toEqual([]);
         const three = screenCurve({ panels: 14, panelWidthM: 0.5, sizes: [2], settings: on(), pieces: [{ start: 3, size: 2 }, { start: 9, size: 1 }] });
         expect(three.errors).toEqual(['These bar sizes leave 1 panel uncovered on side 1 (4 panels). Light another size.']);
-        // an error every side has is said once
-        const bad = screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [1], settings: on({ angles: [95] }), pieces: [{ start: 5, size: 2 }] });
-        expect(bad.errors).toEqual(['Lock angles must be under 90°.']);
+        // a curve past 20 a joint is refused on each side, by name
+        const bad = screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [1], settings: on({ value: 100 }), pieces: [{ start: 5, size: 2 }] });
+        expect(bad.errors).toHaveLength(2);
+        expect(bad.errors[0]).toContain('needs 60° at each joint on the left side (6 panels), past the 20° a curve lock takes');
+        expect(bad.errors[1]).toContain('needs 60° at each joint on the right side (6 panels), past the 20° a curve lock takes');
+        expect(bad.bars).toEqual([]);
     });
     it('Ways to build it and a pick are each side\'s own', () => {
         const args = { panels: 12, panelWidthM: 0.5, sizes: [1, 2], pieces: [{ start: 5, size: 2 }] };
@@ -362,7 +368,8 @@ describe('a curved screen with corners, curved side by side up to each fold', ()
     });
     it('Build from: Left, Center and Right are each side\'s own, a spot is on its side', () => {
         const args = { panels: 12, panelWidthM: 0.5, sizes: [1, 2], pieces: [{ start: 5, size: 2 }] };
-        const froms = (from, a = args) => screenCurve({ ...a, settings: on({ from }) }).sides.map((s) => s.out.result.config.build_from);
+        // (10%: a side two and a half panels wide takes no more than 20 a joint)
+        const froms = (from, a = args) => screenCurve({ ...a, settings: on({ from, value: 10 }) }).sides.map((s) => s.out.result.config.build_from);
         expect(froms('left')).toEqual(['left', 'left']);
         expect(froms('center')).toEqual(['center', 'center']);
         // panel 10 is the fourth panel of the right side (panels 7 to 12);
@@ -425,6 +432,27 @@ describe('the per-joint angle a curve wants is read off the build it lays', () =
         // 72 degrees over eight panels is 9 a panel, so 18 at each double joint
         expect(out.result.ideal_angle_deg).toBeCloseTo(18, 9);
         expect(out.warnings.find((w) => w.includes('Out of range'))).toContain('wants 18°');
+    });
+});
+
+// The owner, 2026-11-10: "lets limit to 20". A curve lock bends at most 20
+// degrees a joint; a curve that needs more is refused, saying how much the
+// wall can take, and nothing is laid.
+describe('a curve is held to 20 degrees a joint', () => {
+    const nine = (over) => screenCurve({ panels: 9, panelWidthM: 0.5, sizes: [1], settings: on({ angles: [10, 20], ...over }) });
+    it('20 at each joint is laid', () => {
+        const out = nine({ value: 50 });
+        expect(out.errors).toEqual([]);
+        expect(out.bars).toEqual(new Array(9).fill(1));
+        expect(Math.max(...out.joints)).toBe(20);
+    });
+    it('22 at each joint is refused, with how much curve the wall takes', () => {
+        const out = nine({ value: 55 });
+        expect(out.errors).toEqual(['This curve needs 22° at each joint on a 9-panel wall, past the 20° a curve lock takes. Ask for 50% or less.']);
+        expect(out.bars).toEqual([]);
+        expect(out.joints).toEqual([]);
+        const deg = nine({ entry: 'degrees', value: 198 });
+        expect(deg.errors[0]).toContain('Ask for 180° or less.');
     });
 });
 

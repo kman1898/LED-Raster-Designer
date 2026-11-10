@@ -131,9 +131,11 @@ def test_bar_name_is_the_pull_list_type():
 
 
 @needs_node
-@pytest.mark.parametrize('rotation, panels', [(0, 12), (90, 6), (180, 12), (270, 6), (-90, 6), (450, 6), (None, 12)])
-def test_the_wall_is_its_rows_wide_once_turned_a_quarter(rotation, panels):
-    assert _node(f"R.wallPanels(12, 6, {json.dumps(rotation)})") == panels
+@pytest.mark.parametrize('rotation', [0, 90, 180, 270, -90, 450, None])
+def test_the_wall_is_its_columns_wide_whatever_its_rotation(rotation):
+    # The owner, 2026-11-10: a Pixel Map rotation turns only the picture;
+    # the bars follow the wall as built, along its columns.
+    assert _node(f"R.wallPanels(12, 6, {json.dumps(rotation)})") == 12
 
 
 @needs_node

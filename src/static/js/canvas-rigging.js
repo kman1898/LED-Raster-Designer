@@ -12,6 +12,16 @@ const RIGGING_MIN_FONT_PX = 11;
 const RIGGING_ZONE_PAD = 12;
 
 Object.assign(CanvasRenderer.prototype, {
+    // Every bar, edge and strip the mouse can find is kept in its wall's
+    // own frame (`f`: the inverse of the drawing transform, and `s`, screen
+    // pixels per unit of that frame), so a wall whose picture is turned by
+    // its Pixel Map rotation is found where its bars are drawn: along its
+    // real bottom (owner, 2026-11-10). x0..y1 stay the screen box around it.
+    _riggingLocal(f, mouseX, mouseY) {
+        const p = f.inv.transformPoint(new DOMPoint(mouseX, mouseY));
+        return { x: p.x, y: p.y };
+    },
+
     // The bar under a point on the canvas (canvas pixels), or null. The hit
     // carries its screen (the one it is stored on), its row ('header' or
     // 'footer'), its index on that screen, its index in the whole row
@@ -23,8 +33,9 @@ Object.assign(CanvasRenderer.prototype, {
         const MIN_GRAB = 18;
         for (let i = hits.length - 1; i >= 0; i--) {
             const h = hits[i];
-            const pad = Math.max(0, (MIN_GRAB - (h.y1 - h.y0)) / 2);
-            if (mouseX >= h.x0 && mouseX <= h.x1 && mouseY >= h.y0 - pad && mouseY <= h.y1 + pad) return h;
+            const p = this._riggingLocal(h.f, mouseX, mouseY);
+            const pad = Math.max(0, (MIN_GRAB / h.f.s - (h.ly1 - h.ly0)) / 2);
+            if (p.x >= h.lx0 && p.x <= h.lx1 && p.y >= h.ly0 - pad && p.y <= h.ly1 + pad) return h;
         }
         return null;
     },
@@ -38,8 +49,9 @@ Object.assign(CanvasRenderer.prototype, {
         const edges = this._riggingEdges || [];
         for (let i = edges.length - 1; i >= 0; i--) {
             const e = edges[i];
-            const pad = Math.max(0, (MIN_GRAB - (e.y1 - e.y0)) / 2);
-            if (Math.abs(mouseX - e.x) <= EDGE_GRAB && mouseY >= e.y0 - pad && mouseY <= e.y1 + pad) return e;
+            const p = this._riggingLocal(e.f, mouseX, mouseY);
+            const pad = Math.max(0, (MIN_GRAB / e.f.s - (e.ly1 - e.ly0)) / 2);
+            if (Math.abs(p.x - e.lx) <= EDGE_GRAB / e.f.s && p.y >= e.ly0 - pad && p.y <= e.ly1 + pad) return e;
         }
         return null;
     },
@@ -57,18 +69,48 @@ Object.assign(CanvasRenderer.prototype, {
         const zones = this._riggingZones || [];
         for (let i = zones.length - 1; i >= 0; i--) {
             const z = zones[i];
-            if (mouseX < Math.min(z.x0, z.x1) || mouseX > Math.max(z.x0, z.x1)) continue;
-            if (mouseY < z.y0 || mouseY > z.y1) continue;
-            const panel = Math.max(0, Math.min(z.panels - 1, Math.floor(z.dir * (mouseX - z.x0) / z.unitPx)));
+            const p = this._riggingLocal(z.f, mouseX, mouseY);
+            if (p.x < z.lx0 || p.x > z.lx1 || p.y < z.ly0 || p.y > z.ly1) continue;
+            const panel = Math.max(0, Math.min(z.panels - 1, this._riggingPanelAt(z.geo, p.x)));
             return { ...z, panel };
         }
         return null;
     },
 
-    // The panel of a zone's ROW under a canvas x (may run onto a
+    // The panel of a zone's ROW under a canvas point (may run onto a
     // neighbor in a group's row, or past either end: the caller clamps).
-    riggingZoneRowPanel(zone, mouseX) {
-        return zone.offset + Math.floor(zone.dir * (mouseX - zone.x0) / zone.unitPx);
+    riggingZoneRowPanel(zone, mouseX, mouseY) {
+        const p = this._riggingLocal(zone.f, mouseX, mouseY == null ? 0 : mouseY);
+        return zone.offset + this._riggingPanelAt(zone.geo, p.x);
+    },
+
+    // The wall's panel under x (in its own frame): the column x falls in,
+    // a half column as wide as it is; off the wall, whole panels on.
+    _riggingPanelAt(geo, x) {
+        const rel = (x - geo.x) / geo.k;
+        const { lefts, widths, total, full } = geo.cols;
+        const n = widths.length;
+        if (rel < 0) return Math.floor(rel / full);
+        if (rel >= total) return n + Math.floor((rel - total) / full);
+        for (let i = n - 1; i >= 0; i--) if (rel >= lefts[i]) return i;
+        return 0;
+    },
+
+    // Where a bar stands in the wall's own frame (canvas units):
+    // { x, w }. `start` is the wall's own panel (a row's panel less this
+    // wall's offset in it); app-rigging riggingBarSpan says where.
+    _riggingSpan(geo, start, size) {
+        const [a, b] = window.app.riggingBarSpan(geo.cols, start, size);
+        return { x: geo.x + a * geo.k, w: (b - a) * geo.k };
+    },
+
+    // The x of the wall's own panel edge `p` (0 its left edge), whole
+    // panels off the wall.
+    _riggingEdgeX(geo, p) {
+        const { lefts, widths, total, full } = geo.cols;
+        const n = widths.length;
+        const rel = p <= 0 ? p * full : p >= n ? total + (p - n) * full : lefts[p];
+        return geo.x + rel * geo.k;
     },
 
     // The header row above the wall and the footer row below it (only the
@@ -95,9 +137,19 @@ Object.assign(CanvasRenderer.prototype, {
             : row.placed.some(b => b.owner === layer) || (row.pieces || []).some(p => p.owner === layer));
         if (!interactive && !rows.some(shows)) return;
 
-        const box = this.getLayerFootprintInActiveView(layer);
-        const wall = RiggingMath.wallPanels(layer.columns, layer.rows, layer.rotation);
-        const unit = box.width / Math.max(1, wall);
+        // The wall as built, unturned: its own columns along its own bottom.
+        // A Pixel Map rotation turns only the picture (owner, 2026-11-10),
+        // so the bars are drawn in the wall's own frame and turned with the
+        // picture about its middle: each bar stays by the cabinets it is
+        // under on the wall, and the numbers stay upright.
+        const raw = this.getLayerBoundsInActiveView(layer);
+        const box = { x: raw.x, y: raw.y, width: raw.width, height: raw.height };
+        const deg = typeof app.riggingTurn === 'function' ? app.riggingTurn(layer) : 0;
+        const wall = app.riggingWallPanels(layer);
+        const cols = app.riggingColumns(layer);
+        // the wall's columns in this frame: a half column half as wide
+        const geo = { x: box.x, cols, k: cols.total > 0 ? box.width / cols.total : 1 };
+        const unit = cols.full * geo.k;            // one whole panel
         const ctx = this.ctx;
         // The screen's own colors (black bar, white text unless changed). A
         // printed page (the binder's printer palette) is always a white bar
@@ -109,9 +161,20 @@ Object.assign(CanvasRenderer.prototype, {
         const style = { fill, textColor };
 
         ctx.save();
+        const upright = { keep: this._keepTextUpright, rad: this._activeRotationRad };
+        if (deg) {
+            const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+            ctx.translate(cx, cy);
+            ctx.rotate(deg * Math.PI / 180);
+            ctx.translate(-cx, -cy);
+            this._keepTextUpright = true;
+            this._activeRotationRad = deg * Math.PI / 180;
+        }
         // The binder's sheet leaves a fixed strip above and below the wall
         // (in sheet units); it sets riggingTopRoom / riggingBottomRoom to
-        // those strips in canvas units so the bars fit whatever the zoom.
+        // those strips in canvas units so the bars fit whatever the zoom,
+        // or riggingSideRooms ({ top, right, bottom, left }), when a
+        // turned picture puts the bars beside the wall.
         const fit = (room, baseH) => {
             let gap = 6;
             let h = baseH;
@@ -124,14 +187,18 @@ Object.assign(CanvasRenderer.prototype, {
         // A picture of the raster (PNG export) ends at the raster's edges: a
         // wall too near one takes its bars over its own edge row instead of
         // losing them off the image.
-        const clipToRaster = this.exportMode && !this.ignoreRasterBounds;
+        const clipToRaster = this.exportMode && !this.ignoreRasterBounds && !deg;
         const m = ctx.getTransform();
+        // What the mouse reads in this wall's own frame (canvas-rigging
+        // _riggingLocal): the inverse of the drawing, and screen pixels per
+        // unit of it.
+        const f = { inv: m.inverse(), s: Math.hypot(m.a, m.b) || 1 };
         // On this tab the bars stay readable however far out the view is
         // zoomed (owner, 2026-11-08: "bars are thin when zoomed out"): the
         // strip is never shorter than RIGGING_MIN_BAR_PX on screen, nor
         // its numbers smaller than RIGGING_MIN_FONT_PX. Only the live view:
         // the binder, an export and the 3D stage draw the real sizes.
-        const perPx = 1 / (Math.abs(m.d) || 1);     // canvas units per screen pixel
+        const perPx = 1 / f.s;     // canvas units per screen pixel
         const lift = interactive && !solo;
         style.minFont = lift ? RIGGING_MIN_FONT_PX * perPx : 10;
         style.line = lift ? perPx : 0;
@@ -142,7 +209,9 @@ Object.assign(CanvasRenderer.prototype, {
                 ? Math.min(...row.layers.map(l => app._riggingRect(l).h)) : box.height;
             const baseH = Math.max(36, Math.min(96, minH * 0.18));
             const header = row.kind === 'header';
-            const room = header ? this.riggingTopRoom : this.riggingBottomRoom;
+            const sides = this.riggingSideRooms;
+            const room = sides ? sides[app.riggingPictureSide(layer, header ? 'top' : 'bottom')]
+                : (header ? this.riggingTopRoom : this.riggingBottomRoom);
             let { gap, h } = fit(room, baseH);
             if (lift && !Number.isFinite(room)) {
                 h = Math.max(h, RIGGING_MIN_BAR_PX * perPx);
@@ -156,35 +225,48 @@ Object.assign(CanvasRenderer.prototype, {
             if (interactive && this._riggingZones) {
                 // The bar strip, from the wall's edge out past the bars:
                 // where a Custom click or drag lays bars. Never the wall.
-                const inner = m.d * (header ? box.y : box.y + box.height) + m.f;
-                const outer0 = m.d * (header ? top : top + h) + m.f;
-                const outer = outer0 + Math.sign(outer0 - inner) * RIGGING_ZONE_PAD;
+                const inner = header ? box.y : box.y + box.height;
+                const outer = (header ? top : top + h) + (header ? -1 : 1) * RIGGING_ZONE_PAD / f.s;
                 const k = row.layers.indexOf(layer);
                 this._riggingZones.push({
                     layerId: layer.id, kind: side === 'both' ? 'both' : row.kind, rowKey: row.key,
-                    offset: row.offsets[k], rowWidth: row.width, panels: wall,
-                    x0: m.a * box.x + m.e, x1: m.a * (box.x + box.width) + m.e,
-                    y0: Math.min(inner, outer), y1: Math.max(inner, outer),
-                    unitPx: Math.abs(m.a * unit) || 1, dir: m.a < 0 ? -1 : 1,
+                    offset: row.offsets[k], rowWidth: row.width, panels: wall, f, geo,
+                    lx0: box.x, lx1: box.x + box.width, ly0: Math.min(inner, outer), ly1: Math.max(inner, outer),
+                    ...this._riggingScreenBox(m, box.x, Math.min(inner, outer), box.x + box.width, Math.max(inner, outer)),
+                    unitPx: unit * f.s || 1, dir: m.a < 0 ? -1 : 1,
                 });
             }
-            if (shows(row)) this._drawRiggingRow(layer, row, box, top, h, style, unit, solo);
-            if (interactive) this._drawRiggingGhost(layer, row, box, top, h, style, unit);
+            if (shows(row)) this._drawRiggingRow(layer, row, box, top, h, style, geo, solo, f);
+            if (interactive) this._drawRiggingGhost(layer, row, top, h, style, geo);
         }
+        this._keepTextUpright = upright.keep;
+        this._activeRotationRad = upright.rad;
         ctx.restore();
+    },
+
+    // The screen box (canvas pixels) round a rectangle of the wall's own
+    // frame drawn through `m`: { x0, x1, y0, y1 }.
+    _riggingScreenBox(m, ax, ay, bx, by) {
+        const pts = [[ax, ay], [bx, ay], [bx, by], [ax, by]].map(([x, y]) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f]);
+        const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+        return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
     },
 
     // One row of bars, and the mouse's view of it. A panel of bar is a
     // panel of wall: a row that no longer fits its wall stops short of it
     // or runs past it at its true width, never stretched to look as if it
     // fits, and is marked.
-    _drawRiggingRow(layer, row, box, top, barH, style, unit, solo) {
+    //
+    // A bar is drawn at its full stock length in this wall's own frame
+    // (`geo`, _riggingSpan): over a half column it hangs past the wall
+    // (owner, 2026-11-10). `f` is what the mouse reads (renderRiggingBars).
+    _drawRiggingRow(layer, row, box, top, barH, style, geo, solo, f) {
         const ctx = this.ctx;
         const app = window.app;
         const k = row.layers.indexOf(layer);
         const off = row.offsets[k];
         const last = row.layers.length - 1;
-        const rowX = box.x - off * unit;            // the row's panel 0, in this wall's frame
+        const unit = geo.cols.full * geo.k;        // one whole panel
         const crossing = solo && row.layers.length > 1;
         const list = crossing
             ? row.placed.filter(b => b.owner === layer
@@ -197,8 +279,12 @@ Object.assign(CanvasRenderer.prototype, {
         const m = ctx.getTransform();
         const hits = (!this.exportMode && this._riggingHits) || null;
         const edges = (!this.exportMode && this._riggingEdges) || null;
-        const unitPx = Math.abs(m.a * unit);
+        const unitPx = unit * f.s;
         const dir = m.a < 0 ? -1 : 1;
+        // A hit's place: in the wall's own frame for the mouse, and the box
+        // round it on the screen (the guides read that).
+        const place = (x, w) => ({ f, unit, lx0: x, lx1: x + w, ly0: top, ly1: top + barH,
+                                    ...this._riggingScreenBox(m, x, top, x + w, top + barH) });
         // The bars lit: the one picked (Delete takes it off), the one being
         // moved, the two either side of the edge being dragged, the ones a
         // Custom click or drag is laying.
@@ -230,8 +316,7 @@ Object.assign(CanvasRenderer.prototype, {
             this._fillText(String(span), x + w / 2, top + barH / 2);
         };
         for (const b of list) {
-            const x = rowX + b.start * unit;
-            const w = b.size * unit;
+            const { x, w } = this._riggingSpan(geo, b.start - off, b.size);
             const on = isLit(b);
             if (crossing) {
                 // Over this wall: the bar. Over a neighbor: a dashed outline.
@@ -262,11 +347,9 @@ Object.assign(CanvasRenderer.prototype, {
             }
             if (b.owner !== layer) continue;
             if (hits) {
-                const sx0 = m.a * x + m.e, sx1 = m.a * (x + w) + m.e;
                 hits.push({ layerId: layer.id, row: row.kind, rowKey: row.key, index: b.ownerIndex,
                             runIndex: b.runIndex, start: b.start - off, span: b.size,
-                            x0: Math.min(sx0, sx1), x1: Math.max(sx0, sx1),
-                            y0: m.d * top + m.f, y1: m.d * (top + barH) + m.f,
+                            ...place(x, w),
                             // screen pixels per panel, and which way the wall runs
                             unitPx, dir });
             }
@@ -275,9 +358,11 @@ Object.assign(CanvasRenderer.prototype, {
             // neighbor to give or take a panel).
             const next = row.placed[b.runIndex + 1];
             if (edges && next && next.start === b.start + b.size) {
+                const at = this._riggingSpan(geo, next.start - off, next.size).x;
+                const sb = this._riggingScreenBox(m, at, top, at, top + barH);
                 edges.push({ layerId: layer.id, row: row.kind, rowKey: row.key, boundary: b.ownerIndex,
-                             runBoundary: b.runIndex, x: m.a * (x + w) + m.e,
-                             y0: m.d * top + m.f, y1: m.d * (top + barH) + m.f, unitPx, dir });
+                             runBoundary: b.runIndex, x: (sb.x0 + sb.x1) / 2, y0: sb.y0, y1: sb.y1,
+                             f, unit, lx: at, ly0: top, ly1: top + barH, unitPx, dir });
             }
         }
         // Its corner pieces (app-rigging.js), each over the panels touching
@@ -285,8 +370,7 @@ Object.assign(CanvasRenderer.prototype, {
         // click picks one (Delete takes it off); it never moves.
         for (const pc of (row.pieces || [])) {
             if (pc.owner !== layer) continue;
-            const x = rowX + pc.start * unit;
-            const w = pc.size * unit;
+            const { x, w } = this._riggingSpan(geo, pc.start - off, pc.size);
             const on = !this.exportMode && ((p && p.kind === row.kind && p.layerId === layer.id && p.corner === pc.at)
                 || (d && d.kind === 'place' && d.rowObj && d.rowObj.key === row.key
                     && (d.cornerAdds || []).includes(pc.at)));
@@ -297,18 +381,19 @@ Object.assign(CanvasRenderer.prototype, {
             this._drawRiggingFold(x + w / 2, top, barH, style.textColor);
             this._riggingCornerLabel(x, w, top, barH, style);
             if (hits) {
-                const sx0 = m.a * x + m.e, sx1 = m.a * (x + w) + m.e;
                 hits.push({ layerId: layer.id, row: row.kind, rowKey: row.key, index: -1, runIndex: -1,
                             start: pc.start - off, span: pc.size, corner: pc.at,
-                            x0: Math.min(sx0, sx1), x1: Math.max(sx0, sx1),
-                            y0: m.d * top + m.f, y1: m.d * (top + barH) + m.f, unitPx, dir });
+                            ...place(x, w), unitPx, dir });
             }
         }
         // The mark, drawn once per row, by the screen holding its last bar.
         if (row.problem && row.placed.length) {
             const end = row.placed.reduce((a, b) => (b.start + b.size >= a.start + a.size ? b : a));
             if (end.owner === layer) {
-                this._drawRiggingMisfit(rowX, row.width * unit, top, barH, rowX + (end.start + end.size) * unit, style.minFont);
+                const x0 = this._riggingEdgeX(geo, -off);
+                const x1 = this._riggingEdgeX(geo, row.width - off);
+                const endSpan = this._riggingSpan(geo, end.start - off, end.size);
+                this._drawRiggingMisfit(x0, x1 - x0, top, barH, endSpan.x + endSpan.w, style.minFont);
             }
         }
     },
@@ -355,13 +440,12 @@ Object.assign(CanvasRenderer.prototype, {
     // Custom: the bar a click would drop, under the mouse, before the
     // button goes down: the picked size, see-through, in a dashed blue
     // outline (app._riggingGhost, set as the mouse moves).
-    _drawRiggingGhost(layer, row, box, top, barH, style, unit) {
+    _drawRiggingGhost(layer, row, top, barH, style, geo) {
         const g = window.app && window.app._riggingGhost;
         if (!g || g.layerId !== layer.id || g.rowKey !== row.key) return;
         const ctx = this.ctx;
         const off = row.offsets[row.layers.indexOf(layer)];
-        const x = box.x + (g.start - off) * unit;
-        const w = g.size * unit;
+        const { x, w } = this._riggingSpan(geo, g.start - off, g.size);
         ctx.save();
         ctx.globalAlpha = 0.45;
         ctx.fillStyle = style.fill;

@@ -2,7 +2,7 @@
 
 The tab stands every screen Show Look shows on the stage, built from its own
 cabinets with its Pixel Map drawing on the front. Each screen's place lives
-on the layer as `stage3d` (mm and degrees, joint bends held to +/-180); the
+on the layer as `stage3d` (mm and degrees, joint bends held to +/-20); the
 camera, units and grid are the view's own, saved with the project.
 
 What this file pins:
@@ -44,9 +44,9 @@ FT = 304.8
 # ── 1. The server's shape rule (no browser) ──────────────────────────────
 
 def test_sanitize_clamps_joints_and_drops_junk():
-    # A joint keeps the angle it is given, the Curve's 20 degrees and a
-    # 90 degree fold included (QA, 2026-11-10: the 3D place held every
-    # joint to 15); only a figure past a half turn is held to 180.
+    # A curve joint is held to 20 degrees either way, the most a curve
+    # lock bends (owner, 2026-11-10: "lets limit to 20"); a corner's 90
+    # comes from riggingCorners, never from here.
     raw = {
         'x': '1200.5', 'y': None, 'z': float('nan'), 'pitch': 10, 'yaw': True, 'roll': -5,
         'curveCol': 40, 'curveRow': -999,
@@ -57,8 +57,8 @@ def test_sanitize_clamps_joints_and_drops_junk():
     out = app_module.sanitize_stage3d(raw)
     assert out == {
         'x': 1200.5, 'y': 0.0, 'z': 0.0, 'pitch': 10.0, 'yaw': 0.0, 'roll': -5.0,
-        'curveCol': 40.0, 'curveRow': -180.0,
-        'jointsCol': {'2': 20.0, '3': -4.0, '5': 90.0},
+        'curveCol': 20.0, 'curveRow': -20.0,
+        'jointsCol': {'2': 20.0, '3': -4.0, '5': 20.0},
         'jointsRow': {},
     }, out
     # idempotent: what the funnels store is what they would store again
@@ -75,7 +75,7 @@ def test_normalize_stage3d_runs_over_the_project():
     ]}
     changed = app_module.normalize_stage3d(project)
     assert changed == [1, 2]
-    assert project['layers'][0]['stage3d']['curveCol'] == 180.0
+    assert project['layers'][0]['stage3d']['curveCol'] == 20.0
     assert 'stage3d' not in project['layers'][1]
     assert 'stage3d' not in project['layers'][2]
     assert app_module.normalize_stage3d(project) == []
@@ -96,10 +96,10 @@ def test_layer_put_clamps_and_null_removes(client_with_layer):
     client = client_with_layer
     layer_id = app_module.current_project['layers'][0]['id']
     resp = client.put(f'/api/layer/{layer_id}', json={'stage3d': {
-        'x': 100, 'curveCol': 25, 'jointsRow': {'1': -400}}})
+        'x': 100, 'curveCol': 30, 'jointsRow': {'1': -400}}})
     assert resp.status_code == 200
     placed = resp.get_json()['stage3d']
-    assert placed['curveCol'] == 25 and placed['jointsRow'] == {'1': -180} and placed['x'] == 100
+    assert placed['curveCol'] == 20 and placed['jointsRow'] == {'1': -20} and placed['x'] == 100
     resp = client.put(f'/api/layer/{layer_id}', json={'stage3d': None})
     assert 'stage3d' not in resp.get_json()
     assert 'stage3d' not in app_module.current_project['layers'][0]
@@ -109,11 +109,11 @@ def test_add_route_and_restore_funnel_hold_the_shape(client):
     resp = client.post('/api/layer/add', json={
         'name': 'Copy', 'columns': 2, 'rows': 2,
         'stage3d': {'x': 5, 'curveRow': 500}})
-    assert resp.get_json()['stage3d']['curveRow'] == 180
+    assert resp.get_json()['stage3d']['curveRow'] == 20
     project = client.get('/api/project').get_json()
     project['layers'][0]['stage3d'] = {'jointsCol': {'0': 999, '1': 20}}
     restored = client.put('/api/project', json=project).get_json()
-    assert restored['layers'][0]['stage3d']['jointsCol'] == {'0': 180, '1': 20}
+    assert restored['layers'][0]['stage3d']['jointsCol'] == {'0': 20, '1': 20}
     # a file without the key loads without it
     del project['layers'][0]['stage3d']
     restored = client.put('/api/project', json=project).get_json()
@@ -434,14 +434,14 @@ def test_curves_and_joints_clamp_and_a_seam_click_picks_its_joint(page):
     ids = reset(page, [{'name': 'Wall', 'columns': 6, 'rows': 3, 'offset_x': 0, 'offset_y': 0}])
     wall = ids[0]
     open_3d(page, 1)
-    # a joint keeps what it is given up to a half turn (QA, 2026-11-10:
-    # every joint used to be held to 15)
+    # a joint is held to 20 either way, the most a curve lock bends
+    # (owner, 2026-11-10)
     type_field(page, 's3d-curve-col', '40')
-    assert stored(page, wall)['curveCol'] == 40
-    assert page.evaluate("document.getElementById('s3d-curve-col').value") == '40'
+    assert stored(page, wall)['curveCol'] == 20
+    assert page.evaluate("document.getElementById('s3d-curve-col').value") == '20'
     type_field(page, 's3d-curve-row', '-999')
-    assert stored(page, wall)['curveRow'] == -180
-    assert '5 joints, 200° in all' in page.evaluate("document.getElementById('s3d-arc-col').textContent")
+    assert stored(page, wall)['curveRow'] == -20
+    assert '5 joints, 100° in all' in page.evaluate("document.getElementById('s3d-arc-col').textContent")
     type_field(page, 's3d-curve-col', '15')
     type_field(page, 's3d-curve-row', '-15')
 
@@ -456,7 +456,7 @@ def test_curves_and_joints_clamp_and_a_seam_click_picks_its_joint(page):
     assert not page.evaluate("document.getElementById('s3d-joint-angle').disabled")
     assert 'columns 3 and 4' in page.evaluate("document.getElementById('s3d-joint-label').textContent")
     type_field(page, 's3d-joint-angle', '30')
-    assert stored(page, wall)['jointsCol'] == {'2': 30}
+    assert stored(page, wall)['jointsCol'] == {'2': 20}
     type_field(page, 's3d-joint-angle', '-4')
     assert stored(page, wall)['jointsCol'] == {'2': -4}
     assert '(1 set alone)' in page.evaluate("document.getElementById('s3d-arc-col').textContent")
@@ -470,7 +470,7 @@ def test_curves_and_joints_clamp_and_a_seam_click_picks_its_joint(page):
             body: JSON.stringify({stage3d: {curveCol: 800, jointsRow: {'0': -60}}})});
         return (await r.json()).stage3d;
     }""", wall)
-    assert resp['curveCol'] == 180 and resp['jointsRow'] == {'0': -60}
+    assert resp['curveCol'] == 20 and resp['jointsRow'] == {'0': -20}
 
     # clearing the joint goes back to the screen's own figure
     page.click('#s3d-joint-clear')
@@ -759,7 +759,7 @@ def test_an_old_project_without_3d_data_loads(page):
     assert d['failed'] == '' and page.errors == []
     assert not screen(page, ids[0])['stored']
     healed = served(page, ids[1])
-    assert healed['curveCol'] == 0 and healed['jointsCol'] == {'1': 180}
+    assert healed['curveCol'] == 0 and healed['jointsCol'] == {'1': 20}
 
 
 def test_the_camera_is_saved_with_the_project(page):

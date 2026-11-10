@@ -303,7 +303,7 @@
                             <label>Offset Y</label>
                             <input type="text" id="offset-y" value="0">
                         </div>
-                        <div class="info-row screen-only" data-tooltip="Rotation, Rotate this screen 90/180/270 in the Pixel Map and Cabinet ID views. The cabinets and all labels rotate; the corner X,Y readouts stay upright. Data, Power, and Show Look are unaffected.">
+                        <div class="info-row screen-only" data-tooltip="Rotation, Turn this screen's picture 90, 180 or 270 degrees. The cabinets and their labels turn on the 2D tabs, and the corner X,Y readouts stay upright. Only the picture turns: the header and footer bars stay along the wall's own bottom row, and the 3D tab builds the wall as it is built. Stand it another way there with Pitch, Yaw and Roll.">
                             <label>Rotation</label>
                             <select id="screen-rotation">
                                 <option value="0">0&deg;</option>
@@ -1882,12 +1882,17 @@
                         </div>
                         <div id="rigging-status" style="color:#aaa; font-size: 12px; margin-top: 8px; white-space: pre-line;"></div>
                         <!-- Rows of bars that no longer fit their wall (a
-                             resize or a turn), and screens an older show left
-                             with a header AND a footer. Nothing changes until
-                             a button here is pressed. _refreshRiggingFitBox
+                             resize), bars that hang past a wall's half
+                             column, and screens an older show left with a
+                             header AND a footer. Nothing changes until a
+                             button here is pressed. _refreshRiggingFitBox
                              fills it. -->
                         <div id="rigging-fit-warning" style="display: none; margin-top: 8px; padding: 6px 8px; font-size: 12px; color: #f5a623; background: #1a1a1a; border: 1px solid #f5a623; border-radius: 4px;">
-                            <div id="rigging-fit-section" data-tooltip="Bars no longer fit, A screen was resized or turned, so its bars no longer cover its wall or run past its edge. They stay as they are until you press Auto here.">
+                            <div id="rigging-overhang-section" style="display: none;" data-tooltip="Bars past the wall, A bar is always its full length. Over a half column it hangs past the wall's edge by the half panel it does not cover.">
+                                <div style="font-weight: 600; margin-bottom: 2px;">Bars past the wall</div>
+                                <div id="rigging-overhang-text" style="white-space: pre-line; margin-bottom: 6px;"></div>
+                            </div>
+                            <div id="rigging-fit-section" data-tooltip="Bars no longer fit, A screen was resized, so its bars no longer cover its wall or run past its edge. They stay as they are until you press Auto here.">
                                 <div style="font-weight: 600; margin-bottom: 2px;">Bars no longer fit</div>
                                 <div id="rigging-fit-text" style="white-space: pre-line; margin-bottom: 6px;"></div>
                                 <button type="button" id="rigging-fit-auto" class="btn btn-primary" style="width: 100%;" data-tooltip="Auto, Fit these bars to their walls again, with each screen's own lit sizes.">Auto</button>

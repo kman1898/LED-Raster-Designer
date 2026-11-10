@@ -60,9 +60,18 @@ Thanks to kcikcreative33 for this one.
 - NEW: A group's binder sheet follows the tab's Names switch: one sheet for
   the group, a sheet per screen, or Both to ask at export. A Rear View
   binder mirrors the sheet.
-- NEW: Resize or turn a wall and its bars stay as they are. The tab, the
-  pull sheet, the binder and the exports say they no longer fit, and Auto
-  fits them again.
+- NEW: Resize a wall and its bars stay as they are. The tab, the pull
+  sheet, the binder and the exports say they no longer fit, and Auto fits
+  them again.
+- NEW: The bars follow the wall as it is built: along its own bottom row,
+  one panel of bar to each column. A screen's Rotation turns only its
+  picture, so its bars turn with the picture on the tab and the binder,
+  and stay on the same cabinets. The 3D tab builds the wall as it is
+  built; stand it another way there with pitch, yaw and roll.
+- NEW: A bar is always its full length. Over a half column it hangs past
+  the wall, and the tab says so in a Bars past the wall box: "the footer
+  double at the right end hangs 250 mm past the wall". The tab, the 3D
+  view and the binder draw it the same.
 - NEW: A show saved with a header and a footer on one screen opens as it
   was. The tab lists each such screen with a Header and a Footer button to
   pick the side to keep, and nothing is taken off until you pick.
@@ -75,9 +84,8 @@ left out. Its name and sizes sit on top of the seams between cabinets,
 and a screen standing in front still hides them. Each screen takes a
 position and a pitch, yaw and roll, typed in feet or meters or dragged
 in the view, and the 15 and 90 degree
-buttons turn it in steps. Every joint between two columns or two rows
-of cabinets bends up to 15 degrees either way: set one figure for the
-whole screen, or click a joint and give it its own. A screen group
+buttons turn it in steps. A curved wall bends up to 20 degrees per
+joint, from the Curve, and a corner folds 90 degrees. A screen group
 moves as one wall. The camera switches between perspective and
 orthographic, has Front, Back, Left, Right, Top and Iso views, and the
 grid can be hidden. Placement saves with the show and undoes like any
@@ -134,7 +142,10 @@ your bars lock at. The sizes you have lit are the stock: the Curve decides
 where each bar goes and the angle to set at every join between bars, then
 lays them as the screen's real bars, so the totals, the pull sheet and the
 binder count them, and the 3D view bends the wall to match. A joint inside
-a bar never bends, and any joint can stay flat.
+a bar never bends, and any joint can stay flat. A curve lock bends up to
+20 degrees: a lock angle past that is refused, and so is a curve that
+needs more than 20 degrees at each joint, with how much curve the wall
+can take.
 
 Under the form, a strip shows the bars left to right with the angle on
 every join that bends, a small plan shows the wall from above against the

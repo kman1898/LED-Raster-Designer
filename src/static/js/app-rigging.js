@@ -49,6 +49,15 @@
 // width (canvas-rigging.js), and the pull rows, the binder and every export
 // say so too.
 //
+// THE BARS FOLLOW THE WALL AS BUILT (owner, 2026-11-10): one panel of bar
+// to each of its columns, along its real bottom. A Pixel Map rotation
+// turns only the picture: the bars, their count, the pull list and the
+// binder are what they are at 0 degrees, the tab draws them turned with
+// the picture (canvas-rigging.js), a turned screen stands alone in its
+// row, and the 3D tab builds the wall unturned. A bar is always its full
+// stock length: over a half column it hangs past the wall, never cut
+// (riggingBarSpan), and the tab's box says so (riggingOverhangs).
+//
 // A ROW SPLITS AT A CORNER (owner, 2026-11-09): a screen's corners (the
 // Corners under the Curve, app-corners.js, every one 90 degrees) each
 // take a corner piece over the panels touching the corner (rigging-math.js
@@ -63,14 +72,14 @@
 // picked piece comes off with Delete. A piece is kept on its corner
 // (`bar`), so it is counted once, on its screen, everywhere bars are: the
 // tab's totals, the pull list and the binder's Header/Footer and pull
-// sheets. A screen turned a quarter (its bars run along its folds) takes
-// no pieces. A curved screen's Curve lays its bars on each side up to its
+// sheets. A curved screen's Curve lays its bars on each side up to its
 // corners, and the pieces with them, each side curved as its own wall
 // right up to the fold, the piece's arm on that side included
 // (app-curve.js).
 import { LEDRasterApp } from './app-core.js';
 import { setupColorPickerWithHex } from './helpers.js';
 import { s3dCleanCorners, s3dCornersOn } from './app-stage3d.js';
+import { formatSmall } from './curve-math.js';
 
 // Bars come single, double, triple and quad, 1 to 4 panels wide.
 const RIGGING_SIZES = [1, 2, 3, 4];
@@ -186,23 +195,20 @@ class _Rigging {
 
     // ---- corner pieces (rigging-math.js cornerPieces) ------------------
 
-    // Can a screen's corners split its row? Not when the screen is turned
-    // a quarter (its bars run along its folds).
+    // Can a screen's corners split its row? Any screen's: its bars run
+    // along its columns whatever its Pixel Map rotation (owner,
+    // 2026-11-10: the rotation only turns the picture).
     _riggingCornersApply(layer) {
-        if (!layer || (layer.type || 'screen') !== 'screen') return false;
-        const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
-        if (deg === 90 || deg === 270) return false;
-        return true;
+        return !!layer && (layer.type || 'screen') === 'screen';
     }
 
-    // Every corner of a screen with the panels its piece covers,
-    // in the screen's own bar panels (left to right as it stands):
+    // Every corner of a screen with the panels its piece covers, in the
+    // screen's own columns, left to right as the wall is built:
     // [{ at, start, size, bar }], `bar` where the piece is laid.
     riggingCornerSpots(layer) {
         if (!this._riggingCornersApply(layer)) return [];
         const cols = Number(layer.columns) || 0;
-        const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
-        return RiggingMath.cornerPieces(s3dCornersOn(layer, cols), cols, deg === 180);
+        return RiggingMath.cornerPieces(s3dCornersOn(layer, cols), cols);
     }
 
     // The corner pieces laid on a screen.
@@ -311,13 +317,19 @@ class _Rigging {
     // The run of screens `layer` shares a row with on one side: itself
     // alone, or the members of its group that stand edge to edge with it
     // (RiggingMath.runsOf). { layers, ids, offsets, panels, width }.
+    //
+    // A screen with a Pixel Map rotation stands alone: the rotation turns
+    // only its picture, so where its picture stands beside a neighbor's in
+    // Show Look says nothing about where its columns run (owner, 2026-11-10).
     _riggingRunOf(layer, kind) {
         const n = this.riggingWallPanels(layer);
         const alone = { layers: [layer], ids: [layer.id], offsets: [0], panels: [n], width: n };
         if (!this._riggingKindsOf(layer).includes(kind)) return alone;
+        if (this.riggingTurned(layer)) return alone;
         const members = typeof this.groupMembersOf === 'function' ? this.groupMembersOf(layer) : [];
         if (members.length < 2) return alone;
-        const peers = members.filter(m => m === layer || this._riggingKindsOf(m).includes(kind));
+        const peers = members.filter(m => (m === layer || this._riggingKindsOf(m).includes(kind))
+            && !this.riggingTurned(m));
         if (peers.length < 2) return alone;
         const run = RiggingMath.runsOf(peers.map(m => this._riggingRect(m)), kind)
             .find(u => u.ids.includes(layer.id));
@@ -559,8 +571,8 @@ class _Rigging {
                 curved.push(row.layers[0]);
                 return;
             }
-            // Across the wall as it stands (a wall turned a quarter is its
-            // rows wide), and across every member of a group in line with it.
+            // Across the wall's columns, whatever its Pixel Map rotation, and
+            // across every member of a group in line with it.
             if (!this._riggingFitRow(row, sizes)) misses.push(this._riggingRowName(row));
         });
         const kinds = new Set(rows.map(r => r.kind));
@@ -920,9 +932,144 @@ class _Rigging {
         return layers.filter(l => (l.type || 'screen') === 'screen');
     }
 
-    // The wall's real width in panels: what an Auto row has to cover.
+    // The wall's real width in panels: what an Auto row has to cover. Its
+    // columns, whatever its Pixel Map rotation (RiggingMath.wallPanels).
     riggingWallPanels(layer) {
-        return layer ? RiggingMath.wallPanels(layer.columns, layer.rows, layer.rotation) : 0;
+        return layer ? RiggingMath.wallPanels(layer.columns) : 0;
+    }
+
+    // The screen's Pixel Map rotation: 0, 90, 180 or 270. It turns only
+    // the picture. The bars stay on the wall's own columns, and on the
+    // Header/Footer tab they turn with the picture, so each bar stays by
+    // the cabinets it is under on the wall (canvas-rigging.js).
+    riggingTurn(layer) {
+        const deg = (((Number(layer && layer.rotation) || 0) % 360) + 360) % 360;
+        return deg === 90 || deg === 180 || deg === 270 ? deg : 0;
+    }
+
+    riggingTurned(layer) {
+        return this.riggingTurn(layer) !== 0;
+    }
+
+    // The side of the picture one of the wall's own sides lands on once the
+    // picture is turned: 'top', 'right', 'bottom' or 'left'. Turned 90
+    // (clockwise) the wall's top is on the right of the picture.
+    riggingPictureSide(layer, side) {
+        const order = ['top', 'right', 'bottom', 'left'];
+        const i = order.indexOf(side);
+        return i < 0 ? side : order[(i + this.riggingTurn(layer) / 90) % 4];
+    }
+
+    // The wall's columns in its own pixels from its left edge, as built:
+    // { lefts, widths, total, full }, `full` one whole panel. A half column
+    // is half as wide; the bars still come in whole panels.
+    riggingColumns(layer) {
+        const cols = new Map();
+        let minX = Infinity, maxX = -Infinity;
+        for (const p of (layer && Array.isArray(layer.panels) ? layer.panels : [])) {
+            const x = Number(p.x) || 0, w = Number(p.width) || 0, c = Number(p.col) || 0;
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x + w);
+            const s = cols.get(c) || [Infinity, -Infinity];
+            cols.set(c, [Math.min(s[0], x), Math.max(s[1], x + w)]);
+        }
+        const keys = [...cols.keys()].sort((a, b) => a - b);
+        let full = Number(layer && layer.cabinet_width) || 0;
+        if (!keys.length) {
+            const n = this.riggingWallPanels(layer);
+            full = full || 1;
+            return { lefts: [...Array(n).keys()].map(i => i * full), widths: new Array(n).fill(full), total: n * full, full };
+        }
+        const widths = keys.map(c => cols.get(c)[1] - cols.get(c)[0]);
+        return {
+            lefts: keys.map(c => cols.get(c)[0] - minX),
+            widths,
+            total: maxX - minX,
+            full: full || Math.max(...widths),
+        };
+    }
+
+    // Where a bar `size` panels long that starts on the wall's panel
+    // `start` stands, in the wall's own pixels from its left edge:
+    // [x0, x1]. A bar is always its full stock length (owner, 2026-11-10):
+    // over a half column it hangs past the wall, never cut to the panels.
+    // It lines up with the left edge of its first panel, except one that
+    // starts on a half column at the wall's left end, which lines up with
+    // the right edge of its last panel and hangs off the left. Off the
+    // wall (a neighbor's panels, or past the end) a panel is a whole one.
+    riggingBarSpan(cols, start, size) {
+        const n = cols.widths.length;
+        const len = size * cols.full;
+        if (start === 0 && n > 0 && size <= n && cols.widths[0] < cols.full - 1e-6) {
+            const last = size - 1;
+            const x1 = cols.lefts[last] + cols.widths[last];
+            return [x1 - len, x1];
+        }
+        const x0 = start < 0 ? start * cols.full
+            : start >= n ? cols.total + (start - n) * cols.full : cols.lefts[start];
+        return [x0, x0 + len];
+    }
+
+    // The bars on a screen that hang past its wall because a half column
+    // is under them (riggingBarSpan): [{ kind, size, corner, side, mm }],
+    // `side` 'left' or 'right' as the wall is built. Only a bar on the
+    // wall's own panels counts: one running whole panels past the edge is
+    // a row that no longer fits (riggingMisfits).
+    riggingOverhangs(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return [];
+        const cols = this.riggingColumns(layer);
+        const n = cols.widths.length;
+        if (!n || cols.widths.every(w => Math.abs(w - cols.full) < 1e-6)) return [];
+        const mmPerPx = (Number(layer.panel_width_mm) || 500) / (cols.full || 1);
+        const out = [];
+        for (const kind of this._riggingKindsOf(layer)) {
+            for (const b of this.riggingSliceOf(layer, kind)) {
+                if (!b.own || b.start < 0 || b.start + b.size > n) continue;
+                const [x0, x1] = this.riggingBarSpan(cols, b.start, b.size);
+                const base = { kind, size: b.size, corner: b.corner != null };
+                if (x0 < -1e-6) out.push({ ...base, side: 'left', mm: -x0 * mmPerPx });
+                if (x1 > cols.total + 1e-6) out.push({ ...base, side: 'right', mm: (x1 - cols.total) * mmPerPx });
+            }
+        }
+        return out;
+    }
+
+    // "SL: the footer double at the right end hangs 250 mm past the wall."
+    riggingOverhangLine(layer, o) {
+        const what = o.corner ? 'corner bar' : RiggingMath.sizeWord(o.size).toLowerCase();
+        const metric = typeof this.cableUnit === 'function' && this.cableUnit() === 'm';
+        const len = formatSmall(o.mm / 1000, metric ? 'metric' : 'imperial');
+        const name = (layer && layer.name) || `Screen ${layer && layer.id}`;
+        return `${name}: the ${o.kind} ${what} at the ${o.side} end hangs ${len} past the wall.`;
+    }
+
+    // A show saved when a screen turned a quarter by its Pixel Map rotation
+    // laid its bars across its rows: as it opens, each such screen's Auto
+    // row that no longer covers its columns is laid again along them with
+    // its own lit sizes. A custom row is left as it is, and the tab's
+    // no-longer-fit box names it (owner, 2026-11-10). Returns what to say,
+    // '' when nothing changed.
+    riggingRelayTurnedOnOpen() {
+        const names = [];
+        for (const l of this._riggingScreensInShow()) {
+            const deg = this.riggingTurn(l);
+            if (deg !== 90 && deg !== 270) continue;
+            const side = this.riggingSideOf(l);
+            if (side === 'both' || l.riggingCustom === true) continue;
+            if (typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(l)) continue;
+            const row = this.riggingRow(l, side);
+            if (!row.problem || !row.placed.length) continue;
+            if (this._riggingFitRow(row, this._riggingSizesOf(l))) names.push(l.name || `Screen ${l.id}`);
+        }
+        if (!names.length) return '';
+        const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+        return `Header/Footer bars on ${who} were laid again along the wall's columns. A Pixel Map rotation turns only the picture.`;
+    }
+
+    // Every overhang on the screens the pull list counts, each a line.
+    riggingShownOverhangLines() {
+        const out = [];
+        for (const l of this._pullScreens()) for (const o of this.riggingOverhangs(l)) out.push(this.riggingOverhangLine(l, o));
+        return out;
     }
 
     // ---- bars that no longer fit -----------------------------------------
@@ -1011,7 +1158,14 @@ class _Rigging {
         if (!box || !text) return;
         const misfits = this.riggingShownMisfits();
         const both = this.riggingBothScreens();
-        box.style.display = misfits.length || both.length ? '' : 'none';
+        // Bars that hang past a wall over its half column: said, never cut
+        // (owner, 2026-11-10); there is nothing to press.
+        const hang = this.riggingShownOverhangLines();
+        box.style.display = misfits.length || both.length || hang.length ? '' : 'none';
+        const hangPart = document.getElementById('rigging-overhang-section');
+        const hangText = document.getElementById('rigging-overhang-text');
+        if (hangPart) hangPart.style.display = hang.length ? '' : 'none';
+        if (hangText) hangText.textContent = hang.slice(0, 6).concat(hang.length > 6 ? [`And ${hang.length - 6} more.`] : []).join('\n');
         const fitPart = document.getElementById('rigging-fit-section');
         if (fitPart) fitPart.style.display = misfits.length ? '' : 'none';
         const lines = misfits.slice(0, 6).map(m => this.riggingMisfitLine(m));

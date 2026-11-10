@@ -2241,6 +2241,12 @@ export function makeCurve(name = 'Curve 1') {
 // bend). Ways to build it, a build picked by hand and the leftover-stock
 // refusal (the panels between the arms) are each side's own.
 
+// The most a curve lock bends at one joint, either way (owner, 2026-11-10:
+// "lets limit to 20"). A lock angle past it is refused where it is typed,
+// a stored one is held to it, and a curve that needs more at each joint
+// is refused (solveWall). A corner's 90 is its own thing, never this.
+export const CURVE_MAX_JOINT_DEG = 20;
+
 export const CURVE_DEFAULTS = Object.freeze({
   on: false,
   entry: 'percent',      // 'percent' of a full circle, or 'degrees' of sweep
@@ -2265,8 +2271,10 @@ const finiteOr = (v, fallback) => {
 export function cleanCurve(raw) {
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const pick = (v, options, fallback) => (options.includes(v) ? v : fallback);
+  // a lock angle saved past the limit (a 1.7.0 beta allowed it) is held to it
   const angles = Array.isArray(src.angles)
-    ? [...new Set(src.angles.map((a) => Math.abs(finiteOr(a, 0))).filter((a) => a > 0))].sort((a, b) => a - b)
+    ? [...new Set(src.angles.map((a) => Math.min(CURVE_MAX_JOINT_DEG, Math.abs(finiteOr(a, 0)))).filter((a) => a > 0))]
+      .sort((a, b) => a - b)
     : [...CURVE_DEFAULTS.angles];
   const sidePicks = Array.isArray(src.sidePicks) ? src.sidePicks.map(cleanPick) : [];
   while (sidePicks.length && !sidePicks[sidePicks.length - 1]) sidePicks.pop();
@@ -2490,6 +2498,19 @@ function solveWall(count, panelWidthM, sizes, s, system, pick, pickKey, where, s
     }
   }
   const unit = shape ? shape.unit : 1;
+  // A wall of n panels spans n times the angle at each joint (idealAngle):
+  // a curve past CURVE_MAX_JOINT_DEG a joint is refused, saying how much
+  // curve the wall can take (owner, 2026-11-10).
+  const panelsHere = count * unit;
+  const sweep = s.entry === 'degrees' ? finiteOr(s.value, 0) : finiteOr(s.value, 0) * 3.6;
+  if (panelsHere >= 2 && sweep / panelsHere > CURVE_MAX_JOINT_DEG + 1e-9) {
+    const most = CURVE_MAX_JOINT_DEG * panelsHere;
+    const ask = s.entry === 'degrees' ? formatAngle(Math.floor(most * 10) / 10) : `${Math.floor(most / 3.6 * 10) / 10}%`;
+    return {
+      errors: [`This curve needs ${formatAngle(sweep / panelsHere)} at each joint on ${where}, past the ${CURVE_MAX_JOINT_DEG}° a curve lock takes. Ask for ${ask} or less.`],
+      warnings: [], result: null, bars: [], starts: [], joints: [], pickKey,
+    };
+  }
   const panelM = finiteOr(panelWidthM, 0);
   const config = makeCurve('Screen');
   config.panel.count = count;

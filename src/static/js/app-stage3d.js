@@ -28,12 +28,13 @@
 import { LEDRasterApp } from './app-core.js';
 import { evaluateMathExpression, sendClientLog } from './helpers.js';
 
-// Degrees, either way, at any joint: a half turn. A joint keeps the angle
-// it is given, so 3D and the OBJ draw exactly what the Curve lays (QA,
-// 2026-11-10: every joint was held to 15, and a 20 degree Curve drew
-// shallower than the wall it builds); only a figure past a half turn is
-// held to it. app.py STAGE3D_JOINT_LIMIT is the same.
-const JOINT_LIMIT = 180;
+// Degrees, either way, at any curve joint: the most a curve lock bends
+// (owner, 2026-11-10: "lets limit to 20"; curve-math.js
+// CURVE_MAX_JOINT_DEG), so 3D and the OBJ draw what the Curve lays. A
+// joint stored past it (a 1.7.0 beta allowed 180) opens held to it. A
+// corner's 90 comes from riggingCorners (s3dCornerTurn) and is never held
+// to this. app.py STAGE3D_JOINT_LIMIT is the same.
+const JOINT_LIMIT = 20;
 export const FT_MM = 304.8;
 // X, Y and Z measure the middle of the bottom edge (the block's marker).
 export const PIVOT = 'bottom';
@@ -656,6 +657,8 @@ function s3dBarRows(layer, built, slices) {
     const n = built.colLen.length, last = built.rowLen.length - 1;
     if (!n || last < 0) return out;
     const avg = built.widthMm / n;
+    // one whole panel, mm
+    const full = Number(layer.panel_width_mm) > 0 ? Number(layer.panel_width_mm) : avg;
     const hHead = s3dBarHeight('header'), hFoot = s3dBarHeight('footer');
     const foot = built.rowLen[last];
     const at = { header: [0, -hHead, 0, hHead], footer: [last, foot, foot + hFoot, hFoot] };
@@ -680,11 +683,21 @@ function s3dBarRows(layer, built, slices) {
         const quads = [];
         let lengthMm = 0;
         for (const s of list) {
+            // A bar is its full stock length, whole panels (owner,
+            // 2026-11-10): over a half column its panel is still a whole
+            // one and hangs past the wall, off the left end on the first
+            // column, on along the wall elsewhere; never cut to the panels.
+            // Past the last column a panel is whole too (app-rigging
+            // riggingBarSpan draws the same on the Header/Footer tab).
             let i = s, ua = 0, ub = built.colLen[s];
+            const narrow = (c) => built.colLen[c] < full - 1e-6;
             if (s >= n) {
                 i = n - 1;
-                ua = built.colLen[n - 1] + (s - n) * avg;
-                ub = ua + avg;
+                ua = (narrow(n - 1) ? full : built.colLen[n - 1]) + (s - n) * full;
+                ub = ua + full;
+            } else if (narrow(s)) {
+                if (s === 0) { ua = built.colLen[0] - full; ub = built.colLen[0]; }
+                else ub = full;
             }
             lengthMm += ub - ua;
             // A bar over a folded panel folds with it: two quads, each with
