@@ -447,7 +447,8 @@ class _Clipboard {
             // does not stand inside the original (app-stage3d.js). None when
             // the source has none: the copy then stands at its own nudged
             // Show Look position.
-            stage3d: s3dCopyPlacement(layer, dx, dy),
+            stage3d: s3dCopyPlacement(layer, dx, dy, null,
+                typeof this._s3dFooterMm === 'function' ? this._s3dFooterMm(layer) : 0),
             // The IDM Locator's module layout - never its marks: the copy
             // is another physical wall (app-idm-locator.js).
             idm: idmCopyLayout(layer),

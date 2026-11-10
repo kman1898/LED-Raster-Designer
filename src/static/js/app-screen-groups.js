@@ -1281,7 +1281,8 @@ class _ScreenGroups {
             // Its 3D place takes the same nudge in mm on every member - the
             // first member's 50 px - so the copied wall keeps its shape in
             // the 3D view too (app-stage3d.js).
-            const placed = s3dCopyPlacement(src, 50, 50, members[0]);
+            const placed = s3dCopyPlacement(src, 50, 50, members[0],
+                typeof this._s3dFooterMm === 'function' ? this._s3dFooterMm(src) : 0);
             if (placed) clone.stage3d = placed;
             else delete clone.stage3d;
             // A copy claims no multi on any distro (2026-09-23) - the same
