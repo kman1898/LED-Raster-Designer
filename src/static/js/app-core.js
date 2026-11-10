@@ -3367,6 +3367,14 @@ export class LEDRasterApp {
             if (layout) out.idm = layout;
             else delete out.idm;
         }
+        // The panel's curve lock positions travel with a panel preset when
+        // the show has its own list for that panel (app-curve.js); the
+        // library's or the owner's list needs no carrying.
+        delete out.curveLocks;
+        if (typeof this.curveLocksOf === 'function') {
+            const locks = this.curveLocksOf(layer);
+            if (locks.source === 'user' && Array.isArray(locks.list)) out.curveLocks = [...locks.list];
+        }
         return out;
     }
 
@@ -3412,6 +3420,11 @@ export class LEDRasterApp {
                 layer[k] = next;
                 return;
             }
+            if (k === 'curveLocks') {
+                // The panel's lock positions are the show's, not the
+                // screen's (app-curve.js _curveAdoptPresetLocks, below).
+                return;
+            }
             if (k === 'idm') {
                 // The module layout only (app-idm-locator.js): a preset
                 // never brings marks, and a screen keeps its own marks only
@@ -3446,6 +3459,11 @@ export class LEDRasterApp {
         // 'brompton-ull', so migrate here as well as on the file-load paths.
         this.migrateLowLatencyProcessor(layer);
         if (layer.lowLatency === undefined) layer.lowLatency = false;
+        // A preset's own curve lock positions: the show takes them for this
+        // panel when it has none (rides the Add Layer step).
+        if (Array.isArray(presetData.curveLocks) && typeof this._curveAdoptPresetLocks === 'function') {
+            this._curveAdoptPresetLocks(layer, presetData.curveLocks);
+        }
     }
 
     // v0.11.0: Low Latency behaviour per processor family. Single source of

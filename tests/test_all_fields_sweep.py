@@ -219,6 +219,11 @@ SKIP = {
     'power-jump-unit':
         'writes project.cableUnit, not the layer; driven end-to-end by '
         'tests/test_show_unit_switch.py',
+    # The Curve's lock positions editor (app-curve.js): a staging box for
+    # Add; Save writes the show's list for the panel (project.panelCurveLocks).
+    'rigging-curve-lock-input':
+        'staging box for Add; Save writes project.panelCurveLocks, not the '
+        'layer; driven end-to-end by tests/test_curve_locks.py',
 }
 
 ALL_FIELDS = _discover_fields()

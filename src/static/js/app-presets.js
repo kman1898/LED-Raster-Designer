@@ -360,6 +360,20 @@ class _Presets {
     _getCachedCatalogSha() { return localStorage.getItem('panelCatalog.cachedSha') || ''; }
     _getCachedCatalogAt()  { return localStorage.getItem('panelCatalog.cachedAt') || ''; }
 
+    // The catalog (static/data/panel_catalog.json) is { "<manufacturer>":
+    // [model, ...] }, each model { name, width_mm, height_mm, pixels_w,
+    // pixels_h, pitch_mm, weight_kg, weight_lb, watts_max, watts_ave,
+    // connector, proc_type, source } and, where read off a manufacturer
+    // sheet, the curve lock fields the Curve reads (app-curve.js
+    // _curveBaseLocks):
+    //   curve_locks         the angles the panel's curve locks set at,
+    //                       signed degrees, sorted, flat included, e.g.
+    //                       [-5, 0, 5]: positive bends concave (the ends
+    //                       toward the audience), negative convex, each
+    //                       within 20 either way (curve-math.js cleanLocks)
+    //   curve_locks_source  where they were read, like `source` (optional)
+    // A model without curve_locks has none, unless curve-math.js
+    // OWNER_CURVE_LOCKS names it; the library's value wins once it has one.
     _ingestCatalog(catalog) {
         this._panelCatalog = catalog || {};
         this._panelCatalogFlat = [];
@@ -1543,6 +1557,11 @@ class _Presets {
                 const fit = this.computeTilesForWall(layer);
                 if (fit.columns !== null) layer.columns = fit.columns;
                 if (fit.rows !== null) layer.rows = fit.rows;
+            }
+            // A panel preset's curve lock positions (app-curve.js): the show
+            // takes them for this panel when it has none of its own.
+            if (Array.isArray(data.curveLocks) && typeof this._curveAdoptPresetLocks === 'function') {
+                this._curveAdoptPresetLocks(layer, data.curveLocks);
             }
         });
         sendClientLog('change_cabinet', {

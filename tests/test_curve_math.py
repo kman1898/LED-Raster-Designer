@@ -26,7 +26,7 @@ def test_the_js_tests_are_found():
     names = {os.path.basename(p) for p in JS_TESTS}
     for want in ('curve_geometry.test.mjs', 'curve_targets.test.mjs', 'curve_snap.test.mjs',
                  'curve_footers.test.mjs', 'curve_solve.test.mjs', 'curve_invariants.test.mjs',
-                 'curve_units.test.mjs', 'curve_pinned.test.mjs', 'curve_screen.test.mjs',
+                 'curve_units.test.mjs', 'curve_pinned.test.mjs', 'curve_screen.test.mjs', 'curve_locks.test.mjs',
                  'obj_export.test.mjs'):
         assert want in names, f'{want} is missing from tests/js'
 

@@ -2390,11 +2390,98 @@ export function parseAngles(text) {
   return list.length ? list : null;
 }
 
+// ---- A panel's lock positions ------------------------------------------------
+//
+// THE CURVE LAYS ONLY THE PANEL'S LOCK POSITIONS (owner, 2026-11-10: "the
+// curves allowed should only be via values that are set. like the roe
+// graphite can only do +-5"). A panel's curve locks set at FIXED POSITIONS,
+// a list per panel, never a range: signed degrees, positive a concave bend
+// (the ends come toward the audience, the sign the 3D stage turns them by),
+// negative convex. Flat is always one of them (a joint can always be left
+// flat). Each is held within CURVE_MAX_JOINT_DEG either way.
+//
+// Where a panel's list comes from (app-curve.js curveLocksOf), first found:
+// the show's own list for that panel (set by the user, saved with the show
+// and in panel presets), the panel library's `curve_locks` (read off a
+// manufacturer sheet), then OWNER_CURVE_LOCKS below. A panel with none
+// cannot be curved until its positions are set.
+
+/**
+ * Lock positions the owner ruled firsthand, for panels the library has no
+ * `curve_locks` for yet. The library's value wins once it has one.
+ * ROE Graphite, every full and half tile: -5, 0 and +5 (owner, 2026-11-10).
+ */
+export const OWNER_CURVE_LOCKS = Object.freeze([
+  Object.freeze({ mfr: 'ROE', test: (name) => /Graphite/.test(name) && /\b(Full|Half) Tile\b/.test(name),
+                  locks: Object.freeze([-5, 0, 5]) }),
+]);
+
+/** The owner's list for a library model (manufacturer, model name), or null. */
+export function ownerCurveLocks(mfr, name) {
+  const m = String(mfr == null ? '' : mfr);
+  const n = String(name == null ? '' : name);
+  const hit = OWNER_CURVE_LOCKS.find((o) => o.mfr === m && o.test(n));
+  return hit ? [...hit.locks] : null;
+}
+
+/**
+ * A list of lock positions held to its shape: finite signed degrees within
+ * CURVE_MAX_JOINT_DEG either way (any past it is dropped), to a thousandth,
+ * sorted, each once, flat included. Null when `raw` is not a list.
+ */
+export function cleanLocks(raw) {
+  if (!Array.isArray(raw)) return null;
+  const set = new Set([0]);
+  for (const v of raw) {
+    if (typeof v === 'boolean' || v === null || v === '' || Array.isArray(v)) continue;
+    const n = Number(v);
+    if (!Number.isFinite(n) || Math.abs(n) > CURVE_MAX_JOINT_DEG + 1e-9) continue;
+    const r = Math.round(n * 1000) / 1000;
+    set.add(r === 0 ? 0 : r);
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+/** True when a list has a position to bend to (flat alone curves nothing). */
+export function hasLockPositions(list) {
+  return Array.isArray(list) && list.some((a) => Number.isFinite(Number(a)) && Number(a) !== 0);
+}
+
+/** The angles a list bends to one way, as sizes: concave the positive ones, convex the negative. */
+export function locksForBend(list, bend) {
+  const clean = cleanLocks(list) || [];
+  const want = bend === 'convex' ? clean.filter((a) => a < 0).map((a) => -a) : clean.filter((a) => a > 0);
+  return [...new Set(want)].sort((a, b) => a - b);
+}
+
+/**
+ * Lock positions as typed: every signed number in the text, "-5, 0, +5"
+ * and "-5 5" both read. Null when there is no number at all.
+ */
+export function parseLocks(text) {
+  const src = String(text == null ? '' : text).replace(/−/g, '-');
+  const out = (src.match(/[+-]?(?:\d+(?:\.\d+)?|\.\d+)/g) || []).map(Number).filter((n) => Number.isFinite(n));
+  return out.length ? out : null;
+}
+
+/** One position as a chip reads it: "-5°", "0°", "+5°". */
+export function formatLock(a) {
+  const n = Number(a) || 0;
+  return n > 0 ? `+${formatAngle(n)}` : formatAngle(n);
+}
+
+/** The message a screen whose panel has no lock positions shows. */
+export const NO_LOCKS_MESSAGE = 'This panel has no curve lock positions yet. Set them to curve this screen.';
+
 /**
  * The calculator's answer for one screen.
  * `panels` across, `panelWidthM`, `sizes` (the lit bar sizes, in panels),
  * `settings` (cleanCurve's shape), `system` ('metric' | 'imperial'), and
  * its corner bars, `pieces` ({ start, size } in panels from the left).
+ * `locks`: the panel's lock positions (signed degrees, cleanLocks), the only
+ * angles the Curve lays, or null when the panel has none (refused, saying
+ * so). The app always passes it; left out (undefined), the settings' own
+ * `angles` are the hardware, as in the curve calculator itself.
  * { errors, warnings, result, bars: [panels...], joints: [signed degrees] }:
  * on an error, bars and joints are empty and the result is the zeroed one.
  * With corner bars the answer is each side's put together: `sides`, left
@@ -2406,9 +2493,20 @@ export function parseAngles(text) {
  * bars marked, and `joints` across the whole screen, a corner's own seam
  * 0; `result` is null.
  */
-export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'metric', pieces }) {
-  const s = cleanCurve(settings);
+export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'metric', pieces, locks }) {
+  let s = cleanCurve(settings);
   const count = Math.round(finiteOr(panels, 0));
+  if (locks !== undefined) {
+    // Only the panel's positions, the ones that bend this way.
+    const list = cleanLocks(locks);
+    if (!hasLockPositions(list)) return refused([NO_LOCKS_MESSAGE]);
+    const angles = locksForBend(list, s.bend);
+    if (!angles.length) {
+      const other = s.bend === 'convex' ? 'Concave' : 'Convex';
+      return refused([`This panel has no ${s.bend} lock positions. Pick ${other}, or add ${s.bend} positions with Edit.`]);
+    }
+    s = { ...s, angles };
+  }
   const corners = cleanPieces(count, pieces);
   if (!corners.length) {
     const pickKey = curvePickKey({ panels, panelWidthM, sizes, settings: s });
@@ -2462,6 +2560,11 @@ export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'me
   placed.sort((a, b) => a.start - b.start);
   return { errors: [], warnings, result: null, bars: placed.map((b) => b.size), joints, placed, sides, pickKey: null,
            datum_at: datumPosition(s.from, count) };
+}
+
+// A screen the Curve lays nothing on, saying why.
+function refused(errors) {
+  return { errors, warnings: [], result: null, bars: [], starts: [], joints: [], placed: [], pickKey: null };
 }
 
 // Where a side builds from: the screen's Left, Center or Right is each
