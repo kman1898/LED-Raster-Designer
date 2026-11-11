@@ -123,6 +123,20 @@ export const fromSmallDisplay = (v, system) =>
   system === 'imperial' ? v * M_PER_IN : v / 1000;
 export const smallUnitLabel = (system) => (system === 'imperial' ? 'inches' : 'mm');
 
+/**
+ * The Curve's Close enough box, from its millimeters: mm to a tenth, or
+ * inches. Inches within half a millimeter of a tape mark (an eighth) read
+ * as the mark, so the 25 mm default reads 1, the way the warnings put it,
+ * not 0.98 (QA, 2026-11-10); anything else to a hundredth.
+ */
+export function toleranceField(mm, system) {
+  if (!Number.isFinite(mm)) return '';
+  if (system !== 'imperial') return String(Math.round(mm * 10) / 10);
+  const inches = mm / 25.4;
+  const mark = Math.round(inches * 8) / 8;
+  return String(Math.abs(mark - inches) * 25.4 <= 0.5 ? mark : Math.round(inches * 100) / 100);
+}
+
 /** A short length for a label: "0.5 m", "1 m", "1.5 m", or feet and inches. */
 export function formatShortLength(m, system) {
   if (!Number.isFinite(m)) return '';

@@ -78,7 +78,7 @@ import { LEDRasterApp } from './app-core.js';
 import { s3dCleanCorners, s3dCornerSeams, s3dCornerTurn, s3dResolve, s3dSanitize } from './app-stage3d.js';
 import {
     cleanCurve, cleanLocks, convertCurveEntry, datumLabel, formatAngle, formatLength, formatLock, formatSmall,
-    hasLockPositions, ownerCurveLocks, parseLocks, screenCurve, snapDatum,
+    hasLockPositions, ownerCurveLocks, parseLocks, screenCurve, snapDatum, toleranceField,
     CURVE_MAX_JOINT_DEG, NO_LOCKS_MESSAGE,
 } from './curve-math.js';
 
@@ -858,9 +858,7 @@ class _Curve {
             if (el && document.activeElement !== el && el.value !== value) el.value = value;
         };
         set('rigging-curve-value', String(Math.round(s.value * 1000) / 1000));
-        set('rigging-curve-tol', system === 'metric'
-            ? String(Math.round(s.toleranceMm * 10) / 10)
-            : String(Math.round(s.toleranceMm / 25.4 * 100) / 100));
+        set('rigging-curve-tol', toleranceField(s.toleranceMm, system));
         const tolUnit = document.getElementById('rigging-curve-tol-unit');
         if (tolUnit) tolUnit.textContent = system === 'metric' ? 'mm' : 'in';
         const valueUnit = document.getElementById('rigging-curve-value-unit');

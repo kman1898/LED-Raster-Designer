@@ -10,6 +10,7 @@ import {
   fromSmallDisplay,
   toDisplay,
   toSmallDisplay,
+  toleranceField,
 } from '../../src/static/js/curve-math.js';
 
 describe('feet and inches, the way a tape reads', () => {
@@ -85,6 +86,23 @@ describe('angles', () => {
     expect(formatAngle(5)).toBe('5°');
     expect(formatAngle(4.5001, 2)).toBe('4.5°');
     expect(formatAngle(2.3861, 2)).toBe('2.39°');
+  });
+});
+
+// QA, 2026-11-10: the Curve's Close enough box read 0.98 in, the 25 mm
+// default converted. A tape mark within half a millimeter reads as the mark.
+describe('the Close enough box', () => {
+  it('reads the 25 mm default as 1 in, and 25 in mm', () => {
+    expect(toleranceField(25, 'imperial')).toBe('1');
+    expect(toleranceField(25.4, 'imperial')).toBe('1');
+    expect(toleranceField(25, 'metric')).toBe('25');
+    expect(toleranceField(25.4, 'metric')).toBe('25.4');
+  });
+  it('reads an eighth as an eighth, and a typed hundredth as typed', () => {
+    expect(toleranceField(12.7, 'imperial')).toBe('0.5');
+    expect(toleranceField(3.175, 'imperial')).toBe('0.125');
+    expect(toleranceField(0.3 * 25.4, 'imperial')).toBe('0.3');
+    expect(toleranceField(0, 'imperial')).toBe('0');
   });
 });
 
