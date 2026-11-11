@@ -1808,12 +1808,15 @@
                                 <!-- The panel's lock positions (app-curve.js):
                                      the only angles the Curve lays. -->
                                 <div id="rigging-curve-locks" style="margin-bottom: 6px;" data-tooltip="Lock positions, the angles this panel's curve locks set at. The Curve lays only these, and a joint can always stay flat. Edit sets them for every screen of this panel in the show.">
-                                    <div style="display: flex; gap: 4px; align-items: center;">
-                                        <span style="flex: none; width: 74px; color: #aaa;">Lock positions</span>
-                                        <div id="rigging-curve-lock-chips" style="flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 3px;"></div>
-                                        <button type="button" id="rigging-curve-lock-edit" class="btn btn-secondary" style="flex: none; padding: 2px 8px; font-size: 11px;">Edit</button>
+                                    <!-- The chips sit in an even grid of equal
+                                         cells under the label, however many
+                                         there are; Edit ends the line below. -->
+                                    <div style="color: #aaa; margin-bottom: 3px;">Lock positions</div>
+                                    <div id="rigging-curve-lock-chips" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 3px;"></div>
+                                    <div style="display: flex; gap: 4px; align-items: center; margin-top: 3px;">
+                                        <div id="rigging-curve-lock-source" style="flex: 1; min-width: 0; color: #888; font-size: 11px;"></div>
+                                        <button type="button" id="rigging-curve-lock-edit" class="btn btn-secondary" style="flex: none; margin-left: auto; padding: 2px 8px; font-size: 11px;">Edit</button>
                                     </div>
-                                    <div id="rigging-curve-lock-source" style="color: #888; font-size: 11px; margin: 2px 0 0 78px;"></div>
                                     <div id="rigging-curve-lock-none" style="display: none; color: #f5a623; font-size: 11px; margin-top: 2px;"></div>
                                     <div id="rigging-curve-lock-editor" style="display: none; margin-top: 4px; padding: 6px; background: #111; border: 1px solid #4a4a4a; border-radius: 4px;">
                                         <div id="rigging-curve-lock-draft" style="display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 4px;"></div>

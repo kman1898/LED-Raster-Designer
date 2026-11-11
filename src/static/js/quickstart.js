@@ -279,6 +279,48 @@
         }
         return '';
     }
+    // Each side's Sweep on a screen with corners, as the tab shows it:
+    // ['left side 10°, 2.8% of a circle', ...], or [] without sides.
+    function sideSweepsShown() {
+        var rows = document.querySelectorAll('#rigging-curve-readouts > div');
+        var out = [], side = '';
+        for (var i = 0; i < rows.length; i++) {
+            var cells = rows[i].children;
+            if (cells.length !== 2) continue;
+            var k = cells[0].textContent;
+            var named = /^((?:Left|Right) side|Side \d+), /.exec(k);
+            if (named) side = named[1].toLowerCase();
+            else if (k === 'Sweep' && side) out.push(side + ' ' + cells[1].textContent);
+        }
+        return out;
+    }
+    // The Header/Footer tab's Curve with nothing to warn of: laid and drawn
+    // from its answer, no "Out of range" and no "Off the drawing" warning,
+    // and the build in use on every side inside Close enough (no orange
+    // "over" on it in Ways to build it). A guide step that leaves the
+    // Curve short of the drawing must not pass (QA, 2026-11-11: a corner
+    // down a panel's middle left the shorter side Out of range while the
+    // step said done).
+    function curveTabClean() {
+        var a = A(), w = wall();
+        if (!w || !w.riggingCurve || !w.riggingCurve.on || a.riggingCurveBusy()) return false;
+        var out = a.riggingCurveCached(w);
+        if (!out || out.errors.length || !a._curveLaidMatches(w, out)) return false;
+        var err = $('#rigging-curve-errors');
+        if (err && err.style.display !== 'none' && err.textContent.trim()) return false;
+        var warn = $('#rigging-curve-warnings');
+        var said = (warn && warn.style.display !== 'none' && warn.textContent) || '';
+        if (/Out of range|Off the drawing/.test(said)) return false;
+        var ways = document.querySelectorAll('#rigging-curve-ways .rigging-curve-way');
+        if (!ways.length) return false;
+        for (var i = 0; i < ways.length; i++) {
+            var lines = ways[i].firstElementChild ? ways[i].firstElementChild.children : [];
+            var top = lines[0] ? lines[0].textContent : '';
+            var bottom = lines[1] ? lines[1].textContent : '';
+            if (/, in use$/.test(top) && /, over$/.test(bottom)) return false;
+        }
+        return true;
+    }
     function portsNeeded() {
         var w = wall();
         if (!w || !A().calculatePortAssignments) return 0;
@@ -6166,8 +6208,13 @@
         // locks reach cleanly (QA, 2026-11-10: the default 20% asked
         // doubles and triples locking at most 7.5 degrees for more than
         // they bend, and the tab said Out of range while the note said
-        // 20%): 7.5% of a circle lands inside Close enough with every bent
-        // joint at 5. The note reads what was built off the tab itself.
+        // 20%), on the whole wall AND on each side of the corner the
+        // corner steps fold it at (QA, 2026-11-11: with a corner each side
+        // curves as its own wall at the Curve's %, and the 7.5% this step
+        // asked was Out of range and Off the drawing on a six panel side).
+        // 3.5% of a circle lands inside Close enough with every bent joint
+        // at 5, whole and folded on the seam in its middle. The note reads
+        // what was built off the tab itself.
         riggingCurve: {
             since: '1.7.0',
             target: '#rigging-curve', place: 'right', title: 'Curve a wall',
@@ -6179,7 +6226,7 @@
                 A().refreshRiggingPanel();
             },
             act: function (t) {
-                var asked = 7.5;
+                var asked = 3.5;
                 var curve = function () { var w = wall(); return (w && w.riggingCurve) || {}; };
                 return t.type('#rigging-curve-value', String(asked), { enter: true }).then(function () {
                     return t.wait(function () { return Number(curve().value) === asked; });
@@ -6205,20 +6252,23 @@
                 var w = wall();
                 var c = (w && w.riggingCurve) || {};
                 var head = $('#rigging-curve-head');
-                var warn = $('#rigging-curve-warnings');
-                var said = (warn && warn.style.display !== 'none' && warn.textContent) || '';
                 var sweep = sweepShown();
-                if (!w || !c.on || !headerBars() || !sweep || A().riggingCurveBusy()) return null;
-                if (/Out of range|Off the drawing/.test(said)) return null;
+                if (!w || !c.on || !headerBars() || !sweep || !curveTabClean()) return null;
                 return 'DEMO WALL asked for ' + c.value + '% of a circle and builds ' + sweep + ' on '
                     + headerBars().split(',').join(' + ') + ': ' + ((head && head.textContent) || '') + '.';
             }
         },
         // The Header/Footer tab's Corners (1.7.0, app-corners.js): Add
         // corner folds the wall 90 degrees in its middle (every corner is
-        // 90); the step moves it to the middle of a panel. A later step
-        // turns it Exterior and takes it off again, so the 3D steps find
-        // the wall as it was.
+        // 90), on the seam between panels 6 and 7 of the demo's 12. It
+        // stays there: with the Curve on, each side curves as its own wall
+        // at the Curve's %, and two even sides of 6 reach the Curve step's
+        // % cleanly where a corner down panel 6's middle left the left
+        // side Out of range (QA, 2026-11-11). The note reads where the
+        // corner went and what each side builds off the tab, and the step
+        // does not pass while the tab warns. A later step turns it
+        // Exterior and takes it off again, so the 3D steps find the wall
+        // as it was.
         riggingCorner: {
             since: '1.7.0',
             target: '#rigging-corners', place: 'right', title: 'Bend a corner',
@@ -6235,24 +6285,25 @@
                     return t.wait(function () { return corners().length === 1 ? corners()[0] : null; });
                 }).then(function (c) {
                     if (!c) throw new Error('the corner was not added');
-                    // the middle of the panel just left of the seam it went on
-                    t.mem.at = Number.isInteger(c.at) ? c.at : c.at - 0.5;
-                    return t.select('#rigging-corner-list [data-corner] [data-corner-at]', String(t.mem.at));
-                }).then(function () {
-                    return t.wait(function () { return corners().length === 1 && corners()[0].at === t.mem.at; });
-                }).then(function (ok) {
-                    if (!ok) throw new Error('the corner did not move');
+                    t.mem.at = c.at;
                     // a curved wall's Curve is laid again around the corner
-                    return t.wait(function () { return !A().riggingCurveBusy(); }, 10000);
-                }).then(function () {
+                    return t.wait(curveTabClean, 10000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Curve does not reach the drawing on each side of the corner');
                     return t.spot($('#rigging-corners')).then(function () { return t.pause(PACE.opened); });
                 });
             },
             check: function (mem) {
                 var w = wall();
                 var c = (w && w.riggingCorners) || [];
-                return c.length === 1 && c[0].at === mem.at && c[0].angle === 90 && c[0].side === 'interior'
-                    ? 'DEMO WALL folds 90° Interior in the middle of panel ' + mem.at + '.' : null;
+                var sides = sideSweepsShown();
+                if (c.length !== 1 || c[0].at !== mem.at || c[0].angle !== 90 || c[0].side !== 'interior') return null;
+                if (sides.length !== 2 || !curveTabClean()) return null;
+                var at = c[0].at;
+                var where = Number.isInteger(at) ? 'down the middle of panel ' + at
+                    : 'on the seam between panels ' + (at - 0.5) + ' and ' + (at + 0.5);
+                return (w.name || 'The wall') + ' folds 90° Interior ' + where + '. Each side curves on its own: the '
+                    + sides.join(', the ') + '.';
             }
         },
         // Bars split at a corner (1.7.0): Auto lays the corner's own Header
@@ -6271,12 +6322,10 @@
                 var w = wall();
                 if (!w) return;
                 A().setSelectedLayersByIds([w.id], w.id);
-                // Played alone: the corner the step before adds.
-                if (!(Array.isArray(w.riggingCorners) && w.riggingCorners.length)) {
-                    var mid = Math.max(1, Math.round((Number(w.columns) || 2) / 2));
-                    w.riggingCorners = [{ at: mid, angle: 90, side: 'interior' }];
-                    A().updateLayers([w], true, 'Add Corner');
-                }
+                // Played alone: the corner the step before adds, where
+                // Add corner puts it (the wall's middle), the Curve laid
+                // again around it.
+                if (!(Array.isArray(w.riggingCorners) && w.riggingCorners.length)) A().addRiggingCorner();
                 A().refreshRiggingPanel();
             },
             act: function (t) {
@@ -6292,6 +6341,9 @@
                     return t.wait(function () { return pieces() === 1 && idle(); }, 10000);
                 }).then(function (ok) {
                     if (!ok) throw new Error('no corner bar was laid');
+                    return t.wait(curveTabClean, 10000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Curve does not reach the drawing on each side of the corner');
                     var box = $('#rigging-total-count');
                     return t.spot((box && box.closest('[data-tooltip]')) || box).then(function () { return t.pause(PACE.opened); });
                 }).then(function () {
@@ -6306,25 +6358,26 @@
                 var list = $('#rigging-total-breakdown');
                 var totals = String((list && list.textContent) || '').replace(/\n/g, ', ');
                 var bars = headerBars();
-                if (laid.length !== 1 || !part || !bars || A().riggingCurveBusy() || !/Corner \(\d panel\): 1/.test(totals)) return null;
-                return 'Auto split DEMO WALL at its corner: ' + bars.split(',').join(' + ') + ' and a ' + part + '. The totals read ' + totals + '.';
+                var sides = sideSweepsShown();
+                if (laid.length !== 1 || !part || !bars || !/Corner \(\d panel\): 1/.test(totals)) return null;
+                if (sides.length !== 2 || !curveTabClean()) return null;
+                return 'Auto split DEMO WALL at its corner: ' + bars.split(',').join(' + ') + ' and a ' + part + '. The totals read ' + totals
+                    + '; the ' + sides.join(', the ') + '.';
             }
         },
         riggingCornerSide: {
             since: '1.7.0',
             target: '#rigging-corner-list', place: 'right', title: 'Interior or Exterior',
-            body: 'Interior folds the two sides 90&deg; toward the audience, Exterior away from them. The &times; takes the corner off and the screen goes straight again.',
+            body: 'Interior folds the two sides 90&deg; toward the audience, Exterior away from them. The &times; takes the corner off and the screen is one wall again.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
                 if (!w) return;
                 A().setSelectedLayersByIds([w.id], w.id);
-                // Played alone: the corner the step before adds.
-                if (!(Array.isArray(w.riggingCorners) && w.riggingCorners.length)) {
-                    var mid = Math.max(1, Math.round((Number(w.columns) || 2) / 2));
-                    w.riggingCorners = [{ at: mid, angle: 90, side: 'interior' }];
-                    A().updateLayers([w], true, 'Add Corner');
-                }
+                // Played alone: the corner the step before adds, where
+                // Add corner puts it (the wall's middle), the Curve laid
+                // again around it.
+                if (!(Array.isArray(w.riggingCorners) && w.riggingCorners.length)) A().addRiggingCorner();
                 A().refreshRiggingPanel();
             },
             act: function (t) {
@@ -6346,8 +6399,9 @@
             check: function (mem) {
                 var w = wall();
                 var c = (w && w.riggingCorners) || [];
-                return mem.out && !c.length
-                    ? 'Exterior turned the fold away from the audience; × took it off and DEMO WALL is straight again.' : null;
+                var sweep = sweepShown();
+                return mem.out && !c.length && sweep && curveTabClean()
+                    ? 'Exterior turned the fold away from the audience; × took it off and DEMO WALL is one wall again, curved ' + sweep + '.' : null;
             }
         },
         // Services (1.5.3, app-services.js): the house power several

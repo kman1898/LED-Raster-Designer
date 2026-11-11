@@ -347,7 +347,7 @@ class _Curve {
 
     // The chips, where they came from, and the editor when it is open.
     _curveDrawLocks(primary, locks) {
-        const chip = (text, extra = '') => `<span class="rigging-curve-lock" style="display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border: 1px solid #4a4a4a; border-radius: 9px; background: #1d1d1d; color: #ddd; font-size: 11px;"${extra}>${text}</span>`;
+        const chip = (text, extra = '') => `<span class="rigging-curve-lock" style="display: inline-flex; align-items: center; justify-content: center; gap: 3px; padding: 1px 6px; border: 1px solid #4a4a4a; border-radius: 9px; background: #1d1d1d; color: #ddd; font-size: 11px;"${extra}>${text}</span>`;
         const chipsEl = document.getElementById('rigging-curve-lock-chips');
         const srcEl = document.getElementById('rigging-curve-lock-source');
         const noneEl = document.getElementById('rigging-curve-lock-none');
