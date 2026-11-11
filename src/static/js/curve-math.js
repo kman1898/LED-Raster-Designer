@@ -1695,8 +1695,13 @@ export function warnings(ctx) {
   const joints = chosen.joints;
   const tol = formatSmall(config.tolerance_m, system);
 
-  // 1. Can the hardware physically get there?
-  if (idealAngleDeg > maxHardwareAngleDeg + 1e-9) {
+  // 1. Can the hardware physically get there? Said only when the build it
+  //    lays really falls short: off the drawing and less curve than asked
+  //    for. A build within the limit, or one that curves as far as the
+  //    drawing, is not out of range, whatever one joint would want.
+  const fallsShort =
+    !chosen.within_tolerance && Math.abs(achieved.sweep_deg) < Math.abs(target.sweep_deg) - 1e-6;
+  if (fallsShort && idealAngleDeg > maxHardwareAngleDeg + 1e-9) {
     // The chord is a whole footer, not a panel: on 1 m footers the tightest
     // radius is twice what a 500 mm panel would suggest.
     const tightest = faceRadiusForAngle(panel.width_m * ctx.plan.maxPanels, maxHardwareAngleDeg);
@@ -2055,10 +2060,20 @@ export function solveCurve(config, system = 'metric') {
   const chosen = manualPick ?? recommended;
   const angles = chosen.joints;
   const chosenPlan = footerPlan(config, chosen.run_m);
-  // The widest bar in the build it lays, not in stock (QA, 2026-11-10:
+  // Read off the joints of the build it lays, not off stock (QA, 2026-11-10:
   // singles laid from singles and doubles in stock read "wants 16 per
-  // joint" for an 8 degree curve, and said the wall would fall short).
-  const idealPerSegment = ideal * chosenPlan.maxPanels;
+  // joint" for an 8 degree curve, and said the wall would fall short). A
+  // joint between two bars wants the arc their halves span: two singles the
+  // arc's own angle, a single beside a double one and a half times it, two
+  // doubles twice it. The hardest joint is the one quoted (QA, the same day:
+  // twelve panels of singles with two doubles read "wants 6" off the widest
+  // bar, when no two doubles touch and no joint wants over 4.5).
+  const barPanels = chosenPlan.footers.map((f) => f.panels);
+  const idealPerSegment =
+    ideal *
+    (barPanels.length > 1
+      ? Math.max(...barPanels.slice(1).map((k, i) => (k + barPanels[i]) / 2))
+      : chosenPlan.maxPanels);
   const built = buildCurve({ ...common, joints: angles });
   const level = levelAngle(built.placements);
   // The depth dimension's two ends are drawing aids, so they travel with the

@@ -131,4 +131,29 @@ describe('the list is part of what a pick was made against', () => {
     });
 });
 
+// QA, 2026-11-10: twelve Graphite panels, singles and doubles lit, 10%
+// concave. The Curve lays singles with two doubles, no two doubles side by
+// side, and builds 10.1% against 10% asked for; the warning said the curve
+// wants 6 a joint against the locks' 5 and the wall would fall short,
+// reading the per-joint angle off the widest bar alone.
+describe('Out of range is said only when the build falls short', () => {
+    const twelve = (over) => screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [1, 2], settings: on(over),
+                                           locks: GRAPHITE, system: 'imperial' });
+    it('10% on twelve panels: no joint wants over 4.5, no Out of range, no "fall short"', () => {
+        const out = twelve({ value: 10 });
+        expect(out.errors).toEqual([]);
+        // no two doubles touch, so the hardest joint is a single beside a double
+        for (let i = 1; i < out.bars.length; i++) expect(out.bars[i] + out.bars[i - 1] < 4).toBe(true);
+        expect(out.result.ideal_angle_deg).toBeCloseTo(4.5, 9);
+        expect(out.result.achieved.sweep_deg >= out.result.target.sweep_deg - 1e-6).toBe(true);
+        expect(out.warnings.some((w) => w.includes('Out of range'))).toBe(false);
+        expect(out.warnings.some((w) => w.includes('fall short') || w.includes('falls short'))).toBe(false);
+    });
+    it('a curve past what +5 reaches still says Out of range', () => {
+        const out = twelve({ value: 30 });
+        expect(out.result.achieved.sweep_deg < out.result.target.sweep_deg).toBe(true);
+        expect(out.warnings.some((w) => w.includes('Out of range'))).toBe(true);
+    });
+});
+
 report();
