@@ -252,7 +252,11 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   corner. Only the 90 degree fold itself stays flat: the corner bar's arm
   on each side belongs to that side, a panel on a seam corner or half a
   panel on one down a panel's middle, so the joint where the arm meets the
-  next bar takes that side's curve angle. Two corners make three sides.
+  next bar takes that side's curve angle. Behind half a panel's arm that
+  joint bends to the true arc, three quarters of a whole panel's angle
+  (3.9 degrees where the others take 5.2), at the panel's lock position
+  closest to it, whether the side is built from the left, the center, the
+  right or the fold. Two corners make three sides.
   The readouts, Ways to build it, Use this and the check for uncovered
   panels are each side's, named left side and right side, or side 1,
   side 2 and so on. Any change to the corners lays the Curve again in the

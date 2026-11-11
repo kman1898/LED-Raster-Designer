@@ -246,15 +246,19 @@ describe('a curved screen with corners, curved side by side up to each fold', ()
         expect(out.placed.filter((b) => b.corner)).toEqual([{ start: 5, size: 2, corner: true }]);
         expect(out.placed.filter((b) => !b.corner).every((b) => b.start + b.size <= 5 || b.start >= 7)).toBe(true);
     });
-    it('a corner down panel 3: 2|3 and 3|4 bend, the half panels count on each side', () => {
+    it('a corner down panel 3: 2|3 and 3|4 are on their sides\' arcs, the half panels count on each side', () => {
         const over = { entry: 'degrees', value: 12.5, angles: [3.75, 5], goal: 'tightest' };
         const out = screenCurve({ panels: 12, panelWidthM: 0.5, sizes: [1], settings: on(over), pieces: [{ start: 2, size: 1 }] });
         expect(out.errors).toEqual([]);
         expect(out.sides.map((s) => [s.name, s.start, s.panels, s.seams])).toEqual([
             ['left side', 0, 2.5, [0, 1]], ['right side', 2.5, 9.5, [2, 3, 4, 5, 6, 7, 8, 9, 10]]]);
-        // the panel's own seams are on their sides' arcs
-        expect(out.joints[1]).not.toBe(0);
-        expect(out.joints[2]).not.toBe(0);
+        // the panel's own seams are on their sides' arcs, each arm's far joint
+        // at the lock closest to the true arc there (owner, 2026-11-10):
+        // left, 12.5 / 2.5 = 5 a panel, so 2|3 wants 3 x 5 / 4 = 3.75, a lock;
+        // right, 12.5 / 9.5 = 1.316 a panel, so 3|4 wants 3 x 1.316 / 4 =
+        // 0.987, nearer flat (0.987 off) than 3.75 (2.763 off)
+        expect(out.joints[1]).toBe(3.75);
+        expect(out.joints[2]).toBe(0);
         const left = wall(2.5, 0, 0.5, over, [1]);
         const right = wall(9.5, 0.5, 0, over, [1]);
         expect(out.joints.slice(0, 2)).toEqual(left.joints);
@@ -509,16 +513,33 @@ describe('a half panel corner arm bends to the true arc from any side', () => {
         close(right.joints.map((j) => j.ideal_deg), [2.7, 0, 3.6, 0, 3.6, 0, 3.6, 0, 3.6, 0, 3.6, 0]);
     });
 
-    // With only the Graphite's -5, 0 and +5 the arm's far joint takes the
-    // position closest to the true arc's angle.
-    //   eleven panels, left side: 5.2 at 1|2, 2|3, 3|4 is nearest 5 (0.2
-    //   off, 0 is 5.2 off); 3.9 at 4|5 is nearest 5 (1.1 off, 0 is 3.9 off)
+    it('the default goal (Simplest) keeps the true arc too: the arm\'s angle is not traded for one fewer', () => {
+        // Simplest lays the fewest different angles within 25 mm. Built from
+        // the left end, 5.2 at the left arm's far joint (1.3 too much) swings
+        // only the 250 mm arm, 250 x sin 1.3 = 5.7 mm off, so it used to win
+        // as one angle fewer; the arm's far joint now takes 3.9 whatever.
+        for (const from of FROMS) {
+            const out = eleven({ from, goal: 'simplest' });
+            expect(out.joints).toEqual(TRUE_ARC);
+        }
+    });
+
+    // With only the Graphite's -5, 0 and +5 each arm's far joint takes the
+    // position closest to the true arc's angle there, and the rest of the
+    // side is fitted around it:
+    //   left side, 4|5: 3.9 is 1.1 from 5 and 3.9 from 0, so 5
+    //   right side, 5|6: 2.7 is 2.3 from 5 and 2.7 from 0, so 5
     for (const from of FROMS) {
-        it(`Graphite locks, built from ${from}: the left side's arm joint is 5, the closest to 3.9`, () => {
+        it(`Graphite locks, built from ${from}: both arms' far joints are 5, the closest to 3.9 and to 2.7`, () => {
             const out = eleven({ from }, GRAPHITE);
             expect(out.errors).toEqual([]);
-            expect(out.joints.slice(0, 4)).toEqual([5, 5, 5, 5]);
+            expect([out.joints[3], out.joints[4]]).toEqual([5, 5]);
             expect(out.joints.every((a) => a === 0 || a === 5)).toBe(true);
+            // a side the locks cannot hold within 25 mm says so, as any wall does
+            out.sides.forEach((s) => {
+                const over = s.out.result.max_arc_deviation_m > 0.025;
+                expect(s.out.warnings.some((w) => /Off the drawing/.test(w))).toBe(over);
+            });
         });
     }
     // Nine panels, a corner down panel 5: two sides of 4.5 panels, 22.5
@@ -528,20 +549,41 @@ describe('a half panel corner arm bends to the true arc from any side', () => {
         settings: on({ entry: 'degrees', value: 22.5, goal: 'tightest', ...over }), pieces: [{ start: 4, size: 1 }], locks });
     for (const from of FROMS) {
         it(`nine panels built from ${from}: 3.75 at the arms when the locks have it, else 5, the closest`, () => {
-            // 3.75 a lock position: the true arc exactly
-            const exact = nine({ from }, [-5, -3.75, 0, 3.75, 5]);
-            expect(exact.joints).toEqual([5, 5, 5, 3.75, 3.75, 5, 5, 5]);
-            exact.sides.forEach((s) => expect(s.out.result.max_arc_deviation_m).toBeLessThan(1e-9));
+            // 3.75 a lock position: the true arc exactly, for every goal
+            for (const goal of ['tightest', 'simplest', 'even']) {
+                const exact = nine({ from, goal }, [-5, -3.75, 0, 3.75, 5]);
+                expect(exact.joints).toEqual([5, 5, 5, 3.75, 3.75, 5, 5, 5]);
+                exact.sides.forEach((s) => expect(s.out.result.max_arc_deviation_m).toBeLessThan(1e-9));
+            }
             // Graphite: 3.75 is 1.25 from 5 and 3.75 from 0, so 5
             const g = nine({ from }, GRAPHITE);
-            expect(g.joints).toEqual([5, 5, 5, 5, 5, 5, 5, 5]);
-            // and the build stays within the 25 mm the Curve allows, saying nothing
-            g.sides.forEach((s) => {
-                expect(s.out.result.max_arc_deviation_m).toBeLessThan(0.025);
-                expect(s.out.warnings.some((w) => /Off the drawing|Out of range/.test(w))).toBe(false);
-            });
+            expect([g.joints[3], g.joints[4]]).toEqual([5, 5]);
+            expect(g.joints.every((a) => a === 0 || a === 5)).toBe(true);
         });
     }
+    it('nine panels, Graphite, built from the center: 5 at every joint, within 25 mm, nothing to say', () => {
+        // Every joint at 5 against the arc's 5, 5, 5, 3.75: only the arm
+        // turns 1.25 too far, which swings the 250 mm arm 250 x sin 1.25 =
+        // 5.5 mm off the arc at the fold.
+        const g = nine({ from: 'center' }, GRAPHITE);
+        expect(g.joints).toEqual([5, 5, 5, 5, 5, 5, 5, 5]);
+        g.sides.forEach((s) => {
+            expect(s.out.result.max_arc_deviation_m * 1000).toBeCloseTo(250 * Math.sin(1.25 * Math.PI / 180), 1);
+            expect(s.out.warnings.some((w) => /Off the drawing|Out of range/.test(w))).toBe(false);
+        });
+    });
+    it('nine panels, Graphite, built from the fold: the arm 5, the far end eased, and it says it is off the drawing', () => {
+        // Built from the fold the arm is set first, so its 1.25 too much
+        // swings the whole side: 5 at every joint lands 2 m x sin 1.25 =
+        // 43.6 mm off at the far end. Leaving the far joint flat brings that
+        // back to 32.6 mm, still past 25 mm, and the Curve says so.
+        const g = nine({ from: 5 }, GRAPHITE);
+        expect(g.joints).toEqual([0, 5, 5, 5, 5, 5, 5, 0]);
+        g.sides.forEach((s) => {
+            expect(s.out.result.max_arc_deviation_m).toBeGreaterThan(0.025);
+            expect(s.out.warnings.some((w) => /^Off the drawing/.test(w))).toBe(true);
+        });
+    });
 
     it('the Even goal on a half arm side still falls back to the closest, and says so', () => {
         // no even build: the arm is half a panel, so no spacing of one

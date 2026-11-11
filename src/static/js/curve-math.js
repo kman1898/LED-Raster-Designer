@@ -745,6 +745,11 @@ function nearest(value, options) {
  *
  * Both routes score candidate patterns on real distance from the drawn arc in
  * the same frame the wall is anchored in.
+ *
+ * `idealDeg` is the true arc's turn at every joint, or a list of each joint's
+ * own (left to right) where they differ: one side of a corner down a panel's
+ * middle is worked in half panels, and its true arc turns only at the seams,
+ * by the arc of the panels either side (trueArcJoints).
  */
 export function fitJoints(
   jointCount,
@@ -764,21 +769,30 @@ export function fitJoints(
    * which promises the closest wall and nothing else.
    */
   preferEven = true,
+  /**
+   * Joints held to some of the angles only, a Map of joint to its angles:
+   * a half panel arm's far joint takes the lock position closest to the
+   * true arc there (solveCurve).
+   */
+  pinned = null,
 ) {
   if (jointCount <= 0) return [];
   const margin = preferEven ? WORTH_IT : 1e-12;
   const options = detents.length ? detents : [0];
   const FLAT = [0];
+  // The angles joint `i` can take: flat where a bar holds it, its own where
+  // it is pinned, otherwise every one.
+  const choices = (i) => (!canCurve(i) ? FLAT : (pinned && pinned.get(i)) || options);
 
   if (typeof origin === 'number') {
     // A datum along the wall: work outward from it both ways. No mirroring, the
     // two sides are different lengths and the footers under them differ too.
     const at = snapDatum(origin, jointCount + 1);
-    if (Number.isInteger(at)) return fitOutward(jointCount, idealDeg, options, canCurve, beamWidth, at - 1);
+    if (Number.isInteger(at)) return fitOutward(jointCount, idealDeg, choices, beamWidth, at - 1);
     const k = at - 0.5; // the datum is the corner after panel k
-    if (k <= 0) return fitJoints(jointCount, idealDeg, options, 'left', beamWidth, canCurve, preferEven);
-    if (k >= jointCount + 1) return fitJoints(jointCount, idealDeg, options, 'right', beamWidth, canCurve, preferEven);
-    return fitAtJoint(jointCount, idealDeg, options, canCurve, beamWidth, k - 1);
+    if (k <= 0) return fitJoints(jointCount, idealDeg, options, 'left', beamWidth, canCurve, preferEven, pinned);
+    if (k >= jointCount + 1) return fitJoints(jointCount, idealDeg, options, 'right', beamWidth, canCurve, preferEven, pinned);
+    return fitAtJoint(jointCount, idealDeg, choices, beamWidth, k - 1);
   }
 
   if (origin === 'center') {
@@ -787,10 +801,11 @@ export function fitJoints(
     // on a 15-joint wall gives no symmetric pair at all, and demanding a mirror
     // left the whole wall flat. Fit the two halves separately in that case.
     const symmetric = Array.from({ length: jointCount }, (_, i) => i).every(
-      (i) => canCurve(i) === canCurve(jointCount - 1 - i),
+      (i) => canCurve(i) === canCurve(jointCount - 1 - i) && turnAt(idealDeg, i) === turnAt(idealDeg, jointCount - 1 - i)
+        && String(choices(i)) === String(choices(jointCount - 1 - i)),
 );
-    if (!symmetric) return fitHalves(jointCount, idealDeg, options, canCurve, beamWidth);
-    const at = (step) => (canCurve(centerJointIndex(jointCount, step)) ? options : FLAT);
+    if (!symmetric) return fitHalves(jointCount, idealDeg, choices, beamWidth);
+    const at = (step) => choices(centerJointIndex(jointCount, step));
     // The rounding pass spreads curved joints evenly, which reads best; the
     // search finds the builds rounding misses by a long way. Only trade the even
     // spacing for a real gain, more than 1 % of a panel width (5 mm on 500 mm
@@ -803,11 +818,12 @@ export function fitJoints(
   }
 
   // Building from the right walks the joints in reverse, so step 0 is the last joint.
-  const at = (step) => (canCurve(origin === 'right' ? jointCount - 1 - step : step) ? options : FLAT);
-  const rounded = diffuseFromEnd(jointCount, idealDeg, at);
-  const searched = searchFromEnd(jointCount, idealDeg, at, beamWidth);
+  const at = (step) => choices(origin === 'right' ? jointCount - 1 - step : step);
+  const ideal = origin === 'right' && typeof idealDeg !== 'number' ? [...idealDeg].reverse() : idealDeg;
+  const rounded = diffuseFromEnd(jointCount, ideal, at);
+  const searched = searchFromEnd(jointCount, ideal, at, beamWidth);
   const best =
-    deviationFromEnd(searched, idealDeg) < deviationFromEnd(rounded, idealDeg) - margin
+    deviationFromEnd(searched, ideal) < deviationFromEnd(rounded, ideal) - margin
       ? searched
       : rounded;
   // Joints are always numbered from the left end; building from the right just
@@ -829,27 +845,27 @@ export const DEFAULT_BEAM = 200;
 function fitHalves(
   jointCount,
   idealDeg,
-  options,
-  canCurve,
+  choices,
   beamWidth,
 ) {
-  const FLAT = [0];
   const odd = jointCount % 2 === 1;
   const mid = Math.floor(jointCount / 2);
   const outward = odd ? (jointCount - 1) / 2 : jointCount / 2;
   // Right half runs mid(+1) outward; left half runs mid-1 inward-to-outward.
   const rightIndex = (step) => (odd ? mid + step : mid + step);
   const leftIndex = (step) => (odd ? mid - step : mid - 1 - step);
-  const atSide = (index) => (step) =>
-    canCurve(index(step)) ? options : FLAT;
+  const atSide = (index) => (step) => choices(index(step));
 
   const best = { dev: Infinity, center: 0, right: [], left: []             };
+  // Each half's true arc, step by step out from the center.
+  const first = odd ? 1 : 0;
+  const ideal = startCenter(jointCount, odd ? turnAt(idealDeg, mid) : null);
+  const trackOf = (index) => idealTrack(outward, along(idealDeg, (step) => index(first + step)), ideal);
   // An odd joint count has a joint ON the center line, shared by both halves.
-  for (const center of odd ? (canCurve(mid) ? options : FLAT) : [0]) {
+  for (const center of odd ? choices(mid) : [0]) {
     const seed = startCenter(jointCount, odd ? center : null);
-    const track = idealTrack(outward, idealDeg, startCenter(jointCount, odd ? idealDeg : null));
-    const right = searchBest([seed], track, atSide(rightIndex), beamWidth, odd ? 1 : 0);
-    const left = searchBest([seed], track, atSide(leftIndex), beamWidth, odd ? 1 : 0);
+    const right = searchBest([seed], trackOf(rightIndex), atSide(rightIndex), beamWidth, first);
+    const left = searchBest([seed], trackOf(leftIndex), atSide(leftIndex), beamWidth, first);
     const dev = Math.max(right.dev, left.dev);
     if (dev < best.dev) {
       best.dev = dev;
@@ -876,12 +892,10 @@ function fitHalves(
 function fitAtJoint(
   jointCount,
   idealDeg,
-  options,
-  canCurve,
+  choices,
   beamWidth,
   d,
 ) {
-  const FLAT = [0];
   const best = { dev: Infinity, center: 0, right: [], left: []             };
   const atJoint = (c) => {
     const h = (c * Math.PI) / 360;
@@ -889,12 +903,12 @@ function fitAtJoint(
   };
   const side = (count, seed, ideal, index) =>
     count > 0
-      ? searchBest([seed], idealTrack(count, idealDeg, ideal), (s) => (canCurve(index(s)) ? options : FLAT), beamWidth, 0)
+      ? searchBest([seed], idealTrack(count, along(idealDeg, index), ideal), (s) => choices(index(s)), beamWidth, 0)
       : { ...seed, dev: Math.hypot(seed.x - ideal.x, seed.y - ideal.y) };
 
-  for (const center of canCurve(d) ? options : FLAT) {
+  for (const center of choices(d)) {
     const seed = atJoint(center);
-    const ideal = atJoint(idealDeg);
+    const ideal = atJoint(turnAt(idealDeg, d));
     const right = side(jointCount - 1 - d, seed, ideal, (s) => d + 1 + s);
     const left = side(d, seed, ideal, (s) => d - 1 - s);
     const dev = Math.max(right.dev, left.dev);
@@ -918,20 +932,18 @@ const startPanel = () => ({ picks: [], x: 0.5, y: 0, h: 0, dev: 0 });
 function fitOutward(
   jointCount,
   idealDeg,
-  options,
-  canCurve,
+  choices,
   beamWidth,
   firstRight,
 ) {
-  const FLAT = [0];
   const out = new Array        (jointCount).fill(0);
   const seed = startPanel();
   const side = (count, index) =>
     count > 0
       ? searchBest(
           [seed],
-          idealTrack(count, idealDeg, seed),
-          (step) => (canCurve(index(step)) ? options : FLAT),
+          idealTrack(count, along(idealDeg, index), seed),
+          (step) => choices(index(step)),
           beamWidth,
           0,
 ).picks
@@ -954,8 +966,11 @@ function centerJointIndex(jointCount, step) {
 function diffuseFromEnd(jointCount, idealDeg, at) {
   const out = [];
   let running = 0;
+  let turned = 0;
   for (let i = 1; i <= jointCount; i++) {
-    const pick = nearest(idealDeg * i - running, at(i - 1)); // where a true arc has turned to by here
+    // where a true arc has turned to by here
+    const want = typeof idealDeg === 'number' ? idealDeg * i : (turned += turnAt(idealDeg, i - 1));
+    const pick = nearest(want - running, at(i - 1));
     out.push(pick);
     running += pick;
   }
@@ -972,20 +987,24 @@ function diffuseFromCenter(jointCount, idealDeg, at) {
   let first = Math.floor(jointCount / 2);
   let offset = 1; // ideal turn from the center after the first outward joint, in joints
   let step = 0;
+  // Each joint's own turn: the true arc's heading out from the center so far.
+  let turned = 0;
 
   if (jointCount % 2 === 1) {
     // Odd joint count: a joint sits on the center line and only half of its turn
     // falls on each side.
-    const center = nearest(idealDeg, at(0));
+    const center = nearest(turnAt(idealDeg, first), at(0));
     out[first] = center;
     running = center / 2;
+    turned = turnAt(idealDeg, first) / 2;
     first += 1;
     offset = 1.5;
     step = 1;
   }
 
   for (let i = first, t = 0; i < jointCount; i++, t++, step++) {
-    const pick = nearest(idealDeg * (t + offset) - running, at(step));
+    const want = typeof idealDeg === 'number' ? idealDeg * (t + offset) : (turned += turnAt(idealDeg, i));
+    const pick = nearest(want - running, at(step));
     out[i] = pick;
     out[jointCount - 1 - i] = pick;
     running += pick;
@@ -1013,6 +1032,20 @@ function startCenter(jointCount, center) {
 
 const startEnd = () => ({ picks: [], x: 1, y: 0, h: 0, dev: 0 });
 
+/** The true arc's turn at joint `i` (0-based from the left): the one angle, or that joint's own. */
+function turnAt(idealDeg, i) {
+  return typeof idealDeg === 'number' ? idealDeg : idealDeg[i] ?? 0;
+}
+
+/**
+ * The true arc's turn step by step along a walk that lands step `step` on
+ * joint `index(step)`, for idealTrack: the one angle as it is, a list as a
+ * function of the step.
+ */
+function along(idealDeg, index) {
+  return typeof idealDeg === 'number' ? idealDeg : (step) => turnAt(idealDeg, index(step));
+}
+
 function step(s, angle, ideal) {
   const h = s.h + (angle * Math.PI) / 180;
   const x = s.x + Math.cos(h);
@@ -1020,12 +1053,16 @@ function step(s, angle, ideal) {
   return { picks: [...s.picks, angle], x, y, h, dev: Math.max(s.dev, Math.hypot(x - ideal.x, y - ideal.y)) };
 }
 
-/** Where a true arc puts each vertex from the datum, in the same unit-width frame. */
+/**
+ * Where a true arc puts each vertex from the datum, in the same unit-width frame.
+ * `idealDeg` is its turn at every step, or a function of the step (0 the
+ * first) where the joints differ (along).
+ */
 function idealTrack(steps, idealDeg, from) {
   const out = [{ x: from.x, y: from.y, h: from.h }];
   let { x, y, h } = from;
   for (let i = 0; i < steps; i++) {
-    h += (idealDeg * Math.PI) / 180;
+    h += ((typeof idealDeg === 'number' ? idealDeg : idealDeg(i)) * Math.PI) / 180;
     x += Math.cos(h);
     y += Math.sin(h);
     out.push({ x, y, h });
@@ -1043,14 +1080,17 @@ function walk(joints, track, from, firstJoint) {
 function deviationFromCenter(joints, idealDeg) {
   const n = joints.length;
   const odd = n % 2 === 1;
-  const from = startCenter(n, odd ? joints[Math.floor(n / 2)] : null);
-  const track = idealTrack(odd ? (n - 1) / 2 : n / 2, idealDeg, startCenter(n, odd ? idealDeg : null));
-  return walk(joints, track, from, Math.floor(n / 2) + (odd ? 1 : 0));
+  const mid = Math.floor(n / 2);
+  const firstJoint = mid + (odd ? 1 : 0);
+  const from = startCenter(n, odd ? joints[mid] : null);
+  const track = idealTrack(odd ? (n - 1) / 2 : n / 2, along(idealDeg, (step) => firstJoint + step),
+                           startCenter(n, odd ? turnAt(idealDeg, mid) : null));
+  return walk(joints, track, from, firstJoint);
 }
 
 /** The same, for a wall anchored at one end. */
 function deviationFromEnd(joints, idealDeg) {
-  return walk(joints, idealTrack(joints.length, idealDeg, startEnd()), startEnd(), 0);
+  return walk(joints, idealTrack(joints.length, along(idealDeg, (step) => step), startEnd()), startEnd(), 0);
 }
 
 function searchBest(
@@ -1088,7 +1128,10 @@ export function searchSymmetric(
 ) {
   if (jointCount <= 0) return [];
   const odd = jointCount % 2 === 1;
-  const track = idealTrack(odd ? (jointCount - 1) / 2 : jointCount / 2, idealDeg, startCenter(jointCount, odd ? idealDeg : null));
+  const mid = Math.floor(jointCount / 2);
+  const track = idealTrack(odd ? (jointCount - 1) / 2 : jointCount / 2,
+                           along(idealDeg, (step) => centerJointIndex(jointCount, step + (odd ? 1 : 0))),
+                           startCenter(jointCount, odd ? turnAt(idealDeg, mid) : null));
   const best = searchBest(
     (odd ? at(0) : [null]).map((c) => startCenter(jointCount, c)),
     track,
@@ -1098,7 +1141,6 @@ export function searchSymmetric(
 );
 
   const out = new Array        (jointCount);
-  const mid = Math.floor(jointCount / 2);
   if (odd) {
     out[mid] = best.picks[0];
     best.picks.slice(1).forEach((a, i) => {
@@ -1122,7 +1164,7 @@ export function searchFromEnd(
   beamWidth = DEFAULT_BEAM,
 ) {
   if (jointCount <= 0) return [];
-  return searchBest([startEnd()], idealTrack(jointCount, idealDeg, startEnd()), at, beamWidth, 0).picks;
+  return searchBest([startEnd()], idealTrack(jointCount, along(idealDeg, (step) => step), startEnd()), at, beamWidth, 0).picks;
 }
 
 /** Collapse consecutive equal angles so the build sheet reads as runs, not a list. */
@@ -1260,7 +1302,7 @@ export function searchLayouts(input) {
   let tx = 0;
   let ty = 0;
   for (let i = 0; i < n; i++) {
-    if (i > 0) th += (idealDeg * Math.PI) / 180;
+    if (i > 0) th += (turnAt(idealDeg, i - 1) * Math.PI) / 180;
     tx += Math.cos(th);
     ty += Math.sin(th);
     track.push({ x: tx, y: ty });
@@ -1313,7 +1355,7 @@ export function searchLayouts(input) {
           continue;
         }
         // The joint after this footer is the one that can bend.
-        for (const a of angles) {
+        for (const a of (input.pinned && input.pinned.get(placed - 1)) || angles) {
           next.push({
             placed,
             x,
@@ -1910,6 +1952,46 @@ function tile(run, sizes) {
   return best[run] ?? null;
 }
 
+/**
+ * The true arc's turn at each joint of a wall worked in part panels (one
+ * side of a corner down a panel's middle, in half panels): `seams` are the
+ * joints that are real seams, the rest lie inside a panel and stay
+ * straight. Each panel spans `idealDeg` of arc a step, so a seam turns by
+ * half the arc of each panel beside it: a whole panel (two steps) beside a
+ * whole panel turns 2 x idealDeg, a half panel arm beside a whole panel
+ * (1 + 2) / 2 = 1.5 x idealDeg, three quarters as much.
+ */
+export function trueArcJoints(jointCount, idealDeg, seams) {
+  const edges = seamEdges(jointCount, seams);
+  const out = new Array(Math.max(0, jointCount)).fill(0);
+  for (let i = 1; i < edges.length - 1; i++) out[edges[i]] = (idealDeg * (edges[i + 1] - edges[i - 1])) / 2;
+  return out;
+}
+
+// The seams in order, the wall's two ends as -1 and `jointCount` around
+// them: the panel between two of them is their difference in steps.
+function seamEdges(jointCount, seams) {
+  return [-1, ...[...new Set(seams)].filter((j) => j >= 0 && j < jointCount).sort((a, b) => a - b), jointCount];
+}
+
+/**
+ * The far joints of a wall's half panel arms (seams beside a panel one step
+ * wide, `seams` as trueArcJoints takes them), each held to the angles in
+ * `angles` closest to the true arc's turn there (`turns`, trueArcJoints):
+ * a Map of joint to its angles, two when they tie.
+ */
+function halfArmPins(jointCount, turns, seams, angles) {
+  const edges = seamEdges(jointCount, seams);
+  const out = new Map();
+  for (let i = 1; i < edges.length - 1; i++) {
+    if (edges[i] - edges[i - 1] !== 1 && edges[i + 1] - edges[i] !== 1) continue;
+    const t = turns[edges[i]];
+    const off = Math.min(...angles.map((a) => Math.abs(a - t)));
+    out.set(edges[i], angles.filter((a) => Math.abs(a - t) <= off + 1e-9));
+  }
+  return out;
+}
+
 /** The datum as a position along the wall, in half-panel steps. */
 function datumPosition(origin, panelCount) {
   if (typeof origin === 'number') return snapDatum(origin, panelCount);
@@ -1981,6 +2063,20 @@ export function solveCurve(config, system = 'metric') {
   // (a side ending at a fold down a panel's middle): the counts of bent
   // and flat joints and the warnings count only these.
   const seamJoints = Array.isArray(config.seam_joints) ? new Set(config.seam_joints) : null;
+  // What every build is judged against: the true arc at each joint. Worked
+  // in half panels, the steps inside a panel are straight and each seam
+  // turns by the arc of the panels either side (owner, 2026-11-10: "Favor
+  // the true arc"), so a half panel arm's far joint wants three quarters of
+  // a whole panel's angle, whichever way the wall is built. Otherwise the
+  // one angle at every joint, as always.
+  const want = seamJoints ? trueArcJoints(jointCount, ideal, config.seam_joints) : ideal;
+  // And the far joint of a half panel arm takes the lock position closest
+  // to the true arc's angle there, of all the panel's positions, whatever
+  // build is tried and whichever way it is built: 3.9 beside 5.2 when the
+  // locks have it, 5 when they lock at 0 and 5 only. The rest of the side
+  // is fitted around it, within the Close enough limit (below).
+  const pinned = seamJoints ? halfArmPins(jointCount, want, config.seam_joints, [0, ...positiveDetents]) : null;
+  const pinsHold = (pins) => (candidate) => !pins || [...pins].every(([j, only]) => only.includes(candidate.joints[j]));
 
   // Tightest fit means the closest wall; the others will give up a few mm for
   // an evenly spread pattern.
@@ -1988,20 +2084,20 @@ export function solveCurve(config, system = 'metric') {
   const stockPanels = [...new Set(sizes.map((w) => panelsUnder(w, panel.width_m)))].sort((a, b) => b - a);
   const panelToMeters = (k) => sizes.find((w) => panelsUnder(w, panel.width_m) === k) ?? panel.width_m;
 
-  const candidates = (subset) => [
-    ...fitted(subset).filter(respects),
+  const candidates = (pins) => (subset) => [
+    ...fitted(subset, pins).filter(respects).filter(pinsHold(pins)),
     // Even walls are built directly, a regular spacing is not something the
     // fitter aims for, and the crew's "5° every third panel" should always be
     // on the table.
-    ...evenBuilds(subset, panel.count, stockPanels, panelToMeters).filter(respects),
+    ...evenBuilds(subset, panel.count, stockPanels, panelToMeters).filter(respects).filter(pinsHold(pins)),
 ];
 
-  const fitted = (subset) => {
+  const fitted = (subset, pins) => {
     const angles = [0, ...subset];
     if (layoutIsForced) {
       return [
         {
-          joints: fitJoints(jointCount, ideal, angles, build_from, DEFAULT_BEAM, (i) => plan.free.has(i), preferEven),
+          joints: fitJoints(jointCount, want, angles, build_from, DEFAULT_BEAM, (i) => plan.free.has(i), preferEven, pins),
           run_m: plan.footers.map((f) => f.width_m),
           free: plan.free,
         },
@@ -2018,17 +2114,18 @@ export function solveCurve(config, system = 'metric') {
       panelWidthM: panel.width_m,
       sizes,
       angles,
-      idealDeg: ideal,
+      idealDeg: want,
       beamWidth: 160,
       keep: 24,
       fixed,
+      pinned: pins,
     })) {
       const free = footerPlan(config, layout.run_m).free;
       const mask = [...free].sort((a, b) => a - b).join(',');
       if (seenMasks.has(mask)) continue;
       seenMasks.add(mask);
       shortlist.push({
-        joints: fitJoints(jointCount, ideal, angles, build_from, LAYOUT_BEAM, (i) => free.has(i), preferEven),
+        joints: fitJoints(jointCount, want, angles, build_from, LAYOUT_BEAM, (i) => free.has(i), preferEven, pins),
         run_m: layout.run_m,
         free,
       });
@@ -2047,23 +2144,31 @@ export function solveCurve(config, system = 'metric') {
     panelDepthM: panel.depth_m,
     wallHeightM: panel.rows * panel.height_m,
   };
-  const wanted = buildCurve({ ...common, joints: new Array(jointCount).fill(ideal) });
+  const wanted = buildCurve({ ...common, joints: typeof want === 'number' ? new Array(jointCount).fill(ideal) : want });
 
   // Try every subset of the angles, rank them, and build the winner, or the
   // user's own pick, if they made one and it still exists.
-  const ranked = rankOptions(
+  const rank = (pins) => rankOptions(
     buildOptions({
       angles: positiveDetents,
       jointCount,
       idealDeg: ideal,
       origin: build_from,
-      candidates,
+      candidates: candidates(pins),
       build: common,
       wanted: wanted.vertices,
       toleranceM: config.tolerance_m,
     }),
     config.fit_goal,
 );
+  let ranked = rank(pinned);
+  // A half panel arm's joint held to its closest lock never costs the side
+  // its Close enough limit: when nothing built that way lands within it and
+  // a build free there does, the free builds are the ones offered.
+  if (pinned && pinned.size && !ranked.some((o) => o.within_tolerance)) {
+    const free = rank(null);
+    if (free.some((o) => o.within_tolerance)) ranked = free;
+  }
   // Nothing builds around the arms (the stock was checked first, so this is
   // a guard, not a case anyone meets).
   if (!ranked.length) return zeroed(config, ['These bar sizes cannot be laid around the corners. Light another size.']);
@@ -2098,7 +2203,7 @@ export function solveCurve(config, system = 'metric') {
   const joints = angles.map((angle, i) => ({
     index: i + 1,
     angle_deg: angle,
-    ideal_deg: ideal,
+    ideal_deg: typeof want === 'number' ? ideal : want[i],
   }));
 
   const deviation = chosen.deviation_m;
