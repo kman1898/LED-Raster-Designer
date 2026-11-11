@@ -39,7 +39,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from conftest import settled  # noqa: E402
-from test_corners import COLUMN, OBJ_FILES_JS, RESET_JS, history_len, layer, open_rigging, read_obj, served  # noqa: E402
+from test_corners import COLUMN, OBJ_FILES_JS, RESET_JS, history_len, layer, open_rigging, read_obj, row, served  # noqa: E402
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
@@ -528,4 +528,63 @@ def test_the_obj_puts_a_folded_panels_halves_on_their_sides_radius(page):
     _on_one_circle(chain[5:], want['joints'][1], [want['half'][1]] + [want['face'][1]] * 6)
     heads = [math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) for a, b in chain]
     assert round((heads[5] - heads[4] + 180) % 360 - 180, 3) == 90
+    assert page.errors == []
+
+
+# ── 4. A corner moved on a curved screen says nothing false ──────────────
+
+# Every toast and every client log line the page sends, kept for the test.
+WATCH_SAID_JS = """() => {
+    const a = window.app;
+    window.__said = [];
+    if (!a.__toastWatched) {
+        const toast = a._toast.bind(a);
+        a._toast = (msg, isError, ms) => { window.__said.push(['toast', String(msg), !!isError]); return toast(msg, isError, ms); };
+        const log = window.sendClientLog;
+        window.sendClientLog = (action, details) => { window.__said.push(['log', String(action), JSON.stringify(details || {})]); return log(action, details); };
+        a.__toastWatched = true;
+    }
+}"""
+
+
+def _said(page):
+    return page.evaluate("() => window.__said.slice()")
+
+
+def test_a_corner_moved_on_a_curved_footer_says_no_bars_no_longer_fit(page):
+    """QA, 2026-11-10: twelve 500 mm panels with a footer of singles and
+    doubles, the Curve on at 10%, a corner added (it lands on the seam of
+    panels 6 and 7) and moved to the middle of panel 6 and back. The edit
+    was saved, and checked, before the Curve laid the bars again around the
+    corner, so a red toast said the footer bars no longer fit (or crossed
+    a corner) and the log took the error; a moment later the Curve laid
+    bars that fit. The check waits for the Curve's bars, in the same step:
+    nothing is said, nothing logged, and the bars fit."""
+    spec = dict(COLUMN, columns=12, rows=4, extra={'riggingSide': 'footer', 'riggingSizes': [1, 2],
+                                                    'riggingCurve': {'on': True, 'value': 10, 'angles': [5]}})
+    ids = reset(page, [spec])
+    open_rigging(page)
+    page.click('#rigging-auto-btn')
+    settled(page, lambda: placed(page, ids[0], 'footer'), lambda p: p and curve_idle(page), 15000)
+    assert sum(z for _, z in placed(page, ids[0], 'footer')) == 12
+    page.evaluate(WATCH_SAID_JS)
+    page.click('#rigging-corner-add')
+    settled(page, lambda: pieces(page, ids[0]), lambda p: p and curve_idle(page), 15000)
+    assert pieces(page, ids[0]) == [[6.5, 5, 2]]
+    for at, want in ((6, [[6, 5, 1]]), (6.5, [[6.5, 5, 2]]), (6, [[6, 5, 1]])):
+        page.select_option(f"{row(page, pieces(page, ids[0])[0][0])} [data-corner-at]", f'{at:g}')
+        settled(page, lambda: pieces(page, ids[0]), lambda p, w=want: p == w and curve_idle(page), 15000)
+        assert pieces(page, ids[0]) == want
+        page.wait_for_timeout(300)
+    # the Curve's 10% changed with the corner down panel 6, as on the 3D tab
+    for value in ('20', '10'):
+        page.fill('#rigging-curve-value', value)
+        page.press('#rigging-curve-value', 'Enter')
+        settled(page, lambda: layer(page, ids[0])['riggingCurve'].get('value'), lambda v, w=float(value): v == w and curve_idle(page), 15000)
+        page.wait_for_timeout(300)
+    said = _said(page)
+    assert not [s for s in said if s[0] == 'toast' and s[2]], said
+    assert not [s for s in said if s[0] == 'log' and 'error' in s[1]], said
+    assert page.evaluate(f"""() => window.app.riggingMisfits(window.app.project.layers.find(l => l.id === {ids[0]})).length""") == 0
+    assert not page.is_visible('#rigging-fit-section')
     assert page.errors == []

@@ -1131,13 +1131,21 @@ class _Rigging {
     // After a commit (updateLayers): says so once when the edit left a row
     // of bars that no longer fits on a screen it touched, and redraws the
     // tab's box. A row that was already wrong says nothing new.
+    // A row on a curved screen whose Curve is being laid again (app-curve.js
+    // riggingCurveRelayLater) is checked when the Curve's bars land, in the
+    // same step: until then it carries the bars from before the edit, about
+    // to be replaced (QA, 2026-11-10: a corner moved on a curved footer said
+    // the bars no longer fit, and a moment later the Curve laid bars that
+    // did). What was said of it before is kept until then.
     riggingFitCheck(layers) {
         const misfits = this.riggingShownMisfits();
         const key = (m) => `${m.key}:${m.have}:${m.wall}:${m.past}`;
         const said = this._riggingFitSaid || new Set();
+        const relaying = this._curveRelaying || new Set();
+        const waits = (m) => m.layers.some(l => relaying.has(l.id));
         const touched = new Set((layers || []).map(l => l.id));
-        const fresh = misfits.filter(m => m.layers.some(l => touched.has(l.id)) && !said.has(key(m)));
-        this._riggingFitSaid = new Set(misfits.map(key));
+        const fresh = misfits.filter(m => !waits(m) && m.layers.some(l => touched.has(l.id)) && !said.has(key(m)));
+        this._riggingFitSaid = new Set(misfits.filter(m => !waits(m) || said.has(key(m))).map(key));
         if (fresh.length && typeof this._toast === 'function') {
             this._toast(this.riggingFitWarning(fresh), true, 8000);
         }

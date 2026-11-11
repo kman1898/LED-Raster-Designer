@@ -269,6 +269,16 @@
         var w = wall();
         return w && Array.isArray(w.riggingBars) ? w.riggingBars.join(',') : '';
     }
+    // The Curve's Sweep readout as the Header/Footer tab shows it:
+    // "27.4°, 7.6% of a circle", or '' when it shows none.
+    function sweepShown() {
+        var rows = document.querySelectorAll('#rigging-curve-readouts > div');
+        for (var i = 0; i < rows.length; i++) {
+            var cells = rows[i].children;
+            if (cells.length === 2 && cells[0].textContent === 'Sweep') return cells[1].textContent;
+        }
+        return '';
+    }
     function portsNeeded() {
         var w = wall();
         if (!w || !A().calculatePortAssignments) return 0;
@@ -6152,11 +6162,16 @@
         // The Header/Footer tab's Curve (1.7.0, app-curve.js): ticked, the
         // curve calculator lays the wall's bars from the lit sizes and sets
         // the angle at every join between them. Left on, so the 3D steps
-        // show the wall curved.
+        // show the wall curved. The curve asked for is one the demo's
+        // locks reach cleanly (QA, 2026-11-10: the default 20% asked
+        // doubles and triples locking at most 7.5 degrees for more than
+        // they bend, and the tab said Out of range while the note said
+        // 20%): 7.5% of a circle lands inside Close enough with every bent
+        // joint at 5. The note reads what was built off the tab itself.
         riggingCurve: {
             since: '1.7.0',
             target: '#rigging-curve', place: 'right', title: 'Curve a wall',
-            body: 'Tick Curve and it lays the lit bar sizes and sets the angle at every join for the curve you ask. Drag the red dot on the plan to build from any panel, or pick another way below.',
+            body: 'Type how much of a circle and tick Curve: it lays the lit bar sizes and sets the angle at every join. Drag the red dot on the plan to build from any panel, or pick another way below.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -6164,25 +6179,39 @@
                 A().refreshRiggingPanel();
             },
             act: function (t) {
-                t.mem.before = headerBars();
-                return t.click('#rigging-curve-on').then(function () {
+                var asked = 7.5;
+                var curve = function () { var w = wall(); return (w && w.riggingCurve) || {}; };
+                return t.type('#rigging-curve-value', String(asked), { enter: true }).then(function () {
+                    return t.wait(function () { return Number(curve().value) === asked; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the curve asked for was not kept');
+                    if (!curve().on) return t.click('#rigging-curve-on');
+                }).then(function () {
+                    // laid, and the tab drawn from the answer it laid
                     return t.wait(function () {
-                        var w = wall();
-                        var j = w && w.stage3d && w.stage3d.jointsCol;
-                        return w && w.riggingCurve && w.riggingCurve.on && j && Object.keys(j).length === w.columns - 1;
+                        var a = A(), w = wall();
+                        var out = w && curve().on && !a.riggingCurveBusy() && a.riggingCurveCached(w);
+                        if (!out || out.errors.length || !out.result || !a._curveLaidMatches(w, out)) return false;
+                        return sweepShown().indexOf(out.result.achieved.percent_circle.toFixed(1) + '% of a circle') >= 0;
                     }, 10000);
                 }).then(function (ok) {
                     if (!ok) throw new Error('the curve was not laid');
                     return t.spot($('#rigging-curve-result')).then(function () { return t.pause(PACE.opened); });
                 });
             },
+            // What the tab says it built: its Sweep row, its headline and
+            // the bars, and no warning that the build falls short.
             check: function () {
                 var w = wall();
-                var j = (w && w.stage3d && w.stage3d.jointsCol) || {};
-                var bent = Object.keys(j).filter(function (k) { return j[k]; }).length;
+                var c = (w && w.riggingCurve) || {};
                 var head = $('#rigging-curve-head');
-                return w && w.riggingCurve && w.riggingCurve.on && bent && headerBars()
-                    ? 'DEMO WALL curves 20% of a circle on ' + headerBars().split(',').join(' + ') + ': ' + ((head && head.textContent) || '') + '.' : null;
+                var warn = $('#rigging-curve-warnings');
+                var said = (warn && warn.style.display !== 'none' && warn.textContent) || '';
+                var sweep = sweepShown();
+                if (!w || !c.on || !headerBars() || !sweep || A().riggingCurveBusy()) return null;
+                if (/Out of range|Off the drawing/.test(said)) return null;
+                return 'DEMO WALL asked for ' + c.value + '% of a circle and builds ' + sweep + ' on '
+                    + headerBars().split(',').join(' + ') + ': ' + ((head && head.textContent) || '') + '.';
             }
         },
         // The Header/Footer tab's Corners (1.7.0, app-corners.js): Add
@@ -6236,7 +6265,7 @@
         riggingCornerBars: {
             since: '1.7.0',
             target: '#rigging-total-count', place: 'right', title: 'Corner bars',
-            body: 'Auto splits the bars at a corner: its Header Bar - Corner covers the panels touching it and bars fill each side. With the Curve on, each side curves as its own wall right up to the fold.',
+            body: 'Auto splits the bars at a corner: a Header Bar - Corner (1 panel), or (2 panel) on a seam, covers the panels touching it and bars fill each side. With the Curve on, each side curves as its own wall up to the fold.',
             before: function () {
                 switchView('rigging');
                 var w = wall();

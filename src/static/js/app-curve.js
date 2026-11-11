@@ -602,6 +602,10 @@ class _Curve {
         }
         const before = Array.isArray(this.history) ? this.history[this.historyIndex] : null;
         const commit = [...new Set([...curved, ...(others || [])])];
+        // Their bars are checked when the answer lands (app-rigging.js
+        // riggingFitCheck): until then they are the bars before the edit.
+        if (!this._curveRelaying) this._curveRelaying = new Set();
+        curved.forEach(l => this._curveRelaying.add(l.id));
         this.updateLayers(commit, true, action);
         const entry = Array.isArray(this.history) ? this.history[this.historyIndex] : null;
         const own = entry && entry !== before ? entry : null;
@@ -610,6 +614,10 @@ class _Curve {
         this.refreshRiggingCurve();
         const done = Promise.all(jobs.map(j => j.p)).then(outs => {
             this._curveBusy -= 1;
+            // This answer is the newest for these screens: their bars are
+            // checked again from here (a newer one on its way keeps them).
+            const settled = jobs.filter(j => this._curveLatest.get(j.id) === seq).map(j => j.id);
+            settled.forEach(id => this._curveRelaying.delete(id));
             // An undo, a redo or a reload since: this answer belongs to a
             // show that is gone.
             if (this.project !== project) { this.refreshRiggingPanel(); return; }
@@ -646,6 +654,10 @@ class _Curve {
                     this.historyIndex -= 1;
                 }
                 this.updateLayers(changed, true, action);
+            } else if (settled.length && typeof this.riggingFitCheck === 'function') {
+                // nothing laid (the Curve could not, said below): the bars
+                // the edit left are checked as they stand
+                this.riggingFitCheck(settled.map(byId).filter(Boolean));
             }
             if (this._curveOpenEntry === own) this._curveOpenEntry = null;
             this.refreshRiggingPanel(misses.length ? misses : undefined);

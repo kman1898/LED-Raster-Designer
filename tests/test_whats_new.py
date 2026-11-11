@@ -826,3 +826,51 @@ def test_show_me_runs_only_the_new_steps(guide_page):
     pg.locator('#qs-next').click()
     pg.wait_for_function("() => !window.QuickStart.state().visible && !window.QuickStart.state().running")
     assert pg.evaluate("() => window.app._canonicalJson(window.app.project)") == before
+
+
+QUICKSTART_JS = os.path.join(SRC, 'static', 'js', 'quickstart.js')
+
+
+def test_guide_bodies_name_corner_bars_by_their_parts():
+    """QA, 2026-11-10: the Corner bars step said "Header Bar - Corner", a
+    part that does not exist. The corner bars are two parts, "Header Bar -
+    Corner (1 panel)" and "(2 panel)" (rigging-math.js cornerName): a step
+    that names one names a real part."""
+    bodies = re.findall(r"^\s*body: '((?:[^'\]|\.)*)'", _read(QUICKSTART_JS), re.M)
+    assert len(bodies) > 100
+    wrong = [b for b in bodies if re.search(r'(Header|Footer) Bar - Corner(?! \([12] panel\))', b)]
+    assert not wrong, wrong
+    assert any('Header Bar - Corner (1 panel)' in b and '(2 panel)' in b for b in bodies)
+
+
+def test_the_curve_step_says_what_the_demo_wall_builds(guide_page):
+    """QA, 2026-11-10: the Curve a wall step (the Advanced Guide's and What's
+    New's) ticked Curve at the 20% default, which the demo's doubles and
+    triples locking at most 7.5 degrees cannot build: the tab said Sweep
+    45 degrees, 12.5% of a circle, Out of range and 1' 1 3/4" off, and the
+    step's note said the wall curves 20% of a circle, a number written into
+    the step. The step asks for a curve the locks reach cleanly, the tab
+    warns of nothing short, and the note reads the tab's own Sweep."""
+    from test_tour_anchors import _wait_step
+    pg = guide_page
+    pg.evaluate("() => { window.QuickStart.setSpeed(6); window.QuickStart.startSteps(['riggingCurve']); }")
+    st = _wait_step(pg, 0, timeout=120)
+    assert st['state'] == 'done' and not st['fail'], st
+    got = pg.evaluate("""() => {
+        const rows = [...document.querySelectorAll('#rigging-curve-readouts > div')]
+            .map(r => [...r.children].map(c => c.textContent));
+        const sweep = (rows.find(r => r[0] === 'Sweep') || [])[1] || '';
+        const warn = document.getElementById('rigging-curve-warnings');
+        const w = window.app.project.layers.find(l => l.name === 'DEMO WALL');
+        return { sweep, note: document.querySelector('#qs-callout .qs-result').textContent,
+                 warnings: warn && warn.style.display !== 'none' ? warn.textContent : '',
+                 asked: w && w.riggingCurve && w.riggingCurve.value };
+    }""")
+    pg.evaluate("() => window.QuickStart.end()")
+    pg.wait_for_function("() => !window.QuickStart.state().visible && !window.QuickStart.state().running")
+    assert got['sweep'] and got['sweep'] in got['note'], got
+    assert f"asked for {got['asked']:g}% of a circle" in got['note'], got
+    pct = float(re.search(r'([\d.]+)% of a circle', got['sweep']).group(1))
+    assert abs(pct - got['asked']) <= 0.5, got
+    assert 'Out of range' not in got['warnings'] and 'Off the drawing' not in got['warnings'], got
+    assert 'fall short' not in got['warnings'] and 'falls short' not in got['warnings'], got
