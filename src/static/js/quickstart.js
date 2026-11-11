@@ -294,6 +294,12 @@
         }
         return out;
     }
+    // Those in words: "the left side builds 10°, 2.8% of a circle and the
+    // right side 10°, 2.8% of a circle".
+    function sideSweepsSaid(sides) {
+        var said = sides.map(function (s, i) { return 'the ' + (i ? s : s.replace(/^(\w+ side|side \d+) /, '$1 builds ')); });
+        return said.length < 2 ? said.join('') : said.slice(0, -1).join(', ') + ' and ' + said[said.length - 1];
+    }
     // The Header/Footer tab's Curve with nothing to warn of: laid and drawn
     // from its answer, no "Out of range" and no "Off the drawing" warning,
     // and the build in use on every side inside Close enough (no orange
@@ -6302,8 +6308,8 @@
                 var at = c[0].at;
                 var where = Number.isInteger(at) ? 'down the middle of panel ' + at
                     : 'on the seam between panels ' + (at - 0.5) + ' and ' + (at + 0.5);
-                return (w.name || 'The wall') + ' folds 90° Interior ' + where + '. Each side curves on its own: the '
-                    + sides.join(', the ') + '.';
+                return (w.name || 'The wall') + ' folds 90° Interior ' + where + '. Each side curves as its own wall: '
+                    + sideSweepsSaid(sides) + '.';
             }
         },
         // Bars split at a corner (1.7.0): Auto lays the corner's own Header
@@ -6361,8 +6367,9 @@
                 var sides = sideSweepsShown();
                 if (laid.length !== 1 || !part || !bars || !/Corner \(\d panel\): 1/.test(totals)) return null;
                 if (sides.length !== 2 || !curveTabClean()) return null;
+                var said = sideSweepsSaid(sides);
                 return 'Auto split DEMO WALL at its corner: ' + bars.split(',').join(' + ') + ' and a ' + part + '. The totals read ' + totals
-                    + '; the ' + sides.join(', the ') + '.';
+                    + ', and ' + said + '.';
             }
         },
         riggingCornerSide: {
