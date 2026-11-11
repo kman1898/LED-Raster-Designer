@@ -2957,6 +2957,10 @@ body.s3d-scrubbing, body.s3d-scrubbing * { cursor: ew-resize !important; }
 .s3d-field.s3d-gathered { border-color: var(--ps-accent, #e22330); background: #251416; }
 /* The short note a figure that is not one leaves under its row. */
 .s3d-field-note { font-size: 11px; color: #f5a623; margin: 3px 0 0; }
+/* Under the Offset X / Y of a grouped screen: what a typed value moves. */
+.group-move-note { font-size: 11px; color: #aaa; margin: -4px 0 8px; line-height: 1.3; }
+.group-move-note[hidden] { display: none; }
+.group-move-note[data-group-move="one"] { color: #f5a623; }
 .s3d-field-note[hidden] { display: none; }
 body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
 /* A section's reset: a small round arrow at the end of its heading. */

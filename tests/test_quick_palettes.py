@@ -1054,7 +1054,7 @@ NEW_IN_1_7 = ['quickPalettes', 'processorIp', 'riggingTab', 'riggingSizes', 'rig
               's3dCamera', 's3dFocus', 's3dBars', 's3dCorner',
               'outputOpen', 'outputChoices',
               'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
-              'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist', 'groupDrag',
+              'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist', 'groupDrag', 'groupMove',
               'riggingSheet', 'objExport', 'checkUpdates']
 
 

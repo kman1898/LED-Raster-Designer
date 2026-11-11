@@ -6956,6 +6956,78 @@
                 return g.name + ' went to the new canvas whole and came back as one group.';
             }
         },
+        // One screen of a group moves on its own when it is picked in the
+        // Screens list (1.7.0, #125; the owner: "these offsets should be
+        // allowed if they manually select the screen via the side tab
+        // specifically"). The group opens in the list, its second screen's
+        // row is clicked, and Offset Y takes that screen down and back, so
+        // the steps after this one find the wall as it was.
+        groupMove: {
+            since: '1.7.0',
+            target: '#offset-y', place: 'right', title: 'Move one screen of a group',
+            avoid: ['#layers-list', '#offset-x', '#offset-y'],
+            body: 'Open a group in the Screens list and click one of its screens: Offset X and Y then move that screen alone. Picked any other way, the whole group moves.',
+            before: function () {
+                closePrefs(); hideMenus(); closePopover(); switchView('pixel-map');
+                var a = A(), w = wall();
+                if (w && a.getGroupOfLayer(w)) a.selectLayer(w);
+            },
+            act: function (t) {
+                var a = A();
+                var w = wall(), w2 = wall2(), g = w2 ? a.getGroupOfLayer(w2) : null;
+                if (!w || !g) return Promise.reject(new Error('the demo walls are not grouped'));
+                var byId = function (id) { return screens().find(function (l) { return l.id === id; }) || null; };
+                var at = function (l) { return l ? [Number(l.offset_x) || 0, Number(l.offset_y) || 0] : null; };
+                t.mem.group = g.id;
+                t.mem.one = w2.id;
+                t.mem.other = w.id;
+                t.mem.otherAt = at(w);
+                t.mem.home = at(w2);
+                var picked = function () {
+                    var l = a._listPickedMember ? a._listPickedMember() : null;
+                    return l && l.id === t.mem.one;
+                };
+                var open = a.isGroupExpanded(g.id) ? Promise.resolve()
+                    : t.click('#layers-list .screen-group[data-group-id="' + g.id + '"] .screen-group-toggle');
+                return open.then(function () {
+                    return t.wait(function () { return $(layerRow(byId(t.mem.one))); });
+                }).then(function (row) {
+                    if (!row) throw new Error('the group did not open in the list');
+                    return t.click(layerRow(byId(t.mem.one)));
+                }).then(function () {
+                    return t.wait(picked);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the screen was not picked on its own');
+                    t.mem.field = Number($('#offset-y').value) || 0;
+                    return t.type('#offset-y', String(t.mem.field + 200));
+                }).then(function () {
+                    return t.wait(function () {
+                        var l = at(byId(t.mem.one));
+                        return l && l[1] === t.mem.home[1] + 200;
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the screen did not move');
+                    t.mem.moved = String(at(byId(t.mem.other))) === String(t.mem.otherAt);
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return t.type('#offset-y', String(t.mem.field));
+                }).then(function () {
+                    return t.wait(function () { return String(at(byId(t.mem.one))) === String(t.mem.home); });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the screen did not go back');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var a = A(), g = mem && a.resolveGroup(mem.group);
+                if (!g || !mem.moved) return null;
+                var one = screens().find(function (l) { return l.id === mem.one; });
+                var other = screens().find(function (l) { return l.id === mem.other; });
+                if (!one || !other || one.group_id !== g.id || other.group_id !== g.id) return null;
+                if (String([Number(other.offset_x) || 0, Number(other.offset_y) || 0]) !== String(mem.otherAt)) return null;
+                return one.name + ' moved down and back on its own; ' + other.name + ' stayed, and both are still in ' + g.name + '.';
+            }
+        },
         exportBinder: {
             window: 'export:binder',
             target: '#btn-export', place: 'bottom', title: 'Export the binder',
@@ -8490,7 +8562,7 @@
                     'outputOpen', 'outputChoices',
                     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
                     'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist',
-                    'groupScreens', 'groupNames', 'groupDrag',
+                    'groupScreens', 'groupNames', 'groupDrag', 'groupMove',
                     'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'objExport', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
                     'redrawAsOne', 'sweepPorts', 'helpMenu', 'checkUpdates', 'outroAdvanced']

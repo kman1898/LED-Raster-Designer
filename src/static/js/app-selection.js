@@ -99,6 +99,9 @@ class _Selection {
     }
 
     setSelectedLayersByIds(ids, primaryId = null) {
+        // Not a pick in the Screens list: a grouped screen moves with its
+        // group again (#125, _listPickedMember).
+        this._listPickedLayerId = null;
         this.selectedLayerIds = new Set(ids);
         if (primaryId && this.selectedLayerIds.has(primaryId)) {
             this.currentLayer = this.project.layers.find(l => l.id === primaryId) || this.currentLayer;
@@ -137,6 +140,7 @@ class _Selection {
 
     toggleLayerSelection(layer) {
         if (!layer) return;
+        this._listPickedLayerId = null;   // (#125, _listPickedMember)
         if (!this.selectedLayerIds || this.selectedLayerIds.size === 0) {
             this.selectedLayerIds = new Set([layer.id]);
             this.currentLayer = layer;
@@ -169,6 +173,7 @@ class _Selection {
 
     selectLayerRange(layer) {
         if (!layer || !this.project || !this.project.layers) return;
+        this._listPickedLayerId = null;   // (#125, _listPickedMember)
         const order = this.layerListOrder || [...this.project.layers].reverse().map(l => l.id);
         const anchorId = this.selectionAnchorLayerId || (this.currentLayer ? this.currentLayer.id : layer.id);
         const startIndex = order.indexOf(anchorId);

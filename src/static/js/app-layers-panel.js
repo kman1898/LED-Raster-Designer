@@ -193,8 +193,18 @@ ${cabinetBtn}
                         this.selectLayerRange(layer);
                     } else if (isToggle) {
                         this.toggleLayerSelection(layer);
-                    } else if (!this._layerClickChangesNothing(layer)) {
-                        this.selectLayer(layer);
+                    } else {
+                        // One screen of a group picked here, on its own, is
+                        // the one that moves on its own (#125,
+                        // _listPickedMember). Marked before selectLayer so
+                        // Screen Info fills with its own X / Y.
+                        const wasPicked = this._listPickedLayerId === layer.id;
+                        this._listPickedLayerId = layer.id;
+                        if (!this._layerClickChangesNothing(layer)) {
+                            this.selectLayer(layer);
+                        } else if (!wasPicked) {
+                            this.loadLayerToInputs();
+                        }
                     }
                 }
             });

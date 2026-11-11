@@ -1578,6 +1578,9 @@ class CanvasRenderer {
     // the one screen it is.
     _selectLayerFromCanvas(layer) {
         if (!window.app || !layer || typeof window.app.selectLayer !== 'function') return;
+        // A screen picked on the canvas moves with its group, even one picked
+        // in the Screens list a moment ago (#125, _listPickedMember).
+        window.app._listPickedLayerId = null;
         window.app.selectLayer(layer);
         if (!this._extendSelectionToGroups()) return;
         // selectLayer already refreshed for the single-layer selection; repeat
@@ -1598,6 +1601,7 @@ class CanvasRenderer {
     _toggleLayerSelectionFromCanvas(layer) {
         const app = window.app;
         if (!app || !layer) return;
+        app._listPickedLayerId = null;   // (#125, _listPickedMember)
         let unit = null;
         const g = this._groupForLayer(layer);
         if (g && typeof app.getGroupMembers === 'function') {

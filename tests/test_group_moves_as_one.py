@@ -9,6 +9,12 @@ So for a grouped screen the X / Y fields show the GROUP's position (the
 top-left of its members) and a typed value moves every member by the same
 distance - whether the whole group or one member is selected - in one write
 and one undo step. Ungrouped screens keep the old per-screen write.
+
+Amended 2026-11-11 (#125, the owner: "these offsets should be allowed if
+they manually select the screen via the side tab specifically"): ONE member
+picked by hand in the Screens list shows and moves on its own. A member
+picked any other way (on the canvas, or by a script) still moves the whole
+group. tests/test_group_member_moves_alone.py has the rest of that ruling.
 """
 import pytest
 
@@ -93,12 +99,39 @@ def test_typing_y_with_the_whole_group_selected_moves_the_group(page, grouped):
     assert page.evaluate(POS, ['TOP', 'BOTTOM']) == {'TOP': [0, 0], 'BOTTOM': [0, 1040]}
 
 
-def test_typing_x_with_one_member_selected_moves_the_whole_group(page, grouped):
-    _select(page, [grouped['bottom']])
+def _list_pick(page, layer_id):
+    """A plain click on the member's own row in the expanded group."""
+    page.evaluate("() => window.app.setGroupExpanded('g1', true)")
+    page.locator(f'#layers-list .layer-item[data-layer-id="{layer_id}"]').click()
+    page.wait_for_timeout(200)
+
+
+@pytest.mark.parametrize('how', ['script', 'canvas'])
+def test_typing_x_with_one_member_selected_moves_the_whole_group(page, grouped, how):
+    if how == 'script':
+        _select(page, [grouped['bottom']])
+    else:
+        # picked in the list first, then on the canvas: the canvas pick wins
+        _list_pick(page, grouped['bottom'])
+        page.evaluate("""(id) => window.canvasRenderer._selectLayerFromCanvas(
+            window.app.project.layers.find(l => l.id === id))""", grouped['bottom'])
+        page.wait_for_timeout(150)
+    assert page.evaluate("document.getElementById('offset-y').value") == '0'
     _type_offset(page, 'offset-x', 500)
     assert page.evaluate(POS, ['TOP', 'BOTTOM', 'LOOSE']) == {'TOP': [500, 0], 'BOTTOM': [500, 1040], 'LOOSE': [3000, 500]}
     assert page.evaluate(SERVER_POS, ['TOP', 'BOTTOM']) == {'TOP': [500, 0], 'BOTTOM': [500, 1040]}
     # the fields now read the group's new position
+    assert page.evaluate("document.getElementById('offset-x').value") == '500'
+
+
+def test_typing_x_with_one_member_picked_in_the_list_moves_only_it(page, grouped):
+    _list_pick(page, grouped['bottom'])
+    # its own place in the fields, not the group's
+    assert page.evaluate("[document.getElementById('offset-x').value, document.getElementById('offset-y').value]") == ['0', '1040']
+    _type_offset(page, 'offset-x', 500)
+    assert page.evaluate(POS, ['TOP', 'BOTTOM', 'LOOSE']) == {'TOP': [0, 0], 'BOTTOM': [500, 1040], 'LOOSE': [3000, 500]}
+    page.wait_for_timeout(300)
+    assert page.evaluate(SERVER_POS, ['TOP', 'BOTTOM']) == {'TOP': [0, 0], 'BOTTOM': [500, 1040]}
     assert page.evaluate("document.getElementById('offset-x').value") == '500'
 
 

@@ -1086,6 +1086,7 @@ class _ScreenInfo {
 
     selectLayersInRect(rect, toggle = false) {
         if (!this.project || !this.project.layers) return;
+        this._listPickedLayerId = null;   // a marquee is a canvas pick (#125)
         const minX = Math.min(rect.x1, rect.x2);
         const maxX = Math.max(rect.x1, rect.x2);
         const minY = Math.min(rect.y1, rect.y2);
@@ -1186,6 +1187,9 @@ class _ScreenInfo {
             }
         }
 
+        // A screen picked by hand in the Screens list stays picked through a
+        // re-select of itself (undo, a layer update); another screen ends it.
+        if (this._listPickedLayerId !== layer.id) this._listPickedLayerId = null;
         this.currentLayer = layer;
         this.selectedLayerIds = new Set([layer.id]);
         this.lastSelectedLayerId = layer.id;
@@ -2300,7 +2304,9 @@ class _ScreenInfo {
         // loadLayerToInputs), and a typed value moves EVERY member of the
         // group by the same distance - whether the whole group or one member
         // is selected. The members outside the selection ride along in the
-        // same write and the same undo step.
+        // same write and the same undo step. The one exception (2026-11-11,
+        // #125): a member picked on its own in the Screens list moves alone,
+        // through the per-screen write below (_listPickedMember).
         const groupMoves = this._groupOffsetMoves
             ? this._groupOffsetMoves(targetLayers, {
                 offsetX: applyOffsetX ? offsetXVal : null, offsetY: applyOffsetY ? offsetYVal : null,
@@ -2602,6 +2608,7 @@ class _ScreenInfo {
             // group selected. This pass runs ahead of its own early returns
             // for that (app-power updatePortCapacityDisplay).
             if (typeof this.updatePortCapacityDisplay === 'function') this.updatePortCapacityDisplay();
+            if (this._refreshGroupMoveNote) this._refreshGroupMoveNote([]);
             return;
         }
         const primary = this.currentLayer || layers[0];
@@ -2668,13 +2675,17 @@ class _ScreenInfo {
         // Screen Info X,Y matches where the rotated screen actually sits.
         // A grouped screen shows its GROUP's position - the top-left of the
         // wall - so every member reads the same X / Y and a typed value moves
-        // the wall (updateLayerFromInputs). An ungrouped screen shows its own.
-        const origin = (l) => (this._groupOrigin ? this._groupOrigin(l) : null);
+        // the wall (updateLayerFromInputs). An ungrouped screen shows its own,
+        // and so does one member picked in the Screens list (#125,
+        // _listPickedMember), which a typed value then moves on its own.
+        const listPicked = this._listPickedMember ? this._listPickedMember() : null;
+        const origin = (l) => (this._groupOrigin && l !== listPicked ? this._groupOrigin(l) : null);
         setTextInput('offset-x', getCommon(l => { const o = origin(l); return o ? o.x : Math.round((Number(l.offset_x) || 0) + window.canvasRenderer.getLayerFootprintOffset(l).dx); }));
         setTextInput('offset-y', getCommon(l => { const o = origin(l); return o ? o.y : Math.round((Number(l.offset_y) || 0) + window.canvasRenderer.getLayerFootprintOffset(l).dy); }));
         // Show Look offsets, separate from processor offsets (Pixel Map).
         setTextInput('show-offset-x', getCommon(l => { const o = origin(l); return o ? o.showX : ((l.showOffsetX ?? l.offset_x) || 0); }));
         setTextInput('show-offset-y', getCommon(l => { const o = origin(l); return o ? o.showY : ((l.showOffsetY ?? l.offset_y) || 0); }));
+        if (this._refreshGroupMoveNote) this._refreshGroupMoveNote(layers);
 
         // Image layer controls
         const imageScaleEl = document.getElementById('image-scale');

@@ -194,11 +194,60 @@ class _ScreenGroups {
         return (this.project.layers || []).filter(l => ids.has(l.id) && (l.type || 'screen') === 'screen');
     }
 
+    // ONE SCREEN OF A GROUP, PICKED IN THE SCREENS LIST (the owner's ruling,
+    // 2026-11-11, #125: "these offsets should be allowed if they manually
+    // select the screen via the side tab specifically"). Expanding a group
+    // in the Screens list and clicking one member's row is the one way to
+    // move that member on its own: its Offset X / Y (Pixel Map) and Show
+    // Offset X / Y (Show Look) then show and edit that screen alone. Every
+    // other way of getting there still moves the whole group as one, as
+    // ruled 2026-09-22: the group's own row, a click on the canvas (which
+    // selects the whole group, canvas.js _selectLayerFromCanvas), a canvas
+    // drag (_addGroupPeersToDrag) and the 3D arrow keys (_s3dMoveSet).
+    //
+    // The row click marks the screen (app-layers-panel.js); every other way
+    // of selecting clears the mark (selectLayer for another screen, the
+    // canvas, Ctrl/Shift in the list, setSelectedLayersByIds for anything
+    // but this one screen). The mark counts only while that screen is still
+    // the one and only selection, so a selection that has grown since, by
+    // any route, is the whole group again.
+    _listPickedMember() {
+        const id = this._listPickedLayerId;
+        if (id == null) return null;
+        const layer = this.currentLayer;
+        const sel = this.selectedLayerIds;
+        if (!layer || layer.id !== id) return null;
+        if (!sel || sel.size !== 1 || !sel.has(id)) return null;
+        if ((layer.type || 'screen') !== 'screen') return null;
+        if (this.groupMembersOf(layer).length < 2) return null;
+        return layer;
+    }
+
+    // The words under the offset fields, so it is plain what a typed value
+    // moves: "Moves only <name> in its group" for a screen picked in the
+    // list, "Moves the whole group" for a group (or a member picked any
+    // other way), nothing for loose screens.
+    _refreshGroupMoveNote(layers) {
+        const notes = document.querySelectorAll('[data-group-move-note]');
+        if (!notes.length) return;
+        const picked = this._listPickedMember();
+        const grouped = !picked && (layers || []).some(l => l && (l.type || 'screen') === 'screen'
+            && this.groupMembersOf(l).length > 1);
+        const text = picked ? `Moves only ${picked.name || 'this screen'} in its group`
+            : (grouped ? 'Moves the whole group' : '');
+        notes.forEach(el => {
+            el.textContent = text;
+            el.hidden = !text;
+            el.dataset.groupMove = picked ? 'one' : (grouped ? 'group' : '');
+        });
+    }
+
     // Where a grouped screen's group STANDS: the top-left of its members'
     // footprints on the Pixel Map (x, y) and in Show Look (showX, showY),
     // rounded like the Screen Info fields. Null for an ungrouped screen. The
     // Screen Info X / Y show this for every member (loadLayerToInputs) and a
-    // typed value moves the whole group to it (_groupOffsetMoves).
+    // typed value moves the whole group to it (_groupOffsetMoves); a member
+    // picked in the Screens list shows and moves its own (_listPickedMember).
     _groupOrigin(layer) {
         const members = this.groupMembersOf(layer);
         if (!members.length) return null;
@@ -221,8 +270,10 @@ class _ScreenGroups {
     _groupOffsetMoves(layers, typed) {
         const moves = [];
         const seen = new Set();
+        const picked = this._listPickedMember();
         layers.forEach(layer => {
             if (!layer.group_id || seen.has(layer.group_id)) return;
+            if (layer === picked) return;   // moves on its own, as a loose screen does
             const o = this._groupOrigin(layer);
             if (!o) return;
             seen.add(layer.group_id);
