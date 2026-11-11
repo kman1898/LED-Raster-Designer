@@ -378,8 +378,8 @@ FIXES
   It used to undo the change made before the delete instead, and leave the
   screen deleted.
 - FIX: Delete removes a screen only on the Pixel Map tab, so a stray key
-  never costs a screen. On Header/Footer it clears the bars, on the IDM
-  Locator the mark, and elsewhere it does nothing. The canvas right-click
+  never costs a screen. On Header/Footer it clears the bars, and elsewhere
+  it does nothing to screens. The canvas right-click
   Delete Screen is on Pixel Map only; the Screens list's right-click still
   deletes on every tab.
 - FIX: A group's up and down arrows move it among the rows of the canvas
