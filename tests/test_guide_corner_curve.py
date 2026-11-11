@@ -23,6 +23,7 @@ Run locally:
 """
 
 import os
+import re
 import sys
 
 import pytest
@@ -92,8 +93,12 @@ TAB_JS = """() => {
         corners: (w && w.riggingCorners || []).map(c => c.at),
         warnings: shown('rigging-curve-warnings'),
         errors: shown('rigging-curve-errors'),
+        asked: w && w.riggingCurve ? Number(w.riggingCurve.value) : null,
         sides: [...document.querySelectorAll('#rigging-curve-readouts > div')]
             .map(r => r.children[0] && r.children[0].textContent).filter(t => / side, |^Side \\d+, /.test(t || '')),
+        sweeps: [...document.querySelectorAll('#rigging-curve-readouts > div')]
+            .filter(r => r.children.length === 2 && r.children[0].textContent === 'Sweep')
+            .map(r => r.children[1].textContent),
         ways: [...document.querySelectorAll('#rigging-curve-ways .rigging-curve-way')].map(e => {
             const t = e.firstElementChild.children;
             return {top: t[0].textContent, bottom: t[1].textContent, color: getComputedStyle(t[1]).color};
@@ -125,6 +130,14 @@ def _problems(tab, where, sides):
             out.append(f"{where}: the build in use is over Close enough: {r}")
     if len(tab['sides']) != sides:
         out.append(f"{where}: {len(tab['sides'])} sides on the tab, {sides} wanted: {tab['sides']}")
+    # what the wall, or each side, builds is within half a percent of what
+    # the Curve asks (test_whats_new holds the Curve step to the same)
+    if len(tab['sweeps']) != max(1, sides):
+        out.append(f"{where}: {len(tab['sweeps'])} Sweep readouts for {sides} sides: {tab['sweeps']}")
+    for s in tab['sweeps']:
+        m = re.search(r'([\d.]+)% of a circle', s)
+        if not m or tab['asked'] is None or abs(float(m.group(1)) - tab['asked']) > 0.5:
+            out.append(f"{where}: builds {s!r} against {tab['asked']}% asked")
     return out
 
 

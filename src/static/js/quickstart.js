@@ -317,7 +317,10 @@
         var warn = $('#rigging-curve-warnings');
         var said = (warn && warn.style.display !== 'none' && warn.textContent) || '';
         if (/Out of range|Off the drawing/.test(said)) return false;
-        var ways = document.querySelectorAll('#rigging-curve-ways .rigging-curve-way');
+        // each row of Ways to build it (app-curve.js _curveDrawWays) is
+        // marked with its build's id (dataset.way)
+        var host = $('#rigging-curve-ways');
+        var ways = host ? Array.prototype.filter.call(host.querySelectorAll('div'), function (e) { return e.dataset.way != null; }) : [];
         if (!ways.length) return false;
         for (var i = 0; i < ways.length; i++) {
             var lines = ways[i].firstElementChild ? ways[i].firstElementChild.children : [];
@@ -6218,8 +6221,11 @@
         // corner steps fold it at (QA, 2026-11-11: with a corner each side
         // curves as its own wall at the Curve's %, and the 7.5% this step
         // asked was Out of range and Off the drawing on a six panel side).
-        // 3.5% of a circle lands inside Close enough with every bent joint
-        // at 5, whole and folded on the seam in its middle. The note reads
+        // 4% of a circle lands inside Close enough and within half a
+        // percent of what was asked, whole (4.2%, two joints at 5) and
+        // folded on the seam in its middle (4.2% each side, one joint at
+        // 7.5). (3.5% also builds 4.2% whole, more than half a percent
+        // over what it asks.) The note reads
         // what was built off the tab itself.
         riggingCurve: {
             since: '1.7.0',
@@ -6232,7 +6238,7 @@
                 A().refreshRiggingPanel();
             },
             act: function (t) {
-                var asked = 3.5;
+                var asked = 4;
                 var curve = function () { var w = wall(); return (w && w.riggingCurve) || {}; };
                 return t.type('#rigging-curve-value', String(asked), { enter: true }).then(function () {
                     return t.wait(function () { return Number(curve().value) === asked; });
