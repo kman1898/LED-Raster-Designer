@@ -836,7 +836,7 @@ def test_guide_bodies_name_corner_bars_by_their_parts():
     part that does not exist. The corner bars are two parts, "Header Bar -
     Corner (1 panel)" and "(2 panel)" (rigging-math.js cornerName): a step
     that names one names a real part."""
-    bodies = re.findall(r"^\s*body: '((?:[^'\]|\.)*)'", _read(QUICKSTART_JS), re.M)
+    bodies = re.findall(r"^\s*body: '((?:[^'\\]|\\.)*)'", _read(QUICKSTART_JS), re.M)
     assert len(bodies) > 100
     wrong = [b for b in bodies if re.search(r'(Header|Footer) Bar - Corner(?! \([12] panel\))', b)]
     assert not wrong, wrong
