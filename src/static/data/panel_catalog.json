@@ -646,7 +646,12 @@
       "proc_type": null,
       "watts_max": 184.1,
       "watts_ave": 61.7,
-      "source": "official: absen AX Pro Series spec PDF V20221201 (W/m² × 0.20923)"
+      "source": "official: absen AX Pro Series spec PDF V20221201 (W/m² × 0.20923)",
+      "curve_locks": [
+        0,
+        2.5
+      ],
+      "curve_locks_source": "official: Absen Inc. Rental & Staging line card PDF, AX Pro table (AX1.2 Pro, AX1.5 Pro)"
     },
     {
       "name": "AX 1.5",
@@ -676,7 +681,12 @@
       "proc_type": null,
       "watts_max": 169.5,
       "watts_ave": 56.5,
-      "source": "official: absen AX Pro Series spec PDF V20221201 (W/m² × 0.20923)"
+      "source": "official: absen AX Pro Series spec PDF V20221201 (W/m² × 0.20923)",
+      "curve_locks": [
+        0,
+        2.5
+      ],
+      "curve_locks_source": "official: Absen Inc. Rental & Staging line card PDF, AX Pro table (AX1.2 Pro, AX1.5 Pro)"
     },
     {
       "name": "AX1.2",
@@ -1352,7 +1362,16 @@
       "source": "official: absen JP Pro Series spec PDF V20250624 (W/m² × 0.25)",
       "weight_lb": 20.94389,
       "proc_type": null,
-      "amps_max_110v": 1.57
+      "amps_max_110v": 1.57,
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10,
+        15
+      ],
+      "curve_locks_source": "official: Absen JP Pro Series Cutsheet-NA-20260423 PDF (JP5 Pro 500x500 / 1000x1000, JP8 Pro 1000x1000) + absen.com JP Pro Series page"
     },
     {
       "name": "JP5 Pro DBL",
@@ -1368,7 +1387,16 @@
       "source": "official: absen JP Pro Series spec PDF V20250624 (W/m² × 1.0)",
       "weight_lb": 65.03629,
       "proc_type": null,
-      "amps_max_110v": 6.27
+      "amps_max_110v": 6.27,
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10,
+        15
+      ],
+      "curve_locks_source": "official: Absen JP Pro Series Cutsheet-NA-20260423 PDF (JP5 Pro 500x500 / 1000x1000, JP8 Pro 1000x1000) + absen.com JP Pro Series page"
     },
     {
       "name": "JP6 V2 (600x1200)",
@@ -1414,7 +1442,16 @@
       "source": "official: absen JP Pro Series spec PDF V20250811 (W/m² × 1.0)",
       "weight_lb": 45.19471,
       "proc_type": null,
-      "amps_max_110v": 4.36
+      "amps_max_110v": 4.36,
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10,
+        15
+      ],
+      "curve_locks_source": "official: Absen JP Pro Series Cutsheet-NA-20260423 PDF (JP5 Pro 500x500 / 1000x1000, JP8 Pro 1000x1000) + absen.com JP Pro Series page"
     },
     {
       "name": "JP9 V2 (600x1200)",
@@ -2929,7 +2966,18 @@
       "proc_type": null,
       "watts_max": 175.0,
       "watts_ave": 58.8,
-      "source": "official: absen PL V2 Series spec PDF V20240914 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20240914 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL1.9 Plus V2X",
@@ -2944,7 +2992,18 @@
       "proc_type": null,
       "watts_max": 175.0,
       "watts_ave": 58.8,
-      "source": "official: absen PL Plus V2X Series spec PDF V20260525 (W/m² × 0.25)"
+      "source": "official: absen PL Plus V2X Series spec PDF V20260525 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen PL Plus V2X Cutsheet-NA-20260604 PDF"
     },
     {
       "name": "PL1.9 Pro",
@@ -3034,7 +3093,18 @@
       "proc_type": null,
       "watts_max": 160.0,
       "watts_ave": 53.8,
-      "source": "official: absen PL V2 Series spec PDF V20240914 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20240914 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL2.5 Plus V2X",
@@ -3049,7 +3119,18 @@
       "proc_type": null,
       "watts_max": 160.0,
       "watts_ave": 53.8,
-      "source": "official: absen PL Plus V2X Series spec PDF V20260525 (W/m² × 0.25)"
+      "source": "official: absen PL Plus V2X Series spec PDF V20260525 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen PL Plus V2X Cutsheet-NA-20260604 PDF"
     },
     {
       "name": "PL2.5 Pro",
@@ -3079,7 +3160,18 @@
       "proc_type": null,
       "watts_max": 170.0,
       "watts_ave": 57.5,
-      "source": "official: absen PL V10 Series spec PDF V20221215 (W/m² × 0.25)"
+      "source": "official: absen PL V10 Series spec PDF V20221215 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen Inc. (North America) Rental & Staging line card PDF, PL V10 table; also Absen 'Polaris V10 Series' cutsheet PDF"
     },
     {
       "name": "PL2.5 Pro V10-Cube",
@@ -3094,7 +3186,18 @@
       "proc_type": null,
       "watts_max": 180.0,
       "watts_ave": 65.0,
-      "source": "official: absen Polaris V10 Series cutsheet PDF (usabsen.com) (W/m² × 0.25)"
+      "source": "official: absen Polaris V10 Series cutsheet PDF (usabsen.com) (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen Inc. Rental & Staging line card PDF, PL V10 table (one curving row for every column, incl. the -Cube columns)"
     },
     {
       "name": "PL2.5 Pro V2",
@@ -3109,7 +3212,18 @@
       "proc_type": null,
       "watts_max": 170.0,
       "watts_ave": 57.5,
-      "source": "official: absen PL V2 Series spec PDF V20241206 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20241206 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL2.5 XR V2",
@@ -3124,7 +3238,18 @@
       "proc_type": null,
       "watts_max": 185.0,
       "watts_ave": 61.8,
-      "source": "official: absen PL V2 Series spec PDF V20241031 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20241031 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (series statement) + absen.com PL V2 series page (names PL2.5 XR V2 as a member)"
     },
     {
       "name": "PL2.5-B Plus V2X",
@@ -3184,7 +3309,18 @@
       "proc_type": null,
       "watts_max": 280.0,
       "watts_ave": 93.5,
-      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.5)"
+      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.5)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL2.9 Plus V2 (500x500)",
@@ -3199,7 +3335,18 @@
       "proc_type": null,
       "watts_max": 140.0,
       "watts_ave": 46.8,
-      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL2.9 Pro",
@@ -3229,7 +3376,18 @@
       "proc_type": null,
       "watts_max": 152.5,
       "watts_ave": 51.0,
-      "source": "official: absen PL V2 Series spec PDF V20250214 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20250214 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL2.9 Pro V2 XL",
@@ -3244,7 +3402,18 @@
       "proc_type": null,
       "watts_max": 305.0,
       "watts_ave": 102.0,
-      "source": "official: absen PL V2 Series spec PDF V20250205 (W/m² × 0.5)"
+      "source": "official: absen PL V2 Series spec PDF V20250205 (W/m² × 0.5)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL2.9 V10",
@@ -3259,7 +3428,18 @@
       "proc_type": null,
       "watts_max": 135.0,
       "watts_ave": 45.0,
-      "source": "official: absen PL V10 Series spec PDF V20221201 (W/m² × 0.25)"
+      "source": "official: absen PL V10 Series spec PDF V20221201 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen Inc. (North America) Rental & Staging line card PDF, PL V10 table; also Absen 'Polaris V10 Series' cutsheet PDF"
     },
     {
       "name": "PL2.9 V10-Cube",
@@ -3274,7 +3454,18 @@
       "proc_type": null,
       "watts_max": 135.0,
       "watts_ave": 45.0,
-      "source": "official: absen Polaris V10 Series cutsheet PDF (usabsen.com) (W/m² × 0.25)"
+      "source": "official: absen Polaris V10 Series cutsheet PDF (usabsen.com) (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen Inc. Rental & Staging line card PDF, PL V10 table (one curving row for every column, incl. the -Cube columns)"
     },
     {
       "name": "PL2.9 XL",
@@ -3304,7 +3495,18 @@
       "proc_type": null,
       "watts_max": 360.0,
       "watts_ave": 120.0,
-      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.5)"
+      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.5)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL2.9W Plus V2 (500x500)",
@@ -3319,7 +3521,18 @@
       "proc_type": null,
       "watts_max": 180.0,
       "watts_ave": 60.0,
-      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL3.9",
@@ -3364,7 +3577,18 @@
       "proc_type": null,
       "watts_max": 280.0,
       "watts_ave": 93.5,
-      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.5)"
+      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.5)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL3.9 Plus V2 (500x500)",
@@ -3379,7 +3603,18 @@
       "proc_type": null,
       "watts_max": 140.0,
       "watts_ave": 46.8,
-      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL3.9 Pro",
@@ -3409,7 +3644,18 @@
       "proc_type": null,
       "watts_max": 400.0,
       "watts_ave": 133.5,
-      "source": "official: absen PL V2 Series spec PDF V20240517 (W/m² × 0.5)"
+      "source": "official: absen PL V2 Series spec PDF V20240517 (W/m² × 0.5)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL3.9 Pro V2 (500x500)",
@@ -3424,7 +3670,18 @@
       "proc_type": null,
       "watts_max": 200.0,
       "watts_ave": 66.8,
-      "source": "official: absen PL V2 Series spec PDF V20240517 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20240517 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL3.9 Pro V3 (500x1000)",
@@ -3544,7 +3801,18 @@
       "proc_type": null,
       "watts_max": 345.0,
       "watts_ave": 115.0,
-      "source": "official: absen PL V2 Series spec PDF V20250220 (W/m² × 0.5)"
+      "source": "official: absen PL V2 Series spec PDF V20250220 (W/m² × 0.5)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL3.9B Plus V2 (500x500)",
@@ -3559,7 +3827,18 @@
       "proc_type": null,
       "watts_max": 172.5,
       "watts_ave": 57.5,
-      "source": "official: absen PL V2 Series spec PDF V20250220 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20250220 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL3.9W lite",
@@ -3589,7 +3868,18 @@
       "proc_type": null,
       "watts_max": 300.0,
       "watts_ave": 100.0,
-      "source": "official: absen PL V2 Series spec PDF V20250117 (W/m² × 0.5)"
+      "source": "official: absen PL V2 Series spec PDF V20250117 (W/m² × 0.5)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL3.9W Plus V2 (500x500)",
@@ -3604,7 +3894,18 @@
       "proc_type": null,
       "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "official: absen PL V2 Series spec PDF V20241217 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20241217 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL3.9W XL lite",
@@ -3649,7 +3950,18 @@
       "proc_type": null,
       "watts_max": 400.0,
       "watts_ave": 133.5,
-      "source": "official: absen PL V2 Series spec PDF V20240517 (W/m² × 0.5)"
+      "source": "official: absen PL V2 Series spec PDF V20240517 (W/m² × 0.5)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL4.8 Pro V2 (500x500)",
@@ -3664,7 +3976,18 @@
       "proc_type": null,
       "watts_max": 200.0,
       "watts_ave": 66.8,
-      "source": "official: absen PL V2 Series spec PDF V20241118 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20241118 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL4.8 Pro V3 (500x1000)",
@@ -3769,7 +4092,18 @@
       "proc_type": null,
       "watts_max": 300.0,
       "watts_ave": 100.0,
-      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.5)"
+      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.5)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL4.8W Plus V2 (500x500)",
@@ -3784,7 +4118,18 @@
       "proc_type": null,
       "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.25)"
+      "source": "official: absen PL V2 Series spec PDF V20240729 (W/m² × 0.25)",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Absen 'Polaris V2 Series' cutsheet PDF (PL V2 Series Cutsheet-20250318), series-wide statement; model is a column of that sheet"
     },
     {
       "name": "PL4.8W XL lite",
@@ -3949,7 +4294,13 @@
       "proc_type": null,
       "watts_max": 220.0,
       "watts_ave": 73.0,
-      "source": "official: absen SA Series spec PDF V20251113 (W/m² × 0.5)"
+      "source": "official: absen SA Series spec PDF V20251113 (W/m² × 0.5)",
+      "curve_locks": [
+        -2.5,
+        0,
+        2.5
+      ],
+      "curve_locks_source": "official: Absen SA+SA-B+SA-C+SA-R Cutsheet-NA-20261102 PDF (Saturn series; SA1.9/SA2.6/SA3.9 in 1000x500 and 500x500)"
     },
     {
       "name": "SA1.9-B",
@@ -4039,7 +4390,13 @@
       "proc_type": null,
       "watts_max": 110.0,
       "watts_ave": 36.5,
-      "source": "official: absen SA Series spec PDF V20251205 (W/m² × 0.25)"
+      "source": "official: absen SA Series spec PDF V20251205 (W/m² × 0.25)",
+      "curve_locks": [
+        -2.5,
+        0,
+        2.5
+      ],
+      "curve_locks_source": "official: Absen SA+SA-B+SA-C+SA-R Cutsheet-NA-20261102 PDF (Saturn series; SA1.9/SA2.6/SA3.9 in 1000x500 and 500x500)"
     },
     {
       "name": "Saturn SA1.9C",
@@ -4069,7 +4426,13 @@
       "proc_type": null,
       "watts_max": 135.0,
       "watts_ave": 45.0,
-      "source": "official: absen SA Series spec PDF V20251105 (W/m² × 0.25)"
+      "source": "official: absen SA Series spec PDF V20251105 (W/m² × 0.25)",
+      "curve_locks": [
+        -2.5,
+        0,
+        2.5
+      ],
+      "curve_locks_source": "official: Absen SA+SA-B+SA-C+SA-R Cutsheet-NA-20261102 PDF (Saturn series; SA1.9/SA2.6/SA3.9 in 1000x500 and 500x500)"
     },
     {
       "name": "Saturn SA2.6 Wide Tile",
@@ -4084,7 +4447,13 @@
       "proc_type": null,
       "watts_max": 270.0,
       "watts_ave": 90.0,
-      "source": "official: absen SA Series spec PDF V20251105 (W/m² × 0.5)"
+      "source": "official: absen SA Series spec PDF V20251105 (W/m² × 0.5)",
+      "curve_locks": [
+        -2.5,
+        0,
+        2.5
+      ],
+      "curve_locks_source": "official: Absen SA+SA-B+SA-C+SA-R Cutsheet-NA-20261102 PDF (Saturn series; SA1.9/SA2.6/SA3.9 in 1000x500 and 500x500)"
     },
     {
       "name": "Saturn SA2.6C",
@@ -4114,7 +4483,13 @@
       "proc_type": null,
       "watts_max": 112.5,
       "watts_ave": 37.5,
-      "source": "official: absen SA Series spec PDF V20250702 (W/m² × 0.25)"
+      "source": "official: absen SA Series spec PDF V20250702 (W/m² × 0.25)",
+      "curve_locks": [
+        -2.5,
+        0,
+        2.5
+      ],
+      "curve_locks_source": "official: Absen SA+SA-B+SA-C+SA-R Cutsheet-NA-20261102 PDF (Saturn series; SA1.9/SA2.6/SA3.9 in 1000x500 and 500x500)"
     },
     {
       "name": "Saturn SA3.9 Wide Tile",
@@ -4129,7 +4504,13 @@
       "proc_type": null,
       "watts_max": 225.0,
       "watts_ave": 75.0,
-      "source": "official: absen SA Series spec PDF V20250702 (W/m² × 0.5)"
+      "source": "official: absen SA Series spec PDF V20250702 (W/m² × 0.5)",
+      "curve_locks": [
+        -2.5,
+        0,
+        2.5
+      ],
+      "curve_locks_source": "official: Absen SA+SA-B+SA-C+SA-R Cutsheet-NA-20261102 PDF (Saturn series; SA1.9/SA2.6/SA3.9 in 1000x500 and 500x500)"
     },
     {
       "name": "Spider 8 Full Tile",
@@ -4175,7 +4556,15 @@
       "watts_max": 305.0,
       "watts_ave": 102.5,
       "source": "official: absen VN Series spec PDF V20221209 (W/m² × 0.5)",
-      "amps_max_110v": 2.77
+      "amps_max_110v": 2.77,
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: Absen VN Series cutsheet PDF (VN-Series-Cutsheet-20250904) + Absen Inc. Rental & Staging line card PDF"
     },
     {
       "name": "VN3.9 Pro",
@@ -4191,7 +4580,15 @@
       "watts_ave": 63.5,
       "amps_max_110v": 1.73,
       "proc_type": "Brompton",
-      "source": "official: absen VN Series spec PDF V20221215 (W/m² × 0.25)"
+      "source": "official: absen VN Series spec PDF V20221215 (W/m² × 0.25)",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: Absen VN Series cutsheet PDF (VN-Series-Cutsheet-20250904) + Absen Inc. Rental & Staging line card PDF"
     },
     {
       "name": "VN3.9 Pro (1500x1000)",
@@ -4222,7 +4619,15 @@
       "watts_ave": 127.0,
       "amps_max_110v": 3.45,
       "proc_type": "Brompton",
-      "source": "official: absen VN Series spec PDF V20221215 (W/m² × 0.5)"
+      "source": "official: absen VN Series spec PDF V20221215 (W/m² × 0.5)",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: Absen VN Series cutsheet PDF (VN-Series-Cutsheet-20250904) + Absen Inc. Rental & Staging line card PDF"
     },
     {
       "name": "VN4.8 Pro",
@@ -4238,7 +4643,15 @@
       "watts_max": 430.0,
       "watts_ave": 145.0,
       "source": "official: absen VN Series spec PDF V20221209 (W/m² × 0.5)",
-      "amps_max_110v": 3.91
+      "amps_max_110v": 3.91,
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: Absen VN Series cutsheet PDF (VN-Series-Cutsheet-20250904) + Absen Inc. Rental & Staging line card PDF"
     },
     {
       "name": "VN4.8 Pro (1500x1000)",
@@ -4269,7 +4682,15 @@
       "watts_ave": 72.5,
       "amps_max_110v": 1.95,
       "proc_type": "NovaStar",
-      "source": "official: absen VN Series spec PDF V20221209 (W/m² × 0.25)"
+      "source": "official: absen VN Series spec PDF V20221209 (W/m² × 0.25)",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: Absen VN Series cutsheet PDF (VN-Series-Cutsheet-20250904) + Absen Inc. Rental & Staging line card PDF"
     },
     {
       "name": "VN8.3 (1500x1000)",
@@ -4633,7 +5054,15 @@
       "proc_type": null,
       "watts_max": 210.1,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: ADJ Europe VS3IP product page (adj.eu)"
     }
   ],
   "AeroLED": [
@@ -4847,7 +5276,23 @@
       "proc_type": null,
       "watts_max": 94.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15
+      ],
+      "curve_locks_source": "official: Alfalite Catalogo V4 A2026 PDF (p.8 LITEPIX table) + Alfalite EN Litepix brochure PDF (2024/03) + alfalite.com/litepix spec table"
     },
     {
       "name": "LITEPIX 3+",
@@ -4862,7 +5307,23 @@
       "proc_type": null,
       "watts_max": 49.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15
+      ],
+      "curve_locks_source": "official: Alfalite Catalogo V4 A2026 PDF (p.8 LITEPIX table) + Alfalite EN Litepix brochure PDF (2024/03) + alfalite.com/litepix spec table"
     },
     {
       "name": "Litepix 3+",
@@ -4877,7 +5338,23 @@
       "proc_type": null,
       "watts_max": 49.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15
+      ],
+      "curve_locks_source": "official: Alfalite Catalogo V4 A2026 PDF (p.8 LITEPIX table) + Alfalite EN Litepix brochure PDF (2024/03) + alfalite.com/litepix spec table"
     },
     {
       "name": "LITEPIX 3i",
@@ -4892,7 +5369,23 @@
       "proc_type": null,
       "watts_max": 94.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15
+      ],
+      "curve_locks_source": "official: Alfalite Catalogo V4 A2026 PDF (p.8 LITEPIX table) + Alfalite EN Litepix brochure PDF (2024/03) + alfalite.com/litepix spec table"
     },
     {
       "name": "LITEPIX 4+",
@@ -4907,7 +5400,23 @@
       "proc_type": null,
       "watts_max": 49.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15
+      ],
+      "curve_locks_source": "official: Alfalite Catalogo V4 A2026 PDF (p.8 LITEPIX table) + Alfalite EN Litepix brochure PDF (2024/03) + alfalite.com/litepix spec table"
     },
     {
       "name": "LITEPIX 5+",
@@ -4922,7 +5431,23 @@
       "proc_type": null,
       "watts_max": 49.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15
+      ],
+      "curve_locks_source": "official: Alfalite Catalogo V4 A2026 PDF (p.8 LITEPIX table) + Alfalite EN Litepix brochure PDF (2024/03) + alfalite.com/litepix spec table"
     },
     {
       "name": "Micropix 3 (3.9mm)",
@@ -5301,7 +5826,15 @@
       "proc_type": null,
       "watts_max": 170.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: AOTO RM Series spec sheet PDF (en.aoto.com/wp-content/uploads/2025/11/RM-Series.pdf), one shared spec row for RM1.5, RM1.5E, RM1.9, RM2.3, RM2.3E"
     },
     {
       "name": "RM 1.9",
@@ -5316,7 +5849,15 @@
       "proc_type": null,
       "watts_max": 159.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: AOTO RM Series spec sheet PDF (en.aoto.com/wp-content/uploads/2025/11/RM-Series.pdf), one shared spec row for RM1.5, RM1.5E, RM1.9, RM2.3, RM2.3E"
     },
     {
       "name": "RM 2.3",
@@ -5331,7 +5872,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: AOTO RM Series spec sheet PDF (en.aoto.com/wp-content/uploads/2025/11/RM-Series.pdf), one shared spec row for RM1.5, RM1.5E, RM1.9, RM2.3, RM2.3E"
     },
     {
       "name": "SW 3.7",
@@ -5346,7 +5895,17 @@
       "proc_type": null,
       "watts_max": 530.2,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: AOTO SW Series spec sheet PDF (en.aoto.com/wp-content/uploads/2025/11/SW-Series.pdf), one spec column shared by SW3.7, SW3.7H, SW5.7, SW5.7H"
     },
     {
       "name": "SW 3.7H",
@@ -5361,7 +5920,17 @@
       "proc_type": null,
       "watts_max": 275.0,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: AOTO SW Series spec sheet PDF (en.aoto.com/wp-content/uploads/2025/11/SW-Series.pdf), one spec column shared by SW3.7, SW3.7H, SW5.7, SW5.7H"
     },
     {
       "name": "SW 5.7",
@@ -5376,7 +5945,17 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: AOTO SW Series spec sheet PDF (en.aoto.com/wp-content/uploads/2025/11/SW-Series.pdf), one spec column shared by SW3.7, SW3.7H, SW5.7, SW5.7H"
     },
     {
       "name": "SW 5.7H",
@@ -5391,7 +5970,17 @@
       "proc_type": null,
       "watts_max": 170.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: AOTO SW Series spec sheet PDF (en.aoto.com/wp-content/uploads/2025/11/SW-Series.pdf), one spec column shared by SW3.7, SW3.7H, SW5.7, SW5.7H"
     }
   ],
   "ARTFOX": [
@@ -6321,7 +6910,31 @@
       "watts_max": 244.0,
       "watts_ave": 99.0,
       "source": "official: barco.com NX4 spec sheet",
-      "amps_max_110v": 2.22
+      "amps_max_110v": 2.22,
+      "curve_locks": [
+        -10,
+        -9,
+        -8,
+        -7,
+        -6,
+        -5,
+        -4,
+        -3,
+        -2,
+        -1,
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "curve_locks_source": "official: Barco NX Creative Mechanics spec sheet, French (Créé le 08 Jul 2024); compatibility NX-4, NX-6"
     },
     {
       "name": "NX6",
@@ -6336,7 +6949,31 @@
       "proc_type": null,
       "watts_max": 219.0,
       "watts_ave": 104.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -9,
+        -8,
+        -7,
+        -6,
+        -5,
+        -4,
+        -3,
+        -2,
+        -1,
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "curve_locks_source": "official: Barco NX Creative Mechanics spec sheet, French (Créé le 08 Jul 2024); compatibility NX-4, NX-6"
     },
     {
       "name": "OLite 510",
@@ -6502,7 +7139,17 @@
       "proc_type": null,
       "watts_max": 130.9,
       "watts_ave": 56.22,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Barco X2.8R spec sheet (Last updated 08 Jul 2024)"
     },
     {
       "name": "X4",
@@ -7179,7 +7826,13 @@
       "proc_type": null,
       "watts_max": 316.8,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: Chauvet VID-CURVEKIT QRG Rev. 2 + chauvetvideo.com VIDCURVEKIT page"
     },
     {
       "name": "F3",
@@ -7224,7 +7877,13 @@
       "proc_type": null,
       "watts_max": 304.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: Chauvet VID-CURVEKIT QRG Rev. 2 + chauvetvideo.com VIDCURVEKIT page"
     },
     {
       "name": "F5IP",
@@ -7239,7 +7898,13 @@
       "proc_type": null,
       "watts_max": 328.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: Chauvet VID-CURVEKIT QRG Rev. 2 + chauvetvideo.com VIDCURVEKIT page"
     },
     {
       "name": "MVP 12",
@@ -7419,7 +8084,13 @@
       "proc_type": null,
       "watts_max": 280.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: chauvetvideo.com VIDCURVEKIT product page (features list names Vivid 4)"
     }
   ],
   "Chipshow": [
@@ -11520,7 +12191,15 @@
       "proc_type": null,
       "watts_max": 190.0,
       "watts_ave": 97.0,
-      "source": "official: DVS Retina-2IP spec PDF V5.0"
+      "source": "official: DVS Retina-2IP spec PDF V5.0",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: DVS Retina-2IP spec sheet PDF v5.0"
     },
     {
       "name": "Retina-2IPX",
@@ -11535,7 +12214,15 @@
       "proc_type": null,
       "watts_max": 360.0,
       "watts_ave": 137.0,
-      "source": "official: DVS Retina-2IPX spec PDF V5.0"
+      "source": "official: DVS Retina-2IPX spec PDF V5.0",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: DVS Retina-2IPX spec sheet PDF v5.0"
     },
     {
       "name": "Retina-3IP",
@@ -11550,7 +12237,15 @@
       "proc_type": null,
       "watts_max": 190.0,
       "watts_ave": 97.0,
-      "source": "official: DVS Retina-3IP spec PDF V5.0"
+      "source": "official: DVS Retina-3IP spec PDF V5.0",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: DVS Retina-3IP spec sheet PDF v5.0"
     },
     {
       "name": "Retina-3IPX",
@@ -11565,7 +12260,15 @@
       "proc_type": null,
       "watts_max": 350.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Retina-3IPX spec PDF V5.0"
+      "source": "official: DVS Retina-3IPX spec PDF V5.0",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: DVS Retina-3IPX spec sheet PDF v5.0"
     },
     {
       "name": "ViuCOB-0.9",
@@ -11835,7 +12538,15 @@
       "proc_type": null,
       "watts_max": 340.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra 3 X-Tour 3.9 product page dvsledsystems.com (read 2026-10-30)"
+      "source": "official: DVS Vizra 3 X-Tour 3.9 product page dvsledsystems.com (read 2026-10-30)",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra X-Tour series page (per-model spec rows 2XT/3XT/4XT/5XT)"
     },
     {
       "name": "Vizra 4 X-Tour 4.8",
@@ -11850,7 +12561,15 @@
       "proc_type": null,
       "watts_max": 340.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra 4 X-Tour 4.8 product page dvsledsystems.com (read 2026-10-30)"
+      "source": "official: DVS Vizra 4 X-Tour 4.8 product page dvsledsystems.com (read 2026-10-30)",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra X-Tour series page (per-model spec rows 2XT/3XT/4XT/5XT)"
     },
     {
       "name": "Vizra 5 X-Tour 5.9",
@@ -11865,7 +12584,15 @@
       "proc_type": null,
       "watts_max": 340.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra 5 X-Tour 5.9 product page dvsledsystems.com (read 2026-10-30)"
+      "source": "official: DVS Vizra 5 X-Tour 5.9 product page dvsledsystems.com (read 2026-10-30)",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra X-Tour series page (per-model spec rows 2XT/3XT/4XT/5XT)"
     },
     {
       "name": "Vizra-2",
@@ -11880,7 +12607,15 @@
       "proc_type": null,
       "watts_max": 130.0,
       "watts_ave": 50.0,
-      "source": "official: DVS Vizra-2 spec PDF V1.1"
+      "source": "official: DVS Vizra-2 spec PDF V1.1",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra-2 spec sheet PDF v1.1"
     },
     {
       "name": "Vizra-2 Plus+",
@@ -11895,7 +12630,15 @@
       "proc_type": null,
       "watts_max": 130.0,
       "watts_ave": 50.0,
-      "source": "official: DVS Vizra-2 Plus+ spec PDF V1.0"
+      "source": "official: DVS Vizra-2 Plus+ spec PDF V1.0",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra Plus+ series page row for Vizra-2 Plus+ + linked spec sheet PDF VIZRA-2-PLUS-SPEC-SHEET.pdf"
     },
     {
       "name": "Vizra-2X",
@@ -11910,7 +12653,15 @@
       "proc_type": null,
       "watts_max": 240.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra-2X spec PDF V1.1"
+      "source": "official: DVS Vizra-2X spec PDF V1.1",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra-2X spec sheet PDF v1.1"
     },
     {
       "name": "Vizra-2X Plus+",
@@ -11925,7 +12676,15 @@
       "proc_type": null,
       "watts_max": 240.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra-2X Plus+ spec PDF V1.0"
+      "source": "official: DVS Vizra-2X Plus+ spec PDF V1.0",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra Plus+ series page row for Vizra-2X Plus+ + linked spec sheet PDF VIZRA-2X-PLUS-SPEC-SHEET.pdf"
     },
     {
       "name": "Vizra-3",
@@ -11940,7 +12699,15 @@
       "proc_type": null,
       "watts_max": 130.0,
       "watts_ave": 50.0,
-      "source": "official: DVS Vizra-3 spec PDF V1.1"
+      "source": "official: DVS Vizra-3 spec PDF V1.1",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra-3 spec sheet PDF v1.1"
     },
     {
       "name": "Vizra-3 Plus+",
@@ -11955,7 +12722,15 @@
       "proc_type": null,
       "watts_max": 130.0,
       "watts_ave": 50.0,
-      "source": "official: DVS Vizra-3 Plus+ spec PDF V1.0"
+      "source": "official: DVS Vizra-3 Plus+ spec PDF V1.0",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra Plus+ series page row for Vizra-3 Plus+ + linked spec sheet PDF VIZRA-3-PLUS-SPEC-SHEET.pdf"
     },
     {
       "name": "Vizra-3IP",
@@ -11970,7 +12745,15 @@
       "proc_type": null,
       "watts_max": 130.0,
       "watts_ave": 50.0,
-      "source": "official: DVS Vizra-3IP spec PDF V1.1"
+      "source": "official: DVS Vizra-3IP spec PDF V1.1",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra-3IP spec sheet PDF v1.1"
     },
     {
       "name": "Vizra-3IP Plus+",
@@ -11985,7 +12768,15 @@
       "proc_type": null,
       "watts_max": 130.0,
       "watts_ave": 50.0,
-      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)"
+      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra Plus+ series page row for Vizra-3IP Plus+ + linked spec sheet PDF VIZRA-3IP-SPEC-SHEET-v1.1.pdf"
     },
     {
       "name": "Vizra-3X",
@@ -12000,7 +12791,15 @@
       "proc_type": null,
       "watts_max": 240.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra-3X spec PDF V1.1"
+      "source": "official: DVS Vizra-3X spec PDF V1.1",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra-3X spec sheet PDF v1.1"
     },
     {
       "name": "Vizra-3X Plus+",
@@ -12015,7 +12814,15 @@
       "proc_type": null,
       "watts_max": 240.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra-3X Plus+ spec PDF V1.0"
+      "source": "official: DVS Vizra-3X Plus+ spec PDF V1.0",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra Plus+ series page row for Vizra-3X Plus+ + linked spec sheet PDF VIZRA-3X-PLUS-SPEC-SHEET.pdf"
     },
     {
       "name": "Vizra-3XIP",
@@ -12030,7 +12837,15 @@
       "proc_type": null,
       "watts_max": 340.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra-3XIP spec PDF V1.1"
+      "source": "official: DVS Vizra-3XIP spec PDF V1.1",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra-3XIP spec sheet PDF v1.1"
     },
     {
       "name": "Vizra-3XIP Plus+",
@@ -12045,7 +12860,15 @@
       "proc_type": null,
       "watts_max": 240.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)"
+      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra Plus+ series page row for Vizra-3XIP Plus+ + linked spec sheet PDF VIZRA-3XIP-SPEC-SHEET-v1.1.pdf"
     },
     {
       "name": "Vizra-4IP",
@@ -12060,7 +12883,15 @@
       "proc_type": null,
       "watts_max": 130.0,
       "watts_ave": 50.0,
-      "source": "official: DVS Vizra-4IP spec PDF V1.1"
+      "source": "official: DVS Vizra-4IP spec PDF V1.1",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra-4IP spec sheet PDF v1.1"
     },
     {
       "name": "Vizra-4IP Plus+",
@@ -12075,7 +12906,15 @@
       "proc_type": null,
       "watts_max": 130.0,
       "watts_ave": 50.0,
-      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)"
+      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra Plus+ series page row for Vizra-4IP Plus+ + linked spec sheet PDF VIZRA-4IP-SPEC-SHEET-v1.1.pdf"
     },
     {
       "name": "Vizra-4XIP",
@@ -12090,7 +12929,15 @@
       "proc_type": null,
       "watts_max": 340.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra-4XIP spec PDF V1.1"
+      "source": "official: DVS Vizra-4XIP spec PDF V1.1",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra-4XIP spec sheet PDF v1.1"
     },
     {
       "name": "Vizra-4XIP Plus+",
@@ -12105,7 +12952,15 @@
       "proc_type": null,
       "watts_max": 240.0,
       "watts_ave": 120.0,
-      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)"
+      "source": "official: DVS Vizra Plus+ series page dvsledsystems.com (read 2026-10-30)",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: DVS Vizra Plus+ series page row for Vizra-4XIP Plus+ + linked spec sheet PDF VIZRA-4XIP-SPEC-SHEET-v1.1.pdf"
     },
     {
       "name": "VR-2i",
@@ -13555,7 +14410,15 @@
       "proc_type": null,
       "watts_max": 200.2,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro1.9 (XR)",
@@ -13570,7 +14433,15 @@
       "proc_type": null,
       "watts_max": 200.2,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro2.6",
@@ -13585,7 +14456,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro2.9",
@@ -13600,7 +14479,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro3.9",
@@ -13615,7 +14502,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Wing Plus 1.9 (Indoor)",
@@ -14923,7 +15818,17 @@
       "proc_type": null,
       "watts_max": 174.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine AM series product page (spec row 'Curve(Optional)')"
     },
     {
       "name": "AM4.81 (Outdoor / Dance Floor)",
@@ -14938,7 +15843,17 @@
       "proc_type": null,
       "watts_max": 174.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine AM series product page (spec row 'Curve(Optional)')"
     },
     {
       "name": "AM5.95 (Outdoor / Dance Floor)",
@@ -14953,7 +15868,17 @@
       "proc_type": null,
       "watts_max": 174.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine AM series product page (spec row 'Curve(Optional)')"
     },
     {
       "name": "AM6.9",
@@ -14983,7 +15908,17 @@
       "proc_type": null,
       "watts_max": 349.8,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine AS series product page (spec row 'Curve(Optional)')"
     },
     {
       "name": "AS5.95",
@@ -14998,7 +15933,17 @@
       "proc_type": null,
       "watts_max": 349.8,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine AS series product page (spec row 'Curve(Optional)')"
     },
     {
       "name": "AS6.9",
@@ -15193,7 +16138,27 @@
       "proc_type": null,
       "watts_max": 135.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -20,
+        -17.5,
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15,
+        17.5,
+        20
+      ],
+      "curve_locks_source": "official: Gloshine CF PRO (Curface Pro) flyer PDF, gloshine.com download page (2025-03-20), one shared Curve cell for CF Pro1.9/2.3/2.6/2.9/3.9"
     },
     {
       "name": "CF Pro 2.38",
@@ -15208,7 +16173,27 @@
       "proc_type": null,
       "watts_max": 135.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -20,
+        -17.5,
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15,
+        17.5,
+        20
+      ],
+      "curve_locks_source": "official: Gloshine CF PRO (Curface Pro) flyer PDF, gloshine.com download page (2025-03-20), one shared Curve cell for CF Pro1.9/2.3/2.6/2.9/3.9"
     },
     {
       "name": "CF Pro 2.6",
@@ -15223,7 +16208,27 @@
       "proc_type": null,
       "watts_max": 135.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -20,
+        -17.5,
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15,
+        17.5,
+        20
+      ],
+      "curve_locks_source": "official: Gloshine CF PRO (Curface Pro) flyer PDF, gloshine.com download page (2025-03-20), one shared Curve cell for CF Pro1.9/2.3/2.6/2.9/3.9"
     },
     {
       "name": "CF Pro 2.97",
@@ -15238,7 +16243,27 @@
       "proc_type": null,
       "watts_max": 135.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -20,
+        -17.5,
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15,
+        17.5,
+        20
+      ],
+      "curve_locks_source": "official: Gloshine CF PRO (Curface Pro) flyer PDF, gloshine.com download page (2025-03-20), one shared Curve cell for CF Pro1.9/2.3/2.6/2.9/3.9"
     },
     {
       "name": "CF Pro 3.91",
@@ -15253,7 +16278,27 @@
       "proc_type": null,
       "watts_max": 135.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -20,
+        -17.5,
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15,
+        17.5,
+        20
+      ],
+      "curve_locks_source": "official: Gloshine CF PRO (Curface Pro) flyer PDF, gloshine.com download page (2025-03-20), one shared Curve cell for CF Pro1.9/2.3/2.6/2.9/3.9"
     },
     {
       "name": "CL1.9 (Indoor)",
@@ -15373,7 +16418,19 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN 2.6 Bevel (Indoor)",
@@ -15403,7 +16460,19 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN 2.9 Bevel (Indoor)",
@@ -15433,7 +16502,19 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN 3.9 Bevel (Indoor)",
@@ -15463,7 +16544,19 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN Plus 1.9 Bevel (Indoor)",
@@ -15493,7 +16586,19 @@
       "proc_type": null,
       "watts_max": 324.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN Plus 2.6 Bevel (Indoor)",
@@ -15523,7 +16628,19 @@
       "proc_type": null,
       "watts_max": 324.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN Plus 2.9 Bevel (Indoor)",
@@ -15553,7 +16670,19 @@
       "proc_type": null,
       "watts_max": 324.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN Plus 3.9 Bevel (Indoor)",
@@ -15583,7 +16712,19 @@
       "proc_type": null,
       "watts_max": 324.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN3.91 Fulll Panel (Outdoor)",
@@ -15598,7 +16739,19 @@
       "proc_type": null,
       "watts_max": 290.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN3.91 Hall Panel (Outdoor)",
@@ -15613,7 +16766,19 @@
       "proc_type": null,
       "watts_max": 145.2,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN4.8 Full Panel (Outdoor)",
@@ -15628,7 +16793,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "DN4.8 Half Panel (Outdoor)",
@@ -15643,7 +16820,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Gloshine DN (Dawn Series) flyer PDF, gloshine.com download page (2025-03-19); one Curve cell spans DN1.9/2.6/2.9/3.9 indoor and DN3.9/4.8 outdoor"
     },
     {
       "name": "F3.91 (Indoor)",
@@ -15808,7 +16997,17 @@
       "proc_type": null,
       "watts_max": 174.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine LM series product page (spec row 'Curve(Optional)')"
     },
     {
       "name": "LM3.91 (Indoor)",
@@ -15823,7 +17022,17 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine LM series product page (spec row 'Curve(Optional)')"
     },
     {
       "name": "LM4.81 (Indoor)",
@@ -15853,7 +17062,17 @@
       "proc_type": null,
       "watts_max": 170.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine LM series product page (spec row 'Curve(Optional)')"
     },
     {
       "name": "LM5.95 (Outdoor)",
@@ -15868,7 +17087,17 @@
       "proc_type": null,
       "watts_max": 174.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine LM series product page (spec row 'Curve(Optional)')"
     },
     {
       "name": "LM8.33 (Outdoor)",
@@ -15883,7 +17112,17 @@
       "proc_type": null,
       "watts_max": 174.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine LM series product page (spec row 'Curve(Optional)')"
     },
     {
       "name": "LS15.62 (Outdoor)",
@@ -16108,7 +17347,19 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -4.5,
+        -3,
+        -1.5,
+        0,
+        1.5,
+        3,
+        4.5,
+        6
+      ],
+      "curve_locks_source": "official: Gloshine MV series product page"
     },
     {
       "name": "MV2.6 (Indoor)",
@@ -16123,7 +17374,19 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -4.5,
+        -3,
+        -1.5,
+        0,
+        1.5,
+        3,
+        4.5,
+        6
+      ],
+      "curve_locks_source": "official: Gloshine MV series product page"
     },
     {
       "name": "MV2.97 (Indoor)",
@@ -16138,7 +17401,19 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -4.5,
+        -3,
+        -1.5,
+        0,
+        1.5,
+        3,
+        4.5,
+        6
+      ],
+      "curve_locks_source": "official: Gloshine MV series product page"
     },
     {
       "name": "MV3.91 (Indoor)",
@@ -16168,7 +17443,17 @@
       "proc_type": null,
       "watts_max": 170.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine MV Pro product page"
     },
     {
       "name": "MVPro 2.6",
@@ -16183,7 +17468,17 @@
       "proc_type": null,
       "watts_max": 170.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5
+      ],
+      "curve_locks_source": "official: Gloshine MV Pro product page"
     },
     {
       "name": "MX3.91 (Outdoor)",
@@ -16934,7 +18229,23 @@
       "proc_type": null,
       "watts_max": 400.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15
+      ],
+      "curve_locks_source": "official: Gloshine ZS Pro (ZM PRO & ZS Pro) product page"
     },
     {
       "name": "ZS Pro 5.95 (Outdoor)",
@@ -16949,7 +18260,23 @@
       "proc_type": null,
       "watts_max": 400.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15
+      ],
+      "curve_locks_source": "official: Gloshine ZS Pro (ZM PRO & ZS Pro) product page"
     },
     {
       "name": "ZS Pro 6.94 (Outdoor)",
@@ -16964,7 +18291,23 @@
       "proc_type": null,
       "watts_max": 400.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -15,
+        -12.5,
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10,
+        12.5,
+        15
+      ],
+      "curve_locks_source": "official: Gloshine ZS Pro (ZM PRO & ZS Pro) product page"
     },
     {
       "name": "ZS6.94 (Outdoor)",
@@ -18397,7 +19740,19 @@
       "watts_max": 500.0,
       "watts_ave": null,
       "source": "official: infiled.com AMT Series page",
-      "amps_max_110v": 4.55
+      "amps_max_110v": 4.55,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED AMT series brochure PDF (July 2025, amt-series-1.pdf)"
     },
     {
       "name": "ART10.41",
@@ -18572,7 +19927,19 @@
       "proc_type": null,
       "watts_max": 660.0,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED Black Widow AMT brochure PDF (November 2025, brochure_blackwidowamt2026_digital.pdf)"
     },
     {
       "name": "Black Widow AMT 3.9 (NO Wind Brace) Transparent",
@@ -18587,7 +19954,19 @@
       "proc_type": null,
       "watts_max": 569.8,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED Black Widow AMT brochure PDF (November 2025, brochure_blackwidowamt2026_digital.pdf)"
     },
     {
       "name": "Black Widow AMT 3.9 (With Wind Brace)",
@@ -18602,7 +19981,19 @@
       "proc_type": null,
       "watts_max": 660.0,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED Black Widow AMT brochure PDF (November 2025, brochure_blackwidowamt2026_digital.pdf)"
     },
     {
       "name": "Black Widow AMT 7.8 (NO Wind Brace)",
@@ -18617,7 +20008,19 @@
       "proc_type": null,
       "watts_max": 569.8,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED Black Widow AMT brochure PDF (November 2025, brochure_blackwidowamt2026_digital.pdf)"
     },
     {
       "name": "Black Widow AMT 7.8 (With Wind Brace)",
@@ -18632,7 +20035,19 @@
       "proc_type": null,
       "watts_max": 569.8,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED Black Widow AMT brochure PDF (November 2025, brochure_blackwidowamt2026_digital.pdf)"
     },
     {
       "name": "DB2.6",
@@ -18918,7 +20333,15 @@
       "proc_type": null,
       "watts_max": 249.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED GXII series brochure PDF (March 2023, gxmk2-series_v1.pdf) + infiled.com GXmk2 series page"
     },
     {
       "name": "GXII 2.5 (Indoor)",
@@ -18933,7 +20356,15 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED GXII series brochure PDF (March 2023, gxmk2-series_v1.pdf) + infiled.com GXmk2 series page"
     },
     {
       "name": "GXII 2.6 (Indoor)",
@@ -18948,7 +20379,15 @@
       "proc_type": null,
       "watts_max": 379.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED GXII series brochure PDF (March 2023, gxmk2-series_v1.pdf) + infiled.com GXmk2 series page"
     },
     {
       "name": "GXII 2.97 (Indoor)",
@@ -18963,7 +20402,15 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED GXII series brochure PDF (March 2023, gxmk2-series_v1.pdf) + infiled.com GXmk2 series page"
     },
     {
       "name": "GXII 3.91 (Indoor)",
@@ -18978,7 +20425,15 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED GXII series brochure PDF (March 2023, gxmk2-series_v1.pdf) + infiled.com GXmk2 series page"
     },
     {
       "name": "GXII 3.91 (Outdoor)",
@@ -18993,7 +20448,15 @@
       "proc_type": null,
       "watts_max": 339.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED GXII series brochure PDF (March 2023, gxmk2-series_v1.pdf) + infiled.com GXmk2 series page"
     },
     {
       "name": "GXII 4.63 (Outdoor)",
@@ -19008,7 +20471,15 @@
       "proc_type": null,
       "watts_max": 339.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED GXII series brochure PDF (March 2023, gxmk2-series_v1.pdf) + infiled.com GXmk2 series page"
     },
     {
       "name": "GXII 4.81 (Indoor)",
@@ -19023,7 +20494,15 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED GXII series brochure PDF (March 2023, gxmk2-series_v1.pdf) + infiled.com GXmk2 series page"
     },
     {
       "name": "GXII 5.95 (Outdoor)",
@@ -19038,7 +20517,15 @@
       "proc_type": null,
       "watts_max": 339.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED GXII series brochure PDF (March 2023, gxmk2-series_v1.pdf) + infiled.com GXmk2 series page"
     },
     {
       "name": "GXII 6.94 (Outdoor)",
@@ -19053,7 +20540,15 @@
       "proc_type": null,
       "watts_max": 339.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED GXII series brochure PDF (March 2023, gxmk2-series_v1.pdf) + infiled.com GXmk2 series page"
     },
     {
       "name": "IL-FISS-IRMV2.97",
@@ -19308,7 +20803,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR2.9MK2 Lite Mini",
@@ -19323,7 +20830,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR2.9MK2 Pro",
@@ -19338,7 +20857,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR2.9MK2 Pro Mini",
@@ -19353,7 +20884,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR3.47",
@@ -19428,7 +20971,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR3.9MK2 Lite Mini",
@@ -19443,7 +20998,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR3.9MK2 Pro",
@@ -19458,7 +21025,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR3.9MK2 Pro Mini",
@@ -19473,7 +21052,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR4.81",
@@ -19518,7 +21109,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR4.8MK2 Lite Mini",
@@ -19533,7 +21136,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR4.8MK2 Pro",
@@ -19548,7 +21163,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR4.8MK2 Pro Mini",
@@ -19563,7 +21190,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-IRAR7.81",
@@ -19804,7 +21443,19 @@
       "watts_max": 270.0,
       "watts_ave": 90.0,
       "source": "official: INFiLED RS Series spec PDF V2025-07",
-      "amps_max_110v": 2.45
+      "amps_max_110v": 2.45,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-IRRS2.5 Ultra-mini",
@@ -19820,7 +21471,19 @@
       "watts_max": 135.0,
       "watts_ave": 45.0,
       "source": "official: infiled.com IL-RSS-IRRS2.5-Ultra-mini product page",
-      "amps_max_110v": 1.23
+      "amps_max_110v": 1.23,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-IRRS2.5-Lite",
@@ -19836,7 +21499,19 @@
       "watts_max": 270.0,
       "watts_ave": 90.0,
       "source": "official: infiled.com IL-RSS-IRRS2.5-Lite product page",
-      "amps_max_110v": 2.45
+      "amps_max_110v": 2.45,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-IRRS2.5-Lite-mini",
@@ -19852,7 +21527,19 @@
       "watts_max": 135.0,
       "watts_ave": 45.0,
       "source": "official: infiled.com IL-RSS-IRRS2.5-Lite-mini product page",
-      "amps_max_110v": 1.23
+      "amps_max_110v": 1.23,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-IRRS2.6 Ultra",
@@ -19868,7 +21555,19 @@
       "watts_max": 270.0,
       "watts_ave": 90.0,
       "source": "official: INFiLED RS Series spec PDF V2025-07",
-      "amps_max_110v": 2.45
+      "amps_max_110v": 2.45,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-IRRS2.6 Ultra Mini",
@@ -19884,7 +21583,19 @@
       "watts_max": 135.0,
       "watts_ave": 45.0,
       "source": "official: infiled.com IL-RSS-IRRS2.6-Ultra-mini product page",
-      "amps_max_110v": 1.23
+      "amps_max_110v": 1.23,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-IRRS2.9 Lite",
@@ -19900,7 +21611,19 @@
       "watts_max": 270.0,
       "watts_ave": 90.0,
       "source": "official: INFiLED RS Series spec PDF V2025-07",
-      "amps_max_110v": 2.45
+      "amps_max_110v": 2.45,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-IRRS2.9-Lite-mini",
@@ -19916,7 +21639,19 @@
       "watts_max": 135.0,
       "watts_ave": 45.0,
       "source": "official: infiled.com IL-RSS-IRRS2.9-Lite-mini product page",
-      "amps_max_110v": 1.23
+      "amps_max_110v": 1.23,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-IRS1.8",
@@ -20171,7 +21906,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR2.9MK2 Lite Mini",
@@ -20186,7 +21933,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR2.9MK2 Plus",
@@ -20201,7 +21960,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR2.9MK2 Plus Mini",
@@ -20216,7 +21987,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR2.9MK2 PRO",
@@ -20231,7 +22014,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR2.9MK2 Pro Mini",
@@ -20246,7 +22041,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR2.9MK2 Turbo",
@@ -20261,7 +22068,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR2.9MK2 Turbo Mini",
@@ -20276,7 +22095,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR3.91",
@@ -20321,7 +22152,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR3.9MK2 Lite Mini",
@@ -20336,7 +22179,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR3.9MK2 Plus",
@@ -20351,7 +22206,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR3.9MK2 Plus Mini",
@@ -20366,7 +22233,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR3.9MK2 Pro",
@@ -20381,7 +22260,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR3.9MK2 Pro Mini",
@@ -20396,7 +22287,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR3.9MK2 Turbo",
@@ -20411,7 +22314,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR3.9MK2 Turbo Mini",
@@ -20426,7 +22341,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR3.9MK2 Ultra",
@@ -20441,7 +22368,19 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR3.9MK2 Ultra Mini",
@@ -20456,7 +22395,19 @@
       "proc_type": null,
       "watts_max": 180.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED ARmk2 series brochure PDF (media-infiled.metodica.co, 2024/04, armk2.pdf), series-wide feature text"
     },
     {
       "name": "IL-RSS-ORAR4.63",
@@ -20802,7 +22753,19 @@
       "watts_max": 300.0,
       "watts_ave": 100.0,
       "source": "official: INFiLED RS Series spec PDF V2025-07",
-      "amps_max_110v": 2.73
+      "amps_max_110v": 2.73,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-ORRS3.91-Lite-mini",
@@ -20818,7 +22781,19 @@
       "watts_max": 150.0,
       "watts_ave": 50.0,
       "source": "official: infiled.com IL-RSS-ORRS3.91-Lite-mini product page",
-      "amps_max_110v": 1.36
+      "amps_max_110v": 1.36,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-ORRS3.91-Turbo",
@@ -20834,7 +22809,19 @@
       "watts_max": 300.0,
       "watts_ave": 100.0,
       "source": "official: infiled.com IL-RSS-ORRS3.91-Turbo product page",
-      "amps_max_110v": 2.73
+      "amps_max_110v": 2.73,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-ORRS3.91-Turbo-mini",
@@ -20850,7 +22837,19 @@
       "watts_max": 150.0,
       "watts_ave": 50.0,
       "source": "official: infiled.com IL-RSS-ORRS3.91-Turbo-mini product page",
-      "amps_max_110v": 1.36
+      "amps_max_110v": 1.36,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-ORRS4.8 Lite",
@@ -20866,7 +22865,19 @@
       "watts_max": 300.0,
       "watts_ave": 100.0,
       "source": "official: INFiLED RS Series spec PDF V2025-07",
-      "amps_max_110v": 2.73
+      "amps_max_110v": 2.73,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-ORRS4.81-Lite-mini",
@@ -20882,7 +22893,19 @@
       "watts_max": 150.0,
       "watts_ave": 50.0,
       "source": "official: infiled.com IL-RSS-ORRS4.81-Lite-mini product page",
-      "amps_max_110v": 1.36
+      "amps_max_110v": 1.36,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-ORRS6.9 Lite",
@@ -20898,7 +22921,19 @@
       "watts_max": 300.0,
       "watts_ave": 100.0,
       "source": "official: INFiLED RS Series spec PDF V2025-07",
-      "amps_max_110v": 2.73
+      "amps_max_110v": 2.73,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-ORRS6.94-Lite-mini",
@@ -20914,7 +22949,19 @@
       "watts_max": 150.0,
       "watts_ave": 50.0,
       "source": "official: infiled.com IL-RSS-ORRS6.94-Lite-mini product page",
-      "amps_max_110v": 1.36
+      "amps_max_110v": 1.36,
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED RS series brochure PDF (© 2025, infiled-rs-series.pdf) + infiled.com RS series page"
     },
     {
       "name": "IL-RSS-ORX6",
@@ -20944,7 +22991,19 @@
       "proc_type": null,
       "watts_max": 660.0,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: INFiLED AMT series brochure PDF (July 2025, amt-series-1.pdf)"
     },
     {
       "name": "L Series L10",
@@ -24420,7 +26479,15 @@
       "proc_type": null,
       "watts_max": 200.2,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro1.9",
@@ -24435,7 +26502,15 @@
       "proc_type": null,
       "watts_max": 200.2,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro2.6 Full Tile",
@@ -24450,7 +26525,15 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro2.6 Half Tile",
@@ -24465,7 +26548,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro2.9 Full Tile",
@@ -24480,7 +26571,15 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro2.9 Half Tile",
@@ -24495,7 +26594,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro3.9 Full Tile",
@@ -24510,7 +26617,15 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "Pilot Pro3.9 Half Tile",
@@ -24525,7 +26640,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Esdlumen Pilot Pro Series parameter sheet PDF 'Pilot Pro Series EN 2026.07'"
     },
     {
       "name": "R2",
@@ -25204,7 +27327,15 @@
       "proc_type": null,
       "watts_max": 187.0,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: lightking-led.com KU Series product pages (pro_view-55 covers 'indoor:1.9/2.6mm, outdoor: 2.9/3.9mm'; pro_view-56 KU and pro_view-84 KU(O))"
     },
     {
       "name": "KU(O)3.9",
@@ -25219,7 +27350,15 @@
       "proc_type": null,
       "watts_max": 187.0,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: lightking-led.com KU Series product pages (pro_view-55 covers 'indoor:1.9/2.6mm, outdoor: 2.9/3.9mm'; pro_view-56 KU and pro_view-84 KU(O))"
     },
     {
       "name": "KU1.9",
@@ -25234,7 +27373,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: lightking-led.com KU Series product pages (pro_view-55 covers 'indoor:1.9/2.6mm, outdoor: 2.9/3.9mm'; pro_view-56 KU and pro_view-84 KU(O))"
     },
     {
       "name": "KU2.6",
@@ -25249,7 +27396,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: lightking-led.com KU Series product pages (pro_view-55 covers 'indoor:1.9/2.6mm, outdoor: 2.9/3.9mm'; pro_view-56 KU and pro_view-84 KU(O))"
     },
     {
       "name": "LSP Outdoor",
@@ -25714,7 +27869,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: Lightking RDY Series brochure PDF (covers RD(Y)2.6, RD(Y)2.8, RD(Y)3.9) + lightking-led.com/pro_view-48 (RDY Series)"
     },
     {
       "name": "RD(Y)3",
@@ -25729,7 +27892,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: Lightking RDY Series brochure PDF (covers RD(Y)2.6, RD(Y)2.8, RD(Y)3.9) + lightking-led.com/pro_view-48 (RDY Series)"
     },
     {
       "name": "RD1.9",
@@ -25969,7 +28140,13 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        0,
+        5
+      ],
+      "curve_locks_source": "official: lightking-led.com RX Series product page (pro_view-18, models RX2.5 / RX2.6 / RX2 / RX3); RX spec PDF says 'Support curve or not: Yes' with no angles"
     },
     {
       "name": "RX2.5",
@@ -25984,7 +28161,13 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        0,
+        5
+      ],
+      "curve_locks_source": "official: lightking-led.com RX Series product page (pro_view-18, models RX2.5 / RX2.6 / RX2 / RX3); RX spec PDF says 'Support curve or not: Yes' with no angles"
     },
     {
       "name": "RX2.6",
@@ -25999,7 +28182,13 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        0,
+        5
+      ],
+      "curve_locks_source": "official: lightking-led.com RX Series product page (pro_view-18, models RX2.5 / RX2.6 / RX2 / RX3); RX spec PDF says 'Support curve or not: Yes' with no angles"
     },
     {
       "name": "RX3",
@@ -26014,7 +28203,13 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        0,
+        5
+      ],
+      "curve_locks_source": "official: lightking-led.com RX Series product page (pro_view-18, models RX2.5 / RX2.6 / RX2 / RX3); RX spec PDF says 'Support curve or not: Yes' with no angles"
     },
     {
       "name": "SGR-2.9 II",
@@ -26121,7 +28316,19 @@
       "proc_type": null,
       "watts_max": 280.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien A product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien A 2.6 Outdoor",
@@ -26136,7 +28343,19 @@
       "proc_type": null,
       "watts_max": 324.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien A product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien A 2.9 Indoor",
@@ -26151,7 +28370,19 @@
       "proc_type": null,
       "watts_max": 280.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien A product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien A 2.9 Outdoor",
@@ -26166,7 +28397,19 @@
       "proc_type": null,
       "watts_max": 324.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien A product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien A 3.9 Indoor",
@@ -26181,7 +28424,19 @@
       "proc_type": null,
       "watts_max": 280.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien A product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien A 3.9 Outdoor",
@@ -26196,7 +28451,19 @@
       "proc_type": null,
       "watts_max": 324.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien A product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien B 2.6 Indoor",
@@ -26211,7 +28478,19 @@
       "proc_type": null,
       "watts_max": 139.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien B product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien B 2.6 Outdoor",
@@ -26226,7 +28505,19 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien B product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien B 2.9 Indoor",
@@ -26241,7 +28532,19 @@
       "proc_type": null,
       "watts_max": 139.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien B product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien B 2.9 Outdoor",
@@ -26256,7 +28559,19 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien B product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien B 3.9 Indoor",
@@ -26271,7 +28586,19 @@
       "proc_type": null,
       "watts_max": 139.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien B product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Alien B 3.9 Outdoor",
@@ -26286,7 +28613,19 @@
       "proc_type": null,
       "watts_max": 161.7,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Alien B product page, Product parameters 'Arc angle' row"
     },
     {
       "name": "Black Panther 3.9 Indoor",
@@ -26616,7 +28955,19 @@
       "proc_type": null,
       "watts_max": 200.2,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Tornado product page"
     },
     {
       "name": "Tornado H7.8 V7.8",
@@ -26631,7 +28982,19 @@
       "proc_type": null,
       "watts_max": 200.2,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: Lightlink Tornado product page"
     },
     {
       "name": "Trim P5.95",
@@ -26988,7 +29351,15 @@
       "proc_type": null,
       "watts_max": 191.4,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -5,
+        0,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: Martin VDO Face 5 User Manual P/N 5079793 Rev. C (covers HB and HC models)"
     }
   ],
   "Megaview": [
@@ -30182,7 +32553,16 @@
       "proc_type": null,
       "watts_max": 159.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2,
+        0,
+        2,
+        5,
+        10
+      ],
+      "curve_locks_source": "official: Prolights OmegaPix 26B datasheet Omegax26b_A4_DATASHEET_(EN) and Music & Lights product page OMEGAX26B"
     }
   ],
   "QST_LED": [
@@ -32028,7 +34408,13 @@
       "proc_type": null,
       "watts_max": 200.0,
       "watts_ave": 100.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 3.9-Q (with Frame)",
@@ -32043,7 +34429,13 @@
       "proc_type": null,
       "watts_max": 190.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 3.9-V (Tile Only)",
@@ -32073,7 +34465,13 @@
       "proc_type": null,
       "watts_max": 400.4,
       "watts_ave": 200.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 3.9-V (with Frame)",
@@ -32088,7 +34486,13 @@
       "proc_type": null,
       "watts_max": 400.4,
       "watts_ave": 200.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 5.9 (Tile Only)",
@@ -32118,7 +34522,13 @@
       "proc_type": null,
       "watts_max": 720.0,
       "watts_ave": 360.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 5.9 (with Frame)",
@@ -32133,7 +34543,13 @@
       "proc_type": null,
       "watts_max": 720.0,
       "watts_ave": 360.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 5.9-H (Tile Only)",
@@ -32163,7 +34579,13 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": 180.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 5.9-H (with Frame)",
@@ -32178,7 +34600,13 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": 180.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 5.9-Q (Tile Only)",
@@ -32208,7 +34636,13 @@
       "proc_type": null,
       "watts_max": 180.0,
       "watts_ave": 90.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 5.9-Q (with Frame)",
@@ -32223,7 +34657,13 @@
       "proc_type": null,
       "watts_max": 180.0,
       "watts_ave": 90.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 5.9-V (Tile Only)",
@@ -32253,7 +34693,13 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": 180.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 5.9-V (with Frame)",
@@ -32268,7 +34714,13 @@
       "proc_type": null,
       "watts_max": 359.7,
       "watts_ave": 180.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 8.9 (Tile Only)",
@@ -32298,7 +34750,13 @@
       "proc_type": null,
       "watts_max": 570.0,
       "watts_ave": 285.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 8.9 (With Frame)",
@@ -32313,7 +34771,13 @@
       "proc_type": null,
       "watts_max": 570.0,
       "watts_ave": 285.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 8.9-H (Tile Only)",
@@ -32343,7 +34807,13 @@
       "proc_type": null,
       "watts_max": 290.0,
       "watts_ave": 145.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 8.9-H (With Frame)",
@@ -32358,7 +34828,13 @@
       "proc_type": null,
       "watts_max": 290.0,
       "watts_ave": 145.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 8.9-V (Tile Only)",
@@ -32388,7 +34864,13 @@
       "proc_type": null,
       "watts_max": 300.0,
       "watts_ave": 150.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Emerald 8.9-V (With Frame)",
@@ -32403,7 +34885,13 @@
       "proc_type": null,
       "watts_max": 300.0,
       "watts_ave": 150.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: ROE Emerald brochure preview feb 9 2026"
     },
     {
       "name": "Graphite GP1.9 (4 in 1) Full Tile",
@@ -32448,7 +34936,13 @@
       "proc_type": null,
       "watts_max": 250,
       "watts_ave": 125,
-      "source": "roevisual graphite.pdf"
+      "source": "roevisual graphite.pdf",
+      "curve_locks": [
+        -5,
+        0,
+        5
+      ],
+      "curve_locks_source": "owner ruling 2026-11-10: GP2.6 (4 in 1) locks at 5 only"
     },
     {
       "name": "Graphite GP2.6 (4 in 1) Half Tile",
@@ -32463,7 +34957,13 @@
       "proc_type": null,
       "watts_max": 125,
       "watts_ave": 62,
-      "source": "roevisual graphite.pdf"
+      "source": "roevisual graphite.pdf",
+      "curve_locks": [
+        -5,
+        0,
+        5
+      ],
+      "curve_locks_source": "owner ruling 2026-11-10: GP2.6 (4 in 1) locks at 5 only"
     },
     {
       "name": "Graphite GP2.6 Full Tile",
@@ -32478,7 +34978,15 @@
       "proc_type": null,
       "watts_max": 320,
       "watts_ave": 160,
-      "source": "roevisual graphite.pdf"
+      "source": "roevisual graphite.pdf",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: ROE Graphite brochure (2026-03-13)"
     },
     {
       "name": "Graphite GP2.6 Half Tile",
@@ -32493,7 +35001,15 @@
       "proc_type": null,
       "watts_max": 160,
       "watts_ave": 80,
-      "source": "roevisual graphite.pdf"
+      "source": "roevisual graphite.pdf",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: ROE Graphite brochure (2026-03-13)"
     },
     {
       "name": "Graphite GP2.6 Right Angle",
@@ -32538,7 +35054,15 @@
       "proc_type": null,
       "watts_max": 320,
       "watts_ave": 160,
-      "source": "roevisual graphite.pdf"
+      "source": "roevisual graphite.pdf",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: ROE Graphite brochure (2026-03-13)"
     },
     {
       "name": "Graphite GP3.1 Half Tile",
@@ -32553,7 +35077,15 @@
       "proc_type": null,
       "watts_max": 160,
       "watts_ave": 80,
-      "source": "roevisual graphite.pdf"
+      "source": "roevisual graphite.pdf",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: ROE Graphite brochure (2026-03-13)"
     },
     {
       "name": "Graphite GP3.9 Full Tile",
@@ -32568,7 +35100,15 @@
       "proc_type": null,
       "watts_max": 320,
       "watts_ave": 160,
-      "source": "roevisual graphite.pdf"
+      "source": "roevisual graphite.pdf",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: ROE Graphite brochure (2026-03-13)"
     },
     {
       "name": "Graphite GP3.9 Half Tile",
@@ -32583,7 +35123,15 @@
       "proc_type": null,
       "watts_max": 160,
       "watts_ave": 80,
-      "source": "roevisual graphite.pdf"
+      "source": "roevisual graphite.pdf",
+      "curve_locks": [
+        -5,
+        -3,
+        0,
+        3,
+        5
+      ],
+      "curve_locks_source": "official: ROE Graphite brochure (2026-03-13)"
     },
     {
       "name": "Hybrid 15 / Spotlight",
@@ -35009,7 +37557,15 @@
       "proc_type": null,
       "watts_max": 265.1,
       "watts_ave": 180.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: Theatrixx xVision Nomad 2.6 Indoor spec sheet (wp-content/uploads/2022/11) and product page"
     },
     {
       "name": "XVision Nomad 3.9 Outdoor",
@@ -35024,7 +37580,15 @@
       "proc_type": null,
       "watts_max": 265.1,
       "watts_ave": 180.0,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5
+      ],
+      "curve_locks_source": "official: Theatrixx xVision Nomad 3.9 Outdoor spec sheet (wp-content/uploads/2022/03) and product page"
     },
     {
       "name": "xVision Touring G2 4.8",
@@ -35251,7 +37815,19 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: THOR AV EDGE Series Data Sheet PDF (2024)"
     },
     {
       "name": "EDGE 3.4 (Half Panel)",
@@ -35266,7 +37842,19 @@
       "proc_type": null,
       "watts_max": 200.2,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: THOR AV EDGE Series Data Sheet PDF (2024)"
     },
     {
       "name": "EDGE 3.9i (Full Panel)",
@@ -35281,7 +37869,19 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: THOR AV EDGE Series Data Sheet PDF (2024)"
     },
     {
       "name": "EDGE 3.9i (Half Panel)",
@@ -35296,7 +37896,19 @@
       "proc_type": null,
       "watts_max": 200.2,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        -7.5,
+        -5,
+        -2.5,
+        0,
+        2.5,
+        5,
+        7.5,
+        10
+      ],
+      "curve_locks_source": "official: THOR AV EDGE Series Data Sheet PDF (2024)"
     },
     {
       "name": "Element 2.6 Full Tile",
@@ -35311,7 +37923,15 @@
       "proc_type": null,
       "watts_max": 225.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: THOR AV ELEMENT Series Datasheet PDF (2025)"
     },
     {
       "name": "Element 2.6 Half Tile",
@@ -35326,7 +37946,15 @@
       "proc_type": null,
       "watts_max": 110.0,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: THOR AV ELEMENT Series Datasheet PDF (2025)"
     },
     {
       "name": "Element 3.1 Full Tile",
@@ -35341,7 +37969,15 @@
       "proc_type": null,
       "watts_max": 225.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: THOR AV ELEMENT Series Datasheet PDF (2025)"
     },
     {
       "name": "Element 3.1 Half Tile",
@@ -35356,7 +37992,15 @@
       "proc_type": null,
       "watts_max": 110.0,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: THOR AV ELEMENT Series Datasheet PDF (2025)"
     },
     {
       "name": "Ridge 1.8",
@@ -35551,7 +38195,15 @@
       "proc_type": null,
       "watts_max": 225.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: THOR AV TERRA Series Datasheet PDF (2024)"
     },
     {
       "name": "TERRA 2.6 (Half Panel)",
@@ -35566,7 +38218,15 @@
       "proc_type": null,
       "watts_max": 110.0,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: THOR AV TERRA Series Datasheet PDF (2024)"
     },
     {
       "name": "TERRA 3.1 (Full Panel)",
@@ -35581,7 +38241,15 @@
       "proc_type": null,
       "watts_max": 225.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: THOR AV TERRA Series Datasheet PDF (2024)"
     },
     {
       "name": "TERRA 3.1 (Half Panel)",
@@ -35596,7 +38264,15 @@
       "proc_type": null,
       "watts_max": 110.0,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: THOR AV TERRA Series Datasheet PDF (2024)"
     }
   ],
   "Toshiba": [
@@ -38751,7 +41427,17 @@
       "proc_type": null,
       "watts_max": 720.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -15,
+        -10,
+        -5,
+        0,
+        5,
+        10,
+        15
+      ],
+      "curve_locks_source": "official: Uniview LED TSL Series product page"
     },
     {
       "name": "TST3.9-7.8",
@@ -38766,7 +41452,13 @@
       "proc_type": null,
       "watts_max": 720.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: Uniview LED TST Series product page"
     },
     {
       "name": "TST3.9-7.8 with windproof frame",
@@ -38781,7 +41473,13 @@
       "proc_type": null,
       "watts_max": 720.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -10,
+        0,
+        10
+      ],
+      "curve_locks_source": "official: Uniview LED TST Series product page"
     },
     {
       "name": "UO-4.8 (Outdoor)",
@@ -38811,7 +41509,15 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Uniview LED UR Pro Series product page"
     },
     {
       "name": "UR Pro 2.6 (Indoor) Half Tile",
@@ -38826,7 +41532,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Uniview LED UR Pro Series product page"
     },
     {
       "name": "UR Pro 2.9 (Indoor) Full Tile",
@@ -38841,7 +41555,15 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Uniview LED UR Pro Series product page"
     },
     {
       "name": "UR Pro 2.9 (Indoor) Half Tile",
@@ -38856,7 +41578,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Uniview LED UR Pro Series product page"
     },
     {
       "name": "UR Pro 2.9 (Outdoor) Full Tile",
@@ -38871,7 +41601,15 @@
       "proc_type": null,
       "watts_max": 339.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Uniview LED UR Pro Series product page"
     },
     {
       "name": "UR Pro 2.9 (Outdoor) Half Tile",
@@ -38886,7 +41624,15 @@
       "proc_type": null,
       "watts_max": 170.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Uniview LED UR Pro Series product page"
     },
     {
       "name": "UR Pro 3.9 (Indoor) Full Tile",
@@ -38901,7 +41647,15 @@
       "proc_type": null,
       "watts_max": 300.3,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Uniview LED UR Pro Series product page"
     },
     {
       "name": "UR Pro 3.9 (Indoor) Half Tile",
@@ -38916,7 +41670,15 @@
       "proc_type": null,
       "watts_max": 149.6,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Uniview LED UR Pro Series product page"
     },
     {
       "name": "UR Pro 3.9 (Outdoor) Full Tile",
@@ -38931,7 +41693,15 @@
       "proc_type": null,
       "watts_max": 339.9,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Uniview LED UR Pro Series product page"
     },
     {
       "name": "UR Pro 3.9 (Outdoor) Half Tile",
@@ -38946,7 +41716,15 @@
       "proc_type": null,
       "watts_max": 170.5,
       "watts_ave": null,
-      "source": "catalog"
+      "source": "catalog",
+      "curve_locks": [
+        -6,
+        -3,
+        0,
+        3,
+        6
+      ],
+      "curve_locks_source": "official: Uniview LED UR Pro Series product page"
     }
   ],
   "UniWill": [
