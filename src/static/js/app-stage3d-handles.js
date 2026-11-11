@@ -729,7 +729,10 @@ class _Stage3DHandles {
             : { ...start, x: start.x + d.delta[0], y: start.y + d.delta[1], z: start.z + d.delta[2] });
         const set = (id, value) => {
             const el = document.getElementById(id);
-            if (el && document.activeElement !== el && el.value !== value) el.value = value;
+            if (el && document.activeElement !== el && el.value !== value) {
+                el.value = value;
+                this._s3dFitFigure(el);
+            }
         };
         set('s3d-x', this._s3dFormatLength(p.x));
         set('s3d-y', this._s3dFormatLength(p.y));

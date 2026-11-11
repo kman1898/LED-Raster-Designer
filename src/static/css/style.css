@@ -2918,28 +2918,37 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
    X and pitch red, Y and yaw green, Z and roll blue). They share the row
    and stop growing at 120 px, so a wide panel never makes wide boxes. */
 .s3d-vec { display: grid; grid-template-columns: repeat(3, minmax(0, 120px)); gap: 4px; margin-bottom: 2px; }
+/* A field is the container its step arrows ask about: they show only where
+   the field has room for them beside the figure (below). */
 .s3d-field { position: relative; display: flex; align-items: stretch; min-width: 0; height: 24px; box-sizing: border-box;
     border: 1px solid #3a3a3a; border-radius: 4px; background: #1a1a1a; overflow: hidden; cursor: ew-resize;
-    touch-action: none; user-select: none; -webkit-user-select: none; }
+    touch-action: none; user-select: none; -webkit-user-select: none; container-type: inline-size; }
 .s3d-field:hover { border-color: #555; }
 .s3d-field:focus-within { border-color: var(--ps-accent, #e22330); }
-.s3d-tag { flex: 0 0 16px; display: flex; align-items: center; justify-content: center;
+.s3d-tag { flex: 0 0 14px; display: flex; align-items: center; justify-content: center;
     font-size: 10px; font-weight: 700; color: #fff; }
 .s3d-ax-x { background: #e5484d; }
 .s3d-ax-y { background: #4cbb5a; }
 .s3d-ax-z { background: #3d7ef2; }
 .tab-panel[data-tab="3d"] .s3d-field input.s3d-num { flex: 1 1 auto; min-width: 0; width: 100%; height: 100%; box-sizing: border-box;
-    margin: 0; padding: 0 4px; border: 0; border-radius: 0; background: transparent; color: var(--ps-text, #f0f0f0);
+    margin: 0; padding: 0 3px 0 2px; border: 0; border-radius: 0; background: transparent; color: var(--ps-text, #f0f0f0);
     font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; outline: none; cursor: ew-resize; }
 .tab-panel[data-tab="3d"] .s3d-field input.s3d-num:focus { cursor: text; background: #111; user-select: text; -webkit-user-select: text; }
 body.s3d-scrubbing, body.s3d-scrubbing * { cursor: ew-resize !important; }
 /* The < > step arrows at each end of a field, shown while the pointer is
-   over it; they sit over the figure's ends rather than taking its room. */
+   over it. They never sit over the figure: they have their own room at the
+   field's ends, kept clear of the figure hovered or not, and a field too
+   narrow for that room and the figure (the panel at its default width) has
+   none; drag, Up and Down, and the right-click menu step it there. */
 .s3d-nudge { position: absolute; top: 0; bottom: 0; z-index: 1; width: 12px; padding: 0; margin: 0; border: 0;
-    display: flex; align-items: center; justify-content: center; cursor: pointer;
-    color: var(--ps-text, #f0f0f0); background: rgba(40, 40, 40, 0.92); opacity: 0; pointer-events: none; }
-.s3d-nudge-dn { left: 16px; }
+    display: none; align-items: center; justify-content: center; cursor: pointer;
+    color: var(--ps-text, #f0f0f0); background: transparent; opacity: 0; pointer-events: none; }
+.s3d-nudge-dn { left: 14px; }
 .s3d-nudge-up { right: 0; }
+@container (min-width: 96px) {
+    .tab-panel[data-tab="3d"] .s3d-field input.s3d-num { padding: 0 15px 0 14px; }
+    .s3d-nudge { display: flex; }
+}
 .s3d-field:hover .s3d-nudge { opacity: 1; pointer-events: auto; }
 .s3d-field:focus-within .s3d-nudge, body.s3d-scrubbing .s3d-nudge { opacity: 0; pointer-events: none; }
 .s3d-nudge:hover { background: var(--ps-control, #3a3a3a); }

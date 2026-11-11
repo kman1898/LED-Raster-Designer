@@ -12,7 +12,10 @@ What this file pins (app-stage3d-panel.js):
   steps finely, Ctrl snaps to 1 in (1 cm) or 15 degrees; the whole drag is
   one undo step, and Esc during it puts everything back. A drag down first
   gathers the next fields of the row, and the sideways drag moves them all.
-  The < > arrows on hover step a figure. A click puts the caret where it
+  The < > arrows on hover step a figure where the field has room for them
+  beside it, never over it. A figure always reads whole, hovered or not,
+  at the panel's default width and in a wider fallback font: one too long
+  for its field steps its font down. A click puts the caret where it
   lands, a double-click selects the figure; typing takes math, *2 and /2,
   and units; a figure that is not one goes back with a note. Enter commits
   and lets go; Esc puts the figure back; Tab and Shift+Tab go X, Y, Z,
@@ -291,11 +294,10 @@ FIGURE_EDGES = """(id) => {
 def test_a_single_click_puts_the_caret_where_it_lands(page):
     reset(page, ONE)
     open_3d(page, 1)
-    # The panel at its wide width, where the fields stop at 120 px. At the
-    # narrow default a field's figure fills it nearly edge to edge, and in
-    # a wider fallback font (Linux) its first digit sits under the < arrow
-    # that covers the field's first 12 px on hover: no spot is left of the
-    # figure and clear of the arrow there.
+    # The panel at its wide width, where the fields stop at 120 px and the
+    # < > arrows show on hover, in their own room at the field's ends. At
+    # the narrow default a field's figure fills it nearly edge to edge: no
+    # spot is left of the figure there.
     page.evaluate("document.documentElement.style.setProperty('--lrd-left-w', '460px')")
     try:
         page.wait_for_timeout(300)
@@ -400,25 +402,126 @@ def test_tab_and_shift_tab_go_through_the_six_figures(page):
 def test_the_step_arrows_show_on_hover_and_step_once_a_click(page):
     ids = reset(page, ONE)
     open_3d(page, 1)
-    opacity = "(k) => getComputedStyle(document.getElementById('s3d-' + k).closest('.s3d-field').querySelector('.s3d-nudge-up')).opacity"
-    page.mouse.move(5, 5)
-    assert page.evaluate(opacity, 'x') == '0'
+    shown = """(k) => { const a = document.getElementById('s3d-' + k).closest('.s3d-field').querySelector('.s3d-nudge-up');
+        const cs = getComputedStyle(a); return cs.display !== 'none' && cs.opacity !== '0'; }"""
+    # At the default width a field has no room for the arrows beside its
+    # figure, so it shows none: drag, Up and Down, and the menu step it.
     page.hover('#s3d-x')
-    assert page.evaluate(opacity, 'x') == '1'
-    start = history_len(page)
-    page.click('#s3d-x ~ .s3d-nudge-up')
-    page.wait_for_timeout(300)
-    assert stored(page, ids[0])['x'] == pytest.approx(screen(page, ids[0])['placement']['x'])
-    x1 = stored(page, ids[0])['x']
-    page.click('#s3d-x ~ .s3d-nudge-up')
-    page.wait_for_timeout(300)
-    assert stored(page, ids[0])['x'] - x1 == pytest.approx(25.4)
-    assert focused(page) != 's3d-x', 'a step does not put the caret in'
-    page.hover('#s3d-yaw')
-    page.click('.s3d-field:has(#s3d-yaw) .s3d-nudge-dn')
-    page.wait_for_timeout(300)
-    assert stored(page, ids[0])['yaw'] == -1
-    assert history_len(page) == start + 3
+    page.wait_for_timeout(100)
+    assert page.evaluate(shown, 'x') is False
+    page.evaluate("document.documentElement.style.setProperty('--lrd-left-w', '460px')")
+    try:
+        page.wait_for_timeout(300)
+        page.mouse.move(5, 5)
+        assert page.evaluate(shown, 'x') is False
+        page.hover('#s3d-x')
+        assert page.evaluate(shown, 'x') is True
+        start = history_len(page)
+        page.click('#s3d-x ~ .s3d-nudge-up')
+        page.wait_for_timeout(300)
+        assert stored(page, ids[0])['x'] == pytest.approx(screen(page, ids[0])['placement']['x'])
+        x1 = stored(page, ids[0])['x']
+        page.click('#s3d-x ~ .s3d-nudge-up')
+        page.wait_for_timeout(300)
+        assert stored(page, ids[0])['x'] - x1 == pytest.approx(25.4)
+        assert focused(page) != 's3d-x', 'a step does not put the caret in'
+        page.hover('#s3d-yaw')
+        page.click('.s3d-field:has(#s3d-yaw) .s3d-nudge-dn')
+        page.wait_for_timeout(300)
+        assert stored(page, ids[0])['yaw'] == -1
+        assert history_len(page) == start + 3
+    finally:
+        page.evaluate("document.documentElement.style.removeProperty('--lrd-left-w')")
+    assert page.errors == []
+
+
+# Where a field's figure may be drawn: inside the field's inner box and the
+# input's content box, past the axis tag, and clear of any step arrow that
+# shows. Each shown arrow's own box comes back too, to check it never meets
+# the figure.
+FIELD_ROOM = """(id) => {
+    const e = document.getElementById(id), f = e.closest('.s3d-field');
+    const fr = f.getBoundingClientRect(), fs = getComputedStyle(f);
+    const er = e.getBoundingClientRect(), es = getComputedStyle(e);
+    const left = Math.max(fr.left + parseFloat(fs.borderLeftWidth), er.left + parseFloat(es.paddingLeft),
+                          f.querySelector('.s3d-tag').getBoundingClientRect().right);
+    const right = Math.min(fr.right - parseFloat(fs.borderRightWidth), er.right - parseFloat(es.paddingRight));
+    const arrows = [];
+    f.querySelectorAll('.s3d-nudge').forEach(a => {
+        const cs = getComputedStyle(a), r = a.getBoundingClientRect();
+        if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0 || !r.width) return;
+        arrows.push([r.left, r.right]);
+    });
+    return { left, right, arrows, fontSize: es.fontSize, value: e.value };
+}"""
+
+WIDE_FONT = "'DejaVu Sans', Verdana, sans-serif"   # a wide sans, as on Linux
+# Long figures: three-figure feet and meters, a minus sign, the widest angle.
+LONG = {'ft': {'x': '120.75', 'y': '-33.25', 'z': '-120.75'},
+        'm': {'x': '120.75m', 'y': '-33.25m', 'z': '-120.75m'}}
+LONG_ANGLES = {'pitch': '-179.99', 'yaw': '120.75', 'roll': '-33.25'}
+
+
+@pytest.mark.parametrize('font', ['app', 'wide'])
+@pytest.mark.parametrize('width', [None, 460])
+def test_every_figure_reads_whole_hovered_or_not(page, font, width):
+    """QA on 7d37002b: at the default width the < > arrows covered a
+    figure's ends on hover, so 120.75 read "20.7". Every character of every
+    figure is drawn inside its field and clear of the arrows, at rest and
+    hovered, measured on the browser's own layout of the text."""
+    reset(page, ONE)
+    open_3d(page, 1)
+    if width:
+        page.evaluate(f"document.documentElement.style.setProperty('--lrd-left-w', '{width}px')")
+    if font == 'wide':
+        page.evaluate("""(f) => document.querySelectorAll('#s3d-fields .s3d-num')
+            .forEach(e => e.style.setProperty('font-family', f, 'important'))""", WIDE_FONT)
+    try:
+        page.wait_for_timeout(300)
+        if not width:
+            # the panel as it opens: about 225 px, each field about 64
+            w = page.evaluate("document.querySelector('.s3d-field').getBoundingClientRect().width")
+            assert w < 70, w
+        for units in ('ft', 'm'):
+            page.click(f'#s3d-units-{units}')
+            page.wait_for_timeout(200)
+            for key, text in {**LONG[units], **LONG_ANGLES}.items():
+                page.fill(f'#s3d-{key}', text)
+                page.press(f'#s3d-{key}', 'Enter')
+                page.wait_for_timeout(200)
+            shown = {k: field(page, k) for k in ('x', 'y', 'z', 'pitch', 'yaw', 'roll')}
+            assert shown['x'] == ('120.75' if units == 'ft' else '120.750'), shown
+            assert shown['z'] == ('-120.75' if units == 'ft' else '-120.750'), shown
+            assert shown['pitch'] == '-179.99', shown
+            for hovered in (False, True):
+                for key in shown:
+                    if hovered:
+                        page.hover(f'#s3d-{key}')
+                    else:
+                        page.mouse.move(5, 5)
+                    page.wait_for_timeout(60)
+                    room = page.evaluate(FIELD_ROOM, f's3d-{key}')
+                    text = page.evaluate(FIGURE_EDGES, f's3d-{key}')
+                    edges = text['edges']
+                    where = (units, key, hovered, room, text)
+                    assert room['value'] == shown[key] and len(edges) == len(shown[key]) + 1, where
+                    for i in range(len(edges) - 1):
+                        # each character's box, whole inside the field
+                        assert edges[i] >= room['left'] - 0.5 and edges[i + 1] <= room['right'] + 0.5, \
+                            ('character cut', i, shown[key][i], where)
+                    for a in room['arrows']:
+                        assert a[1] <= text['left'] + 0.5 or a[0] >= text['right'] - 0.5, \
+                            ('an arrow over the figure', a, where)
+                    if hovered and width:
+                        assert len(room['arrows']) == 2, ('the arrows show where there is room', where)
+                    if not width:
+                        assert room['arrows'] == [], ('no arrows at the default width', where)
+        page.click('#s3d-units-ft')
+    finally:
+        page.evaluate("document.documentElement.style.removeProperty('--lrd-left-w')")
+        page.evaluate("""() => document.querySelectorAll('#s3d-fields .s3d-num')
+            .forEach(e => e.style.removeProperty('font-family'))""")
+        page.mouse.move(5, 5)
     assert page.errors == []
 
 

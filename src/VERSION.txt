@@ -363,7 +363,7 @@ ALSO NEW
   Mac) on Pixel Map or Cabinet ID to copy it instead.
 - NEW: A Windows copy installed with the setup file updates itself:
   Update downloads the new version, checks it and installs it, then
-  reopens the app. A beta is offered the next beta.
+  reopens the app.
 
 FIXES
 
@@ -378,8 +378,8 @@ FIXES
   It used to undo the change made before the delete instead, and leave the
   screen deleted.
 - FIX: Delete removes a screen only on the Pixel Map tab, so a stray key
-  never costs a screen. On Header/Footer it clears the bars, on the IDM
-  Locator the mark, and elsewhere it does nothing. The canvas right-click
+  never costs a screen. On Header/Footer it clears the bars, and elsewhere
+  it does nothing to screens. The canvas right-click
   Delete Screen is on Pixel Map only; the Screens list's right-click still
   deletes on every tab.
 - FIX: A group's up and down arrows move it among the rows of the canvas
@@ -403,12 +403,11 @@ FIXES
 - FIX: A screen dragged straight after another change stays under the
   mouse. The save of that change could land mid-drag and put the screen
   back where the drag began until the mouse moved again.
-- FIX: Labels draw on top of the lines on every tab and on Output to
-  Display. Screen names and sizes, the corner X,Y readouts, Cabinet IDs,
-  IDM module IDs and the port and circuit labels are no longer crossed by
-  the pixel grid when zoomed in close, the outline of selected cabinets, a
-  group's circle and X or the canvas outline. A screen lying over another
-  still covers it.
+- FIX: Labels draw on top of the lines on every tab. Screen names and
+  sizes, the corner X,Y readouts, Cabinet IDs and the port and circuit
+  labels are no longer crossed by the pixel grid when zoomed in close,
+  the outline of selected cabinets, a group's circle and X or the canvas
+  outline. A screen lying over another still covers it.
 - FIX: The start page shows only when the app first opens. Opening the
   running app in another tab, or from a tablet or another computer at this
   computer's address, now goes straight into the show as it stands. It used
@@ -429,10 +428,10 @@ FIXES
   on the one the app kept, never one each.
 - FIX: A tab, browser or tablet that is only watching another one's change,
   or that has just opened onto the show, no longer saves anything back.
-  A mirror screen's copied map, a footer's lift and the selected canvas
-  used to be sent again from every page watching, so the page that made
-  the change found an Undo step it never made, and two devices could send
-  the same change back and forth.
+  A mirror screen's copied map and the selected canvas used to be sent
+  again from every page watching, so the page that made the change found
+  an Undo step it never made, and two devices could send the same change
+  back and forth.
 - FIX: A screen changed on one tab, browser or tablet now shows every
   change on the others: its flow pattern, processor, frame rate, custom
   data runs, power settings and the rest. The others used to keep their

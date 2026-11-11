@@ -15,7 +15,12 @@
 //   sideways                  height of travel each, up gathers the ones
 //                             before), and the sideways drag moves them all
 //                             by the same amount, one undo step
-//   < > on hover              step the figure by 1 in, 1 cm or 1 degree
+//   < > on hover              step the figure by 1 in, 1 cm or 1 degree;
+//                             they have their own room beside the figure,
+//                             never over it, so a field too narrow for both
+//                             (the panel's default width) has none
+//   the figure                always reads whole: one too long for its
+//                             field steps its font down until it fits
 //   click without dragging    puts the caret where you clicked, to type;
 //                             a double-click selects the whole figure
 //   typing                    Math OK (16.4+2), *2 and /2 scale the figure,
@@ -62,6 +67,7 @@ const SNAP = { ft: 25.4, m: 10, deg: 15 };
 const NUDGE = { ft: 25.4, m: 10, deg: 1 };
 const FINE = 0.1;
 const NOTE_MS = 3500;
+const FIT_MIN_PX = 8;            // a long figure's font steps down no further
 
 const isLength = (key) => LENGTH_KEYS.includes(key);
 
@@ -114,6 +120,13 @@ class _Stage3DPanel {
             const el = document.getElementById(id);
             if (el) el.addEventListener('click', fn);
         };
+        // A figure fits its field again whenever the field's width changes:
+        // the panel shown, its edge dragged, the step arrows given room.
+        const vecs = document.querySelectorAll('#s3d-fields .s3d-vec');
+        if (vecs.length && typeof ResizeObserver === 'function') {
+            const fit = new ResizeObserver(() => this._s3dFitFigures());
+            vecs.forEach(v => fit.observe(v));
+        }
         on('s3d-reset-position', () => this._s3dResetPosition());
         on('s3d-reset-rotation', () => this._s3dResetRotation());
         on('s3d-curve-edit', () => this._s3dOpenCurve());
@@ -137,6 +150,54 @@ class _Stage3DPanel {
 
     _s3dFieldText(key, value) {
         return isLength(key) ? this._s3dFormatLength(value) : String(round(wrap180(Number(value) || 0), 2));
+    }
+
+    // A figure always reads whole. One wider than its field (a long figure
+    // such as -120.750 in a narrow panel, or a wider fallback font) steps
+    // its font down until it fits, never below FIT_MIN_PX; one that fits
+    // keeps the field's own size. Measured on a hidden copy of the text in
+    // the field's own font (tabular figures included). A field not laid
+    // out yet is fitted when it is (_s3dWirePanel's ResizeObserver).
+    _s3dFitFigure(el) {
+        if (!el || !el.isConnected) return;
+        el.style.fontSize = '';
+        const cs = getComputedStyle(el);
+        const room = el.getBoundingClientRect().width - (parseFloat(cs.paddingLeft) || 0)
+            - (parseFloat(cs.paddingRight) || 0) - (parseFloat(cs.borderLeftWidth) || 0)
+            - (parseFloat(cs.borderRightWidth) || 0);
+        if (!el.value || room <= 0) return;
+        let probe = this._s3dFitProbe;
+        if (!probe || !probe.isConnected) {
+            probe = this._s3dFitProbe = document.createElement('span');
+            probe.setAttribute('aria-hidden', 'true');
+            Object.assign(probe.style, {
+                position: 'fixed', left: '0', top: '0', whiteSpace: 'pre', visibility: 'hidden', pointerEvents: 'none',
+            });
+            document.body.appendChild(probe);
+        }
+        ['fontFamily', 'fontWeight', 'fontStyle', 'fontStretch', 'fontVariantNumeric', 'fontFeatureSettings',
+            'fontKerning', 'letterSpacing', 'wordSpacing'].forEach(k => { probe.style[k] = cs[k]; });
+        const base = parseFloat(cs.fontSize) || 12;
+        probe.style.fontSize = `${base}px`;
+        probe.textContent = el.value;
+        const wide = probe.getBoundingClientRect().width;
+        if (wide <= room) return;
+        let size = Math.max(FIT_MIN_PX, Math.floor(base * room / wide * 4) / 4);
+        probe.style.fontSize = `${size}px`;
+        while (size > FIT_MIN_PX && probe.getBoundingClientRect().width > room) {
+            size -= 0.25;
+            probe.style.fontSize = `${size}px`;
+        }
+        el.style.fontSize = `${size}px`;
+    }
+
+    // Every figure fitted again (the panel's width or the units changed).
+    // The one being typed in is left as it is.
+    _s3dFitFigures() {
+        for (const key of KEYS) {
+            const el = document.getElementById(`s3d-${key}`);
+            if (el && document.activeElement !== el) this._s3dFitFigure(el);
+        }
     }
 
     // A typed figure in mm or degrees, or null. A leading * or / scales the
@@ -172,6 +233,7 @@ class _Stage3DPanel {
             if (el.value !== text) el.value = text;
             el.dataset.text = text;
             delete el.dataset.pending;
+            this._s3dFitFigure(el);
         }
     }
 
@@ -271,7 +333,10 @@ class _Stage3DPanel {
             const v = f.starts[k] + f.raw;
             f.values[k] = snap ? Math.round(v / SNAP[unit]) * SNAP[unit] : v;
             const el = document.getElementById(`s3d-${k}`);
-            if (el) el.value = this._s3dFieldText(k, f.values[k]);
+            if (el) {
+                el.value = this._s3dFieldText(k, f.values[k]);
+                this._s3dFitFigure(el);
+            }
         }
         this._s3dFieldPreview(this._s3dFieldLayer(f), f.values);
     }
@@ -381,6 +446,7 @@ class _Stage3DPanel {
             ev.stopPropagation();
             input.value = input.dataset.text || input.value;
             delete input.dataset.pending;
+            this._s3dFitFigure(input);
             this._s3dFieldEndPreview(true);
             input.blur();
             return;
@@ -420,6 +486,7 @@ class _Stage3DPanel {
             value = base + dir * NUDGE[unit] * (ev.shiftKey ? FINE : 1);
         }
         input.value = this._s3dFieldText(key, value);
+        this._s3dFitFigure(input);
         input.dataset.pending = String(value);
         input.dataset.pendingText = input.value;
         this._s3dFieldPreview(layer, { [key]: value });
