@@ -42,16 +42,22 @@ describe('a list of lock positions', () => {
 });
 
 describe('the owner list', () => {
-    it('gives every ROE Graphite full and half tile -5, 0 and +5', () => {
-        for (const name of ['Graphite GP2.6 (4 in 1) Full Tile', 'Graphite GP2.6 (4 in 1) Half Tile',
-                            'Graphite GP3.9 Full Tile', 'Graphite GP1.9 (4 in 1) Half Tile']) {
+    it('gives the ROE Graphite GP2.6 (4 in 1) full and half tile -5, 0 and +5', () => {
+        for (const name of ['Graphite GP2.6 (4 in 1) Full Tile', 'Graphite GP2.6 (4 in 1) Half Tile']) {
             expect(ownerCurveLocks('ROE', name)).toEqual(GRAPHITE);
         }
     });
+    it('leaves the other Graphite tiles to the library (ROE\'s sheet)', () => {
+        for (const name of ['Graphite GP2.6 Full Tile', 'Graphite GP3.1 Half Tile',
+                            'Graphite GP3.9 Full Tile', 'Graphite GP1.9 (4 in 1) Half Tile']) {
+            expect(ownerCurveLocks('ROE', name)).toBe(null);
+        }
+    });
     it('gives nothing to another maker, another ROE panel, or a Graphite corner', () => {
-        expect(ownerCurveLocks('Absen', 'Graphite GP2.6 Full Tile')).toBe(null);
+        expect(ownerCurveLocks('Absen', 'Graphite GP2.6 (4 in 1) Full Tile')).toBe(null);
         expect(ownerCurveLocks('ROE', 'Black Pearl BP2V2')).toBe(null);
         expect(ownerCurveLocks('ROE', 'Graphite GP2.6 Right Angle')).toBe(null);
+        expect(ownerCurveLocks('ROE', 'Graphite GP2.6 Right Angle (4 in 1)')).toBe(null);
     });
 });
 

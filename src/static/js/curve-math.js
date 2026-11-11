@@ -2438,10 +2438,12 @@ export function parseAngles(text) {
 /**
  * Lock positions the owner ruled firsthand, for panels the library has no
  * `curve_locks` for yet. The library's value wins once it has one.
- * ROE Graphite, every full and half tile: -5, 0 and +5 (owner, 2026-11-10).
+ * ROE Graphite GP2.6 (4 in 1), full and half tile: -5, 0 and +5 only (owner,
+ * 2026-11-10: "The gp 2.6 4n1 is 5 only"). The other Graphite tiles take the
+ * library's list, read off ROE's own sheet.
  */
 export const OWNER_CURVE_LOCKS = Object.freeze([
-  Object.freeze({ mfr: 'ROE', test: (name) => /Graphite/.test(name) && /\b(Full|Half) Tile\b/.test(name),
+  Object.freeze({ mfr: 'ROE', test: (name) => /^Graphite GP2\.6 \(4 in 1\) (Full|Half) Tile\b/.test(name),
                   locks: Object.freeze([-5, 0, 5]) }),
 ]);
 
