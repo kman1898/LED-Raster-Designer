@@ -456,4 +456,177 @@ describe('a curve is held to 20 degrees a joint', () => {
     });
 });
 
+// The owner, 2026-11-10: "Favor the true arc." A corner down a panel's
+// middle leaves a half panel arm on each side of the fold, and the joint at
+// the arm's far end bends to the true arc whichever way the side is built
+// (Left, Center, Right, the fold or a spot along it), using the lock
+// position closest to it.
+//
+// The arc: a side P panels wide sweeping S degrees spans A = S / P of arc a
+// whole panel and A / 2 its half panel arm. A joint turns by half the arc
+// of each panel beside it: (A + A) / 2 = A between two whole panels, and
+// (A / 2 + A) / 2 = 3A / 4 at the arm's far joint.
+describe('a half panel corner arm bends to the true arc from any side', () => {
+    // Eleven 500 mm panels, a corner bar down panel 5 (the fold half way
+    // across it): the left side is 4.5 panels (four whole, the arm at its
+    // right end), the right side 6.5 (the arm at its left end, six whole).
+    // 23.4 degrees of sweep on each side.
+    //   left:  A = 23.4 / 4.5 = 5.2: 1|2, 2|3, 3|4 at 5.2, 4|5 at 3 x 5.2 / 4 = 3.9
+    //   right: A = 23.4 / 6.5 = 3.6: 5|6 at 3 x 3.6 / 4 = 2.7, 6|7 to 10|11 at 3.6
+    const TRUE_ARC = [5.2, 5.2, 5.2, 3.9, 2.7, 3.6, 3.6, 3.6, 3.6, 3.6];
+    const LOCKS = [-5.2, -3.9, -3.6, -2.7, 0, 2.7, 3.6, 3.9, 5.2];
+    const GRAPHITE = [-5, 0, 5];
+    const eleven = (over, locks = LOCKS) => screenCurve({ panels: 11, panelWidthM: 0.5, sizes: [1],
+        settings: on({ entry: 'degrees', value: 23.4, goal: 'tightest', ...over }), pieces: [{ start: 4, size: 1 }], locks });
+    // Left, Center, Right, the fold (5, the middle of the folded panel) and
+    // a spot on each side (panel 2 on the left side, panel 9 on the right)
+    const FROMS = ['left', 'center', 'right', 5, 2, 9];
+
+    for (const from of FROMS) {
+        it(`built from ${from}: every joint is the true arc's, the arm's far joints 3.9 and 2.7`, () => {
+            const out = eleven({ from });
+            expect(out.errors).toEqual([]);
+            expect(out.joints).toEqual(TRUE_ARC);
+            // the build is the drawing: no joint off the arc, the sweep asked for
+            out.sides.forEach((s) => {
+                expect(s.out.result.max_arc_deviation_m).toBeLessThan(1e-9);
+                expect(s.out.result.achieved.sweep_deg).toBeCloseTo(23.4, 2);
+            });
+        });
+    }
+    it('convex is the same wall, the angles negative', () => {
+        for (const from of FROMS) expect(eleven({ from, bend: 'convex' }).joints).toEqual(TRUE_ARC.map((a) => -a));
+    });
+    it('the arc each side is judged against is the true arc: its own joints 5.2 and 3.9, 2.7 and 3.6', () => {
+        // each side is worked in half panels: the step joints inside a panel
+        // are straight, 0, and only the seams turn
+        const [left, right] = eleven({ from: 'center' }).sides.map((s) => s.out.result);
+        const close = (got, want) => {
+            expect(got).toHaveLength(want.length);
+            got.forEach((a, i) => expect(a).toBeCloseTo(want[i], 9));
+        };
+        close(left.joints.map((j) => j.ideal_deg), [0, 5.2, 0, 5.2, 0, 5.2, 0, 3.9]);
+        close(right.joints.map((j) => j.ideal_deg), [2.7, 0, 3.6, 0, 3.6, 0, 3.6, 0, 3.6, 0, 3.6, 0]);
+    });
+
+    // With only the Graphite's -5, 0 and +5 the arm's far joint takes the
+    // position closest to the true arc's angle.
+    //   eleven panels, left side: 5.2 at 1|2, 2|3, 3|4 is nearest 5 (0.2
+    //   off, 0 is 5.2 off); 3.9 at 4|5 is nearest 5 (1.1 off, 0 is 3.9 off)
+    for (const from of FROMS) {
+        it(`Graphite locks, built from ${from}: the left side's arm joint is 5, the closest to 3.9`, () => {
+            const out = eleven({ from }, GRAPHITE);
+            expect(out.errors).toEqual([]);
+            expect(out.joints.slice(0, 4)).toEqual([5, 5, 5, 5]);
+            expect(out.joints.every((a) => a === 0 || a === 5)).toBe(true);
+        });
+    }
+    // Nine panels, a corner down panel 5: two sides of 4.5 panels, 22.5
+    // degrees each: A = 22.5 / 4.5 = 5, so 5 at every whole joint and
+    // 3 x 5 / 4 = 3.75 at each arm's far joint (4|5 and 5|6).
+    const nine = (over, locks) => screenCurve({ panels: 9, panelWidthM: 0.5, sizes: [1],
+        settings: on({ entry: 'degrees', value: 22.5, goal: 'tightest', ...over }), pieces: [{ start: 4, size: 1 }], locks });
+    for (const from of FROMS) {
+        it(`nine panels built from ${from}: 3.75 at the arms when the locks have it, else 5, the closest`, () => {
+            // 3.75 a lock position: the true arc exactly
+            const exact = nine({ from }, [-5, -3.75, 0, 3.75, 5]);
+            expect(exact.joints).toEqual([5, 5, 5, 3.75, 3.75, 5, 5, 5]);
+            exact.sides.forEach((s) => expect(s.out.result.max_arc_deviation_m).toBeLessThan(1e-9));
+            // Graphite: 3.75 is 1.25 from 5 and 3.75 from 0, so 5
+            const g = nine({ from }, GRAPHITE);
+            expect(g.joints).toEqual([5, 5, 5, 5, 5, 5, 5, 5]);
+            // and the build stays within the 25 mm the Curve allows, saying nothing
+            g.sides.forEach((s) => {
+                expect(s.out.result.max_arc_deviation_m).toBeLessThan(0.025);
+                expect(s.out.warnings.some((w) => /Off the drawing|Out of range/.test(w))).toBe(false);
+            });
+        });
+    }
+
+    it('the Even goal on a half arm side still falls back to the closest, and says so', () => {
+        // no even build: the arm is half a panel, so no spacing of one
+        // bend repeats from end to end
+        for (const from of FROMS) {
+            const out = eleven({ from, goal: 'even' });
+            expect(out.joints).toEqual(TRUE_ARC);
+            out.sides.forEach((s) => {
+                expect(s.out.result.options.some((o) => o.even && o.used_angles_deg.length)).toBe(false);
+                expect(s.out.result.choice_reason).toMatch(/^No even build is possible with these angles/);
+            });
+        }
+    });
+
+    // Whole panel walls and corners on a seam are not worked in half
+    // panels: their joints are exactly what they were before this change,
+    // bars, then joints, from every side and for every goal.
+    const BEFORE = {
+        'w16 left simplest': '1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1|5,5,2.5,5,5,5,5,2.5,5,5,5,5,2.5,5,5',
+        'w16 left even': '2,2,2,2,2,2,2,2|0,10,0,10,0,10,0,10,0,10,0,10,0,10,0',
+        'w16 left tightest': '1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1|5,2.5,7.5,2.5,5,5,2.5,7.5,2.5,5,5,2.5,7.5,2.5,5',
+        'w16 center simplest': '1,2,2,1,2,2,1,2,2,1|7.5,0,7.5,0,7.5,7.5,0,7.5,0,7.5,7.5,0,7.5,0,7.5',
+        'w16 center even': '2,2,2,2,2,2,2,2|0,10,0,10,0,10,0,10,0,10,0,10,0,10,0',
+        'w16 center tightest': '1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1|2.5,7.5,2.5,7.5,2.5,2.5,7.5,2.5,7.5,2.5,2.5,7.5,2.5,7.5,2.5',
+        'w16 right simplest': '1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1|5,5,2.5,5,5,5,5,2.5,5,5,5,5,2.5,5,5',
+        'w16 right even': '2,2,2,2,2,2,2,2|0,10,0,10,0,10,0,10,0,10,0,10,0,10,0',
+        'w16 right tightest': '1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1|5,2.5,7.5,2.5,5,5,2.5,7.5,2.5,5,5,2.5,7.5,2.5,5',
+        'w16 4.5 simplest': '1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1|5,2.5,5,5,5,2.5,5,5,5,5,5,2.5,5,5,5',
+        'w16 4.5 even': '2,2,2,2,2,2,2,2|0,10,0,10,0,10,0,10,0,10,0,10,0,10,0',
+        'w16 4.5 tightest': '1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1|2.5,2.5,7.5,2.5,7.5,2.5,2.5,7.5,2.5,7.5,2.5,2.5,7.5,2.5,7.5',
+        'w10 left simplest': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 left even': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 left tightest': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 center simplest': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 center even': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 center tightest': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 right simplest': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 right even': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 right tightest': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 4.5 simplest': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 4.5 even': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        'w10 4.5 tightest': '1,1,1,1,1,1,1,1,1,1|5,5,5,5,5,5,5,5,5',
+        's12 left simplest': '1,1,1,1,1,2,1,1,1,1,1|5,7.5,5,7.5,5,0,5,7.5,5,7.5,5',
+        's12 left even': '1,1,1,1,1,2,1,1,1,1,1|5,5,5,5,5,0,5,5,5,5,5',
+        's12 left tightest': '1,1,1,1,1,2,1,1,1,1,1|5,7.5,5,7.5,5,0,5,7.5,5,7.5,5',
+        's12 center simplest': '1,2,2,2,2,2,1|10,0,10,0,10,0,10,0,10,0,10',
+        's12 center even': '1,1,1,1,1,2,1,1,1,1,1|5,5,5,5,5,0,5,5,5,5,5',
+        's12 center tightest': '1,1,1,1,1,2,1,1,1,1,1|5,7.5,5,7.5,5,0,5,7.5,5,7.5,5',
+        's12 right simplest': '1,1,1,1,1,2,1,1,1,1,1|5,7.5,5,7.5,5,0,5,7.5,5,7.5,5',
+        's12 right even': '1,1,1,1,1,2,1,1,1,1,1|5,5,5,5,5,0,5,5,5,5,5',
+        's12 right tightest': '1,1,1,1,1,2,1,1,1,1,1|5,7.5,5,7.5,5,0,5,7.5,5,7.5,5',
+        's12 4.5 simplest': '1,1,1,1,1,2,1,1,1,1,1|10,10,0,10,0,0,5,7.5,5,7.5,5',
+        's12 4.5 even': '1,1,1,1,1,2,1,1,1,1,1|5,5,5,5,5,0,5,5,5,5,5',
+        's12 4.5 tightest': '1,1,1,1,1,2,1,1,1,1,1|5,5,7.5,5,7.5,0,5,7.5,5,7.5,5',
+        's14 left simplest': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,7.5,10,7.5,10,0,10,10,10',
+        's14 left even': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,10,10,10,10,0,10,10,10',
+        's14 left tightest': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,7.5,10,7.5,10,0,10,10,10',
+        's14 center simplest': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,7.5,10,7.5,10,0,10,10,10',
+        's14 center even': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,10,10,10,10,0,10,10,10',
+        's14 center tightest': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,7.5,10,7.5,10,0,10,10,10',
+        's14 right simplest': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,7.5,10,7.5,10,0,10,10,10',
+        's14 right even': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,10,10,10,10,0,10,10,10',
+        's14 right tightest': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,7.5,10,7.5,10,0,10,10,10',
+        's14 4.5 simplest': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,7.5,10,7.5,10,0,10,10,10',
+        's14 4.5 even': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,10,10,10,10,0,10,10,10',
+        's14 4.5 tightest': '1,1,1,2,1,1,1,1,2,1,1,1|10,10,10,0,10,7.5,10,7.5,10,0,10,10,10',
+    };
+    // w16: sixteen panels, singles and doubles, 20%; w10: ten singles, 15%,
+    // Graphite locks; s12: twelve panels, a corner on the seam 6|7, 10%;
+    // s14: fourteen panels, corners on the seams 4|5 and 10|11, 15%
+    const WALLS = {
+        w16: { panels: 16, panelWidthM: 0.5, sizes: [1, 2], settings: {} },
+        w10: { panels: 10, panelWidthM: 0.5, sizes: [1], settings: { value: 15 }, locks: GRAPHITE },
+        s12: { panels: 12, panelWidthM: 0.5, sizes: [1, 2], settings: { value: 10 }, pieces: [{ start: 5, size: 2 }] },
+        s14: { panels: 14, panelWidthM: 0.5, sizes: [1, 2], settings: { value: 15 }, pieces: [{ start: 3, size: 2 }, { start: 9, size: 2 }] },
+    };
+    it('whole panel walls and seam corners lay exactly the bars and joints they did before', () => {
+        for (const key of Object.keys(BEFORE)) {
+            const [name, f, goal] = key.split(' ');
+            const w = WALLS[name];
+            const from = f === '4.5' ? 4.5 : f;
+            const out = screenCurve({ ...w, settings: on({ ...w.settings, from, goal }) });
+            expect(`${key}: ${out.bars.join(',')}|${out.joints.join(',')}`).toBe(`${key}: ${BEFORE[key]}`);
+        }
+    });
+});
+
 report();
