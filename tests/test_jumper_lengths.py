@@ -109,14 +109,19 @@ RESET_JS = """async (bodies) => {
     proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
     delete proj.port_assignments; delete proj.pullSheet; delete proj.pullSheetEdits;
     await j('PUT', '/api/project', proj);
-    for (const b of bodies) await j('POST', '/api/layer/add', b);
+    // The keys the add route does not store (the data flow) are saved
+    // with a PUT, as a duplicate or paste does (app-clipboard
+    // _adoptScreenCopy): set only on this page, the server's copy of the
+    // screen (a cabinet hidden below) puts its own back, every page
+    // following the server (app-core applyServerLayer).
+    for (const b of bodies) {
+        const made = await j('POST', '/api/layer/add', b);
+        const rest = {};
+        for (const k of ['flowPattern', 'processorType']) if (b[k] !== undefined) rest[k] = b[k];
+        if (Object.keys(rest).length) await j('PUT', `/api/layer/${made.id}`, rest);
+    }
     app.project = await j('GET', '/api/project');
     app.dedupeProjectLayers('jumper_seed');
-    // the client-side keys the add route does not store (the data flow)
-    for (const b of bodies) {
-        const l = app.project.layers.find(x => x.name === b.name);
-        for (const k of ['flowPattern', 'processorType']) if (b[k] !== undefined) l[k] = b[k];
-    }
     app.selectLayer(app.project.layers[0]);
     app.resetHistory('Jumper Seed');
     app._circuitTailCache = null;

@@ -1072,31 +1072,46 @@ def test_the_port_number_order_counts_where_lines_are_cut(client):
 def test_a_mirror_already_made_is_never_refused_for_its_settings(client):
     """The rule is on SETTING a mirror. A mirror whose settings drifted (the
     source edited, a show saved so) stays one: the same dataMirrorOf again,
-    the check, the source's edit, a file opened with it, and the resolve."""
+    the check, the source's edit, a file opened with it, and the resolve.
+    Since 2026-11-10 the server copies the source's settings onto its mirror
+    on every save and load (port_assignment.copy_mirror_maps), so a drifted
+    mirror is put right as it lands, never refused."""
+    import app as app_module
     a, b, screens = settings_rig(client)
     set_mirror(client, b, a)
-    # the source moves first, and the copy's PUT is still to come
+
+    def mirror():
+        return next(l for l in client.get('/api/project').get_json()['layers']
+                    if l['id'] == b)
+    # the source moves: the server takes the copy with it
     _ok(client.put(f'/api/layer/{a}', json={'frameRate': 30}))
+    assert mirror()['frameRate'] == 30
     assert client.get(f'/api/layer/{b}/mirror-refusal?of={a}') \
         .get_json()['error'] is None
     set_mirror(client, b, a)
     res = resolve(client, screens)
     assert not [i for i in res['issues'] if i['kind'] == 'mirror-mismatch']
     assert [p['source'] for p in scr_of(res, b)['ports']] == ['mirror'] * 3
-    # the sync's own write, and a whole layer PUT carrying the mirror
-    _ok(client.put(f'/api/layer/{b}', json={'frameRate': 30}))
+    # a whole layer PUT carrying the mirror drifted (a page's older copy):
+    # taken, still a mirror, on its source's settings
+    _ok(client.put(f'/api/layer/{b}', json=dict(mirror(), frameRate=25)))
+    assert mirror()['frameRate'] == 30
+    assert str(mirror()['dataMirrorOf']) == str(a)
+    # a show saved drifted, opened or restored by an undo: taken, still a
+    # mirror, put right
     project = client.get('/api/project').get_json()
-    layer = next(l for l in project['layers'] if l['id'] == b)
-    _ok(client.put(f'/api/layer/{b}', json=dict(layer, frameRate=25)))
-    # a show saved with it, opened or restored by an undo
-    project = client.get('/api/project').get_json()
-    assert next(l for l in project['layers']
-                if l['id'] == b)['frameRate'] == 25
+    next(l for l in project['layers'] if l['id'] == b)['frameRate'] = 25
     _ok(client.put('/api/project', json=project))
-    project = client.get('/api/project').get_json()
-    assert str(next(l for l in project['layers']
-                    if l['id'] == b)['dataMirrorOf']) == str(a)
+    assert str(mirror()['dataMirrorOf']) == str(a)
+    assert mirror()['frameRate'] == 30
     res = resolve(client, screens)
+    assert [p['source'] for p in scr_of(res, b)['ports']] == ['mirror'] * 3
+    # and a store left drifted (a page that went away mid-save) still
+    # resolves as the mirror it is
+    next(l for l in app_module.current_project['layers']
+         if l['id'] == b)['frameRate'] = 25
+    res = resolve(client, screens)
+    assert not [i for i in res['issues'] if i['kind'] == 'mirror-mismatch']
     assert [p['source'] for p in scr_of(res, b)['ports']] == ['mirror'] * 3
 
 

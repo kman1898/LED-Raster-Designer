@@ -676,13 +676,19 @@ def test_normalize_prefers_the_preference_breakout_on_both_sides(page):
         ('soca-l620', 120, None, 'soca-edison'),
         ('soca-l620', 121, None, 'soca-l620'),
     ]
+    # The screen as the server holds it, put back after every probe. Read
+    # once, from the server: the page follows each probe's save as every
+    # page follows the server (app-core applyServerLayer), so its own copy
+    # is the probe's until the put-back lands.
+    keep = pg.evaluate("""async (id) => {
+        const l = (await (await fetch('/api/project')).json()).layers.find(x => x.id === id);
+        return { powerVoltage: l.powerVoltage, powerBreakoutType: l.powerBreakoutType };
+    }""", ids['id'])
     try:
         for pref, voltage, stored, want in cases:
             pg.evaluate(SET_PREFS_JS, {'breakoutType': pref})
-            out = pg.evaluate("""async ([id, voltage, stored]) => {
+            out = pg.evaluate("""async ([id, voltage, stored, keep]) => {
                 const app = window.app;
-                const l = app.project.layers.find(x => x.id === id);
-                const keep = { v: l.powerVoltage, bt: l.powerBreakoutType };
                 const probe = { type: 'screen', powerVoltage: voltage };
                 if (stored !== null) probe.powerBreakoutType = stored;
                 app.normalizePowerBreakout(probe);
@@ -694,10 +700,12 @@ def test_normalize_prefers_the_preference_breakout_on_both_sides(page):
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(keep) });
                 return [probe.powerBreakoutType, srv.powerBreakoutType];
-            }""", [ids['id'], voltage, stored])
+            }""", [ids['id'], voltage, stored, keep])
             assert out == [want, want], (pref, voltage, stored, out)
     finally:
         pg.evaluate(SET_PREFS_JS, {'breakoutType': saved['breakoutType']})
+        pg.wait_for_function("""([id, v]) => window.app.project.layers.find(x => x.id === id)
+            .powerVoltage === v""", arg=[ids['id'], keep['powerVoltage']], timeout=10000)
 
 
 def test_the_breakout_preference_is_gated_by_the_voltage_preference(page):
