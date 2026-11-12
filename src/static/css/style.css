@@ -2119,6 +2119,11 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
 .hw-dock-legs-warn { color: #d8a13c; }
 .hw-dock-legs-bad { color: #e05050; }
 .hw-dock-legs-cap { letter-spacing: 0.5px; color: #777; }
+/* The power in's neutral at the end of the LEGS line: red past its
+   rating, amber past 80% of it (app-neutral.js). */
+.hw-dock-legs-n { white-space: nowrap; }
+.hw-dock-legs .hw-dock-legs-n-warn { color: #d8a13c; }
+.hw-dock-legs .hw-dock-legs-n-over { color: #e05050; font-weight: 700; }
 .hw-dock-legbar {
     flex: 1 1 18px; min-width: 10px; height: 3px; border-radius: 2px;
     background: #1a1a1a; border: 1px solid #333; overflow: hidden;

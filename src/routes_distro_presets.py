@@ -60,7 +60,7 @@ COUPLINGS = {'ln', 'll'}
 # What _distroPresetBody (app-distro-systems.js) sends; anything else on a
 # new save is dropped.
 DISTRO_KEYS = {'typeName', 'system', 'input', 'ratingA', 'breakers100', 'main100',
-               'phasing', 'directPhasing', 'rows'}
+               'neutral200', 'phasing', 'directPhasing', 'rows'}
 ROW_KEYS = {'id', 'connector', 'count', 'coupling', 'breakerA', 'connectorA', 'pairedWith'}
 
 _lock = threading.Lock()
@@ -134,8 +134,9 @@ def _valid_distro(body):
     if t is not None and not (isinstance(t, str) and len(t) <= MAX_NAME):
         return False
     # The two 100% switches: the circuits' breakers, and the main (its
-    # continuous limit, 2026-10-18). Either may be absent (off).
-    for key in ('breakers100', 'main100'):
+    # continuous limit, 2026-10-18). Either may be absent (off). So may
+    # the power in's 200% neutral (2026-11-11).
+    for key in ('breakers100', 'main100', 'neutral200'):
         if key in body and not isinstance(body[key], bool):
             return False
     return True

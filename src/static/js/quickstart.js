@@ -198,6 +198,15 @@
     // processor's, and its distro's.
     function procGearWindow() { var p = proc(); return p ? 'gear:proc-' + p.id : null; }
     function distroGearWindow() { var d = distro(); return d ? 'gear:distro-' + d.id : null; }
+    // The power in's neutral of distro `d` as the Power tab reads it
+    // (app-neutral.js), or null where it carries none.
+    function distroNeutralNow(d) {
+        var L = d && A().getDistroLoads().find(function (x) { return x.id === d.id; });
+        return (L && L.neutral) || null;
+    }
+    // What The neutral step changed to show one (its wall's voltage and
+    // the distro's rows), put back as the step is left; null otherwise.
+    var neutralDemo = null;
     // Open the distro's gear popover and ring it: the opening every gear
     // step makes before its one change (the press skipped when the step
     // before left it up for this one).
@@ -5979,6 +5988,106 @@
             },
             after: function () { var m = $('#balance-modal'); if (m) m.remove(); }
         },
+        // The power in's neutral (2026-11-11, app-neutral.js): N on the
+        // LEGS line is what the neutral carries with the LED supplies'
+        // harmonics, and Neutral behind the gear says 100% or 200%. It
+        // follows Land it again, with multi 1 on the demo wall. The wall is
+        // a 208V screen on a 208V multi output, line to line, so nothing
+        // returns on the neutral; for this step the guide puts it on 110V
+        // and the output on 120V, line to neutral (before), and puts both
+        // back as the step is left (after), so the steps after find the
+        // show as it was. The one action is the setting: 200% doubles the
+        // neutral's rating, and 100% again.
+        distroNeutral: {
+            since: '1.7.0',
+            target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'The neutral',
+            window: distroGearWindow,
+            avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-neutral-' + d.id + '"]' : null; },
+                    function () { var d = distro(); return d ? '[data-lrd-neutral="' + d.id + '"]' : null; }],
+            body: 'On 110V here, N on the LEGS line is the neutral&rsquo;s current: LED supplies add harmonics even legs cannot cancel. Set a 100% or 200% neutral behind the &#9881;; past it, the Power tab warns.',
+            before: function () {
+                switchView('power'); closePopover();
+                var a = A(), w = wall(), d = distro();
+                if (w && a.currentLayer !== w) a.selectLayer(w);
+                neutralDemo = null;
+                if (!w || !d || distroNeutralNow(d)) return;
+                // The distro's 208V multi rows, on 120V for the step.
+                var sys = a.distroSystem(d);
+                var rows = a.distroRows(d).map(function (r) { return Object.assign({}, r); });
+                var moved = rows.filter(function (r) {
+                    var conn = a.distroConnector(r.connector);
+                    return r.coupling === 'll' && conn && conn.kind === 'multi' && conn.id !== 'l2130'
+                        && a.connectorCouplings(conn, sys).some(function (o) { return o.coupling === 'ln'; });
+                });
+                if (!moved.length) return;
+                neutralDemo = { d: d.id, rows: a.distroRows(d).map(function (r) { return Object.assign({}, r); }),
+                                volts: w.powerVoltage, layer: w.id };
+                moved.forEach(function (r) { r.coupling = 'ln'; });
+                a.updateDistro(d.id, { outputRows: rows }, 'Tutorial');
+                w.powerVoltage = 110;
+                a.updateLayers([w]);
+                if (a.loadLayerToInputs) a.loadLayerToInputs();
+                if (a.renderHardwareDock) a.renderHardwareDock();
+            },
+            act: function (t) {
+                var d = distro();
+                if (!d) throw new Error('there is no distro');
+                var sel = '[data-lrd-field="distro-neutral-' + d.id + '"]';
+                var reads = function () { var e = $('[data-lrd-neutral-reads="' + d.id + '"]'); return e ? e.textContent.trim() : ''; };
+                var chip = function () { var e = $('[data-lrd-neutral="' + d.id + '"]'); return e ? e.textContent.trim() : ''; };
+                return t.wait(function () { return distroNeutralNow(d) && chip(); }, 4000).then(function (ok) {
+                    if (!ok) throw new Error('the distro carries no 110V circuits to read a neutral from');
+                    t.mem.chip = chip();
+                    t.mem.amps = distroNeutralNow(d).amps;
+                    return t.spot('[data-lrd-neutral="' + d.id + '"]').then(function () { return t.pause(900); });
+                }).then(function () {
+                    return openDistroGear(t, d);
+                }).then(function () {
+                    if (!$(sel)) throw new Error('the distro has no Neutral setting');
+                    return t.select(sel, '200');
+                }).then(function () {
+                    return t.wait(function () { var q = distro(); return q && q.neutral200 && /^\d/.test(reads()); });
+                }).then(function (on) {
+                    if (!on) throw new Error('the distro did not take a 200% neutral');
+                    t.mem.at200 = reads();
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    // The popover was rebuilt with the change; the select is
+                    // found again by its key.
+                    return t.select(sel, '100');
+                }).then(function () {
+                    return t.wait(function () { var q = distro(); return q && !q.neutral200; });
+                }).then(function () {
+                    t.mem.at100 = reads();
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function (mem) {
+                var d = distro();
+                if (!d || d.neutral200 || !mem.at200 || !mem.at100 || !(mem.amps > 0)) return null;
+                return 'On 110V the neutral carries about ' + Math.round(mem.amps) + ' A with the LED supplies’ harmonics'
+                    + (mem.chip ? ' (' + mem.chip + ' on the LEGS line)' : '') + '. A 200% neutral is rated '
+                    + mem.at200.split(',')[0] + '; back at 100%, ' + mem.at100.split(',')[0] + '.';
+            },
+            after: function () {
+                closePopover();
+                // The wall and its output back as the step found them.
+                var s = neutralDemo, a = A();
+                neutralDemo = null;
+                if (!s || !a) return;
+                var w = screens().find(function (l) { return l.id === s.layer; });
+                if (w) {
+                    w.powerVoltage = s.volts;
+                    a.updateLayers([w]);
+                }
+                if (a.getDistros().some(function (x) { return x.id === s.d; })) {
+                    a.updateDistro(s.d, { outputRows: s.rows }, 'Tutorial');
+                }
+                if (a.loadLayerToInputs) a.loadLayerToInputs();
+                if (a.renderHardwareDock) a.renderHardwareDock();
+            }
+        },
         // Header/Footer (app-rigging.js): the bars above and below each
         // wall. Seven steps - the tab, the sizes, Auto, dragging a bar,
         // Custom, the side, the totals - and the binder's Header/Footer
@@ -8549,7 +8658,7 @@
                     'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'procCableList', 'panelWatts', 'panelInput', 'breakoutType',
                     'addDistro', 'nameDistro',
                     'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows',
-                    'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain',
+                    'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain', 'distroNeutral',
                     'multiCableSheet', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPerKind',
                     'cableStockPieces', 'powerCableTags',
                     'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',

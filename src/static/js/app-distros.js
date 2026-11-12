@@ -183,6 +183,11 @@ class _Distros {
         if (patch.main100 !== undefined) {
             if (patch.main100) d.main100 = true; else delete d.main100;
         }
+        // The power in's neutral (2026-11-11, app-neutral.js): on is a
+        // 200% neutral; off forgets the key, the 100% an old show reads.
+        if (patch.neutral200 !== undefined) {
+            if (patch.neutral200) d.neutral200 = true; else delete d.neutral200;
+        }
         // Accept overload: a call made about this show's load, kept until
         // somebody unticks it - it never clears itself when the load moves,
         // and it never changes a figure, only how the error reads.

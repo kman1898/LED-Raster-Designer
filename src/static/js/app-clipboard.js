@@ -398,6 +398,8 @@ class _Clipboard {
             powerVoltageCustom: layer.powerVoltageCustom,
             powerBreakoutType: layer.powerBreakoutType,
             powerPanelInput: layer.powerPanelInput,
+            // the panels' own LED supply harmonics travel with the copy
+            supplyHarmonics: layer.supplyHarmonics,
             powerAmperage: layer.powerAmperage,
             powerAmperageCustom: layer.powerAmperageCustom,
             panelWatts: layer.panelWatts,

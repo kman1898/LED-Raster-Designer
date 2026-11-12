@@ -545,7 +545,10 @@ class _PhaseBalance {
             moves.forEach(m => this._balanceWriteMove(m));
             this._circuitTailCache = null;
             for (const L of this.getDistroLoads()) {
-                if (L.id && L.legs) out.set(L.id, { imb: L.imbalancePct, busiest: L.legs.worstAmps });
+                if (L.id && L.legs) {
+                    out.set(L.id, { imb: L.imbalancePct, busiest: L.legs.worstAmps,
+                                    neutral: L.neutral ? L.neutral.amps : null });
+                }
             }
         } finally {
             for (const { layer, f } of saved) {
@@ -596,17 +599,28 @@ class _PhaseBalance {
         this._circuitTailCache = null;
         const loads = this.getDistroLoads()
             .filter(b => b.id && b.legs && (!distroId || b.id === distroId));
-        const beforeOf = (b) => ({ imb: b.imbalancePct, busiest: b.legs.worstAmps });
+        const beforeOf = (b) => ({ imb: b.imbalancePct, busiest: b.legs.worstAmps,
+                                   neutral: b.neutral ? b.neutral.amps : null });
         const afterOf = (b) => (kept.has(b.id) && afterReal.get(b.id)) || beforeOf(b);
         const worst = (f) => loads.reduce((m, b) => ({
             imb: Math.max(m.imb, f(b).imb), busiest: Math.max(m.busiest, f(b).busiest),
         }), { imb: 0, busiest: 0 });
         const before = worst(beforeOf);
         const after = worst(afterOf);
+        // The power in's neutral (2026-11-11, app-neutral.js), before and
+        // after: the busiest neutral show-wide, the distro's own when
+        // scoped. Balancing moves only the part that cancels; the LED
+        // supplies' harmonics stay on the neutral wherever a circuit lands.
+        const withN = loads.filter(b => b.neutral);
+        const nOf = (f) => (withN.length
+            ? Math.max(...withN.map(b => (f(b).neutral == null ? b.neutral.amps : f(b).neutral))) : null);
+        const nRec = withN.length === 1 ? withN[0].neutral : null;
         const targets = solved.flatMap(r => r.targets);
         return {
             before: before.imb, after: after.imb,
             beforeBusiest: before.busiest, afterBusiest: after.busiest,
+            beforeNeutral: nOf(beforeOf), afterNeutral: nOf(afterOf),
+            neutral: nRec ? { ratingA: nRec.ratingA, size: nRec.size, checked: nRec.checked } : null,
             searched: solved.reduce((t, r) => t + r.searched, 0),
             total: solved.reduce((t, r) => t + r.total, 0),
             exhaustive: solved.every(r => r.exhaustive),
@@ -759,6 +773,20 @@ class _PhaseBalance {
                so the labels still read in order across the wall.
                ${checked}.</div>`;
 
+        // The power in's neutral (2026-11-11, app-neutral.js): what it
+        // carries now and after, against its rating where one distro is
+        // read. Balancing only moves the part of it that cancels.
+        let neutralHtml = '';
+        if (r.beforeNeutral != null) {
+            const moved = r.moves.length && r.afterNeutral != null
+                && Math.abs(r.afterNeutral - r.beforeNeutral) >= 0.05;
+            const of = r.neutral && r.neutral.checked
+                ? ` of ${+r.neutral.ratingA.toFixed(1)} A (${r.neutral.size}% neutral)` : '';
+            neutralHtml = `<div class="balance-neutral" style="color:#8fa0b2; font-size:11px; margin-top:12px;">`
+                + `Neutral on the power in: ${moved ? `${amps(r.beforeNeutral)} → ${amps(r.afterNeutral)}`
+                    : `about ${amps(r.beforeNeutral)}`}${of}. Even legs cancel on the neutral, `
+                + 'but the LED supplies\' third harmonics add up on it wherever the circuits land.</div>';
+        }
         const el = document.createElement('div');
         el.id = ID;
         el.className = 'modal';
@@ -769,7 +797,7 @@ class _PhaseBalance {
     <h2 style="margin:0; font-size:15px; letter-spacing:0.5px;">BALANCE PHASE LEGS${distro ? `: ${esc(this.distroLabel(distro)).toUpperCase()}` : ''}</h2>
     <button class="btn btn-secondary balance-close" style="padding:4px 12px;">✕</button>
   </div>
-  <div style="padding:16px 20px; font-size:12px; line-height:1.55;">${body}</div>
+  <div style="padding:16px 20px; font-size:12px; line-height:1.55;">${body}${neutralHtml}</div>
   <div style="display:flex; gap:8px; justify-content:flex-end; padding:0 20px 16px;">
     <button class="btn btn-secondary balance-reset" title="Put every multi back on its natural breaker position and number the multis again in screen order">Reset offsets</button>
     <button class="btn btn-secondary balance-close">${r.moves.length ? 'Leave it' : 'Close'}</button>

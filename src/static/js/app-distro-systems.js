@@ -990,7 +990,12 @@ class _DistroSystems {
     // Line-to-neutral amps are the circuit's own voltage (a 110V circuit
     // draws its watts at 110, ruling 2026-08-28); line-to-line amps are the
     // distro's line figure.
-    _bookCircuitOnLegs(store, d, info, watts, circuitV) {
+    //
+    // A store carrying `ln` (getDistroLoads, app-neutral.js) also books a
+    // line-to-neutral circuit's amps for the power in's neutral, read at
+    // `triplen`, the circuit's LED supply harmonics; a line-to-line circuit
+    // puts nothing on the neutral.
+    _bookCircuitOnLegs(store, d, info, watts, circuitV, triplen) {
         const legs = info.legs || [];
         if (!legs.length) return;
         const names = this.distroLegNames(d);
@@ -1000,9 +1005,10 @@ class _DistroSystems {
             // this roll-up has always used.
             const vln = names.length === 3
                 ? this.distroLineVolts(d) / Math.sqrt(3) : this.distroNeutralVolts(d);
+            const amps = watts / (circuitV > 0 ? circuitV : vln);
             store.legWatts[legs[0]] += watts;
-            this._addLegPhasor(store.legPhasor, legs[0],
-                watts / (circuitV > 0 ? circuitV : vln), 0);
+            this._addLegPhasor(store.legPhasor, legs[0], amps, 0);
+            if (store.ln) this._bookNeutral(store.ln, legs[0], amps, triplen);
             return;
         }
         const vll = this.distroLineVolts(d) || 1;
@@ -1694,6 +1700,7 @@ class _DistroSystems {
             typeName: d.typeName || null,
             system: d.system, input: d.input || null, ratingA: d.ratingA,
             breakers100: !!d.breakers100, main100: !!d.main100,
+            neutral200: !!d.neutral200,
             phasing: d.phasing || null,
             directPhasing: d.directPhasing || null,
             rows: this.distroRows(d).map(r => ({ ...r })),
@@ -1714,7 +1721,7 @@ class _DistroSystems {
             typeName: typeName || null,
             system: body.system, input: body.input || null,
             ratingA: body.ratingA, breakers100: !!body.breakers100,
-            main100: !!body.main100,
+            main100: !!body.main100, neutral200: !!body.neutral200,
             phasing: body.phasing || null, directPhasing: body.directPhasing || null,
             outputRows: (body.rows || []).map(r => ({ ...r })),
         }, 'Apply Distro Preset');
@@ -1916,11 +1923,53 @@ class _DistroSystems {
                 + 'breakers have their own switch.', 'main100'));
             wrap.appendChild(r3);
         }
+        const load = typeof this.getDistroLoads === 'function'
+            ? this.getDistroLoads().find(x => x.id === d.id) : null;
+        // NEUTRAL (2026-11-11, app-neutral.js): whether the power in's
+        // neutral is 100% or 200% of its rating per leg, on a three-phase
+        // distro - the one whose neutral the LED supplies' harmonics can
+        // load past a leg. Absent is 100%, written for nobody.
+        if (this.distroLegNames(d).length === 3) {
+            const r5 = this._distroGearRow();
+            r5.classList.add('hw-pop-supply');
+            r5.appendChild(cap('Neutral'));
+            const ns = document.createElement('select');
+            ns.className = 'info-select';
+            ns.dataset.lrdField = `distro-neutral-${d.id}`;
+            [['100', '100%'], ['200', '200%']].forEach(([v, t]) => {
+                const opt = document.createElement('option');
+                opt.value = v;
+                opt.textContent = t;
+                if ((d.neutral200 ? '200' : '100') === v) opt.selected = true;
+                ns.appendChild(opt);
+            });
+            ns.title = 'How big the neutral in this distro\'s power in is: 100% is the '
+                + 'same size as each leg, 200% is twice it. LED panel power supplies '
+                + 'put third-harmonic current on the neutral that adds up instead of '
+                + 'cancelling, so a neutral can carry more than a leg even when the '
+                + 'legs are even. The Power tab warns when it is over.';
+            ns.addEventListener('change', () => {
+                if (patch({ neutral200: ns.value === '200' }) === null) {
+                    const live = this.getDistros().find(x => x.id === d.id);
+                    ns.value = live && live.neutral200 ? '200' : '100';
+                }
+            });
+            r5.appendChild(ns);
+            const N = load && load.neutral;
+            const reads = document.createElement('small');
+            reads.dataset.lrdNeutralReads = d.id;
+            reads.style.color = N && N.over ? '#e05050'
+                : (N && N.pastLimit ? '#d8a13c' : 'var(--ps-faint, #969696)');
+            reads.textContent = N
+                ? `${+this.distroNeutralRatingA(d).toFixed(1)} A, carrying about ${Math.round(N.amps)} A`
+                : `${+this.distroNeutralRatingA(d).toFixed(1)} A`;
+            if (N) reads.title = this.distroNeutralTitle(d, N);
+            r5.appendChild(reads);
+            wrap.appendChild(r5);
+        }
         // Accept overload: offered while the busiest leg is past the
         // limit, and kept on show while ticked - an acceptance stays until
         // somebody unticks it, whatever the load does after.
-        const load = typeof this.getDistroLoads === 'function'
-            ? this.getDistroLoads().find(x => x.id === d.id) : null;
         if ((load && load.over) || d.overloadAccepted) {
             const r4 = this._distroGearRow();
             const why = load && load.over

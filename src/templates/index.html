@@ -1349,6 +1349,33 @@
                             <label>Watts per Panel</label>
                             <input type="text" inputmode="decimal" id="power-panel-watts" value="200" autocomplete="off" style="width: 64px;" placeholder="e.g., 200 or 200+50">
                         </div>
+                        <!-- LED supply harmonics (2026-11-11, app-neutral.js): how
+                             much third-harmonic current the panels' power
+                             supplies draw, which adds up on a three-phase
+                             distro's neutral. One setting for the show, and
+                             a screen can set its own panels apart. -->
+                        <div class="lrd-side-block" style="margin-bottom: 12px;">
+                            <label class="lrd-side-block-h">LED Supply Harmonics</label>
+                            <div class="info-row" style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px;" data-tooltip="Show, The power supplies in this show's panels. Supplies with active PFC (a power factor of 0.95 or better on the supply's sheet) draw little third-harmonic current; supplies with no PFC draw a lot. On a three-phase distro that current adds up on the neutral of the power in instead of cancelling, so the Power tab reads the neutral with it. Custom takes the third harmonic as a percent of the supply's current.">
+                                <label style="font-weight: 400;">Show</label>
+                                <select id="power-harmonics-show" class="info-select" style="flex: 1 1 0; min-width: 0;">
+                                    <option value="pfc">Active PFC (low), 33%</option>
+                                    <option value="nopfc">No PFC (high), 87%</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="number" id="power-harmonics-show-pct" min="0" max="100" step="1" autocomplete="off" aria-label="Show supply harmonics, percent" style="width: 52px; display: none;">
+                            </div>
+                            <div class="info-row" style="display: flex; flex-wrap: wrap; align-items: center; gap: 5px;" data-tooltip="This screen, The power supplies in this screen's panels, when they differ from the rest of the show. Same as show follows the show's setting.">
+                                <label style="font-weight: 400;">This screen</label>
+                                <select id="power-harmonics-screen" data-lrd-field="power-harmonics-screen" class="info-select" style="flex: 1 1 0; min-width: 0;">
+                                    <option value="">Same as show</option>
+                                    <option value="pfc">Active PFC (low), 33%</option>
+                                    <option value="nopfc">No PFC (high), 87%</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="number" id="power-harmonics-screen-pct" data-lrd-field="power-harmonics-screen-pct" min="0" max="100" step="1" autocomplete="off" aria-label="This screen's supply harmonics, percent" style="width: 52px; display: none;">
+                            </div>
+                        </div>
 
                         <div style="padding: 8px; background: #111; border: 1px solid #333; border-radius: 4px; font-size: 12px; color: #ccc; margin-bottom: 12px;">
                             <div>Watts/Circuit: <span id="power-watts-per-circuit">0</span></div>

@@ -347,6 +347,14 @@ IP ADDRESSES ON THE PROCESSORS
 
 ALSO NEW
 
+- NEW: A three-phase distro shows the current on the neutral of its power
+  in, N on its LEGS line. Even legs cancel on the neutral, but LED power
+  supplies add third-harmonic current that does not, so a neutral can carry
+  more than a leg. Set Neutral to 100% or 200% behind the distro's gear,
+  and the Power tab warns when the neutral is past its rating. Pick your
+  panels' supplies under LED Supply Harmonics on the Power tab: Active PFC,
+  No PFC or your own percent, for the show or one screen. The binder's
+  distro sheet and the Balance dialog print the neutral too.
 - NEW: The Notes panel has a checklist under the notes: add items, tick
   them off, drag to reorder. It saves with the show and follows on every
   connected window.

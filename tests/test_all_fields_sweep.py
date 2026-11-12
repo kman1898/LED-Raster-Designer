@@ -219,6 +219,16 @@ SKIP = {
     'power-jump-unit':
         'writes project.cableUnit, not the layer; driven end-to-end by '
         'tests/test_show_unit_switch.py',
+    # The show's LED supply harmonics (2026-11-11, app-neutral.js): a
+    # project setting (project.supplyHarmonics through
+    # setShowSupplyHarmonics). The screen's own pair beside it is layer
+    # state and is swept like any other field.
+    'power-harmonics-show':
+        'writes project.supplyHarmonics, not the layer; driven end-to-end by '
+        'tests/test_power_neutral.py',
+    'power-harmonics-show-pct':
+        'writes project.supplyHarmonics, not the layer; driven end-to-end by '
+        'tests/test_power_neutral.py',
     # The Curve's lock positions editor (app-curve.js): a staging box for
     # Add; Save writes the show's list for the panel (project.panelCurveLocks).
     'rigging-curve-lock-input':

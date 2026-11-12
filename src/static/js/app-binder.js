@@ -9131,6 +9131,11 @@ class _Binder {
         if (load) {
             pairs.push(['Load', this._bDistroLoadText(d, load)]);
             if (load.legs) pairs.push(['Imbalance', `${this._bNum(load.imbalancePct, 1)}%`]);
+            // The power in's neutral with the LED supplies' harmonics
+            // (2026-11-11, app-neutral.js), where it carries any.
+            if (load.neutral) {
+                pairs.push(['Neutral', this.distroNeutralText(d, load.neutral, x => this._bNum(x, 1))]);
+            }
         }
         // A multi left on a one-circuit output (a show already in that
         // state, 2026-10-18): the output's load against what it carries.

@@ -1809,6 +1809,7 @@ class _ScreenInfo {
                     powerSocaKeying: this.currentLayer.powerSocaKeying,
                     powerBreakoutType: this.currentLayer.powerBreakoutType,
                     powerPanelInput: this.currentLayer.powerPanelInput,
+                    supplyHarmonics: this.currentLayer.supplyHarmonics,
                     showSocaBrackets: this.currentLayer.showSocaBrackets,
                     powerSplitters: this.currentLayer.powerSplitters,
                     powerCustomPaths: this.currentLayer.powerCustomPaths,
@@ -2023,7 +2024,7 @@ class _ScreenInfo {
                 // or the power map loses its home runs.
                 'powerSocaLengths', 'powerSocaPhaseOffset',
                 'powerSocaPhasePos', 'powerSocaDistro', 'powerBreakoutType',
-                'powerPanelInput', 'showSocaBrackets', 'powerSplitters',
+                'powerPanelInput', 'supplyHarmonics', 'showSocaBrackets', 'powerSplitters',
                 // The names typed onto multis, the numbers pinned onto them
                 // (the shared-box key), the circuit boundaries a multi was
                 // split at, and the stamp saying the stores above are keyed

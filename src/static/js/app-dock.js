@@ -3037,6 +3037,9 @@ class _HardwareDock {
         // breaker and connector limits, powerCON XX at 208V, a paired
         // circuit patched twice, a multi past the face.
         for (const w of this.distroChecks(d)) this._dockPowerWarnings.push(w);
+        // The power in's neutral (2026-11-11, app-neutral.js): red past its
+        // rating, amber past 80% of it.
+        for (const w of this.distroNeutralWarnings(d, load)) this._dockPowerWarnings.push(w);
         // Balance sits ON the header (legs never interact across services,
         // so each distro carries its own), and the electrical setup -
         // rating, voltage, phase, phasing, location, remove - lives behind
@@ -3124,7 +3127,12 @@ class _HardwareDock {
         // a folded distro still reads its balance at a glance - the
         // sidebar's folded-glance bars generalized to an always-on line.
         const legs = this._dockDistroLegsLine(load);
-        if (legs) unit.appendChild(legs);
+        if (legs) {
+            // the power in's neutral rides at the end of the line
+            const n = this._dockNeutralChip(d, load);
+            if (n) legs.appendChild(n);
+            unit.appendChild(legs);
+        }
         // The OUTPUTS row rides under LEGS, but it FOLDS with the card
         // (owner, 2026-10-30: "When you minimize distro, we do not need to
         // see the multi and l2130 stuff that you can drag since it is

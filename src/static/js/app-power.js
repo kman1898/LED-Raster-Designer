@@ -2682,10 +2682,15 @@ class _Power {
     // that leg against `limitA` - the main's continuous limit, 80% of the
     // rating on a US system unless its main is 100% rated - while `pct`
     // stays a share of the rating.
+    //
+    // `neutral` (2026-11-11, app-neutral.js): the power in's neutral, its
+    // line-to-neutral circuits' phasor sum with the LED supplies' triplen
+    // harmonics added in, or null where it carries none.
     getDistroLoads() {
         const distros = this.getDistros();
         const mk = (d) => ({
             distro: d, socas: [], watts: 0,
+            ln: this._neutralStore(),
             legWatts: { X: 0, Y: 0, Z: 0 },
             legPhasor: { X: { re: 0, im: 0 }, Y: { re: 0, im: 0 }, Z: { re: 0, im: 0 } },
             pairWatts: {}
@@ -2737,6 +2742,7 @@ class _Power {
                 // correctly because both land in one phasor store.
                 const d = b.distro;
                 if (d && this.distroLegNames(d).length) {
+                    const triplen = this.supplyTriplenFraction(layer);
                     const pos = this.socaCircuitPositions(layer, s.soca, s.legs.length);
                     for (let li = 0; li < s.legs.length; li++) {
                         const info = this.distroCircuitLegs(d, layer, s, li, pos);
@@ -2746,7 +2752,7 @@ class _Power {
                             }
                             b.scheme = info.scheme;
                         }
-                        this._bookCircuitOnLegs(b, d, info, s.legs[li].watts, circuitV);
+                        this._bookCircuitOnLegs(b, d, info, s.legs[li].watts, circuitV, triplen);
                     }
                 }
             }
@@ -2806,6 +2812,7 @@ class _Power {
                 legs.pairWatts = b.pairWatts;
                 amps = legs.worstAmps;
             }
+            const neutral = d && names.length ? this.distroNeutral(d, b.ln) : null;
             return {
                 id: d ? d.id : null,
                 name: d ? this.distroLabel(d) : 'Unassigned',
@@ -2823,7 +2830,7 @@ class _Power {
                 // the distro carries it, over or not (it clears only when
                 // somebody unticks it).
                 overloadAccepted: !!(d && d.overloadAccepted),
-                legs, imbalancePct,
+                legs, imbalancePct, neutral,
                 socas: b.socas
             };
         };
@@ -3230,6 +3237,8 @@ class _Power {
     // Static controls, synced in place (never wiped), so there is no focus
     // to preserve; a control someone is standing in is left alone.
     refreshSocaRuns() {
+        // The LED supply harmonics pair (app-neutral.js) syncs with them.
+        if (typeof this.syncSupplyHarmonicsControls === 'function') this.syncSupplyHarmonicsControls();
         const sel = document.getElementById('power-breakout-type');
         const brk = document.getElementById('show-soca-brackets');
         if (!sel && !brk) return;
