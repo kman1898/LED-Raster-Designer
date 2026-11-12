@@ -784,7 +784,7 @@ class _Distros {
                 if (Array.isArray(store[rec.index])) continue;
                 const L = rec.circuits.length;
                 const pos = rec.positions;
-                const cap = this.socaBoxSize(l);
+                const cap = this.socaBoxSize(l, rec.index);
                 if (!Array.isArray(pos) || pos.length !== L) continue;
                 if (!pos.every(p => Number.isInteger(p) && p >= 1 && p <= cap)
                     || new Set(pos).size !== L) continue;

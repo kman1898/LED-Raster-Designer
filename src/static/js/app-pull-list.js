@@ -459,7 +459,7 @@ class _PullList {
         if (box.kind === 'direct') return 'direct';
         const conn = box.connectorId || (box.conn && box.conn.id) || '';
         const type = String(box.typeId || box.id || '');
-        if (conn === 'l2130' || type.startsWith('l2130')) return 'l2130';
+        if (conn.startsWith('l2130') || type.startsWith('l2130')) return 'l2130';
         if (conn === 'harting') return 'harting';
         return 'multi';
     }
@@ -1860,7 +1860,7 @@ class _PullList {
             const distroName = box.distro || '';
             const at = locationOf(distroById.get(box.distroId));
             const isL2130 = String(box.typeId || '').startsWith('l2130')
-                || box.connectorId === 'l2130';
+                || String(box.connectorId || '').startsWith('l2130');
             const isHarting = box.connectorId === 'harting';
             const breakoutType = isL2130
                 ? `L21-30 ${box.connector} Breakout`

@@ -1055,7 +1055,7 @@ NEW_IN_1_7 = ['quickPalettes', 'processorIp', 'breakerOver', 'edisonType', 'dist
               'outputOpen', 'outputChoices',
               'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
               'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist', 'groupDrag', 'groupMove',
-              'riggingSheet', 'objExport', 'checkUpdates']
+              'riggingSheet', 'objExport', 'mixedSources', 'checkUpdates']
 
 
 def test_the_guide_step_shows_the_palettes(page):

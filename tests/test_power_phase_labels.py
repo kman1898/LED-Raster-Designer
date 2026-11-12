@@ -2332,18 +2332,21 @@ def test_the_breakout_select_gates_on_the_screen_voltage(page):
     }""")
     for key in ('at110', 'at120'):
         low = {o['id']: o['disabled'] for o in out[key]}
-        for ok in ('soca-true1', 'soca-powercon', 'soca-edison'):
+        for ok in ('soca-true1', 'soca-powercon', 'soca-edison', 'l2130-edison'):
             assert low[ok] is False, (key, ok, out)
         for other in ('soca-l620', 'l2130-true1', 'l2130-powercon'):
             assert low[other] is True, (key, other, out)
     d208 = {o['id']: o['disabled'] for o in out['at208']}
+    # the L21-30 Edison box (2026-11-11) is six 110V circuits
     assert d208 == {'soca-true1': False, 'soca-powercon': False,
                     'soca-edison': True, 'soca-l620': False,
-                    'l2130-true1': False, 'l2130-powercon': False}, out
+                    'l2130-true1': False, 'l2130-powercon': False,
+                    'l2130-edison': True}, out
     d230 = {o['id']: o['disabled'] for o in out['at230']}
     assert d230 == {'soca-true1': False, 'soca-powercon': False,
                     'soca-edison': True, 'soca-l620': False,
-                    'l2130-true1': True, 'l2130-powercon': True}, out
+                    'l2130-true1': True, 'l2130-powercon': True,
+                    'l2130-edison': True}, out
     # the stored Edison at 230V earns no exemption: the select shows the
     # breakout in force (True1), and Edison stays greyed with the reason
     assert out['shown230'] == 'soca-true1', out
@@ -2355,7 +2358,9 @@ def test_the_breakout_select_gates_on_the_screen_voltage(page):
     blank = {o['id']: o['disabled'] for o in out['atBlank']}
     assert blank == {'soca-true1': False, 'soca-powercon': False,
                      'soca-edison': False, 'soca-l620': False,
-                     'l2130-true1': True, 'l2130-powercon': True}, out
+                     'l2130-true1': True, 'l2130-powercon': True,
+                     # like Edison, the L21-30 Edison box waits on no voltage
+                     'l2130-edison': False}, out
     tblank = {o['id']: o['title'] for o in out['atBlank']}
     assert tblank['l2130-powercon'] == \
         'Not available until a voltage is set: L21-30 is 208V only.', tblank

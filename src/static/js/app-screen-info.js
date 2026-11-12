@@ -1892,6 +1892,13 @@ class _ScreenInfo {
             if (pruned.length) layers = layers.concat(pruned);
         }
 
+        // A power source nobody feeds any more goes, and its circuits
+        // fall back to the screen's own (app-power-sources.js), in this
+        // save and this undo step.
+        if (typeof this.pruneDormantPowerSources === 'function') {
+            this.pruneDormantPowerSources(layers);
+        }
+
         // A wall that shrank: its drawn data ports drop the cabinets that
         // fell off, a port left with none goes and the ports after it close
         // up (app-merge-runs.js trimPortsOffWall). A screen whose paths that

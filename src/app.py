@@ -637,6 +637,8 @@ def initialize_default_layer():
 POWER_BREAKOUT_IDS = (
     'soca-true1', 'soca-powercon', 'soca-edison', 'soca-l620',
     'l2130-true1', 'l2130-powercon',
+    # the L21-30 Edison box: six 110V Edison circuits, two per leg
+    'l2130-edison',
 )
 # Mirrors getPreferencesDefaults().breakoutType in app-preferences.js - the
 # breakout a client with no saved preference reads - so a server that has
@@ -694,8 +696,8 @@ def power_breakout_eligible(breakout_id, voltage):
         return False
     v = _power_voltage_number(voltage)
     if 0 < v <= 120:
-        return bid in ('soca-true1', 'soca-powercon', 'soca-edison')
-    if bid == 'soca-edison':
+        return bid in ('soca-true1', 'soca-powercon', 'soca-edison', 'l2130-edison')
+    if bid in ('soca-edison', 'l2130-edison'):
         return v <= 0
     if bid.startswith('l2130-'):
         return v == 208
@@ -766,6 +768,9 @@ COPIED_SCREEN_FEED_KEYS = (
     'powerSocaDistro', 'powerSocaNumber', 'powerSocaPhasePos',
     'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaLengths',
     'powerCircuitCables',
+    # where another kind of source takes over the screen's circuits (a drop
+    # from a distro, app-power-sources.js): a feed, so a copy starts without
+    'powerSources',
 )
 
 

@@ -365,6 +365,20 @@ POWER CHECKS
   The Voltage tooltip says it plainly: 208V saves circuits and cable, not
   distro amps.
 
+DIFFERENT POWER ON ONE SCREEN
+
+- NEW: One screen can take power from different kinds of source, like a
+  Socapex at 208V and an L21-30 Edison box at 110V. Drag the other output
+  onto the screen and the circuits from there on ride it: they are laid
+  again for that source's voltage and breaker, the way the screen is set to
+  lay its circuits, and the circuits before it stay as they were. Each
+  circuit's amps, the distro's legs, the checks and the binder use its own
+  source, and the tray says which source each circuit is on.
+- NEW: The L21-30 Edison box: an L21-30 output feeding six 110V Edison
+  circuits, two on each leg, planned at 15 A each so a circuit holds 12 A
+  and a leg 24 A. Pick it on a spare box's type chip or add it to a
+  distro's outputs. The L21-30 box with three 208V circuits is still there.
+
 POWER FIXES
 
 - FIX (IMPORTANT): A US 240V or 277V screen on no distro packed its

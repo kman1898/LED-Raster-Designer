@@ -476,8 +476,23 @@ class _Power {
     // `cap` names it: { amps, why } or null.
     circuitCapacity(layer) {
         const voltage = parseFloat(layer && layer.powerVoltage) || 0;
-        const breakerA = parseFloat(layer && layer.powerAmperage) || 0;
+        // A breakout whose box fixes its circuits' breaker (the L21-30
+        // Edison box, 15 A a circuit) packs at that, not the Amperage box.
+        const fixedA = layer && (layer.type || 'screen') === 'screen'
+            ? Number(this.getPowerBreakout(layer).circuitA) || 0 : 0;
+        let breakerA = fixedA > 0 ? fixedA : (parseFloat(layer && layer.powerAmperage) || 0);
+        // A screen's circuits laid again for another kind of source
+        // (app-power-sources.js _relayCustomPowerFrom) are cut at THAT
+        // source's circuit; the % stays the distro's.
+        const probe = this._specProbe;
         const rule = this._circuitPackRule(layer, voltage);
+        if (probe) {
+            const v = Number(probe.volts) || 0;
+            const a = Number(probe.breakerA) || 0;
+            return { voltage: v, breakerA: a, pct: rule.pct, amps: a * rule.pct,
+                     watts: v * a * rule.pct, us: rule.us, rated100: rule.us && rule.pct >= 1,
+                     byDistro: !!rule.byDistro, onDistro: !!rule.onDistro };
+        }
         const pct = rule.pct;
         let amps = breakerA * pct;
         const cap = this._circuitConnectorCap(layer);
@@ -508,7 +523,10 @@ class _Power {
             const map = s.powerSocaDistro || {};
             // The L21-30 feed: the strictest distro the screen is on, else
             // the US rule a 208V L21-30 runs under (80% of 30 A).
-            if (bt && bt.feedLegA > 0) {
+            // (the 3 x 208V box only: the L21-30 Edison box's six 110V
+            // circuits sit two to a leg, line to neutral, so its own 15 A
+            // circuit already keeps a leg at 24 A)
+            if (bt && bt.feedLegA > 0 && Number(bt.boxSize) === 3) {
                 let feed = null;
                 for (const id of new Set(Object.values(map).filter(Boolean))) {
                     const d = distros.find(x => x && x.id === id);
@@ -538,6 +556,11 @@ class _Power {
                     if (!(Number.isFinite(n) && n >= 1)) continue;
                     const box = this.faceBox(d, n);
                     if (!box || !box.conn || box.conn.id !== 'edison') continue;
+                    // an Edison output another kind of source brings onto a
+                    // screen fed from several (app-power-sources.js) holds
+                    // that source's circuits only, never the screen's own
+                    if ((Array.isArray(s.powerSources) ? s.powerSources : [])
+                        .some(rec => rec && rec.distroId === d.id && rec.rowId === box.rowId)) continue;
                     const et = this.edisonRowType(box.row);
                     if (!et.picked) continue;
                     take(et.ratingA * 0.8, `Its circuits are on Edison ${et.name} outputs, which carry `
@@ -1125,8 +1148,28 @@ class _Power {
     _socaSegments(layer, count) {
         const n = Math.max(0, Number(count) || 0);
         if (!n) return [];
-        const size = this.socaBoxSize(layer);
         const stored = new Set(this._socaSplitPoints(layer, n));
+        // A screen fed from several kinds of source: each source's run of
+        // circuits is boxed on its own grid, from its own first circuit, at
+        // its own box size (app-power-sources.js). Every other screen is
+        // the one grid it always was.
+        const ranges = typeof this.powerSourceRanges === 'function'
+            ? this.powerSourceRanges(layer, n) : null;
+        if (ranges) {
+            const segs = [];
+            for (const r of ranges) {
+                let start = r.start;
+                for (let i = r.start; i <= r.end; i++) {
+                    if (i === r.end || (i - r.start + 1) % r.spec.boxSize === 0 || stored.has(i)) {
+                        segs.push({ index: segs.length + 1, start, end: i,
+                                    userEnd: stored.has(i) && i !== r.end, spec: r.spec });
+                        start = i + 1;
+                    }
+                }
+            }
+            return segs;
+        }
+        const size = this.socaBoxSize(layer);
         const segs = [];
         let start = 1;
         for (let i = 1; i <= n; i++) {
@@ -1137,6 +1180,32 @@ class _Power {
             }
         }
         return segs;
+    }
+
+    // Whether a multi boundary after circuit `i` is the box grid's own -
+    // no split needed to put one there (the grid line, or a source's last
+    // circuit on a screen fed from several kinds of source).
+    _socaGridBoundary(layer, i, count) {
+        const ranges = typeof this.powerSourceRanges === 'function'
+            ? this.powerSourceRanges(layer, count) : null;
+        if (!ranges) return i % this.socaBoxSize(layer) === 0;
+        const r = ranges.find(x => x.start <= i && i <= x.end);
+        return !r || i === r.end || (i - r.start + 1) % r.spec.boxSize === 0;
+    }
+
+    // The first circuit of the grid cell circuit `o` sits in, and the
+    // cell's size: the box grid from circuit 1, or from the first circuit
+    // of `o`'s source on a screen fed from several kinds.
+    _socaGridCell(layer, o, count) {
+        const ranges = typeof this.powerSourceRanges === 'function'
+            ? this.powerSourceRanges(layer, count) : null;
+        if (!ranges) {
+            const size = this.socaBoxSize(layer);
+            return { start: Math.floor((o - 1) / size) * size + 1, size, end: count };
+        }
+        const r = ranges.find(x => x.start <= o && o <= x.end) || ranges[ranges.length - 1];
+        const size = r.spec.boxSize;
+        return { start: r.start + Math.floor((o - r.start) / size) * size, size, end: r.end };
     }
 
     // ordinal (1-based) -> soca index, flat for the per-circuit walks.
@@ -1413,7 +1482,8 @@ class _Power {
         const segs = this._socaSegments(layer, count);
         const seg = segs.find(s => s.start <= o && o <= s.end);
         if (!seg) return none;
-        const size = this.socaBoxSize(layer);
+        const cell = this._socaGridCell(layer, o, count);
+        const size = cell.size;
         const n = parseInt(number, 10);
         const assign = layer.powerSocaDistro || {};
         const pins = layer.powerSocaNumber || {};
@@ -1430,8 +1500,8 @@ class _Power {
             return { ok: false, why: 'other-box', free: 0, remaining: 0,
                      take: 0, nums: [], seg, ordinal: o };
         }
-        const cellStart = Math.floor((o - 1) / size) * size + 1;
-        const cellEnd = Math.min(count, cellStart + size - 1);
+        const cellStart = cell.start;
+        const cellEnd = Math.min(cell.end, cellStart + size - 1);
         // A face box (1.5) is as big as its connector. A DIRECT output is one
         // circuit: it takes the circuit it was dropped on, the way a circuit
         // chip does, not the first of the cell.
@@ -1453,7 +1523,8 @@ class _Power {
         for (const m of members) {
             const ml = ((this.project && this.project.layers) || [])
                 .find(l => l.id === m.layerId);
-            if (ml) cap = Math.min(cap, this.socaBoxSize(ml));
+            // (this screen's own box is the cell's size, already in `cap`)
+            if (ml && ml !== layer) cap = Math.min(cap, this.socaBoxSize(ml, m.soca));
             if (!m.pinned) continue;
             const ms = m.layerId === layer.id
                 ? segs.find(s => s.index === m.soca) : null;
@@ -1532,7 +1603,6 @@ class _Power {
     // check puts back (_repackRefused).
     _takeSocaApply(layer, plan, distroId) {
         const count = this.screenCircuits(layer).length;
-        const size = this.socaBoxSize(layer);
         const segs = this._socaSegments(layer, count);
         const start = plan.spanStart;
         const end = plan.spanEnd;
@@ -1547,6 +1617,7 @@ class _Power {
         const cut = segs.find(s => s.start <= end && s.end > end);
         const assign = layer.powerSocaDistro || {};
         let carry = null;
+        const size = this.socaBoxSize(layer, cut ? cut.index : null);
         if (cut && assign[cut.index]) {
             const rec = this._powerNaming(layer).socas.get(cut.index);
             const pinNum = parseInt((layer.powerSocaNumber || {})[cut.index], 10);
@@ -1583,8 +1654,8 @@ class _Power {
         }
         const points = this._socaSplitPoints(layer, count)
             .filter(p => p < start - 1 || p > end);
-        if (start > 1 && (start - 1) % size !== 0) points.push(start - 1);
-        if (end < count && end % size !== 0) points.push(end);
+        if (start > 1 && !this._socaGridBoundary(layer, start - 1, count)) points.push(start - 1);
+        if (end < count && !this._socaGridBoundary(layer, end, count)) points.push(end);
         this._resegmentSocaStores(layer, points);
         const idxOf = this._socaIndexByOrdinal(
             this._socaSegments(layer, count));
@@ -1742,7 +1813,7 @@ class _Power {
         const L = rec.circuits.length;
         // The tails the wall was showing, held only when they are a fan
         // arrangement worth holding - the _materializeSocaBox test.
-        const cap = this.socaBoxSize(layer);
+        const cap = this.socaBoxSize(layer, idx);
         const shown = rec.positions;
         const pos = (Array.isArray(shown) && shown.length === L
             && shown.every(p => Number.isInteger(p) && p >= 1 && p <= cap)
@@ -1887,6 +1958,11 @@ class _Power {
         circuits.forEach((c, ci) => {
             const n = idxOf[ci + 1];
             const leg = ci + 2 - segs[n - 1].start;
+            // A screen fed from several kinds of source: the multi's own
+            // source says the voltage its circuits draw at (absent on
+            // every other screen - the screen's voltage, as always).
+            const spec = segs[n - 1].spec || null;
+            const v = spec ? spec.volts : voltage;
             // A cross-member circuit carries cabinets from a PEER layer, and
             // those cabinets draw the peer's wattage, not the owner's -
             // screenCircuits hands back `layers` index-aligned with `panels`
@@ -1905,6 +1981,7 @@ class _Power {
                 distroId: (info && info.distroId) || null,
                 legs: [], watts: 0, x1: Infinity, x2: -Infinity
             };
+            if (spec) { s.spec = spec; s.voltage = spec.volts; }
             // per-leg x extent so the power map can tick each leg to the
             // columns it feeds (Binder convention)
             let lx1 = Infinity, lx2 = -Infinity;
@@ -1918,7 +1995,7 @@ class _Power {
                 label: this.getPowerCircuitLabel(layer, c.num),
                 // a blank cabinet on a drawn path is fed by nothing
                 tiles: c.panels.filter(p => p && !p.blank).length, watts,
-                amps: voltage ? watts / voltage : 0,
+                amps: v ? watts / v : 0,
                 x1: Number.isFinite(lx1) ? lx1 : null,
                 x2: Number.isFinite(lx2) ? lx2 : null
             });
@@ -1946,7 +2023,7 @@ class _Power {
         });
         return plans.map(s => ({
             ...s,
-            amps: voltage ? s.watts / voltage : 0,
+            amps: (s.spec ? s.spec.volts : voltage) ? s.watts / (s.spec ? s.spec.volts : voltage) : 0,
             length: (layer.powerSocaLengths || {})[s.soca] || null
         }));
     }
@@ -1979,7 +2056,15 @@ class _Power {
             // 6-circuit soca. It hangs on a distro number like a multi
             // does, with 3 tails.
             { id: 'l2130-true1', name: 'L21-30 (3 × 208V) → TRUE1', connector: 'TRUE1', boxSize: 3, feedLegA: 30, breakoutItem: 'L21-30 breakouts → TRUE1' },
-            { id: 'l2130-powercon', name: 'L21-30 (3 × 208V) → powerCON', connector: 'powerCON', boxSize: 3, feedLegA: 30, breakoutItem: 'L21-30 breakouts → powerCON' }
+            { id: 'l2130-powercon', name: 'L21-30 (3 × 208V) → powerCON', connector: 'powerCON', boxSize: 3, feedLegA: 30, breakoutItem: 'L21-30 breakouts → powerCON' },
+            // The L21-30 EDISON box (owner, 2026-11-11, ruled from a real
+            // box: an L21-30 inlet, three 5-20 duplexes split-wired into six
+            // outlets, each on its own breaker). Planned as SIX 110V Edison
+            // circuits, TWO PER LEG sharing the 30 A leg: "basically a 15
+            // amp per leg breakout at 110" - so every circuit is a 15 A
+            // circuit (`circuitA`), packed to 12 A, whatever the screen's
+            // own Amperage box says. Pass-through is not modeled.
+            { id: 'l2130-edison', name: 'L21-30 Edison (6 × 110V)', connector: 'Edison', boxSize: 6, feedLegA: 30, circuitA: 15, outletBreakerA: 20, outletRatingA: 20, outletName: 'Edison 5-20', legOrder: 'xyz', breakoutItem: 'L21-30 Edison breakouts', tailItem: 'Edison → panels' }
         ];
     }
 
@@ -2046,7 +2131,7 @@ class _Power {
     // Whether a breakout leaves the panel input to the screen.
     breakoutHasPanelInputChoice(bt) {
         const id = bt && bt.id;
-        return id === 'soca-edison' || id === 'soca-l620';
+        return id === 'soca-edison' || id === 'soca-l620' || id === 'l2130-edison';
     }
 
     // The panel input in force on a screen: { id, name }.
@@ -2120,7 +2205,15 @@ class _Power {
     // authority for the box shape - segmentation, tail clamps, the balance
     // search, the leg maps and the dock's chip grid all read it, so a
     // 3-tail L21-30 box can never render six chips or deal a tail 4.
-    socaBoxSize(layer) {
+    // `socaIndex`, where the caller knows the multi: on a screen fed from
+    // more than one kind of source (app-power-sources.js) each multi's box
+    // is its own source's; on every other screen it is the screen's.
+    socaBoxSize(layer, socaIndex = null) {
+        if (socaIndex != null && layer && Array.isArray(layer.powerSources)
+                && layer.powerSources.length && typeof this.socaSpec === 'function') {
+            const spec = this.socaSpec(layer, socaIndex);
+            if (spec) return spec.boxSize;
+        }
         const n = Number(this.getPowerBreakout(layer).boxSize);
         return Number.isFinite(n) && n >= 1 ? n : 6;
     }
@@ -2159,9 +2252,11 @@ class _Power {
         const v = this.voltageNumber(voltage);
         const id = String(type && type.id);
         if (v > 0 && v <= 120) {
-            return ['soca-true1', 'soca-powercon', 'soca-edison'].includes(id);
+            return ['soca-true1', 'soca-powercon', 'soca-edison', 'l2130-edison'].includes(id);
         }
-        if (id === 'soca-edison') return v <= 0;
+        // The L21-30 Edison box is six 110V circuits: a screen up to 120V
+        // (or one with no voltage yet), like Edison.
+        if (id === 'soca-edison' || id === 'l2130-edison') return v <= 0;
         if (id.startsWith('l2130-')) return v === 208;
         return true;
     }
@@ -2171,6 +2266,7 @@ class _Power {
         const v = this.voltageNumber(voltage);
         const at = v > 0 ? `at ${v}V` : 'until a voltage is set';
         const id = String(type && type.id);
+        if (id === 'l2130-edison') return `Not available ${at}: the L21-30 Edison box is six 110V circuits.`;
         if (id.startsWith('l2130-')) return `Not available ${at}: L21-30 is 208V only.`;
         if (id === 'soca-edison') return `Not available ${at}: Edison is for screens up to 120V.`;
         return `Not available ${at}: a screen up to 120V runs Multi → TRUE1, powerCON or Edison.`;
@@ -2301,6 +2397,12 @@ class _Power {
               glyph: 'l2130', faces: ['true1', 'powercon'], volts: [208],
               voltsExact: true,
               breakouts: ['l2130-true1', 'l2130-powercon'], badge: 'L21-30' },
+            // The second kind of L21-30 box (owner, 2026-11-11): six 110V
+            // Edison circuits, two per leg, 15 A each. The 3 × 208V box
+            // above stays as it was.
+            { id: 'l2130e', name: 'L21-30 Edison', sub: '6 × 110V Edison', optIn: true,
+              glyph: 'l2130', faces: ['edison'], volts: [110, 120],
+              breakouts: ['l2130-edison'], badge: 'L21-30 EDISON' },
         ].map(t => Object.assign(t, shape(t.breakouts)));
     }
 
@@ -2311,7 +2413,9 @@ class _Power {
     // one included, is somebody's paperwork and stands as written.
     distroOutputs(d) {
         const types = this.getDistroOutputTypes();
-        if (!d || !Array.isArray(d.outputs)) return types;
+        // the L21-30 Edison box (`optIn`) is offered once it is ticked, so
+        // an older distro's face reads as it always did
+        if (!d || !Array.isArray(d.outputs)) return types.filter(t => !t.optIn);
         return types.filter(t => d.outputs.includes(t.id));
     }
 
@@ -2370,9 +2474,13 @@ class _Power {
         for (const m of list) {
             const l = ((this.project && this.project.layers) || [])
                 .find(x => x.id === m.layerId);
-            const t = l ? this.outputTypeForBreakout(this.getPowerBreakout(l),
-                                                     l.powerVoltage)
-                : null;
+            // a multi on its own source (a screen fed from several kinds)
+            // implies that source's type
+            const ms = l && Array.isArray(l.powerSources) && l.powerSources.length
+                ? this.socaSpec(l, m.soca) : null;
+            const t = !l ? null : ms
+                ? this.outputTypeForBreakout(ms.breakout, ms.volts)
+                : this.outputTypeForBreakout(this.getPowerBreakout(l), l.powerVoltage);
             if (t && (!implied || t.boxSize < implied.boxSize)) implied = t;
         }
         const stored = this.distroStoredBoxType(d, n);
@@ -2552,9 +2660,11 @@ class _Power {
     // which would read True1 for every spare. Off any distro the screen's
     // own breakout is the whole answer. A DIRECT output has no breakout:
     // its tail is the outlet itself. Returns a connector id.
-    boxTailConnector(d, number, layer) {
+    boxTailConnector(d, number, layer, socaIndex = null) {
         const bts = this.getPowerBreakoutTypes();
-        const own = layer ? this.getPowerBreakout(layer) : null;
+        const spec = layer && socaIndex != null && Array.isArray(layer.powerSources)
+            && layer.powerSources.length ? this.socaSpec(layer, socaIndex) : null;
+        const own = spec ? spec.breakout : (layer ? this.getPowerBreakout(layer) : null);
         if (!d) {
             return this._cableConnectorId((own || bts[0]).connector);
         }
@@ -2599,7 +2709,7 @@ class _Power {
         let id = rec.connector && this.cableConnectorName(rec.connector)
             ? rec.connector : null;
         const box = this._circuitBox(layer, circuitNum);
-        if (!id) id = this.boxTailConnector(box.d, box.number, layer);
+        if (!id) id = this.boxTailConnector(box.d, box.number, layer, box.idx);
         let name = this.cableConnectorName(id) || '';
         const fbox = box.d && typeof this.faceBox === 'function' ? this.faceBox(box.d, box.number) : null;
         if (fbox && fbox.kind === 'direct') name = this.directCableType(name, layer);
@@ -2694,6 +2804,7 @@ class _Power {
     // crew says it.
     _breakoutShortName(bt) {
         if (!bt) return 'an unknown breakout';
+        if (bt.id === 'l2130-edison') return 'L21-30 Edison';
         if (String(bt.id).startsWith('l2130-')) return 'L21-30';
         if (bt.id === 'soca-edison') return 'Edison (110V)';
         return bt.name;
@@ -2863,7 +2974,8 @@ class _Power {
                 }
                 b.watts += s.watts;
                 // A single-hot distro reads its circuits' own amps (audit).
-                const own = b.distro ? this._singleHotAmps(b.distro, s.watts, circuitV) : null;
+                const own = b.distro ? this._singleHotAmps(b.distro, s.watts,
+                    s.spec ? s.spec.volts : circuitV) : null;
                 if (own != null) b.ownAmps = (b.ownAmps || 0) + own;
                 // spread this multi's circuits across the legs - per
                 // CIRCUIT, through the one authority (distroCircuitLegs): a
@@ -2884,7 +2996,8 @@ class _Power {
                             }
                             b.scheme = info.scheme;
                         }
-                        this._bookCircuitOnLegs(b, d, info, s.legs[li].watts, circuitV, triplen);
+                        this._bookCircuitOnLegs(b, d, info, s.legs[li].watts,
+                            s.spec ? s.spec.volts : circuitV, triplen);
                     }
                 }
             }
@@ -3069,7 +3182,8 @@ class _Power {
                 m.layer, m.s.soca, m.s.legs.length);
             for (let li = 0; li < m.s.legs.length; li++) {
                 const info = this.distroCircuitLegs(distro, m.layer, m.s, li, pos);
-                this._bookCircuitOnLegs(store, distro, info, m.s.legs[li].watts, circuitV);
+                this._bookCircuitOnLegs(store, distro, info, m.s.legs[li].watts,
+                    m.s.spec ? m.s.spec.volts : circuitV);
             }
         }
         const mag = (p) => Math.sqrt(p.re * p.re + p.im * p.im);
@@ -6517,6 +6631,13 @@ class _Power {
     }
 
     calculatePowerAssignments(layer) {
+        // One pass of a screen fed from several kinds of source
+        // (app-power-sources.js _mixedPowerAssignments): its circuit watts
+        // and the cabinets already laid, read once and cleared so nothing
+        // this pass calls inherits them. `raw` hands back the walk before
+        // the redrawn circuits fold in.
+        const ov = this._packOverride || null;
+        this._packOverride = null;
         if (!layer || (layer.type || 'screen') === 'image' || !Array.isArray(layer.panels)) return { circuits: [], error: null };
 
         // v0.12: a screen group whose members are the same panel AND the same
@@ -6535,10 +6656,18 @@ class _Power {
             // it, and nowhere else.
             return this._mergeOverrideCircuits(layer, { circuits: [], error: null });
         }
+        // A screen fed from several kinds of source: each source's
+        // circuits laid at its own capacity, from where it takes over.
+        if (!ov && Array.isArray(layer.powerSources) && layer.powerSources.length
+                && typeof this._mixedPowerAssignments === 'function') {
+            const mixed = this._mixedPowerAssignments(layer);
+            if (mixed) return mixed;
+        }
+        const finish = (result) => ((ov && ov.raw) ? result : this._mergeOverrideCircuits(layer, result));
 
         const panelWatts = parseFloat(layer.panelWatts) || 0;
         // 80% of the breaker on a US screen (circuitCapacity).
-        const wattsPerCircuit = this.circuitCapacityWatts(layer);
+        const wattsPerCircuit = ov ? ov.watts : this.circuitCapacityWatts(layer);
         const pattern = this.autoPowerPattern(layer);
         const maximize = !!layer.powerMaximize;
         const organized = !!layer.powerOrganized && !maximize;
@@ -6568,8 +6697,10 @@ class _Power {
         // the path scope is already fed, so the automatic walk lays over
         // everything else. Empty for every project without overrides, and
         // then the filters below keep every list byte-identical.
-        const claimed = (typeof this._overrideClaims === 'function')
+        const ownClaims = (typeof this._overrideClaims === 'function')
             ? this._overrideClaims(layer, 'power') : new Set();
+        const claimed = (ov && ov.claimed && ov.claimed.size)
+            ? new Set([...ownClaims, ...ov.claimed]) : ownClaims;
         const unclaimed = (panels) => (claimed.size === 0
             ? panels : panels.filter(p => !claimed.has(p)));
         // A BLANK cabinet draws no power - "they don't exist" (owner,
@@ -6580,7 +6711,7 @@ class _Power {
             ? plan.ordered.filter(c => !c.panel.hidden && !c.panel.blank).map(c => c.panel)
             : this.getOrderedPanelsByPattern(layer, pattern, false).filter(p => !p.blank));
         if (visibleOrdered.length === 0) {
-            return this._mergeOverrideCircuits(layer, { circuits: [], error: null });
+            return finish({ circuits: [], error: null });
         }
 
         if (panelWatts > wattsPerCircuit) {
@@ -6751,12 +6882,12 @@ class _Power {
                 // limit or not, and the OVER flags read them.
                 const sigOf = () => this._keptShareSig(
                     layer, pattern, runs, splitters.maxWays, manual, layerOfPanel);
-                const kept = this._keptShares(layer, runs.length, sigOf);
+                const kept = ov ? null : this._keptShares(layer, runs.length, sigOf);
                 const apart = claimedLines.size
                     ? (a, b) => unitsApart(runs[a].at[0], runs[b].at[0]) : null;
                 const packed = kept ? this._packKeptRuns(runs, kept) : this._packPowerRuns(
                     runs, wattsPerCircuit, splitters.maxWays, manual, apart);
-                if (this._keptShareProbe) {
+                if (this._keptShareProbe && !ov) {
                     this._keptShareProbe.set(layer, { sig: sigOf(), runIds: packed.runIds });
                 }
                 const result = { circuits: packed.circuits, runs: packed.runs,
@@ -6773,7 +6904,7 @@ class _Power {
                     result.runIds = order.map(i => packed.runIds[i]);
                     result.cut = true;
                 }
-                return this._mergeOverrideCircuits(layer, withOwners(result));
+                return finish(withOwners(result));
             }
 
             // Whole units that fit share one circuit while they fit, as
@@ -6810,7 +6941,7 @@ class _Power {
             if (anyCut) {
                 const walked = circuits.splice(0, circuits.length);
                 numberOrder(items).forEach(i => circuits.push(walked[i]));
-                return this._mergeOverrideCircuits(layer, withOwners({ circuits, error: null, cut: true }));
+                return finish(withOwners({ circuits, error: null, cut: true }));
             }
         } else {
             let current = [];
@@ -6829,7 +6960,7 @@ class _Power {
             if (current.length > 0) circuits.push(current);
         }
 
-        return this._mergeOverrideCircuits(layer, withOwners({ circuits, error: null }));
+        return finish(withOwners({ circuits, error: null }));
     }
 
     // Fold this layer's overridden circuits into an automatic result: the

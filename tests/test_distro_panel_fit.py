@@ -236,7 +236,7 @@ def test_the_panel_fits_the_window_and_cuts_nothing_off(page, width):
         m = pg.evaluate(FIT_JS)
         _assert_fits(m, f'{width}px')
         # the fields that were cut off, all there to be checked
-        assert m['phasing'] and m['perLeg'] and m['subs'] == 3, m
+        assert m['phasing'] and m['perLeg'] and m['subs'] == 4, m  # Multi 208, Multi 120, L21-30, L21-30 Edison
         keys = {s['key'] for s in m['selects']}
         for k in ('distro-system-d1', 'distro-input-d1', 'distro-phasing-d1',
                   'distro-beach-d1', 'distro-preset-d1', 'distro-preset-delete-d1'):

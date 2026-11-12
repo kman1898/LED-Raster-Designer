@@ -675,7 +675,7 @@ class _Naming {
                 ? this.getDistros().find(x => x.id === boxDistro) : null;
             const fbox = faceD ? this.faceBox(faceD, boxNumber) : null;
             const cap = Math.min(...members
-                .map(m => this.socaBoxSize(m.layer)),
+                .map(m => this.socaBoxSize(m.layer, m.rec.index)),
                 fbox ? fbox.size : Infinity);
             // Pass 1: every stored set takes exactly its tails. Doing this
             // before ANY dealing is what makes a stored set law: an

@@ -123,6 +123,10 @@
     // on the shipped Preferences - guidePreferences - so this holds even
     // where that switch could not be made.)
     var PRACTICE_PROCESSING = { bitDepth: 8, frameRate: 60, lowLatency: false };
+    // The distro the Two kinds of power step adds (VX).
+    function mixedDistro() {
+        return ((A() && A().getDistros && A().getDistros()) || []).find(function (d) { return d.name === 'VX'; }) || null;
+    }
     function practiceScreen(layer) {
         A().initializeLayerDefaults(layer);
         Object.keys(PRACTICE_PROCESSING).forEach(function (k) { layer[k] = PRACTICE_PROCESSING[k]; });
@@ -7742,6 +7746,80 @@
                 return 'Circuit 2 now starts row 2 of WIDE WALL, under circuit 1.';
             }
         },
+        // One screen fed from two kinds of power source (1.7.0,
+        // app-power-sources.js; the owner, 2026-11-11). TWO SOURCES is a
+        // 208V TRUE1 wall of 12 x 6 cabinets at 400 W: its own circuit is
+        // 208 V x 20 A x 80% = 3,328 W, 8 cabinets, so 9 circuits. VX's
+        // Socapex 208 takes circuits 1-6; the L21-30 Edison output dragged
+        // on takes over at circuit 7, and circuits 7 on are laid again at
+        // the Edison box's circuit, 110 V x 15 A x 80% = 1,320 W, 3
+        // cabinets each. Circuits 1-6 stay as they were.
+        mixedSources: {
+            since: '1.7.0',
+            target: function () { var d = mixedDistro(); return d ? '[data-hwdock="plug-' + d.id + '-l2130e"]' : '#hardware-dock-body'; },
+            place: 'top', title: 'Two kinds of power on one screen',
+            avoid: [function () { var d = mixedDistro(); return d ? '[data-hwdock="plug-' + d.id + '-l2130e"]' : null; }],
+            body: 'Drag the L21-30 Edison output onto TWO SOURCES, a 208V TRUE1 wall on a Socapex: the circuits from there on ride the box at 110V, laid again at 12 A each, and the ones before stay put.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                var bottom = screens().reduce(function (m, l) {
+                    return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+                }, 0);
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                return j('POST', '/api/layer/add', {
+                    name: 'TWO SOURCES', columns: 12, rows: 6,
+                    cabinet_width: w.cabinet_width, cabinet_height: w.cabinet_height,
+                    offset_x: (Number(w.offset_x) || 0), offset_y: bottom + 200
+                }).then(function (layer) {
+                    practiceScreen(layer);
+                    a.setScreenVoltage(layer, 208);
+                    layer.powerAmperage = 20;
+                    layer.powerAmperageCustom = 20;
+                    layer.panelWatts = 400;
+                    layer.powerBreakoutType = 'soca-true1';
+                    a.normalizePowerBreakout(layer);
+                    layer.powerMaximize = false;
+                    layer.powerOrganized = false;
+                    layer.powerFlowPattern = 'tl-h';
+                    a.upsertProjectLayer(layer);
+                    a.updateLayers([layer]);
+                    t.mem.layer = layer.id;
+                    var l = find();
+                    a.selectLayer(l);
+                    frameLayers([l]);
+                    var d = a.addDistro({ name: 'VX', system: '120/208', ratingA: 400 });
+                    t.mem.distro = d.id;
+                    // it offers a Socapex 208 and the L21-30 Edison box
+                    d.outputs = ['soca208', 'l2130e'];
+                    a._persistDistros();
+                    a.renderHardwareDock();
+                    // its Socapex 208 on circuits 1-6, as the earlier steps drag one
+                    a._dockDropPlug({ type: 'plug', distroId: d.id, output: 'soca208', title: 'VX · Multi 208' },
+                                    { kind: 'screen', layerId: l.id });
+                    return t.wait(function () { return $('[data-hwdock="plug-' + d.id + '-l2130e"]'); });
+                }).then(function () {
+                    var chip = '[data-hwdock="plug-' + t.mem.distro + '-l2130e"]';
+                    return t.drag(chip, t.cabinetPoint(find(), { circuit: 7, mid: true }));
+                }).then(function () {
+                    return t.wait(function () {
+                        var l = find();
+                        return l && Array.isArray(l.powerSources) && l.powerSources.length;
+                    }, 8000);
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                var src = l && l.powerSources && l.powerSources[0];
+                if (!src || src.from !== 7) return null;
+                var c = a.screenCircuits(l);
+                if (!c[6] || c[6].panels.length !== 3 || c[0].panels.length !== 8) return null;
+                return 'Circuits 7 on ride the L21-30 Edison box at 110V, 3 panels each; circuits 1 to 6 keep 8 on the Socapex.';
+            }
+        },
         // Redraw several ports as one (1.6.0, app-merge-runs.js; the owner,
         // 2026-11-02: "redraw all of those as one port"). LEFTOVERS is six
         // 512 x 256 cabinets wide on NovaStar Legacy, five to a port, drawn
@@ -8767,7 +8845,7 @@
                     'groupScreens', 'groupNames', 'groupDrag', 'groupMove',
                     'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'objExport', 'preferences',
                     'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
-                    'redrawAsOne', 'sweepPorts', 'helpMenu', 'checkUpdates', 'outroAdvanced']
+                    'mixedSources', 'redrawAsOne', 'sweepPorts', 'helpMenu', 'checkUpdates', 'outroAdvanced']
         }
     };
 

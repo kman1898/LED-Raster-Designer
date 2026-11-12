@@ -156,6 +156,9 @@ def add_layer():
         # geometry of the screen's own plan, so a duplicate carries it the
         # way it carries splitters, even though the copy claims no slot.
         'powerSocaSplits',
+        # Where another kind of power source takes over the screen's
+        # circuits ([{from, type, ...}], app-power-sources.js).
+        'powerSources',
         # Power splitters (circuit sharing): {enabled, maxWays, manual}.
         # Same omission risk as the block above - a duplicate/paste posts the
         # whole layer, and a field missing here is gone on reload.
@@ -585,6 +588,10 @@ def update_layer(layer_id):
                 # listed or every per-layer PUT drops a split on the floor
                 # and the parts weld back into one multi on reload.
                 'powerSocaSplits',
+                # Where another kind of power source takes over the
+                # screen's circuits (app-power-sources.js). Listed or a
+                # PUT drops it and the circuits fall back on reload.
+                'powerSources',
                 # v0.11.0: the gradient/panel-colour block was never on this
                 # list - not removed, never added (git log -S finds no commit
                 # that took it out). The client has always PUT these fields and

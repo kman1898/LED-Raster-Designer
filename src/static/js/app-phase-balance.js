@@ -86,7 +86,7 @@ class _PhaseBalance {
                     // member breakout's size, the same capacity the shared
                     // deal answers to. Six for socas, three for an L21-30.
                     const boxSize = Math.min(...members
-                        .map(m => this.socaBoxSize(m.layer)),
+                        .map(m => this.socaBoxSize(m.layer, m.soca)),
                         faceBox ? faceBox.size : Infinity);
                     if (total >= boxSize) continue;
                     // per circuit, member order - index k of from/to is the
@@ -105,11 +105,11 @@ class _PhaseBalance {
                         circuits,
                         amps: circuits.map(c => c.leg.amps),
                         labels: circuits.map(c => c.leg.label),
-                        scheme: this._circuitSchemeFor(d, circuitV).id
+                        scheme: this._circuitSchemeFor(d, s.spec ? s.spec.volts : circuitV).id
                     });
                     continue;
                 }
-                const ownSize = Math.min(this.socaBoxSize(layer),
+                const ownSize = Math.min(this.socaBoxSize(layer, s.soca),
                                          faceBox ? faceBox.size : Infinity);
                 if (s.legs.length >= ownSize) continue;
                 const positions = this.socaCircuitPositions(layer, s.soca, s.legs.length);
@@ -127,7 +127,7 @@ class _PhaseBalance {
                     // the balance dialog names each moved circuit by the
                     // bubble on the canvas, never by a re-derived ordinal.
                     labels: s.legs.map(l => l.label),
-                    scheme: this._circuitSchemeFor(d, circuitV).id
+                    scheme: this._circuitSchemeFor(d, s.spec ? s.spec.volts : circuitV).id
                 });
             }
         }
@@ -173,8 +173,8 @@ class _PhaseBalance {
                         .map(m => m.layerName))].join(' + ');
                     const size = Math.min(...share.members.map(m => {
                         const ml = layers.find(l => l.id === m.layerId);
-                        return ml ? this.socaBoxSize(ml) : Infinity;
-                    }), this.socaBoxSize(layer), fbox ? fbox.size : Infinity);
+                        return ml ? this.socaBoxSize(ml, m.soca) : Infinity;
+                    }), this.socaBoxSize(layer, s.soca), fbox ? fbox.size : Infinity);
                     if (share.clash || share.overflow) {
                         out.clashed.push({ name: s.name, layers: names,
                             overflow: !!share.overflow, size });
@@ -183,7 +183,7 @@ class _PhaseBalance {
                     }
                     continue;
                 }
-                const size = Math.min(this.socaBoxSize(layer),
+                const size = Math.min(this.socaBoxSize(layer, s.soca),
                                       fbox ? fbox.size : Infinity);
                 if (s.legs.length > size) {
                     out.crowded.push({ name: s.name, layers: layer.name,
@@ -245,8 +245,11 @@ class _PhaseBalance {
             pairWatts: {},
         };
         const info = this.distroCircuitLegs(d, c.layer, c.s, 0, [tail]);
+        // a multi on its own source (a screen fed from several kinds)
+        // draws at that source's voltage
         this._bookCircuitOnLegs(store, d, info, Number(c.leg.watts) || 0,
-                                parseFloat(c.layer.powerVoltage) || 0);
+                                c.s && c.s.spec ? c.s.spec.volts
+                                    : (parseFloat(c.layer.powerVoltage) || 0));
         const p = store.legPhasor;
         return [p.X.re, p.X.im, p.Y.re, p.Y.im, p.Z.re, p.Z.im];
     }
@@ -1058,8 +1061,10 @@ class _PhaseBalance {
             if ((layer.type || 'screen') !== 'screen') continue;
             const assign = layer.powerSocaDistro || {};
             const plan = this.getSocaPlan(layer);
-            if (!plan.some(s => assign[s.soca] === distro.id)) continue;
-            seen = parseFloat(layer.powerVoltage) || 0;
+            const on = plan.filter(s => assign[s.soca] === distro.id);
+            if (!on.length) continue;
+            seen = on[on.length - 1].spec ? on[on.length - 1].spec.volts
+                : (parseFloat(layer.powerVoltage) || 0);
         }
         return seen === null ? (Number(distro.voltage) || 0) : seen;
     }
@@ -1166,7 +1171,7 @@ class _PhaseBalance {
     // the occupied tails off+1..off+L, already ascending - then to the
     // natural 1..L.
     socaCircuitPositions(layer, socaNum, legsUsed) {
-        const size = this.socaBoxSize(layer);
+        const size = this.socaBoxSize(layer, socaNum);
         const L = Math.max(0, Math.min(size, Number(legsUsed) || 0));
         const saved = ((layer && layer.powerSocaPhasePos) || {})[socaNum];
         if (Array.isArray(saved) && saved.length === L
@@ -1234,7 +1239,7 @@ class _PhaseBalance {
         // a box this one shares: a move that would deal them again is put
         // back whole, the screen named (_lockedPowerTrial).
         if (this._lockedRefused(layer)) return false;
-        const size = this.socaBoxSize(layer);
+        const size = this.socaBoxSize(layer, socaNum);
         const L = Math.max(0, Math.min(size, Number(legsUsed) || 0));
         const ok = Array.isArray(positions) && positions.length === L
             && positions.every(p => Number.isInteger(p) && p >= 1 && p <= size)
@@ -1263,7 +1268,7 @@ class _PhaseBalance {
         const map = (layer && layer.powerSocaPhaseOffset) || {};
         const raw = Math.max(0, Number(map[socaNum]) || 0);
         return Math.min(raw,
-            this.socaPhaseOffsetMax(legsUsed, this.socaBoxSize(layer)));
+            this.socaPhaseOffsetMax(legsUsed, this.socaBoxSize(layer, socaNum)));
     }
 
     setSocaPhaseOffset(layer, socaNum, offset, legsUsed) {
@@ -1278,7 +1283,7 @@ class _PhaseBalance {
         const map = layer.powerSocaPhaseOffset || (layer.powerSocaPhaseOffset = {});
         const v = Math.min(Math.max(0, Number(offset) || 0),
                            this.socaPhaseOffsetMax(legsUsed,
-                               this.socaBoxSize(layer)));
+                               this.socaBoxSize(layer, socaNum)));
         if (v) map[socaNum] = v; else delete map[socaNum];
         this._circuitTailCache = null;
         if (shared()) return;
@@ -1400,7 +1405,7 @@ class _PhaseBalance {
                 const now = tailsOf(u);
                 if (now.every(t => !used.has(keyOf(u.s, t)))) { take(u, now); continue; }
                 const fbox = this.faceBox(d, u.number);
-                const size = Math.min(...u.members.map(m => this.socaBoxSize(m.layer)),
+                const size = Math.min(...u.members.map(m => this.socaBoxSize(m.layer, m.soca)),
                                       fbox ? fbox.size : Infinity);
                 const legs = u.members.reduce((t, m) => t + m.legs, 0);
                 const free = [];

@@ -48,7 +48,7 @@ MAX_BODY = 32 * 1024
 #                 plus WHOLE_MULTI_SCHEME.id (src/static/js/app-distro-systems.js)
 #   DIRECT_PHASINGS - the direct-phasing select's values (app-distro-systems.js)
 SYSTEMS = {'120/208', '120/240', '120', '230/400', '230'}
-CONNECTORS = {'soca', 'harting', 'l2130', 'true1', 'powercon20', 'powerconxx',
+CONNECTORS = {'soca', 'harting', 'l2130', 'l2130e', 'true1', 'powercon20', 'powerconxx',
               'edison', 'l520', 'l620', 'stagepin', 'cee16', 'cee32', 'schuko'}
 INPUTS = {'cam100', 'cam200', 'cam400', 'cam600', 'cam800', 'l2130',
           'cee16r', 'cee32r', 'cee63', 'cee125r', 'cee16b', 'cee32b', 'cee63b', 'cee125b',

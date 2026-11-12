@@ -780,8 +780,15 @@ class _DockDrag {
     //     glyph, warn }             - warn: the LEGS-past-rating sentence
     //   { ok: false, message, glyph }
     _plugDropPlan(payload, layer) {
-        const gate = this._plugGate(payload, layer);
+        const gate = this._plugGate(payload, layer, { mix: true, at: null });
         if (!gate.ok) return gate;
+        // Another kind of source than the circuits it would take (owner,
+        // 2026-11-11): allowed, and those circuits and the ones after are
+        // laid again for it (app-power-sources.js).
+        if (gate.mixed) {
+            const mixed = this.sourceDropPlan(payload, layer, gate, null);
+            if (mixed) return mixed;
+        }
         if (gate.faceRow) return this._facePlugDropPlan(payload, layer, gate);
         const { d, type, glyph } = gate;
         const plan = this.getSocaPlan(layer);
@@ -857,7 +864,18 @@ class _DockDrag {
     // refused for its voltage, not sent to change a breakout that would
     // not help. Returns { ok: true, d, type, glyph } or the refusal
     // { ok: false, glyph, message }.
-    _plugGate(payload, layer) {
+    // `opts.mix` (the drops): an output of another kind than the circuits
+    // it would take is not refused - the gate passes it with `mixed`, and
+    // the drop feeds those circuits as another source (owner, 2026-11-11,
+    // app-power-sources.js). `opts.at` is the circuit dropped on (null: the
+    // screen's first unfed multi), whose source the output is matched to.
+    _plugGate(payload, layer, opts = null) {
+        const mix = !!(opts && opts.mix) && !!layer && (layer.type || 'screen') === 'screen'
+            && typeof this.sourceForOutput === 'function';
+        const atSpec = mix ? (() => {
+            const k = this._sourceDropStart(layer, opts.at);
+            return k != null ? this.powerSpecAt(layer, k) : this.ownPowerSpec(layer);
+        })() : null;
         const d = this.getDistros().find(x => x.id === payload.distroId);
         // A distro with a FACE (1.5): the payload names one of its rows
         // ('face:r2'), or - from the right-click menu, which asks by the
@@ -878,7 +896,7 @@ class _DockDrag {
                 const fits = face.rows.map(r => face.rowInfo.get(r.id))
                     .filter(info => info.conn.kind === 'multi' && !info.row.pairedWith);
                 faceRow = fits.find(info =>
-                    this.faceBoxEligible(d, info.boxes[0], layer).ok) || null;
+                    this.faceBoxEligible(d, info.boxes[0], layer, atSpec).ok) || null;
                 if (!faceRow) {
                     const why = fits.length
                         ? this.faceBoxEligible(d, fits[0].boxes[0], layer).why
@@ -896,7 +914,14 @@ class _DockDrag {
                          message: `${(layer && layer.name) || 'That screen'} `
                             + 'draws no power.' };
             }
-            const el = this.faceBoxEligible(d, faceRow.boxes[0], layer);
+            const el = this.faceBoxEligible(d, faceRow.boxes[0], layer, atSpec);
+            // a screen at a voltage the distro's system does not give is
+            // set right first, whatever kind of source is dragged
+            const sysFirst = mix ? this.distroVoltageRefusal(d, layer, atSpec.volts) : null;
+            if (sysFirst) return { ok: false, glyph: type.glyph, message: sysFirst };
+            if (!el.ok && mix && el.mixable) {
+                return { ok: true, d, type, glyph: type.glyph, faceRow, mixed: true };
+            }
             if (!el.ok) return { ok: false, glyph: type.glyph, message: el.why };
             return { ok: true, d, type, glyph: type.glyph, faceRow };
         }
@@ -914,6 +939,19 @@ class _DockDrag {
         // The distro's SYSTEM first (1.5, bug fix 4): a screen whose voltage
         // is neither its line-to-neutral nor its line-to-line figure has no
         // circuit on it to run from.
+        if (mix) {
+            // The distro's system first, as always: circuits at a voltage
+            // it does not give are set right before anything lands. Then
+            // matched to the source of the circuits it would take; another
+            // kind passes as `mixed` (its own voltage is checked against
+            // the system where the source is made).
+            const sysAt = this.distroVoltageRefusal(d, layer, atSpec.volts);
+            if (sysAt) return { ok: false, glyph, message: sysAt };
+            const feeds = this._outputFeedsVoltage(type, atSpec.volts)
+                && type.breakouts.includes(atSpec.breakout.id);
+            if (!feeds) return { ok: true, d, type, glyph, mixed: true };
+            return { ok: true, d, type, glyph };
+        }
         const sysMsg = this.distroVoltageRefusal(d, layer);
         if (sysMsg) return { ok: false, glyph, message: sysMsg };
         const voltsMsg = this._voltageMismatchMessage(type, layer);
@@ -1018,8 +1056,12 @@ class _DockDrag {
     // Returns the plug plan's shape: { ok, glyph, socaIndex, nums, number,
     // boxName, amps, badge, warn, text } or { ok: false, glyph, message }.
     _boxDropPlan(payload, layer, ordinal) {
-        const gate = this._plugGate(payload, layer);
+        const gate = this._plugGate(payload, layer, { mix: true, at: ordinal });
         if (!gate.ok) return gate;
+        if (gate.mixed) {
+            const mixed = this.sourceDropPlan(payload, layer, gate, ordinal);
+            if (mixed) return mixed;
+        }
         const { d, type, glyph } = gate;
         const plan = this._socaTakePlan(layer, ordinal, payload.distroId,
                                         payload.number);
@@ -1147,6 +1189,10 @@ class _DockDrag {
         const plan = this._plugDropPlan(payload, layer);
         if (!plan.ok) {
             this._dockSay(plan.message);
+            return;
+        }
+        if (plan.mixed) {
+            this.applySourceDrop(payload, layer, plan);
             return;
         }
         if (plan.face) return this._faceDropPlug(payload, layer, plan);
@@ -1509,11 +1555,21 @@ class _DockDrag {
                 .findIndex(c => c.num === target.num) + 1;
             if (!rec || at < 0 || ordinal < 1) return;
             const label = this.getPowerCircuitLabel(layer, target.num);
+            // A typed spare box of another kind than the circuit's source:
+            // it feeds them as another source (owner, 2026-11-11), laying
+            // the circuits from there again. One undo step.
+            if (payload.output && typeof this.applySourceDrop === 'function') {
+                const mixed = this._boxDropPlan(payload, layer, ordinal);
+                if (mixed.ok && mixed.mixed) {
+                    this.applySourceDrop(payload, layer, mixed);
+                    return;
+                }
+            }
             // The screen's voltage against the box (1.5, bug fix 4): a face
             // box by its row, any other by the distro's system - for an
             // occupied box too, whose drop is a join and carries no type.
             const refusal = this._dockPowerVoltageRefusal(
-                payload.distroId, payload.number, layer);
+                payload.distroId, payload.number, layer, ordinal);
             if (refusal) {
                 this._dockSay(refusal);
                 return;
@@ -1814,15 +1870,20 @@ class _DockDrag {
     // Why a screen cannot land on box (distroId, number) at all, or null:
     // a face box by its row (voltage, stage pin at 208V, the multi's
     // breakout), any other by the distro's system (bug fix 4).
-    _dockPowerVoltageRefusal(distroId, number, layer) {
+    // `ordinal`, where known: the circuit's own source is asked (a screen
+    // fed from several kinds of source).
+    _dockPowerVoltageRefusal(distroId, number, layer, ordinal = null) {
         const d = this.getDistros().find(x => x.id === distroId);
         if (!d || !layer) return null;
+        const spec = ordinal != null && typeof this.powerSpecAt === 'function'
+            && Array.isArray(layer.powerSources) && layer.powerSources.length
+            ? this.powerSpecAt(layer, ordinal) : null;
         const box = this.faceBox(d, number);
         if (box) {
-            const el = this.faceBoxEligible(d, box, layer);
+            const el = this.faceBoxEligible(d, box, layer, spec);
             return el.ok ? null : el.why;
         }
-        return this.distroVoltageRefusal(d, layer);
+        return this.distroVoltageRefusal(d, layer, spec ? spec.volts : null);
     }
 
     // Why a whole-distro drop would refuse ONE of the screen's multis, or

@@ -47,6 +47,9 @@ export const SCREEN_FEED_KEYS = [
     'powerSocaDistro', 'powerSocaNumber', 'powerSocaPhasePos',
     'powerSocaPhaseOffset', 'powerSocaNames', 'powerSocaLengths',
     'powerCircuitCables',
+    // where another kind of source takes over the circuits (a drop from
+    // a distro: app-power-sources.js) - a feed like the rest
+    'powerSources',
 ];
 
 export function stripScreenFeeds(layer) {

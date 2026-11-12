@@ -82,6 +82,13 @@ export const DISTRO_CONNECTORS = [
     { id: 'l2130', name: 'L21-30 (3 × 208V)', short: 'L21-30', kind: 'multi', circuits: 3,
       regions: ['us'], systems: ['120/208'], couple: 'll', feedLegA: 30, glyph: 'l2130',
       cable: 'L21-30' },
+    // The L21-30 EDISON box (owner, 2026-11-11): an L21-30 output feeding
+    // a box of three 5-20 duplexes split-wired into six 110V circuits, two
+    // per leg, each planned at 15 A (`circuitA`). One box per output; its
+    // feed-through is not modeled.
+    { id: 'l2130e', name: 'L21-30 Edison (6 × 110V)', short: 'L21-30 Edison', kind: 'multi', circuits: 6,
+      regions: ['us'], systems: ['120/208'], couple: 'ln', feedLegA: 30, circuitA: 15, glyph: 'l2130',
+      cable: 'L21-30' },
     { id: 'true1', name: 'TRUE1', short: 'TRUE1', kind: 'direct', circuits: 1,
       regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 16 }, glyph: 'true1',
       cable: 'TRUE1' },
@@ -452,11 +459,12 @@ class _DistroSystems {
     // Why a screen cannot run on this distro at all (bug fix 4): its
     // voltage is neither the system's line-to-neutral nor its line-to-line
     // figure. Null when it can, or when the distro has no system to ask.
-    distroVoltageRefusal(d, layer) {
+    distroVoltageRefusal(d, layer, volts = null) {
         const sys = this.distroSystem(d);
         if (!sys || !layer) return null;
-        if (this.systemVoltsFor(sys, layer.powerVoltage) !== null) return null;
-        const v = this.voltageNumber(layer.powerVoltage);
+        const at = volts != null ? volts : layer.powerVoltage;
+        if (this.systemVoltsFor(sys, at) !== null) return null;
+        const v = this.voltageNumber(at);
         const figures = this._systemFigures(sys);
         return `${layer.name} runs at ${v}V, and ${this.distroLabel(d)} gives `
             + `${figures.map(f => `${f}V`).join(' or ')}. `
@@ -668,6 +676,7 @@ class _DistroSystems {
         const top = Math.max(...used);
         // The multi box types the old demand-driven boxes are, as rows.
         const asRow = (typeId) => (typeId === 'l2130' ? { connector: 'l2130', coupling: 'll' }
+            : typeId === 'l2130e' ? { connector: 'l2130e', coupling: 'ln' }
             : typeId === 'soca120' ? { connector: 'soca', coupling: 'ln' }
                 : { connector: 'soca', coupling: 'll' });
         const rows = [];
@@ -851,11 +860,12 @@ class _DistroSystems {
         const volts = this._rowVolts(sys, box.row);
         // The volts go in the name where the connector could be either -
         // "Socapex 208V", "TRUE1 120V" - never where it cannot.
-        const withVolts = offered.length > 1 || conn.kind === 'multi';
+        const withVolts = (offered.length > 1 || conn.kind === 'multi') && conn.id !== 'l2130e';
         const name = withVolts ? `${conn.short} ${volts}V` : conn.short;
         let breakouts = [];
         if (conn.kind === 'multi') {
             if (conn.id === 'l2130') breakouts = ['l2130-true1', 'l2130-powercon'];
+            else if (conn.id === 'l2130e') breakouts = ['l2130-edison'];
             else if (box.coupling === 'll') breakouts = ['soca-true1', 'soca-powercon'];
             else breakouts = ['soca-edison', 'soca-true1', 'soca-powercon'];
         }
@@ -897,9 +907,14 @@ class _DistroSystems {
     // names; stage pin at 208V names ANSI E1.24), then the screen's
     // breakout for a multi connector (a Socapex breaks out to six True1 /
     // powerCON / Edison tails, an L21-30 to three).
-    faceBoxEligible(d, box, layer) {
+    // `spec` (app-power-sources.js): the source the circuits in question
+    // ride - on a screen fed from several kinds, its voltage and breakout
+    // are asked instead of the screen's own. `mixable` on a refusal says a
+    // drop may feed the circuits from this box as another kind of source
+    // (a voltage or breakout that differs) rather than refuse.
+    faceBoxEligible(d, box, layer, spec = null) {
         if (!box || !layer) return { ok: false, why: 'no output' };
-        const v = this.voltageNumber(layer.powerVoltage);
+        const v = spec ? this.voltageNumber(spec.volts) : this.voltageNumber(layer.powerVoltage);
         const type = this.faceBoxType(d, box);
         if (v > 0 && !this.voltsMatch(v, box.volts)) {
             const sys = this.distroSystem(d);
@@ -907,7 +922,7 @@ class _DistroSystems {
                 return { ok: false, why: `${layer.name} runs at ${v}V, and stage pin is never `
                     + `${sys.vll}V (ANSI E1.24)` };
             }
-            return { ok: false, why: `${layer.name} runs at ${v}V, and `
+            return { ok: false, mixable: true, why: `${layer.name} runs at ${v}V, and `
                 + `${this.distroBoxName(d, box.number)} (${type.name}) gives ${box.volts}V. `
                 + `Set the screen to ${box.volts}V.` };
         }
@@ -915,14 +930,15 @@ class _DistroSystems {
         // output and nothing else (the owner's ruling, 2026-11-03: "L620
         // breakout should only be connected to an L620 cable, which would
         // come off of the distro at L620").
-        const l620 = this._l620Refusal(layer, box.conn && box.conn.id);
-        if (l620) return { ok: false, why: l620 };
+        const l620 = this._l620Refusal(layer, box.conn && box.conn.id, spec);
+        if (l620) return { ok: false, mixable: true, why: l620 };
         if (box.kind === 'multi') {
-            const bt = this.getPowerBreakout(layer);
+            const bt = spec ? spec.breakout : this.getPowerBreakout(layer);
             if (!type.breakouts.includes(bt.id)) {
-                return { ok: false, why: `${layer.name} is set to `
+                return { ok: false, mixable: true, why: `${layer.name} is set to `
                     + `${this._breakoutShortName(bt)}, and ${this._aAn(type.name)} ${type.name} breaks out to `
-                    + `${box.conn.id === 'l2130' ? 'an L21-30 box' : 'a six-circuit multi'}; `
+                    + `${box.conn.id === 'l2130' ? 'an L21-30 box'
+                        : (box.conn.id === 'l2130e' ? 'an L21-30 Edison box' : 'a six-circuit multi')}; `
                     + 'change its breakout first' };
             }
         }
@@ -932,9 +948,9 @@ class _DistroSystems {
     // Why a screen on the L6-20 breakout cannot take an output of
     // connector `connId` - every output but an L6-20 one - or null. Said
     // the same on every surface that plugs a screen in.
-    _l620Refusal(layer, connId) {
+    _l620Refusal(layer, connId, spec = null) {
         if (!layer || connId === 'l620') return null;
-        const bt = this.getPowerBreakout(layer);
+        const bt = spec ? spec.breakout : this.getPowerBreakout(layer);
         if (!bt || bt.id !== 'soca-l620') return null;
         return `${layer.name} is set to ${this._breakoutShortName(bt)}: its circuits take `
             + "an L6-20 cable off a distro's L6-20 output. Drag an L6-20 output onto a circuit";
@@ -1034,7 +1050,17 @@ class _DistroSystems {
         const box = this.faceBox(d, s.number);
         const tail = (pos && pos[li]) || li + 1;
         if (box) return this._faceCircuitLegs(d, box, tail);
-        const circuitV = parseFloat(layer.powerVoltage) || 0;
+        // A multi on its own source (a screen fed from several kinds)
+        // reads that source's voltage and box.
+        const circuitV = s.spec ? s.spec.volts : (parseFloat(layer.powerVoltage) || 0);
+        // The L21-30 Edison box: its six 110V circuits are wired to the
+        // legs two apiece, X Y Z X Y Z (three duplexes, each split across
+        // two legs), whatever the distro's phasing says.
+        const bt = s.spec ? s.spec.breakout : this.getPowerBreakout(layer);
+        if (bt && bt.legOrder === 'xyz' && names.length === 3) {
+            return { legs: [['X', 'Y', 'Z'][((tail - 1) % 3 + 3) % 3]], ll: false,
+                     scheme: this._circuitSchemeFor(d, circuitV) };
+        }
         const scheme = this._circuitSchemeFor(d, circuitV);
         if (names.length === 2) {
             if (scheme.lineToLine) return { legs: ['X', 'Y'], ll: true, scheme };
@@ -1045,7 +1071,8 @@ class _DistroSystems {
             const n = Math.max(1, parseInt(s.number, 10) || 1);
             return { legs: [['X', 'Y', 'Z'][(n - 1) % 3]], ll: false, scheme };
         }
-        const legs = this._circuitLegs(tail, scheme.id, 0, this.socaBoxSize(layer));
+        const legs = this._circuitLegs(tail, scheme.id, 0,
+            s.spec ? s.spec.boxSize : this.socaBoxSize(layer));
         return { legs, ll: legs.length === 2, scheme };
     }
 
@@ -1065,6 +1092,10 @@ class _DistroSystems {
         }
         if (pbox.conn.id === 'l2130') {
             return { legs: this._circuitLegs(ptail, 'paired-ll', 0, 3), ll: true };
+        }
+        if (pbox.conn.id === 'l2130e') {
+            // six 110V circuits, two per leg: X Y Z X Y Z
+            return { legs: names.length === 3 ? [['X', 'Y', 'Z'][(ptail - 1) % 3]] : [names[0]], ll: false };
         }
         const scheme = this._circuitSchemeFor(d, ll ? sys.vll : sys.vln);
         if (names.length === 2) {
@@ -1175,9 +1206,9 @@ class _DistroSystems {
         const vln = (Number(distro.voltage) || 0) / Math.sqrt(3);
         for (const m of (members || [])) {
             if (!m || !m.layer || !m.s) continue;
-            const circuitV = parseFloat(m.layer.powerVoltage) || 0;
+            const circuitV = m.s.spec ? m.s.spec.volts : (parseFloat(m.layer.powerVoltage) || 0);
             const scheme = this._circuitSchemeFor(distro, circuitV);
-            const boxSize = this.socaBoxSize(m.layer);
+            const boxSize = m.s.spec ? m.s.spec.boxSize : this.socaBoxSize(m.layer);
             const pos = this.socaCircuitPositions(m.layer, m.s.soca, m.s.legs.length);
             for (let li = 0; li < m.s.legs.length; li++) {
                 const leg = m.s.legs[li];
@@ -1328,7 +1359,7 @@ class _DistroSystems {
         // A screen whose voltage the system does not have (bug fix 4).
         for (const c of circuits) {
             if (c.box) continue;
-            const why = this.distroVoltageRefusal(d, c.layer);
+            const why = this.distroVoltageRefusal(d, c.layer, c.s.spec ? c.s.spec.volts : null);
             if (why) say(`v:${c.layer.id}`, why);
         }
         if (face) {
@@ -1357,7 +1388,10 @@ class _DistroSystems {
             const limitOf = (box) => {
                 const own = typeof this._distroPackPct === 'function' ? this._distroPackPct(d) : null;
                 const pct = own === null ? (sys.region === 'us' && !d.breakers100 ? 0.8 : 1) : own;
-                return { amps: box.breakerA * pct, pct };
+                // a box that fixes its circuits' breaker (the L21-30 Edison
+                // box, 15 A) is checked at that
+                const brk = Number(box.conn && box.conn.circuitA) || box.breakerA;
+                return { amps: brk * pct, pct, breakerA: brk };
             };
             for (const c of circuits) {
                 if (!c.box) {
@@ -1386,7 +1420,7 @@ class _DistroSystems {
                         + `circuits are on ${where}, ${this._aAn(conn)} ${conn} `
                         + `that takes one circuit only${all}. Move it to a multi output.${held}`);
                 }
-                const elig = this.faceBoxEligible(d, c.box, c.layer);
+                const elig = this.faceBoxEligible(d, c.box, c.layer, c.s.spec || null);
                 if (!elig.ok && !/breakout/.test(elig.why)) say(`fv:${c.layer.id}:${c.box.number}`, elig.why);
                 const key = this._facePhysical(face, c.box, c.tail).key;
                 const arr = physical.get(key) || [];
@@ -1405,9 +1439,9 @@ class _DistroSystems {
                 const lim = limitOf(box);
                 if (amps > lim.amps + 1e-9) {
                     say(`brk:${key}`, sys.region === 'us' && lim.pct < 1
-                        ? `${label} draws ${amps.toFixed(1)} A on a ${box.breakerA} A breaker, `
+                        ? `${label} draws ${amps.toFixed(1)} A on a ${lim.breakerA} A breaker, `
                             + `over the 80% continuous limit (${+lim.amps.toFixed(1)} A)`
-                        : `${label} draws ${amps.toFixed(1)} A on a ${box.breakerA} A breaker: OVER`);
+                        : `${label} draws ${amps.toFixed(1)} A on a ${lim.breakerA} A breaker: OVER`);
                 }
                 for (const c of list) {
                     // An Edison output holds a cord-and-plug load to 80% of
@@ -1535,7 +1569,17 @@ class _DistroSystems {
                 const box = d ? this.faceBox(d, s.number) : null;
                 const region = (d && this.distroRegion(d)) || ownRegion();
                 const items = [];
-                if (box && box.kind === 'direct') {
+                // a multi on its own source (a screen fed from several
+                // kinds, app-power-sources.js) breaks out its own way
+                const sbt = (s.spec && s.spec.breakout) || bt;
+                // The L21-30 Edison box (2026-11-11): each of its six
+                // outlets is a 5-20 behind its own 20 A breaker in the box,
+                // so that breaker and that outlet are what the circuit is
+                // on - never the 30 A L21-30 feed.
+                const outletA = Number(sbt && sbt.outletBreakerA) || 0;
+                if (outletA > 0 && !(box && box.kind === 'direct')) {
+                    items.push({ name: sbt.outletName, ratingA: sbt.outletRatingA, maxA: sbt.outletRatingA });
+                } else if (box && box.kind === 'direct') {
                     if (box.conn.id === 'edison') {
                         const et = this.edisonRowType(box.row);
                         items.push({ name: `Edison ${et.name}`, ratingA: et.ratingA, maxA: et.maxBreakerA });
@@ -1543,10 +1587,10 @@ class _DistroSystems {
                         const r = this.faceConnectorRatingA(d, box);
                         items.push({ name: box.conn.short, ratingA: r, maxA: r });
                     }
-                } else if (bt && typeof this.breakoutHasPanelInputChoice === 'function'
-                        && this.breakoutHasPanelInputChoice(bt)) {
-                    const r = ratingOf(bt.connector, region);
-                    items.push({ name: bt.connector, ratingA: r, maxA: r });
+                } else if (sbt && typeof this.breakoutHasPanelInputChoice === 'function'
+                        && this.breakoutHasPanelInputChoice(sbt)) {
+                    const r = ratingOf(sbt.connector, region);
+                    items.push({ name: sbt.connector, ratingA: r, maxA: r });
                 }
                 if (input) {
                     const r = ratingOf(input.name, region);
@@ -1554,7 +1598,9 @@ class _DistroSystems {
                 }
                 // the breaker the circuit is on: its face row's, else the
                 // screen's Amperage box
-                const breakerA = box && Number(box.breakerA) > 0 ? Number(box.breakerA) : screenA;
+                const breakerA = (outletA > 0 && !(box && box.kind === 'direct')) ? outletA
+                    : (box && Number(box.breakerA) > 0 ? Number(box.breakerA)
+                        : (s.spec && !s.spec.own && Number(s.spec.breakerA) > 0 ? Number(s.spec.breakerA) : screenA));
                 if (!(breakerA > 0)) continue;
                 const past = items.filter(it => it.maxA != null && breakerA > it.maxA + 1e-9);
                 if (!past.length) continue;

@@ -1021,7 +1021,10 @@ class _HardwareDock {
             if (natural <= roomAbove) above = true;
             else if (natural <= roomBelow) above = false;
             else above = roomAbove >= roomBelow;
-            room = Math.max(above ? roomAbove : roomBelow, floor);
+            // never more than the window holds: a gear left below or above
+            // the window by a resize the tray has not caught up with yet
+            // would otherwise leave the panel its whole natural height
+            room = Math.min(Math.max(above ? roomAbove : roomBelow, floor), vh - 2 * margin);
             x = ar.left;
         }
         frame.style.maxHeight = `${Math.max(0, Math.round(room - chrome))}px`;
@@ -3584,13 +3587,18 @@ class _HardwareDock {
             const s = this.getSocaPlan(l).find(x => x.soca === m.soca);
             memberRecs.push({ layer: l, m, s });
             if (s) {
-                const a = this.circuitCapacity(l).amps;
+                // a multi on its own source (a screen fed from several
+                // kinds) is held to that source's circuit, and its chips
+                // say which source it is
+                const a = s.spec ? s.spec.breakerA * this.circuitCapacity(l).pct
+                    : this.circuitCapacity(l).amps;
+                const src = s.spec ? this.powerSpecText(s.spec) : '';
                 if (a > 0) capA = capA > 0 ? Math.min(capA, a) : a;
                 s.legs.forEach(leg => {
                     const list = byTail.get(leg.leg) || [];
                     list.push({ who: l.name, layerId: l.id,
                                 circuit: leg.circuit, label: leg.label,
-                                amps: leg.amps, capA: a });
+                                amps: leg.amps, capA: a, src });
                     byTail.set(leg.leg, list);
                 });
                 boxAmps += s.amps;
@@ -3934,7 +3942,8 @@ class _HardwareDock {
             who.textContent = 'clash';
         } else {
             who.style.color = 'var(--ps-dim, #c0c0c0)';
-            who.textContent = holders[0].who;
+            // "WALL A · 110V Edison" on a screen fed from several kinds
+            who.textContent = holders[0].src ? `${holders[0].who} · ${holders[0].src}` : holders[0].who;
         }
         face.appendChild(who);
         // A chip with a cable wears it small at the END of its top line
@@ -3963,7 +3972,7 @@ class _HardwareDock {
         tile.appendChild(face);
 
         face.title = `Circuit ${t}: ` + (holders.length
-            ? holders.map(h => `${h.who} ${h.label}`).join(', ')
+            ? holders.map(h => `${h.who} ${h.label}${h.src ? ` (${h.src})` : ''}`).join(', ')
                 + (holders.length > 1 ? ' (claimed twice)' : '')
             : 'free')
             + '. Drag onto a circuit to land that ONE circuit here'
