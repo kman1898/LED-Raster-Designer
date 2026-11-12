@@ -7,7 +7,7 @@ two fers or similar are enabled on the screen to be seen, the drawing
 isn't obvious what it is connected to" (2026-09-15). The pill now hangs
 off the shared circuit's own label disc as a second row of the cable
 tag's stack - "it should just connect to 10' True1 for example. just put
-it right above that or under it" - so a head reads S1-1 · 10' Edison ·
+it right above that or under it" - so a head reads S1-1 · 10' TRUE1 ·
 3fer. The rules, read off canvas.js's label registry (the boxes the map
 really drew, in the bitmap's pixels):
 
@@ -62,8 +62,10 @@ BUILD_JS = """async (rot) => {
             // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
             panel_weight: 20, weight_unit: 'kg', panelWatts: 100, powerVoltage: 100, powerAmperage: 18.75,
             // stated, not implied: a screen with no breakout takes the
-            // PREFERENCE (True1 as shipped), not Edison (2026-09-22)
-            powerBreakoutType: 'soca-edison',
+            // PREFERENCE (True1 as shipped). TRUE1, so the circuit is the
+            // breaker's 15 A: an Edison breakout at 18.75 A is a 5-15 outlet
+            // held to 12 A since 2026-11-12, and its cable tag names it.
+            powerBreakoutType: 'soca-true1',
             processorType: 'brompton', bitDepth: 8, frameRate: 60, lowLatency: false,
             flowPattern: 'tl-h', portMappingMode: 'organized', powerOrganized: true, powerMaximize: false,
             group_id: null, panels }, o);
@@ -383,7 +385,7 @@ def test_the_pill_is_painted_where_the_registry_says(unrotated):
     w, h = pg.evaluate("[document.getElementById('main-canvas').width, document.getElementById('main-canvas').height]")
     on_canvas = lambda b: 0 <= b['x'] and b['x'] + b['w'] <= w and 0 <= b['y'] and b['y'] + b['h'] <= h
     pill = [p for p in _kind(boxes, 'gang') if p['text'] == '3fer' and on_canvas(p)]
-    tag = [t for t in _kind(boxes, 'tag') if t['text'] == "10' Edison" and on_canvas(t)]
+    tag = [t for t in _kind(boxes, 'tag') if t['text'] == "10' TRUE1" and on_canvas(t)]
     assert len(pill) == 1 and len(tag) == 1, (pill, tag)
     p, t = pill[0], tag[0]
     # inside the left cap of each pill, off the rim and short of the text

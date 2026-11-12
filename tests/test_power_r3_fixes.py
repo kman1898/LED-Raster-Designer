@@ -50,7 +50,9 @@ def page(e2e_server, pw_browser):
 
 
 # 208V x 5A / 208W = five cabinets a circuit, tl-v organized, five rows: a
-# screen's `columns` IS its circuit count. PD is a distro FACE - five TRUE1
+# screen's `columns` IS its circuit count. The distros' outputs are on the
+# screens' own 6.25 A breakers, since plugged-in circuits pack to the
+# output's breaker (owner, 2026-11-12). PD is a distro FACE - five TRUE1
 # direct outputs (1-5) then two soca multis (6, 7); SR an old-style distro.
 HELPERS_JS = r"""
 window.__pu = {
@@ -81,8 +83,8 @@ window.__pu = {
             distros: [
                 { id: 'd1', name: 'PD', ratingA: 200, system: '120/208',
                   outputRows: [
-                      { id: 'r1', connector: 'true1', count: 5, coupling: 'll', breakerA: 20 },
-                      { id: 'r2', connector: 'soca', count: 2, coupling: 'll', breakerA: 20 }] },
+                      { id: 'r1', connector: 'true1', count: 5, coupling: 'll', breakerA: 6.25 },
+                      { id: 'r2', connector: 'soca', count: 2, coupling: 'll', breakerA: 6.25 }] },
                 { id: 'd2', name: 'SR', ratingA: 400, system: '120/208', voltage: 208, phase: 3 },
             ],
             layers: layers.map((l, i) => this.screen(Object.assign(
@@ -280,9 +282,9 @@ def _cab_point(pg, name, row, col):
 
 L620_DISTROS = {'distros': [
     {'id': 'd1', 'name': 'PD', 'ratingA': 200, 'system': '120/208',
-     'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 2, 'coupling': 'll', 'breakerA': 20},
-                    {'id': 'r2', 'connector': 'soca', 'count': 1, 'coupling': 'll', 'breakerA': 20},
-                    {'id': 'r3', 'connector': 'l620', 'count': 6, 'coupling': 'll', 'breakerA': 20}]},
+     'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 2, 'coupling': 'll', 'breakerA': 6.25},
+                    {'id': 'r2', 'connector': 'soca', 'count': 1, 'coupling': 'll', 'breakerA': 6.25},
+                    {'id': 'r3', 'connector': 'l620', 'count': 6, 'coupling': 'll', 'breakerA': 6.25}]},
     {'id': 'd2', 'name': 'SR', 'ratingA': 400, 'system': '120/208', 'voltage': 208, 'phase': 3}]}
 
 
@@ -435,11 +437,11 @@ def test_custom_on_takes_the_emptied_multis_off_their_distro(page):
 
 FACE = {'distros': [
     {'id': 'd1', 'name': 'DISTRO 1', 'ratingA': 200, 'system': '120/208',
-     'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 5, 'coupling': 'll', 'breakerA': 20},
-                    {'id': 'r2', 'connector': 'soca', 'count': 2, 'coupling': 'll', 'breakerA': 20}]},
+     'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 5, 'coupling': 'll', 'breakerA': 6.25},
+                    {'id': 'r2', 'connector': 'soca', 'count': 2, 'coupling': 'll', 'breakerA': 6.25}]},
     {'id': 'd2', 'name': 'DISTRO 2', 'ratingA': 400, 'system': '120/208', 'voltage': 208, 'phase': 3},
     {'id': 'd3', 'name': 'DISTRO 3', 'ratingA': 30, 'system': '120/208',
-     'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 3, 'coupling': 'll', 'breakerA': 20}]}]}
+     'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 3, 'coupling': 'll', 'breakerA': 6.25}]}]}
 
 
 def test_menus_offer_only_what_they_can_do(page):

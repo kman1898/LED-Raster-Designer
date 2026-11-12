@@ -135,9 +135,9 @@ export const EDISON_TYPES = [
 
 // The connector a screen's circuits end at, by what the app calls it in a
 // breakout (getPowerBreakoutTypes `connector`, panelInput `name`): the
-// connector record whose rating the breaker check reads. Edison at the
-// screen has no type to read (the 5-15 or 5-20 choice is the distro
-// output's), so its rating is not set.
+// connector record whose rating the breaker check reads. A Multi -> Edison
+// breakout is read as the 5-15 or 5-20 its Amperage picks instead
+// (screenEdisonType, owner 2026-11-12).
 const TAIL_CONNECTOR_IDS = { 'TRUE1': 'true1', 'powerCON': 'powercon20', 'L6-20': 'l620' };
 
 // What feeds the distro. `ratingA` is the per-leg figure picking it sets;
@@ -1529,8 +1529,8 @@ class _DistroSystems {
     //     maker's: faceConnectorRatingA); an Edison output by its 5-15 or
     //     5-20, which may sit on a breaker up to 20 A (EDISON_TYPES);
     //   * on a multi, the screen's breakout tails where they are not the
-    //     panel input (L6-20; Edison at the screen has no type, so its
-    //     rating is not set and it is not checked);
+    //     panel input (L6-20; a Multi -> Edison breakout as the 5-15 or
+    //     5-20 its Amperage picks, owner 2026-11-12);
     //   * always, the panel input every circuit ends at (TRUE1 or
     //     powerCON, panelInput), at its rating where the circuit is - 20 A
     //     US, 16 A UK/EU.
@@ -1589,8 +1589,17 @@ class _DistroSystems {
                     }
                 } else if (sbt && typeof this.breakoutHasPanelInputChoice === 'function'
                         && this.breakoutHasPanelInputChoice(sbt)) {
-                    const r = ratingOf(sbt.connector, region);
-                    items.push({ name: sbt.connector, ratingA: r, maxA: r });
+                    // a Multi -> Edison breakout's outlet is the 5-15 or
+                    // 5-20 its Amperage picks (owner, 2026-11-12), on up to
+                    // a 20 A breaker (EDISON_TYPES)
+                    const et = typeof this.specEdisonType === 'function'
+                        ? this.specEdisonType(s.spec && !s.spec.own ? s.spec : this._ownSpecBase(layer)) : null;
+                    if (et) {
+                        items.push({ name: `Edison ${et.name}`, ratingA: et.ratingA, maxA: et.maxBreakerA });
+                    } else {
+                        const r = ratingOf(sbt.connector, region);
+                        items.push({ name: sbt.connector, ratingA: r, maxA: r });
+                    }
                 }
                 if (input) {
                     const r = ratingOf(input.name, region);

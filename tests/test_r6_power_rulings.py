@@ -270,31 +270,34 @@ def test_a_stale_multi_entry_does_not_print_its_distro(page):
     assert page.evaluate(LABELS_JS) == ['SR-1', 'SR-2']
 
 
+NO_DISTRO_RULE = ('A screen on no distro packs to 80% of its breaker, whatever its voltage, as a US '
+                  'circuit carries a continuous load. Only 220 and 230 V, the UK/EU figures, pack to '
+                  "the breaker, unless the show's distros are US.")
+
+
 # ── 5. the pack-rule tooltip on an old distro record ─────────────────────
 
 def test_a_screen_on_an_old_distro_record_says_so(page):
     """Round 6: the tooltip says the distro has no system picked. Since the
-    audit rulings of 2026-11-11 a 240 V screen whose distro cannot say
-    packs as on no distro: 80% of its breaker (NEC 210.20(A)) unless the
-    show's distros are UK/EU, where it packs to the breaker as before."""
+    owner's ruling of 2026-11-12 a screen whose distro cannot say packs by
+    the one no-distro rule: 80% of its breaker at every voltage, 240 V
+    included, whatever the show's other distros are."""
     (s,) = make(page, [{'name': 'S', 'columns': 2, 'props': {'powerVoltage': 240}}])
     old = _distro('old', 'OLD', system=None, voltage=240, phase=1)
     set_distros(page, [old], {s: {1: 'old'}})
     cap = capacity(page, s)
     assert cap['pct'] == 0.8, cap
-    want = ('Its distro has no system picked, so a screen above 208 V packs to 80% of its '
-            "breaker, as a US circuit does, unless the show's distros are UK/EU.")
+    want = 'Its distro has no system picked, so the screen packs as on no distro. ' + NO_DISTRO_RULE
     assert want in cap['wattsTip'], cap
     assert page.evaluate("() => document.getElementById('power-amperage-usable').title") == want
-    # a show whose other distros are UK/EU: the breaker, and the round 6 words
+    # a show whose other distros are UK/EU: still 80% (it packed to the
+    # breaker until 2026-11-12)
     set_distros(page, [old, _distro('eu', 'EU', '230/400')], {s: {1: 'old'}})
     cap = capacity(page, s)
-    assert cap['pct'] == 1, cap
-    want = 'Its distro has no system picked, so a screen above 208 V packs to its breaker.'
+    assert cap['pct'] == 0.8, cap
     assert want in cap['wattsTip'], cap
-    assert page.evaluate("() => document.getElementById('power-amperage-usable').title") == want
-    # off the distro it is the no-distro sentence again
+    # off the distro it is the no-distro sentence
     page.evaluate("(id) => { window.__nf.layer(id).powerSocaDistro = {}; }", s)
     tip = page.evaluate("""(id) => { const app = window.app; app._circuitTailCache = null;
         return app.circuitPctReason(window.__nf.layer(id)); }""", s)
-    assert tip == 'A screen on no distro above 208 V packs to its breaker.', tip
+    assert tip == NO_DISTRO_RULE, tip

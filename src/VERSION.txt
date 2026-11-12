@@ -364,6 +364,20 @@ POWER CHECKS
   current, and beside the 3φ one it made 208V look like half the amps.
   The Voltage tooltip says it plainly: 208V saves circuits and cable, not
   distro amps.
+- NEW: A screen with an Edison breakout picks its outlet with its
+  Amperage: 15 A is a 5-15 that carries 12 A, 20 A is a 5-20 that carries
+  16 A. The Amperage offers just those two, and the outlet shows beside
+  it, on the circuit cables, on the pull sheet and in the binder. An
+  older show reads the Amperage it was saved with: under 20 A is a 5-15,
+  20 A or more a 5-20.
+- NEW: Circuits plugged into a distro use the breaker of the output they
+  are on, not the screen's Amperage: a 15 A screen on 20 A Socapex
+  outputs packs to 16 A, and a 20 A screen on a 5-15 Edison output packs
+  to 12 A. On a screen fed from several kinds of power, each one uses the
+  breaker of its own outputs. The Amperage counts only for a screen on no
+  distro, and the Power tab says where an output wins: "Circuits 1 to 6
+  use VX output 1 (Socapex, 20 A)." A show saved before this packs its
+  plugged-in screens to their outputs when it opens.
 
 DIFFERENT POWER ON ONE SCREEN
 
@@ -378,13 +392,23 @@ DIFFERENT POWER ON ONE SCREEN
   circuits, two on each leg, planned at 15 A each so a circuit holds 12 A
   and a leg 24 A. Pick it on a spare box's type chip or add it to a
   distro's outputs. The L21-30 box with three 208V circuits is still there.
+- NEW: Unplug one kind of power in the middle of a screen and its
+  circuits stay where they were, so the circuits after them never shift
+  under their boxes. Right-click that gap on the canvas and pick Reset
+  these circuits to close it: the circuits from there to the end are laid
+  again with the next source's setting, and every box after it stays on
+  the circuits it fed. One undo puts the gap back.
 
 POWER FIXES
 
 - FIX (IMPORTANT): A US 240V or 277V screen on no distro packed its
-  circuits to the whole breaker. It now packs to 80%, like every US
-  circuit. A show whose distros are all UK or EU still reads 240V at the
-  breaker, and 230V on no distro is unchanged.
+  circuits to the whole breaker. Every screen on no distro now packs by
+  one rule, 80% of its breaker, the same at 240V as at 208V and 110V,
+  whatever the show's distros are. 220V and 230V, the UK and EU figures,
+  still pack to the breaker.
+- FIX (IMPORTANT): An Edison breakout at 30 A packed its circuits to 24 A
+  on Edison outlets rated 20 A. It now packs to the 5-20's 16 A, and its
+  Amperage reads OVER until you pick 15 A or 20 A.
 - FIX (IMPORTANT): An L21-30 breakout packed its circuits to 16 A, so a
   full box loaded each L21-30 leg past its 24 A and came out OVER. Each
   circuit is now held to 13.86 A, and a full box sits within the limit.
@@ -414,9 +438,9 @@ ALSO NEW
   supplies add third-harmonic current that does not, so a neutral can carry
   more than a leg. Set Neutral to 100% or 200% behind the distro's gear,
   and the Power tab warns when the neutral is past its rating. Pick your
-  panels' supplies under LED Supply Harmonics on the Power tab: Active PFC,
-  No PFC or your own percent, for the show or one screen. The binder's
-  distro sheet and the Balance dialog print the neutral too.
+  panels' supplies under LED Supply Harmonics on the Power tab: Active PFC
+  (the default), No PFC or your own percent, for the show or one screen.
+  The binder's distro sheet and the Balance dialog print the neutral too.
 - NEW: The Notes panel has a checklist under the notes: add items, tick
   them off, drag to reorder. It saves with the show and follows on every
   connected window.

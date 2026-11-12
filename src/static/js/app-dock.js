@@ -3645,7 +3645,7 @@ class _HardwareDock {
                 // a multi on its own source (a screen fed from several
                 // kinds) is held to that source's circuit, and its chips
                 // say which source it is
-                const a = s.spec ? s.spec.breakerA * this.circuitCapacity(l).pct
+                const a = s.spec ? this.specUsableA(s.spec, this.circuitCapacity(l).pct)
                     : this.circuitCapacity(l).amps;
                 const src = s.spec ? this.powerSpecText(s.spec) : '';
                 if (a > 0) capA = capA > 0 ? Math.min(capA, a) : a;

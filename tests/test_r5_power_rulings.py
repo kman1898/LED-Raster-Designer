@@ -21,8 +21,10 @@
    distro load, the distro checks, the service card and the phase balance.
 5. The duplicate-distro suffix counts only distros that print: an unused
    duplicate never forces SR-1 / SR-2 on the one that prints.
-6. Wording: a screen on no distro above 208 V packs to its breaker, and a
-   multi name used on two boxes names them the way they print.
+6. Wording: a screen on no distro says the one rule it packs by (owner,
+   2026-11-12: 80% at every voltage, 240 V as 208 V and 110 V; the round
+   5 sentence "above 208 V packs to its breaker" is retired), and a multi
+   name used on two boxes names them the way they print.
 
 The walls are the nfer module's: 5 rows of cabinets on 208 V x 20 A, cabled
 top-down. SL is a US distro with 100% rated breakers (packs at the
@@ -502,14 +504,22 @@ def test_two_used_duplicates_still_take_the_suffix(page):
 
 # ── 6. wording ───────────────────────────────────────────────────────────
 
-def test_a_screen_on_no_distro_above_208v_says_it_packs_to_its_breaker(page):
+NO_DISTRO_RULE = ('A screen on no distro packs to 80% of its breaker, whatever its voltage, as a US '
+                  'circuit carries a continuous load. Only 220 and 230 V, the UK/EU figures, pack to '
+                  "the breaker, unless the show's distros are US.")
+
+
+def test_a_screen_on_no_distro_says_the_one_rule(page):
+    """A 240 V screen on no distro in a show of UK/EU distros: 80% of its
+    breaker, as 208 V and 110 V (owner, 2026-11-12), and the one rule's
+    sentence."""
     (s,) = make(page, [{'name': 'S', 'columns': 2, 'props': {'powerVoltage': 240}}])
     set_distros(page, [_distro('eu', 'EU', '230/400')])
     cap = capacity(page, s)
-    assert cap['pct'] == 1
-    assert 'A screen on no distro above 208 V packs to its breaker.' in cap['wattsTip'], cap
+    assert cap['pct'] == 0.8
+    assert NO_DISTRO_RULE in cap['wattsTip'], cap
     tip = page.evaluate("() => document.getElementById('power-amperage-usable').title")
-    assert tip == 'A screen on no distro above 208 V packs to its breaker.', tip
+    assert tip == NO_DISTRO_RULE, tip
     # on a UK/EU distro it says so
     page.evaluate("(id) => { window.__nf.layer(id).powerSocaDistro = { 1: 'eu' }; }", s)
     tip = page.evaluate("""(id) => { const app = window.app; app._circuitTailCache = null;

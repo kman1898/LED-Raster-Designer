@@ -121,14 +121,16 @@ def test_the_page_loads_without_errors(seeded):
 
 FACE = {'id': 'd1', 'name': 'PD', 'ratingA': 200, 'system': '120/208',
         'outputRows': [{'id': 'r1', 'connector': 'true1', 'count': 3, 'coupling': 'll',
-                        'breakerA': 20},
+                        'breakerA': 12.5},
                        {'id': 'r2', 'connector': 'soca', 'count': 2, 'coupling': 'll',
-                        'breakerA': 20}]}
+                        'breakerA': 12.5}]}
 
 # WALL A's six-circuit multi pinned on output 4 (a Socapex), WALL B's
 # first circuit cut off on its own and pinned on output 5 (the other one).
-# At 10 A a circuit is one row of ten cabinets (9.6 A at 208V), so WALL A
-# makes six circuits and every circuit sits inside its 80% breaker figure.
+# On 12.5 A breakers (the outputs' breaker is what plugged circuits pack
+# to since 2026-11-12, and the screens say the same) a circuit is 80% =
+# 10 A, one row of ten cabinets (9.6 A at 208V), so WALL A makes six
+# circuits and every circuit sits inside its 80% breaker figure.
 WALLS = {'a': {'powerAmperage': 12.5, 'powerSocaDistro': {'1': 'd1'},
                'powerSocaNumber': {'1': 4}},
          'b': {'powerAmperage': 12.5, 'powerSocaSplits': [1], 'powerSocaDistro': {'1': 'd1'},

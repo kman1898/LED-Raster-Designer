@@ -354,12 +354,24 @@ def test_powercon_xx_at_208v_warns(seeded):
 
 # ── breakers by region (ruling 6) ─────────────────────────────────────────
 
-def _direct_load(pg, distro, volts, watts, amps=20):
+def _direct_load(pg, distro, volts, watts, amps=20, drawn=False):
     # WALL B's first circuit pinned onto output 1 (a direct output).
+    # `drawn`: its circuits drawn by hand, a row of six each, so a circuit
+    # can carry more than its breaker (an automatic screen packs to the
+    # breaker of the output it is on since 2026-11-12, so it never does).
     setup(pg, distros=[distro],
           walls={'b': {'powerVoltage': volts, 'powerAmperage': amps, 'panelWatts': watts,
                        'powerSocaSplits': [1],
                        'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 1}}})
+    if drawn:
+        ev(pg, """
+            B.powerFlowPattern = 'custom';
+            B.powerCustomPaths = {};
+            for (let r = 0; r < B.rows; r++) {
+                B.powerCustomPaths[r + 1] = B.panels.filter(p => p.row === r)
+                    .sort((a, b) => a.col - b.col).map(p => app.makePathEntry(B, B, p));
+            }
+            app._circuitTailCache = null;""")
     return ev(pg, """
         const d = app.getDistros()[0];
         const s = app.getSocaPlan(B)[0];
@@ -379,9 +391,14 @@ def test_us_circuits_are_checked_at_80_percent_unless_breakers_are_100_rated(see
     assert out['legs'] == 1 and out['amps'] == pytest.approx(3000 / 208)
     assert out['label'] == 'SL1', 'a direct output names its circuit with no tail'
     assert not [w for w in out['warn'] if 'breaker' in w], out
-    # A screen set to 25 A packs to 20 A: 6 x 600 W = 17.3 A on the 20 A
-    # outlet, over its 16 A.
+    # A screen set to 25 A on the 20 A outlet packs to the outlet's breaker
+    # (owner, 2026-11-12: the output wins): 80% of 20 A = 16 A, 3,328 W,
+    # five 600 W cabinets = 3,000 W = 14.4 A, and nothing to warn about.
     out = _direct_load(pg, dist, 208, 600, amps=25)
+    assert out['amps'] == pytest.approx(3000 / 208)
+    assert not [w for w in out['warn'] if 'breaker' in w], out
+    # Drawn by hand, 6 x 600 W = 17.3 A on the 20 A outlet, over its 16 A.
+    out = _direct_load(pg, dist, 208, 600, drawn=True)
     assert out['amps'] == pytest.approx(3600 / 208)
     assert [w for w in out['warn'] if 'over the 80% continuous limit (16 A)' in w], out
     # plain punctuation in the warning, never an em dash (2026-10-22)
@@ -391,8 +408,9 @@ def test_us_circuits_are_checked_at_80_percent_unless_breakers_are_100_rated(see
     out = _direct_load(pg, dict(dist, breakers100=True), 208, 600)
     assert out['amps'] == pytest.approx(3600 / 208)
     assert not [w for w in out['warn'] if 'breaker' in w], out
-    # 6 x 700 W = 4200 W at 208 = 20.2 A: over even a 100%-rated 20 A.
-    out = _direct_load(pg, dict(dist, breakers100=True), 208, 700, amps=25)
+    # 6 x 700 W = 4200 W at 208 = 20.2 A, drawn by hand: over even a
+    # 100%-rated 20 A.
+    out = _direct_load(pg, dict(dist, breakers100=True), 208, 700, drawn=True)
     assert [w for w in out['warn'] if 'on a 20 A breaker: OVER' in w], out
 
 
@@ -403,8 +421,9 @@ def test_eu_circuits_are_checked_at_the_breaker_and_true1_at_16a(seeded):
     # 6 x 580 W = 3480 W at 230 = 15.1 A: under the 16 A breaker, no 80%.
     out = _direct_load(pg, dist, 230, 580)
     assert not [w for w in out['warn'] if 'breaker' in w or 'rated' in w], out
-    # 6 x 650 W = 3900 W = 17.0 A: over the breaker and over a TRUE1's 16 A.
-    out = _direct_load(pg, dist, 230, 650)
+    # 6 x 650 W = 3900 W = 17.0 A, drawn by hand: over the breaker and over
+    # a TRUE1's 16 A.
+    out = _direct_load(pg, dist, 230, 650, drawn=True)
     assert [w for w in out['warn'] if 'on a 16 A breaker: OVER' in w], out
     assert [w for w in out['warn'] if 'a TRUE1 is rated 16 A here' in w], out
 

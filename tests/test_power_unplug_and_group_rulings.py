@@ -92,8 +92,10 @@ window.__pu = {
             distros: [
                 { id: 'd1', name: 'PD', ratingA: 200, system: '120/208',
                   outputRows: [
-                      { id: 'r1', connector: 'true1', count: 5, coupling: 'll', breakerA: 20 },
-                      { id: 'r2', connector: 'soca', count: 2, coupling: 'll', breakerA: 20 }] },
+                      // on the screens' own 6.25 A: plugged-in circuits
+                      // pack to the output's breaker (owner, 2026-11-12)
+                      { id: 'r1', connector: 'true1', count: 5, coupling: 'll', breakerA: 6.25 },
+                      { id: 'r2', connector: 'soca', count: 2, coupling: 'll', breakerA: 6.25 }] },
                 { id: 'd2', name: 'SR', ratingA: 400, system: '120/208', voltage: 208, phase: 3 },
             ],
             layers: layers.map((l, i) => this.screen(Object.assign(

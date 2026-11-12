@@ -453,8 +453,11 @@ class _Power {
     //     240 V screen on a US 120/240 distro is 80% too;
     //   - a US distro marked "100% rated breakers" packs at the breaker;
     //   - a circuit on a UK/EU distro packs at the breaker;
-    //   - a screen on no distro decides by its voltage: 208 V or under (110,
-    //     120, 208) is US at 80%, 220/230/240 V is at the breaker.
+    //   - a screen on no distro packs at 80% whatever its voltage (owner,
+    //     2026-11-12), but for the UK/EU-only 220 and 230 V (_usByVoltage).
+    // The breaker is the one the circuits are plugged into (owner,
+    // 2026-11-12): the distro outputs the screen's own multis are on, the
+    // strictest where they differ, else the Amperage box (ownPowerSpec).
     // A screen on several distros packs at the lowest of them, so it fits
     // on every one. This is the ONE figure everything that asks "does it
     // fit on a circuit" reads: the automatic packer, the sidebar's
@@ -481,6 +484,15 @@ class _Power {
         const fixedA = layer && (layer.type || 'screen') === 'screen'
             ? Number(this.getPowerBreakout(layer).circuitA) || 0 : 0;
         let breakerA = fixedA > 0 ? fixedA : (parseFloat(layer && layer.powerAmperage) || 0);
+        // On a distro, the breaker of the outputs the screen's own multis
+        // are plugged into wins over its Amperage box (owner, 2026-11-12:
+        // "it should be what a real one would be plugged into";
+        // app-power-sources.js ownPowerSpec).
+        if (!(fixedA > 0) && layer && (layer.type || 'screen') === 'screen'
+                && typeof this.ownPowerSpec === 'function') {
+            const own = this.ownPowerSpec(layer);
+            if (own.plugged && own.breakerA > 0) breakerA = own.breakerA;
+        }
         // A screen's circuits laid again for another kind of source
         // (app-power-sources.js _relayCustomPowerFrom) are cut at THAT
         // source's circuit; the % stays the distro's.
@@ -489,8 +501,11 @@ class _Power {
         if (probe) {
             const v = Number(probe.volts) || 0;
             const a = Number(probe.breakerA) || 0;
-            return { voltage: v, breakerA: a, pct: rule.pct, amps: a * rule.pct,
-                     watts: v * a * rule.pct, us: rule.us, rated100: rule.us && rule.pct >= 1,
+            // held to an Edison breakout's outlet too (specUsableA)
+            const usable = typeof this.specUsableA === 'function'
+                ? this.specUsableA(probe, rule.pct) : a * rule.pct;
+            return { voltage: v, breakerA: a, pct: rule.pct, amps: usable,
+                     watts: v * usable, us: rule.us, rated100: rule.us && rule.pct >= 1,
                      byDistro: !!rule.byDistro, onDistro: !!rule.onDistro };
         }
         const pct = rule.pct;
@@ -521,6 +536,14 @@ class _Power {
             if (!s) continue;
             const bt = typeof this.getPowerBreakout === 'function' ? this.getPowerBreakout(s) : null;
             const map = s.powerSocaDistro || {};
+            // A Multi -> Edison breakout's outlet, picked by the Amperage
+            // box (owner, 2026-11-12: 15 A is a 5-15, 20 A a 5-20): 80% of
+            // it, 12 A or 16 A, whatever breaker the circuit is on.
+            const et = typeof this.screenEdisonType === 'function' ? this.screenEdisonType(s) : null;
+            if (et) {
+                take(et.ratingA * 0.8, `Its Edison breakout is ${et.name}, which carries `
+                     + `${+(et.ratingA * 0.8).toFixed(1)} A continuous (80% of ${et.ratingA} A).`);
+            }
             // The L21-30 feed: the strictest distro the screen is on, else
             // the US rule a 208V L21-30 runs under (80% of 30 A).
             // (the 3 x 208V box only: the L21-30 Edison box's six 110V
@@ -589,10 +612,32 @@ class _Power {
     // The sidebar's line beside the Amperage box: "20 A breaker · 16 A
     // usable" on an 80% circuit, "20 A breaker · 20 A usable" at 100%.
     // Empty with no breaker typed.
+    // A Multi -> Edison screen names its outlet too (owner, 2026-11-12):
+    // "15 A breaker · 12 A usable · Edison 5-15".
     circuitUsableText(layer) {
         const cap = this.circuitCapacity(layer);
         if (!(cap.breakerA > 0)) return '';
-        return `${+cap.breakerA.toFixed(2)} A breaker · ${+cap.amps.toFixed(2)} A usable`;
+        const et = typeof this.screenEdisonType === 'function' ? this.screenEdisonType(layer) : null;
+        return `${+cap.breakerA.toFixed(2)} A breaker · ${+cap.amps.toFixed(2)} A usable`
+            + (et ? ` · Edison ${et.name}` : '');
+    }
+
+    // The Amperage select of a Multi -> Edison screen offers only what an
+    // Edison outlet comes in (owner, 2026-11-12): 15 A (a 5-15) and 20 A
+    // (a 5-20). Custom stays only while the screen holds another figure (an
+    // old show's 30 A), so it reads what it is until somebody picks.
+    syncAmperageOptions(layer) {
+        const sel = document.getElementById('power-amperage-select');
+        if (!sel) return;
+        const edison = !!(layer && typeof this.screenEdisonType === 'function' && this.screenEdisonType(layer));
+        const amps = String(layer && layer.powerAmperage != null ? layer.powerAmperage : '');
+        for (const opt of sel.options) {
+            if (opt.dataset.mixed) continue;
+            const off = edison && (opt.value === '16' || (opt.value === 'custom' && ['15', '20'].includes(amps)));
+            opt.hidden = off;
+            opt.disabled = off;
+        }
+        sel.title = edison ? 'An Edison breakout is a 5-15 at 15 A or a 5-20 at 20 A.' : '';
     }
 
     // Why the screen's circuits pack at the % they do, in one sentence.
@@ -603,31 +648,28 @@ class _Power {
     }
 
     _circuitPctReasonOf(cap) {
-        if (cap.pct < 1 && !cap.onDistro && cap.voltage >= 208.5) {
-            return 'A US circuit carries a continuous load to 80% of its breaker, whatever its voltage. '
-                + 'A screen on no distro above 208 V packs that way unless the show\'s distros are UK/EU.';
-        }
-        // an old distro record with no system picked has no say (round 6:
-        // it says so), so the screen packs as on no distro: above 208 V
-        // that is 80% unless the show's distros are UK/EU (2026-11-11)
-        if (cap.pct < 1 && cap.onDistro && !cap.byDistro && cap.voltage >= 208.5) {
-            return 'Its distro has no system picked, so a screen above 208 V packs to 80% of its '
-                + 'breaker, as a US circuit does, unless the show\'s distros are UK/EU.';
+        // ONE rule for a screen on no distro, whatever its voltage (owner,
+        // 2026-11-12: "we should do it how other screens do it at 208 and
+        // 110"), said in one sentence at every voltage. An old distro
+        // record with no system picked has no say (round 6: it says so),
+        // so its screen packs by the same rule.
+        if (!cap.onDistro) return this.noDistroPackText();
+        if (!cap.byDistro) {
+            return `Its distro has no system picked, so the screen packs as on no distro. ${this.noDistroPackText()}`;
         }
         if (cap.pct < 1) {
             return 'A US circuit carries a continuous load to 80% of its breaker. '
                 + 'A US distro marked "100% rated breakers" packs to the breaker.';
         }
         if (cap.us) return 'Its distro has 100% rated breakers, so it packs to the breaker.';
-        if (cap.byDistro) return 'A UK/EU circuit packs to its breaker.';
-        // an old distro record with no system picked has no say, so the
-        // voltage decides (_circuitPackRule), as on no distro: these
-        // sentences are the round 5 and round 6 wording, said where the
-        // screen does pack to its breaker (a UK/EU show, or 230 V)
-        if (cap.onDistro) {
-            return 'Its distro has no system picked, so a screen above 208 V packs to its breaker.';
-        }
-        return 'A screen on no distro above 208 V packs to its breaker.';
+        return 'A UK/EU circuit packs to its breaker.';
+    }
+
+    // The no-distro rule in words (_usByVoltage).
+    noDistroPackText() {
+        return 'A screen on no distro packs to 80% of its breaker, whatever its voltage, as a US circuit '
+            + 'carries a continuous load. Only 220 and 230 V, the UK/EU figures, pack to the breaker, '
+            + 'unless the show\'s distros are US.';
     }
 
     // The packing % one distro holds its circuits to: 80% on a US system,
@@ -658,12 +700,9 @@ class _Power {
     // the screen packs to it and that multi is real: the answer agrees
     // with itself.
     _circuitPackRule(layer, voltage) {
-        // US or not, for a screen no distro decides (owner, 2026-11-11: a
-        // US 240 V or 277 V screen packed to 100%, past NEC 210.20(A)):
-        // 208 V and under is US; above it, the show's region where its
-        // distros and services agree on one (showPowerRegion); with none,
-        // 220 and 230 V (and 380, 400, 415) are UK/EU figures and anything
-        // else - 240, 277, 480 - takes the 80% rule, the safe side.
+        // US or not, for a screen no distro decides: one rule at every
+        // voltage (_usByVoltage, owner 2026-11-12), 80% as 110 V and 208 V
+        // always have, but for the UK/EU-only figures.
         const byVoltage = this._usByVoltage(voltage);
         const fallback = { pct: byVoltage ? 0.8 : 1, us: byVoltage };
         if (this._capacityProbe) return { pct: this._capacityProbe.pct, us: byVoltage };
@@ -716,14 +755,21 @@ class _Power {
         return decide(live);
     }
 
+    // A screen on no distro (or on an old record with no system): ONE rule
+    // at every voltage (owner, 2026-11-12: "we should do it how other
+    // screens do it at 208 and 110"). It packs to 80% of its breaker, the
+    // US continuous rule 110 V and 208 V have always read, at 240, 277 or
+    // 480 V as well, whatever the show's distros are (until now a 240 V
+    // screen in a show of UK/EU distros packed to its breaker). Only the
+    // figures no US system has, 220 and 230 V (380, 400 and 415 V), are
+    // UK/EU and pack to the breaker, unless the show's distros and
+    // services are US (showPowerRegion): then they are typed US figures.
     _usByVoltage(voltage) {
         const v = Number(voltage) || 0;
         if (!(v > 0)) return false;
-        if (v < 208.5) return true;
+        if (![220, 230, 380, 400, 415].some(x => Math.abs(v - x) < 0.5)) return true;
         const region = typeof this.showPowerRegion === 'function' ? this.showPowerRegion() : null;
-        if (region === 'us') return true;
-        if (region === 'eu') return false;
-        return ![220, 230, 380, 400, 415].some(x => Math.abs(v - x) < 0.5);
+        return region === 'us';
     }
 
     // How many multis `layer` has when its circuits are packed at `pct` of
@@ -770,13 +816,14 @@ class _Power {
             if (usableEl) { usableEl.textContent = ''; usableEl.title = ''; }
             const overEl = document.getElementById('power-amperage-over');
             if (overEl) { overEl.textContent = ''; overEl.style.display = 'none'; }
+            const sourceEl = document.getElementById('power-amperage-source');
+            if (sourceEl) { sourceEl.textContent = ''; sourceEl.style.display = 'none'; }
             const row1 = document.getElementById('power-total-amps-1ph-row');
             if (row1) row1.style.display = '';
             return;
         }
         const layer = this.currentLayer;
         const voltage = parseFloat(layer.powerVoltage) || 0;
-        const amperage = parseFloat(layer.powerAmperage) || 0;
         const panelWatts = parseFloat(layer.panelWatts) || 0;
         // 80% of the breaker on a US screen (circuitCapacity).
         const capacity = this.circuitCapacity(layer);
@@ -828,6 +875,16 @@ class _Power {
             overEl.title = hit.map(g => g.text).join(' ');
             overEl.style.display = hit.length ? '' : 'none';
         }
+        // Where the outputs the circuits are plugged into differ from the
+        // Amperage box, the output wins, and it says so (owner, 2026-11-12).
+        const sourceEl = document.getElementById('power-amperage-source');
+        if (sourceEl) {
+            const said = typeof this.powerBreakerSourceText === 'function'
+                ? this.powerBreakerSourceText(layer) : '';
+            sourceEl.textContent = said;
+            sourceEl.style.display = said ? '' : 'none';
+        }
+        this.syncAmperageOptions(layer);
         // "Total Amps (1φ)" is the current of one single-phase supply at the
         // screen's voltage: on a 3-phase distro no wire carries it, and
         // beside the 3φ figure it made 208 V read as half the current
@@ -842,7 +899,7 @@ class _Power {
             wattsEl.textContent = wattsPerCircuit > 0 ? wattsPerCircuit.toLocaleString('en-US') : '0';
             wattsEl.title = wattsPerCircuit > 0
                 ? `What one circuit carries: ${voltage} V × ${+capacity.amps.toFixed(2)} A usable `
-                    + `(${Math.round(capacity.pct * 100)}% of the ${amperage} A breaker). `
+                    + `(${Math.round(capacity.pct * 100)}% of the ${+capacity.breakerA.toFixed(2)} A breaker). `
                     + this.circuitPctReason(layer)
                 : '';
         }
@@ -850,7 +907,7 @@ class _Power {
             panelsEl.textContent = panelsPerCircuit > 0 ? panelsPerCircuit.toLocaleString('en-US') : '0';
             panelsEl.title = wattsPerCircuit > 0 && panelWatts > 0
                 ? `How many ${panelWatts} W panels fit on one circuit: its `
-                    + `${+capacity.amps.toFixed(2)} A usable of the ${amperage} A breaker, `
+                    + `${+capacity.amps.toFixed(2)} A usable of the ${+capacity.breakerA.toFixed(2)} A breaker, `
                     + `${wattsPerCircuit.toLocaleString('en-US')} W.`
                 : '';
         }
@@ -866,6 +923,7 @@ class _Power {
         if (differ('powerVoltage', 110) || differ('powerAmperage', 15)
                 || differ('panelWatts', 200)) {
             if (usableEl) { usableEl.textContent = ''; usableEl.title = ''; }
+            if (sourceEl) { sourceEl.textContent = ''; sourceEl.style.display = 'none'; }
             if (wattsEl) { wattsEl.textContent = '-'; wattsEl.title = ''; }
             if (panelsEl) { panelsEl.textContent = '-'; panelsEl.title = ''; }
         }
@@ -2713,6 +2771,11 @@ class _Power {
         let name = this.cableConnectorName(id) || '';
         const fbox = box.d && typeof this.faceBox === 'function' ? this.faceBox(box.d, box.number) : null;
         if (fbox && fbox.kind === 'direct') name = this.directCableType(name, layer);
+        // a Multi -> Edison circuit's cable by the outlet its Amperage
+        // picks, "10' Edison 5-15" (owner, 2026-11-12)
+        else if (typeof this.specConnectorText === 'function') {
+            name = this.specConnectorText(this.circuitPowerSpec(layer, circuitNum), name);
+        }
         return {
             ft, connector: rec.connector || null, id, name,
             text: this.cableText(ft, name, 'circuit'),

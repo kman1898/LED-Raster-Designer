@@ -479,7 +479,8 @@ def test_an_added_row_with_a_new_type_lands_in_the_export_and_the_gear_list(page
     assert (widget['length'], widget['qty'], widget['label'], widget['notes'], widget['side']) == ("12'", 3, 'X', 'new', 'power')
     assert _totals(sheet)[('Widget Cable', "12'")] == (3, 'X', 'new')
     # sorted into place, EA last
-    assert [t for t, *_ in _rows(center['rows'])] == ['Cat6', 'Data Jump', 'Edison → TRUE1 cable', 'TRUE1 2fer',
+    # (CENTER's 18.75 A Edison is a 5-15 outlet, named on its cable since 2026-11-12)
+    assert [t for t, *_ in _rows(center['rows'])] == ['Cat6', 'Data Jump', 'Edison 5-15 → TRUE1 cable', 'TRUE1 2fer',
                                                       'TRUE1 Power Jump', 'Widget Cable']
     assert _rows(sheet['totals'])[-1][0] == 'Widget Cable' or _rows(sheet['totals'])[-1][1] == 'EA'
     # the export: the row in the CENTER block, the type in the GEAR LIST

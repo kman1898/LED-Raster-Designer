@@ -462,6 +462,14 @@ class _MenuBar {
                     this._mergeMenuAction.run();
                 }
                 break;
+            // "Reset these circuits" on a hole, armed at open time on the
+            // circuit the cursor named, same doctrine.
+            case 'hw-reset-hole':
+                if (this._resetHoleMenuAction
+                        && typeof this._resetHoleMenuAction.run === 'function') {
+                    this._resetHoleMenuAction.run();
+                }
+                break;
             // Circuit sharing, same doctrine: armed at open time on the
             // circuit the cursor named, re-checked here.
             case 'hw-share':

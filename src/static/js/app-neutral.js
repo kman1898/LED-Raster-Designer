@@ -65,11 +65,11 @@ export const SUPPLY_HARMONICS = [
     { id: 'nopfc', name: 'No PFC (high)', pct: 87 },
 ];
 
-// PENDING THE OWNER'S RULING (2026-11-11): what a show reads before anyone
-// picks a setting. No hardware is assumed, so until he rules it is the
-// most conservative well-sourced figure, No PFC. Nothing is written for it:
-// an old show opens with no key and reads this.
-export const SUPPLY_HARMONICS_DEFAULT = 'nopfc';
+// What a show reads before anyone picks a setting (owner, 2026-11-12: on
+// his real shows he measures very little neutral current): Active PFC.
+// Nothing is written for it: an old show opens with no key and reads this,
+// and a show or screen with a setting picked keeps its pick.
+export const SUPPLY_HARMONICS_DEFAULT = 'pfc';
 
 // The legs' line-to-neutral angles on a wye, degrees.
 const WYE_ANGLE = { X: 0, Y: -120, Z: 120 };
@@ -86,12 +86,11 @@ class _Neutral {
         return { id: 'custom', name: 'Custom', pct: n };
     }
 
-    // The show's setting. `pending` is true while the show has none of its
-    // own (the default, until the owner rules on it).
+    // The show's setting: its own, else the default (Active PFC).
     showSupplyHarmonics() {
         const own = this._harmonicsRead(this.project && this.project.supplyHarmonics);
-        if (own) return { ...own, pending: false };
-        return { ...this._harmonicsRead(SUPPLY_HARMONICS_DEFAULT), pending: true };
+        if (own) return own;
+        return this._harmonicsRead(SUPPLY_HARMONICS_DEFAULT);
     }
 
     // One screen's: its own when it has one, else the show's. `own` says

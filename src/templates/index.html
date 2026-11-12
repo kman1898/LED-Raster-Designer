@@ -274,6 +274,10 @@
                  cursor; absent everywhere else - "nothing to merge" is the
                  ordinary state of a multi, not a refused gesture. -->
             <div class="menu-option hw-merge-only" data-action="hw-merge" style="display: none;"></div>
+            <!-- "Reset these circuits": on a hole a power source left when it
+                 was unplugged in the middle of a screen (app-power-sources.js
+                 _prepareResetHoleMenu); absent everywhere else. -->
+            <div class="menu-option hw-reset-hole-only" data-action="hw-reset-hole" style="display: none;">Reset these circuits</div>
             <!-- Circuit sharing through a 2fer/3fer, the manual lever the
                  retired Splitters panel rows carried. Armed by
                  _prepareShareMenus (app-dock.js) only on a power circuit run
@@ -1404,7 +1408,7 @@
                                 <input type="number" id="power-voltage-custom" min="1" max="1000" step="1" autocomplete="off" placeholder="V" style="width: 52px; display: none;">
                             </div>
                         </div>
-                        <div class="info-row" data-tooltip="Amperage, the size of the breaker each circuit is on (type the breaker, not the usable amps). A US circuit carries a continuous load to 80% of it, so a 20 A breaker gives 16 A usable. UK/EU circuits, and US distros with 100% rated breakers, use the whole breaker. The usable amps show beside it.">
+                        <div class="info-row" data-tooltip="Amperage, the size of the breaker each circuit is on (type the breaker, not the usable amps). A US circuit carries a continuous load to 80% of it, so a 20 A breaker gives 16 A usable. UK/EU circuits, and US distros with 100% rated breakers, use the whole breaker. Plugged into a distro, the circuits use the breaker of the output they are on instead. On an Edison breakout, 15 A is a 5-15 outlet and 20 A a 5-20. The usable amps show beside it.">
                             <label>Amperage (A)</label>
                             <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
                                 <select id="power-amperage-select" class="info-select" style="width: 76px;">
@@ -1416,6 +1420,7 @@
                                 <input type="number" id="power-amperage-custom" value="15" min="0" step="0.1" autocomplete="off" style="width: 52px; display: none;">
                                 <span id="power-amperage-usable" style="flex: 1 0 100%; font-size: 11px; color: var(--ps-dim, #c0c0c0); white-space: nowrap;"></span>
                                 <span id="power-amperage-over" style="flex: 1 0 100%; font-size: 11px; color: #ff9a9a; display: none;"></span>
+                                <span id="power-amperage-source" style="flex: 1 0 100%; font-size: 11px; color: var(--ps-dim, #c0c0c0); white-space: normal; display: none;"></span>
                             </div>
                         </div>
                         <div class="info-row" data-tooltip="Watts per Panel, Power draw of a single LED cabinet at full white, used to calculate circuits required. Math OK (e.g., 200+50, 500*2, 1000/3).">

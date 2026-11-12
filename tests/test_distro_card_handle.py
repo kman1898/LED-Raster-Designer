@@ -87,8 +87,12 @@ ROW = lambda rid, conn, count, coupling='ll', paired=None: {  # noqa: E731
     'id': rid, 'connector': conn, 'count': count, 'coupling': coupling,
     'breakerA': 20, 'pairedWith': paired}
 
+# VX's Socapex on 10 A breakers, the screen's own Amperage: plugged-in
+# circuits pack to the output's breaker (owner, 2026-11-12), so the wall
+# keeps its three multis as each one lands (208 x 10 x 80% = 1,664 W, a
+# row of eight 200 W cabinets a circuit, 18 circuits).
 VX = {'id': 'd1', 'name': 'VX', 'ratingA': 200, 'system': '120/208',
-      'outputRows': [ROW('r1', 'soca', 1), ROW('r2', 'soca', 1), ROW('r3', 'soca', 1)]}
+      'outputRows': [dict(ROW(r, 'soca', 1), breakerA=10) for r in ('r1', 'r2', 'r3')]}
 
 PANEL_POINT_JS = """() => {
     const app = window.app;

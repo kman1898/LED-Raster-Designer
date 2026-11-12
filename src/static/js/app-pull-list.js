@@ -205,6 +205,11 @@ const PULL_LEGACY_TRUE1_WORD = /(^|[\s(/])(?:Tru-1|TRU-1)(?=[\s)/]|$)/g;
 // 1.5.4 betas; it is "Edison → TRUE1 cable" now (2026-10-21, never "tail"),
 // and an edit keyed on the old row answers to the new one (pullEditKey).
 const PULL_LEGACY_ADAPTER = /^((?:Edison|L6-20) → (?:TRUE1|powerCON)) tail(?=\||$)/;
+// A Multi -> Edison breakout's rows say its outlet since 2026-11-12,
+// "Edison 5-15 Breakout", "Edison 5-20 → TRUE1 cable", "10' Edison 5-15";
+// an edit keyed on the row as it was ("Edison Breakout|EA") answers to the
+// position's row of either outlet (_pullEditHits).
+const PULL_LEGACY_EDISON = /^Edison(?=$| Breakout$| → )/;
 
 // A distro's power in printed as "Feeder" / "L21-30 feeder" in the 1.5.4
 // betas and "Feed" / "L21-30 feed" in the 1.6.0 betas; it is "Power in" /
@@ -1737,7 +1742,12 @@ class _PullList {
 
         // ---- power: boxes, breakouts, circuit cables, gangs, jumpers ----
         const breakout = this.getPowerBreakout(layer);
-        const screenConn = this.pullPowerConnectorName(breakout.connector);
+        // a Multi -> Edison screen's outlet by its Amperage, "Edison 5-15"
+        // (owner, 2026-11-12)
+        const ownSpec = typeof this._ownSpecBase === 'function' ? this._ownSpecBase(layer) : null;
+        const connText = (name, spec) => (typeof this.specConnectorText === 'function'
+            ? this.specConnectorText(spec || ownSpec, name) : name);
+        const screenConn = this.pullPowerConnectorName(connText(breakout.connector));
         // the connector the panels take (TRUE1 / powerCON): the splitters
         // and the tails are on the panels' side - a circuit's are its first
         // cabinet's own screen's (a group member's, not the carrier's)
@@ -1779,8 +1789,9 @@ class _PullList {
                     // left on an unfed multi prints nowhere
                     homeRun: s.distroId ? this.parseCableLength(s.length) : null,
                     connector: d
-                        ? this.pullPowerConnectorName(
-                            this.cableConnectorName(this.boxTailConnector(d, s.number, layer)))
+                        ? this.pullPowerConnectorName(connText(
+                            this.cableConnectorName(this.boxTailConnector(d, s.number, layer, s.soca)),
+                            s.spec && !s.spec.own ? s.spec : null))
                         : screenConn,
                     circuits: [],
                     shared: false,
@@ -2418,6 +2429,7 @@ class _PullList {
         if (PULL_LEGACY_DATA_TYPES.has(type)) return true;
         if (PULL_LEGACY_EXTENSION.test(type)) return true;
         if (/ Snake$/.test(type) && parts.length === 1) return true;
+        if (PULL_LEGACY_EDISON.test(this._pullEditType(key))) return true;
         if (this._pullLegacyJumpNames().includes(type)) return true;
         // (a key already spelled as a panel input - "TRUE1|25'",
         // "powerCON|25'" - is today's row from that outlet, read alone)
@@ -2512,10 +2524,22 @@ class _PullList {
         }
         const fer = /^(.+) (\d+)fer$/.exec(type);
         if (fer) return all([`TRUE1 ${fer[2]}fer${rest}`, `powerCON ${fer[2]}fer${rest}`]);
+        // an Edison row from before a Multi -> Edison breakout named its
+        // outlet (owner, 2026-11-12): "Edison Breakout|EA", "Edison →
+        // TRUE1 cable|EA", a circuit's "Edison|10'" cable is the
+        // position's "Edison 5-15 ..." or "Edison 5-20 ..." row (both: two
+        // rows now). A row still printed as it was (a distro's Edison
+        // output) is itself.
+        const plainType = this._pullEditType(key);
+        if (PULL_LEGACY_EDISON.test(plainType)) {
+            if (live.has(plain)) return [plain];
+            const outlets = all(['5-15', '5-20'].map(o => plain.replace(/^Edison/, `Edison ${o}`)));
+            if (outlets.length) return outlets;
+        }
         // an old direct output's cable by its plug: the one "<plug> →
         // <input>" row of that length (the plug's own row where it is the
         // input too)
-        const plug = this._pullEditType(key);
+        const plug = plainType;
         if (this._pullDirectPlugNames().has(plug)) {
             const plainRest = plain.slice(plain.indexOf('|'));
             if (live.has(plain)) return [plain];
