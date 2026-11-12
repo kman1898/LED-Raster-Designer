@@ -6022,10 +6022,10 @@
                 });
                 if (!moved.length) return;
                 neutralDemo = { d: d.id, rows: a.distroRows(d).map(function (r) { return Object.assign({}, r); }),
-                                volts: w.powerVoltage, layer: w.id };
+                                volts: w.powerVoltage, breakout: w.powerBreakoutType, layer: w.id };
                 moved.forEach(function (r) { r.coupling = 'ln'; });
                 a.updateDistro(d.id, { outputRows: rows }, 'Tutorial');
-                w.powerVoltage = 110;
+                a.setScreenVoltage(w, 110);
                 a.updateLayers([w]);
                 if (a.loadLayerToInputs) a.loadLayerToInputs();
                 if (a.renderHardwareDock) a.renderHardwareDock();
@@ -6078,7 +6078,10 @@
                 if (!s || !a) return;
                 var w = screens().find(function (l) { return l.id === s.layer; });
                 if (w) {
-                    w.powerVoltage = s.volts;
+                    // The breakout first, then the voltage through the one
+                    // writer, which keeps it since it suits the voltage.
+                    w.powerBreakoutType = s.breakout;
+                    a.setScreenVoltage(w, s.volts);
                     a.updateLayers([w]);
                 }
                 if (a.getDistros().some(function (x) { return x.id === s.d; })) {
