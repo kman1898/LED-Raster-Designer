@@ -2064,7 +2064,7 @@ class _Power {
             // amp per leg breakout at 110" - so every circuit is a 15 A
             // circuit (`circuitA`), packed to 12 A, whatever the screen's
             // own Amperage box says. Pass-through is not modeled.
-            { id: 'l2130-edison', name: 'L21-30 (6 × 110V) → Edison', connector: 'Edison', boxSize: 6, feedLegA: 30, circuitA: 15, outletBreakerA: 20, outletRatingA: 20, outletName: 'Edison 5-20', legOrder: 'xyz', breakoutItem: 'L21-30 Edison breakouts', tailItem: 'Edison → panels' }
+            { id: 'l2130-edison', name: 'L21-30 → Edison', connector: 'Edison', boxSize: 6, feedLegA: 30, circuitA: 15, outletBreakerA: 20, outletRatingA: 20, outletName: 'Edison 5-20', legOrder: 'xyz', breakoutItem: 'L21-30 Edison breakouts', tailItem: 'Edison → panels' }
         ];
     }
 
