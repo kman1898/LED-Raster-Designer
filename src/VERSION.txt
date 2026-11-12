@@ -365,6 +365,27 @@ POWER CHECKS
   The Voltage tooltip says it plainly: 208V saves circuits and cable, not
   distro amps.
 
+POWER FIXES
+
+- FIX (IMPORTANT): A US 240V or 277V screen on no distro packed its
+  circuits to the whole breaker. It now packs to 80%, like every US
+  circuit. A show whose distros are all UK or EU still reads 240V at the
+  breaker, and 230V on no distro is unchanged.
+- FIX (IMPORTANT): An L21-30 breakout packed its circuits to 16 A, so a
+  full box loaded each L21-30 leg past its 24 A and came out OVER. Each
+  circuit is now held to 13.86 A, and a full box sits within the limit.
+- FIX (IMPORTANT): A distro powered thru another was never counted on the
+  one it is powered thru, so that distro's power in could carry twice its
+  rating with no warning.
+- FIX (IMPORTANT): A breaker bigger than the connector it feeds went
+  unchecked on Socapex and L21-30 rows and on the screen's Amperage, and
+  a rating typed on an output row could lift TRUE1 past its own 20 A. The
+  typed rating can now lower a connector's rating, never raise it.
+- FIX (IMPORTANT): Edison outputs were read as 5-20 and packed to 16 A. A
+  show saved before this reads them as 5-15: its circuits stay as they
+  are, any past 12 A shows OVER, and Repack at 5-15 in the Power tray, or
+  picking 5-20 on the row, settles it.
+
 ALSO NEW
 
 - NEW: A three-phase distro shows the current on the neutral of its power
@@ -493,24 +514,6 @@ FIXES
   app running, and a page kept working on its own copy of the show.
 - FIX: Two quick changes to one screen no longer show the first change
   again for a moment while the second one saves.
-- FIX (IMPORTANT): A US 240V or 277V screen on no distro packed its
-  circuits to the whole breaker. It now packs to 80%, like every US
-  circuit. A show whose distros are all UK or EU still reads 240V at the
-  breaker, and 230V on no distro is unchanged.
-- FIX (IMPORTANT): An L21-30 breakout packed its circuits to 16 A, so a
-  full box loaded each L21-30 leg past its 24 A and came out OVER. Each
-  circuit is now held to 13.86 A, and a full box sits within the limit.
-- FIX (IMPORTANT): A distro powered thru another was never counted on the
-  one it is powered thru, so that distro's power in could carry twice its
-  rating with no warning.
-- FIX (IMPORTANT): A breaker bigger than the connector it feeds went
-  unchecked on Socapex and L21-30 rows and on the screen's Amperage, and
-  a rating typed on an output row could lift TRUE1 past its own 20 A. The
-  typed rating can now lower a connector's rating, never raise it.
-- FIX (IMPORTANT): Edison outputs were read as 5-20 and packed to 16 A. A
-  show saved before this reads them as 5-15: its circuits stay as they
-  are, any past 12 A shows OVER, and Repack at 5-15 in the Power tray, or
-  picking 5-20 on the row, settles it.
 
 v1.6.0 - November 6, 2026
 ----------------------------

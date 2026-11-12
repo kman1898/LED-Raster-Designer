@@ -333,6 +333,10 @@ L2130_JS = """(o) => {
     }
     const d = Object.assign({ id: 'dq', name: 'Q', ratingA: 400, voltage: 208, phase: 3 }, o.distro || {});
     const saved = { project: app.project, currentLayer: app.currentLayer };
+    // o.noHold: the packer's L21-30 hold (2026-11-11, circuitCapacity) off,
+    // to load a box past its feed the way it packed before
+    const keepCap = app._circuitConnectorCap;
+    if (o.noHold) app._circuitConnectorCap = () => null;
     app.project = { layers: [S], groups: [], canvases: [], rack: [], distros: [d] };
     try {
         app.currentLayer = S;
@@ -347,6 +351,7 @@ L2130_JS = """(o) => {
                  clash: !!(box && box.classList.contains('hw-dock-multi-clash')),
                  rule: app.distroFeedLimit(app.getDistros()[0], 30) };
     } finally {
+        app._circuitConnectorCap = keepCap;
         app.project = saved.project;
         app.currentLayer = saved.currentLayer;
         app._circuitTailCache = null;
@@ -356,12 +361,25 @@ L2130_JS = """(o) => {
 
 
 def test_an_l2130_feed_is_held_to_24_a_unless_the_main_is_100_percent_rated(page):
+    """Ruling 3 (2026-10-18) stands: the feed is held to 24 A (80% of 30 A)
+    unless the main is 100% rated, when it stays 30 A. Since the audit
+    rulings of 2026-11-11 the packer holds each L21-30 circuit to that
+    limit over 1.73, so an auto-packed box no longer comes out OVER; the
+    check is proven on a box loaded past its feed with that hold off."""
     pg, errors = page
     # the dock - and its strip - draws in the power view
     pg.locator('[data-mode="power"]').click()
     pg.wait_for_timeout(600)
+    # With the hold on: 24 / 1.7320508 = 13.856 A, 2,882 W a circuit, so
+    # four 600 W cabinets (2,400 W, 11.54 A) and the ten make 4 + 4 + 2.
+    # The busiest leg carries two full circuits: 11.54 x 1.732 = 19.99 A.
+    held = pg.evaluate(L2130_JS, {})
+    assert held['circuits'] == 3, held
+    assert held['worst'] == pytest.approx(2400 / 208 * math.sqrt(3), abs=1e-6)   # 19.99 A
+    assert not [w for w in held['warnings'] if 'L21-30 leg' in w], held['warnings']
+    assert held['clash'] is False
     i = 3000 / 208
-    out = pg.evaluate(L2130_JS, {})
+    out = pg.evaluate(L2130_JS, {'noHold': True})
     assert out['circuits'] == 2, out
     assert out['worst'] == pytest.approx(i * math.sqrt(3), abs=1e-6)       # 24.98 A
     assert 24 < out['worst'] < 30
@@ -372,8 +390,13 @@ def test_an_l2130_feed_is_held_to_24_a_unless_the_main_is_100_percent_rated(page
     assert want == 'Q1: L21-30 leg at 25.0 A / 24 A (80% of 30 A), OVER'
     assert want in out['warnings'], out['warnings']
     assert out['clash'] is True
-    # Main 100% rated: the feed keeps its 30 A, and 24.98 A is inside it
+    # Main 100% rated: the feed keeps its 30 A, and with the hold on the
+    # packer's limit is 30 / 1.73 = 17.32 A - past the 15 A this 18.75 A
+    # breaker gives (80%), so the breaker decides: five cabinets, 3,000 W,
+    # two circuits, and 24.98 A is inside the 30 A
     rated = pg.evaluate(L2130_JS, {'distro': {'main100': True}})
+    assert rated['circuits'] == 2, rated
+    assert rated['worst'] == pytest.approx(i * math.sqrt(3), abs=1e-6)
     assert rated['rule']['limitA'] == pytest.approx(30), rated['rule']
     assert not [w for w in rated['warnings'] if 'feed leg' in w], rated['warnings']
     assert rated['clash'] is False

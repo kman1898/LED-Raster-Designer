@@ -584,6 +584,13 @@ class _Power {
             return 'A US circuit carries a continuous load to 80% of its breaker, whatever its voltage. '
                 + 'A screen on no distro above 208 V packs that way unless the show\'s distros are UK/EU.';
         }
+        // an old distro record with no system picked has no say (round 6:
+        // it says so), so the screen packs as on no distro: above 208 V
+        // that is 80% unless the show's distros are UK/EU (2026-11-11)
+        if (cap.pct < 1 && cap.onDistro && !cap.byDistro && cap.voltage >= 208.5) {
+            return 'Its distro has no system picked, so a screen above 208 V packs to 80% of its '
+                + 'breaker, as a US circuit does, unless the show\'s distros are UK/EU.';
+        }
         if (cap.pct < 1) {
             return 'A US circuit carries a continuous load to 80% of its breaker. '
                 + 'A US distro marked "100% rated breakers" packs to the breaker.';
@@ -591,11 +598,13 @@ class _Power {
         if (cap.us) return 'Its distro has 100% rated breakers, so it packs to the breaker.';
         if (cap.byDistro) return 'A UK/EU circuit packs to its breaker.';
         // an old distro record with no system picked has no say, so the
-        // voltage decides (_circuitPackRule), as on no distro
+        // voltage decides (_circuitPackRule), as on no distro: these
+        // sentences are the round 5 and round 6 wording, said where the
+        // screen does pack to its breaker (a UK/EU show, or 230 V)
         if (cap.onDistro) {
-            return 'Its distro has no system picked, so a UK/EU screen packs to its breaker.';
+            return 'Its distro has no system picked, so a screen above 208 V packs to its breaker.';
         }
-        return 'A UK/EU screen on no distro packs to its breaker.';
+        return 'A screen on no distro above 208 V packs to its breaker.';
     }
 
     // The packing % one distro holds its circuits to: 80% on a US system,

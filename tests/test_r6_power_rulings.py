@@ -273,9 +273,21 @@ def test_a_stale_multi_entry_does_not_print_its_distro(page):
 # ── 5. the pack-rule tooltip on an old distro record ─────────────────────
 
 def test_a_screen_on_an_old_distro_record_says_so(page):
+    """Round 6: the tooltip says the distro has no system picked. Since the
+    audit rulings of 2026-11-11 a 240 V screen whose distro cannot say
+    packs as on no distro: 80% of its breaker (NEC 210.20(A)) unless the
+    show's distros are UK/EU, where it packs to the breaker as before."""
     (s,) = make(page, [{'name': 'S', 'columns': 2, 'props': {'powerVoltage': 240}}])
-    set_distros(page, [_distro('old', 'OLD', system=None, voltage=240, phase=1)],
-                {s: {1: 'old'}})
+    old = _distro('old', 'OLD', system=None, voltage=240, phase=1)
+    set_distros(page, [old], {s: {1: 'old'}})
+    cap = capacity(page, s)
+    assert cap['pct'] == 0.8, cap
+    want = ('Its distro has no system picked, so a screen above 208 V packs to 80% of its '
+            "breaker, as a US circuit does, unless the show's distros are UK/EU.")
+    assert want in cap['wattsTip'], cap
+    assert page.evaluate("() => document.getElementById('power-amperage-usable').title") == want
+    # a show whose other distros are UK/EU: the breaker, and the round 6 words
+    set_distros(page, [old, _distro('eu', 'EU', '230/400')], {s: {1: 'old'}})
     cap = capacity(page, s)
     assert cap['pct'] == 1, cap
     want = 'Its distro has no system picked, so a screen above 208 V packs to its breaker.'
