@@ -29,6 +29,7 @@ import './app-context-menu.js';
 import './app-distros.js';
 import './app-distro-systems.js';
 import './app-power-sources.js';
+import './app-soca-twofer.js';
 import './app-neutral.js';
 import './app-services.js';
 import './app-phase-balance.js';

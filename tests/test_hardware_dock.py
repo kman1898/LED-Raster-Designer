@@ -2547,12 +2547,14 @@ def test_a_dock_power_chip_menu_offers_only_that_chips_action(dock_page):
     page.evaluate(RESET_POWER_JS, ids)
     landed(page)
 
-    # a multi slot chip: exactly the slot's clear, nothing about layers/ports
+    # a multi slot chip: exactly the slot's own actions - its clear, and
+    # on a Socapex output its Add Soca two-fer (2026-11-12) - nothing about
+    # layers/ports
     sx, sy = dock_tile_center(page, f'slot-{ids["distroId"]}-1')
     item = right_click(page, sx, sy)
     assert item['menuShown'] and item['shown'], item
     state = page.evaluate(MENU_ITEMS_JS)
-    assert state['items'] == ['hw-clear'], (
+    assert state['items'] == ['hw-clear', 'hw-twofer'], (
         f'a dock slot chip offers more than its own action: {state}')
     assert 'PD1' in item['label'], item
     assert 'port' not in item['label'].lower(), (
@@ -2999,7 +3001,8 @@ def test_the_slot_chip_offers_the_merge_for_its_split_off_part(dock_page):
     assert mi and mi['menuShown'] and mi['shown'], mi
     assert mi['label'].startswith('Merge back into '), mi
     state = page.evaluate(MENU_ITEMS_JS)
-    assert state['items'] == ['hw-clear', 'hw-merge'], (
+    # (the Socapex output's own Add Soca two-fer rides with them, 2026-11-12)
+    assert state['items'] == ['hw-clear', 'hw-merge', 'hw-twofer'], (
         f'the chip menu carries more than its own actions: {state}')
     page.locator('#context-menu [data-action="hw-merge"]').click()
     landed(page)

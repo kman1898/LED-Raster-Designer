@@ -378,6 +378,14 @@ DIFFERENT POWER ON ONE SCREEN
   circuits, two on each leg, planned at 15 A each so a circuit holds 12 A
   and a leg 24 A. Pick it on a spare box's type chip or add it to a
   distro's outputs. The L21-30 box with three 208V circuits is still there.
+- NEW: The Soca two-fer: right-click a Socapex output in the Power tray and
+  pick Add Soca two-fer. The output splits into two legs, A and B, shown as
+  one pair, and each leg drags onto a screen like any multi. Both legs carry
+  all six circuits, so circuit 3 of leg A and circuit 3 of leg B share
+  breaker 3, and the two together are held to 80% of it (16 A on a 20 A
+  breaker), else both read OVER. The home run to the splitter and each
+  leg's own run take a length each, and the pull sheet and binder list the
+  splitter, its home run and each leg's Socapex and breakout.
 
 POWER FIXES
 

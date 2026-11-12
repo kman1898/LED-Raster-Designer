@@ -7260,6 +7260,13 @@ class _Binder {
         const parts = [box.name, this._bBoxTypeText(box),
                        box.homeRun ? this.pullLengthText(box.homeRun, this.pullHomeRunKind(box)) : 'no length',
                        this._bPlural(n, 'circuit')];
+        // A leg of a Soca two-fer says the splitter it leaves and the
+        // splitter's own home run (owner, 2026-11-12).
+        if (box.twofer) {
+            parts.push(`leg ${box.twofer.leg} of Soca two-fer ${box.twofer.name}`,
+                       box.twofer.homeRun ? `${this.pullLengthText(box.twofer.homeRun, 'multi')} home run`
+                           : 'no home run length');
+        }
         for (const [id, other] of Object.entries(book.list.byScreen)) {
             if (sheetIds ? sheetIds.has(String(id)) : String(id) === String(layer.id)) continue;
             for (const ob of other.boxes || []) {
@@ -7352,6 +7359,11 @@ class _Binder {
         // on its unit (the band says which).
         const rows = [];
         let crossing = false;
+        // A Soca two-fer's pairs past the breaker they share (owner,
+        // 2026-11-12): each circuit of the pair prints OVER, and FACTS
+        // says the pair.
+        const twOver = typeof this.twoferOverChecks === 'function' ? this.twoferOverChecks() : [];
+        const twOverKeys = new Set(twOver.flatMap(r => r.keys));
         for (const { carrier, box, also } of units) {
             rows.push({ band: this._bBoxBand(book, carrier, box, sheetIds) });
             for (const c of box.circuits || []) {
@@ -7359,8 +7371,10 @@ class _Binder {
                 if (where) crossing = true;
                 // a circuit past its limit says OVER beside its amps, as
                 // the map's tag does (_bAmpsCell)
+                const amps = twOverKeys.has(`${carrier.id}:${c.num}`) && !this._bCircuitOver(carrier, c.amps)
+                    ? `${this._bNum(c.amps, 1)} · OVER` : this._bAmpsCell(carrier, c.amps);
                 rows.push({ cells: [where ? `${c.label} · ${where}` : c.label, String(c.tail), this._bNum(c.tiles, 0),
-                                    this._bAmpsCell(carrier, c.amps), c.cable || ''] });
+                                    amps, c.cable || ''] });
             }
         }
         // a screen that cannot fit a circuit - or a group routed as one
@@ -7419,6 +7433,8 @@ class _Binder {
             .filter(g => sheetLayers.has(String(g.layer.id)))
             .map(g => ['Breaker over', g.text]);
         overRow.push(...breakerRows);
+        overRow.push(...twOver.filter(r => r.holders.some(h => sheetLayers.has(String(h.layer.id))))
+            .map(r => ['Two-fer over', r.text]));
         const distroIds = [...new Set(units.map(u => u.box.distroId).filter(Boolean))];
         const loads = (typeof this.getDistroLoads === 'function') ? this.getDistroLoads() : [];
         // A member's sheet reads the amps of the circuits it lists; where
@@ -9028,7 +9044,12 @@ class _Binder {
         let allCircuits = 0;
         // each box by its own name, as the pull sheet says it (2026-10-21)
         const labels = typeof this.distroBoxLabels === 'function' ? this.distroBoxLabels() : new Map();
-        for (const number of [...numbers.keys()].sort((a, b) => a - b)) {
+        // A Soca two-fer's legs sit together, leg B right after leg A, the
+        // splitter's own line before them (app-soca-twofer.js).
+        const twOf = (n) => (typeof this.twoferOf === 'function' ? this.twoferOf(d, n) : null);
+        const place = (n) => { const tw = twOf(n); return tw ? tw.output + (tw.leg === 'B' ? 0.5 : 0) : n; };
+        const twSaid = new Set();
+        for (const number of [...numbers.keys()].sort((a, b) => place(a) - place(b))) {
             // A hidden screen is off the binder everywhere (owner,
             // 2026-10-23): its multis are not this distro's boxes, and a
             // box on hidden screens only is not listed - the table, its
@@ -9071,6 +9092,13 @@ class _Binder {
                 typeText = one ? one.name : this.directCableType(fbox.conn.cable, lone.layer);
             }
             allCircuits += circuits;
+            const tw = twOf(number);
+            if (tw && !twSaid.has(tw.output)) {
+                twSaid.add(tw.output);
+                const ft = this.twoferHomeRunFt(d, tw.output);
+                boxes.push({ cells: [this.twoferName(d, tw.output), 'Soca two-fer',
+                                     ft ? this.pullLengthText(ft, 'multi') : 'no length', '', '', ''] });
+            }
             boxes.push({ cells: [labels.get(`${d.id}|${number}`) || `${this.distroLabel(d)} ${number}`, typeText,
                                  homeRun ? this.pullLengthText(homeRun,
                                      this.pullHomeRunKind(fbox || (typed ? { typeId: typed.id } : null))) : 'no length',
@@ -9172,6 +9200,10 @@ class _Binder {
         if (typeof this.breakerOverChecks === 'function') {
             const mine = this.breakerOverChecks().filter(g => g.distro && g.distro.id === d.id);
             for (const text of this.breakerOverLines(mine)) pairs.push(['Breaker over', text]);
+        }
+        // A Soca two-fer's pair past the breaker they share (2026-11-12).
+        if (typeof this.twoferOverChecks === 'function') {
+            for (const r of this.twoferOverChecks(d)) pairs.push(['Two-fer over', r.text]);
         }
         // A multi left on a one-circuit output (a show already in that
         // state, 2026-10-18): the output's load against what it carries.

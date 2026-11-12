@@ -64,6 +64,7 @@ class _DockCableSheets {
             /^lrd_cable_sheet_(.+)_\d+$/,
             /^ledRasterPanelCollapsed_hwdock-distro-(.+)$/,
             /^ledRasterPanelCollapsed_hwdock-multi-(.+)-\d+$/,
+            /^ledRasterPanelCollapsed_hwdock-twofer-(.+)-\d+$/,
             /^ledRasterPanelCollapsed_hwdock-drow-([^-]+)-.+$/,
         ];
         try {

@@ -886,7 +886,8 @@ class _Distros {
                 const base = this.distroLabel(distros[order.get(b.distroId)]);
                 return { distroId: b.distroId, number: b.number,
                          label: typeof this._deriveMultiName === 'function'
-                             ? this._deriveMultiName(base, b.number, null) : `${base}${b.number}` };
+                             ? this._deriveMultiName(base, this._boxNumberText(distros[order.get(b.distroId)],
+                                 b.number), null) : `${base}${b.number}` };
             }) });
         }
         this._dupNamesFor = this._circuitTailCache;

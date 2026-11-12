@@ -473,6 +473,15 @@ class _MenuBar {
                     this._mergeMenuAction.run();
                 }
                 break;
+            // The Soca two-fer's add or remove, same doctrine: armed at open
+            // time on the output the cursor named, re-checked here; a
+            // refused add stays on the menu to be read, never to run.
+            case 'hw-twofer':
+                if (this._twoferMenuAction && !this._twoferMenuAction.disabled
+                        && typeof this._twoferMenuAction.run === 'function') {
+                    this._twoferMenuAction.run();
+                }
+                break;
             // Circuit sharing, same doctrine: armed at open time on the
             // circuit the cursor named, re-checked here.
             case 'hw-share':

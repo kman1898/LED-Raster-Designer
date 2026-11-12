@@ -2939,6 +2939,11 @@ class _HardwareDock {
         this._dockBreakerOver = typeof this.breakerOverChecks === 'function'
             ? this.breakerOverChecks() : [];
         this._dockBreakerOverKeys = new Set(this._dockBreakerOver.flatMap(g => g.keys));
+        // A Soca two-fer's pair past its breaker's limit (app-soca-twofer.js):
+        // read once, the chips and the distro headers wear OVER from it and
+        // the distro's checks say it on the strip.
+        this._dockTwoferOver = typeof this.twoferOverChecks === 'function'
+            ? this.twoferOverChecks() : [];
         for (const text of this.breakerOverLines(this._dockBreakerOver)) {
             this._dockPowerWarnings.push({ text, breaker: true });
         }
@@ -3236,24 +3241,35 @@ class _HardwareDock {
         // connector, a direct row as ONE section holding a chip per output.
         // A number in use past the face follows, flagged by the strip.
         const face = this.distroFace(d);
+        // A Soca two-fer (app-soca-twofer.js) shows in its output's place
+        // as one pair, its two legs inside; its leg B is no number of its
+        // own on the face.
+        const twofer = (n) => typeof this.twoferOf === 'function' && this.twoferOf(d, n);
+        const legB = (n) => typeof this.isTwoferLegBNumber === 'function' && this.isTwoferLegBNumber(n)
+            && twofer(n);
+        const boxOrPair = (n) => (twofer(n) ? this._dockBuildTwofer(d, n, inUse)
+            : this._dockBuildMulti(d, n, inUse.get(n) || []));
         if (face) {
             for (const r of face.rows) {
                 const info = face.rowInfo.get(r.id);
                 if (info.conn.kind === 'direct') {
                     body.appendChild(this._dockBuildDirectRow(d, info, inUse));
                 } else {
-                    info.boxes.forEach(b => body.appendChild(
-                        this._dockBuildMulti(d, b.number, inUse.get(b.number) || [])));
+                    info.boxes.forEach(b => body.appendChild(boxOrPair(b.number)));
                 }
             }
-            [...inUse.keys()].filter(n => n > face.boxes.length).sort((a, b) => a - b)
+            [...inUse.keys()].filter(n => n > face.boxes.length && !legB(n)).sort((a, b) => a - b)
                 .forEach(n => body.appendChild(this._dockBuildMulti(d, n, inUse.get(n))));
             return unit;
         }
-        const maxN = Math.max(0, ...inUse.keys()) + 1;
-        for (let n = 1; n <= maxN; n++) {
-            body.appendChild(this._dockBuildMulti(d, n, inUse.get(n) || []));
-        }
+        const own = [...inUse.keys()].filter(n => !legB(n));
+        const pairs = typeof this.distroTwoferOutputs === 'function' ? this.distroTwoferOutputs(d) : [];
+        const maxN = Math.max(0, ...own.filter(n => !this.isTwoferLegBNumber || !this.isTwoferLegBNumber(n)),
+                              ...pairs) + 1;
+        for (let n = 1; n <= maxN; n++) body.appendChild(boxOrPair(n));
+        // a leg B whose splitter is gone still shows, past the rest
+        own.filter(n => n > maxN).sort((a, b) => a - b)
+            .forEach(n => body.appendChild(this._dockBuildMulti(d, n, inUse.get(n))));
         return unit;
     }
 
@@ -3408,6 +3424,17 @@ class _HardwareDock {
             const flag = extra[extra.length - 1];
             flag.title = `${flag.title} ${brk.map(g => g.text).join(' ')}`;
             flag.data = { lrdBreakerOverToo: d.id };
+        }
+        // A Soca two-fer's pair past its breaker's limit: the same red OVER.
+        const tw = (this._dockTwoferOver || []).filter(r => r.distro && r.distro.id === d.id);
+        if (tw.length) {
+            const flag = extra.find(x => x.text === 'OVER');
+            if (flag) {
+                flag.title = `${flag.title || ''} ${tw.map(r => r.text).join(' ')}`.trim();
+            } else {
+                extra.push({ cls: 'hw-dock-unit-flag', text: 'OVER', data: { lrdTwoferOver: d.id },
+                             title: tw.map(r => r.text).join(' ') });
+            }
         }
         return {
             frac: amps / load.ratingA,
@@ -3744,7 +3771,10 @@ class _HardwareDock {
             }
         });
 
-        const tip = `${this.distroLabel(d)} multi ${n}: `
+        // a Soca two-fer's leg by its own name ("SL2B"), never its number
+        const legTw = typeof this.twoferOf === 'function' ? this.twoferOf(d, n) : null;
+        const tip = `${legTw ? `${boxName}, leg ${legTw.leg} of the Soca two-fer`
+            : `${this.distroLabel(d)} multi ${n}`}: `
             + (members.length
                 ? `${members.map(m => m.layerName).join(' and ')}, `
                     + (free.length
@@ -3815,8 +3845,10 @@ class _HardwareDock {
         // rather", so the OUTPUTS row stays as the second way). On a box
         // with nothing on it the chip is the picker; on an occupied box it
         // reads what the occupants make it.
+        // A Soca two-fer's legs are Socapex whatever lands on them.
+        const onTwofer = typeof this.twoferOf === 'function' && !!this.twoferOf(d, n);
         const typeChip = this._dockBuildTypeChip(d, n, typeInfo,
-                                                 !members.length && typeInfo.source !== 'face');
+                                                 !members.length && typeInfo.source !== 'face' && !onTwofer);
         if (!memberRecs.length) {
             const label = head.querySelector('.hw-dock-unit-name');
             head.insertBefore(typeChip, label ? label.nextSibling : null);
@@ -4074,6 +4106,25 @@ class _HardwareDock {
             flag.title = brk.map(g => g.text).join(' ');
             top.appendChild(flag);
             face.title = `${brk.map(g => g.text).join(' ')} ${face.title}`;
+        }
+        // Its Soca two-fer pair past the breaker they share (owner,
+        // 2026-11-12): the same red OVER, the strip line's words on it.
+        const twOver = holders.length && this._dockTwoferOver
+            ? this._dockTwoferOver.filter(r => holders.some(h =>
+                r.keys.includes(`${h.layerId}:${h.circuit}`))) : [];
+        if (twOver.length) {
+            tile.classList.add('lrd-tile-clash');
+            tile.dataset.lrdTwoferOver = '1';
+            if (!brk.length) {
+                const flag = document.createElement('span');
+                flag.className = 'hw-dock-chip-over';
+                flag.textContent = 'OVER';
+                top.appendChild(flag);
+            }
+            const flag = top.querySelector('.hw-dock-chip-over');
+            const words = twOver.map(r => r.text).join(' ');
+            if (flag) flag.title = flag.title ? `${flag.title} ${words}` : words;
+            face.title = `${words} ${face.title}`;
         }
         if (holders.length) {
             const amps = holders.reduce((s, h) => s + h.amps, 0);
@@ -4600,7 +4651,11 @@ class _HardwareDock {
     // re-keys every multi that was NOT cleared so it keeps its name,
     // distro, number, length and tails under its new index. Still ONE
     // history entry.
-    _clearMultis(members, action) {
+    // `opts.also`, where given, runs once the clear is certain, before its
+    // one history entry: a gesture that clears multis and changes
+    // something else with them (a Soca two-fer removed with its legs'
+    // multis) stays one undo step. True when the clear went through.
+    _clearMultis(members, action, opts = null) {
         sendClientLog('dock_clear', { kind: 'multis', action,
                                       count: members.length });
         // Every member's circuits and run ids are read BEFORE any store
@@ -4627,7 +4682,7 @@ class _HardwareDock {
                         targets: this._socaClearTargets(layer, m.soca) });
         });
         this._showLockedError(lockedMet);
-        if (!jobs.length) return;
+        if (!jobs.length) return false;
         const strip = () => {
             jobs.forEach(j =>
                 this._wipeSocaProgramming(j.layer, j.soca, j.targets));
@@ -4654,7 +4709,7 @@ class _HardwareDock {
         // screen it clears, whose packing % the group shares - stays
         // unchanged (owner, 2026-10-22): the clear is tried and put back,
         // and refused whole when it moves a locked screen's %.
-        if (this._repackRefused(strip, [...new Set(jobs.map(j => j.layer))])) return;
+        if (this._repackRefused(strip, [...new Set(jobs.map(j => j.layer))])) return false;
         // The pull-sheet rows as they print now, so an edit on a row this
         // clear takes away goes with it (_dropPullEditsGoneWith).
         const pullBefore = this._pullLiveRowKeys();
@@ -4667,11 +4722,13 @@ class _HardwareDock {
         // The clear renumbers both buckets it touches, so every label
         // on the show can move - same cache drop the setters make.
         this._circuitTailCache = null;
-        if (shared()) return;
+        if (shared()) return false;
+        if (opts && typeof opts.also === 'function') opts.also();
         this._dropPullEditsGoneWith(pullBefore);
         this.updateLayers([...new Set(jobs.map(j => j.layer))], true,
                           action);
         this._restateNaming();
+        return true;
     }
 
     // One circuit chip's clear - the chip is the circuit, so ONE circuit

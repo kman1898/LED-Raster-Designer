@@ -45,6 +45,11 @@ class _ContextMenu {
         const merge = (typeof this._prepareMergeMenu === 'function')
             ? this._prepareMergeMenu(x, y) : null;
         this._mergeMenuAction = merge;
+        // The Soca two-fer (app-soca-twofer.js): Add on a Socapex output's
+        // box in the tray, Remove on a two-fer. Absent everywhere else.
+        const twofer = (typeof this._prepareTwoferMenu === 'function')
+            ? this._prepareTwoferMenu(x, y) : null;
+        this._twoferMenuAction = twofer;
         // Circuit sharing (the retired Splitters panel's manual lever):
         // armed only on a power circuit run or chip, and only while the
         // screen's splitters are on or its circuits are drawn custom
@@ -140,14 +145,14 @@ class _ContextMenu {
         const rigBar = !inDock && typeof this._prepareRiggingBarMenu === 'function'
             ? this._prepareRiggingBarMenu(x, y) : null;
         if (inDock && !clear && !merge && !sharing.share
-                && !sharing.unshare && !outs && !snake) {
+                && !sharing.unshare && !outs && !snake && !twofer) {
             this.hideContextMenu();
             return;
         }
         // The layer/canvas items belong to the canvas surface only. On the
         // dock they all leave, whatever their group logic below would say.
         menu.querySelectorAll(
-            '.menu-option:not(.hw-clear-only):not(.hw-merge-only)'
+            '.menu-option:not(.hw-clear-only):not(.hw-merge-only):not(.hw-twofer-only)'
             + ':not(.hw-share-only):not(.hw-unshare-only):not(.hw-nfer-it-only)'
             + ':not(.hw-batch-only):not(.hw-out-only):not(.hw-snake-only), '
             + '.menu-divider:not(.hw-clear-only):not(.hw-batch-only)'
@@ -328,7 +333,8 @@ class _ContextMenu {
                 });
             }
         }
-        [['hw-share-only', 'hw-share', sharing.share],
+        [['hw-twofer-only', 'hw-twofer', twofer],
+         ['hw-share-only', 'hw-share', sharing.share],
          ['hw-unshare-only', 'hw-unshare', sharing.unshare],
          ['hw-nfer-it-only', 'hw-nfer-it', nferIt],
          ['ovr-redraw-only', 'ovr-redraw', ovr && ovr.redraw],

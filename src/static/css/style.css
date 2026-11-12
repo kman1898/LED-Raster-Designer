@@ -1846,6 +1846,9 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
     padding: 1px 2px; border-radius: 3px;
 }
 .hw-dock-head-row:active { cursor: grabbing; }
+/* a Soca two-fer's own strip header drags nothing: each leg row under it
+   is the multi that drags (app-soca-twofer.js) */
+.hw-dock-twofer > .hw-dock-head-row, .hw-dock-twofer > .hw-dock-head-row:active { cursor: default; }
 .hw-dock-grip { color: #555; font-size: 10px; letter-spacing: -1px; }
 .hw-dock-unit-name {
     font-size: 11px; color: #ccc; font-family: monospace;

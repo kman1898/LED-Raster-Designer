@@ -158,7 +158,14 @@ class _Naming {
     // space, "DISTRO 1 1" beside a multi reading DISTRO 1-1 (QA
     // 1.6.0-beta.4).
     distroBoxName(d, number) {
-        return this._deriveMultiName(this.distroLabel(d), number, null);
+        return this._deriveMultiName(this.distroLabel(d), this._boxNumberText(d, number), null);
+    }
+
+    // The number a box's name carries: the leg letters of a Soca two-fer's
+    // legs ("2A", "2B", app-soca-twofer.js), else the number.
+    _boxNumberText(d, number) {
+        return typeof this.distroBoxNumberText === 'function'
+            ? this.distroBoxNumberText(d, number) : number;
     }
 
     // Old projects keyed the per-multi stores - lengths, tail positions,
@@ -437,7 +444,11 @@ class _Naming {
                     // is the plain per-distro sequence it has always been.
                     const taken = (pins && pins.get(distroId)) || null;
                     let n = seq.get(distroId) || 0;
-                    do { n += 1; } while (taken && taken.has(n));
+                    // A Soca two-fer's output is reached by dragging its
+                    // legs (app-soca-twofer.js), never dealt to an auto.
+                    const twofer = (k) => !!d && typeof this._twoferRecord === 'function'
+                        && !!this._twoferRecord(d, k);
+                    do { n += 1; } while ((taken && taken.has(n)) || twofer(n));
                     seq.set(distroId, n);
                     number = n;
                 }
@@ -624,7 +635,7 @@ class _Naming {
         // the distro's DISPLAY label (distroLabel): SR-1's boxes are
         // SR-1-1, SR-1-2 where two distros are named SR
         const base = distro && String(distro.name || '').trim() ? this.distroLabel(distro) : '';
-        if (base) return this._deriveMultiName(base, number, tpl);
+        if (base) return this._deriveMultiName(base, this._boxNumberText(distro, number), tpl);
         return tpl.ok ? this._deriveMultiName(tpl.prefix, number, tpl) : '';
     }
 

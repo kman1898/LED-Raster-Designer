@@ -671,7 +671,8 @@ class _DistroSystems {
         if (!sys || this.distroRows(d).length) return null;
         const used = [...this._distroMultiNumbers(d.id).entries()]
             .filter(([n, members]) => Number.isFinite(n) && n >= 1 && (members || []).length)
-            .map(([n]) => n);
+            // a Soca two-fer's leg B is its output's, not a face number
+            .map(([n]) => (typeof this.twoferOutputOf === 'function' ? this.twoferOutputOf(n) : n));
         if (!used.length) return null;
         const top = Math.max(...used);
         // The multi box types the old demand-driven boxes are, as rows.
@@ -778,7 +779,14 @@ class _DistroSystems {
 
     faceBox(d, number) {
         const face = this.distroFace(d);
-        return face ? face.byNumber.get(parseInt(number, 10)) || null : null;
+        if (!face) return null;
+        const n = parseInt(number, 10);
+        const hit = face.byNumber.get(n);
+        if (hit) return hit;
+        // A Soca two-fer's leg B (app-soca-twofer.js) is its output's box
+        // under the leg's own number.
+        return typeof this.isTwoferLegBNumber === 'function' && this.isTwoferLegBNumber(n)
+            ? this.twoferLegBBox(d, face, n) : null;
     }
 
     // A face box's tail as the PHYSICAL circuit it is: its primary row's
@@ -893,7 +901,9 @@ class _DistroSystems {
         const numbers = this._distroMultiNumbers(d.id);
         const direct = info.conn.kind === 'direct';
         return info.boxes.filter(b => !(numbers.get(b.number) || []).length
-            && !this._facePairedHolders(d, b.number, direct ? 1 : null).length);
+            && !this._facePairedHolders(d, b.number, direct ? 1 : null).length
+            // a Soca two-fer's legs are dragged on their own
+            && !(typeof this._twoferRecord === 'function' && this._twoferRecord(d, b.number)));
     }
 
     _isDirectBox(distroId, number) {
@@ -970,6 +980,8 @@ class _DistroSystems {
         }
         for (const box of face.boxes) {
             if (busy.has(box.number) || box.kind !== 'multi' || box.paired) continue;
+            // a Soca two-fer's legs are reached by dragging them
+            if (typeof this._twoferRecord === 'function' && this._twoferRecord(d, box.number)) continue;
             if (!this.faceBoxEligible(d, box, layer).ok) continue;
             if (issued) issued.add(box.number);
             return box.number;
@@ -1068,7 +1080,9 @@ class _DistroSystems {
             return { legs: [['X', 'Y'][((step % 2) + 2) % 2]], ll: false, scheme };
         }
         if (scheme.id === 'whole-ln') {
-            const n = Math.max(1, parseInt(s.number, 10) || 1);
+            // a Soca two-fer's leg B rides its output's leg
+            const num = typeof this.twoferOutputOf === 'function' ? this.twoferOutputOf(s.number) : s.number;
+            const n = Math.max(1, parseInt(num, 10) || 1);
             return { legs: [['X', 'Y', 'Z'][(n - 1) % 3]], ll: false, scheme };
         }
         const legs = this._circuitLegs(tail, scheme.id, 0,
@@ -1429,6 +1443,11 @@ class _DistroSystems {
             }
             for (const [key, list] of physical) {
                 const box = list[0].box;
+                // The two circuits a Soca two-fer puts on one breaker are
+                // its own check below (twoferPairs), never one circuit
+                // patched to two connectors.
+                if (typeof this.twoferOf === 'function'
+                        && list.every(c => this.twoferOf(d, c.box.number))) continue;
                 const amps = list.reduce((t, c) => t + (Number(c.leg.amps) || 0), 0);
                 const label = list.map(c => c.leg.label).join(' + ');
                 const numbers = new Set(list.map(c => c.box.number));
@@ -1512,6 +1531,10 @@ class _DistroSystems {
         // same words (the strip shows it once), naming the hidden holder.
         for (const ov of this._boxOverflows(d)) {
             say(`ovf:${ov.number}`, this._boxOverflowText(ov));
+        }
+        // A Soca two-fer's pair past its breaker's limit (app-soca-twofer.js).
+        if (typeof this.twoferOverChecks === 'function') {
+            for (const r of this.twoferOverChecks(d)) say(`tw:${r.output}:${r.tail}`, r.text);
         }
         return out;
     }

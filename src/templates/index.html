@@ -289,6 +289,11 @@
                  cursor; absent everywhere else - "nothing to merge" is the
                  ordinary state of a multi, not a refused gesture. -->
             <div class="menu-option hw-merge-only" data-action="hw-merge" style="display: none;"></div>
+            <!-- The Soca two-fer: "Add Soca two-fer" on a Socapex output's
+                 box in the Power tray, "Remove Soca two-fer" on a two-fer's
+                 strip or either leg. Armed by _prepareTwoferMenu
+                 (app-soca-twofer.js); never offered on another output. -->
+            <div class="menu-option hw-twofer-only" data-action="hw-twofer" style="display: none;"></div>
             <!-- Circuit sharing through a 2fer/3fer, the manual lever the
                  retired Splitters panel rows carried. Armed by
                  _prepareShareMenus (app-dock.js) only on a power circuit run

@@ -608,7 +608,7 @@ class _PullList {
                     ? this.distroLabel(d) : String(d.name || '').trim();
                 const name = String(rec.name || '').trim()
                     || (typeof this._deriveMultiName === 'function'
-                        ? this._deriveMultiName(base, rec.number, null)
+                        ? this._deriveMultiName(base, this._boxNumberText(d, rec.number), null)
                         : `${base}${rec.number}`);
                 found.set(key, { d: rec.distroId, number: Number(rec.number), name, shown });
             }
@@ -1275,6 +1275,8 @@ class _PullList {
         // Each breakout a box takes: one per connector its screens break
         // out to ("<box key>|<breakout type>").
         const breakoutsSeen = new Set();
+        // Each Soca two-fer: its splitter and its home run, said once.
+        const twofersSeen = new Set();
         const snakesSeen = new Set();
         // A row said once for several runs (a snake, a box's fiber) is
         // tagged with every screen those runs land on, whichever screen's
@@ -1352,7 +1354,7 @@ class _PullList {
         for (const base of bases) {
             for (const layer of base.layers) {
                 const scr = this._pullScreenList(layer, {
-                    settings, distroById, boxesSeen, directSeen, breakoutsSeen, snakesSeen, fiberSeen, hw, saidOnce,
+                    settings, distroById, boxesSeen, directSeen, breakoutsSeen, twofersSeen, snakesSeen, fiberSeen, hw, saidOnce,
                     distroFirstLayer, boxFirstLayer, procFirstLayer, rid, boxLabels, boxOverflows,
                 });
                 byScreen[layer.id] = scr;
@@ -1791,6 +1793,13 @@ class _PullList {
                 // output, and said in the home run's notes.
                 const ovf = s.distroId && ctx.boxOverflows ? ctx.boxOverflows.get(key) : null;
                 if (ovf) box.overfull = { circuits: ovf.circuits, size: ovf.size };
+                // A leg of a Soca two-fer (app-soca-twofer.js): the
+                // splitter it leaves, by name, and the splitter's home run.
+                const tw = d && typeof this.twoferOf === 'function' ? this.twoferOf(d, s.number) : null;
+                if (tw) {
+                    box.twofer = { output: tw.output, leg: tw.leg, name: this.twoferName(d, tw.output),
+                                   homeRun: this.twoferHomeRunFt(d, tw.output) };
+                }
                 boxes.set(key, box);
             } else if (!box.homeRun && s.distroId && this.parseCableLength(s.length) !== null) {
                 box.homeRun = this.parseCableLength(s.length);
@@ -1851,7 +1860,8 @@ class _PullList {
         const boxLabelOf = (box) => (ctx.boxLabels && ctx.boxLabels.get(box.key))
             || String(box.name || '').trim()
             || (typeof this._deriveMultiName === 'function'
-                ? this._deriveMultiName(box.distro || '', box.number, null)
+                ? this._deriveMultiName(box.distro || '',
+                    this._boxNumberText(distroById.get(box.distroId), box.number), null)
                 : `${box.distro || ''}${box.number}`);
         for (const box of boxes.values()) {
             out.boxes.push(box);
@@ -1912,6 +1922,18 @@ class _PullList {
             const b = row(breakoutType, 'EA', 1, boxLabel, '', at);
             const hrec = hw('distro', box.distroId, distroName);
             hrec.rows.push({ ...r }, { ...b });
+            // A leg of a Soca two-fer: the leg is the Multi and Breakout
+            // above, under its own name; the splitter and its home run,
+            // distro to splitter, are said once, under the splitter's
+            // name ("SL2"), at the distro (owner, 2026-11-12).
+            const twofersSeen = ctx.twofersSeen || new Set();
+            if (box.twofer && !twofersSeen.has(`${box.distroId}|${box.twofer.output}`)) {
+                twofersSeen.add(`${box.distroId}|${box.twofer.output}`);
+                const t = row('Soca two-fer', 'EA', 1, box.twofer.name, '', at);
+                const h = row('Multi', this.pullCableLength(box.twofer.homeRun, 'multi'), 1, box.twofer.name,
+                              box.twofer.homeRun ? '' : 'no length', at);
+                hrec.rows.push({ ...h }, { ...t });
+            }
         }
         // Gangs: a circuit made of two runs is a 2fer, three a 3fer, four a
         // 4fer and so on - one splitter of its own ways each (a circuit split

@@ -826,7 +826,15 @@ class _Power {
             overEl.textContent = hit.length
                 ? `OVER: ${+hit[0].breakerA.toFixed(1)} A breaker on ${hit[0].item} (${hit[0].ratingA} A)` : '';
             overEl.title = hit.map(g => g.text).join(' ');
-            overEl.style.display = hit.length ? '' : 'none';
+            // A Soca two-fer pair past the breaker it shares (2026-11-12).
+            const tw = !hit.length && typeof this.twoferOverChecks === 'function'
+                ? this.twoferOverChecks().filter(r => r.holders.some(h => h.layer === layer)) : [];
+            if (tw.length) {
+                overEl.textContent = `OVER: ${tw[0].holders.map(h => h.label).join(' + ')} on one `
+                    + `${tw[0].breakerA > 0 ? `${+tw[0].breakerA.toFixed(1)} A ` : ''}breaker`;
+                overEl.title = tw.map(r => r.text).join(' ');
+            }
+            overEl.style.display = hit.length || tw.length ? '' : 'none';
         }
         // "Total Amps (1φ)" is the current of one single-phase supply at the
         // screen's voltage: on a 3-phase distro no wire carries it, and
@@ -2468,6 +2476,12 @@ class _Power {
             return { type: this.faceBoxType(d, fbox), source: 'face', implied: null,
                      clash: false, faceBox: fbox };
         }
+        // A Soca two-fer's leg B (app-soca-twofer.js) is its output's type:
+        // the splitter stamps it there when it is added.
+        if (d && typeof this.isTwoferLegBNumber === 'function' && this.isTwoferLegBNumber(n)
+                && this.twoferOf(d, n)) {
+            return this.distroBoxType(d, this.twoferOutputOf(n));
+        }
         const list = Array.isArray(members) ? members
             : (d ? (this._distroMultiNumbers(d.id).get(n) || []) : []);
         let implied = null;
@@ -2537,7 +2551,9 @@ class _Power {
         for (const k of Object.keys(d.boxTypes || {})) numbers.add(parseInt(k, 10));
         for (const k of this._distroMultiNumbers(d.id).keys()) numbers.add(k);
         const settled = [...numbers]
-            .filter(k => Number.isFinite(k) && k !== n)
+            // a Soca two-fer's leg B reads its output's type, never its own
+            .filter(k => Number.isFinite(k) && k !== n
+                && !(typeof this.isTwoferLegBNumber === 'function' && this.isTwoferLegBNumber(k)))
             .map(k => {
                 const stored = this.distroStoredBoxType(d, k);
                 if (stored) return { k, type: stored };
@@ -2582,6 +2598,8 @@ class _Power {
         const d = this.getDistros().find(x => x.id === distroId);
         const n = parseInt(number, 10);
         if (!d || !Number.isFinite(n) || n < 1) return false;
+        // a Soca two-fer's leg B wears its output's type (app-soca-twofer.js)
+        if (typeof this.isTwoferLegBNumber === 'function' && this.isTwoferLegBNumber(n)) return false;
         if (!this.getDistroOutputTypes().some(t => t.id === typeId)) return false;
         if (!d.boxTypes || typeof d.boxTypes !== 'object') d.boxTypes = {};
         if (d.boxTypes[n] === typeId) return false;
