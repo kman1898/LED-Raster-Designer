@@ -495,13 +495,13 @@ def test_the_row_and_name_drag_and_not_while_renaming(page):
 
 @pytest.mark.parametrize('run', range(3))
 def test_the_guide_step_plays_on_its_own(page, run):
-    """The Advanced Guide's step, played alone as What's New's Show me plays
+    """The Pixel Map guide's step, played alone as What's New's Show me plays
     it, from its own entry snapshot: + Add Canvas, the group's row onto the
     new canvas and back, the canvas removed. Three times: a guide step
     passes first try, every time."""
     pg, errors = page
     pg.evaluate("""() => {
-        const q = window.QuickStart, keys = q.tours().advanced
+        const q = window.QuickStart, keys = q.tours().pixelMap
             .map(s => Object.keys(q.steps()).find(k => q.steps()[k] === s));
         if (keys[keys.indexOf('groupNames') + 1] !== 'groupDrag') throw new Error('out of place');
         if (q.steps().groupDrag.since !== '1.7.0') throw new Error('since');

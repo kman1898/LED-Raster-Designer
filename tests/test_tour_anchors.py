@@ -3,9 +3,10 @@
 The tours in quickstart.js DEMONSTRATE: each step performs one real action
 on a scratch demo show (a ghost cursor travels to the control, the app's own
 handlers fire, the result appears) and a check() returns the result note -
-or null when the action did not take. This suite drives every tour for
+or null when the action did not take. This suite drives the Quick Start for
 real - startTour(), then #qs-next through every step - and after each act
-settles proves two things: the step's anchor resolves and is visible in the
+settles proves two things (each subject guide's tests/test_guide_<name>.py
+proves the same of every step of its guide): the step's anchor resolves and is visible in the
 view the step shows it in, and the check returned a note (the callout has a
 green .qs-result and no .qs-result-fail). A step whose selector rots or
 whose act stops taking fails here with its title.
@@ -489,12 +490,20 @@ def test_plain_wording_guard_catches_each_word():
     assert not any('centred' in t or 'travelling' in t or 'a - b' in t for t in texts), texts
 
 
+# The guides under Help > Guides, in menu order (owner, 2026-11-11: the
+# one Advanced Guide split into seven by subject).
+GUIDES = ['pixelMap', 'data', 'power', 'headerFooter', 'threeD', 'idm', 'binder']
+
+
 def test_tour_registry_exposes_all_tours(page):
     names = page.evaluate("Object.keys(window.QuickStart.tours())")
-    assert {'quick', 'advanced'} <= set(names), names
-    # What's New is built from the Advanced steps on the fly, never a
-    # tour of its own (the What's New in 1.0 guide is gone).
-    assert 'whatsNew' not in names, names
+    assert names == ['quick'] + GUIDES, names
+    assert [g['name'] for g in page.evaluate("window.QuickStart.guides()")] == GUIDES
+    # What's New is built from the guide steps on the fly, never a tour of
+    # its own (the What's New in 1.0 guide is gone), and the Advanced
+    # Guide is gone with the split.
+    assert 'whatsNew' not in names and 'advanced' not in names, names
+    assert page.evaluate("typeof window.QuickStart.startAdvanced") == "undefined"
     for name in names:
         count = page.evaluate(
             "(n) => window.QuickStart.tours()[n].length", name)
@@ -601,12 +610,12 @@ def _drive_to(page, tour, index, speed=DRIVE_SPEED):
 
 
 def test_every_step_acts_and_checks(page):
-    """Each tour, driven to the end: every step's anchor resolves and is
-    visible once its act settled, and its check returned a note. Every
-    failing step is named in one message."""
+    """The Quick Start, driven to the end: every step's anchor resolves and
+    is visible once its act settled, and its check returned a note. Every
+    failing step is named in one message. (Each subject guide has its own
+    module that drives it the same way: tests/test_guide_<name>.py.)"""
     problems = []
-    names = page.evaluate("Object.keys(window.QuickStart.tours())")
-    for name in names:
+    for name in ['quick']:
         n = page.evaluate("(n) => window.QuickStart.tours()[n].length", name)
         # The engine records every placement of the callout (where and by
         # whom) when this hook is armed - see quickstart.js place().
@@ -656,8 +665,8 @@ def test_back_replays_the_previous_step(page):
     replays its act: from the step after "Name it on its header", Back
     shows that step's note again, and the project holds exactly one
     processor named SR - no duplicate from the replay."""
-    i = _step_index(page, 'advanced', 'Name it on its header')
-    st = _drive_to(page, 'advanced', i + 1)
+    i = _step_index(page, 'data', 'Name it on its header')
+    st = _drive_to(page, 'data', i + 1)
     assert st['qs']['index'] == i + 1, st
     page.locator('#qs-back').click()
     st = _wait_step(page, i)
@@ -679,13 +688,13 @@ def test_enter_is_next_and_a_typed_step_jumps(page):
     state when it lands and nothing ran behind a shade; back, the step's
     snapshot is restored and replayed - and nothing is duplicated either
     way. tests/test_tour_snapshots.py jumps to every step."""
-    st = _start(page, 'advanced', speed=3)
+    st = _start(page, 'data', speed=3)
     assert st['qs']['index'] == 0, st
     page.keyboard.press('Enter')
     st = _wait_step(page, 1)
     assert st['qs']['index'] == 1 and st['state'] == 'done', st
     # ahead: to "Name it on its header", past the add-processor step
-    i = _step_index(page, 'advanced', 'Name it on its header')
+    i = _step_index(page, 'data', 'Name it on its header')
     page.fill('#qs-jump', str(i + 1))
     page.press('#qs-jump', 'Enter')
     page.wait_for_function(
@@ -729,8 +738,8 @@ def test_exit_puts_the_users_project_back(page):
     before = page.evaluate(WORLD_JS)
     assert 'TOUR WALL' in before['layers'], before['layers']
 
-    i = _step_index(page, 'advanced', 'loose port')
-    _drive_to(page, 'advanced', i)
+    i = _step_index(page, 'data', 'loose port')
+    _drive_to(page, 'data', i)
     mid = page.evaluate(WORLD_JS)
     assert 'DEMO WALL' in mid['layers'], mid['layers']
     _skip(page)
@@ -757,7 +766,7 @@ def test_escape_mid_act_does_not_corrupt(page):
     page.wait_for_timeout(600)
     before = page.evaluate(WORLD_JS)
     page.evaluate("() => window.QuickStart.setSpeed(1)")
-    page.evaluate("() => { window.QuickStart.startTour('advanced'); }")
+    page.evaluate("() => { window.QuickStart.startTour('pixelMap'); }")
     _wait_step(page, 0)
     page.locator('#qs-next').click()
     deadline = time.time() + 10
@@ -804,8 +813,8 @@ def test_tour_leaves_preferences_alone(page):
     page.evaluate(PREFS_JS, {'binderTitleBlock': False})
     page.wait_for_timeout(300)
     try:
-        i = _step_index(page, 'advanced', 'Border and title block')
-        st = _drive_to(page, 'advanced', i)
+        i = _step_index(page, 'binder', 'Border and title block')
+        st = _drive_to(page, 'binder', i)
         assert st['state'] == 'done' and not st['fail'], st
         _skip(page)
         prefs = page.evaluate(PREFS_JS, None)
@@ -830,8 +839,8 @@ def test_reload_mid_tour_recovers_the_project(page):
     page.wait_for_timeout(600)
     before = page.evaluate(WORLD_JS)
     assert 'TOUR WALL' in before['layers']
-    i = _step_index(page, 'advanced', 'Name it on its header')
-    _drive_to(page, 'advanced', i)
+    i = _step_index(page, 'data', 'Name it on its header')
+    _drive_to(page, 'data', i)
     assert page.evaluate("!!localStorage.getItem('lrd_tour_saved_world')")
     assert 'DEMO WALL' in page.evaluate(WORLD_JS)['layers']
 
@@ -901,8 +910,8 @@ def _in_engine(engine, browser_name, pw_browser, body):
 
 @pytest.mark.parametrize('engine', ENGINES)
 def test_whats_new_launches_from_help_menu(e2e_server, pw_browser, browser_name, engine):
-    """Help has ONE What's New entry: it opens the What's New window, whose
-    Show me runs the Advanced Guide steps the window is about, in
+    """Help has ONE What's New entry, under Guides: it opens the What's New
+    window, whose Show me runs the guide steps the window is about, in
     Chromium and in Firefox (skipped where Firefox is not installed)."""
     def body(browser):
         context = browser.new_context(viewport={'width': 1700, 'height': 950})
@@ -992,8 +1001,8 @@ FOLD_SL1_JS = """() => {
 def test_a_folded_tray_and_a_small_window_do_not_break_the_tour(e2e_server, pw_browser):
     """A 1440x850 window, the tray folded and 100 px tall, SL 1 remembered
     folded, and - once the distro exists - SL 1 and the distro folded by
-    hand: the Advanced tour's power steps (Add a distro through the multi's
-    cable sheet) still all take. The tray is opened and raised for the
+    hand: the Power guide's steps from Add a distro through the multi's
+    cable sheet still all take. The tray is opened and raised for the
     demo, every fold above a chip is undone before the hand reaches for it,
     both multi drops land all six circuits on a cabinet inside the visible
     canvas (never under the tray, where a release reads as a clear), the
@@ -1007,14 +1016,14 @@ def test_a_folded_tray_and_a_small_window_do_not_break_the_tour(e2e_server, pw_b
         pg.wait_for_timeout(2000)
         before = pg.evaluate(TRAY_STATE_JS)
         assert before['collapsed'] and before['height'] == '100px', before
-        first = _step_index(pg, 'advanced', 'Add a distro')
-        titles = pg.evaluate("(n) => window.QuickStart.tours()[n].map(s => s.title)", 'advanced')
+        first = _step_index(pg, 'power', 'Add a distro')
+        titles = pg.evaluate("(n) => window.QuickStart.tours()[n].map(s => s.title)", 'power')
         # Through the multi's cable sheet: the first cable sheet step after
         # Add a distro, wherever the distro's gear steps leave it.
         last = next((i for i, t in enumerate(titles) if i > first and 'cable sheet' in t), None)
         assert last is not None, titles[first:]
         pg.evaluate("window.__qsTrace = []")
-        st = _drive_to(pg, 'advanced', first)
+        st = _drive_to(pg, 'power', first)
         assert st['qs']['index'] == first, st
         mid = pg.evaluate(TRAY_STATE_JS)
         assert not mid['collapsed'], mid
@@ -1024,7 +1033,7 @@ def test_a_folded_tray_and_a_small_window_do_not_break_the_tour(e2e_server, pw_b
         notes = {}
         for i in range(first, last + 1):
             st = _wait_step(pg, i)
-            where = f"advanced step {i + 1} ({st['title']!r})"
+            where = f"power step {i + 1} ({st['title']!r})"
             if st['qs']['index'] != i:
                 problems.append(f"{where}: the engine never settled ({st})")
                 break
@@ -1096,7 +1105,7 @@ PANELS_STATE_JS = """() => {
 
 def test_folded_sidebars_and_a_folded_section_do_not_break_the_tour(e2e_server, pw_browser):
     """A 1440x850 window, both sidebars folded away and Screen Info folded:
-    the Advanced tour's first six steps all take. The panel a step reaches
+    the Pixel Map guide's first six steps all take. The panel a step reaches
     into is opened and the fold above its field undone before the hand
     reaches for it, the callout is in the right sidebar's column at Cabinet
     size (never the middle of the window) - and Skip puts the person's
@@ -1110,16 +1119,16 @@ def test_folded_sidebars_and_a_folded_section_do_not_break_the_tour(e2e_server, 
         before = pg.evaluate(PANELS_STATE_JS)
         assert before['left'] and before['right'] and before['screenInfoFolded'], before
         assert before['cabinetWidth'][2:] == [0, 0], before
-        cab = _step_index(pg, 'advanced', 'Cabinet size')
+        cab = _step_index(pg, 'pixelMap', 'Cabinet size')
         assert cab == 2, cab
-        st = _start(pg, 'advanced')
+        st = _start(pg, 'pixelMap')
         assert st['qs']['index'] == 0, st
         problems = []
         for i in range(0, 6):
             if i > 0:
                 pg.locator('#qs-next').click()
             st = _wait_step(pg, i)
-            where = f"advanced step {i + 1} ({st['title']!r})"
+            where = f"pixelMap step {i + 1} ({st['title']!r})"
             if st['qs']['index'] != i:
                 problems.append(f"{where}: the engine never settled ({st})")
                 break

@@ -75,21 +75,26 @@ def _guide_closed(page):
 SPEED = 3
 
 # ── the inventory ────────────────────────────────────────────────────────
-# Every run of consecutive steps that share a window, per guide. A step
-# added beside one of these, or a new shared window, changes the list and
-# fails test_shared_window_runs_are_the_known_ones until it is named here
-# (and so covered by the drives below).
-ADVANCED_RUNS = [
-    ['sameAsLast', 'avgPower'],                              # picker:add
-    ['redundancy', 'backupProcessor', 'processorIp'],        # gear:proc
-    ['distroPhase', 'distroRating', 'distroMain',
-     'distroPreset', 'distroRows', 'edisonType'],            # gear:distro
-    ['jumperNames', 'pullPanels'],                           # export:pull-sheet
-    ['cableStock', 'cableStockPerKind'],                     # prefs:stock
-    ['outputOpen', 'outputChoices'],                         # output
-    ['exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet',
-     'fiberPage', 'titleBlock'],                             # export:binder
-]
+# Every run of consecutive steps that share a window, per guide (the seven
+# subject guides under Help > Guides, owner 2026-11-11). A step added
+# beside one of these, or a new shared window, changes the list and fails
+# test_shared_window_runs_are_the_known_ones until it is named here (and so
+# covered by the drives below).
+GUIDE_RUNS = {
+    'pixelMap': [['sameAsLast', 'avgPower']],                        # picker:add
+    'data': [['redundancy', 'backupProcessor', 'processorIp']],      # gear:proc
+    'power': [['distroPhase', 'distroRating', 'distroMain',
+               'distroPreset', 'distroRows', 'edisonType'],          # gear:distro
+              ['jumperNames', 'pullPanels'],                         # export:pull-sheet
+              ['cableStock', 'cableStockPerKind']],                  # prefs:stock
+    'headerFooter': [],
+    'threeD': [['outputOpen', 'outputChoices']],                     # output
+    'idm': [],
+    'binder': [['exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet',
+                'fiberPage', 'titleBlock']],                         # export:binder
+}
+# The guides whose steps share a window somewhere.
+RUN_GUIDES = [g for g, runs in GUIDE_RUNS.items() if runs]
 QUICK_RUNS = []
 # The What's New lists for every 1.5 version a person can come from.
 # Edison outputs and The neutral (both 1.7.0) work in the distro's gear one
@@ -150,28 +155,29 @@ def _tour_keys(page, name):
 
 
 def test_shared_window_runs_are_the_known_ones(page):
-    """The runs, per guide: Advanced, Quick Start, and What's New from every
-    1.5 version. The owner's two reports are among them: What's New from
-    1.5.2 steps 11 and 12 share the Export dialog on the pull sheet (18
-    and 19 since Quick Palettes, IP addresses, A breaker past its
-    connector, Edison outputs and The neutral, all 1.7.0 steps, and
-    Single mode or multimode and Every box in one list, both 1.6.0
-    steps, came in before them)."""
-    assert _runs(page, _tour_keys(page, 'advanced')) == ADVANCED_RUNS
+    """The runs, per guide: each subject guide, Quick Start, and What's
+    New from every 1.5 version. The owner's two reports are among them:
+    What's New from 1.5.2 steps 11 and 12 share the Export dialog on the
+    pull sheet. What's New runs the guides in Help > Guides order, so the
+    Pixel Map and Data steps since 1.5.2 now come ahead of them, and the
+    Power steps before them in the Power guide (A breaker past its
+    connector, Edison outputs, The neutral) still do."""
+    names = [g['name'] for g in page.evaluate("() => window.QuickStart.guides()")]
+    assert names == list(GUIDE_RUNS), names
+    for guide, want in GUIDE_RUNS.items():
+        assert _runs(page, _tour_keys(page, guide)) == want, guide
     assert _runs(page, _tour_keys(page, 'quick')) == QUICK_RUNS
     for after, want in WHATS_NEW_RUNS.items():
         keys = page.evaluate("(v) => window.QuickStart.newSteps(v, null)", after)
         assert _runs(page, keys) == want, after
     keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', null)")
-    # the owner's steps 11 and 12, seven places on since Quick Palettes,
-    # IP addresses, A breaker past its connector, Edison outputs and The
-    # neutral (1.7.0), Single mode or multimode and Every box in one list
-    # (both 1.6.0) came in ahead of them
-    assert keys[17:19] == ['jumperNames', 'pullPanels'], keys
-    assert 'fiberMode' in keys[:17] and 'procCableList' in keys[:17], keys
-    assert 'quickPalettes' in keys[:17] and 'processorIp' in keys[:17], keys
-    assert 'breakerOver' in keys[:17] and 'edisonType' in keys[:17], keys
-    assert 'distroNeutral' in keys[:17], keys
+    # the owner's steps 11 and 12, side by side, after every Pixel Map and
+    # Data step since 1.5.2 and the Power steps ahead of them in their guide
+    i = keys.index('jumperNames')
+    assert keys[i:i + 2] == ['jumperNames', 'pullPanels'], keys
+    for k in ('quickPalettes', 'processorIp', 'fiberMode', 'procCableList',
+              'breakerOver', 'edisonType', 'distroNeutral'):
+        assert keys.index(k) < i, (k, keys)
     assert page.evaluate("() => window.QuickStart.windowsOf('jumperNames')") == ['export:pull-sheet']
     # Cable stock, then A list for each kind of cable, then the stock
     # pieces typed into the tray (owner, 2026-11-04)
@@ -290,10 +296,10 @@ def _step_change(page, button, frm, to, keys, where):
     return problems, shared, watched
 
 
-def _start_advanced(page):
+def _start_guide(page, guide):
     page.evaluate("(s) => window.QuickStart.setSpeed(s)", SPEED)
-    page.evaluate("() => { window.QuickStart.startAdvanced(); }")
-    return _wait_step(page, 0)
+    page.evaluate("(n) => { window.QuickStart.startTour(n); }", guide)
+    return _wait_step(page, 0, timeout=120)
 
 
 def _jump(page, n):
@@ -307,22 +313,23 @@ def _run_pairs(runs):
     return {(r[j], r[j + 1]) for r in runs for j in range(len(r) - 1)}
 
 
-def test_advanced_guide_keeps_shared_windows_up(page):
-    """The whole Advanced Guide by Next: every step takes, and at every
-    change inside a run the shared window is never closed or replaced
-    before the next step's act starts. Every pair in ADVANCED_RUNS is seen
+@pytest.mark.parametrize('guide', RUN_GUIDES)
+def test_each_guide_keeps_shared_windows_up(page, guide):
+    """The whole guide by Next: every step takes, and at every change
+    inside a run the shared window is never closed or replaced before the
+    next step's act starts. Every pair in the guide's GUIDE_RUNS is seen
     with its window up as Next is pressed."""
-    keys = _tour_keys(page, 'advanced')
-    st = _start_advanced(page)
+    keys = _tour_keys(page, guide)
+    st = _start_guide(page, guide)
     problems, held = [], set()
     if st['state'] not in ('done', 'idle'):
         problems.append(f"step 1 did not take: {st}")
     for i in range(len(keys) - 1):
-        p, shared, watched = _step_change(page, '#qs-next', i, i + 1, keys, 'advanced')
+        p, shared, watched = _step_change(page, '#qs-next', i, i + 1, keys, guide)
         problems += p
         if watched:
             held.add((keys[i], keys[i + 1]))
-    missing = _run_pairs(ADVANCED_RUNS) - held
+    missing = _run_pairs(GUIDE_RUNS[guide]) - held
     assert not missing, f"no window was up to hold for {sorted(missing)}"
     assert not problems, "\n".join(problems)
 
@@ -358,23 +365,24 @@ def test_whats_new_keeps_shared_windows_up(page, after):
     missing = _run_pairs(WHATS_NEW_RUNS[after]) - held
     assert not missing, f"no window was up to hold for {sorted(missing)}"
     if after == '1.5.2':
-        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 17
+        assert ('jumperNames', 'pullPanels') in held
         assert ('cableStock', 'cableStockPerKind') in held, sorted(held)
         assert keys.index('cableStockPerKind') == keys.index('cableStock') + 1, keys
         assert keys.index('cableStockPieces') == keys.index('cableStockPerKind') + 1, keys
     assert not problems, "\n".join(problems)
 
 
-def test_back_through_each_run_keeps_its_window_up(page):
-    """Back inside every Advanced run: the step before is restored and
+@pytest.mark.parametrize('guide', RUN_GUIDES)
+def test_back_through_each_run_keeps_its_window_up(page, guide):
+    """Back inside every run of the guide: the step before is restored and
     played again in the window still up. (Back from Panels on the pull
     sheet finds the Export dialog under the editor its act opened; the
     editor is not the earlier step's, so it goes and the dialog comes back
     from under it.)"""
-    keys = _tour_keys(page, 'advanced')
+    keys = _tour_keys(page, guide)
     problems = []
-    _start_advanced(page)
-    for run in ADVANCED_RUNS:
+    _start_guide(page, guide)
+    for run in GUIDE_RUNS[guide]:
         last = keys.index(run[-1])
         st = _jump(page, last + 1)
         if st['state'] not in ('done', 'idle') or st['fail']:
@@ -388,14 +396,15 @@ def test_back_through_each_run_keeps_its_window_up(page):
     assert not problems, "\n".join(problems)
 
 
-def test_each_step_of_a_run_sets_its_window_up_alone(page):
+@pytest.mark.parametrize('guide', RUN_GUIDES)
+def test_each_step_of_a_run_sets_its_window_up_alone(page, guide):
     """A step of a shared run, jumped to from a step that does not share
     its window or run on its own as What's New, opens its window itself
     and takes."""
-    keys = _tour_keys(page, 'advanced')
+    keys = _tour_keys(page, guide)
     problems = []
-    _start_advanced(page)
-    run_keys = [k for r in ADVANCED_RUNS for k in r]
+    _start_guide(page, guide)
+    run_keys = [k for r in GUIDE_RUNS[guide] for k in r]
     for k in run_keys:
         # From the guide's first step: nothing shared is up.
         _jump(page, 1)
@@ -420,8 +429,8 @@ def test_a_jump_inside_a_run_sets_the_window_up_from_scratch(page):
     """Go to is not Next: from Screen order straight to Border and title
     block the Export dialog is closed and opened again by the step itself,
     as before the rule, and the step takes."""
-    keys = _tour_keys(page, 'advanced')
-    _start_advanced(page)
+    keys = _tour_keys(page, 'binder')
+    _start_guide(page, 'binder')
     _jump(page, keys.index('screenOrder') + 1)
     page.evaluate(WATCH_JS, ['export:binder'])
     st = _jump(page, keys.index('titleBlock') + 1)

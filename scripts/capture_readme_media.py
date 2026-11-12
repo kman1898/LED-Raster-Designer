@@ -12,9 +12,10 @@ What it makes (OUTPUTS, below):
         1280 x 640, for the repository's social preview (Settings -> General)
 
 The show is the guides' demo show (src/static/js/quickstart.js), taken from
-the shipped src/static/data/tour_snapshots.json: the Advanced Guide's last
-entry snapshot before it adds a second screen - one 12 x 6 wall with its
-processor, snakes, distro and multis all attached. Nothing private is read.
+the shipped src/static/data/tour_snapshots.json: the last entry snapshot of
+the Data, Power and Header/Footer and Curves guides, before a second screen
+comes in - one 12 x 6 wall with its processor, snakes, distro and multis all
+attached. Nothing private is read.
 
 How it runs: a FRESH server on a free port, the way tests/conftest.py's
 e2e_server starts one - an empty in-memory project and preferences, and the
@@ -151,18 +152,27 @@ class Server:
                 raise SystemExit(f'loading the demo show failed: HTTP {r.status}')
 
 
+# The guides that build the one demo wall, in the order the show is built
+# (quickstart.js BUILD): the last of their one-screen entry snapshots has
+# everything on it.
+DEMO_GUIDES = ('data', 'power', 'headerFooter')
+
+
 def demo_project():
-    """The demo show: the Advanced Guide's last entry snapshot that still has
-    one screen (the step after adds a second, not yet attached)."""
+    """The demo show: the last entry snapshot of those guides that still
+    has one screen (the Data guide's practice steps add screens of their
+    own, and the guides after them a second wall)."""
     with open(SNAPSHOTS, encoding='utf-8') as f:
-        tour = json.load(f)['tours']['advanced']
+        tours = json.load(f)['tours']
     found = None
-    for entry in tour['steps']:
-        snap = tour['unique'][entry] if isinstance(entry, int) else entry
-        if len(snap.get('layers') or []) == 1:
-            found = snap
+    for name in DEMO_GUIDES:
+        tour = tours[name]
+        for entry in tour['steps']:
+            snap = tour['unique'][entry] if isinstance(entry, int) else entry
+            if len(snap.get('layers') or []) == 1:
+                found = snap
     if not found:
-        raise SystemExit(f'{SNAPSHOTS}: no one-screen snapshot in the Advanced Guide')
+        raise SystemExit(f'{SNAPSHOTS}: no one-screen snapshot in the {", ".join(DEMO_GUIDES)} guides')
     return copy.deepcopy(found)
 
 

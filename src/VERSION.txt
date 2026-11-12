@@ -444,6 +444,10 @@ ALSO NEW
 - NEW: A Windows copy installed with the setup file updates itself:
   Update downloads the new version, checks it and installs it, then
   reopens the app.
+- NEW: Help > Guides now has a guide for each part of the app: Pixel Map,
+  Data, Power, Header/Footer and Curves, 3D and Output, IDM, and Binder
+  and Exports. Each starts on a demo show of its own, so you can take any
+  one on its own. They replace the one long Advanced Guide.
 - NEW: File > Quit LED Raster Designer quits the app from the designer on
   the computer running it, asking first and offering to save unsaved
   changes. The tray and menu bar icon's Quit asks about unsaved changes

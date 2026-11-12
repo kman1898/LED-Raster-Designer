@@ -605,13 +605,13 @@ def test_a_second_page_follows_the_move_and_writes_nothing(pg, pw_browser):
 
 @pytest.mark.parametrize('run', range(3))
 def test_the_guide_step_plays_on_its_own(pg, run):
-    """The Advanced Guide's step, played alone as What's New's Show me plays
+    """The Pixel Map guide's step, played alone as What's New's Show me plays
     it, from its own entry snapshot: the group opens in the list, its second
     screen is clicked and moved down and back on its own. Three times: a
     guide step passes first try, every time."""
     p = pg
     p.evaluate("""() => {
-        const q = window.QuickStart, keys = q.tours().advanced
+        const q = window.QuickStart, keys = q.tours().pixelMap
             .map(s => Object.keys(q.steps()).find(k => q.steps()[k] === s));
         if (keys[keys.indexOf('groupDrag') + 1] !== 'groupMove') throw new Error('out of place');
         if (q.steps().groupMove.since !== '1.7.0') throw new Error('since');

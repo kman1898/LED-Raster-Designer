@@ -554,7 +554,7 @@ class _Stage3DHandles {
         k.onDown = (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
-            this._s3dKeyTransformEnd(ev.button !== 0);
+            this._s3dKeyTransformEnd(ev.button !== 0, ev.button === 2);
         };
         k.onMenu = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
         k.onKey = (ev) => this._s3dKeyXKey(ev);
@@ -675,7 +675,7 @@ class _Stage3DHandles {
         this._s3dKeyXBegin();
     }
 
-    _s3dKeyTransformEnd(cancelled) {
+    _s3dKeyTransformEnd(cancelled, byRightPress) {
         const st = this._s3dState();
         const k = st.keyX;
         if (!k) return;
@@ -683,8 +683,13 @@ class _Stage3DHandles {
         window.removeEventListener('pointermove', k.onMove, true);
         window.removeEventListener('pointerdown', k.onDown, true);
         window.removeEventListener('keydown', k.onKey, true);
-        // the right-click's own menu event comes after its press
-        setTimeout(() => window.removeEventListener('contextmenu', k.onMenu, true), 300);
+        // A right-click's own menu event comes after its press, so that
+        // one is still swallowed for a beat. Ended any other way (Enter,
+        // Esc, a left click) nothing is coming: the next right-click, even
+        // a moment later, opens its menu (a figure's +90 menu right after
+        // Enter was lost).
+        if (byRightPress) setTimeout(() => window.removeEventListener('contextmenu', k.onMenu, true), 300);
+        else window.removeEventListener('contextmenu', k.onMenu, true);
         this._s3dReadout(null);
         sendClientLog('stage3d_key_transform_end', { kind: k.kind, axis: k.axis, typed: k.typed, cancelled: !!cancelled });
         this._s3dHandleEnd(!!cancelled);

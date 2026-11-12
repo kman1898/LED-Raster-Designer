@@ -152,9 +152,24 @@
         </div>
 
         <div id="menu-help" class="menu-dropdown">
-            <div class="menu-option" data-action="quick-start" data-label="Quick Start Guide…"></div>
-            <div class="menu-option" data-action="whats-new" data-label="What’s New…"></div>
-            <div class="menu-option" data-action="advanced-guide" data-label="Advanced Guide…"></div>
+            <!-- Every guide, on one submenu (owner, 2026-11-11): the Quick
+                 Start, What's New, and one guide per part of the app
+                 (quickstart.js GUIDES, in the same order). -->
+            <div class="menu-option menu-has-submenu" data-action="guides">
+                <span class="menu-label-text">Guides</span>
+                <div id="guides-submenu" class="menu-submenu">
+                    <div class="menu-option" data-action="quick-start" data-label="Quick Start…"></div>
+                    <div class="menu-option" data-action="whats-new" data-label="What’s New…"></div>
+                    <div class="menu-divider"></div>
+                    <div class="menu-option" data-action="guide-pixel-map" data-label="Pixel Map…"></div>
+                    <div class="menu-option" data-action="guide-data" data-label="Data…"></div>
+                    <div class="menu-option" data-action="guide-power" data-label="Power…"></div>
+                    <div class="menu-option" data-action="guide-header-footer" data-label="Header/Footer and Curves…"></div>
+                    <div class="menu-option" data-action="guide-3d-output" data-label="3D and Output…"></div>
+                    <div class="menu-option" data-action="guide-idm" data-label="IDM…"></div>
+                    <div class="menu-option" data-action="guide-binder" data-label="Binder and Exports…"></div>
+                </div>
+            </div>
             <div class="menu-divider"></div>
             <div class="menu-option" data-action="keyboard-shortcuts" data-label="Keyboard Shortcuts"></div>
             <div class="menu-option" data-action="show-logs" data-label="Show Logs…"></div>

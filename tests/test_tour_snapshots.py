@@ -14,15 +14,17 @@ not any waiting"). Three things are pinned here:
   - the file is TRUE: the Quick tour, driven again here on this session's
     server, gives the shipped bytes - the rot guard for a step whose act
     changes what the show looks like;
-  - the jump WORKS: from a fresh tour, Go to every Advanced step (and all
-    of Quick) lands within three seconds
-    via the snapshot, with no shade, and the step's act then finishes done
-    - a later "add" step minting ids past the restored show, a step past
-    the preference-writing ones still leaving the person's preferences
-    alone at Done, and a changed tour falling back to applying the steps;
-  - What's New, the Advanced steps run on their own, starts each step from
-    the same Advanced entry snapshot, and falls back to applying the
-    Advanced steps before it when the file does not match.
+  - the jump WORKS: from a fresh tour, Go to every Quick step lands within
+    three seconds via the snapshot, with no shade, and the step's act then
+    finishes done (each subject guide's tests/test_guide_<name>.py does the
+    same for every one of its steps) - a later "add" step minting ids past
+    the restored show, a step past the preference-writing ones still
+    leaving the person's preferences alone at Done, a changed tour falling
+    back to applying the steps, and a guide whose file is stale building
+    its demo show from its prep steps;
+  - What's New, guide steps run on their own, starts each step from its
+    guide's entry snapshot, and falls back to applying the guide's demo
+    show and steps before it when the file does not match.
 
 Run locally (each session takes its own free port):
     python3 -m pytest tests/test_tour_snapshots.py -v --browser chromium
@@ -48,7 +50,7 @@ from test_tour_anchors import (_start, _end, _wait_step,    # noqa: E402
 
 FIXTURE = builder.FIXTURE
 REBUILD = 'run: python3 scripts/build_tour_snapshots.py'
-TOURS = ('quick', 'advanced')
+TOURS = builder.TOURS
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -139,24 +141,44 @@ def _live_inputs(page, name):
     return version, [tuple(k) for k in keyed]
 
 
+def _prep_inputs(page, name):
+    return [tuple(k) for k in page.evaluate("""(n) => {
+        const S = window.QuickStart.steps();
+        return window.QuickStart.prepOf(n).map(k => ['prep:' + k, S[k].title]);
+    }""", name)]
+
+
 def test_signature_is_reproducible_and_trips_on_every_kind_of_change(page):
-    """The scheme, redone here: FNV-1a over 'key|title' per step, behind
-    the app version and the step count. The same inputs give the browser's
-    signature; a step added, removed, renamed, reordered, or a version
-    bump, each gives another."""
-    version, steps = _live_inputs(page, 'advanced')
+    """The scheme, redone here: FNV-1a over 'key|title' per step, the
+    guide's prep steps first as 'prep:key|title', behind the app version
+    and the step count. The same inputs give the browser's signature; a
+    step added, removed, renamed, reordered, a prep step renamed, or a
+    version bump, each gives another."""
+    version, steps = _live_inputs(page, 'data')
+    prep = _prep_inputs(page, 'data')
     assert all(k for k, _ in steps), steps
-    live = page.evaluate("() => window.QuickStart.signature('advanced')")
-    assert _signature(version, steps) == live
-    base = _signature(version, steps)
+    assert prep and all(k for k, _ in prep), prep
+    live = page.evaluate("() => window.QuickStart.signature('data')")
+
+    def sig(version, steps, prep=prep):
+        # the count is the guide's own steps; the hash runs over both
+        return 'v%s:%d:%s' % (version, len(steps),
+                              _fnv1a('\n'.join('%s|%s' % (k, t) for k, t in prep + steps)))
+    assert sig(version, steps) == live
+    base = sig(version, steps)
     added = steps + [('helpMenu', 'Help')]
     removed = steps[:-1]
     renamed = steps[:5] + [(steps[5][0], steps[5][1] + ' x')] + steps[6:]
     rekeyed = steps[:5] + [(steps[5][0] + '2', steps[5][1])] + steps[6:]
     reordered = [steps[1], steps[0]] + steps[2:]
-    bumped = _signature(version + '.1', steps)
-    others = {_signature(version, v) for v in (added, removed, renamed, rekeyed, reordered)} | {bumped}
-    assert base not in others and len(others) == 6, others
+    prep_renamed = prep[:2] + [(prep[2][0], prep[2][1] + ' x')] + prep[3:]
+    bumped = sig(version + '.1', steps)
+    others = {sig(version, v) for v in (added, removed, renamed, rekeyed, reordered)} \
+        | {bumped, sig(version, steps, prep_renamed)}
+    assert base not in others and len(others) == 7, others
+    # A tour with no prep is the plain scheme
+    version, quick = _live_inputs(page, 'quick')
+    assert _signature(version, quick) == page.evaluate("() => window.QuickStart.signature('quick')")
 
 
 # ── the file is true ─────────────────────────────────────────────────────
@@ -249,19 +271,7 @@ def test_a_checklist_item_s_random_id_never_reaches_the_file():
     assert builder.strip_volatile({'layers': []}) == {'layers': []}
 
 
-ADVANCED_STEPS = 150
 QUICK_STEPS = 10
-
-
-@pytest.mark.parametrize('i', range(1, ADVANCED_STEPS))
-def test_go_to_every_advanced_step_lands_on_the_snapshot(page, i):
-    n = page.evaluate("() => window.QuickStart.tours().advanced.length")
-    assert n == ADVANCED_STEPS, f'the Advanced tour has {n} steps; update ADVANCED_STEPS'
-    landed, landing, st = _jump(page, 'advanced', i)
-    try:
-        _assert_landed('advanced', i, landed, landing, st)
-    finally:
-        _end(page)
 
 
 @pytest.mark.parametrize('i', range(1, QUICK_STEPS))
@@ -280,22 +290,22 @@ def test_ids_after_a_restored_show_do_not_collide(page):
     show, so a step that ADDS after a jump mints a fresh id: the second
     screen is layer 2 beside layer 1, the distro is d1 (none before it),
     and a processor added after the jump is a new run of the counter."""
-    i = _step_index(page, 'advanced', 'A second screen')
-    landed, landing, st = _jump(page, 'advanced', i)
+    i = _step_index(page, 'pixelMap', 'A second screen')
+    landed, landing, st = _jump(page, 'pixelMap', i)
     try:
-        _assert_landed('advanced', i, landed, landing, st)
+        _assert_landed('pixelMap', i, landed, landing, st)
         ids = page.evaluate("() => window.app.project.layers.map(l => l.id)")
         assert ids == [1, 2], ids
         server = page.evaluate("() => fetch('/api/project').then(r => r.json()).then(p => p.layers.map(l => l.id))")
         assert server == [1, 2], server
     finally:
         _end(page)
-    i = _step_index(page, 'advanced', 'Add a distro')
-    landed, landing, st = _jump(page, 'advanced', i)
+    i = _step_index(page, 'power', 'Add a distro')
+    landed, landing, st = _jump(page, 'power', i)
     try:
-        _assert_landed('advanced', i, landed, landing, st)
+        _assert_landed('power', i, landed, landing, st)
         assert page.evaluate("() => window.app.getDistros().map(d => d.id)") == ['d1']
-        # the guide's MX40 Pro and the H9 its Mixed redundancy step adds
+        # the demo show's MX40 Pro and the H9 the Mixed redundancy step adds
         procs = page.evaluate("() => (window.app._processorsResolved || []).map(p => p.id)")
         assert len(procs) == 2, procs
         fresh = page.evaluate("""() => fetch('/api/processors', {method: 'POST',
@@ -321,20 +331,19 @@ PREFS_JS = """async (patch) => {
 
 def test_a_jump_past_the_preference_steps_still_puts_preferences_back(page):
     """Border and title block writes a preference; a jump past it to
-    Preferences, then Done, leaves the person's title block as it was -
-    off - on the server and in the app's cache."""
+    Preferences, the Binder and Exports guide's last step, then Done,
+    leaves the person's title block as it was - off - on the server and in
+    the app's cache."""
     original = page.evaluate(PREFS_JS, None)
     page.evaluate(PREFS_JS, {'binderTitleBlock': False})
     page.wait_for_timeout(200)
     try:
-        i = _step_index(page, 'advanced', 'Preferences')
-        assert i > _step_index(page, 'advanced', 'Border and title block')
-        landed, landing, st = _jump(page, 'advanced', i)
-        _assert_landed('advanced', i, landed, landing, st)
-        # Next from Preferences through every later step (Mirror a screen,
-        # Port numbers, the power Z patterns, Circuit numbers, Help), each
-        # taking
-        n = page.evaluate("() => window.QuickStart.tours().advanced.length")
+        i = _step_index(page, 'binder', 'Preferences')
+        assert i > _step_index(page, 'binder', 'Border and title block')
+        landed, landing, st = _jump(page, 'binder', i)
+        _assert_landed('binder', i, landed, landing, st)
+        # Next from Preferences through every later step, each taking
+        n = page.evaluate("() => window.QuickStart.tours().binder.length")
         for k in range(i + 1, n - 1):
             page.locator('#qs-next').click()
             st = _wait_step(page, k)
@@ -377,13 +386,48 @@ def test_a_changed_tour_falls_back_to_applying_the_steps(page):
     assert page.evaluate("() => window.QuickStart.signature('quick')") == _fixture()['tours']['quick']['signature']
 
 
-# ── What's New: Advanced steps on their own ──────────────────────────────
+# ── a guide's own demo show ──────────────────────────────────────────────
 
-def test_whats_new_steps_start_from_the_advanced_snapshots(page):
-    """What's New runs Advanced steps on their own: each one lands on the
-    Advanced Guide's shipped entry snapshot of that step (jumpedVia
-    'snapshot'), so it takes without the steps before it, and Go to
-    inside it does the same."""
+DATA_DEMO_JS = """() => ({name: window.app.project.name,
+    screens: window.app.project.layers.map(l => l.name),
+    processors: (window.app._processorsResolved || []).length})"""
+
+
+def test_a_stale_guide_builds_its_demo_show_from_its_prep(page):
+    """A guide whose shipped snapshots no longer match it (a prep step's
+    title changed under it) never starts on a stale show: its prep steps
+    are applied on the scratch show behind the shade (startedVia 'apply'),
+    the demo show is the one the file would have held, and its first step
+    then takes."""
+    page.evaluate("() => { window.__qsTitle = window.QuickStart.steps().cabinetSize.title; "
+                  "window.QuickStart.steps().cabinetSize.title += ' (changed)'; }")
+    try:
+        assert page.evaluate("() => window.QuickStart.signature('data')") != \
+            _fixture()['tours']['data']['signature']
+        page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
+        page.evaluate("() => { window.QuickStart.startTour('data'); }")
+        st = _wait_step(page, 0, timeout=600)
+        assert st['qs']['index'] == 0 and st['state'] == 'idle', st
+        qs = page.evaluate("window.QuickStart.state()")
+        assert qs['startedVia'] == 'apply', qs
+        assert page.evaluate("getComputedStyle(document.getElementById('qs-fast')).display") == 'none'
+        assert page.evaluate(DATA_DEMO_JS) == {'name': 'Demo Show', 'screens': ['DEMO WALL'], 'processors': 0}
+        page.locator('#qs-next').click()
+        st = _wait_step(page, 1)
+        assert st['state'] == 'done' and not st['fail'], st
+    finally:
+        _end(page)
+        page.evaluate("() => { window.QuickStart.steps().cabinetSize.title = window.__qsTitle; }")
+    assert page.evaluate("() => window.QuickStart.signature('data')") == _fixture()['tours']['data']['signature']
+
+
+# ── What's New: guide steps on their own ─────────────────────────────────
+
+def test_whats_new_steps_start_from_their_guides_snapshots(page):
+    """What's New runs guide steps on their own: each one lands on its
+    guide's shipped entry snapshot of that step (jumpedVia 'snapshot'), so
+    it takes without the steps before it, and Go to inside it does the
+    same."""
     keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', '1.5.3')")
     assert len(keys) >= 2, keys
     page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
@@ -402,18 +446,19 @@ def test_whats_new_steps_start_from_the_advanced_snapshots(page):
         _end(page)
 
 
-def test_whats_new_falls_back_to_applying_the_advanced_steps(page):
-    """With the shipped file stale for the Advanced Guide (one title
-    changed under it), a What's New step is reached by applying the
-    Advanced steps before it behind the shade (jumpedVia 'apply'); the next
-    one carries on from there, and both take."""
+def test_whats_new_falls_back_to_applying_the_guide_steps(page):
+    """With the shipped file stale for the Power guide (a title of its demo
+    show's changed under it), a What's New step is reached by applying the
+    guide's demo show and its steps before it behind the shade (jumpedVia
+    'apply'); the next one carries on from there, and both take."""
     keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', '1.5.3')")
     picked = [keys[0], keys[-1]]
+    assert {page.evaluate("(k) => window.QuickStart.guideOf(k).tour", k) for k in picked} == {'power'}
     page.evaluate("() => { window.__qsTitle = window.QuickStart.steps().cabinetSize.title; "
                   "window.QuickStart.steps().cabinetSize.title += ' (changed)'; }")
     try:
-        assert page.evaluate("() => window.QuickStart.signature('advanced')") != \
-            _fixture()['tours']['advanced']['signature']
+        assert page.evaluate("() => window.QuickStart.signature('power')") != \
+            _fixture()['tours']['power']['signature']
         page.evaluate("(s) => window.QuickStart.setSpeed(s)", 3)
         page.evaluate("(k) => { window.QuickStart.startSteps(k); }", picked)
         st = _wait_step(page, 0)
@@ -427,8 +472,8 @@ def test_whats_new_falls_back_to_applying_the_advanced_steps(page):
     finally:
         _end(page)
         page.evaluate("() => { window.QuickStart.steps().cabinetSize.title = window.__qsTitle; }")
-    assert page.evaluate("() => window.QuickStart.signature('advanced')") == \
-        _fixture()['tours']['advanced']['signature']
+    assert page.evaluate("() => window.QuickStart.signature('power')") == \
+        _fixture()['tours']['power']['signature']
 
 
 def test_a_guide_step_survives_the_tray_rebuilding_under_it(page):

@@ -83,9 +83,11 @@ in their browser. The exact address shows when the app starts.
 5. Open **File > Export Binder** for the drawing set, or **Export Pull Sheet**
    for the cable list.
 
-Not sure where to start? **Help > Quick Start Guide** walks through all of
-this on a demo show, one step at a time, and puts your own project back
-when you're done.
+Not sure where to start? **Help > Guides > Quick Start** walks through all
+of this on a demo show, one step at a time, and puts your own project back
+when you're done. **Help > Guides** also has a guide for each part of the
+app: Pixel Map, Data, Power, Header/Footer and Curves, 3D and Output, IDM,
+and Binder and Exports.
 
 ---
 

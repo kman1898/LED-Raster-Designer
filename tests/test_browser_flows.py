@@ -270,8 +270,8 @@ def test_quickstart_manual_start_and_navigation(page):
     assert not page.locator('#qs-catch').is_visible(), "tour overlay still visible"
 
 
-def test_advanced_guide_switches_views(page):
-    """The Advanced Guide's view-switching steps drive the real view tabs.
+def test_data_guide_switches_views(page):
+    """The Data guide's view-switching steps drive the real view tabs.
 
     Every step now performs its action live, so a step is only judged once
     its act has settled (the callout's data-qs-state leaves 'running');
@@ -279,7 +279,7 @@ def test_advanced_guide_switches_views(page):
     every step to acting and checking; this proves the view tab itself.
     """
     page.evaluate("window.QuickStart.setSpeed(3)")
-    page.evaluate("window.QuickStart.startAdvanced()")
+    page.evaluate("window.QuickStart.startTour('data')")
     settled = ("() => ['done', 'failed', 'idle'].includes("
                "document.getElementById('qs-callout').getAttribute('data-qs-state'))")
     reached_data = False

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build src/static/data/tour_snapshots.json: every tour step's entry snapshot.
 
-The guided tours (src/static/js/quickstart.js) run real gestures on a
-scratch show, and the callout's Go to box jumps to a step. A jump BACK is
+The guided tours (src/static/js/quickstart.js: the Quick Start and the
+seven subject guides under Help > Guides) run real gestures on a scratch
+show, and the callout's Go to box jumps to a step. A jump BACK is
 one restore of that step's entry snapshot; a jump AHEAD used to apply every
 step between, which took many seconds. This file makes a jump ahead the
 same one restore: for each tour it holds the scratch show exactly as each
@@ -13,11 +14,16 @@ How it is built: a FRESH server (every id counter at 1) on a free port, a
 headless Chromium at 1600x950, and for each tour: startTour, Next through
 every step at a fast pace (each must end 'done', or this stops and names
 the step), then QuickStart.snaps() - the very snapshots Back restores -
-written out. Two runs give the same bytes: nothing in the show is
+written out. A guide starts from a demo show of its own, its prep steps
+applied on the scratch show (QuickStart.prepOf); here the shipped file is
+kept from the page, so that show is always built from the steps and never
+restored from the file being replaced. Its first entry snapshot is that
+demo show, and the guide's start restores it from then on. Two runs give the same bytes: nothing in the show is
 timestamped or random, and the file is written sorted and without
 whitespace. Each tour carries its signature (QuickStart.signature: app
-version + step keys and titles), so a tour that changed since the file was
-built is never restored from it - the app falls back to applying the steps.
+version + prep and step keys and titles), so a tour that changed since the
+file was built is never restored from it - the app falls back to applying
+the steps.
 
 Regenerate whenever a step changes what the show looks like, a step is
 added, removed, renamed or reordered, or the app version bumps:
@@ -25,7 +31,8 @@ added, removed, renamed or reordered, or the app version bumps:
     python3 scripts/build_tour_snapshots.py
 
 tests/test_tour_snapshots.py compares the shipped file against the live
-tours (signature) and re-derives the Quick tour byte-for-byte.
+tours (signature) and re-derives the Quick tour byte-for-byte; each
+guide's tests/test_guide_<name>.py jumps to every one of its steps.
 """
 
 import argparse
@@ -41,7 +48,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, 'src')
 FIXTURE = os.path.join(SRC, 'static', 'data', 'tour_snapshots.json')
 
-TOURS = ('quick', 'advanced')
+TOURS = ('quick', 'pixelMap', 'data', 'power', 'headerFooter', 'threeD', 'idm', 'binder')
 VIEWPORT = {'width': 1600, 'height': 950}
 # The pace the steps are driven at while collecting (QuickStart.setSpeed):
 # the shipped gestures, six times faster. Zero-pace application would be
@@ -50,6 +57,9 @@ VIEWPORT = {'width': 1600, 'height': 950}
 DRIVE_SPEED = 6
 # How long a fresh page may take to boot (new_page).
 BOOT_TIMEOUT_MS = 120000
+# How long a guide may take to set up its demo show: its prep is up to
+# 128 steps applied behind the shade (Binder and Exports).
+START_TIMEOUT_S = 1200
 
 STATE_JS = """() => {
     const c = document.getElementById('qs-callout');
@@ -104,9 +114,13 @@ def collect_tour(page, name, speed=DRIVE_SPEED, log=None):
     n = page.evaluate("(n) => window.QuickStart.tours()[n].length", name)
     page.evaluate("(s) => window.QuickStart.setSpeed(s)", speed)
     page.evaluate("(n) => { window.QuickStart.startTour(n); }", name)
-    st = wait_step(page, 0)
+    st = wait_step(page, 0, timeout=START_TIMEOUT_S)
     if not st or st['index'] != 0:
         raise RuntimeError(f'{name}: the tour never settled on step 1 ({st})')
+    via = page.evaluate("() => window.QuickStart.state().startedVia")
+    if via not in ('scratch', 'apply'):
+        said = '; '.join(getattr(page, 'qs_warnings', [])[-3:]) or 'nothing said'
+        raise RuntimeError(f'{name}: its demo show was not built from its prep steps ({via}): {said}')
     for i in range(n):
         if i > 0:
             page.locator('#qs-next').click()
@@ -204,6 +218,9 @@ def new_page(browser, url):
     context.add_init_script(
         "try{localStorage.setItem('lrd_quickstart_disabled','1');}catch(e){}")
     page = context.new_page()
+    # The file being built is never read while it is built: a guide's demo
+    # show comes from its prep steps, not from the old file.
+    page.route('**/static/data/tour_snapshots.json', lambda r: r.fulfill(status=404, body=''))
     # The boot is the app's modules, the server session and the first
     # project load, and under load it is slow: eight pages opened at once
     # beside a CPU burner took up to 40 s to finish it (2026-11-04), against
@@ -214,6 +231,12 @@ def new_page(browser, url):
     page.on('requestfailed', lambda r: trouble.append(f'{r.url} failed: {r.failure}'))
     page.on('response', lambda r: r.status >= 400 and trouble.append(f'{r.url} answered {r.status}'))
     page.on('pageerror', lambda e: trouble.append(f'page error: {e}'))
+    # What the guide engine says went wrong (a step that did not take while
+    # a demo show was built behind the shade), for the error that stops
+    # the build.
+    page.qs_warnings = []
+    page.on('console', lambda m: m.type in ('warning', 'error') and 'QuickStart' in m.text
+            and page.qs_warnings.append(m.text[:400]))
     page.goto(url, wait_until='domcontentloaded', timeout=BOOT_TIMEOUT_MS)
     if not page.evaluate("() => !!(window.app && typeof window.app.dedupeProjectLayers === 'function')"):
         raise RuntimeError('the app never started: ' + '; '.join(trouble or ['nothing reported']))

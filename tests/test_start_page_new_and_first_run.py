@@ -261,11 +261,12 @@ def test_a_finished_first_run_guide_never_comes_back(e2e_server, pw_browser):
         _wait_start(nxt, 20000)
         assert not _guide_visible(nxt)
         assert _ls(nxt, FIRST_RUN_KEY) == '1'
-        # Help > Quick Start Guide still opens it
+        # Help > Guides > Quick Start still opens it
         nxt.keyboard.press('Escape')
         nxt.wait_for_function("() => !window.app.startPageOpen()", timeout=5000)
         nxt.locator('#menu-bar .menu-item[data-menu="help"]').click()
-        nxt.locator('#menu-help .menu-option[data-action="quick-start"]').click()
+        nxt.locator('#menu-help .menu-option[data-action="guides"]').hover()
+        nxt.locator('#guides-submenu .menu-option[data-action="quick-start"]').click()
         nxt.wait_for_function("() => { const q = window.QuickStart; return !!(q && q.state().visible); }",
                               timeout=20000)
         nxt.wait_for_selector('#qs-skip', state='visible', timeout=10000)

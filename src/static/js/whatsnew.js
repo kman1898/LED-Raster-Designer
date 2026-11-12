@@ -5,14 +5,14 @@
  * first launch of a newer version the window opens when there is something
  * to say:
  *   - a new MAJOR.MINOR with curated highlights (whatsnew_content.js), or
- *   - ANY update, patch releases included, that added Advanced Guide steps
+ *   - ANY update, patch releases included, that added guide steps
  *     (each step's `since`, quickstart.js). The window shows that
  *     version's curated entry when it has one ("1.6.1"), else the new
  *     steps' titles, then every other curated patch entry of the same
  *     MAJOR.MINOR newer than the version last run, newest first (1.6.0 ->
  *     1.6.2 reads 1.6.2's entry, then 1.6.1's); Show me is offered either
  *     way.
- * When steps were added, Show me runs exactly the Advanced Guide steps
+ * When steps were added, Show me runs exactly the guide steps
  * whose `since` is newer than the version last run (in guide order, so a
  * user who skipped versions sees all of them), each from its own entry
  * snapshot (QuickStart.startSteps). Close skips them. Anything else (a patch
@@ -106,8 +106,8 @@
 
     // ── the guide steps (quickstart.js) ──────────────────────────────────
     function guide() { return window.QuickStart || null; }
-    // The Advanced Guide steps whose `since` is newer than `after` and not
-    // newer than `upTo`, in guide order.
+    // The guide steps whose `since` is newer than `after` and not newer
+    // than `upTo`, in guide order (Help > Guides, each guide's own order).
     function stepsBetween(after, upTo) {
         var q = guide();
         return q && q.newSteps ? q.newSteps(after, upTo) : [];
@@ -278,7 +278,7 @@
         var panel = build().firstChild;
         panel.innerHTML = '';
         var entry = win.key ? content()[win.key] : {
-            title: 'New in the Advanced Guide',
+            title: 'New in the guides',
             items: win.steps.map(function (k) { return { h: plain(stepTitle(k)) }; })
         };
 
@@ -303,7 +303,7 @@
 
         var btns = el('div',
             'display:flex;justify-content:flex-end;gap:8px;margin-top:16px;');
-        // Show me: the Advanced Guide steps this window is about, each
+        // Show me: the guide steps this window is about, each
         // from its own entry snapshot. Only when there are some.
         var q = guide();
         if (win.steps.length && q && q.startSteps) {
@@ -311,8 +311,8 @@
             show.id = 'whatsnew-show-me';
             show.className = 'btn';
             show.style.cssText = 'background:#3a3a3a;padding:8px 16px;';
-            show.title = win.steps.length === 1 ? 'Play the new step of the Advanced Guide'
-                : 'Play the ' + win.steps.length + ' new steps of the Advanced Guide';
+            show.title = win.steps.length === 1 ? 'Play the new guide step'
+                : 'Play the ' + win.steps.length + ' new guide steps';
             show.onclick = function () {
                 dismiss();
                 q.startSteps(win.steps);

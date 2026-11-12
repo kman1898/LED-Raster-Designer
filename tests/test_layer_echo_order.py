@@ -4,7 +4,7 @@ The server echoes (layer_updated) and answers each PUT with the screen as
 that PUT left it. Two quick edits to one screen on a slow machine let the
 first one's echo land after the second edit, and the page showed the older
 copy until the next echo: a renamed screen flicked back to its old name,
-and the Advanced Guide read a 3fer as unshared (CI, 2026-10-19). Echoes are
+and the guide (now the Power guide) read a 3fer as unshared (CI, 2026-10-19). Echoes are
 held back here so they always land late.
 """
 import pytest

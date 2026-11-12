@@ -16,7 +16,7 @@ src/static/js/quickstart.js, pinned here:
     (a 10-bit, 30 Hz or 230/400 preference cut the practice screens into
     other ports and gave the service a system its distro could not join),
     on a scratch show with one canvas, and the person's own come back;
-  - the Advanced steps that failed under a hand on the mouse and Matt's
+  - the guide steps that failed under a hand on the mouse and Matt's
     Preferences in the 1.6.0 QA pass, played with a wandering mouse and a
     double click on Next, all take.
 
@@ -109,19 +109,16 @@ def matt_prefs(page):
 
 
 def _index(page, key):
-    """The Advanced step `key`'s index (0-based)."""
-    i = page.evaluate("""(k) => {
-        const s = window.QuickStart.steps()[k];
-        return window.QuickStart.tours().advanced.indexOf(s);
-    }""", key)
-    assert i is not None and i >= 0, key
-    return i
+    """Where step `key` plays: its guide, and its index there (0-based)."""
+    at = page.evaluate("(k) => window.QuickStart.guideOf(k)", key)
+    assert at and at['index'] >= 0, key
+    return at['tour'], at['index']
 
 
-def _open_advanced(page, speed):
+def _open_guide(page, guide, speed):
     page.evaluate("(s) => window.QuickStart.setSpeed(s)", speed)
-    page.evaluate("() => { window.QuickStart.startTour('advanced'); }")
-    return _wait_step(page, 0)
+    page.evaluate("(n) => { window.QuickStart.startTour(n); }", guide)
+    return _wait_step(page, 0, timeout=120)
 
 
 def _go_to(page, i):
@@ -194,7 +191,7 @@ def test_a_check_is_polled_until_it_answers(page):
     """A check that answers 1.5 s after the act ended still takes: the
     engine asks again until it answers. A check that never answers fails,
     and only after the engine's limit."""
-    i = _index(page, 'projectName')
+    guide, i = _index(page, 'projectName')
     page.evaluate("""() => {
         const s = window.QuickStart.steps().projectName;
         window.__origCheck = s.check;
@@ -207,7 +204,7 @@ def test_a_check_is_polled_until_it_answers(page):
         };
     }""")
     try:
-        _open_advanced(page, 3)
+        _open_guide(page, guide, 3)
         page.locator('#qs-next').click()
         st = _wait_step(page, i)
         assert st['state'] == 'done' and not st['fail'], st
@@ -219,7 +216,7 @@ def test_a_check_is_polled_until_it_answers(page):
             window.__polls = 0;
             s.check = function () { window.__polls++; return null; };
         }""")
-        _open_advanced(page, 3)
+        _open_guide(page, guide, 3)
         page.locator('#qs-next').click()
         t0 = time.time()
         st = _wait_step(page, i, timeout=60)
@@ -238,8 +235,8 @@ def test_real_input_never_reaches_the_app_while_a_step_runs(page):
     Between steps a key outside the callout never reaches the app."""
     rng = random.Random(7)
     page.evaluate(LEAK_JS)
-    i = _index(page, 'dropProcessor')
-    _open_advanced(page, 1)
+    guide, i = _index(page, 'dropProcessor')
+    _open_guide(page, guide, 1)
     _go_to(page, i - 1)
     st = _wait_step(page, i - 1)
     assert st['state'] == 'done', st
@@ -266,8 +263,8 @@ def test_real_input_never_reaches_the_app_while_a_step_runs(page):
 def test_replay_starts_the_step_from_a_known_state(page):
     """A redraw left armed (and ports left picked) by a failed try is put
     down when the step is played again: the replay button's run takes."""
-    i = _index(page, 'redrawAsOne')
-    _open_advanced(page, 3)
+    guide, i = _index(page, 'redrawAsOne')
+    _open_guide(page, guide, 3)
     _go_to(page, i)
     st = _wait_step(page, i)
     assert st['state'] == 'done', st
@@ -299,8 +296,8 @@ def test_pick_the_strands_survives_the_tray_rebuilding_after_the_click(page):
         document.addEventListener('click', window.__strandRebuild, true);
     }""")
     try:
-        i = _index(page, 'fiberStrands')
-        _open_advanced(page, 3)
+        guide, i = _index(page, 'fiberStrands')
+        _open_guide(page, guide, 3)
         _go_to(page, i)
         st = _wait_step(page, i)
         assert st['state'] == 'done' and not st['fail'], st
@@ -331,8 +328,8 @@ def test_pick_the_strands_survives_the_tray_rebuilding_on_the_way_to_the_pick(pa
         };
     }""")
     try:
-        i = _index(page, 'fiberStrands')
-        _open_advanced(page, 3)
+        guide, i = _index(page, 'fiberStrands')
+        _open_guide(page, guide, 3)
         _go_to(page, i)
         st = _wait_step(page, i)
         assert st['state'] == 'done' and not st['fail'], st
@@ -347,8 +344,8 @@ def test_pick_the_strands_takes_with_the_tray_redrawing_on_a_steady_beat(page):
     not open"). The rebuild took the pick every time it beat the hand, and
     each of the three tries lost the same way. At the shipped pace, on a
     steady beat, the step takes."""
-    i = _index(page, 'fiberStrands')
-    _open_advanced(page, 1)
+    guide, i = _index(page, 'fiberStrands')
+    _open_guide(page, guide, 1)
     page.evaluate("() => { window.__beat = setInterval(() => window.app.renderHardwareDock(), 350); }")
     try:
         _go_to(page, i)
@@ -373,8 +370,8 @@ def test_pick_the_strands_takes_when_every_press_is_rebuilt_under_it(page):
         document.addEventListener('mousedown', window.__onPress, true);
     }""")
     try:
-        i = _index(page, 'fiberStrands')
-        _open_advanced(page, 3)
+        guide, i = _index(page, 'fiberStrands')
+        _open_guide(page, guide, 3)
         _go_to(page, i)
         st = _wait_step(page, i)
         assert st['state'] == 'done' and not st['fail'], st
@@ -434,8 +431,8 @@ def test_the_ring_stays_on_the_box_through_the_mirror_drag(page):
     callout says to drag, the box is in the tray's view, and the press
     landed on it. A rebuild does not move the stack: the box was revealed
     in a frame that drew the column short of its snake's bracket."""
-    i = _index(page, 'mirrorScreen')
-    _open_advanced(page, 3)
+    guide, i = _index(page, 'mirrorScreen')
+    _open_guide(page, guide, 3)
     page.evaluate(DRAG_WATCH_JS)
     try:
         _go_to(page, i)
@@ -470,8 +467,8 @@ def test_mirror_a_screen_says_so_when_its_setup_does_not_take(page):
     went wrong instead."""
     page.route('**/api/port-assignments/place-overflow', lambda r: r.abort('addressunreachable'))
     try:
-        i = _index(page, 'mirrorScreen')
-        _open_advanced(page, 3)
+        guide, i = _index(page, 'mirrorScreen')
+        _open_guide(page, guide, 3)
         _go_to(page, i)
         st = _wait_step(page, i, timeout=60)
         assert st['state'] == 'failed', st
@@ -500,7 +497,7 @@ def test_the_ring_follows_a_target_the_act_moves_and_holds_when_it_scrolls_away(
     followed without anything being scrolled for it, and one the tray has
     scrolled out of sight leaves the ring where it is, on the tray rather
     than on whatever lies past its edge."""
-    i = _index(page, 'cableSheet')
+    guide, i = _index(page, 'cableSheet')
     page.evaluate(STAND_IN_JS, """
         const body = document.getElementById('hardware-dock-body');
         const sel = '#hardware-dock-body .hw-dock-cablebtn-data';
@@ -526,7 +523,7 @@ def test_the_ring_follows_a_target_the_act_moves_and_holds_when_it_scrolls_away(
         });
     """)
     try:
-        _open_advanced(page, 3)
+        _open_guide(page, guide, 3)
         _go_to(page, i)
         st = _wait_step(page, i, timeout=60)
         assert st['state'] == 'done' and not st['fail'], st
@@ -545,7 +542,7 @@ def test_the_hand_lands_where_the_element_is_now(page):
     """The tray moves while the hand travels (a save's echo restates it, a
     column grows): the hand ends on the element, not on where it was when
     it set off."""
-    i = _index(page, 'cableSheet')
+    guide, i = _index(page, 'cableSheet')
     page.evaluate(STAND_IN_JS, """
         const sel = '#hardware-dock-body .hw-dock-cablebtn-data';
         setTimeout(() => {
@@ -557,7 +554,7 @@ def test_the_hand_lands_where_the_element_is_now(page):
         });
     """)
     try:
-        _open_advanced(page, 3)
+        _open_guide(page, guide, 3)
         _go_to(page, i)
         st = _wait_step(page, i, timeout=60)
         assert st['state'] == 'done' and not st['fail'], st
@@ -572,7 +569,8 @@ def test_a_menu_opened_right_after_skip_stays_open(page):
     closed every menu, twice: Help opened at once was shut under the hand,
     and a click on its item waited 30 s on an item that had gone (1.6.0 QA).
     The guide's own menus go at Skip; one opened after it is left up."""
-    _open_advanced(page, 1)
+    guide = 'pixelMap'
+    _open_guide(page, guide, 1)
     page.locator('#qs-skip').click()
     page.locator('.menu-item[data-menu="help"]').click()
     page.wait_for_function("() => !window.QuickStart.state().running", timeout=30000)
@@ -585,8 +583,8 @@ def test_a_menu_opened_right_after_skip_stays_open(page):
 
 
 def test_whats_new_never_carries_on_from_an_entry_it_did_not_reach(page):
-    """What's New, with the shipped file stale, applies the Advanced steps
-    before each step. When that apply stops on the way, the step still
+    """What's New, with the shipped file stale, applies the guide's demo
+    show and its steps before each step. When that apply stops on the way, the step still
     plays, but the show is not the next step's entry: the next step starts
     over from a fresh scratch show instead of carrying on from a broken
     one (a played step that took on a broken entry sent "Put the distro on
@@ -594,6 +592,8 @@ def test_whats_new_never_carries_on_from_an_entry_it_did_not_reach(page):
     keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', '1.5.3')")
     picked = [keys[0], keys[-1]]
     assert picked[-1] == 'serviceDistro', picked
+    guide = 'power'
+    assert page.evaluate("(k) => window.QuickStart.guideOf(k).tour", picked[0]) == guide
     page.evaluate("""() => {
         window.__warns = [];
         if (!window.__warnWrapped) {
@@ -633,7 +633,8 @@ def test_the_guide_runs_on_the_shipped_preferences(page, matt_prefs):
     system never reach the guide's objects: inside the guide the app reads
     the shipped Preferences, and at the end the person's own are back, on
     the server and in the app."""
-    _open_advanced(page, 3)
+    guide = 'data'
+    _open_guide(page, guide, 3)
     inside = page.evaluate("""() => { const p = window.app.getPreferences();
         return {bitDepth: p.bitDepth, frameRate: p.frameRate, processorType: p.processorType,
                 distroSystem: p.distroSystem}; }""")
@@ -660,7 +661,8 @@ def test_the_scratch_show_has_one_canvas(page):
     }""")
     before = page.evaluate("() => window.app.project.canvases.map(c => c.id)")
     assert len(before) >= 3, before
-    _open_advanced(page, 3)
+    guide = 'data'
+    _open_guide(page, guide, 3)
     inside = page.evaluate("""async () => ({
         local: window.app.project.canvases.length,
         server: (await (await fetch('/api/project')).json()).canvases.length})""")
@@ -706,18 +708,18 @@ def test_a_guide_started_while_the_last_one_ends_waits_for_it(page):
     assert back == {'name': 'Own Show', 'layers': own}, back
 
 
-# The Advanced steps that failed in the 1.6.0 QA pass under a hand on the
+# The guide steps that failed in the 1.6.0 QA pass under a hand on the
 # mouse, a second click on Next, or Matt's Preferences, in guide order, as
-# runs of consecutive steps (each run entered by Go to).
+# runs of consecutive steps of one guide (each run entered by Go to).
 NOISY_RUNS = [
     ['cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort'],
+    ['mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'redrawAsOne', 'sweepPorts'],
     ['addService', 'serviceRating', 'serviceDistro'],
-    ['mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern',
-     'circuitNumbers', 'redrawAsOne', 'sweepPorts'],
+    ['powerZPattern', 'circuitNumbers'],
 ]
 
 
-def test_advanced_steps_take_under_matt_prefs_with_a_hand_on_the_mouse(page, matt_prefs):
+def test_guide_steps_take_under_matt_prefs_with_a_hand_on_the_mouse(page, matt_prefs):
     """Under Matt's Preferences, with a wandering, clicking hand on the
     mouse during every act and a double click on every Next, each step of
     the runs that failed in the QA pass takes the first time."""
@@ -725,8 +727,8 @@ def test_advanced_steps_take_under_matt_prefs_with_a_hand_on_the_mouse(page, mat
     page.evaluate(LEAK_JS)
     problems = []
     for run in NOISY_RUNS:
-        first = _index(page, run[0])
-        _open_advanced(page, 2)
+        guide, first = _index(page, run[0])
+        _open_guide(page, guide, 2)
         _go_to(page, first)
         st = _settle_with_noise(page, first, rng)
         for k, key in enumerate(run):

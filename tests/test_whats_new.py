@@ -1,6 +1,6 @@
 """The "What's New" window: shown once after an update that has something
-to say (a new MAJOR.MINOR's highlights, or Advanced Guide steps added by
-any release, patches included), with Show me running exactly those steps;
+to say (a new MAJOR.MINOR's highlights, or guide steps added by any
+release, patches included), with Show me running exactly those steps;
 never stacked on the first-run guide; reopenable from Help.
 
 Two halves:
@@ -14,7 +14,8 @@ Two halves:
       New, and app-menubar.js dispatches it.
 
   Browser (Playwright, shared e2e server) - the gating matrix and the modal:
-    - newSteps() filters the Advanced steps by `since`, in guide order;
+    - newSteps() filters the guide steps by `since`, in guide order (the
+      guides in Help > Guides order, each guide's steps in its own);
     - decide(): a patch with new steps offers them, a patch without is
       silent, skipped versions get every step since, a minor/major change
       shows its entry, first run stamps silently, older versions are quiet;
@@ -237,11 +238,12 @@ def _new_steps(page, after, up_to):
 
 
 def _since_table(page):
-    """[(key, since)] of the Advanced Guide, in guide order."""
+    """[(key, since)] of every guide step, in guide order: the guides in
+    Help > Guides order, each guide's steps in its own order."""
     return [tuple(x) for x in page.evaluate("""() => {
-        const S = window.QuickStart.steps();
-        return window.QuickStart.tours().advanced.map(s =>
-            [Object.keys(S).find(k => S[k] === s), s.since || null]);
+        const S = window.QuickStart.steps(), T = window.QuickStart.tours();
+        return window.QuickStart.guides().flatMap(g => T[g.name].map(s =>
+            [Object.keys(S).find(k => S[k] === s), s.since || null]));
     }""")]
 
 
@@ -278,12 +280,12 @@ def _patch_entry(page, key='1.5.4'):
 # ── the steps the walkthrough runs ───────────────────────────────────────
 
 def test_new_steps_filter_by_since(page):
-    """newSteps(after, upTo) is every Advanced step whose `since` is newer
+    """newSteps(after, upTo) is every guide step whose `since` is newer
     than `after` and not newer than `upTo`, in guide order, checked
     against the step table for several windows, and by name for the 1.5.3
     and 1.6.0 steps."""
     table = _since_table(page)
-    assert any(s for _, s in table), 'no Advanced step carries since'
+    assert any(s for _, s in table), 'no guide step carries since'
     for after, up_to in (('1.4.9', '1.5.0'), ('1.5.0', '1.5.2'), ('1.5.2', '1.5.3'),
                          ('1.5', '1.5.3'), ('1.0', '1.5.3'), ('1.5.3', '1.5.3'),
                          ('1.5.3', '1.6.0'), ('1.5.2', '1.6.0'), ('1.5.4', '1.6.0'),
@@ -295,12 +297,16 @@ def test_new_steps_filter_by_since(page):
         'cableStock', 'cableStockPieces', 'takeOver', 'customPower', 'customDraw', 'sweepShare',
         'addService', 'serviceRating', 'serviceDistro']
     assert _new_steps(page, '1.5.3', '1.6.0') == [
-        'panelName', 'startPage', 'startPanel', 'sameAsLast', 'avgPower', 'zPattern', 'mixedRedundancy',
-        'cardNames', 'fiberMode', 'fiberExtension', 'procCableList', 'panelInput',
-        'jumperNames', 'pullPanels', 'cableStockPerKind', 'feederLength', 'groupNames', 'fiberPage',
-        'mirrorScreen',
-        'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers', 'redrawAsOne',
-        'sweepPorts']
+        # Pixel Map
+        'panelName', 'startPage', 'startPanel', 'sameAsLast', 'avgPower', 'groupNames',
+        # Data
+        'zPattern', 'mixedRedundancy', 'cardNames', 'fiberMode', 'fiberExtension', 'procCableList',
+        'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'redrawAsOne', 'sweepPorts',
+        # Power
+        'panelInput', 'jumperNames', 'pullPanels', 'cableStockPerKind', 'feederLength',
+        'powerZPattern', 'circuitNumbers',
+        # Binder and Exports
+        'fiberPage']
     # 1.5.4 never shipped in full: no step is marked with it, and the
     # steps its betas brought are 1.6.0's.
     assert _new_steps(page, '1.5.3', '1.5.4') == []
@@ -568,7 +574,7 @@ def test_autorun_patch_update_with_new_steps_offers_show_me(page):
             return b && { text: b.textContent, title: b.title }; }""")
         keys = _new_steps(page, '1.5.2', '1.5.3')
         assert show == {'text': 'Show me',
-                        'title': 'Play the %d new steps of the Advanced Guide' % len(keys)}, show
+                        'title': 'Play the %d new guide steps' % len(keys)}, show
         assert keys and all(page.evaluate(
             "(k) => window.QuickStart.steps()[k].since", k) == '1.5.3' for k in keys), keys
         page.click('#whatsnew-close')
@@ -592,7 +598,7 @@ def test_patch_without_an_entry_lists_the_step_titles(page):
         page.evaluate("window.WhatsNew.autoRun(true)")
         _wait_modal(page)
         text = _panel_text(page)
-        assert 'New in the Advanced Guide' in text, text
+        assert 'New in the guides' in text, text
         for t in _step_titles(page, _new_steps(page, '1.5.2', '1.5.3')):
             assert t in text, (t, text)
         assert page.evaluate("!!document.getElementById('whatsnew-show-me')")
@@ -617,7 +623,7 @@ def test_update_across_a_feature_version_shows_both_entries(page):
         assert 'What’s new in v1.5' in text and 'And in v1.5.3' in text, text
         n = len(_new_steps(page, '1.4.2', '1.5.3'))
         assert page.evaluate("document.getElementById('whatsnew-show-me').title") == \
-            'Play the %d new steps of the Advanced Guide' % n
+            'Play the %d new guide steps' % n
         page.click('#whatsnew-close')
         assert page.evaluate("localStorage.getItem(window.WhatsNew.LS_KEY)") == '1.5.3'
     finally:
@@ -655,7 +661,7 @@ def test_update_over_a_skipped_patch_shows_both_patch_entries(page):
                 assert item['h'] in text and item['d'] in text, (item, text)
             n = len(_new_steps(page, '1.5.2', '1.5.4'))
             assert page.evaluate("document.getElementById('whatsnew-show-me').title") == \
-                'Play the %d new steps of the Advanced Guide' % n
+                'Play the %d new guide steps' % n
             page.click('#whatsnew-close')
             assert page.evaluate("localStorage.getItem(window.WhatsNew.LS_KEY)") == '1.5.4'
     finally:
@@ -680,7 +686,7 @@ def test_help_on_a_patch_shows_its_entry_then_the_earlier_patches(page):
             assert 'What’s new in v1.5.4' in text and 'And in v1.5.3' in text, text
             n = len(_new_steps(page, '1.5.2', '1.5.4'))
             assert page.evaluate("document.getElementById('whatsnew-show-me').title") == \
-                'Play the %d new steps of the Advanced Guide' % n
+                'Play the %d new guide steps' % n
             page.click('#whatsnew-close')
     finally:
         page.unroute('**/api/version')
@@ -705,7 +711,7 @@ def test_autorun_1_5_3_to_1_6_0_shows_the_1_6_entry(page):
             assert item['h'] in text and item['d'] in text, (item, text)
         n = len(_new_steps(page, '1.5.3', '1.6.0'))
         assert n and page.evaluate("document.getElementById('whatsnew-show-me').title") == \
-            'Play the %d new steps of the Advanced Guide' % n
+            'Play the %d new guide steps' % n
         page.click('#whatsnew-close')
         assert page.evaluate("localStorage.getItem(window.WhatsNew.LS_KEY)") == '1.6.0'
         page.evaluate("window.WhatsNew.autoRun(true)")
@@ -731,7 +737,7 @@ def test_help_on_1_6_0_shows_the_1_6_entry_and_its_steps(page):
         assert 'What’s new in v1.6' in text and 'And in' not in text, text
         n = len(_new_steps(page, '1.5.3', '1.6.0'))
         assert n and page.evaluate("document.getElementById('whatsnew-show-me').title") == \
-            'Play the %d new steps of the Advanced Guide' % n
+            'Play the %d new guide steps' % n
         page.click('#whatsnew-close')
     finally:
         page.unroute('**/api/version')
@@ -844,8 +850,8 @@ def test_guide_bodies_name_corner_bars_by_their_parts():
 
 
 def test_the_curve_step_says_what_the_demo_wall_builds(guide_page):
-    """QA, 2026-11-10: the Curve a wall step (the Advanced Guide's and What's
-    New's) ticked Curve at the 20% default, which the demo's doubles and
+    """QA, 2026-11-10: the Curve a wall step (the Header/Footer and Curves
+    guide's and What's New's) ticked Curve at the 20% default, which the demo's doubles and
     triples locking at most 7.5 degrees cannot build: the tab said Sweep
     45 degrees, 12.5% of a circle, Out of range and 1' 1 3/4" off, and the
     step's note said the wall curves 20% of a circle, a number written into

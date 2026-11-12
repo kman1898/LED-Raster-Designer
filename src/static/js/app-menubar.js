@@ -5,6 +5,17 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog, isTypingTarget } from './helpers.js';
 
+// Help > Guides: each menu item's guide (quickstart.js GUIDES).
+const GUIDE_MENU = {
+    'guide-pixel-map': 'pixelMap',
+    'guide-data': 'data',
+    'guide-power': 'power',
+    'guide-header-footer': 'headerFooter',
+    'guide-3d-output': 'threeD',
+    'guide-idm': 'idm',
+    'guide-binder': 'binder',
+};
+
 class _MenuBar {
     setupMenuBar() {
         const menuItems = document.querySelectorAll('#menu-bar .menu-item');
@@ -594,8 +605,16 @@ class _MenuBar {
             case 'quick-start':
                 if (window.QuickStart) window.QuickStart.start();
                 break;
-            case 'advanced-guide':
-                if (window.QuickStart) window.QuickStart.startAdvanced();
+            // Help > Guides: one guide per part of the app (quickstart.js
+            // GUIDES).
+            case 'guide-pixel-map':
+            case 'guide-data':
+            case 'guide-power':
+            case 'guide-header-footer':
+            case 'guide-3d-output':
+            case 'guide-idm':
+            case 'guide-binder':
+                if (window.QuickStart) window.QuickStart.startTour(GUIDE_MENU[action]);
                 break;
             case 'whats-new':
                 if (window.WhatsNew) window.WhatsNew.open();

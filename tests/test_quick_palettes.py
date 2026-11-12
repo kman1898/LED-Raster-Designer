@@ -1047,19 +1047,31 @@ def test_a_real_palette_source_pick_passes_the_field_guard(page):
 
 # ── the guide and What's New ─────────────────────────────────────────────
 
-# Every Advanced Guide step 1.7.0 brings, in guide order.
-NEW_IN_1_7 = ['quickPalettes', 'processorIp', 'breakerOver', 'edisonType', 'distroNeutral', 'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag',
-              'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurveLocks', 'riggingCurve', 'riggingCorner', 'riggingCornerBars', 'riggingCornerSide',
-              's3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',
-              's3dCamera', 's3dFocus', 's3dBars', 's3dCorner',
-              'outputOpen', 'outputChoices',
-              'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
-              'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist', 'groupDrag', 'groupMove',
-              'riggingSheet', 'objExport', 'mixedSources', 'checkUpdates']
+# Every guide step 1.7.0 brings, in guide order: the guides in Help >
+# Guides order, each guide's steps in its own.
+NEW_IN_1_7 = [
+    # Pixel Map
+    'quickPalettes', 'groupDrag', 'groupMove', 'checkUpdates',
+    # Data
+    'processorIp',
+    # Power
+    'breakerOver', 'edisonType', 'distroNeutral', 'mixedSources', 'redrawCircuits',
+    # Header/Footer and Curves
+    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide',
+    'riggingTotals', 'riggingCurveLocks', 'riggingCurve', 'riggingCorner', 'riggingCornerBars',
+    'riggingCornerSide',
+    # 3D and Output
+    's3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',
+    's3dCamera', 's3dFocus', 's3dBars', 's3dCorner', 'outputOpen', 'outputChoices',
+    # IDM
+    'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
+    'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist',
+    # Binder and Exports
+    'riggingSheet', 'objExport']
 
 
 def test_the_guide_step_shows_the_palettes(page):
-    """The Advanced Guide's step, played on its own the way What's New's
+    """The Pixel Map guide's step, played on its own the way What's New's
     Show me plays it: the wall takes a pair, Hue turns it, and leaving the
     guide puts back the person's colors with the slider at 0."""
     pg, errors = page
@@ -1067,7 +1079,7 @@ def test_the_guide_step_shows_the_palettes(page):
     _mouse_drag(pg, 25)
     mine, shift = _pair_of(pg, a), _hue(pg)
     assert pg.evaluate("""() => {
-        const q = window.QuickStart, keys = q.tours().advanced
+        const q = window.QuickStart, keys = q.tours().pixelMap
             .map(s => Object.keys(q.steps()).find(k => q.steps()[k] === s));
         return keys[keys.indexOf('blankCabinet') + 1] === 'quickPalettes'
             && q.steps().quickPalettes.since === '1.7.0';

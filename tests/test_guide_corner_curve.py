@@ -143,7 +143,7 @@ def _problems(tab, where, sides):
 
 def _keys(page):
     return page.evaluate(
-        "() => { const S = window.QuickStart.steps(); return window.QuickStart.tours().advanced"
+        "() => { const S = window.QuickStart.steps(); return window.QuickStart.tours().headerFooter"
         ".map(s => Object.keys(S).find(k => S[k] === s)); }")
 
 
@@ -151,16 +151,16 @@ def _keys(page):
 STEPS = [('riggingCurve', 0), ('riggingCorner', 2), ('riggingCornerBars', 2), ('riggingCornerSide', 0)]
 
 
-def test_advanced_corner_steps_leave_the_curve_clean(page):
-    """The Advanced guide from Curve a wall through Interior or Exterior,
-    by Next: every step takes and leaves the tab without a warning that
-    the build falls short of the drawing."""
+def test_guide_corner_steps_leave_the_curve_clean(page):
+    """The Header/Footer and Curves guide from Curve a wall through
+    Interior or Exterior, by Next: every step takes and leaves the tab
+    without a warning that the build falls short of the drawing."""
     keys = _keys(page)
     first = keys.index('riggingCurve')
     assert [k for k, _ in STEPS] == keys[first:first + len(STEPS)], keys[first:first + len(STEPS)]
     page.evaluate("(s) => window.QuickStart.setSpeed(s)", SPEED)
-    page.evaluate("() => { window.QuickStart.startAdvanced(); }")
-    _wait_step(page, 0)
+    page.evaluate("() => { window.QuickStart.startTour('headerFooter'); }")
+    _wait_step(page, 0, timeout=120)
     page.evaluate("(n) => { window.QuickStart.jumpTo(n); }", first + 1)
     page.wait_for_function("(i) => window.QuickStart.state().index === i", arg=first, timeout=240000)
     problems = []
@@ -168,7 +168,7 @@ def test_advanced_corner_steps_leave_the_curve_clean(page):
         if j:
             page.locator('#qs-next').click()
         st = _wait_step(page, first + j, timeout=120)
-        where = f"Advanced step {first + j + 1} ({key})"
+        where = f"Header/Footer and Curves step {first + j + 1} ({key})"
         if st['state'] != 'done' or st['fail']:
             problems.append(f"{where} did not take: {st['state']} {st['note']!r}")
         problems += _problems(_tab(page), where, sides)

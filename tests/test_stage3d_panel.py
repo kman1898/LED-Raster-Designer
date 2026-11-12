@@ -989,3 +989,39 @@ def test_r_turns_a_locked_angle_by_a_typed_figure_and_a_click_keeps_it(page):
     page.keyboard.press('Escape')
     assert dbg(page)['handles'] is not None and page.evaluate('!window.app._s3d.keyX')
     assert page.errors == []
+
+
+def test_a_figure_menu_opens_right_after_g_ends_by_enter(page):
+    """G, Enter, then at once a right-click on a figure: its menu opens.
+    A keyboard move swallowed every right-click for 300 ms after it
+    ended, there for the right-click that cancels one (its menu event
+    comes after its press); ended by Enter, Esc or a left click nothing
+    is coming, and the +90 menu right after it was lost (the 3D and
+    Output guide's Turn the screen, played fast)."""
+    reset(page, ONE)
+    open_3d(page, 1)
+    view_from(page, 'front')
+    x, y = _view_point(page)
+    page.mouse.move(x, y)
+    for end in ('Enter', 'Escape'):
+        page.keyboard.press('g')
+        page.keyboard.press('z')
+        page.keyboard.type('1')
+        page.keyboard.press(end)
+        assert page.evaluate('!window.app._s3d.keyX'), end
+        page.evaluate("""() => {
+            const f = document.getElementById('s3d-yaw').closest('.s3d-field');
+            const r = f.getBoundingClientRect();
+            f.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true, cancelable: true, view: window,
+                clientX: r.left + 5, clientY: r.top + 5, button: 2}));
+        }""")
+        assert page.locator('#s3d-field-menu').count() == 1, end
+        page.keyboard.press('Escape')
+        assert page.locator('#s3d-field-menu').count() == 0
+    # a right-click that cancels a move still opens no menu of its own
+    page.keyboard.press('g')
+    page.mouse.click(x + 40, y, button='right')
+    page.wait_for_timeout(100)
+    assert page.evaluate('!window.app._s3d.keyX')
+    assert page.locator('#s3d-field-menu').count() == 0
+    assert page.errors == []

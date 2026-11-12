@@ -3,7 +3,7 @@
  *
  * Keyed by MAJOR.MINOR ("0.12", "1.0", ...). One entry per feature release.
  * A patch release (0.12.1 -> 0.12.2) re-opens the window only when it added
- * Advanced Guide steps (a step's `since`, quickstart.js); it may carry an
+ * guide steps (a step's `since`, quickstart.js); it may carry an
  * entry of its own keyed by the full version ("1.5.3"), and without one the
  * window lists the new steps' titles. An update that skips a patch shows
  * every patch entry since the version last run, newest first. This is NOT the changelog: VERSION.txt

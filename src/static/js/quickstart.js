@@ -9,11 +9,16 @@
  * snapshotted when a tour starts and put back when it ends.
  *
  *   - Quick Start: short first-run tour, auto-shows on the first run only,
- *     skippable. Reopen from Help -> Quick Start Guide.
- *   - Advanced Guide: the whole show, built step by step in front of you.
- *   - What's New: only the Advanced Guide steps added since a version (each
- *     step's `since`), each started from its own entry snapshot. The What's
- *     New window's Show me runs it (whatsnew.js, also Help -> What's New).
+ *     skippable. Reopen from Help -> Guides -> Quick Start.
+ *   - The seven subject guides (GUIDES: Pixel Map, Data, Power,
+ *     Header/Footer and Curves, 3D and Output, IDM, Binder and Exports),
+ *     each from Help -> Guides. Each starts from a demo show of its own:
+ *     the scratch show with the steps its subject builds on already done
+ *     (its `prep`), so it stands alone (owner, 2026-11-11).
+ *   - What's New: only the guide steps added since a version (each step's
+ *     `since`), each started from its own guide's entry snapshot. The
+ *     What's New window's Show me runs it (whatsnew.js, also Help -> What's
+ *     New).
  *
  * Fully self-contained and offline (no CDN).
  *
@@ -22,8 +27,9 @@
  * click, type, select, drag, rightClick, pickMenu, cabinetPoint, wait, pause,
  * say, spot; `t.pace` is the timing table). `check(mem)` returns the result note when the action took, or null
  * when it did not. The tours are composed from ONE step library (STEPS)
- * so copy lives once; tests/test_tour_anchors.py drives every tour and proves
- * each step's anchor resolves AND its check returns a note.
+ * so copy lives once; tests/test_tour_anchors.py drives the Quick Start and
+ * tests/test_guide_<name>.py each guide, proving each step's anchor
+ * resolves AND its check returns a note.
  */
 (function () {
     'use strict';
@@ -2211,10 +2217,17 @@
         jumpedVia: null,
         // The step keys on screen, in order.
         keys: [],
-        // What's New only: for each step, its index in the Advanced Guide
-        // (whose entry snapshot it starts from), and the Advanced step
-        // whose entry state the show holds right now (null: unknown).
-        entries: null, entryAt: null
+        // What's New only: for each step, its guide and its index there
+        // ({tour, k}: the guide's entry snapshot it starts from), and the
+        // guide step whose entry state the show holds right now ({tour, k},
+        // null: unknown).
+        entries: null, entryAt: null,
+        // How the guide on screen got its demo show: 'scratch' (a guide
+        // with nothing to build on), 'snapshot' (one restore of its shipped
+        // first entry snapshot) or 'apply' (its prep steps applied).
+        startedVia: null,
+        // Why the demo show did not build, when it did not.
+        startError: null
     };
 
     // Next, Back and the replay button are disabled while the step runs;
@@ -2253,7 +2266,7 @@
             + '<span class="qs-hint">Enter = Next</span>'
             + '<label class="qs-jump">Go to <input id="qs-jump" type="number" min="1" max="' + S.list.length
             + '" inputmode="numeric" title="Type a step number and press Enter"></label></div>'
-            + (offerFull ? '<button class="qs-cta" id="qs-full">Take the full walkthrough &rsaquo;</button>' : '')
+            + (offerFull ? '<button class="qs-cta" id="qs-full">Next: the ' + TOURS[GUIDES[0]].title + ' guide &rsaquo;</button>' : '')
             + '<div class="qs-row">'
             + '  <div class="qs-btns">'
             + '    <button class="qs-skip" id="qs-skip">Skip</button>'
@@ -2274,7 +2287,8 @@
         var rep = els.callout.querySelector('#qs-replay');
         if (rep) rep.onclick = function () { if (!S.running) replay(); };
         var full = els.callout.querySelector('#qs-full');
-        if (full) full.onclick = function () { end().then(function () { show('advanced'); }); };
+        // The Quick Start's last step leads on to the first subject guide.
+        if (full) full.onclick = function () { end().then(function () { show(GUIDES[0]); }); };
         var jump = els.callout.querySelector('#qs-jump');
         if (jump) jump.onchange = function () { jumpTo(Number(jump.value)); };
         setState(step.act ? 'pending' : 'idle');
@@ -2324,11 +2338,15 @@
     }
     // 'v<app version>:<step count>:<fnv1a of "key|title" per step>' - a
     // step added, removed, renamed or reordered, or a new app version,
-    // gives a new signature and retires the shipped file for that tour.
+    // gives a new signature and retires the shipped file for that tour. A
+    // guide's prep steps (its demo show) come first, as "prep:key|title":
+    // a change to them changes the show every entry snapshot holds.
     function signature(name) {
         var tour = TOURS[name];
         if (!tour) return null;
-        var lines = tour.steps.map(function (k) { var s = STEPS[k]; return k + '|' + (s ? s.title : ''); });
+        var line = function (k) { var s = STEPS[k]; return k + '|' + (s ? s.title : ''); };
+        var lines = (tour.prep || []).map(function (k) { return 'prep:' + line(k); })
+            .concat(tour.steps.map(line));
         return 'v' + appVersion() + ':' + tour.steps.length + ':' + fnv1a(lines.join('\n'));
     }
     // The shipped entry snapshot of step k of the current tour, or null. An
@@ -2435,36 +2453,52 @@
         els.fast.style.display = text ? 'flex' : 'none';
     }
 
-    // ── What's New: Advanced Guide steps on their own ────────────────────
+    // ── What's New: guide steps on their own ─────────────────────────────
     // A What's New step runs WITHOUT the steps before it, so it starts from
-    // the Advanced Guide's entry snapshot of that step in the shipped file:
-    // the show exactly as the guide hands it to the step, restored the way
-    // Go to restores one. Without a matching file (a changed guide, a build
-    // whose file was not regenerated, no network) the Advanced steps before
-    // it are applied behind the shade instead (applyEntry), as Go to does.
+    // its guide's entry snapshot of that step in the shipped file: the show
+    // exactly as the guide hands it to the step, restored the way Go to
+    // restores one. Without a matching file (a changed guide, a build whose
+    // file was not regenerated, no network) the guide's demo show and its
+    // steps before it are applied behind the shade instead (applyEntry), as
+    // Go to does.
     function enterStep(i) {
-        var k = S.entries[i];
-        return shippedSnapshots('advanced', k).catch(function () { return null; }).then(function (snaps) {
+        var e = S.entries[i];
+        return shippedSnapshots(e.tour, e.k).catch(function () { return null; }).then(function (snaps) {
             if (snaps) {
                 S.jumpedVia = 'snapshot';
-                return restoreProject(snaps[k], 'Tutorial Step').then(function () { S.entryAt = k; });
+                return restoreProject(snaps[e.k], 'Tutorial Step').then(function () { S.entryAt = e; });
             }
             S.jumpedVia = 'apply';
-            return applyEntry(k);
-        }).catch(function (e) {
+            return applyEntry(e);
+        }).catch(function (err) {
             // The step still plays; if its entry state is not there its
             // check says so. The show's state is unknown from here on.
             S.entryAt = null;
-            console.warn('QuickStart: entry state failed', e);
+            console.warn('QuickStart: entry state failed', err);
         });
     }
-    // The Advanced Guide applied up to step k's entry: from where the show
-    // already is when that is at or before k (the step before took), else
-    // from a fresh scratch show. Every pace is zero and only the app's own
-    // responses are waited for, as in applyAhead.
-    function applyEntry(k) {
-        var adv = TOURS.advanced.steps;
-        var from = S.entryAt != null && S.entryAt <= k ? S.entryAt : null;
+    // A guide's whole build, in order: its prep (the demo show), then its
+    // own steps. Entry k of the guide is position prep.length + k here.
+    function buildList(tour) { return (tour.prep || []).concat(tour.steps); }
+    // The guide `e.tour` applied up to its step e.k's entry: from where the
+    // show already is when that is the same guide at or before e.k (the
+    // step before took), else from a fresh scratch show through the guide's
+    // prep. Every pace is zero and only the app's own responses are waited
+    // for, as in applyAhead.
+    function applyEntry(e) {
+        var tour = TOURS[e.tour];
+        var list = buildList(tour), base = (tour.prep || []).length;
+        var at = S.entryAt;
+        var from = at && at.tour === e.tour && at.k <= e.k ? base + at.k : null;
+        return applyBehind(list, from, base + e.k, 'Getting the step ready', tour.seed)
+            .then(function () { S.entryAt = e; },
+                  function (err) { S.entryAt = null; throw err; });
+    }
+    // The steps keys[from..to) applied behind the shade, unseen: from a
+    // fresh scratch show built on `seed` first when `from` is null. Every
+    // pace is zero (ms() while S.jumping) and only the app's own responses
+    // are waited for; a step that does not take stops the apply there.
+    function applyBehind(keys, from, to, what, seed) {
         // The steps applied behind the shade open and close their own
         // windows: nothing is held through them.
         S.keep = null;
@@ -2479,23 +2513,57 @@
             fastBanner('');
         };
         var start = from == null
-            ? buildScratch(TOURS.advanced.seed).then(function () { return 0; })
+            ? buildScratch(seed).then(function () { return 0; })
             : Promise.resolve(from);
         return start.then(function (j0) {
             var chain = Promise.resolve();
-            for (var j = j0; j < k; j++) {
+            for (var j = j0; j < to; j++) {
                 (function (j) {
                     chain = chain.then(function () {
                         if (!S.visible) throw new Error('the guide was closed');
-                        fastBanner('Getting the step ready', 'applying Advanced Guide step ' + (j + 1) + ' of ' + adv.length,
-                                   (j - j0) / Math.max(1, k - j0));
-                        return applyStep(STEPS[adv[j]]);
+                        fastBanner(what, 'applying step ' + (j - j0 + 1) + ' of ' + (to - j0),
+                                   (j - j0) / Math.max(1, to - j0));
+                        return applyStep(STEPS[keys[j]]);
                     });
                 })(j);
             }
             return chain;
-        }).then(function () { done(); S.entryAt = k; },
-                function (e) { done(); S.entryAt = null; throw e; });
+        }).then(done, function (err) { done(); throw err; });
+    }
+    // ── a guide's own demo show ──────────────────────────────────────────
+    // Each subject guide starts from a demo show of its own (owner,
+    // 2026-11-11: "each starts from its own demo show, so it stands
+    // alone"): the scratch show with its prep applied, the steps of the
+    // guides before it that its subject builds on. The shipped file holds
+    // that show as the guide's first entry snapshot, so the start is one
+    // restore, the way Go to lands; without a matching file the prep is
+    // applied behind the shade. A guide with no prep starts on the scratch
+    // show itself.
+    function enterGuide(name, tour) {
+        var prep = tour.prep || [];
+        if (!prep.length) { S.startedVia = 'scratch'; return Promise.resolve(); }
+        return shippedSnapshots(name, 0).catch(function () { return null; }).then(function (snaps) {
+            if (snaps) {
+                S.startedVia = 'snapshot';
+                return restoreProject(snaps[0], 'Tutorial Start');
+            }
+            S.startedVia = 'apply';
+            return applyBehind(prep, 0, prep.length, 'Setting up the demo show').catch(function (e) {
+                // Said as what it is: the steps still play, and the first
+                // one its demo show is short of fails with its own note.
+                S.startedVia = 'failed';
+                S.startError = String((e && e.message) || e);
+                console.warn('QuickStart: the demo show did not build', e);
+            });
+        }).then(function () {
+            // The demo show is where the guide starts: Undo never takes
+            // it back to the scratch show, and nothing its prep opened is
+            // left up.
+            closeTransients();
+            var a = A();
+            try { a.resetHistory('Tutorial'); } catch (e) {}
+            try { frameWalls(); } catch (e) {}
+        });
     }
     // One step applied, unseen: before, the act, its check, after. A step
     // whose check returns no note stops the apply.
@@ -2545,33 +2613,51 @@
         }
         return 0;
     }
-    // The Advanced Guide's step keys, in guide order, whose `since` is
-    // newer than `after` and not newer than `upTo` (null: no bound there).
+    // Every guide step key, in guide order: the guides in GUIDES order,
+    // each guide's steps in its own order.
+    function guideSteps() {
+        var out = [];
+        GUIDES.forEach(function (g) {
+            TOURS[g].steps.forEach(function (k) { if (out.indexOf(k) < 0) out.push(k); });
+        });
+        return out;
+    }
+    // Where step `key` plays: its guide and its index there ({tour, k}),
+    // or null for a step no guide shows.
+    function locate(key) {
+        for (var i = 0; i < GUIDES.length; i++) {
+            var k = TOURS[GUIDES[i]].steps.indexOf(key);
+            if (k >= 0) return { tour: GUIDES[i], k: k };
+        }
+        return null;
+    }
+    // The guide step keys, in guide order, whose `since` is newer than
+    // `after` and not newer than `upTo` (null: no bound there).
     function newSteps(after, upTo) {
         var lo = after == null ? null : versionParts(after);
         var hi = upTo == null ? null : versionParts(upTo);
         if ((after != null && !lo) || (upTo != null && !hi)) return [];
-        return TOURS.advanced.steps.filter(function (k, i, all) {
+        return guideSteps().filter(function (k) {
             var s = versionParts(STEPS[k] && STEPS[k].since);
-            return !!s && all.indexOf(k) === i
-                && (!lo || versionCmp(s, lo) > 0) && (!hi || versionCmp(s, hi) <= 0);
+            return !!s && (!lo || versionCmp(s, lo) > 0) && (!hi || versionCmp(s, hi) <= 0);
         });
     }
-    // Run Advanced Guide steps on their own, in guide order: What's New.
+    // Run guide steps on their own, in guide order: What's New. Each
+    // starts from its own guide's entry snapshot (enterStep).
     function startSteps(keys) {
-        var adv = TOURS.advanced.steps;
         keys = keys || [];
-        var picked = adv.filter(function (k, i) { return adv.indexOf(k) === i && keys.indexOf(k) >= 0; });
+        var picked = guideSteps().filter(function (k) { return keys.indexOf(k) >= 0; });
         if (!picked.length) return Promise.resolve();
         // Headed by the newest feature version among them: What's New in 1.6.
         var newest = picked.reduce(function (m, k) {
             var p = versionParts(STEPS[k].since);
             return p && (!m || versionCmp(p, m) > 0) ? p : m;
         }, null);
+        var entries = picked.map(locate);
         return show('whatsNew', {
             title: 'What&rsquo;s New' + (newest && newest.length >= 2 ? ' in ' + newest[0] + '.' + newest[1] : ''),
-            seed: TOURS.advanced.seed, steps: picked,
-            entries: picked.map(function (k) { return adv.indexOf(k); })
+            seed: TOURS[entries[0].tour].seed, steps: picked,
+            entries: entries
         });
     }
 
@@ -2780,15 +2866,15 @@
             S.phase = 'settled';
             setState(note ? 'done' : 'failed');
             // The step took on its own entry state: the show holds the next
-            // Advanced step's entry. A step that took on an entry that was
+            // step's entry in the same guide. A step that took on an entry that was
             // NOT reached (applyEntry stopped on the way, the step played
             // anyway) proves nothing about the show: the next What's New
             // step must not carry on from it. It did, and "Put the distro
             // on the service" then found no distro (1.6.0 QA: the apply
             // fallback failed 3 runs in 4).
             if (S.entries) {
-                var k = S.entries[S.idx];
-                S.entryAt = note && S.entryAt === k ? k + 1 : null;
+                var e = S.entries[S.idx], at = S.entryAt;
+                S.entryAt = note && at && at.tour === e.tour && at.k === e.k ? { tour: e.tour, k: e.k + 1 } : null;
             }
             return afterStep();
         });
@@ -3375,6 +3461,8 @@
         S.keys = tour.steps.slice();
         S.entries = tour.entries ? tour.entries.slice() : null;
         S.entryAt = null;
+        S.startedVia = null;
+        S.startError = null;
         S.visible = true;
         els.catch.style.display = 'block';
         els.spot.style.display = 'block';
@@ -3389,6 +3477,10 @@
             return guidePreferences();
         }).then(function () {
             return buildScratch(tour.seed || {});
+        }).then(function () {
+            // A subject guide's own demo show (What's New's steps each
+            // enter their own, enterStep).
+            if (!custom) return enterGuide(name, tour);
         });
         return seeded.catch(function (e) {
             console.warn('QuickStart: scratch show failed', e);
@@ -3680,12 +3772,8 @@
     // callout's side; `body` one or two sentences in the user's terms.
     // `since` names the app version that brought the feature a step shows
     // ('1.5.0', '1.5.2'); steps older than 1.5 carry none.
+    // Each guide's intro and outro are made with the guides (GUIDE_DEFS).
     var STEPS = {
-        introAdvanced: {
-            title: 'The full guide', center: true,
-            body: 'This guide builds a small show in front of you on a scratch project. Your own project is put back when you leave.',
-            before: function () { switchView('pixel-map'); }
-        },
         introQuick: {
             title: 'Welcome to LED Raster Designer', center: true,
             body: 'Watch a wall get built, wired and exported on a scratch project. Your own project is put back when you leave, and you can skip at any time.',
@@ -3987,6 +4075,19 @@
                         press(false);
                         return t.pause(PACE.dragRest);
                     });
+                }).then(function () {
+                    return t.wait(function () { return STEPS.quickPalettes.check(t.mem); });
+                }).then(function (ok) {
+                    // Said in full when it does not take (once in a demo
+                    // show built behind the shade under heavy load, with
+                    // nothing to go on): the slider, the wall's pair and
+                    // the pair the panel shows pressed.
+                    if (ok) return;
+                    var s = $('#quick-palette-hue'), w = wall();
+                    var on = $('#quick-palette-swatches [aria-pressed="true"]');
+                    throw new Error('Hue reads ' + (s ? s.value : '?') + ' against ' + t.mem.hue
+                        + '; the wall is ' + (w ? JSON.stringify([w.color1, w.color2]) : 'gone')
+                        + '; pressed: ' + (on ? on.title : 'none'));
                 });
             },
             check: function (mem) {
@@ -7820,6 +7921,120 @@
                 return 'Circuits 7 on ride the L21-30 Edison box at 110V, 3 panels each; circuits 1 to 6 keep 8 on the Socapex.';
             }
         },
+        // Redraw several circuits as one (1.7.0, app-merge-circuits.js; the
+        // owner, 2026-11-12: "Redraw should work just like data"). CUT
+        // COLUMNS is 4 x 5 of the wall's cabinets at 800 W on 208V / 20A,
+        // cabled down the columns, Organized, numbered Across: a column
+        // (4,000 W) is past one circuit (3,328 W), so each is cut into its
+        // top four cabinets and a one-cabinet leftover, circuits 1-4 the
+        // tops and 5-8 the leftovers. An Alt+drag along the bottom row
+        // picks 5-7, the menu redraws them as one, and three clicks draw
+        // it: 8 circuits become 6.
+        redrawCircuits: {
+            since: '1.7.0',
+            target: '#main-canvas', place: 'top', title: 'Redraw several circuits as one',
+            body: (IS_MAC ? 'Option' : 'Alt') + '+drag across circuits, or Shift+click them, to pick them. Right-click and pick Redraw circuits as one, then click the cabinets in order: the new circuit keeps the first number and the circuits after it close up.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                var bottom = screens().reduce(function (m, l) {
+                    return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+                }, 0);
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                var at = function (row, col) {
+                    var l = find();
+                    var i = l.panels.findIndex(function (p) { return p.row === row && p.col === col; });
+                    return t.cabinetPoint(l, { index: i });
+                };
+                return j('POST', '/api/layer/add', {
+                    name: 'CUT COLUMNS', columns: 4, rows: 5,
+                    cabinet_width: w.cabinet_width, cabinet_height: w.cabinet_height,
+                    offset_x: (Number(w.offset_x) || 0), offset_y: bottom + 200
+                }).then(function (layer) {
+                    practiceScreen(layer);
+                    a.setScreenVoltage(layer, 208);
+                    layer.powerAmperage = 20;
+                    layer.powerAmperageCustom = 20;
+                    layer.panelWatts = 800;
+                    layer.powerMaximize = false;
+                    layer.powerOrganized = true;
+                    layer.powerFlowPattern = 'tl-v';
+                    layer.lastPowerFlowPattern = 'tl-v';
+                    layer.powerNumberOrder = 'across';
+                    layer.powerSplitters = { enabled: false, maxWays: 3, manual: { merge: [], split: [] } };
+                    a.upsertProjectLayer(layer);
+                    a.updateLayers([layer]);
+                    t.mem.layer = layer.id;
+                    var l = find();
+                    a.selectLayer(l);
+                    frameLayers([l]);
+                    a.saveState('Add Layer');
+                    a._circuitTailCache = null;
+                    t.mem.before = a.screenCircuits(l).length;
+                    return t.pause(PACE.rest);
+                }).then(function () {
+                    // Alt+drag along the bottom row: circuits 5-7 light.
+                    var from = at(4, 0), to = at(4, 2);
+                    return t.hover(from, { badge: IS_MAC ? 'Option' : 'Alt' }).then(function () {
+                        press(true);
+                        t.canvasDown(from, { altKey: true });
+                        return t.pause(PACE.dragPress);
+                    }).then(function () {
+                        t.canvasMove({ x: from.x + 6, y: from.y + 6 }, { altKey: true });
+                        return t.canvasGlide(to, { altKey: true }, PACE.sweep);
+                    }).then(function () {
+                        t.canvasMove(to, { altKey: true });
+                        return t.pause(PACE.hover);
+                    }).then(function () {
+                        t.canvasUp(to, { altKey: true });
+                        press(false);
+                        badge('');
+                        return t.pause(PACE.sweepRest);
+                    });
+                }).then(function () {
+                    t.mem.picks = a.circuitPicksFor(find());
+                    return t.rightClick(at(4, 1));
+                }).then(function () {
+                    var item = $('[data-action="ovr-merge"]');
+                    t.mem.label = item ? item.textContent : '';
+                    return t.pickMenu('ovr-merge');
+                }).then(function () {
+                    return t.wait(function () { return a._mergeRedraw && a._mergeRedraw.ready; }, 2500);
+                }).then(function (ready) {
+                    if (!ready) throw new Error('the redraw did not open');
+                    return [[4, 0], [4, 1], [4, 2]].reduce(function (chain, rc) {
+                        return chain.then(function () {
+                            var q = at(rc[0], rc[1]);
+                            return t.hover(q).then(function () {
+                                press(true);
+                                t.canvasDown(q, {});
+                                return t.pause(70);
+                            }).then(function () {
+                                t.canvasUp(q, {});
+                                press(false);
+                                ripple(q.x, q.y);
+                                return t.pause(PACE.rest);
+                            });
+                        });
+                    }, Promise.resolve());
+                }).then(function () {
+                    return t.wait(function () { return !a._mergeRedraw; }, 2500);
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || a._mergeRedraw || (mem.picks || []).join() !== '5,6,7') return null;
+                a._circuitTailCache = null;
+                var c = a.screenCircuits(l);
+                var five = c.find(function (x) { return x.num === 5; });
+                if (c.length !== 6 || !five || five.panels.length !== 3) return null;
+                return (mem.label || 'Redraw circuits as one') + ': circuit 5 runs along the bottom row, and CUT COLUMNS has '
+                    + c.length + ' circuits instead of ' + mem.before + '.';
+            }
+        },
         // Redraw several ports as one (1.6.0, app-merge-runs.js; the owner,
         // 2026-11-02: "redraw all of those as one port"). LEFTOVERS is six
         // 512 x 256 cabinets wide on NovaStar Legacy, five to a port, drawn
@@ -7989,20 +8204,36 @@
                 return 'One Alt+drag down LEFTOVERS picked ports 1-3; the menu offered ' + mem.label + '.';
             }
         },
+        // Help > Guides (owner, 2026-11-11): every guide is on the one
+        // submenu. It opens on the item's CSS :hover, which the ghost hand
+        // cannot raise, so the act opens it while the hand rests on the
+        // item and lets it go on the way out (as beachByMenu does).
         helpMenu: {
             target: '[data-menu="help"]', place: 'bottom', title: 'Help',
-            body: 'Every guide lives under Help: Quick Start, What&rsquo;s New, the Advanced Guide and the keyboard shortcuts.',
-            before: function () { closePrefs(); },
+            avoid: ['#menu-help', '#guides-submenu'],
+            body: 'Help &rsaquo; Guides holds every guide: Quick Start, What&rsquo;s New and one for each part of the app. The keyboard shortcuts are under Help too.',
+            before: function () { closePrefs(); hideMenus(); },
             act: function (t) {
+                var sub = $('#guides-submenu');
                 return t.click('[data-menu="help"]').then(function () {
                     return t.wait(function () { var m = $('#menu-help'); return m && m.style.display === 'block' ? m : null; });
-                }).then(function (m) { return t.spot(m).then(function () { return t.pause(PACE.opened); }); });
+                }).then(function (m) {
+                    if (!m) throw new Error('the Help menu did not open');
+                    var item = $('#menu-help [data-action="guides"]');
+                    if (!item || !sub) throw new Error('Guides is not on the Help menu');
+                    return t.hover(item, { speed: PACE.menuTravel, hover: 600 });
+                }).then(function () {
+                    sub.style.display = 'block';
+                    return t.spot(sub).then(function () { return t.pause(PACE.opened); });
+                });
             },
             check: function () {
-                var m = $('#menu-help');
-                return m && m.style.display === 'block' ? 'Reopen any guide from here.' : null;
+                var m = $('#menu-help'), sub = $('#guides-submenu');
+                if (!m || m.style.display !== 'block' || !sub || sub.style.display !== 'block') return null;
+                var n = $$('#guides-submenu .menu-option[data-action^="guide-"]').length;
+                return n ? 'Guides: Quick Start, What’s New and ' + n + ' guides, one for each part of the app.' : null;
             },
-            after: function () { hideMenus(); }
+            after: function () { var sub = $('#guides-submenu'); if (sub) sub.style.display = ''; hideMenus(); }
         },
         // Help > Check for Updates (1.7.0, updater.js; owner, 2026-11-08):
         // a copy installed with the Windows setup updates itself from the
@@ -8031,11 +8262,6 @@
                     ? 'Check for Updates is here; the banner it opens says Update when one is out.' : null;
             },
             after: function () { hideMenus(); }
-        },
-        outroAdvanced: {
-            title: 'That&rsquo;s the guide', center: true,
-            body: 'Done puts your own project back. Reopen any guide from Help.',
-            before: function () { hideMenus(); closeExport(); closePrefs(); }
         },
         // The 1.7 tabs and windows, shown after Cabinets across screens: the
         // steps need the second wall and run before the two are grouped.
@@ -8778,7 +9004,7 @@
         },
         outroQuick: {
             title: 'You&rsquo;re all set', center: true,
-            body: 'Done puts your own project back. Reopen this guide any time from Help &rsaquo; Quick Start Guide, or take the full walkthrough below.',
+            body: 'Done puts your own project back. Help &rsaquo; Guides opens this guide again and one for each part of the app, starting with the Pixel Map guide below.',
             before: function () { hideMenus(); closeExport(); closePrefs(); }
         }
     };
@@ -8811,43 +9037,110 @@
     // ── the tours: ordered step keys, plus what each seeds silently ──────
     // A tour that skips a step another depends on seeds that prerequisite
     // before it starts, so every visible step is still one action.
+    //
+    // The subject guides (owner, 2026-11-11: the one Advanced Guide split
+    // into seven, by subject, under Help > Guides). A show is built in the
+    // order below, one run of steps per subject; a guide plays its own runs
+    // and starts from a demo show with the runs before them already done
+    // (its prep, enterGuide), so it stands alone, and every step finds the
+    // show as the whole build hands it over. A new step goes into the run
+    // of its subject (feedback-features-get-guide-steps).
+    var BUILD = {
+        // Pixel Map: the wall itself
+        pixelWall: ['projectName', 'cabinetSize', 'panelName', 'startPage', 'startPanel', 'sameAsLast', 'avgPower',
+                    'gridSize', 'fit', 'blankCabinet', 'quickPalettes', 'cabinetIdStyle', 'showLook'],
+        // Data: the processor, its ports, snakes, the box and its fiber
+        data: ['processing', 'flowPattern', 'zPattern', 'addProcessor', 'nameProcessor', 'redundancy',
+               'backupProcessor', 'processorIp', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort',
+               'attachmentFlag', 'pinPort', 'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
+               'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
+               'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'procCableList'],
+        // Power: the distro, its multis, jumpers, cable stock, custom
+        // circuits, balance and the service
+        power: ['panelWatts', 'panelInput', 'breakoutType', 'breakerOver', 'addDistro', 'nameDistro',
+                'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows', 'edisonType',
+                'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain', 'distroNeutral',
+                'multiCableSheet', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPerKind',
+                'cableStockPieces', 'powerCableTags', 'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw',
+                'sweepShare', 'balance', 'addService', 'serviceRating', 'serviceDistro', 'feederLength'],
+        // Header/Footer and Curves
+        headerFooter: ['riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide',
+                       'riggingTotals', 'riggingCurveLocks', 'riggingCurve', 'riggingCorner', 'riggingCornerBars',
+                       'riggingCornerSide'],
+        // Pixel Map: beaches and a second screen
+        pixelScreens: ['addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens'],
+        // 3D and Output
+        threeD: ['s3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',
+                 's3dCamera', 's3dFocus', 's3dBars', 's3dCorner', 'outputOpen', 'outputChoices'],
+        // IDM, and the checklist in the Notes
+        idm: ['idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
+              'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist'],
+        // Pixel Map: groups
+        pixelGroups: ['groupScreens', 'groupNames', 'groupDrag', 'groupMove'],
+        // Binder and Exports
+        binder: ['exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock',
+                 'fileExports', 'objExport', 'preferences']
+    };
+    // Steps that put in practice hardware or screens of their own: they
+    // close their guide, after its runs, so nothing they add reaches a
+    // later run or another guide's demo show.
+    var DATA_PRACTICE = ['mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'redrawAsOne', 'sweepPorts'];
+    var POWER_PRACTICE = ['powerZPattern', 'circuitNumbers', 'mixedSources', 'redrawCircuits'];
+    var GUIDE_SEED = { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } };
+    // Help > Guides, in this order. `prep` is the guide's demo show, `own`
+    // its steps between its intro and its outro.
+    var GUIDE_DEFS = [
+        { name: 'pixelMap', title: 'Pixel Map', prep: [],
+          own: BUILD.pixelWall.concat(BUILD.pixelScreens, BUILD.pixelGroups, ['helpMenu', 'checkUpdates']),
+          intro: 'This guide builds a wall on a scratch show: its cabinets, blanking and colors, Show Look, a second screen, beaches and groups. Your own project is put back when you leave.' },
+        { name: 'data', title: 'Data', prep: BUILD.pixelWall,
+          own: BUILD.data.concat(DATA_PRACTICE),
+          intro: 'On a demo show with one wall, this guide wires its data: processors, redundancy, ports, snakes, a breakout box, fiber and the data cables. Your own project is put back when you leave.' },
+        { name: 'power', title: 'Power', prep: BUILD.pixelWall.concat(BUILD.data),
+          own: BUILD.power.concat(POWER_PRACTICE),
+          intro: 'On a demo show with its data wired, this guide powers the wall: distros, multis, jumpers, cable stock, custom circuits, balance, a service and two kinds of power. Your own project is put back when you leave.' },
+        { name: 'headerFooter', title: 'Header/Footer and Curves', prep: BUILD.pixelWall.concat(BUILD.data, BUILD.power),
+          own: BUILD.headerFooter,
+          intro: 'On a demo show with a wired wall, this guide lays its header and footer bars, then curves the wall and bends a corner. Your own project is put back when you leave.' },
+        { name: 'threeD', title: '3D and Output', prep: BUILD.pixelWall.concat(BUILD.data, BUILD.power, BUILD.headerFooter, BUILD.pixelScreens),
+          own: BUILD.threeD,
+          intro: 'On a demo show with two screens, this guide stands them on a stage in 3D and sends a canvas full screen to a second display. Your own project is put back when you leave.' },
+        { name: 'idm', title: 'IDM', prep: BUILD.pixelWall.concat(BUILD.data, BUILD.power, BUILD.headerFooter, BUILD.pixelScreens, BUILD.threeD),
+          own: BUILD.idm,
+          intro: 'On a demo show with two screens, this guide marks bad modules with the IDM Locator, points at them on the wall and keeps a checklist in the Notes. Your own project is put back when you leave.' },
+        { name: 'binder', title: 'Binder and Exports',
+          prep: BUILD.pixelWall.concat(BUILD.data, BUILD.power, BUILD.headerFooter, BUILD.pixelScreens, BUILD.threeD, BUILD.idm, BUILD.pixelGroups),
+          own: BUILD.binder,
+          intro: 'On a finished demo show, this guide exports the binder and its sheets, then the other exports and Preferences. Your own project is put back when you leave.' }
+    ];
+    var GUIDES = GUIDE_DEFS.map(function (g) { return g.name; });
     var TOURS = {
         quick: {
             title: 'Quick Start',
             seed: { name: 'Demo Show' },
             steps: ['introQuick', 'cabinetSize', 'gridSize', 'processing', 'addProcessor',
                     'dropProcessor', 'addDistro', 'dropMulti', 'exportBinder', 'outroQuick']
-        },
-        advanced: {
-            title: 'Advanced Guide',
-            seed: { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } },
-            steps: ['introAdvanced', 'projectName', 'cabinetSize', 'panelName', 'startPage', 'startPanel', 'sameAsLast', 'avgPower', 'gridSize', 'fit', 'blankCabinet', 'quickPalettes',
-                    'cabinetIdStyle', 'showLook', 'processing', 'flowPattern', 'zPattern', 'addProcessor',
-                    'nameProcessor', 'redundancy', 'backupProcessor', 'processorIp', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
-                    'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
-                    'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
-                    'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'procCableList', 'panelWatts', 'panelInput', 'breakoutType', 'breakerOver',
-                    'addDistro', 'nameDistro',
-                    'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows', 'edisonType',
-                    'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain', 'distroNeutral',
-                    'multiCableSheet', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPerKind',
-                    'cableStockPieces', 'powerCableTags',
-                    'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw', 'sweepShare', 'balance',
-                    'addService', 'serviceRating', 'serviceDistro', 'feederLength',
-                    'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurveLocks', 'riggingCurve',
-                    'riggingCorner', 'riggingCornerBars', 'riggingCornerSide',
-                    'addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens',
-                    's3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',
-                    's3dCamera', 's3dFocus', 's3dBars', 's3dCorner',
-                    'outputOpen', 'outputChoices',
-                    'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
-                    'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist',
-                    'groupScreens', 'groupNames', 'groupDrag', 'groupMove',
-                    'exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock', 'fileExports', 'objExport', 'preferences',
-                    'mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'powerZPattern', 'circuitNumbers',
-                    'mixedSources', 'redrawAsOne', 'sweepPorts', 'helpMenu', 'checkUpdates', 'outroAdvanced']
         }
     };
+    // Each guide's intro and outro: its own two steps, named for it.
+    GUIDE_DEFS.forEach(function (g, i) {
+        var key = g.name.charAt(0).toUpperCase() + g.name.slice(1);
+        var next = GUIDE_DEFS[i + 1];
+        STEPS['intro' + key] = {
+            title: 'The ' + g.title + ' guide', center: true, body: g.intro,
+            before: function () { hideMenus(); closeExport(); closePrefs(); switchView('pixel-map'); }
+        };
+        STEPS['outro' + key] = {
+            title: 'That&rsquo;s the ' + g.title + ' guide', center: true,
+            body: 'Done puts your own project back. '
+                + (next ? 'Next in Help &rsaquo; Guides: ' + next.title + '.' : 'Every guide is under Help &rsaquo; Guides.'),
+            before: function () { hideMenus(); closeExport(); closePrefs(); }
+        };
+        TOURS[g.name] = {
+            title: g.title, seed: GUIDE_SEED, prep: g.prep,
+            steps: ['intro' + key].concat(g.own, ['outro' + key])
+        };
+    });
 
     function toursAsLists() {
         var out = {};
@@ -8859,10 +9152,15 @@
 
     window.QuickStart = {
         start: function () { return show('quick'); },
-        startAdvanced: function () { return show('advanced'); },
-        // What's New: the Advanced Guide steps whose `since` is newer than
-        // `after` and not newer than `upTo` (keys, guide order), and a run
-        // of just those steps, each from its own entry snapshot.
+        // Help > Guides: the subject guides in menu order ({name, title}).
+        guides: function () { return GUIDES.map(function (n) { return { name: n, title: TOURS[n].title }; }); },
+        // Where step `key` plays: {tour, index} in its guide, or null.
+        guideOf: function (key) { var e = locate(key); return e ? { tour: e.tour, index: e.k } : null; },
+        // A guide's prep: the step keys its demo show is built from.
+        prepOf: function (name) { return TOURS[name] ? (TOURS[name].prep || []).slice() : null; },
+        // What's New: the guide steps whose `since` is newer than `after`
+        // and not newer than `upTo` (keys, guide order), and a run of just
+        // those steps, each from its own guide's entry snapshot.
         newSteps: newSteps,
         startSteps: startSteps,
         startTour: function (name) { return TOURS[name] ? show(name) : Promise.resolve(); },
@@ -8881,7 +9179,7 @@
         signature: signature,
         state: function () {
             return { tour: S.name, index: S.idx, running: S.running, visible: S.visible,
-                     jumpedVia: S.jumpedVia, steps: S.keys.slice(), phase: S.phase };
+                     jumpedVia: S.jumpedVia, startedVia: S.startedVia, startError: S.startError, steps: S.keys.slice(), phase: S.phase };
         }
     };
 
