@@ -65,7 +65,7 @@
 // pattern this follows. mouseup is bound on the document for the same reason
 // canvas.js binds its own on window: a drag routinely ends over a sidebar.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, isTypingTarget } from './helpers.js';
 
 class _HardwareDock {
 
@@ -1077,8 +1077,26 @@ class _HardwareDock {
         if (pop) pop.style.display = 'none';
     }
 
-    _hwPopoverRefresh() {
+    // A box being typed in holds the rebuild. Every dock render rebuilds
+    // an open popover, and several of them land a beat after the gesture
+    // that asked for them (the restate's own deferred render, the nested
+    // one it schedules, a reply). One landing between the click that
+    // selects a box's text and the first key typed swapped in a fresh box
+    // with the focus but not the selection, so "150" typed over a selected
+    // "100" saved 100150. While a text or number box in the popover has
+    // the focus the popover stays as it is, and the rebuild runs once the
+    // box commits (change) or lets go of the focus. `force` rebuilds
+    // regardless: a restored show, which no box may keep out.
+    _hwPopoverRefresh(force = false) {
         if (!this._hwPopover) return;
+        const pop = document.getElementById('hw-gear-popover');
+        const active = document.activeElement;
+        if (!force && pop && active && pop.contains(active)
+                && this._hwPopoverTyping(active)) {
+            this._hwPopoverHold(active);
+            return;
+        }
+        this._hwPopoverHeldRefresh = false;
         const anchor = document.querySelector(
             `[data-hwpop="${CSS.escape(this._hwPopover.id)}"]`);
         if (!anchor) {
@@ -1088,6 +1106,43 @@ class _HardwareDock {
             return;
         }
         this._hwPopoverRender(anchor, true);
+    }
+
+    // A box the reader types into: a text-like input or a textarea that
+    // takes typing. A select is not held: a pick commits at once and the
+    // popover shows what it set (a cam input sets the rating).
+    _hwPopoverTyping(el) {
+        if (!el || el.tagName === 'SELECT' || el.readOnly || el.disabled) return false;
+        return isTypingTarget(el);
+    }
+
+    // Hold the popover's rebuild on `el` until it commits or lets go, then
+    // run it once, a macrotask on, after the change handler's own write
+    // and the Enter rule's release. Focus that moved on to another box in
+    // the popover (Tab) holds again there; a box still focused after its
+    // commit (the number arrows) is rebuilt with its focus kept.
+    _hwPopoverHold(el) {
+        this._hwPopoverHeldRefresh = true;
+        if (this._hwPopoverHeldOn === el) return;
+        this._hwPopoverHeldOn = el;
+        const release = (e) => {
+            // The window losing focus is not the box letting go: the box
+            // is still the page's focused element, typing and all.
+            if (e.type === 'focusout' && document.activeElement === el) return;
+            el.removeEventListener('change', release);
+            el.removeEventListener('focusout', release);
+            if (this._hwPopoverHeldOn === el) this._hwPopoverHeldOn = null;
+            setTimeout(() => {
+                if (!this._hwPopoverHeldRefresh) return;
+                this._hwPopoverHeldRefresh = false;
+                if (typeof this._preserveEditorFocus === 'function') {
+                    this._preserveEditorFocus();
+                }
+                this._hwPopoverRefresh(document.activeElement === el);
+            }, 0);
+        };
+        el.addEventListener('change', release);
+        el.addEventListener('focusout', release);
     }
 
     _dockNote(host, text) {

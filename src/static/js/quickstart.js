@@ -523,7 +523,7 @@
                 } else if (k === 'pull-sheet') {
                     if (pullSheetOpen() && a.renderPullSheetEditor) a.renderPullSheetEditor();
                 } else if (k.indexOf('gear:') === 0) {
-                    if (a._hwPopoverRefresh) a._hwPopoverRefresh();
+                    if (a._hwPopoverRefresh) a._hwPopoverRefresh(true);
                 }
             } catch (e) { console.warn('QuickStart: a shared window was not refilled', e); }
         });

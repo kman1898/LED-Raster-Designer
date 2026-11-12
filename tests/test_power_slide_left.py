@@ -119,11 +119,31 @@ SHOW_JS = """async ({ paths, version }) => {
 }"""
 
 
+# Every toast the page says from here on, kept as it is said. A toast is on
+# screen for a few seconds (the open's "redrawn without a change" for 8),
+# and the waits after it (the open's PUT and layer sync, every save landing,
+# the server read) can run past that on a loaded machine, so the host's
+# children are not a record of what was said.
+TOAST_RECORD_JS = """() => {
+    const app = window.app;
+    if (!app.__toastsRecorded) {
+        const real = app._toast;
+        app._toast = function (msg, ...rest) {
+            window.__toastsSaid.push(String(msg));
+            return real.call(this, msg, ...rest);
+        };
+        app.__toastsRecorded = true;
+    }
+    window.__toastsSaid = [];
+}"""
+
+
 def open_show(pg, paths, version):
     """File > Open with the show, the way the user does, through the load's
-    PUT and its layer sync."""
+    PUT and its layer sync. The toasts are recorded from here on."""
     project = pg.evaluate(SHOW_JS, {'paths': paths, 'version': version})
     _settle(pg)
+    pg.evaluate(TOAST_RECORD_JS)
     pg.evaluate("""() => {
         window.__loaded = false;
         const el = document.getElementById('status-message');
@@ -165,8 +185,8 @@ def read(pg):
 
 
 def toasts(pg):
-    return pg.evaluate("""() => [...document.querySelectorAll('#app-toast-host > div')]
-        .map(t => t.textContent.trim()).filter(Boolean)""")
+    """Every toast said since the show was opened (TOAST_RECORD_JS)."""
+    return pg.evaluate("() => (window.__toastsSaid || []).slice()")
 
 
 def cols_of(state):

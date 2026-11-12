@@ -103,13 +103,44 @@ def test_picking_cam_100_sets_the_rating_to_100_and_it_stays_typeable(page):
                       " return {input: d.input, ratingA: d.ratingA}; }")
     assert got == {'input': 'cam100', 'ratingA': 100}, got
     rating = '#hw-gear-popover [data-lrd-field="distro-rating-d1"]'
-    pg.wait_for_selector(rating)
-    assert pg.eval_on_selector(rating, 'el => el.value') == '100'
+    # The pick writes the distro at once; the popover restates one task
+    # later (_restateNaming defers its rebuild past the gesture), so the
+    # box is read once it has.
+    pg.wait_for_function("(sel) => { const el = document.querySelector(sel);"
+                         " return !!el && el.value === '100'; }", arg=rating)
     assert pg.eval_on_selector(rating, 'el => !el.disabled && !el.readOnly')
     pg.fill(rating, '150')
     pg.press(rating, 'Enter')
     pg.locator(rating).blur()
     pg.wait_for_function("() => window.app.getDistros().find(x => x.id === 'd1').ratingA === 150")
+    pg.evaluate("() => window.app._hwPopoverClose()")
+    assert not errors, errors
+
+
+def test_a_rebuild_landing_while_the_rating_is_selected_does_not_eat_the_typing(page):
+    """A dock render lands between the click that selects the Rating box's
+    text and the first key typed (a deferred restate, a reply). It used to
+    swap in a fresh box with the focus but not the selection, so typing 150
+    over a selected 100 saved 100150. The box being typed in holds the
+    rebuild until it commits, and the rebuild runs then."""
+    pg, errors = page
+    _set(pg, {'system': '120/208', 'input': 'cam100', 'ratingA': 100})
+    rating = '#hw-gear-popover [data-lrd-field="distro-rating-d1"]'
+    pg.wait_for_selector(rating)
+    pg.evaluate("""(sel) => {
+        const el = document.querySelector(sel);
+        el.focus();
+        el.select();
+        window.__heldBox = el;
+        window.app.renderHardwareDock();
+    }""", rating)
+    pg.keyboard.type('150')
+    pg.keyboard.press('Enter')
+    pg.wait_for_function("() => window.app.getDistros().find(x => x.id === 'd1').ratingA !== 100")
+    assert pg.evaluate("() => window.app.getDistros().find(x => x.id === 'd1').ratingA") == 150
+    # the held rebuild ran once the box let go
+    pg.wait_for_function("(sel) => { const el = document.querySelector(sel);"
+                         " return el && el !== window.__heldBox && el.value === '150'; }", arg=rating)
     pg.evaluate("() => window.app._hwPopoverClose()")
     assert not errors, errors
 
