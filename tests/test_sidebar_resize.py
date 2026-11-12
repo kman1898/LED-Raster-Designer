@@ -143,15 +143,44 @@ def page(e2e_server, pw_browser):
     context.add_init_script(
         "try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     pg = context.new_page()
+    pg.on('requestfailed', lambda r: _FAILED_REQUESTS.append(
+        f"{r.method} {r.url.split('/', 3)[-1]}: {r.failure}"))
     pg.goto(e2e_server, wait_until='domcontentloaded')
     pg.wait_for_timeout(2000)  # socket connect + app init
     yield pg
     context.close()
 
 
+# Every request the page could not make, newest last (the page fixture's
+# listener). A page whose own scripts could not all be fetched never starts
+# the app, and that is what the started check below reports.
+_FAILED_REQUESTS = []
+
+_STARTED_JS = ("() => !!(window.app && Array.isArray(window.app._sidebarPositioners)"
+               " && window.app._sidebarPositioners.length)")
+
+
+def assert_app_started(page, timeout_ms=20000):
+    """The app itself is running on this page: its panel tabs are pinned by
+    the app (initSidebarToggles), while the panel sizes and drag strips come
+    from theme.js, a separate script. When the machine runs out of
+    connections (a port jam, many suites at once) some of the app's modules
+    never load, the app never starts, and both tabs sit unpinned at the
+    window's left edge, the right one over the left. Every check below then
+    fails as a stranded control, which it is not. Said for what it is."""
+    try:
+        page.wait_for_function(_STARTED_JS, timeout=timeout_ms)
+    except Exception:
+        raise AssertionError(
+            "the app never started on this page, so its panel tabs were never "
+            "pinned (theme.js sized the panels on its own). Requests that failed: "
+            f"{_FAILED_REQUESTS[-12:] or 'none recorded'}") from None
+
+
 # ── helpers ───────────────────────────────────────────────────────────────
 
 def open_view(page, mode):
+    assert_app_started(page)
     page.locator(f'[data-mode="{mode}"]').click()
     _settle(page, 400)
 
