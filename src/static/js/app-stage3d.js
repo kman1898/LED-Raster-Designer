@@ -2235,6 +2235,15 @@ class _Stage3D {
         const layer = layers.find(l => l.id === hit.layerId);
         if (!layer) return;
         const multi = ev && (ev.shiftKey || ev.metaKey || ev.ctrlKey);
+        // A click on the group whose member was picked alone in the Screens
+        // list ends that pick (2026-11-12, "Cabinet click is whole group"):
+        // 3D keeps its own one-screen pick, which moves the group anyway,
+        // and Pixel Map and Show Look move the whole group again.
+        const listPicked = this._listPickedMember ? this._listPickedMember() : null;
+        if (listPicked && layer.group_id != null && layer.group_id === listPicked.group_id) {
+            this._listPickedLayerId = null;
+            if (typeof this.loadLayerToInputs === 'function') this.loadLayerToInputs();
+        }
         const sel = this._s3dSelectedIds();
         if (multi) {
             this.toggleLayerSelection(layer);

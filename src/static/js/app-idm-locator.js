@@ -1325,6 +1325,8 @@ class _IdmLocator {
         }
         const layer = hit.layer;
         if (!this.currentLayer || this.currentLayer.id !== layer.id) r._selectLayerFromCanvas(layer);
+        // A member picked alone in the Screens list: the whole group again.
+        else if (typeof r._endListPickOnCabinet === 'function') r._endListPickOnCabinet(layer);
         if (this._layerLocked(layer)) {
             this._showLockedError([layer]);
             return true;

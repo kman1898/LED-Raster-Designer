@@ -431,6 +431,9 @@ ALSO NEW
   Show Look move that screen alone, with a note under them saying so. The
   group keeps its custom Data and Power runs. Select the group, or click a
   screen on the canvas, and the whole group moves as before.
+- NEW: With one screen of a group picked in the Screens list, a click on
+  any cabinet of that group on the canvas, on any tab, picks the whole
+  group again. Drags and X and Y then move every screen of it.
 - NEW: A Windows copy installed with the setup file updates itself:
   Update downloads the new version, checks it and installs it, then
   reopens the app.

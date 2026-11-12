@@ -324,6 +324,11 @@ Object.assign(CanvasRenderer.prototype, {
                         this._selectLayerFromCanvas(layer);
                         this._pressPickedLayerId = layer.id;
                     }
+                    // A cabinet of a group whose member was picked alone in
+                    // the Screens list: the whole group again (2026-11-12).
+                    // Skipped above when the press is on that member itself
+                    // or is a gesture that keeps the selection.
+                    this._endListPickOnCabinet(layer);
                 }
             } else {
                 const hitCanvas = this._canvasAtPoint(worldX, worldY);
@@ -2128,6 +2133,10 @@ Object.assign(CanvasRenderer.prototype, {
                     : Array.from(selectedIds).includes(hit && hit.id));
             if (hit && !alreadySelected) {
                 this._selectLayerFromCanvas(hit);
+            } else if (hit) {
+                // The member picked alone in the Screens list: the menu acts
+                // on the whole group, as a left click would (2026-11-12).
+                this._endListPickOnCabinet(hit);
             }
         }
         if (this.viewMode === 'pixel-map' && window.app.currentLayer) {

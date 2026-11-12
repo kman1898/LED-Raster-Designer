@@ -211,6 +211,11 @@ class _ScreenGroups {
     // but this one screen). The mark counts only while that screen is still
     // the one and only selection, so a selection that has grown since, by
     // any route, is the whole group again.
+    //
+    // "Cabinet click is whole group" (the owner, 2026-11-12): after a list
+    // pick, a press on a cabinet of that group on any tab's canvas ends the
+    // pick and selects the group (canvas.js _endListPickOnCabinet; the IDM
+    // Locator press and the 3D click end it the same way).
     _listPickedMember() {
         const id = this._listPickedLayerId;
         if (id == null) return null;

@@ -1589,6 +1589,28 @@ class CanvasRenderer {
         this.render();
     }
 
+    // A press on a cabinet of the group whose one screen was picked in the
+    // Screens list (#125, app _listPickedMember) is a canvas pick of the
+    // group (the owner's ruling, 2026-11-12: "Cabinet click is whole
+    // group"). The paths that select on a press skip the screen that is
+    // already current - the list-picked one - so this ends the pick and
+    // widens the selection to the group, as _selectLayerFromCanvas does,
+    // keeping the current screen (it may own the run being drawn). The list
+    // stays the one way to move a member alone. True when it did.
+    _endListPickOnCabinet(layer) {
+        const app = window.app;
+        if (!app || !layer || typeof app._listPickedMember !== 'function') return false;
+        const picked = app._listPickedMember();
+        if (!picked || layer.group_id == null || layer.group_id !== picked.group_id) return false;
+        app._listPickedLayerId = null;
+        // The fields and the note follow the group even when no peer joins
+        // (a hidden one stays out of the selection).
+        if (!this._extendSelectionToGroups() && typeof app.loadLayerToInputs === 'function') app.loadLayerToInputs();
+        if (typeof app.renderLayers === 'function') app.renderLayers();
+        this.render();
+        return true;
+    }
+
     // Cmd/Ctrl+click from the canvas: toggle the clicked layer in/out of the
     // multi-selection (the same selectedLayerIds Set the sidebar's Ctrl-click
     // uses, so bulk edits / group actions / totals downstream see one model).
@@ -1666,7 +1688,10 @@ class CanvasRenderer {
             });
         });
         // As _extendSelectionToGroups: the peers joined the selection, so
-        // Screen Info must show the group, not the member pressed on.
+        // Screen Info must show the group, not the member pressed on. A
+        // member picked alone in the Screens list is the group again (#125):
+        // left marked, an undo that narrowed back to it moved it alone.
+        if (added) window.app._listPickedLayerId = null;
         if (added && typeof window.app.loadLayerToInputs === 'function') window.app.loadLayerToInputs();
         return layers;
     }

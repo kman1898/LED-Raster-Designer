@@ -15,6 +15,11 @@ select the screen via the side tab specifically."
   * Everything else still moves the whole group as one: the group's own
     row, a member picked on the canvas, a canvas drag, the 3D arrow keys.
 
+The owner's ruling (2026-11-12): "Cabinet click is whole group." After a
+list pick, a click on a cabinet of that group on the canvas, on any tab,
+goes back to the whole group: the group is selected, the note says so, and
+drags and typed offsets move every member again.
+
 Each case is proved here through the gestures that follow it: the custom
 runs across the members stay, bars that no longer fit after the move are
 flagged, one undo puts it back, and a second page follows without writing.
@@ -328,6 +333,155 @@ def test_the_3d_arrow_keys_after_a_list_pick_move_the_whole_group(pg):
     assert max(abs(v) for v in moved[0]) == pytest.approx(25.4, abs=0.01), (before, after)
     assert moved[1] == pytest.approx(moved[0], abs=0.01), (before, after)
     tab(p, 'pixel-map')
+
+
+# ── a cabinet click after a list pick is the whole group (2026-11-12) ────
+
+def picked(p):
+    """The screen picked on its own in the Screens list, or None."""
+    return p.evaluate("() => { const l = window.app._listPickedMember(); return l ? l.name : null; }")
+
+
+def current(p):
+    return p.evaluate("() => window.app.currentLayer && window.app.currentLayer.name")
+
+
+def cabinet_click(p, name, button='left'):
+    """A plain click on one cabinet of the screen, away from its name."""
+    p.mouse.click(*to_client(p, name, 0.15, 0.8), button=button)
+    p.wait_for_timeout(300)
+    if button == 'right':
+        p.keyboard.press('Escape')
+        p.wait_for_timeout(150)
+
+
+def assert_the_whole_group_moves(p):
+    """Back on Pixel Map: the fields read the group, and a typed value moves
+    every member by the same distance."""
+    tab(p, 'pixel-map')
+    assert fields(p, 'offset-x', 'offset-y') == ['0', '0']
+    assert note(p, 'group-move-note') == ['Moves the whole group', True, 'group']
+    type_field(p, 'offset-x', 100)
+    want = {'L': [100, 0, 100, 0], 'R': [2300, 0, 2300, 0], 'LOOSE': [6000, 0, 6000, 0]}
+    assert pos(p, 'L', 'R', 'LOOSE') == want
+    assert server_pos(p, 'L', 'R', 'LOOSE', want=want) == want
+
+
+# Every tab with cabinets to click. Data with L: L's custom port is open for
+# drawing there, so the press is a drawing press on the screen it belongs to.
+@pytest.mark.parametrize('mode,name', [
+    ('pixel-map', 'R'), ('cabinet-id', 'R'), ('show-look', 'R'), ('data-flow', 'R'),
+    ('data-flow', 'L'), ('power', 'R'), ('rigging', 'R'), ('idm', 'R'),
+])
+def test_a_cabinet_click_after_a_list_pick_selects_the_whole_group(pg, mode, name):
+    p = pg
+    tab(p, mode)
+    list_pick(p, name)
+    assert selected(p) == [p.ids[name]]
+    assert picked(p) == name
+    cabinet_click(p, name)
+    assert selected(p) == sorted([p.ids['L'], p.ids['R']])
+    assert picked(p) is None
+    # the screen clicked is still the one Screen Info is about
+    assert current(p) == name
+    assert_the_whole_group_moves(p)
+
+
+def test_a_cabinet_click_on_pixel_map_then_a_drag_moves_every_member(pg):
+    p = pg
+    tab(p, 'pixel-map')
+    list_pick(p, 'R')
+    type_field(p, 'offset-y', 300)
+    # the list pick moved R alone
+    assert pos(p, 'L', 'R') == {'L': [0, 0, 0, 0], 'R': [2200, 300, 2200, 300]}
+    assert note(p, 'group-move-note') == ['Moves only R in its group', True, 'one']
+    cabinet_click(p, 'R')
+    assert selected(p) == sorted([p.ids['L'], p.ids['R']])
+    # the alone note is gone: the fields are the group's again
+    assert note(p, 'group-move-note') == ['Moves the whole group', True, 'group']
+    assert fields(p, 'offset-x', 'offset-y') == ['0', '0']
+    sx, sy = to_client(p, 'R', 0.15, 0.8)
+    p.mouse.move(sx, sy)
+    p.keyboard.down('Shift')
+    p.mouse.down()
+    p.mouse.move(sx + 10, sy + 10, steps=3)
+    p.mouse.move(sx + 100, sy + 50, steps=6)
+    p.mouse.up()
+    p.keyboard.up('Shift')
+    p.wait_for_timeout(600)
+    got = pos(p, 'L', 'R', 'LOOSE')
+    dx, dy = got['L'][0], got['L'][1]
+    assert dx > 0 and dy > 0, got
+    # every member by the same distance; the screen apart stays
+    assert got['R'][:2] == [2200 + dx, 300 + dy], got
+    assert got['LOOSE'][:2] == [6000, 0], got
+    want = {'L': got['L'], 'R': got['R']}
+    assert server_pos(p, 'L', 'R', want=want) == want
+    assert note(p, 'group-move-note') == ['Moves the whole group', True, 'group']
+    # and an undo afterwards does not bring the one-screen pick back
+    undo(p)
+    assert picked(p) is None
+
+
+def test_a_cabinet_click_on_show_look_moves_the_whole_group_from_the_fields(pg):
+    p = pg
+    tab(p, 'show-look')
+    list_pick(p, 'R')
+    assert note(p, 'group-move-note-show')[2] == 'one'
+    cabinet_click(p, 'R')
+    assert selected(p) == sorted([p.ids['L'], p.ids['R']])
+    assert note(p, 'group-move-note-show') == ['Moves the whole group', True, 'group']
+    assert fields(p, 'show-offset-x', 'show-offset-y') == ['0', '0']
+    type_field(p, 'show-offset-y', 80)
+    want = {'L': [0, 0, 0, 80], 'R': [2200, 0, 2200, 80]}
+    assert pos(p, 'L', 'R') == want
+    assert server_pos(p, 'L', 'R', want=want) == want
+
+
+@pytest.mark.parametrize('mode', ['pixel-map', 'show-look'])
+def test_a_right_click_on_a_cabinet_after_a_list_pick_is_the_whole_group(pg, mode):
+    p = pg
+    tab(p, mode)
+    list_pick(p, 'R')
+    cabinet_click(p, 'R', button='right')
+    assert selected(p) == sorted([p.ids['L'], p.ids['R']])
+    assert picked(p) is None
+    assert_the_whole_group_moves(p)
+
+
+def test_a_click_on_the_screen_in_3d_after_a_list_pick_ends_the_pick(pg):
+    """3D picks one screen of a group on a click and moves the group with it
+    (its own rule); after a list pick the click there ends the one-screen
+    pick too, so Pixel Map's fields move the whole group again."""
+    p = pg
+    tab(p, '3d')
+    p.wait_for_function("() => { const d = window.app._s3dDebug(); return d.loaded && d.screens.length === 3; }",
+                        timeout=10000)
+    list_pick(p, 'R')
+    assert picked(p) == 'R'
+    at = p.evaluate("(id) => window.app._s3dDebug().screens.find(s => s.id === id).at", p.ids['R'])
+    p.mouse.click(*at)
+    p.wait_for_timeout(300)
+    assert picked(p) is None
+    assert_the_whole_group_moves(p)
+
+
+def test_a_list_pick_then_a_field_still_moves_one_screen_after_a_cabinet_click(pg):
+    """The list stays the one way to move one screen alone: a cabinet click
+    ends the pick, and picking the screen in the list again starts it."""
+    p = pg
+    tab(p, 'pixel-map')
+    list_pick(p, 'R')
+    cabinet_click(p, 'R')
+    assert picked(p) is None
+    list_pick(p, 'R')
+    assert selected(p) == [p.ids['R']]
+    assert note(p, 'group-move-note') == ['Moves only R in its group', True, 'one']
+    assert fields(p, 'offset-x', 'offset-y') == ['2200', '0']
+    type_field(p, 'offset-x', 2500)
+    want = {'L': [0, 0, 0, 0], 'R': [2500, 0, 2500, 0]}
+    assert pos(p, 'L', 'R') == want
+    assert server_pos(p, 'L', 'R', want=want) == want
 
 
 # ── what follows the move ────────────────────────────────────────────────
