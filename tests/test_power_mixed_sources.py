@@ -362,6 +362,22 @@ def test_unplugging_the_box_puts_the_circuits_back(seeded):
     assert out['n'] == [c['n'] for c in before]
 
 
+def test_a_save_keeps_a_source_it_cannot_read_yet(seeded):
+    """A screen with no watts typed has no circuits to read a source
+    against: a save keeps its source as stored, as it keeps a split past
+    the end, rather than call it unfed and drop it."""
+    pg, _ = seeded
+    _first_box_fed(pg)
+    ev(pg, BOX_DROP, {'distro': 'd1', 'number': 2, 'output': 'l2130e', 'num': 7})
+    out = ev(pg, """
+        A.panelWatts = 0;
+        app._circuitTailCache = null;
+        const n = app.screenCircuits(A).length;
+        app.updateLayers([A]);
+        return { n, src: (A.powerSources || []).map(r => r.from) };""")
+    assert out == {'n': 0, 'src': [7]}, out
+
+
 def test_a_single_type_screen_is_untouched_and_unlabelled(seeded):
     """Nothing new for a screen of one kind: the same drop of its own
     type is the ordinary drop, no source is written, no label changes."""

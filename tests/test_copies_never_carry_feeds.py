@@ -44,6 +44,10 @@ FEEDS = {
     'powerSocaNames': {'1': 'SL1'},
     'powerSocaLengths': {'1': '100ft'},
     'powerCircuitCables': {'1': {'ft': 10, 'connector': None}},
+    # where another kind of source takes over (2026-11-11): a copy of a
+    # screen fed from two kinds of source comes out of one kind, unfed
+    'powerSources': [{'from': 1, 'type': 'soca120', 'distroId': 'd1',
+                      'breakout': 'soca-edison', 'volts': 110, 'amps': 20}],
 }
 assert tuple(FEEDS) == app_module.COPIED_SCREEN_FEED_KEYS
 
@@ -239,7 +243,7 @@ DRESS_JS = """async ([feeds, carried, card]) => {
 
 FEED_KEYS_JS = "['powerSocaDistro','powerSocaNumber','powerSocaPhasePos'," \
                "'powerSocaPhaseOffset','powerSocaNames','powerSocaLengths'," \
-               "'powerCircuitCables']"
+               "'powerCircuitCables','powerSources']"
 
 # The copy as the browser holds it, and as the server holds it.
 PICK_JS = """

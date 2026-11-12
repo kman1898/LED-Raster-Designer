@@ -567,7 +567,13 @@ class _PowerSources {
                 const last = recs[recs.length - 1];
                 const count = this.screenCircuits(layer).length;
                 const assign = layer.powerSocaDistro || {};
-                const fed = last.from <= count && this._socaSegments(layer, count)
+                // A source whose first circuit lies past the screen's
+                // circuits (no watts or voltage typed yet, or a wall that
+                // shrank) is kept as it is, the way a split past the end is:
+                // there is nothing to read it against, so nothing proves it
+                // unfed.
+                if (last.from > count) break;
+                const fed = this._socaSegments(layer, count)
                     .some(s => s.end >= last.from && assign[s.index]);
                 if (fed) break;
                 recs = recs.slice(0, -1);

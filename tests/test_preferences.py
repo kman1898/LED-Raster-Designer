@@ -1191,7 +1191,8 @@ def test_a_blank_custom_voltage_gates_on_the_figure_save_stores(page):
         assert st['select'] == 'custom' and st['box'] == '121' and st['boxShown'], st
         st = _box(pg, '')
         assert st['box'] == '121' and st['gate'] == 121, st
-        assert st['greyed'] == ['l2130-powercon', 'l2130-true1', 'soca-edison'], st
+        # 121 V is above the 110/120 class the L21-30 Edison box is for
+        assert st['greyed'] == ['l2130-edison', 'l2130-powercon', 'l2130-true1', 'soca-edison'], st
         assert st['read'] == [121, 'soca-l620'], st
         pg.locator('#preferences-cancel').click()
         pg.wait_for_timeout(200)
