@@ -2266,14 +2266,19 @@ class CanvasRenderer {
         // wear it while picked, the box being dragged lights what it will
         // pick, and the one port such a redraw is drawing stays lit until it
         // is kept or put back.
-        if (this.viewMode === 'data-flow' && window.app) {
+        // Power circuits picked for "Redraw circuits ... as one"
+        // (app-merge-circuits.js) wear it the same way.
+        if ((this.viewMode === 'data-flow' || this.viewMode === 'power') && window.app) {
+            const kind = this.viewMode === 'power' ? 'power' : 'data';
             const pk = window.app._portPicks;
-            if (pk && pk.layerId === layer.id && pk.nums.includes(num)) return true;
+            if (pk && (pk.kind || 'data') === kind && pk.layerId === layer.id
+                    && pk.nums.includes(num)) return true;
             const box = this._portPickPending;
-            if (box && box.run && box.run.layerId === layer.id
+            if (box && box.run && (box.run.kind || 'data') === kind && box.run.layerId === layer.id
                     && Array.isArray(box.preview) && box.preview.includes(num)) return true;
             const mr = window.app._mergeRedraw;
-            if (mr && mr.ready && mr.layerId === layer.id && mr.num === num) return true;
+            if (mr && mr.ready && (mr.kind || 'data') === kind && mr.layerId === layer.id
+                    && mr.num === num) return true;
         }
         // The run open for redrawing stays lit until the redraw ends (Esc,
         // or another run picked): the owner, 2026-10-20, "it stays

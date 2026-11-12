@@ -89,6 +89,12 @@ Object.assign(CanvasRenderer.prototype, {
         // selection exists exactly so the right-click can deal it.
         if (e.button === 0 && !e.altKey && window.app
                 && window.app._sweepSelection) {
+            // A Shift press in Power adds to the circuits the sweep picked
+            // (app-merge-circuits.js), so they move into the Shift picks.
+            if (e.shiftKey && this.viewMode === 'power'
+                    && typeof window.app.adoptSweepAsPicks === 'function') {
+                window.app.adoptSweepAsPicks();
+            }
             window.app._sweepSelection = null;
             this.render();
         }
@@ -356,15 +362,18 @@ Object.assign(CanvasRenderer.prototype, {
         // every port of that run's screen the box touches is picked
         // (app-merge-runs.js). A Shift+press off every run - empty canvas,
         // or the screen-name label itself - is still the label drag below.
+        // Power view the same, for "Redraw circuits ... as one" (the owner,
+        // 2026-11-12: "Redraw should work just like data").
         if (e.button === 0 && e.shiftKey && !e.altKey && !this.spacePressed
-                && this.viewMode === 'data-flow' && window.app
+                && (this.viewMode === 'data-flow' || this.viewMode === 'power') && window.app
                 && typeof window.app.runAtPoint === 'function'
                 && !this._pressOnScreenName(worldX, worldY)) {
             const run = window.app.runAtPoint(worldX, worldY);
-            if (run && run.kind === 'data') {
+            const kind = this.viewMode === 'power' ? 'power' : 'data';
+            if (run && run.kind === kind) {
                 this._portPickPending = {
                     worldX, worldY, rect: null, preview: null,
-                    run: { layerId: run.layer.id, num: run.num },
+                    run: { layerId: run.layer.id, num: run.num, kind },
                 };
                 return;
             }
@@ -925,8 +934,8 @@ Object.assign(CanvasRenderer.prototype, {
             }
             p.rect.x2 = worldX;
             p.rect.y2 = worldY;
-            if (window.app && typeof window.app.portsInWorldRect === 'function') {
-                p.preview = window.app.portsInWorldRect(p.run.layerId, p.rect);
+            if (window.app && typeof window.app.runsInWorldRect === 'function') {
+                p.preview = window.app.runsInWorldRect(p.run, p.rect);
             }
             this.render();
             return;
@@ -2223,7 +2232,7 @@ Object.assign(CanvasRenderer.prototype, {
                 && (e.code === 'Escape' || e.code === 'Enter' || e.code === 'NumpadEnter')) {
             e.preventDefault();
             if (e.code === 'Escape') {
-                window.app.cancelMergeRedraw(`Ports ${window.app._portNumbersText(window.app._mergeRedraw.picks)} are back as they were.`);
+                window.app.cancelMergeRedraw(window.app._mergeRedrawBackText());
             } else {
                 window.app.finishMergeRedraw();
             }

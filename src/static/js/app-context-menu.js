@@ -82,7 +82,12 @@ class _ContextMenu {
         // 2026-11-03: "it should only allow redraw of all selected").
         // Nor is any other item that names one port: back to auto and the
         // clear act on every picked port (_pickedPortsMenus).
-        if (mergeRuns) {
+        // Power (app-merge-circuits.js), with several circuits picked or
+        // swept: "Redraw circuits S1-5 to S2-1 as one" and no Redraw or back
+        // to auto of the one circuit under the cursor.
+        if (mergeRuns && mergeRuns.kind === 'power') {
+            ovr = null;
+        } else if (mergeRuns) {
             const picked = this._pickedPortsMenus();
             ovr = picked.backToAuto ? { redraw: null, backToAuto: picked.backToAuto } : null;
             if (clear) {

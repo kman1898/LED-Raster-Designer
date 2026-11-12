@@ -112,8 +112,14 @@ class _RunOverrides {
         }
         // One port open for redrawing holds its cabinets the same way.
         if (kind !== 'power') this._overrideHeldPanels(scope).forEach(p => claimed.add(p));
-        // And one circuit open for redrawing (_powerHoldLive).
-        else this._powerHeldPanels(scope).forEach(p => claimed.add(p));
+        // And one circuit open for redrawing (_powerHoldLive), and several
+        // circuits being redrawn as one (app-merge-circuits.js).
+        else {
+            this._powerHeldPanels(scope).forEach(p => claimed.add(p));
+            if (typeof this._mergeHeldPanels === 'function') {
+                this._mergeHeldPanels(scope, 'power').forEach(p => claimed.add(p));
+            }
+        }
         return claimed;
     }
 

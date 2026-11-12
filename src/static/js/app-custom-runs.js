@@ -386,12 +386,12 @@ class _CustomRuns {
             return `${noun} ${this._customRunLabel(owner, kind, num)} is full, `
                 + `${cap.describe}. ${why} Step to the next port (Tab / ]).`;
         }
-        // Several ports redrawn as one have ONE port to draw: there is no
-        // next port to step to, only keeping or putting back.
-        if (kind !== 'power' && typeof this._mergeRedrawOn === 'function'
-                && this._mergeRedrawOn(owner, num)) {
+        // Several ports (or circuits) redrawn as one have ONE to draw: there
+        // is no next one to step to, only keeping or putting back.
+        if (typeof this._mergeRedrawOn === 'function' && this._mergeRedrawOn(owner, num, kind)) {
+            const one = noun.toLowerCase();
             return `${noun} ${this._customRunLabel(owner, kind, num)} is full, `
-                + `${cap.describe}. One port takes no more: Enter keeps what is drawn, Esc puts the ports back.`;
+                + `${cap.describe}. One ${one} takes no more: Enter keeps what is drawn, Esc puts the ${one}s back.`;
         }
         return `${noun} ${this._customRunLabel(owner, kind, num)} is full, `
             + `${cap.describe}. Step to the next ${noun.toLowerCase()} (Tab / ]).`;
@@ -680,6 +680,9 @@ class _CustomRuns {
         }
         this._syncCustomFillReadout('power');
         window.canvasRenderer.render();
+        // Several circuits redrawn as one: drawing every freed cabinet
+        // keeps the drawing (app-merge-circuits.js).
+        if (typeof this._mergeRedrawAfterStep === 'function') this._mergeRedrawAfterStep(owner);
     }
 
     /**
@@ -1079,9 +1082,9 @@ class _CustomRuns {
     // opening (its cards are being renumbered on the server).
     _patternTileSession(kind, owner) {
         if (!owner) return null;
-        if (kind !== 'power' && typeof this._mergeRedrawLive === 'function') {
+        if (typeof this._mergeRedrawLive === 'function') {
             const m = this._mergeRedrawLive();
-            if (m && m.layerId === owner.id) {
+            if (m && m.layerId === owner.id && (m.kind || 'data') === kind) {
                 return { kind, type: 'merge', layerId: owner.id, num: m.num,
                          keys: [...(m.held || [])], ready: !!m.ready };
             }
@@ -1406,10 +1409,10 @@ class _CustomRuns {
             return false;
         }
         const chunks = cut.chunks;
-        // Several ports redrawn as one draw ONE port: a fill that would
-        // spill onto the next number is refused, with the port's limit.
-        if (!isPower && chunks.length > 1 && typeof this._mergeRedrawOn === 'function'
-                && this._mergeRedrawOn(owner, startNum)) {
+        // Several ports (or circuits) redrawn as one draw ONE: a fill that
+        // would spill onto the next number is refused, with its limit.
+        if (chunks.length > 1 && typeof this._mergeRedrawOn === 'function'
+                && this._mergeRedrawOn(owner, startNum, kind)) {
             toast(this._customRunFullMessage(owner, kind, startNum), true);
             sayLocked();
             return false;
@@ -1586,7 +1589,7 @@ class _CustomRuns {
             this.updatePortLabelEditor();
         }
         window.canvasRenderer.render();
-        if (!isPower && typeof this._mergeRedrawAfterStep === 'function') this._mergeRedrawAfterStep(owner);
+        if (typeof this._mergeRedrawAfterStep === 'function') this._mergeRedrawAfterStep(owner);
         return true;
     }
 

@@ -402,6 +402,13 @@ POWER FIXES
 
 ALSO NEW
 
+- NEW: Several circuits can be redrawn as one, the way ports can. In the
+  Power view, pick them with Alt-drag (Option on a Mac), Shift-click or a
+  Shift-drag box, right-click and choose Redraw circuits S1-5 to S2-1 as
+  one, then draw the new circuit over their cabinets. It keeps the first
+  number, the circuits after it close up and keep their names and
+  cables, and one undo takes it all back. Circuits one circuit can't
+  carry together are refused before anything changes.
 - NEW: A three-phase distro shows the current on the neutral of its power
   in, N on its LEGS line. Even legs cancel on the neutral, but LED power
   supplies add third-harmonic current that does not, so a neutral can carry

@@ -54,19 +54,23 @@ class _MergeRuns {
     // simply unwired, so nothing needs holding there.
 
     // The picked port numbers on `layer`, ascending; [] for any other screen.
-    portPicksFor(layer) {
+    // `kind` 'power': the circuits picked in the Power view the same way
+    // (app-merge-circuits.js); the picks are one side's at a time.
+    portPicksFor(layer, kind = 'data') {
         const p = this._portPicks;
-        if (!p || !layer || p.layerId !== layer.id) return [];
+        if (!p || !layer || p.layerId !== layer.id || (p.kind || 'data') !== kind) return [];
         return p.nums.slice().sort((a, b) => a - b);
     }
 
     // Shift+click: pick the run, or un-pick it when it was picked. `run` is
-    // { layerId, num } (the owner whose numbering the port lives in).
+    // { layerId, num, kind } (the owner whose numbering the port or circuit
+    // lives in; kind 'data' when left out).
     togglePortPick(run) {
         if (!run || !run.num) return;
+        const kind = run.kind || 'data';
         const p = this._portPicks;
-        if (!p || p.layerId !== run.layerId) {
-            this._portPicks = { layerId: run.layerId, nums: [run.num] };
+        if (!p || p.layerId !== run.layerId || (p.kind || 'data') !== kind) {
+            this._portPicks = { kind, layerId: run.layerId, nums: [run.num] };
         } else if (p.nums.includes(run.num)) {
             p.nums = p.nums.filter(n => n !== run.num);
             if (p.nums.length === 0) this._portPicks = null;
@@ -80,13 +84,14 @@ class _MergeRuns {
     // the picks (a box adds, it never un-picks).
     pickPortsInRect(anchor, rect) {
         if (!anchor || !rect) return;
-        const nums = this.portsInWorldRect(anchor.layerId, rect);
+        const kind = anchor.kind || 'data';
+        const nums = this.runsInWorldRect(anchor, rect);
         if (!nums.includes(anchor.num)) nums.push(anchor.num);
         const p = this._portPicks;
-        const base = (p && p.layerId === anchor.layerId) ? p.nums : [];
+        const base = (p && p.layerId === anchor.layerId && (p.kind || 'data') === kind) ? p.nums : [];
         const next = base.slice();
         nums.forEach(n => { if (!next.includes(n)) next.push(n); });
-        this._portPicks = { layerId: anchor.layerId, nums: next };
+        this._portPicks = { kind, layerId: anchor.layerId, nums: next };
         this._portPicksChanged('box');
     }
 
@@ -98,13 +103,14 @@ class _MergeRuns {
     sweepPortPicks(anchor, nums) {
         if (!anchor || !anchor.num) return;
         const p = this._portPicks;
-        const next = (p && p.layerId === anchor.ownerId) ? p.nums.slice() : [];
+        const same = !!(p && p.layerId === anchor.ownerId && (p.kind || 'data') === 'data');
+        const next = same ? p.nums.slice() : [];
         const before = next.length;
         [anchor.num].concat(nums || []).forEach(n => {
             if (Number.isFinite(n) && n >= 1 && !next.includes(n)) next.push(n);
         });
-        if (p && p.layerId === anchor.ownerId && next.length === before) return;
-        this._portPicks = { layerId: anchor.ownerId, nums: next };
+        if (same && next.length === before) return;
+        this._portPicks = { kind: 'data', layerId: anchor.ownerId, nums: next };
         this._portPicksChanged('sweep');
     }
 
@@ -116,10 +122,20 @@ class _MergeRuns {
 
     _portPicksChanged(how) {
         const p = this._portPicks;
-        sendClientLog('port_picks', {
-            how, layerId: p ? p.layerId : null, nums: p ? this.portPicksFor({ id: p.layerId }) : [],
+        const kind = (p && p.kind) || 'data';
+        sendClientLog(kind === 'power' ? 'circuit_picks' : 'port_picks', {
+            how, layerId: p ? p.layerId : null, nums: p ? this.portPicksFor({ id: p.layerId }, kind) : [],
         });
         if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // The runs a pick box from `anchor` ({ layerId, num, kind }) touches:
+    // ports in the Data view, circuits in the Power view.
+    runsInWorldRect(anchor, rect) {
+        if (!anchor) return [];
+        return (anchor.kind || 'data') === 'power'
+            ? this.circuitsInWorldRect(anchor.layerId, rect)
+            : this.portsInWorldRect(anchor.layerId, rect);
     }
 
     // The port numbers of `ownerId`'s runs with a cabinet inside the world
@@ -177,6 +193,7 @@ class _MergeRuns {
     // the picks belong to, with two or more picked. Null everywhere else.
     _prepareMergeRunsMenu(x, y) {
         const r = window.canvasRenderer;
+        if (r && r.viewMode === 'power') return this._prepareMergeCircuitsMenu(x, y);
         if (!r || !r.canvas || r.viewMode !== 'data-flow' || this._mergeRedraw) return null;
         const p = this._portPicks;
         if (!p || p.nums.length < 2) return null;
@@ -189,6 +206,7 @@ class _MergeRuns {
         const owner = run.layer;
         const nums = this.portPicksFor(owner);
         return {
+            kind: 'data',
             label: `Redraw ports ${this._portNumbersText(nums)} as one`,
             title: `Free the cabinets of these ports and draw them as one port, `
                 + `numbered ${this._portNumberText(nums[0])}; the ports after it close up. Click the `
@@ -1485,17 +1503,21 @@ class _MergeRuns {
         return s;
     }
 
-    // Is the session open on this owner (and this number, when given)?
-    _mergeRedrawOn(owner, num = null) {
+    // Is the session open on this owner (and this number, when given), for
+    // `kind` (data ports, or power circuits: app-merge-circuits.js)?
+    _mergeRedrawOn(owner, num = null, kind = 'data') {
         const s = this._mergeRedrawLive();
-        return !!(s && owner && s.layerId === owner.id && (num === null || s.num === num));
+        return !!(s && owner && s.layerId === owner.id && (s.kind || 'data') === kind
+            && (num === null || s.num === num));
     }
 
     // The freed cabinets the automatic walk must leave alone while the
-    // session is open, among `scope` (the walking screen's path scope).
-    _mergeHeldPanels(scope) {
+    // session is open, among `scope` (the walking screen's path scope), on
+    // the `kind` side.
+    _mergeHeldPanels(scope, kind = 'data') {
         const s = this._mergeRedraw;
         if (!s || s.custom || !s.held || s.held.size === 0) return [];
+        if ((s.kind || 'data') !== kind) return [];
         if (!(scope || []).some(m => m && m.id === s.layerId)) return [];
         if (!this._mergeRedrawLive()) return [];
         const out = [];
@@ -1513,7 +1535,7 @@ class _MergeRuns {
         if (!s && typeof this.overrideFreedPanels === 'function') {
             return this.overrideFreedPanels(layer);
         }
-        if (!s || !layer || !s.held || !s.ready) return [];
+        if (!s || !layer || !s.held || !s.ready || s.kind === 'power') return [];
         const owner = (this.project.layers || []).find(l => l.id === s.layerId);
         if (!owner) return [];
         const drawn = new Set(((owner.customPortPaths || {})[s.num] || [])
@@ -1529,7 +1551,8 @@ class _MergeRuns {
     _mergeRedrawAfterStep(owner) {
         const s = this._mergeRedrawLive();
         if (!s || !s.ready || !owner || owner.id !== s.layerId) return;
-        const drawn = new Set(((owner.customPortPaths || {})[s.num] || [])
+        const paths = s.kind === 'power' ? owner.powerCustomPaths : owner.customPortPaths;
+        const drawn = new Set(((paths || {})[s.num] || [])
             .map(e => this.getScopedPanelKey(this.getPathEntryLayerId(owner, e), e)));
         for (const k of s.held) if (!drawn.has(k)) return;
         this.finishMergeRedraw();
@@ -1540,6 +1563,7 @@ class _MergeRuns {
     finishMergeRedraw() {
         const s = this._mergeRedrawLive();
         if (!s || !s.ready) return false;
+        if (s.kind === 'power') return this._finishCircuitMergeRedraw(s);
         const owner = (this.project.layers || []).find(l => l.id === s.layerId);
         const path = ((owner && owner.customPortPaths) || {})[s.num] || [];
         if (path.length === 0) {
@@ -1595,9 +1619,12 @@ class _MergeRuns {
         }
         this._mergeRedraw = null;
         if (!s) return false;
+        const kind = s.kind || 'data';
         const ed = this._overrideEditing;
-        if (ed && ed.kind === 'data' && ed.layerId === s.layerId) this._overrideEditing = null;
-        if (this.customSelection) this.customSelection.clear();
+        if (ed && ed.kind === kind && ed.layerId === s.layerId) this._overrideEditing = null;
+        if (kind === 'power') this._powerHeld = null;
+        const selection = kind === 'power' ? this.powerCustomSelection : this.customSelection;
+        if (selection) selection.clear();
         const idx = s.baseEntry ? this.history.indexOf(s.baseEntry) : -1;
         if (s.ready && idx >= 0 && this.historyIndex > idx) {
             // Undo from the session's first entry lands on the one before
@@ -1607,7 +1634,7 @@ class _MergeRuns {
             this.undo();
             this.history = this.history.slice(0, idx + 1);
         }
-        sendClientLog('merge_runs_cancelled', { layerId: s.layerId, picks: s.picks });
+        sendClientLog('merge_runs_cancelled', { kind, layerId: s.layerId, picks: s.picks });
         if (message && typeof this._toast === 'function') this._toast(message, false, 4000);
         if (window.canvasRenderer) window.canvasRenderer.render();
         return true;
