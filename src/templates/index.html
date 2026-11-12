@@ -5,6 +5,78 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LED Raster Designer v1.7.0</title>
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
+    <!-- When the app did not start (owner, 2026-11-12): if one of the app's
+         scripts could not be fetched (a bad network, a server under load) or
+         threw while starting, the app object is never made, yet the page
+         still looks normal (theme.js sizes the panels on its own) and
+         nothing works. The page says so, with a Reload button.
+         It lives here, inline and first, because the scripts that failed
+         cannot host it. The proof is the page's own load order: module
+         scripts all run (or fail) before DOMContentLoaded, and main.js
+         makes the app in its DOMContentLoaded handler and then calls
+         lrdAppStarted(). So right after that event an app that has not
+         started never will; a slow load only moves the event later. The
+         one backstop is a load that stops getting anywhere: no request
+         finishing for STALL_S ticks of a second before that event. A
+         notice that went up and is followed by the app starting after all
+         takes itself down. -->
+    <script>
+    (function () {
+        var STALL_S = window.LRD_BOOT_STALL_S || 30;
+        var started = false, shown = false, leaving = false, idle = 0, failed = [], tick = null;
+        addEventListener('error', function (e) {
+            var t = e.target;
+            if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) {
+                failed.push(String(t.src || t.href).split('/').pop() + (t.type === 'module' ? ' or one of its imports' : '') + ' did not load');
+            } else if (!started) failed.push(String(e.message || 'error'));
+        }, true);
+        addEventListener('pagehide', function () { leaving = true; });
+        try {
+            new PerformanceObserver(function (list) {
+                idle = 0;
+                list.getEntries().forEach(function (r) {
+                    if (r.responseStatus >= 400) failed.push(r.name.split('/').pop() + ' answered ' + r.responseStatus);
+                });
+            }).observe({ type: 'resource', buffered: true });
+        } catch (_) { /* counted by ticks alone */ }
+        function hide() {
+            var el = document.getElementById('app-not-started');
+            if (el) el.remove();
+            shown = false;
+        }
+        function show(why) {
+            if (started || shown || leaving) return;
+            shown = true;
+            var css = document.createElement('style');
+            css.textContent = '#app-not-started{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(0,0,0,0.62);cursor:default}'
+                + '#app-not-started .app-not-started-card{box-sizing:border-box;width:440px;max-width:100%;padding:18px 20px;background:var(--ps-panel,#2e2e2e);color:var(--ps-text,#f0f0f0);border:1px solid var(--ps-dark,#131313);border-left:3px solid var(--ps-accent,#e22330);border-radius:4px;box-shadow:0 12px 40px rgba(0,0,0,0.5);font-family:var(--font-ps,system-ui,sans-serif)}'
+                + '#app-not-started .app-not-started-text{font-size:15px;font-weight:600;line-height:1.4}'
+                + '#app-not-started .app-not-started-actions{margin-top:14px;display:flex;justify-content:flex-end}';
+            var el = document.createElement('div');
+            el.id = 'app-not-started';
+            el.setAttribute('role', 'alertdialog');
+            el.setAttribute('aria-modal', 'true');
+            el.setAttribute('aria-labelledby', 'app-not-started-text');
+            el.innerHTML = '<div class="app-not-started-card"><div id="app-not-started-text" class="app-not-started-text"></div>'
+                + '<div class="app-not-started-actions"><button type="button" id="app-not-started-reload" class="btn btn-primary">Reload</button></div></div>';
+            el.querySelector('#app-not-started-text').textContent = "The app didn't finish loading.";
+            el.querySelector('#app-not-started-reload').onclick = function () { location.reload(); };
+            el.appendChild(css);
+            (document.body || document.documentElement).appendChild(el);
+            try { el.querySelector('#app-not-started-reload').focus(); } catch (_) { /* nothing to focus */ }
+            try {
+                navigator.sendBeacon('/api/log', new Blob([JSON.stringify({ action: 'app_not_started',
+                    details: { why: why, url: location.href, problems: failed.slice(-12) } })], { type: 'application/json' }));
+            } catch (_) { /* the server may be the trouble */ }
+        }
+        window.lrdAppStarted = function () { started = true; clearInterval(tick); hide(); };
+        tick = setInterval(function () { if (++idle >= STALL_S) show('stalled'); }, 1000);
+        document.addEventListener('DOMContentLoaded', function () {
+            clearInterval(tick);
+            setTimeout(function () { if (!started) show('not_started'); }, 0);
+        });
+    })();
+    </script>
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="stylesheet" href="/static/css/color_picker.css">
     <link rel="stylesheet" href="/static/css/theme.css">

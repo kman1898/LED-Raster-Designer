@@ -80,6 +80,9 @@ document.addEventListener('DOMContentLoaded', () => {
     registerGlobalClientLogging();
     sendClientLog('client_ready', { ua: navigator.userAgent });
     window.app = new LEDRasterApp();
+    // The page's start guard (the first script in index.html) stands down:
+    // without this call, the page says the app didn't finish loading.
+    if (typeof window.lrdAppStarted === 'function') window.lrdAppStarted();
 
     // Help tooltip panel: describes whatever the pointer is over
     const helpBody = document.getElementById('help-tooltip-body');

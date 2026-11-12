@@ -531,6 +531,9 @@ FIXES
   app running, and a page kept working on its own copy of the show.
 - FIX: Two quick changes to one screen no longer show the first change
   again for a moment while the second one saves.
+- FIX: When a page can't load all of the app, say on a weak network or a
+  busy computer, it now says "The app didn't finish loading." with a
+  Reload button. Before, the page looked normal but nothing on it worked.
 
 v1.6.0 - November 6, 2026
 ----------------------------
