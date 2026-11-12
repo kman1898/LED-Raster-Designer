@@ -121,6 +121,7 @@ READ_JS = """() => {
     const unit = document.querySelector('[data-lrd-distro="d1"]');
     const q = (sel) => unit.querySelector(sel);
     const meat = q('.hw-dock-headbar > i');
+    const MAIN_FLAG = '.hw-dock-unit-flag:not([data-lrd-breaker-over])';
     const strip = (app._dockPowerWarnings || []).filter(w => /^D1[ ,]/.test(w.text));
     // the binder's Service block for d1, caught as the page builds it
     const caught = [];
@@ -142,8 +143,10 @@ READ_JS = """() => {
         use: q('.hw-dock-unit-use').textContent,
         useClass: q('.hw-dock-unit-use').className,
         lim: q('.hw-dock-unit-lim') ? q('.hw-dock-unit-lim').textContent : null,
-        flag: q('.hw-dock-unit-flag') ? q('.hw-dock-unit-flag').textContent : null,
-        flagClass: q('.hw-dock-unit-flag') ? q('.hw-dock-unit-flag').className : null,
+        // the main's flag, not the separate OVER a breaker past its
+        // connector wears (the wall's 25 A breaker on TRUE1, 2026-11-11)
+        flag: q(MAIN_FLAG) ? q(MAIN_FLAG).textContent : null,
+        flagClass: q(MAIN_FLAG) ? q(MAIN_FLAG).className : null,
         bar: meat ? meat.className : null,
         legBars: [...unit.querySelectorAll('.hw-dock-legbar > i')].map(i => i.className),
         strip: strip.map(w => ({ text: w.text, mild: !!w.mild,

@@ -658,6 +658,14 @@ Object.assign(CanvasRenderer.prototype, {
             }
             const amps1 = groupTotals.amps1ph || 0;
             const amps3 = groupTotals.amps3ph || 0;
+            // every member with circuits on 3-phase distros: the 3φ figure
+            // only (owner, 2026-11-11), as a screen's own label reads
+            const members = window.app && typeof window.app.getGroupMembers === 'function'
+                ? (window.app.getGroupMembers(gplan.group) || []) : [];
+            const placed = members.filter(m => Object.values(m.powerSocaDistro || {}).some(Boolean));
+            const threeOnly = placed.length > 0 && typeof window.app.screenOnThreePhase === 'function'
+                && placed.every(m => window.app.screenOnThreePhase(m));
+            if (threeOnly) return `${multis} Multi, ${circuits} Circuits | ${amps3.toFixed(2)}A 3φ`;
             return `${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`;
         }
         return null;
@@ -976,7 +984,13 @@ Object.assign(CanvasRenderer.prototype, {
                         : Math.ceil(circuits / 6))
                     : 0;
                 if (!peerServed) {
-                    centerLines.push(`${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`);
+                    // On a 3-phase distro the 1φ figure describes no wire
+                    // (owner, 2026-11-11): the label reads the 3φ one only.
+                    const threeOnly = typeof window.app.screenOnThreePhase === 'function'
+                        && window.app.screenOnThreePhase(layer);
+                    centerLines.push(threeOnly
+                        ? `${multis} Multi, ${circuits} Circuits | ${amps3.toFixed(2)}A 3φ`
+                        : `${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`);
                 }
             }
         }

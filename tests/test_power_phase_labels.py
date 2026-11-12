@@ -2231,6 +2231,12 @@ L2130_DOCK_JS = """(over) => {
         { powerVoltage: 208, powerAmperage: 25, panelWatts: 800,
           powerBreakoutType: 'l2130-powercon',
           powerSocaDistro: { 1: 'dq' } });
+    // The packer holds an L21-30 circuit to 24 A / sqrt 3 (owner,
+    // 2026-11-11), so an auto-packed box never gets past its feed; the over
+    // rig switches that hold off to load one past it and prove the feed
+    // check still says so.
+    const keepCap = app._circuitConnectorCap;
+    if (over) app._circuitConnectorCap = () => null;
     return ph.withProject({ layers: [S],
                             distros: [ph.box('dq', 'Q')] }, () => {
         const savedLayer = app.currentLayer;
@@ -2254,6 +2260,7 @@ L2130_DOCK_JS = """(over) => {
                 worstFeed: Math.max(feed.X, feed.Y, feed.Z),
             };
         } finally {
+            app._circuitConnectorCap = keepCap;
             app.currentLayer = savedLayer;
             app._circuitTailCache = null;
             app.refreshDistroPanel();

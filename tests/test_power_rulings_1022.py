@@ -92,13 +92,24 @@ def test_every_us_voltage_is_held_to_80_percent(page, volts, amps, watts, panels
     assert (out['watts'], out['panels'], out['pct']) == (watts, panels, 0.8), out
 
 
-def test_a_240v_screen_stays_at_the_breaker(page):
-    """240 V x 20 A carries 4,800 W: six 750 W columns, the 230/400 math."""
+def test_a_240v_screen_on_no_distro_packs_at_80_percent(page):
+    """A 240 V screen on no distro, in a show with no UK/EU distro, is a US
+    circuit (owner, 2026-11-11, NEC 210.20(A)): 240 V x 16 A = 3,840 W, five
+    750 W columns, not six (it packed to the whole breaker before)."""
     (wall,) = make(page, [{'name': 'Wall', 'columns': 10, 'props': dict(
         SHARING_OFF, powerVoltage=240)}])
+    assert runs(page, wall) == [[25], [25]], runs(page, wall)
+    out = readout(page, wall)
+    assert (out['watts'], out['pct']) == ('3,840', 0.8), out
+
+
+def test_a_230v_screen_stays_at_the_breaker(page):
+    """230 V x 20 A carries 4,600 W: six 750 W columns, the 230/400 math."""
+    (wall,) = make(page, [{'name': 'Wall', 'columns': 10, 'props': dict(
+        SHARING_OFF, powerVoltage=230)}])
     assert runs(page, wall) == [[30], [20]], runs(page, wall)
     out = readout(page, wall)
-    assert (out['watts'], out['pct']) == ('4,800', 1), out
+    assert (out['watts'], out['pct']) == ('4,600', 1), out
 
 
 US_DISTRO = {'id': 'd1', 'name': 'SL', 'ratingA': 100, 'system': '120/208',

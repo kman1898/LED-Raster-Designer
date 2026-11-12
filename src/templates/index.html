@@ -1318,7 +1318,7 @@
                         
                         <p style="font-size: 11px; color: #888; margin: 4px 0 12px 0;">Click & drag the screen name to reposition</p>
 
-                        <div class="info-row" data-tooltip="Voltage, Supply voltage for circuit capacity calculations.">
+                        <div class="info-row" data-tooltip="Voltage, Supply voltage for circuit capacity calculations. 208V saves circuits and cable, not distro amps: each circuit carries more watts, so fewer circuits, multis and cable, but the distro's leg amps stay about the same.">
                             <label>Voltage (V)</label>
                             <div style="display: flex; gap: 6px; align-items: center;">
                                 <select id="power-voltage-select" class="info-select" style="width: 76px;">
@@ -1343,6 +1343,7 @@
                                 </select>
                                 <input type="number" id="power-amperage-custom" value="15" min="0" step="0.1" autocomplete="off" style="width: 52px; display: none;">
                                 <span id="power-amperage-usable" style="flex: 1 0 100%; font-size: 11px; color: var(--ps-dim, #c0c0c0); white-space: nowrap;"></span>
+                                <span id="power-amperage-over" style="flex: 1 0 100%; font-size: 11px; color: #ff9a9a; display: none;"></span>
                             </div>
                         </div>
                         <div class="info-row" data-tooltip="Watts per Panel, Power draw of a single LED cabinet at full white, used to calculate circuits required. Math OK (e.g., 200+50, 500*2, 1000/3).">
@@ -1381,7 +1382,7 @@
                             <div>Watts/Circuit: <span id="power-watts-per-circuit">0</span></div>
                             <div>Panels/Circuit: <span id="power-panels-per-circuit">0</span></div>
                             <div>Circuits Required: <span id="power-circuits-required">0</span></div>
-                            <div>Total Amps (1φ): <span id="power-total-amps-1ph">0</span></div>
+                            <div id="power-total-amps-1ph-row" data-tooltip="Total Amps (1φ), The current if the whole screen ran from one single-phase supply at its voltage. On a 3-phase distro no wire carries it: read the distro's legs, and this line is hidden.">Total Amps (1φ): <span id="power-total-amps-1ph">0</span></div>
                             <div>Total Amps (3φ): <span id="power-total-amps-3ph">0</span></div>
                         </div>
 

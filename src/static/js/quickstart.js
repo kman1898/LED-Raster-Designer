@@ -198,6 +198,10 @@
     // processor's, and its distro's.
     function procGearWindow() { var p = proc(); return p ? 'gear:proc-' + p.id : null; }
     function distroGearWindow() { var d = distro(); return d ? 'gear:distro-' + d.id : null; }
+    // The distro's first Edison output row, or null.
+    function edisonRow(d) {
+        return (d && A().distroRows ? A().distroRows(d) : []).find(function (r) { return r.connector === 'edison' && !r.pairedWith; }) || null;
+    }
     // The power in's neutral of distro `d` as the Power tab reads it
     // (app-neutral.js), or null where it carries none.
     function distroNeutralNow(d) {
@@ -5219,6 +5223,52 @@
                 return w && w.powerBreakoutType === 'soca-true1' ? 'Each multi fans out to TRUE1: six circuits a box.' : null;
             }
         },
+        // A breaker larger than what it feeds (1.7.0, owner 2026-11-11,
+        // app-distro-systems.js breakerOverChecks): the wall is on Multi to
+        // TRUE1 and no distro, so its Amperage box is its breaker. 30 A on
+        // a TRUE1 rated 20 A reads OVER under the box and in the tray's
+        // strip; back on the breaker it started on, it clears.
+        breakerOver: {
+            since: '1.7.0',
+            target: '#power-amperage-select', place: 'right', title: 'A breaker past its connector',
+            avoid: ['#power-amperage-select', '#power-amperage-custom', '#power-amperage-over'],
+            body: 'A breaker bigger than the connector it feeds, like 30 A on a TRUE1 rated 20 A, reads OVER here and in the Power tray. It is allowed but can&rsquo;t be missed; back on 20 A it clears.',
+            before: function () { switchView('power'); },
+            act: function (t) {
+                var w = wall();
+                if (!w) throw new Error('there is no screen');
+                t.mem.start = String(parseFloat(w.powerAmperage) || 20);
+                var back = ['15', '16', '20'].indexOf(t.mem.start) >= 0 ? t.mem.start : '20';
+                var over = function () {
+                    var el = $('#power-amperage-over');
+                    return el && el.style.display !== 'none' && /breaker on TRUE1/.test(el.textContent) ? el : null;
+                };
+                return t.select('#power-amperage-select', 'custom').then(function () {
+                    return t.type('#power-amperage-custom', '30', { enter: true });
+                }).then(function () {
+                    return t.wait(function () { var q = wall(); return q && Number(q.powerAmperage) === 30 && over(); });
+                }).then(function (el) {
+                    if (!el) throw new Error('30 A on TRUE1 did not read OVER');
+                    t.mem.over = el.textContent.trim();
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return t.select('#power-amperage-select', back);
+                }).then(function () {
+                    return t.wait(function () { var q = wall(); return q && String(Number(q.powerAmperage)) === back && !over(); });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the breaker did not go back to ' + back + ' A');
+                    t.mem.back = back;
+                    return t.pause(PACE.rest);
+                });
+            },
+            check: function (mem) {
+                var w = wall();
+                var el = $('#power-amperage-over');
+                if (!w || !mem.over || String(Number(w.powerAmperage)) !== mem.back
+                        || (el && el.style.display !== 'none')) return null;
+                return 'At 30 A it read ' + mem.over + '. Back on ' + mem.back + ' A, it clears.';
+            }
+        },
         addDistro: {
             target: '#power-distro-add', place: 'top', title: 'Add a distro',
             body: 'Add distro puts a power source in the tray. Its multis appear below it, ready to drag onto circuits.',
@@ -6622,7 +6672,7 @@
             place: 'top', title: 'The distro&rsquo;s power in',
             avoid: [function () { var d = distro(); return d ? '[data-lrd-field="distro-feeder-ft-' + d.id + '"]' : null; },
                     function () { var d = distro(); return d ? '[data-lrd-field="distro-feeder-from-' + d.id + '"]' : null; }],
-            body: 'Open the distro&rsquo;s &#9881; and type its power in length. Beside it you pick where it&rsquo;s powered from: the service, or thru another distro.',
+            body: 'Open the distro&rsquo;s &#9881; and type its power in length. Beside it you pick where it&rsquo;s powered from: the service, or thru another distro, whose card then counts both loads against its own limit.',
             before: function () { switchView('power'); closePopover(); },
             act: function (t) {
                 var d = distro();
@@ -6737,6 +6787,46 @@
                 if (!row || Number(row.count) !== 6 || !$('[data-hwdock="slot-' + d.id + '-6"]')) return null;
                 return 'The Socapex row reads 6: ' + (d.name || 'the distro') + ' 5 and 6 are new multis in the tray, '
                     + faceCount(d) + ' outputs on its face in all.';
+            },
+            after: function () { closePopover(); }
+        },
+        // Edison outputs (1.7.0, owner 2026-11-11): each Edison row is
+        // 5-15 or 5-20, 5-15 by default, and the screens on it pack to 80%
+        // of the receptacle. The preset laid two steps back has a duplex
+        // row; this one is made 5-20.
+        edisonType: {
+            since: '1.7.0',
+            target: function () { var d = distro(); return d ? '[data-hwpop="distro-' + d.id + '"]' : '#hardware-dock-body .hw-dock-gear'; },
+            place: 'top', title: 'Edison outputs: 5-15 or 5-20',
+            window: distroGearWindow,
+            avoid: [function () {
+                var d = distro(), r = d ? edisonRow(d) : null;
+                return r ? '[data-lrd-field="distro-row-edison-' + d.id + '-' + r.id + '"]' : null;
+            }],
+            body: 'Each Edison row is 5-15 or 5-20, 12 A or 16 A continuous, and the screens on it pack to that. New rows start at 5-15; make this one 5-20.',
+            before: function () { switchView('power'); closePopover(); },
+            act: function (t) {
+                var d = distro();
+                var r = edisonRow(d);
+                if (!r) throw new Error('the distro has no Edison row');
+                t.mem.row = r.id;
+                return openDistroGear(t, d).then(function () {
+                    return t.select('[data-lrd-field="distro-row-edison-' + d.id + '-' + r.id + '"]', '5-20');
+                }).then(function () {
+                    return t.wait(function () {
+                        var q = distro(), row = q && A().distroRows(q).find(function (x) { return x.id === t.mem.row; });
+                        return row && row.edisonType === '5-20';
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Edison row did not take 5-20');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var d = distro();
+                var row = d && A().distroRows(d).find(function (x) { return x.id === mem.row; });
+                if (!row || row.edisonType !== '5-20') return null;
+                return (d.name || 'The distro') + '\'s ' + row.count + ' Edison outputs are 5-20 now: each circuit carries 16 A continuous.';
             },
             after: function () { closePopover(); }
         },
@@ -8658,9 +8748,9 @@
                     'nameProcessor', 'redundancy', 'backupProcessor', 'processorIp', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort', 'attachmentFlag', 'pinPort',
                     'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                     'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
-                    'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'procCableList', 'panelWatts', 'panelInput', 'breakoutType',
+                    'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'procCableList', 'panelWatts', 'panelInput', 'breakoutType', 'breakerOver',
                     'addDistro', 'nameDistro',
-                    'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows',
+                    'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows', 'edisonType',
                     'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain', 'distroNeutral',
                     'multiCableSheet', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPerKind',
                     'cableStockPieces', 'powerCableTags',

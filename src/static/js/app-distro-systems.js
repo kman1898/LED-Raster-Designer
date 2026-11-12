@@ -85,14 +85,19 @@ export const DISTRO_CONNECTORS = [
     { id: 'true1', name: 'TRUE1', short: 'TRUE1', kind: 'direct', circuits: 1,
       regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 16 }, glyph: 'true1',
       cable: 'TRUE1' },
+    // Classic powerCON is 20 A under EN 61984 as well as UL; the EU default
+    // is 16 A like TRUE1 (owner, 2026-10-18), so `maxRating` is how far a
+    // row's typed rating may lift it (faceConnectorRatingA).
     { id: 'powercon20', name: 'powerCON 20A', short: 'powerCON 20A', kind: 'direct', circuits: 1,
-      regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 16 }, glyph: 'powercon',
-      cable: 'powerCON' },
+      regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 16 }, maxRating: { us: 20, eu: 20 },
+      glyph: 'powercon', cable: 'powerCON' },
     { id: 'powerconxx', name: 'powerCON XX', short: 'powerCON XX', kind: 'direct', circuits: 1,
       regions: ['us', 'eu'], couple: 'either', rating: { us: 20, eu: 16 }, usMaxV: 127,
       glyph: 'powercon', cable: 'powerCON XX' },
-    { id: 'edison', name: 'Edison 5-20', short: 'Edison', kind: 'direct', circuits: 1,
-      regions: ['us'], couple: 'ln', rating: { us: 20 }, glyph: 'edison', cable: 'Edison' },
+    // An Edison row says 5-15 or 5-20 (EDISON_TYPES, edisonRating); the
+    // rating here is 5-15's, the default.
+    { id: 'edison', name: 'Edison', short: 'Edison', kind: 'direct', circuits: 1,
+      regions: ['us'], couple: 'ln', rating: { us: 15 }, glyph: 'edison', cable: 'Edison' },
     { id: 'l520', name: 'L5-20', short: 'L5-20', kind: 'direct', circuits: 1,
       regions: ['us'], couple: 'ln', rating: { us: 20 }, glyph: 'twist', cable: 'L5-20' },
     { id: 'l620', name: 'L6-20', short: 'L6-20', kind: 'direct', circuits: 1,
@@ -106,6 +111,27 @@ export const DISTRO_CONNECTORS = [
     { id: 'schuko', name: 'Schuko', short: 'Schuko', kind: 'direct', circuits: 1,
       regions: ['eu'], couple: 'ln', rating: { eu: 16 }, glyph: 'schuko', cable: 'Schuko' },
 ];
+
+// EDISON OUTPUTS (owner, 2026-11-11): each Edison row is 5-15 or 5-20,
+// 5-15 by default. A 5-15 receptacle is 15 A and a 5-20 is 20 A; a
+// cord-and-plug load is held to 80% of the receptacle (NEC Table
+// 210.21(B)(2): 12 A on a 15 A receptacle, 16 A on a 20 A one), so packing
+// and the load check read 12 A or 16 A. A 15 A receptacle may sit on a
+// 20 A circuit (NEC Table 210.21(B)(3)), so `maxBreakerA` is what the
+// breaker check holds the row's breaker to. A row with no type stored (a
+// show from before the choice) reads 5-15 on every check and still packs
+// the way it was laid out, until somebody picks (edisonRowType).
+export const EDISON_TYPES = [
+    { id: '5-15', name: '5-15', ratingA: 15, maxBreakerA: 20 },
+    { id: '5-20', name: '5-20', ratingA: 20, maxBreakerA: 20 },
+];
+
+// The connector a screen's circuits end at, by what the app calls it in a
+// breakout (getPowerBreakoutTypes `connector`, panelInput `name`): the
+// connector record whose rating the breaker check reads. Edison at the
+// screen has no type to read (the 5-15 or 5-20 choice is the distro
+// output's), so its rating is not set.
+const TAIL_CONNECTOR_IDS = { 'TRUE1': 'true1', 'powerCON': 'powercon20', 'L6-20': 'l620' };
 
 // What feeds the distro. `ratingA` is the per-leg figure picking it sets;
 // the Rating box stays typeable, because a cam connector does not set the
@@ -475,11 +501,75 @@ class _DistroSystems {
     // override (`connectorA`, the row's small "A" field) when one is set,
     // else the connector's default where this distro is - null where
     // neither gives one.
+    //
+    // The override can LOWER the rating, never raise it past the maker's
+    // (owner, 2026-11-11: a typed 30 on a TRUE1 row must not silence the
+    // checks): a figure above the maker's reads the maker's, and
+    // faceRatingRaised says it was typed.
     faceConnectorRatingA(d, box) {
         if (!box) return null;
+        const maker = this._faceMakerRatingA(d, box);
         const own = Number(box.row && box.row.connectorA);
-        if (Number.isFinite(own) && own > 0) return own;
+        if (Number.isFinite(own) && own > 0) return maker != null ? Math.min(own, maker) : own;
+        if (box.conn && box.conn.id === 'edison') return maker;
         return this.connectorRatingA(box.conn, this.distroRegion(d));
+    }
+
+    // The maker's rating of one face box's connector where this distro is:
+    // an Edison row's by its 5-15 or 5-20, anything else the connector's.
+    _faceMakerRatingA(d, box) {
+        if (!box) return null;
+        if (box.conn && box.conn.id === 'edison') return this.edisonRowType(box.row).ratingA;
+        const region = this.distroRegion(d);
+        const max = box.conn && box.conn.maxRating ? box.conn.maxRating[region] : null;
+        return Number.isFinite(max) ? max : this.connectorRatingA(box.conn, region);
+    }
+
+    // { typed, maker } when a row's typed rating is past its connector's
+    // maker rating, else null.
+    faceRatingRaised(d, box) {
+        if (!box) return null;
+        const own = Number(box.row && box.row.connectorA);
+        const maker = this._faceMakerRatingA(d, box);
+        if (!(Number.isFinite(own) && own > 0) || maker == null || own <= maker + 1e-9) return null;
+        return { typed: own, maker };
+    }
+
+    // An Edison row's type record (EDISON_TYPES) and whether it was picked:
+    // { id, name, ratingA, maxBreakerA, picked }. A row with none stored -
+    // a show from before the choice - reads 5-15, not picked.
+    edisonRowType(row) {
+        const id = row && row.edisonType;
+        const t = EDISON_TYPES.find(x => x.id === id);
+        return t ? { ...t, picked: true } : { ...EDISON_TYPES[0], picked: false };
+    }
+
+    edisonTypes() { return EDISON_TYPES; }
+
+    // A face box's connector as a warning names it: "Edison 5-15",
+    // "TRUE1".
+    _faceConnName(box) {
+        if (!box || !box.conn) return '';
+        if (box.conn.id === 'edison') return `Edison ${this.edisonRowType(box.row).name}`;
+        return box.conn.short;
+    }
+
+    // Set an Edison row's 5-15 or 5-20: row `rowId`, or with null every
+    // Edison row of the distro that has none picked yet. One entry.
+    setDistroEdisonType(distroId, rowId, type) {
+        const d = (this.getDistros() || []).find(x => x.id === distroId);
+        if (!d || !EDISON_TYPES.some(t => t.id === type)) return null;
+        const rows = this.distroRows(d);
+        let changed = false;
+        const next = rows.map(r => {
+            if (r.connector !== 'edison') return { ...r };
+            const hit = rowId ? r.id === rowId : !r.edisonType;
+            if (!hit || r.edisonType === type) return { ...r };
+            changed = true;
+            return { ...r, edisonType: type };
+        });
+        if (!changed) return null;
+        return this.updateDistro(d.id, { outputRows: next }, 'Set Edison Type');
     }
 
     // ---- output rows -------------------------------------------------------
@@ -519,8 +609,15 @@ class _DistroSystems {
             const breakerA = Number.isFinite(b) && b > 0 ? b : DEFAULT_BREAKER[sys.region];
             const ca = r.connectorA == null || r.connectorA === '' ? NaN : Number(r.connectorA);
             const connectorA = Number.isFinite(ca) && ca > 0 && ca < 1000 ? ca : null;
+            // An Edison row's 5-15 or 5-20 (EDISON_TYPES); no key at all on
+            // any other row or on one saved before the choice (edisonRowType
+            // reads 5-15 there).
+            const edisonType = conn.id === 'edison' && EDISON_TYPES.some(t => t.id === r.edisonType)
+                ? r.edisonType : undefined;
             out.push({ id, connector: conn.id, count, coupling, breakerA, connectorA,
-                       pairedWith: typeof r.pairedWith === 'string' ? r.pairedWith : null });
+                       pairedWith: typeof r.pairedWith === 'string' ? r.pairedWith : null,
+                       edisonType });
+            if (edisonType === undefined) delete out[out.length - 1].edisonType;
         }
         // Pairing: onto a row that is itself unpaired, carries the same
         // number of circuits and the same coupling - "same circuits, two
@@ -1111,6 +1208,46 @@ class _DistroSystems {
         return PREF_SYSTEM_FROM_OLD[key] || '120/208';
     }
 
+    // ---- the show's region (owner, 2026-11-11) ---------------------------
+    //
+    // The app has no region setting of its own: a show's region is the
+    // one its distros and services are on, when they all agree - 'us',
+    // 'eu', or null (none with a system, or both). A screen on no distro
+    // reads it for the 80% continuous rule, because a voltage cannot say:
+    // 240 V is a US split-phase figure and an old UK one (_circuitPackRule).
+    showPowerRegion() {
+        const regions = new Set();
+        for (const d of (typeof this.getDistros === 'function' ? this.getDistros() : []) || []) {
+            const r = d ? this.distroRegion(d) : null;
+            if (r) regions.add(r);
+        }
+        const services = typeof this.getServices === 'function' ? this.getServices() : [];
+        for (const s of services || []) {
+            const sys = s ? this.distroSystemById(s.system) : null;
+            if (sys) regions.add(sys.region);
+        }
+        return regions.size === 1 ? [...regions][0] : null;
+    }
+
+    // Whether a screen's circuits are all on three-phase distros (at least
+    // one): the "Total Amps (1φ)" figure describes no wire there, so the
+    // sidebar, the canvas label and the binder leave it out (owner,
+    // 2026-11-11). A screen on no distro, or on a single-phase one, keeps it.
+    screenOnThreePhase(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return false;
+        const ids = new Set(Object.values(layer.powerSocaDistro || {}).filter(Boolean));
+        if (!ids.size) return false;
+        const distros = (typeof this.getDistros === 'function' ? this.getDistros() : []) || [];
+        let any = false;
+        for (const id of ids) {
+            const d = distros.find(x => x && x.id === id);
+            if (!d) continue;
+            if (this.distroLegNames(d).length !== 3) return false;
+            any = true;
+        }
+        return any;
+    }
+
     // ---- the screen's three-phase figure (bug fix 3) -------------------
 
     // The line-to-line voltage a screen's balanced 3φ figure divides by:
@@ -1183,10 +1320,10 @@ class _DistroSystems {
         const face = this.distroFace(d);
         const circuits = this._distroCircuitsOn(d);
         const said = new Set();
-        const say = (key, text, mild = false) => {
+        const say = (key, text, mild = false, offer = null) => {
             if (said.has(key)) return;
             said.add(key);
-            out.push({ text, mild });
+            out.push(offer ? { text, mild, offer } : { text, mild });
         };
         // A screen whose voltage the system does not have (bug fix 4).
         for (const c of circuits) {
@@ -1201,6 +1338,15 @@ class _DistroSystems {
                         && r.coupling === 'll' && sys.vll > 127) {
                     say(`xx:${r.id}`, `powerCON XX is only US-listed to 127V, and ${name}'s `
                         + `${r.count} powerCON XX output${r.count === 1 ? '' : 's'} run at ${sys.vll}V.`);
+                }
+                // A typed rating past the maker's (owner, 2026-11-11): the
+                // checks read the maker's, and the strip says so.
+                const info = face.rowInfo.get(r.id);
+                const raised = info && info.boxes.length ? this.faceRatingRaised(d, info.boxes[0]) : null;
+                if (raised) {
+                    const cn = this._faceConnName(info.boxes[0]);
+                    say(`raised:${r.id}`, `${name}'s ${cn} row is typed ${+raised.typed.toFixed(1)} A, past `
+                        + `the ${cn}'s own ${raised.maker} A. The checks use ${raised.maker} A.`, true);
                 }
             }
             const physical = new Map();     // key -> [{c, label}]
@@ -1264,6 +1410,33 @@ class _DistroSystems {
                         : `${label} draws ${amps.toFixed(1)} A on a ${box.breakerA} A breaker: OVER`);
                 }
                 for (const c of list) {
+                    // An Edison output holds a cord-and-plug load to 80% of
+                    // its receptacle: 12 A on a 5-15, 16 A on a 5-20 (owner,
+                    // 2026-11-11; EDISON_TYPES). A row from before the
+                    // choice reads 5-15 and says how to settle it.
+                    if (c.box.conn.id === 'edison') {
+                        const et = this.edisonRowType(c.box.row);
+                        const lim = et.ratingA * 0.8;
+                        if (amps > lim + 1e-9) {
+                            const where = this.distroBoxName(d, c.box.number);
+                            say(`ed:${key}:${c.box.number}`, `${label} draws ${amps.toFixed(1)} A on `
+                                + `${where}, an Edison ${et.name} (${+lim.toFixed(1)} A continuous): OVER.`
+                                + (et.picked ? (et.id === '5-15' ? ' Move panels off it, or use a 5-20 output.'
+                                    : ' Move panels off it.')
+                                    : ' The output reads 5-15 until you pick: if its outlets are 5-20, '
+                                        + 'pick 5-20 behind the ⚙; else Repack at 5-15.'),
+                                false, et.picked ? null : {
+                                    label: 'Repack at 5-15',
+                                    title: `Mark ${this.distroLabel(d)}'s Edison outputs 5-15: the `
+                                        + 'screens on them repack to 12 A a circuit. One undoable step.',
+                                    run: () => {
+                                        this.setDistroEdisonType(d.id, null, '5-15');
+                                        if (typeof this.renderHardwareDock === 'function') this.renderHardwareDock();
+                                    },
+                                });
+                        }
+                        continue;
+                    }
                     const rating = this.faceConnectorRatingA(d, c.box);
                     if (rating != null && amps > rating + 1e-9 && c.box.kind === 'direct') {
                         say(`conn:${key}:${c.box.number}`, `${label} draws ${amps.toFixed(1)} A, and `
@@ -1307,6 +1480,150 @@ class _DistroSystems {
             say(`ovf:${ov.number}`, this._boxOverflowText(ov));
         }
         return out;
+    }
+
+    // ---- a breaker larger than what it feeds (owner, 2026-11-11) -----------
+    //
+    // A circuit's breaker may not be larger than the connectors it feeds
+    // (NEC 210.21(B)(1), Table 210.21(B)(3)): a 30 A breaker on a TRUE1
+    // that is rated 20 A. It is allowed, but it can't be missed: a red
+    // OVER on the circuit and on its distro, and a strip line naming the
+    // connector and its rating, never dismissed or hidden. What a circuit
+    // feeds:
+    //   * on a distro's DIRECT output, that output's connector at its
+    //     rating (a typed rating lowers it, never raises it past the
+    //     maker's: faceConnectorRatingA); an Edison output by its 5-15 or
+    //     5-20, which may sit on a breaker up to 20 A (EDISON_TYPES);
+    //   * on a multi, the screen's breakout tails where they are not the
+    //     panel input (L6-20; Edison at the screen has no type, so its
+    //     rating is not set and it is not checked);
+    //   * always, the panel input every circuit ends at (TRUE1 or
+    //     powerCON, panelInput), at its rating where the circuit is - 20 A
+    //     US, 16 A UK/EU.
+    // The multi cable itself (Socapex, Harting, L21-30) has no
+    // per-circuit rating in the app, so it is not checked.
+    // The breaker is the row's on a distro's face (the breaker the circuit
+    // is really on), else the screen's Amperage box.
+    // [{ layer, distro, breakerA, item, ratingA, maxA, circuits, keys, text }]
+    // one record per screen, distro, breaker and connector, `circuits` the
+    // circuit numbers, `keys` "layerId:circuit" for the chips. A hidden
+    // screen is left out, as from every distro check.
+    // `only` (a screen) narrows it to that screen's circuits.
+    breakerOverChecks(only = null) {
+        const groups = new Map();
+        const distros = (typeof this.getDistros === 'function' ? this.getDistros() : []) || [];
+        const ratingOf = (name, region) => {
+            const id = TAIL_CONNECTOR_IDS[name];
+            return id ? this.connectorRatingA(this.distroConnector(id), region) : null;
+        };
+        for (const layer of (this.project && this.project.layers) || []) {
+            if ((layer.type || 'screen') !== 'screen' || layer.visible === false) continue;
+            if (only && layer !== only && layer.id !== only.id) continue;
+            const plan = this.getSocaPlan(layer);
+            if (!plan.length) continue;
+            const assign = layer.powerSocaDistro || {};
+            const screenA = parseFloat(layer.powerAmperage) || 0;
+            const bt = typeof this.getPowerBreakout === 'function' ? this.getPowerBreakout(layer) : null;
+            const input = typeof this.panelInput === 'function' ? this.panelInput(layer) : null;
+            let capUs = null;
+            const ownRegion = () => {
+                if (capUs === null) capUs = !!this.circuitCapacity(layer).us;
+                return capUs ? 'us' : 'eu';
+            };
+            for (const s of plan) {
+                const d = assign[s.soca] ? distros.find(x => x && x.id === assign[s.soca]) || null : null;
+                const box = d ? this.faceBox(d, s.number) : null;
+                const region = (d && this.distroRegion(d)) || ownRegion();
+                const items = [];
+                if (box && box.kind === 'direct') {
+                    if (box.conn.id === 'edison') {
+                        const et = this.edisonRowType(box.row);
+                        items.push({ name: `Edison ${et.name}`, ratingA: et.ratingA, maxA: et.maxBreakerA });
+                    } else {
+                        const r = this.faceConnectorRatingA(d, box);
+                        items.push({ name: box.conn.short, ratingA: r, maxA: r });
+                    }
+                } else if (bt && typeof this.breakoutHasPanelInputChoice === 'function'
+                        && this.breakoutHasPanelInputChoice(bt)) {
+                    const r = ratingOf(bt.connector, region);
+                    items.push({ name: bt.connector, ratingA: r, maxA: r });
+                }
+                if (input) {
+                    const r = ratingOf(input.name, region);
+                    items.push({ name: input.name, ratingA: r, maxA: r });
+                }
+                // the breaker the circuit is on: its face row's, else the
+                // screen's Amperage box
+                const breakerA = box && Number(box.breakerA) > 0 ? Number(box.breakerA) : screenA;
+                if (!(breakerA > 0)) continue;
+                const past = items.filter(it => it.maxA != null && breakerA > it.maxA + 1e-9);
+                if (!past.length) continue;
+                const worst = past.reduce((m, it) => (it.maxA < m.maxA ? it : m));
+                const gkey = `${layer.id}|${d ? d.id : ''}|${breakerA}|${worst.name}`;
+                let g = groups.get(gkey);
+                if (!g) {
+                    g = { layer, distro: d, breakerA, item: worst.name, ratingA: worst.ratingA,
+                          maxA: worst.maxA, circuits: [], keys: [] };
+                    groups.set(gkey, g);
+                }
+                for (const leg of s.legs) {
+                    g.circuits.push(leg.circuit);
+                    g.keys.push(`${layer.id}:${leg.circuit}`);
+                }
+            }
+        }
+        const out = [...groups.values()];
+        out.forEach(g => {
+            g.circuits.sort((a, b) => a - b);
+            g.text = this.breakerOverText(g);
+        });
+        return out;
+    }
+
+    // "Screen1 circuit 3: 30 A breaker on TRUE1 (20 A). Use a 20 A
+    // breaker or a connector rated for 30 A." - the owner's words.
+    breakerOverText(g) {
+        return this._breakerOverSentence([g]);
+    }
+
+    // One sentence for several screens on the same breaker and connector,
+    // so the strip says one problem once: "WALL A circuits 1-6 and WALL B
+    // circuits 1-4: 25 A breaker on TRUE1 (20 A). ..."
+    _breakerOverSentence(list) {
+        const g = list[0];
+        const who = list.map(x => `${x.layer.name} circuit${x.circuits.length === 1 ? '' : 's'} `
+            + this._circuitRanges(x.circuits));
+        const names = who.length > 1 ? `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}` : who[0];
+        const rated = g.maxA !== g.ratingA
+            ? `${g.ratingA} A, on up to a ${g.maxA} A breaker` : `${g.ratingA} A`;
+        return `${names}: ${+g.breakerA.toFixed(1)} A breaker on `
+            + `${g.item} (${rated}). Use a ${g.maxA} A breaker or a connector rated for `
+            + `${+g.breakerA.toFixed(1)} A.`;
+    }
+
+    // The checks as the strip and a distro's sheet say them: the screens
+    // sharing a distro, a breaker and a connector in one line each.
+    breakerOverLines(groups) {
+        const by = new Map();
+        for (const g of groups || []) {
+            const k = `${g.distro ? g.distro.id : ''}|${g.breakerA}|${g.item}|${g.ratingA}|${g.maxA}`;
+            if (!by.has(k)) by.set(k, []);
+            by.get(k).push(g);
+        }
+        return [...by.values()].map(list => this._breakerOverSentence(list));
+    }
+
+    // [1,2,3,5] -> "1-3, 5"
+    _circuitRanges(list) {
+        const nums = [...new Set((list || []).map(Number).filter(Number.isFinite))].sort((a, b) => a - b);
+        const parts = [];
+        for (let i = 0; i < nums.length; i++) {
+            let j = i;
+            while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+            parts.push(j > i ? `${nums[i]}-${nums[j]}` : String(nums[i]));
+            i = j;
+        }
+        return parts.join(', ');
     }
 
     // " WALL A is hidden and still holds it." for the hidden members of a
@@ -1723,7 +2040,10 @@ class _DistroSystems {
             ratingA: body.ratingA, breakers100: !!body.breakers100,
             main100: !!body.main100, neutral200: !!body.neutral200,
             phasing: body.phasing || null, directPhasing: body.directPhasing || null,
-            outputRows: (body.rows || []).map(r => ({ ...r })),
+            // an Edison row laid now is a new row: 5-15 unless the preset
+            // says 5-20 (EDISON_TYPES)
+            outputRows: (body.rows || []).map(r => (r && r.connector === 'edison'
+                ? { ...r, edisonType: r.edisonType === '5-20' ? '5-20' : '5-15' } : { ...r })),
         }, 'Apply Distro Preset');
     }
 
@@ -2059,9 +2379,39 @@ class _DistroSystems {
             conn.addEventListener('change', () => {
                 const next = rows.map(x => ({ ...x }));
                 next[i].connector = conn.value;
+                // a row turned Edison is a new Edison row: 5-15 until picked
+                if (conn.value === 'edison') next[i].edisonType = '5-15';
+                else delete next[i].edisonType;
                 commit(next);
             });
             line.appendChild(conn);
+            // An Edison row's 5-15 or 5-20 (owner, 2026-11-11): what its
+            // receptacles are, so what its circuits pack to - 12 A on a
+            // 5-15, 16 A on a 5-20. A row from before the choice shows
+            // 5-15, the rule it is checked by, until somebody picks.
+            if (r.connector === 'edison') {
+                const et = this.edisonRowType(r);
+                const es = document.createElement('select');
+                es.className = 'info-select hw-pop-row-edison';
+                es.dataset.lrdField = `distro-row-edison-${d.id}-${r.id}`;
+                es.title = 'The receptacles on this row. A 5-15 carries 12 A continuous '
+                    + '(80% of 15 A), a 5-20 carries 16 A, and the screens on it pack to that.'
+                    + (et.picked ? '' : ' Not picked yet: it reads 5-15 until you pick.');
+                EDISON_TYPES.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = t.name;
+                    if (t.id === et.id) opt.selected = true;
+                    es.appendChild(opt);
+                });
+                es.disabled = !!r.pairedWith;
+                es.addEventListener('change', () => {
+                    const next = rows.map(x => ({ ...x }));
+                    next[i].edisonType = es.value;
+                    commit(next);
+                });
+                line.appendChild(es);
+            }
             const count = document.createElement('input');
             count.type = 'number';
             count.min = '1';
@@ -2127,7 +2477,9 @@ class _DistroSystems {
             // reads it (faceConnectorRatingA).
             const rconn = this.distroConnector(r.connector);
             if (rconn && rconn.kind === 'direct') {
-                const dflt = this.connectorRatingA(rconn, sys.region);
+                const dflt = rconn.id === 'edison' ? this.edisonRowType(r).ratingA
+                    : this.connectorRatingA(rconn, sys.region);
+                const top = this._faceMakerRatingA(d, { conn: rconn, row: r });
                 const rl = document.createElement('small');
                 rl.textContent = 'rated';
                 rl.style.color = 'var(--ps-faint, #969696)';
@@ -2141,7 +2493,9 @@ class _DistroSystems {
                 ca.dataset.lrdField = `distro-row-connector-a-${d.id}-${r.id}`;
                 ca.title = `The rating of each ${rconn.short} on this row, in amps. `
                     + (dflt != null ? `Blank is the default, ${dflt} A here. ` : 'Blank is no rating. ')
-                    + 'Type a figure to override it.';
+                    + 'Type a figure to override it'
+                    + (top != null ? `, up to the ${rconn.short}'s own ${top} A; a figure past that is `
+                        + `shown as an error and the checks keep ${top} A.` : '.');
                 ca.addEventListener('change', () => {
                     const next = rows.map(x => ({ ...x }));
                     next[i].connectorA = ca.value === '' ? null : ca.value;

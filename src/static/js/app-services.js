@@ -832,12 +832,22 @@ class _Services {
             row.appendChild(empty);
             return row;
         }
-        rows.forEach(({ distro: d, thru }) => {
+        rows.forEach(({ distro: d, thru, load: dl }) => {
             const chip = document.createElement('span');
             chip.className = 'hw-dock-svc-chip';
             chip.dataset.lrdSvcDistro = d.id;
             chip.textContent = `${this.distroLabel(d)} ${+(Number(d.ratingA) || 0).toFixed(1)} A`
                 + (thru ? ` thru ${this.distroLabel(thru)}` : '');
+            // A distro others are powered thru says what its power in
+            // carries, plainly (owner, 2026-11-11): "Feeds D2: 99.9 A per
+            // leg on an 80 A limit", red past it.
+            if (dl && dl.thru && typeof this.distroThruText === 'function') {
+                chip.textContent += ` · ${this.distroThruText(dl)}`;
+                chip.dataset.lrdSvcThruTotal = d.id;
+                if (dl.thru.over) {
+                    chip.classList.add(dl.overloadAccepted ? 'hw-dock-thru-accepted' : 'hw-dock-thru-over');
+                }
+            }
             if (thru) {
                 chip.dataset.lrdSvcThru = thru.id;
                 chip.title = `${this.distroLabel(d)} is powered thru ${this.distroLabel(thru)}: its load counts `

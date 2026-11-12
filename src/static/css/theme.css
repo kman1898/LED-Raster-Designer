@@ -612,6 +612,7 @@ select, .info-select {
 /* the distro's always-on legs line sits OUTSIDE the foldable body, so the
    unit's zeroed padding must not glue it to the frame */
 .hw-dock-unit > .hw-dock-legs { margin:2px 6px; }
+.hw-dock-unit > .hw-dock-thru { margin:0 6px 2px; }
 /* ---- the distro FRAME (2026-09-26: "The separation we added for
    processing in the hardware tab. We need to do the same for distro"):
    each distro is the processor frame's raised panel, outlined in the
@@ -637,6 +638,7 @@ select, .info-select {
 .hw-dock-col > .hw-dock-distro > .lrd-sec-body { padding:0; }
 .hw-dock-col > .hw-dock-distro.lrd-sec-collapsed { padding-bottom:6px !important; }
 .hw-dock-col > .hw-dock-distro > .hw-dock-legs { margin:2px 1px 4px; }
+.hw-dock-col > .hw-dock-distro > .hw-dock-thru { margin:0 1px 4px; }
 /* the distro's header is its HANDLE (2026-10-20, owner pick C: "whole
    header bar"): a raised bar a step lighter than the multi strips'
    headers, a grab hand over all of it but its controls, and a grip a size

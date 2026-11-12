@@ -61,7 +61,10 @@ COUPLINGS = {'ln', 'll'}
 # new save is dropped.
 DISTRO_KEYS = {'typeName', 'system', 'input', 'ratingA', 'breakers100', 'main100',
                'neutral200', 'phasing', 'directPhasing', 'rows'}
-ROW_KEYS = {'id', 'connector', 'count', 'coupling', 'breakerA', 'connectorA', 'pairedWith'}
+ROW_KEYS = {'id', 'connector', 'count', 'coupling', 'breakerA', 'connectorA', 'pairedWith',
+            'edisonType'}
+# An Edison row's receptacles (EDISON_TYPES in app-distro-systems.js).
+EDISON_TYPES = {'5-15', '5-20'}
 
 _lock = threading.Lock()
 
@@ -105,6 +108,9 @@ def _valid_row(r):
                                                 and 0 < r['connectorA'] < 1000):
         return False
     if r.get('pairedWith') is not None and not _short_str(r['pairedWith']):
+        return False
+    if r.get('edisonType') is not None and (r.get('connector') != 'edison'
+                                            or r['edisonType'] not in EDISON_TYPES):
         return False
     return True
 

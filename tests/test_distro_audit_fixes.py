@@ -305,14 +305,25 @@ def test_an_l2130_box_on_an_old_208v_single_phase_distro_keeps_its_feed_check(se
     setup(pg, distros=[{'id': 'd1', 'name': 'ODD', 'ratingA': 400, 'voltage': 208, 'phase': 1}],
           walls={'a': {'powerBreakoutType': 'l2130-true1', 'panelWatts': 400,
                        'powerSocaDistro': {'1': 'd1'}}})
+    # The packer holds an L21-30 circuit to 24 A / sqrt 3 (owner,
+    # 2026-11-11), so a box only gets past its feed with that hold off: the
+    # check must still fire on a box loaded past it.
     out = ev(pg, """
-        const d = app.getDistros()[0];
-        const s = app.getSocaPlan(A)[0];
-        const fl = app.boxFeedLegAmps(d, [{ layer: A, s }]);
-        app.renderHardwareDock();
-        return { fl: [fl.X, fl.Y, fl.Z], circuits: s.legs.length,
-                 amps: s.legs.map(g => g.watts / 208), system: d.system,
-                 strip: (app._dockPowerWarnings || []).map(w => w.text) };""")
+        const keep = app._circuitConnectorCap;
+        app._circuitConnectorCap = () => null;
+        app._circuitTailCache = null;
+        try {
+            const d = app.getDistros()[0];
+            const s = app.getSocaPlan(A)[0];
+            const fl = app.boxFeedLegAmps(d, [{ layer: A, s }]);
+            app.renderHardwareDock();
+            return { fl: [fl.X, fl.Y, fl.Z], circuits: s.legs.length,
+                     amps: s.legs.map(g => g.watts / 208), system: d.system,
+                     strip: (app._dockPowerWarnings || []).map(w => w.text) };
+        } finally {
+            app._circuitConnectorCap = keep;
+            app._circuitTailCache = null;
+        }""")
     assert out['system'] is None and out['circuits'] == 3, out
     i = out['amps'][0]
     assert out['fl'] == pytest.approx([i * math.sqrt(3)] * 3, abs=1e-6), out

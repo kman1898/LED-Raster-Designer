@@ -228,6 +228,11 @@ def drag_distro_onto_service(pg, distro_id, service_id, mid=None):
     sx, sy = center(pg, f'[data-lrd-distro="{distro_id}"] .hw-dock-dragcue')
     pg.evaluate("(s) => document.querySelector(s).scrollIntoView({block: 'center'})",
                 f'[data-lrd-service="{service_id}"]')
+    # and the header bar in view too: the walls here are on 25 A breakers,
+    # so the strip carries a line (a breaker past its TRUE1, 2026-11-11) and
+    # the tray's body is short enough for the bar to sit just under it
+    pg.evaluate("(s) => document.querySelector(s).scrollIntoView({block: 'nearest'})",
+                f'[data-lrd-distro="{distro_id}"] .hw-dock-dragcue')
     sx, sy = (lambda b: (b['x'] + b['width'] / 2, b['y'] + b['height'] / 2))(
         pg.locator(f'[data-lrd-distro="{distro_id}"] .hw-dock-dragcue').bounding_box())
     box = pg.locator(f'[data-lrd-service="{service_id}"]').bounding_box()
@@ -459,7 +464,10 @@ def test_the_ratings_added_up_are_a_fact_not_a_warning(page):
     assert s['ratingSum'] == 800, s
     assert s['chips'] == ['SL 400 A', 'SR 200 A', 'FOH 200 A'], s
     assert s['sum'] == 'ratings 800 A on 600 A' and not s['sumOver'], s
-    assert not any('rated' in w['text'] for w in out['strip']), out['strip']
+    # (a breaker past its connector says "rated for" in its own words: not
+    # this warning)
+    assert not any('rated' in w['text'] and 'breaker on' not in w['text']
+                   for w in out['strip']), out['strip']
     assert not s['over'], 'the load is under the limit'
     # FOH with nothing connected: skipped, as the binder skips it
     setup(pg, distros=d, services=[SVC(rating=600)],

@@ -7402,12 +7402,23 @@ class _Binder {
             if (typeof this.circuitCapacity !== 'function') return '';
             const cap = this.circuitCapacity(l);
             const breaker = +cap.breakerA.toFixed(2);
+            // held below the breaker by a connector (circuitCapacity cap)
+            if (cap.cap) return `${+cap.amps.toFixed(2)} A`;
             return cap.pct >= 1 ? `${breaker} A`
                 : `${+cap.amps.toFixed(2)} A (${Math.round(cap.pct * 100)}% of ${breaker} A)`;
         };
         const overLimits = [...new Set(overs.map(limitOf).filter(Boolean))];
         const overRow = overs.length
             ? [['Over', `${this._bPlural(overs.length, 'circuit')} over ${overLimits.join(' / ') || 'the limit'}`]] : [];
+        // A breaker larger than what its circuits feed (owner, 2026-11-11):
+        // the strip's words, one row each, on the sheet of every screen it
+        // names.
+        const sheetLayers = new Set((grouped ? [...(s.members || []), ...(s.carriers || [])] : [layer])
+            .filter(Boolean).map(l => String(l.id)));
+        const breakerRows = (typeof this.breakerOverChecks === 'function' ? this.breakerOverChecks() : [])
+            .filter(g => sheetLayers.has(String(g.layer.id)))
+            .map(g => ['Breaker over', g.text]);
+        overRow.push(...breakerRows);
         const distroIds = [...new Set(units.map(u => u.box.distroId).filter(Boolean))];
         const loads = (typeof this.getDistroLoads === 'function') ? this.getDistroLoads() : [];
         // A member's sheet reads the amps of the circuits it lists; where
@@ -7468,7 +7479,14 @@ class _Binder {
         // the table's amps sum to. A group's sheet reads the group's own
         // Load and the same Wall load row; a member's, its own Load and
         // the Wall load of the circuits on its cabinets.
-        const loadText = (a1, a3, w) => `${this._bNum(a1, 1)} A 1φ · ${this._bNum(a3, 1)} A 3φ · ${this._bNum(w / 1000, 1)} kW`;
+        // The 1φ figure is one single-phase supply's current: on 3-phase
+        // distros no wire carries it, so the sheet prints the 3φ figure only
+        // (owner, 2026-11-11), as the sidebar and the canvas label do.
+        const threeOnly = typeof this.screenOnThreePhase === 'function'
+            && (grouped ? (s.carriers || []).length > 0 && s.carriers.every(c => this.screenOnThreePhase(c))
+                : this.screenOnThreePhase(layer));
+        const loadText = (a1, a3, w) => (threeOnly ? '' : `${this._bNum(a1, 1)} A 1φ · `)
+            + `${this._bNum(a3, 1)} A 3φ · ${this._bNum(w / 1000, 1)} kW`;
         const wallOf = (carrier) => {
             const carried = (typeof this.getCarriedPowerLoad === 'function') ? this.getCarriedPowerLoad(carrier) : null;
             return carried && carried.peers.length
@@ -8180,7 +8198,14 @@ class _Binder {
             bucket.amps3 += w / (this.threePhaseLineVoltage(l) * 1.73);
             byVoltage.set(f.voltage, bucket);
         }
-        const loadText = (b) => `${this._bNum(b.amps1, 1)} A 1φ · ${this._bNum(b.amps3, 1)} A 3φ · ${this._bNum(b.watts / 1000, 1)} kW`;
+        // no 1φ figure where every screen with circuits is on 3-phase
+        // distros (owner, 2026-11-11, as on each screen's sheet)
+        const placed = screens.filter(l => Object.values(l.powerSocaDistro || {}).some(Boolean));
+        const threeOnly = placed.length > 0 && typeof this.screenOnThreePhase === 'function'
+            && screens.every(l => !(list.byScreen[l.id] && (list.byScreen[l.id].boxes || []).length)
+                || this.screenOnThreePhase(l));
+        const loadText = (b) => (threeOnly ? '' : `${this._bNum(b.amps1, 1)} A 1φ · `)
+            + `${this._bNum(b.amps3, 1)} A 3φ · ${this._bNum(b.watts / 1000, 1)} kW`;
         const loads = [];
         const one = byVoltage.size === 1 ? [...byVoltage.values()][0] : null;
         if (one && Math.abs(one.watts - watts) < 0.5) {
@@ -9136,6 +9161,17 @@ class _Binder {
             if (load.neutral) {
                 pairs.push(['Neutral', this.distroNeutralText(d, load.neutral, x => this._bNum(x, 1))]);
             }
+            // What its power in carries with the distros fed thru it (owner,
+            // 2026-11-11): the tray's words, OVER where it is past the limit.
+            if (load.thru && typeof this.distroThruText === 'function') {
+                pairs.push(['Thru load', this.distroThruText(load)
+                    + (load.thru.over ? ' · OVER' + (load.overloadAccepted ? ' · overload accepted' : '') : '')]);
+            }
+        }
+        // A breaker larger than what its circuits feed (owner, 2026-11-11).
+        if (typeof this.breakerOverChecks === 'function') {
+            const mine = this.breakerOverChecks().filter(g => g.distro && g.distro.id === d.id);
+            for (const text of this.breakerOverLines(mine)) pairs.push(['Breaker over', text]);
         }
         // A multi left on a one-circuit output (a show already in that
         // state, 2026-10-18): the output's load against what it carries.
@@ -9240,7 +9276,9 @@ class _Binder {
         const out = [];
         const name = (x) => {
             const i = face.rowInfo.get(x.id);
-            return `${x.count} × ${this.faceBoxType(d, i.boxes[0]).name}`;
+            const et = x.connector === 'edison' && typeof this.edisonRowType === 'function'
+                ? ` ${this.edisonRowType(x).name}` : '';
+            return `${x.count} × ${this.faceBoxType(d, i.boxes[0]).name}${et}`;
         };
         for (const r of face.rows) {
             if (r.pairedWith) continue;

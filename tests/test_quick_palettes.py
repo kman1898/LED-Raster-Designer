@@ -1048,7 +1048,7 @@ def test_a_real_palette_source_pick_passes_the_field_guard(page):
 # ── the guide and What's New ─────────────────────────────────────────────
 
 # Every Advanced Guide step 1.7.0 brings, in guide order.
-NEW_IN_1_7 = ['quickPalettes', 'processorIp', 'distroNeutral', 'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag',
+NEW_IN_1_7 = ['quickPalettes', 'processorIp', 'breakerOver', 'edisonType', 'distroNeutral', 'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag',
               'riggingCustom', 'riggingSide', 'riggingTotals', 'riggingCurveLocks', 'riggingCurve', 'riggingCorner', 'riggingCornerBars', 'riggingCornerSide',
               's3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',
               's3dCamera', 's3dFocus', 's3dBars', 's3dCorner',

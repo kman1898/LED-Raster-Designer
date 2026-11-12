@@ -2874,6 +2874,16 @@ class _HardwareDock {
         // could disagree with the surfaces it warns about.
         // (_renderDockChrome paints them after the body.)
         this._dockPowerWarnings = [];
+        // A breaker larger than what it feeds (owner, 2026-11-11): read once
+        // per render (breakerOverChecks), a red strip line each - never an
+        // offer, never dismissed - and the circuit chips and distro headers
+        // below wear OVER from the same reading.
+        this._dockBreakerOver = typeof this.breakerOverChecks === 'function'
+            ? this.breakerOverChecks() : [];
+        this._dockBreakerOverKeys = new Set(this._dockBreakerOver.flatMap(g => g.keys));
+        for (const text of this.breakerOverLines(this._dockBreakerOver)) {
+            this._dockPowerWarnings.push({ text, breaker: true });
+        }
         // Stamped before ANY early return, so the resize watcher always
         // compares against the pick this render actually saw.
         this._dockColPick = this._dockPickColCount();
@@ -3002,13 +3012,20 @@ class _HardwareDock {
         // the leg. An accepted overload reads amber and says so, with the
         // same figures.
         if (load && load.over) {
-            const leg = load.legs && load.worstLeg
-                ? ` worst leg ${this.distroLegLabel(d, load.worstLeg)}` : '';
+            // Over only with the distros fed thru it (owner, 2026-11-11):
+            // the line says the combined figure its power in carries.
+            const thru = load.thru && load.thru.over ? load.thru : null;
+            const worst = thru ? thru.worstLeg : load.worstLeg;
+            const leg = (thru ? thru.legs : load.legs) && worst
+                ? ` worst leg ${this.distroLegLabel(d, worst)}` : '';
             const rule = this.distroMainLimit(d);
             const note = this.distroMainLimitNote(rule);
-            const fig = `${this.distroLabel(d)}${leg ? `,${leg}` : ''} ${load.amps.toFixed(1)} A / `
+            const amps = thru ? thru.amps : load.amps;
+            const pct = load.ratingA > 0 ? (amps / load.ratingA) * 100 : 0;
+            const fig = `${this.distroLabel(d)}${thru ? ` with ${thru.names.join(', ')} thru it` : ''}`
+                + `${leg ? `,${leg}` : ''} ${amps.toFixed(1)} A / `
                 + `${+load.limitA.toFixed(1)} A`
-                + (note ? ` (${note}, continuous)` : ` (${Math.round(load.pct)}%)`);
+                + (note ? ` (${note}, continuous)` : ` (${Math.round(pct)}%)`);
             if (load.overloadAccepted) {
                 this._dockPowerWarnings.push({
                     mild: true, text: `${fig}: over, accepted`,
@@ -3133,6 +3150,8 @@ class _HardwareDock {
             if (n) legs.appendChild(n);
             unit.appendChild(legs);
         }
+        const thruLine = this._dockDistroThruLine(d, load);
+        if (thruLine) unit.appendChild(thruLine);
         // The OUTPUTS row rides under LEGS, but it FOLDS with the card
         // (owner, 2026-10-30: "When you minimize distro, we do not need to
         // see the multi and l2130 stuff that you can drag since it is
@@ -3308,22 +3327,41 @@ class _HardwareDock {
         const note = this.distroMainLimitNote(rule);
         const extra = [];
         if (note) extra.push({ cls: 'hw-dock-unit-lim', text: `· ${note}` });
+        // A distro others are fed thru reads what its power in carries:
+        // its own load and theirs (owner, 2026-11-11, getDistroLoads thru).
+        const thru = load.thru || null;
+        const amps = thru ? thru.amps : load.amps;
         if (load.over) {
             extra.push(load.overloadAccepted
                 ? { cls: 'hw-dock-unit-flag hw-dock-unit-flag-ok', text: 'OVER · accepted',
                     title: 'Overload accepted. Untick it behind the ⚙.' }
                 : { cls: 'hw-dock-unit-flag', text: 'OVER',
-                    title: 'The busiest leg is past the limit.' });
+                    title: thru && thru.over
+                        ? `With ${thru.names.join(', ')} powered thru it, the busiest leg is past the limit.`
+                        : 'The busiest leg is past the limit.' });
+        }
+        // A breaker larger than what it feeds on one of its circuits: a red
+        // OVER of its own, never amber, never accepted (owner, 2026-11-11).
+        const brk = (this._dockBreakerOver || []).filter(g => g.distro && g.distro.id === d.id);
+        if (brk.length && !(load.over && !load.overloadAccepted)) {
+            extra.push({ cls: 'hw-dock-unit-flag', text: 'OVER', data: { lrdBreakerOver: d.id },
+                         title: brk.map(g => g.text).join(' ') });
+        } else if (brk.length) {
+            const flag = extra[extra.length - 1];
+            flag.title = `${flag.title} ${brk.map(g => g.text).join(' ')}`;
+            flag.data = { lrdBreakerOverToo: d.id };
         }
         return {
-            frac: load.amps / load.ratingA,
+            frac: amps / load.ratingA,
             over: !!load.over && !load.overloadAccepted,
             accepted: !!load.over && !!load.overloadAccepted,
             useClass: load.over
                 ? (load.overloadAccepted ? 'hw-dock-unit-use-accepted' : 'hw-dock-unit-use-over')
                 : '',
-            text: `${load.amps.toFixed(1)}/${+limit.toFixed(1)} A`,
-            title: `Busiest leg ${load.amps.toFixed(1)} A of a ${+limit.toFixed(1)} A limit`
+            text: `${amps.toFixed(1)}/${+limit.toFixed(1)} A`,
+            title: (thru ? `${this.distroLabel(d)}'s own busiest leg is ${load.amps.toFixed(1)} A; with `
+                + `${thru.names.join(', ')} powered thru it, its power in carries ${amps.toFixed(1)} A. ` : '')
+                + `Busiest leg ${amps.toFixed(1)} A of a ${+limit.toFixed(1)} A limit`
                 + (note ? `, ${note}: a show load is continuous, and a standard main `
                     + 'carries 80% of its rating continuously. Tick Main 100% rated '
                     + 'behind the ⚙ if it is.'
@@ -3374,6 +3412,25 @@ class _HardwareDock {
         im.textContent = load.imbalancePct > 1
             ? `±${Math.round(load.imbalancePct)}%` : 'even';
         row.appendChild(im);
+        return row;
+    }
+
+    // The THRU line under LEGS (owner, 2026-11-11): what this distro's
+    // power in carries with the distros fed thru it, in plain words - "Feeds
+    // D2: 99.9 A per leg on an 80 A limit" - red past the limit (amber
+    // once the overload is accepted). Null for a distro nothing is fed thru.
+    _dockDistroThruLine(d, load) {
+        if (!load || !load.thru || typeof this.distroThruText !== 'function') return null;
+        const row = document.createElement('div');
+        row.className = 'hw-dock-thru';
+        row.dataset.lrdThru = d.id;
+        row.textContent = this.distroThruText(load);
+        row.title = `${this.distroLabel(d)}'s own load plus every distro powered thru it, leg by leg: `
+            + 'its power in and its input carry all of it.';
+        if (load.thru.over) {
+            row.classList.add(load.overloadAccepted ? 'hw-dock-thru-accepted' : 'hw-dock-thru-over');
+            row.dataset.lrdThruOver = '1';
+        }
         return row;
     }
 
@@ -3602,7 +3659,7 @@ class _HardwareDock {
                 && typeof this.boxFeedLegAmps === 'function') {
             const fl = this.boxFeedLegAmps(d, memberRecs.filter(r => r.s));
             const worst = Math.max(fl.X, fl.Y, fl.Z);
-            if (worst > feedRule.limitA) {
+            if (worst > feedRule.limitA + 1e-9) {
                 feedOver = true;
                 sec.classList.add('hw-dock-multi-clash');
                 this._dockPowerWarnings.push({
@@ -3939,6 +3996,21 @@ class _HardwareDock {
         // figures (amps) over the owner screen's amps-per-circuit. A tail
         // two stored sets claim carries both loads against the smaller
         // figure - the honest reading of one breaker asked twice.
+        // A breaker larger than what this circuit feeds (owner,
+        // 2026-11-11): a red OVER on the chip, the strip line's words on it.
+        const brk = holders.length && this._dockBreakerOverKeys
+            ? (this._dockBreakerOver || []).filter(g => holders.some(h =>
+                g.keys.includes(`${h.layerId}:${h.circuit}`))) : [];
+        if (brk.length) {
+            tile.classList.add('lrd-tile-clash');
+            tile.dataset.lrdBreakerOver = '1';
+            const flag = document.createElement('span');
+            flag.className = 'hw-dock-chip-over';
+            flag.textContent = 'OVER';
+            flag.title = brk.map(g => g.text).join(' ');
+            top.appendChild(flag);
+            face.title = `${brk.map(g => g.text).join(' ')} ${face.title}`;
+        }
         if (holders.length) {
             const amps = holders.reduce((s, h) => s + h.amps, 0);
             const cap = holders.reduce(
@@ -4176,6 +4248,7 @@ class _HardwareDock {
                 el.className = x.cls;
                 el.textContent = x.text;
                 if (x.title || glance.title) el.title = x.title || glance.title;
+                if (x.data) Object.assign(el.dataset, x.data);
                 head.appendChild(el);
             });
             const bar = document.createElement('span');

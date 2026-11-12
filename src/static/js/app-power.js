@@ -464,15 +464,88 @@ class _Power {
     // never trips that warning.
     //   { voltage, breakerA, pct, amps, watts, us, rated100, byDistro }
     // `byDistro`: a distro decided the %, not the voltage.
+    //
+    // Two connectors can hold a circuit below that (owner, 2026-11-11), and
+    // the packer, the readouts and the checks then read the lower figure:
+    //   - an L21-30 breakout: its three 208V circuits load each leg of the
+    //     30 A feed 1.73 times one circuit (boxFeedLegAmps), so a circuit is
+    //     held to the feed's limit (24 A, 80% of 30 A, distroFeedLimit) over
+    //     the square root of 3 - 13.86 A - and a full box is never born OVER;
+    //   - an Edison output picked 5-15 or 5-20 (EDISON_TYPES): 80% of the
+    //     receptacle, 12 A or 16 A.
+    // `cap` names it: { amps, why } or null.
     circuitCapacity(layer) {
         const voltage = parseFloat(layer && layer.powerVoltage) || 0;
         const breakerA = parseFloat(layer && layer.powerAmperage) || 0;
         const rule = this._circuitPackRule(layer, voltage);
         const pct = rule.pct;
-        const amps = breakerA * pct;
+        let amps = breakerA * pct;
+        const cap = this._circuitConnectorCap(layer);
+        const capped = !!cap && breakerA > 0 && cap.amps < amps - 1e-9;
+        if (capped) amps = cap.amps;
         return { voltage, breakerA, pct, amps, watts: voltage * amps,
                  us: rule.us, rated100: rule.us && pct >= 1, byDistro: !!rule.byDistro,
-                 onDistro: !!rule.onDistro };
+                 onDistro: !!rule.onDistro, cap: capped ? cap : null };
+    }
+
+    // The connector limit on one screen's circuits below its breaker
+    // (circuitCapacity): { amps, why } or null. Read off the stores only -
+    // the breakout, the distros its multis are on and their pinned or held
+    // numbers - never the plan, which is built from this figure.
+    _circuitConnectorCap(layer) {
+        if (!layer) return null;
+        let best = null;
+        const take = (amps, why) => {
+            if (amps > 0 && (!best || amps < best.amps)) best = { amps, why };
+        };
+        const group = (layer.group_id && typeof this.groupMembersOf === 'function')
+            ? this.groupMembersOf(layer) : [];
+        const screens = group.length ? group : [layer];
+        const distros = typeof this.getDistros === 'function' ? (this.getDistros() || []) : [];
+        for (const s of screens) {
+            if (!s) continue;
+            const bt = typeof this.getPowerBreakout === 'function' ? this.getPowerBreakout(s) : null;
+            const map = s.powerSocaDistro || {};
+            // The L21-30 feed: the strictest distro the screen is on, else
+            // the US rule a 208V L21-30 runs under (80% of 30 A).
+            if (bt && bt.feedLegA > 0) {
+                let feed = null;
+                for (const id of new Set(Object.values(map).filter(Boolean))) {
+                    const d = distros.find(x => x && x.id === id);
+                    if (!d || typeof this.distroFeedLimit !== 'function') continue;
+                    const r = this.distroFeedLimit(d, bt.feedLegA);
+                    if (!feed || r.limitA < feed.limitA) feed = r;
+                }
+                if (!feed) feed = { ratingA: bt.feedLegA, pct: 0.8, limitA: bt.feedLegA * 0.8 };
+                const note = feed.pct < 1 ? ` (${Math.round(feed.pct * 100)}% of ${+feed.ratingA.toFixed(1)} A)` : '';
+                take(feed.limitA / Math.sqrt(3),
+                     `An L21-30 carries ${+feed.limitA.toFixed(1)} A per leg${note}, and its three 208V `
+                     + 'circuits load each leg 1.73 times one circuit, so a circuit is held to '
+                     + `${+(feed.limitA / Math.sqrt(3)).toFixed(2)} A.`);
+            }
+            // An Edison output with its 5-15 or 5-20 picked. A row from
+            // before the choice packs as it was laid out; its check says
+            // so (distroChecks).
+            if (typeof this.faceBox === 'function' && typeof this.edisonRowType === 'function') {
+                const chosen = s.powerSocaNumber || {};
+                for (const key of Object.keys(map)) {
+                    const d = distros.find(x => x && x.id === map[key]);
+                    if (!d) continue;
+                    let n = parseInt(chosen[key], 10);
+                    if (!(Number.isFinite(n) && n >= 1) && d.multiNumbers && typeof this._multiHoldKey === 'function') {
+                        n = parseInt(d.multiNumbers[this._multiHoldKey(s.id, parseInt(key, 10))], 10);
+                    }
+                    if (!(Number.isFinite(n) && n >= 1)) continue;
+                    const box = this.faceBox(d, n);
+                    if (!box || !box.conn || box.conn.id !== 'edison') continue;
+                    const et = this.edisonRowType(box.row);
+                    if (!et.picked) continue;
+                    take(et.ratingA * 0.8, `Its circuits are on Edison ${et.name} outputs, which carry `
+                         + `${+(et.ratingA * 0.8).toFixed(1)} A continuous (80% of ${et.ratingA} A).`);
+                }
+            }
+        }
+        return best;
     }
 
     // The watts one circuit of `layer` carries (circuitCapacity).
@@ -502,6 +575,15 @@ class _Power {
     // Why the screen's circuits pack at the % they do, in one sentence.
     circuitPctReason(layer) {
         const cap = this.circuitCapacity(layer);
+        const held = cap.cap ? ` ${cap.cap.why}` : '';
+        return this._circuitPctReasonOf(cap) + held;
+    }
+
+    _circuitPctReasonOf(cap) {
+        if (cap.pct < 1 && !cap.onDistro && cap.voltage >= 208.5) {
+            return 'A US circuit carries a continuous load to 80% of its breaker, whatever its voltage. '
+                + 'A screen on no distro above 208 V packs that way unless the show\'s distros are UK/EU.';
+        }
         if (cap.pct < 1) {
             return 'A US circuit carries a continuous load to 80% of its breaker. '
                 + 'A US distro marked "100% rated breakers" packs to the breaker.';
@@ -511,9 +593,9 @@ class _Power {
         // an old distro record with no system picked has no say, so the
         // voltage decides (_circuitPackRule), as on no distro
         if (cap.onDistro) {
-            return 'Its distro has no system picked, so a screen above 208 V packs to its breaker.';
+            return 'Its distro has no system picked, so a UK/EU screen packs to its breaker.';
         }
-        return 'A screen on no distro above 208 V packs to its breaker.';
+        return 'A UK/EU screen on no distro packs to its breaker.';
     }
 
     // The packing % one distro holds its circuits to: 80% on a US system,
@@ -544,7 +626,13 @@ class _Power {
     // the screen packs to it and that multi is real: the answer agrees
     // with itself.
     _circuitPackRule(layer, voltage) {
-        const byVoltage = voltage > 0 && voltage < 208.5;
+        // US or not, for a screen no distro decides (owner, 2026-11-11: a
+        // US 240 V or 277 V screen packed to 100%, past NEC 210.20(A)):
+        // 208 V and under is US; above it, the show's region where its
+        // distros and services agree on one (showPowerRegion); with none,
+        // 220 and 230 V (and 380, 400, 415) are UK/EU figures and anything
+        // else - 240, 277, 480 - takes the 80% rule, the safe side.
+        const byVoltage = this._usByVoltage(voltage);
         const fallback = { pct: byVoltage ? 0.8 : 1, us: byVoltage };
         if (this._capacityProbe) return { pct: this._capacityProbe.pct, us: byVoltage };
         if (!layer) return fallback;
@@ -596,6 +684,16 @@ class _Power {
         return decide(live);
     }
 
+    _usByVoltage(voltage) {
+        const v = Number(voltage) || 0;
+        if (!(v > 0)) return false;
+        if (v < 208.5) return true;
+        const region = typeof this.showPowerRegion === 'function' ? this.showPowerRegion() : null;
+        if (region === 'us') return true;
+        if (region === 'eu') return false;
+        return ![220, 230, 380, 400, 415].some(x => Math.abs(v - x) < 0.5);
+    }
+
     // How many multis `layer` has when its circuits are packed at `pct` of
     // the breaker, for _circuitPackRule's stale-entry rule. Every screen
     // the count packs reads `pct` (_capacityProbe). Memoized for the naming
@@ -638,6 +736,10 @@ class _Power {
             if (amps3El) amps3El.textContent = '-';
             const usableEl = document.getElementById('power-amperage-usable');
             if (usableEl) { usableEl.textContent = ''; usableEl.title = ''; }
+            const overEl = document.getElementById('power-amperage-over');
+            if (overEl) { overEl.textContent = ''; overEl.style.display = 'none'; }
+            const row1 = document.getElementById('power-total-amps-1ph-row');
+            if (row1) row1.style.display = '';
             return;
         }
         const layer = this.currentLayer;
@@ -682,6 +784,27 @@ class _Power {
         if (usableEl) {
             usableEl.textContent = usableText;
             usableEl.title = usableText ? this.circuitPctReason(layer) : '';
+        }
+        // A breaker larger than a connector the circuits feed (owner,
+        // 2026-11-11): red under it, the strip's own reading.
+        const overEl = document.getElementById('power-amperage-over');
+        if (overEl) {
+            const hit = typeof this.breakerOverChecks === 'function'
+                ? this.breakerOverChecks(layer) : [];
+            overEl.textContent = hit.length
+                ? `OVER: ${+hit[0].breakerA.toFixed(1)} A breaker on ${hit[0].item} (${hit[0].ratingA} A)` : '';
+            overEl.title = hit.map(g => g.text).join(' ');
+            overEl.style.display = hit.length ? '' : 'none';
+        }
+        // "Total Amps (1φ)" is the current of one single-phase supply at the
+        // screen's voltage: on a 3-phase distro no wire carries it, and
+        // beside the 3φ figure it made 208 V read as half the current
+        // (owner, 2026-11-11). Hidden there; the 3φ line and the distro's
+        // legs say it.
+        const row1 = document.getElementById('power-total-amps-1ph-row');
+        if (row1) {
+            row1.style.display = typeof this.screenOnThreePhase === 'function'
+                && this.screenOnThreePhase(layer) ? 'none' : '';
         }
         if (wattsEl) {
             wattsEl.textContent = wattsPerCircuit > 0 ? wattsPerCircuit.toLocaleString('en-US') : '0';
@@ -2831,12 +2954,85 @@ class _Power {
                 // somebody unticks it).
                 overloadAccepted: !!(d && d.overloadAccepted),
                 legs, imbalancePct, neutral,
+                // the raw per-leg phasors, for the thru totals below
+                legPhasor: d && names.length ? b.legPhasor : null,
                 socas: b.socas
             };
         };
         const out = distros.map(d => shape(buckets.get(d.id)));
+        this._distroThruLoads(out, distros);
         if (unassigned.socas.length) out.push(shape(unassigned));
         return out;
+    }
+
+    // DISTROS POWERED THRU ANOTHER (owner, 2026-11-11): a distro fed thru
+    // another draws through that one's input and power in, so the distro
+    // it is fed thru counts its own load plus every distro fed thru it, all
+    // the way down (_feedDownstream), per leg with the same phasor sum its
+    // own LEGS line runs - only distros of one system are ever fed thru
+    // each other (feederSources), so the legs line up. Read against the
+    // distro's own main limit (80% of its rating on a US system unless its
+    // main is 100% rated) and red past it, like any other overload: `over`
+    // takes it in, so the header, the strip, Accept overload and the binder
+    // all read it. Each record that feeds others gains
+    //   thru: { distros: [{ id, name }], names, legs ({X,Y,Z} amps, or
+    //           null on a single hot), amps (the busiest leg), worstLeg,
+    //           balanced, watts, limitA, over }
+    // Its own `amps` and `legs` stay its own, so a service, which counts
+    // every distro once, never counts a load twice.
+    _distroThruLoads(out, distros) {
+        if (typeof this._feedDownstream !== 'function') return;
+        const byId = new Map(out.map(L => [L.id, L]));
+        for (const d of distros) {
+            const L = byId.get(d.id);
+            if (!L) continue;
+            const down = this._feedDownstream(d).filter(x => byId.has(x.id));
+            if (!down.length) continue;
+            const all = [L, ...down.map(x => byId.get(x.id))];
+            const names = this.distroLegNames(d);
+            const limit = L.limitA > 0 ? L.limitA : 0;
+            const past = (a) => limit > 0 && a > limit + 1e-9;
+            const watts = all.reduce((t, x) => t + (x.watts || 0), 0);
+            let legs = null, amps = 0, worstLeg = null, balanced = true;
+            if (names.length) {
+                legs = {};
+                for (const k of names) {
+                    let re = 0, im = 0;
+                    for (const x of all) {
+                        const p = x.legPhasor && x.legPhasor[k];
+                        if (p) { re += p.re; im += p.im; }
+                    }
+                    legs[k] = Math.sqrt(re * re + im * im);
+                }
+                const list = names.map(k => legs[k]);
+                amps = Math.max(...list);
+                worstLeg = names[list.indexOf(amps)];
+                balanced = amps - Math.min(...list) < 0.05;
+            } else {
+                // a single hot: its circuits' amps add
+                amps = all.reduce((t, x) => t + (x.amps || 0), 0);
+            }
+            L.thru = {
+                distros: down.map(x => ({ id: x.id, name: this.distroLabel(x) })),
+                names: down.map(x => this.distroLabel(x)),
+                legs, amps, worstLeg, balanced, watts, limitA: limit, over: past(amps),
+            };
+            if (L.thru.over) L.over = true;
+        }
+    }
+
+    // "Feeds D2: 99.9 A per leg on an 80 A limit" - how the distro card,
+    // the service card and the binder say a thru total (owner, 2026-11-11).
+    // "on the busiest leg" where the legs differ; a single hot its amps.
+    distroThruText(load) {
+        const t = load && load.thru;
+        if (!t) return '';
+        const names = t.names.length > 1
+            ? `${t.names.slice(0, -1).join(', ')} and ${t.names[t.names.length - 1]}` : t.names[0];
+        const per = t.legs ? (t.balanced ? ' per leg' : ' on the busiest leg') : '';
+        const lim = +(+t.limitA).toFixed(1);
+        const an = /^(8|11(?!\d)|18(?!\d))/.test(String(lim)) ? 'an' : 'a';
+        return `Feeds ${names}: ${t.amps.toFixed(1)} A${per} on ${an} ${lim} A limit`;
     }
 
     // Per-leg amps in ONE physical box's feed - the same phasor walk

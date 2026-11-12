@@ -104,7 +104,8 @@ def test_a_240v_screen_on_a_us_distro_packs_at_80_percent(page):
     its 20 A breakers, finds nothing over: the two always agree."""
     (wall,) = make(page, [{'name': 'Wall', 'columns': 10, 'props': dict(
         SHARING_OFF, powerVoltage=240)}])
-    assert runs(page, wall) == [[30], [20]], 'off a distro 240 V packs at the breaker'
+    # off a distro too (owner, 2026-11-11): no UK/EU distro says otherwise
+    assert runs(page, wall) == [[25], [25]], 'off a distro 240 V packs at 80%'
     set_distros(page, [_distro('us', 'SL', '120/240')], {wall: {1: 'us'}})
     assert runs(page, wall) == [[25], [25]], runs(page, wall)
     cap = capacity(page, wall)
@@ -132,11 +133,15 @@ def test_a_uk_eu_distro_packs_at_the_breaker(page):
 
 
 def test_a_screen_on_no_distro_decides_by_voltage(page):
-    a, b = make(page, [
+    """208 V and under is US; 230 V is a UK/EU figure; 240 V is both, so
+    with no distro to say it takes the US 80% (owner, 2026-11-11)."""
+    a, b, c = make(page, [
         {'name': 'A', 'columns': 4, 'props': SHARING_OFF},
-        {'name': 'B', 'columns': 4, 'x': 1000, 'props': dict(SHARING_OFF, powerVoltage=240)}])
+        {'name': 'B', 'columns': 4, 'x': 1000, 'props': dict(SHARING_OFF, powerVoltage=240)},
+        {'name': 'C', 'columns': 4, 'x': 2000, 'props': dict(SHARING_OFF, powerVoltage=230)}])
     assert capacity(page, a)['pct'] == 0.8
-    assert capacity(page, b)['pct'] == 1
+    assert capacity(page, b)['pct'] == 0.8
+    assert capacity(page, c)['pct'] == 1
 
 
 def test_a_stale_multi_assignment_is_left_out(page):

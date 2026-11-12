@@ -122,7 +122,10 @@ def test_a_distro_fed_thru_counts_on_the_service_not_the_pass_through(page):
     assert s['distros'] == ['d1', 'd2'], s
     assert s['legs'] == [330, 330, 330] and s['over'], s
     assert s['ratingSum'] == 400 and not s['ratingsOver'], s
-    assert s['chips'] == ['SL 400 A', 'SR 400 A thru SL'], s['chips']
+    # SL's chip says what its power in carries with SR thru it (owner,
+    # 2026-11-11): 165 + 165 = 330 A a leg against 320 A (80% of 400 A)
+    assert s['chips'] == ['SL 400 A · Feeds SR: 330.0 A per leg on a 320 A limit',
+                          'SR 400 A thru SL'], s['chips']
     eff = pg.evaluate("() => window.app.getDistros().map(d => "
                       "(window.app.distroEffectiveService(d) || {}).id || null)")
     assert eff == ['s1', 's1'], eff

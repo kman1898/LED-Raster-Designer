@@ -282,8 +282,19 @@ class _Distros {
         const moves = !!sys && sys.id !== d.system;
         const pair = patch.system === undefined
             && (patch.voltage !== undefined || patch.phase !== undefined);
-        if (!flips && !moves && !pair) return false;
+        // An Edison row's 5-15 or 5-20 moves what its screens pack to
+        // (circuitCapacity's connector cap, owner 2026-11-11).
+        const edisonOf = (rows) => JSON.stringify((Array.isArray(rows) ? rows : [])
+            .filter(r => r && r.connector === 'edison').map(r => [r.id, r.edisonType || null]));
+        const edison = patch.outputRows !== undefined
+            && edisonOf(patch.outputRows) !== edisonOf(d.outputRows);
+        if (!flips && !moves && !pair && !edison) return false;
         return this._repackRefused(() => {
+            if (edison) {
+                const s = typeof this.distroSystem === 'function' ? this.distroSystem(d) : null;
+                const rows = s ? this._normalizeOutputRows(patch.outputRows, s) : [];
+                if (rows.length) d.outputRows = rows; else delete d.outputRows;
+            }
             if (flips) d.breakers100 = !!patch.breakers100;
             if (moves) {
                 d.system = sys.id; d.voltage = sys.voltage; d.phase = sys.phase;

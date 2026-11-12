@@ -185,9 +185,11 @@ def test_blank_cabinets_draw_no_power_in_the_circuits_loads_and_label(seeded):
     assert out['circuits'] == 6 and out['sizes'] == [5, 10, 10, 10, 10, 10], out
     assert out['legAmps'] == [round(1000 / 208, 3)] + [round(2000 / 208, 3)] * 5, out
     label = pg.evaluate(LABEL_JS, 'WALL A')
-    # the label's 1φ figure is the 11000 W, not 12000 W: 11000 / 208
-    assert '6 Circuits' in label and f'{11000 / 208:.2f}A 1φ' in label, label
-    assert f'{12000 / 208:.2f}A' not in label, label
+    # the label's figure is the 11000 W, not 12000 W. On a 3-phase distro it
+    # reads the 3φ figure only (owner, 2026-11-11): 11000 / (208 x 1.73)
+    assert '6 Circuits' in label and f'{11000 / (208 * 1.73):.2f}A 3φ' in label, label
+    assert '1φ' not in label, label
+    assert f'{12000 / (208 * 1.73):.2f}A' not in label, label
     # hidden cabinets, as ever, draw nothing either
     out = ev(pg, """
         A.panels.filter(p => p.row === 0 && p.col >= 5).forEach(p => { p.blank = false; p.hidden = true; });

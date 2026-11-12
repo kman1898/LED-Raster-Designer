@@ -2117,6 +2117,20 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
     color: #b8b8b8; min-width: 0;
 }
 .hw-dock-legs-warn { color: #d8a13c; }
+/* The THRU line under LEGS (2026-11-11): what the power in carries with
+   the distros fed thru this one; red past the limit, amber accepted. */
+.hw-dock-thru {
+    padding: 1px 2px 2px; font: 9px ui-monospace, Menlo, monospace;
+    color: #b8b8b8; min-width: 0; overflow-wrap: anywhere;
+}
+.hw-dock-thru-over { color: #ff9a9a; }
+.hw-dock-thru-accepted { color: #dcb968; }
+/* A circuit whose breaker is past what it feeds (2026-11-11). */
+.hw-dock-chip-over {
+    flex: 0 0 auto; margin-left: 4px; font-size: 8px; font-weight: 700;
+    letter-spacing: 0.4px; padding: 0 3px; border-radius: 3px;
+    background: #3a1414; border: 1px solid #7a2727; color: #ff9a9a;
+}
 .hw-dock-legs-bad { color: #e05050; }
 .hw-dock-legs-cap { letter-spacing: 0.5px; color: #777; }
 /* The power in's neutral at the end of the LEGS line: red past its

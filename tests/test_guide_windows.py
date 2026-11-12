@@ -83,7 +83,7 @@ ADVANCED_RUNS = [
     ['sameAsLast', 'avgPower'],                              # picker:add
     ['redundancy', 'backupProcessor', 'processorIp'],        # gear:proc
     ['distroPhase', 'distroRating', 'distroMain',
-     'distroPreset', 'distroRows'],                          # gear:distro
+     'distroPreset', 'distroRows', 'edisonType'],            # gear:distro
     ['jumperNames', 'pullPanels'],                           # export:pull-sheet
     ['cableStock', 'cableStockPerKind'],                     # prefs:stock
     ['outputOpen', 'outputChoices'],                         # output
@@ -92,21 +92,27 @@ ADVANCED_RUNS = [
 ]
 QUICK_RUNS = []
 # The What's New lists for every 1.5 version a person can come from.
+# Edison outputs and The neutral (both 1.7.0) work in the distro's gear one
+# after the other in every What's New list: the steps between them are older.
 # Cable stock (1.5.3) and A list for each kind of cable (1.6.0) sit side by
 # side in Preferences on Cable stock (owner, 2026-11-04), so every list from
 # before 1.5.3 holds Preferences open between them; from 1.5.3 Cable stock
 # is not new and A list for each kind of cable runs alone.
 WHATS_NEW_RUNS = {
-    '1.5.0': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+    '1.5.0': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
+              ['jumperNames', 'pullPanels'],
               ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
               ['riggingSheet', 'fiberPage']],
-    '1.5.1': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+    '1.5.1': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
+              ['jumperNames', 'pullPanels'],
               ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
               ['riggingSheet', 'fiberPage']],
-    '1.5.2': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+    '1.5.2': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
+              ['jumperNames', 'pullPanels'],
               ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
               ['riggingSheet', 'fiberPage']],
-    '1.5.3': [['sameAsLast', 'avgPower'], ['jumperNames', 'pullPanels'],
+    '1.5.3': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
+              ['jumperNames', 'pullPanels'],
               ['outputOpen', 'outputChoices'], ['riggingSheet', 'fiberPage']],
 }
 
@@ -146,23 +152,26 @@ def _tour_keys(page, name):
 def test_shared_window_runs_are_the_known_ones(page):
     """The runs, per guide: Advanced, Quick Start, and What's New from every
     1.5 version. The owner's two reports are among them: What's New from
-    1.5.2 steps 11 and 12 share the Export dialog on the pull sheet (16
-    and 17 since Quick Palettes, IP addresses and The neutral, all 1.7.0 steps, and
-    Single mode or multimode and Every box in one list, both 1.6.0 steps,
-    came in before them)."""
+    1.5.2 steps 11 and 12 share the Export dialog on the pull sheet (18
+    and 19 since Quick Palettes, IP addresses, A breaker past its
+    connector, Edison outputs and The neutral, all 1.7.0 steps, and
+    Single mode or multimode and Every box in one list, both 1.6.0
+    steps, came in before them)."""
     assert _runs(page, _tour_keys(page, 'advanced')) == ADVANCED_RUNS
     assert _runs(page, _tour_keys(page, 'quick')) == QUICK_RUNS
     for after, want in WHATS_NEW_RUNS.items():
         keys = page.evaluate("(v) => window.QuickStart.newSteps(v, null)", after)
         assert _runs(page, keys) == want, after
     keys = page.evaluate("() => window.QuickStart.newSteps('1.5.2', null)")
-    # the owner's steps 11 and 12, five places on since Quick Palettes,
-    # IP addresses and The neutral (1.7.0), Single mode or multimode and Every box in one
-    # list (both 1.6.0) came in ahead of them
-    assert keys[15:17] == ['jumperNames', 'pullPanels'], keys
-    assert 'fiberMode' in keys[:15] and 'procCableList' in keys[:15], keys
-    assert 'quickPalettes' in keys[:15] and 'processorIp' in keys[:15], keys
-    assert 'distroNeutral' in keys[:15], keys
+    # the owner's steps 11 and 12, seven places on since Quick Palettes,
+    # IP addresses, A breaker past its connector, Edison outputs and The
+    # neutral (1.7.0), Single mode or multimode and Every box in one list
+    # (both 1.6.0) came in ahead of them
+    assert keys[17:19] == ['jumperNames', 'pullPanels'], keys
+    assert 'fiberMode' in keys[:17] and 'procCableList' in keys[:17], keys
+    assert 'quickPalettes' in keys[:17] and 'processorIp' in keys[:17], keys
+    assert 'breakerOver' in keys[:17] and 'edisonType' in keys[:17], keys
+    assert 'distroNeutral' in keys[:17], keys
     assert page.evaluate("() => window.QuickStart.windowsOf('jumperNames')") == ['export:pull-sheet']
     # Cable stock, then A list for each kind of cable, then the stock
     # pieces typed into the tray (owner, 2026-11-04)
@@ -349,7 +358,7 @@ def test_whats_new_keeps_shared_windows_up(page, after):
     missing = _run_pairs(WHATS_NEW_RUNS[after]) - held
     assert not missing, f"no window was up to hold for {sorted(missing)}"
     if after == '1.5.2':
-        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 15
+        assert ('jumperNames', 'pullPanels') in held and keys.index('jumperNames') == 17
         assert ('cableStock', 'cableStockPerKind') in held, sorted(held)
         assert keys.index('cableStockPerKind') == keys.index('cableStock') + 1, keys
         assert keys.index('cableStockPieces') == keys.index('cableStockPerKind') + 1, keys
