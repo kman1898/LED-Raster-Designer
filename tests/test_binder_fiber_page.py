@@ -448,6 +448,78 @@ def test_the_title_block_on_or_off(page):
     assert off['fiber']['scale'] >= on['fiber']['scale'], (on['fiber'], off['fiber'])
 
 
+# ── never wider than the sheet ──────────────────────────────────────────
+
+SHEETS = ('letter', 'a4', 'tabloid', 'a3', 'archc', 'archd')
+SHEET_IN = {'letter': (11, 8.5), 'a4': (11.69, 8.27), 'tabloid': (17, 11),
+            'a3': (16.54, 11.69), 'archc': (24, 18), 'archd': (36, 24)}
+# app-binder.js: 200 px/in, the border's PAD, the title block, the drawing
+# area's pad, the table gap; app-binder-fiber.js: the drawing columns' gap
+PX_IN, PAD, TB_W, DA_PAD, COL_GAP, DRAW_GAP = 200, 50, 480, 30, 30, 70
+
+
+def _da(sheet, tb):
+    w, h = SHEET_IN[sheet]
+    W, H = w * PX_IN, h * PX_IN
+    tbx = W - PAD - (TB_W if tb else 0)
+    return tbx - PAD - DA_PAD * 2, H - PAD * 2 - DA_PAD * 2
+
+
+def _overflow(plan, sheet, tb):
+    """Every Fiber sheet's drawing and tables, at its scale, against the
+    drawing area: what runs past its right or its foot."""
+    da_w, da_h = _da(sheet, tb)
+    bad = []
+    for p in plan:
+        f, s = p['fiber'], p['scale']
+        draw = f['drawCols'] * f['drawW'] + max(0, f['drawCols'] - 1) * DRAW_GAP if f['drawCols'] else 0
+        tables = f['tableCols'] * f['tableW'] + max(0, f['tableCols'] - 1) * COL_GAP if f['tableCols'] else 0
+        across = max(draw, tables) if f['under'] or not draw else draw + (COL_GAP * 2 + tables if tables else 0)
+        if across * s > da_w + 1:
+            bad.append((p['title'], 'wide', round(across * s), round(da_w)))
+        ext = p.get('extent')
+        if ext and (ext['w'] * s > da_w + 1 or ext['h'] * s > da_h + 1):
+            bad.append((p['title'], 'extent', ext, s))
+    return bad
+
+
+@pytest.mark.parametrize('sheet', SHEETS)
+def test_the_page_never_runs_past_the_drawing_area(page, sheet):
+    """Owner, 2026-11-13: at letter the Fiber drawing was laid out at the
+    base size, wider than the room beside the title block, and its
+    breakout boxes ran under the logo and the revisions. On every sheet,
+    with the block on or off, the drawing and its tables stand inside the
+    drawing area - scaled down to its width where it is wider."""
+    pg, _ids = page
+    for tb in (True, False):
+        plan = [p for p in pg.evaluate(PLAN_JS, _opts(sheet=sheet, titleBlock=tb)) if p['kind'] == 'fiber']
+        assert plan, (sheet, tb)
+        assert not _overflow(plan, sheet, tb), (sheet, tb, _overflow(plan, sheet, tb), plan)
+
+
+def test_at_letter_the_drawing_fills_the_width_and_the_tables_start_under_it(page):
+    """The seeded show at letter: the drawing as wide as the drawing area
+    lets it (not left at the base size and cut by the block), and the
+    tables start in the room under it on the same sheet rather than
+    leaving that blank."""
+    pg, _ids = page
+    plan = [p for p in pg.evaluate(PLAN_JS, _opts(sheet='letter')) if p['kind'] == 'fiber']
+    f, s = plan[0]['fiber'], plan[0]['scale']
+    da_w, _ = _da('letter', True)
+    assert f['drawW'] > da_w, f  # wider than the sheet at the base size
+    assert s < 1 and f['drawW'] * s <= da_w + 1, (s, f)
+    assert f['tableCols'] >= 1 and f['under'], f
+    sheets = pg.evaluate(PAINT_JS, _opts(sheet='letter'))
+    texts = [t for sh in sheets for t in sh['texts']]
+    assert 'BREAKOUT BOX' in sheets[0]['texts'], sheets[0]['texts'][:40]
+    assert any(t.startswith('STRAND MAP') for t in sheets[0]['texts']), sheets[0]['texts']
+    assert 'FIBER CABLES · PULL LIST' in texts
+    assert not [t for t in texts if t.endswith(chr(0x2026))]
+    report = pg.evaluate(RULE_JS, [_opts(sheet='letter', cover=False)])
+    bad = _struck([p for p in report if p['kind'] == 'fiber'])
+    assert not bad, '\n' + '\n'.join(bad)
+
+
 # ── that much fiber: two columns ─────────────────────────────────────────
 
 @pytest.fixture(scope="module")
@@ -487,3 +559,16 @@ def test_past_two_columns_it_continues_onto_the_next_sheet(many):
     assert drawn == [f'RACK {i}' for i in range(1, 17)], drawn
     assert plan[0]['fiber']['drawCols'] == 2, plan[0]
     assert all(p['scale'] >= 0.8 for p in plan), plan
+
+
+@pytest.mark.parametrize('sheet', SHEETS)
+def test_that_much_fiber_never_runs_past_the_drawing_area(many, sheet):
+    pg = many
+    for n in (8, 16):
+        assert pg.evaluate(MANY_JS, n) == n
+        for tb in (True, False):
+            plan = [p for p in pg.evaluate(PLAN_JS, _opts(sheet=sheet, titleBlock=tb)) if p['kind'] == 'fiber']
+            drawn = [t for p in plan for col in p['fiber']['procs'] for t in col]
+            assert [t.replace(' (cont.)', '') for t in drawn if not t.endswith('(cont.)')] == \
+                [f'RACK {i}' for i in range(1, n + 1)], (sheet, tb, drawn)
+            assert not _overflow(plan, sheet, tb), (sheet, tb, _overflow(plan, sheet, tb))

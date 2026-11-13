@@ -602,8 +602,14 @@ class _BinderFiber {
             for (let t = 1; t <= 4; t++) if (!consider(k, t, true, split, drawW, drawH)) break;
         }
         const pick = (list) => list.reduce((best, x) => (!best || x.scale > best.scale * 1.01 ? x : best), null);
-        const oneFits = tries.some(x => x.k === 1 && x.scale >= 1);
-        const best = pick(tries.filter(x => x.scale >= 1))
+        // One column "fits" at the base size - or, where the drawing is
+        // wider than the sheet (a letter sheet beside the title block), at
+        // the size the sheet's width allows it: no larger scale is open to
+        // it on any sheet, so that is its whole size (owner, 2026-11-13:
+        // the letter Fiber page ran under the title block).
+        const full = Math.floor(Math.min(1, da.w / geo.w) * 1000) / 1000;
+        const oneFits = tries.some(x => x.k === 1 && x.scale >= full);
+        const best = pick(tries.filter(x => x.scale >= (x.k === 1 ? full : 1)))
             || (!oneFits && pick(tries.filter(x => x.k === 2 && x.scale >= TWO_MIN)));
         if (best) {
             this._bfPage(book, { scale: best.scale, extent: best.extent, cols: best.split.cols,
@@ -616,10 +622,12 @@ class _BinderFiber {
         // as they go, the rest on the next sheet at 1.
         const s2 = Math.floor(Math.min(1, da.w / (2 * geo.w + DRAW_GAP)) * 1000) / 1000;
         const two = geo.groups.length > 1 && s2 >= TWO_MIN;
-        const oneColH = da.h - frame - under;
+        const oneColH = da.h / full - frame - under;
         const oneHolds = geo.groups.reduce((h, g, i) => h + g.h + (i ? PROC_GAP : 0), 0) <= oneColH;
-        const S = two && !oneHolds ? s2 : 1;
         const n = two && !oneHolds ? 2 : 1;
+        // never wider than the sheet: one column no larger than the width
+        // lets it stand (the two are at s2, already held to it)
+        const S = n === 2 ? s2 : full;
         const colH = da.h / S - frame - under;
         // (the tables as wide as the room beside the drawing leaves, where
         // that is a table's width)
@@ -644,13 +652,29 @@ class _BinderFiber {
             groups = groups.slice(i);
             const drawW = cols.length ? cols.length * geo.w + (cols.length - 1) * DRAW_GAP + COL_GAP * 2 : 0;
             const across = Math.floor((da.w / scale - drawW + COL_GAP) / (TW + COL_GAP));
-            let tables = null;
+            let tables = null, below = false;
             if (across >= 1 && rest.length && !groups.length) {
                 tables = this._bPack(rest, da.h / scale - GROUP_H, across);
                 rest = tables.rest;
+            } else if (rest.length && !groups.length && cols.length) {
+                // no room beside a drawing as wide as the sheet: the tables
+                // go UNDER it, in what the sheet has left, rather than
+                // leaving that blank and starting them on the next sheet
+                const used = Math.max(...cols.map(c => c.reduce((h, g, j) => h + g.h + (j ? PROC_GAP : 0), 0)));
+                const room = da.h / scale - frame - used - under - BUBBLE_GAP;
+                const acrossU = Math.floor((da.w / scale + COL_GAP) / (TW + COL_GAP));
+                if (acrossU >= 1 && room >= TH_H + ROW_H * 3) {
+                    const packed = this._bPack(rest, room, acrossU);
+                    if (packed.cols.some(c => c.items.length)) {
+                        tables = packed;
+                        rest = packed.rest;
+                        below = true;
+                    }
+                }
             }
             this._bfPage(book, { scale, extent: { w: da.w / scale, h: da.h / scale }, cols, tables,
-                                 tableCols: tables ? tables.cols.length : 0, TW, geo, cont: !first, first });
+                                 tableCols: tables ? tables.cols.length : 0, TW, geo, cont: !first, first,
+                                 under: below });
             first = false;
             if (!cols.length && (!tables || !tables.cols.length)) break;
         }
