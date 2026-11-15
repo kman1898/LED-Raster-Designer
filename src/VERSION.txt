@@ -385,7 +385,10 @@ DIFFERENT POWER ON ONE SCREEN
   breaker 3, and the two together are held to 80% of it (16 A on a 20 A
   breaker), else both read OVER. The home run to the splitter and each
   leg's own run take a length each, and the pull sheet and binder list the
-  splitter, its home run and each leg's Socapex and breakout.
+  splitter, its home run and each leg's Socapex and breakout. Balance
+  knows the two legs share breakers: it keeps every pair within its limit,
+  never makes a new OVER, and fixes a pair already over when the multis
+  can be arranged to fix it.
 
 POWER FIXES
 

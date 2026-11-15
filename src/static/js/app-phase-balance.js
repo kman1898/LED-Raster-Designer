@@ -94,7 +94,7 @@ class _PhaseBalance {
                     const circuits = members.flatMap(m => m.s.legs
                         .map((leg, li) => ({ layer: m.layer, s: m.s, li, leg })));
                     out.push({
-                        layer, soca: s.soca, name: s.name, distroId: d.id,
+                        layer, soca: s.soca, name: s.name, distroId: d.id, number: s.number,
                         legs: total, members, boxSize,
                         locked: members.some(m => !!this._layerLocked(m.layer)),
                         hidden: members.every(m => m.layer.visible === false),
@@ -114,7 +114,7 @@ class _PhaseBalance {
                 if (s.legs.length >= ownSize) continue;
                 const positions = this.socaCircuitPositions(layer, s.soca, s.legs.length);
                 out.push({
-                    layer, soca: s.soca, name: s.name, distroId: d.id,
+                    layer, soca: s.soca, name: s.name, distroId: d.id, number: s.number,
                     legs: s.legs.length,
                     boxSize: ownSize,
                     locked: !!this._layerLocked(layer),
@@ -228,7 +228,25 @@ class _PhaseBalance {
         this._circuitTailCache = null;
         const L = this.getDistroLoads().find(b => b.id === distroId);
         if (!L || !L.legs) return null;
-        return { imb: L.imbalancePct, busiest: L.legs.worstAmps };
+        return Object.assign({ imb: L.imbalancePct, busiest: L.legs.worstAmps },
+                             this._balanceTwoferOver(distroId));
+    }
+
+    // The amps past their limits on a distro's Soca two-fer breakers, as
+    // twoferPairs reads them: { over (summed), overBy (breaker key ->
+    // amps past), outputs (output -> amps past) }. All zero and empty on
+    // a distro with no two-fer.
+    _balanceTwoferOver(distroId) {
+        const out = { over: 0, overBy: new Map(), outputs: new Map() };
+        const d = this.getDistros().find(x => x.id === distroId);
+        if (!d || typeof this.twoferPairs !== 'function') return out;
+        for (const r of this.twoferPairs(d)) {
+            const v = Math.max(0, r.amps - r.limitA);
+            out.overBy.set(`${r.output}:${r.tail}`, v);
+            out.outputs.set(r.output, (out.outputs.get(r.output) || 0) + v);
+            out.over += v;
+        }
+        return out;
     }
 
     // The leg phasor ONE circuit adds when it sits on `tail`, as
@@ -266,10 +284,16 @@ class _PhaseBalance {
         };
     }
 
-    // The objective, lexicographic: lower imbalance first, then the lighter
-    // busiest leg. (A result whose busiest leg is heavier than before is
-    // never a candidate at all - see _balanceSolve.)
+    // The objective, lexicographic: fewer amps past a Soca two-fer's shared
+    // breakers first (`over`, none on a distro without one), then lower
+    // imbalance, then the lighter busiest leg. (A result whose busiest leg
+    // is heavier than before is never a candidate at all - see
+    // _balanceSolve.)
     _balanceBetter(a, b) {
+        const ao = a.over || 0;
+        const bo = b.over || 0;
+        if (ao < bo - BALANCE_TIE_A) return true;
+        if (ao > bo + BALANCE_TIE_A) return false;
         if (a.imb < b.imb - BALANCE_TIE_PCT) return true;
         return Math.abs(a.imb - b.imb) <= BALANCE_TIE_PCT
             && a.busiest < b.busiest - BALANCE_TIE_A;
@@ -278,10 +302,20 @@ class _PhaseBalance {
     // Whether a REAL result is worth offering over the REAL current
     // figures: the busiest leg no heavier, and either the imbalance
     // clearly lower or - at the same imbalance - the busiest leg clearly
-    // lighter.
+    // lighter. On a Soca two-fer: no shared breaker further past its limit
+    // than now (`overBy`), and fewer amps past the limits in all is worth
+    // offering on its own.
     _balanceGains(after, before) {
         if (!after || !before) return false;
         if (after.busiest > before.busiest + BALANCE_TIE_A) return false;
+        const by = after.overBy || new Map();
+        for (const [k, v] of by) {
+            if (v > ((before.overBy && before.overBy.get(k)) || 0) + BALANCE_TIE_A) return false;
+        }
+        const ao = after.over || 0;
+        const bo = before.over || 0;
+        if (ao > bo + BALANCE_TIE_A) return false;
+        if (ao < bo - BALANCE_TIE_A) return true;
         if (after.imb < before.imb - BALANCE_GAIN_PCT) return true;
         return after.imb <= before.imb + BALANCE_TIE_PCT
             && after.busiest < before.busiest - BALANCE_GAIN_A;
@@ -340,10 +374,51 @@ class _PhaseBalance {
         if (!d || names.length < 2 || !res.before || !free.length) return res;
 
         const face = this.distroFace(d);
+        // A Soca two-fer's leg B (app-soca-twofer.js) is its output's box
+        // under its own number, so its circuits key to leg A's. Circuit N of
+        // each leg on breaker N is the two-fer working as built, never one
+        // circuit patched twice: leg B keys apart here, and the pair is held
+        // to its breaker by the amps below.
         const keyOf = (s, tail) => {
             const box = face ? this.faceBox(d, s.number) : null;
-            return box ? this._facePhysical(face, box, tail).key : `${s.number}:${tail}`;
+            if (!box) return `${s.number}:${tail}`;
+            const key = this._facePhysical(face, box, tail).key;
+            return box.twoferLeg === 'B' ? `${key}:B` : key;
         };
+        // THE TWO-FER'S SHARED BREAKERS (owner ruling, 2026-11-14). Every
+        // circuit on a two-fer leg books its amps on breaker `${output}:N`,
+        // and the circuits on one breaker stay within its limit together
+        // (twoferPairs reads the same limit, so Balance holds a pair to
+        // exactly what reads OVER). A breaker within its limit now stays
+        // within it; one already over is never left further over. The
+        // amps past the limits, summed, come first in the objective, so an
+        // OVER is fixed when an arrangement can fix it. A distro with no
+        // two-fer books nothing here and balances as it always did.
+        const twofers = typeof this.distroTwoferOutputs === 'function'
+            && this.distroTwoferOutputs(d).length > 0;
+        const twLimit = twofers ? this._twoferLimitFn(d) : null;
+        const twHidden = (layer) => (typeof this._screenHidden === 'function'
+            ? this._screenHidden(layer) : layer.visible === false);
+        // [{ key, amps, cap }] for circuit `leg` of multi `s` on `tail`, or
+        // null off a two-fer (a hidden screen is left out, as twoferPairs
+        // leaves it out).
+        const twEntry = (layer, s, leg, tail) => {
+            if (!twofers || twHidden(layer)) return null;
+            const tw = this.twoferOf(d, s.number);
+            if (!tw) return null;
+            return { key: `${tw.output}:${tail}`, amps: Number(leg.amps) || 0,
+                     cap: twLimit(layer, s, tw.output) };
+        };
+        // breaker key -> { amps, caps } (a breaker's limit is its smallest cap)
+        const twAdd = (st, e, sign) => {
+            let r = st.get(e.key);
+            if (!r) { r = { amps: 0, caps: [] }; st.set(e.key, r); }
+            r.amps += sign * e.amps;
+            if (sign > 0) r.caps.push(e.cap); else r.caps.pop();
+        };
+        const twExcess = (amps, caps) => (caps.length ? Math.max(0, amps - Math.min(...caps)) : 0);
+        const twFixed = [];
+        const twNow = new Map();
         const searchedMulti = new Set();
         free.forEach(t => t.circuits.forEach(c => searchedMulti.add(`${c.layer.id}:${c.s.soca}`)));
         // Everything on the distro that is not searched, where it sits now;
@@ -363,7 +438,10 @@ class _PhaseBalance {
                     const tail = pos[li] || li + 1;
                     const key = keyOf(s, tail);
                     bump(now, key);
+                    const tw = twEntry(layer, s, leg, tail);
+                    if (tw) twAdd(twNow, tw, 1);
                     if (searched) return;
+                    if (tw) twFixed.push(tw);
                     bump(fixed, key);
                     const v = this._balanceCircuitPhasor(d, { layer, s, leg }, tail);
                     for (let i = 0; i < 6; i++) base[i] += v[i];
@@ -373,6 +451,22 @@ class _PhaseBalance {
         // A physical circuit may carry what it carries now (a double patch
         // already on the drawing is the distro check's to say), never more.
         const limit = (k) => Math.max(1, now.get(k) || 0);
+        // How far past its limit a two-fer breaker may be: as far as it is
+        // now, so none within it goes over and none over goes further.
+        const twAllowed = new Map([...twNow].map(([k, r]) => [k, twExcess(r.amps, r.caps)]));
+        const twState = new Map();
+        twFixed.forEach(e => twAdd(twState, e, 1));
+        // Whether option `o` fits on the two-fer breakers of `st` as it is.
+        const twFits = (o, st) => o.tw.every(e => {
+            const r = st.get(e.key) || { amps: 0, caps: [] };
+            return twExcess(r.amps + e.amps, [...r.caps, e.cap])
+                <= (twAllowed.get(e.key) || 0) + BALANCE_TIE_A;
+        });
+        const twTotal = (st) => {
+            let t = 0;
+            st.forEach(r => { t += twExcess(r.amps, r.caps); });
+            return t;
+        };
 
         const options = free.map(t => {
             const opts = [{ keep: true, tails: t.fromFlat.slice() }];
@@ -384,6 +478,8 @@ class _PhaseBalance {
             }
             for (const o of opts) {
                 o.keys = t.circuits.map((c, k) => keyOf(c.s, o.tails[k]));
+                o.tw = t.circuits.map((c, k) => twEntry(c.layer, c.s, c.leg, o.tails[k]))
+                    .filter(Boolean);
                 o.vec = [0, 0, 0, 0, 0, 0];
                 t.circuits.forEach((c, k) => {
                     const v = this._balanceCircuitPhasor(d, c, o.tails[k]);
@@ -391,18 +487,27 @@ class _PhaseBalance {
                 });
             }
             return opts.filter(o => o.keep
-                || o.keys.every(k => (fixed.get(k) || 0) + 1 <= limit(k)));
+                || (o.keys.every(k => (fixed.get(k) || 0) + 1 <= limit(k))
+                    && twFits(o, twState)));
         });
         res.options = options;
         res.total = options.reduce((p, o) => p * o.length, 1);
 
         const used = new Map(fixed);
-        const fits = (o) => o.keys.every(k => (used.get(k) || 0) + 1 <= limit(k));
-        const take = (o, sign) => o.keys.forEach(k => used.set(k, (used.get(k) || 0) + sign));
+        const fits = (o) => o.keys.every(k => (used.get(k) || 0) + 1 <= limit(k))
+            && twFits(o, twState);
+        const take = (o, sign) => {
+            o.keys.forEach(k => used.set(k, (used.get(k) || 0) + sign));
+            o.tw.forEach(e => twAdd(twState, e, sign));
+        };
         const plus = (a, b) => a.map((x, i) => x + b[i]);
+        const scored = (vec) => Object.assign(this._balanceFigures(vec, names),
+                                              { over: twTotal(twState) });
 
-        const current = this._balanceFigures(
-            options.reduce((v, o) => plus(v, o[0].vec), base), names);
+        // where everything sits now: every option 0, on the breakers as now
+        options.forEach(o => o[0].tw.forEach(e => twAdd(twState, e, 1)));
+        const current = scored(options.reduce((v, o) => plus(v, o[0].vec), base));
+        options.forEach(o => o[0].tw.forEach(e => twAdd(twState, e, -1)));
         res.model = current;
         let best = current;
         let bestChoice = free.map(() => 0);
@@ -422,7 +527,7 @@ class _PhaseBalance {
             const cur = free.map(() => 0);
             const walk = (t, vec) => {
                 if (t === options.length) {
-                    consider(this._balanceFigures(vec, names), cur);
+                    consider(scored(vec), cur);
                     return;
                 }
                 for (let i = 0; i < options[t].length; i++) {
@@ -441,6 +546,8 @@ class _PhaseBalance {
             const valid = (choice) => {
                 used.clear();
                 fixed.forEach((n, k) => used.set(k, n));
+                twState.clear();
+                twFixed.forEach(e => twAdd(twState, e, 1));
                 for (let t = 0; t < options.length; t++) {
                     const o = options[t][choice[t]];
                     if (!fits(o)) return false;
@@ -458,7 +565,7 @@ class _PhaseBalance {
                         const next = choice.slice();
                         next[t] = i;
                         if (!valid(next)) continue;
-                        if (consider(this._balanceFigures(vecOf(next), names), next)) {
+                        if (consider(scored(vecOf(next)), next)) {
                             choice = next;
                             moved = true;
                         }
@@ -549,8 +656,9 @@ class _PhaseBalance {
             this._circuitTailCache = null;
             for (const L of this.getDistroLoads()) {
                 if (L.id && L.legs) {
-                    out.set(L.id, { imb: L.imbalancePct, busiest: L.legs.worstAmps,
-                                    neutral: L.neutral ? L.neutral.amps : null });
+                    out.set(L.id, Object.assign({ imb: L.imbalancePct, busiest: L.legs.worstAmps,
+                                                  neutral: L.neutral ? L.neutral.amps : null },
+                                                this._balanceTwoferOver(L.id)));
                 }
             }
         } finally {
@@ -596,6 +704,29 @@ class _PhaseBalance {
             }
         });
         const moves = proposed.filter((p, i) => kept.has(solved[i].distroId)).flat();
+
+        // Each Soca two-fer on a distro solved (app-soca-twofer.js), for the
+        // dialog's line about it: { name, before, after (amps past its
+        // breakers' limits), moved (a multi on one of its legs moves) }.
+        const twofers = [];
+        solved.forEach(r => {
+            const d = this.getDistros().find(x => x.id === r.distroId);
+            if (!d || !r.before || typeof this.distroTwoferOutputs !== 'function') return;
+            const after = kept.has(r.distroId) ? afterReal.get(r.distroId) : null;
+            const moved = new Set();
+            if (kept.has(r.distroId)) {
+                r.targets.forEach((t, k) => {
+                    const o = r.options[k] && r.options[k][r.choice[k]];
+                    if (o && !o.keep && this.twoferOf(d, t.number)) moved.add(this.twoferOutputOf(t.number));
+                });
+            }
+            for (const output of this.distroTwoferOutputs(d)) {
+                const before = r.before.outputs.get(output) || 0;
+                twofers.push({ name: this.twoferName(d, output), before,
+                               after: after ? (after.outputs.get(output) || 0) : before,
+                               moved: moved.has(output) });
+            }
+        });
 
         // The headline figures. Scoped: that distro's. Show-wide: the worst
         // distro, before and after, the busiest leg likewise.
@@ -650,6 +781,7 @@ class _PhaseBalance {
                 layers: [...new Set((t.members ? t.members.map(m => m.layer) : [t.layer])
                     .map(l => l.name))],
             })),
+            twofers,
             moves,
         };
     }
@@ -752,7 +884,8 @@ class _PhaseBalance {
                  <span style="font-size:22px; color:#e05050;">${r.before.toFixed(1)}%</span>
                  <span style="color:#7d8894;">→</span>
                  <span style="font-size:22px; color:#5fa85f;">${r.after.toFixed(1)}%</span>
-                 <span style="color:#8fa0b2; font-size:11px;">worst-leg imbalance · ${gain.toFixed(1)} points better</span>
+                 <span style="color:#8fa0b2; font-size:11px;">worst-leg imbalance · ${gain < -0.05
+                     ? `${(-gain).toFixed(1)} points worse` : `${Math.max(0, gain).toFixed(1)} points better`}</span>
                </div>
                <div class="balance-busiest" style="color:#8fa0b2; font-size:11px; margin-bottom:14px;">Busiest leg ${amps(r.beforeBusiest)} → ${amps(r.afterBusiest)}</div>
                <div style="font-size:11px; color:#8a949f; margin-bottom:6px;">Re-plug these circuits along the same
@@ -775,6 +908,18 @@ class _PhaseBalance {
                legs. Circuits keep wall order across the chosen sockets,
                so the labels still read in order across the wall.
                ${checked}.</div>`;
+
+        // A Soca two-fer (app-soca-twofer.js): one short line where Balance
+        // moved one of its legs, fixed an OVER on it, or could not.
+        const twoferHtml = (r.twofers || []).map(t => {
+            const name = esc(t.name);
+            const line = t.after > BALANCE_GAIN_A
+                ? `Soca two-fer ${name} is still over a breaker. Balance found no arrangement that brings it within.`
+                : t.before > BALANCE_GAIN_A && r.moves.length
+                ? `Soca two-fer ${name} is back within its breakers.`
+                : t.moved ? `Soca two-fer ${name} stays within its breakers.` : '';
+            return line ? `<div class="balance-twofer" style="color:#a6b0bb; margin:8px 0 0;">${line}</div>` : '';
+        }).join('');
 
         // The power in's neutral (2026-11-11, app-neutral.js): what it
         // carries now and after, against its rating where one distro is
@@ -800,7 +945,7 @@ class _PhaseBalance {
     <h2 style="margin:0; font-size:15px; letter-spacing:0.5px;">BALANCE PHASE LEGS${distro ? `: ${esc(this.distroLabel(distro)).toUpperCase()}` : ''}</h2>
     <button class="btn btn-secondary balance-close" style="padding:4px 12px;">✕</button>
   </div>
-  <div style="padding:16px 20px; font-size:12px; line-height:1.55;">${body}${neutralHtml}</div>
+  <div style="padding:16px 20px; font-size:12px; line-height:1.55;">${body}${twoferHtml}${neutralHtml}</div>
   <div style="display:flex; gap:8px; justify-content:flex-end; padding:0 20px 16px;">
     <button class="btn btn-secondary balance-reset" title="Put every multi back on its natural breaker position and number the multis again in screen order">Reset offsets</button>
     <button class="btn btn-secondary balance-close">${r.moves.length ? 'Leave it' : 'Close'}</button>

@@ -295,13 +295,38 @@ class _SocaTwofer {
     // the packing % of the distro (80% US unless its breakers are 100%
     // rated, the breaker itself UK/EU); on a distro with no rows, what the
     // pair's screens pack a circuit to, the smaller.
-    twoferPairs(d) {
-        const outputs = this.distroTwoferOutputs(d);
-        if (!outputs.length) return [];
+    // The limit one circuit of multi `s` (on `layer`) puts on its two-fer
+    // breaker, as a function of (layer, s, output): the output row's
+    // breaker x the packing % on a face distro, else what the screen packs
+    // a circuit to. Infinity where nothing limits it (a face row with no
+    // breaker). A breaker's limit is the smallest of its circuits'. The
+    // checks below and Balance (app-phase-balance.js) both read it, so
+    // Balance holds a pair to exactly what reads OVER.
+    _twoferLimitFn(d) {
         const face = this.distroFace(d);
         const sys = typeof this.distroSystem === 'function' ? this.distroSystem(d) : null;
         const own = typeof this._distroPackPct === 'function' ? this._distroPackPct(d) : null;
         const pct = own === null ? (sys && sys.region === 'us' && !d.breakers100 ? 0.8 : 1) : own;
+        const fn = (layer, s, output) => {
+            if (face) {
+                const box = face.byNumber.get(output);
+                const breakerA = box ? Number(box.breakerA) || 0 : 0;
+                return breakerA > 0 ? breakerA * pct : Infinity;
+            }
+            const capA = s.spec ? s.spec.breakerA * this.circuitCapacity(layer).pct
+                : this.circuitCapacity(layer).amps;
+            return capA > 0 ? capA : Infinity;
+        };
+        fn.pct = pct;
+        return fn;
+    }
+
+    twoferPairs(d) {
+        const outputs = this.distroTwoferOutputs(d);
+        if (!outputs.length) return [];
+        const face = this.distroFace(d);
+        const limitOf = this._twoferLimitFn(d);
+        const pct = limitOf.pct;
         const by = new Map();
         for (const layer of (this.project && this.project.layers) || []) {
             if ((layer.type || 'screen') !== 'screen') continue;
@@ -314,8 +339,7 @@ class _SocaTwofer {
                 if (assign[s.soca] !== d.id) continue;
                 const tw = this.twoferOf(d, s.number);
                 if (!tw) continue;
-                const capA = s.spec ? s.spec.breakerA * this.circuitCapacity(layer).pct
-                    : this.circuitCapacity(layer).amps;
+                const limA = limitOf(layer, s, tw.output);
                 for (const leg of s.legs) {
                     const key = `${tw.output}:${leg.leg}`;
                     let rec = by.get(key);
@@ -323,11 +347,10 @@ class _SocaTwofer {
                         const box = face ? face.byNumber.get(tw.output) : null;
                         const breakerA = box ? Number(box.breakerA) || 0 : 0;
                         rec = { distro: d, output: tw.output, tail: leg.leg, breakerA, pct,
-                                limitA: breakerA > 0 ? breakerA * pct : Infinity,
-                                amps: 0, over: false, holders: [], keys: [] };
+                                limitA: Infinity, amps: 0, over: false, holders: [], keys: [] };
                         by.set(key, rec);
                     }
-                    if (!face && capA > 0) rec.limitA = Math.min(rec.limitA, capA);
+                    rec.limitA = Math.min(rec.limitA, limA);
                     rec.amps += Number(leg.amps) || 0;
                     rec.holders.push({ layer, leg: tw.leg, circuit: leg.circuit,
                                        label: leg.label, amps: Number(leg.amps) || 0 });
