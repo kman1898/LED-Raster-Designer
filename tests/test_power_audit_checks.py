@@ -279,14 +279,17 @@ SOCA30 = distro('d1', 'D1', 200, input='cam200',
 
 def test_30a_breaker_on_socapex_is_over(page):
     """A Socapex 208V row with 30 A breakers feeding a wall on TRUE1: the
-    screen's own box says 20 A (16 A usable, two rows of ten, six circuits,
-    one multi), but the circuits are really on the row's 30 A breakers -
-    past the TRUE1 tails' 20 A."""
+    screen's own box says 20 A, but the circuits are really on the row's
+    30 A breakers - past the TRUE1 tails' 20 A. Since 2026-11-12 the
+    output's breaker is what they pack to (owner: "it should be what a
+    real one would be plugged into"): 208 x 30 x 80% = 4,992 W, three rows
+    of ten 150 W cabinets (4,500 W) a circuit, so 12 rows make 4 circuits,
+    where the screen's 20 A made 6 (208 x 16 = 3,328 W, two rows)."""
     pg, errors = page
     seed(pg, [['WALL A', 10, 12]])
     assert setup(pg, distros=[SOCA30], walls=[{'powerBreakoutType': 'soca-true1'}],
                  assign=[{'distro': 'd1', 'pins': True}]) == [1]
-    text = ('WALL A circuits 1-6: 30 A breaker on TRUE1 (20 A). '
+    text = ('WALL A circuits 1-4: 30 A breaker on TRUE1 (20 A). '
             'Use a 20 A breaker or a connector rated for 30 A.')
     assert pg.evaluate("() => window.app.breakerOverChecks().map(g => g.text)") == [text]
     out = pg.evaluate("""() => ({
@@ -294,7 +297,7 @@ def test_30a_breaker_on_socapex_is_over(page):
         flag: !!document.querySelector('[data-lrd-distro="d1"] [data-lrd-breaker-over="d1"]'),
         flagText: (document.querySelector('[data-lrd-distro="d1"] [data-lrd-breaker-over="d1"]') || {}).textContent,
     })""")
-    assert out == {'chips': 6, 'flag': True, 'flagText': 'OVER'}
+    assert out == {'chips': 4, 'flag': True, 'flagText': 'OVER'}
     assert [w for w in strip(pg) if w['text'] == text] == [{'text': text, 'mild': False, 'offer': None}]
     assert binder_pairs(pg, 'Breaker over').count(text) >= 2   # the distro's sheet and the screen's
     # the row at 20 A clears it
@@ -433,8 +436,9 @@ def test_old_show_edison_reads_5_15_and_flags_over_12a(page):
 def test_us_240v_on_no_distro_packs_to_80(page):
     """240 V, 20 A, no distro: 80% is 16 A, 16 x 240 = 3,840 W (100% was
     4,800 W). 277 V: 16 x 277 = 4,432 W. A show whose distros are all EU
-    reads 240 V as a UK figure: 20 x 240 = 4,800 W. 230 V on no distro
-    stays at its breaker: 20 x 230 = 4,600 W."""
+    reads 240 V the same since the owner's ruling of 2026-11-12 (one rule
+    at every voltage, as 208 V and 110 V): 3,840 W, where it was 20 x 240
+    = 4,800 W. 230 V on no distro stays at its breaker: 20 x 230 = 4,600 W."""
     pg, errors = page
     seed(pg, [['WALL A', 10, 12]])
     cap = "() => { const c = window.app.circuitCapacity(window.app.project.layers[0]); return [c.pct, c.watts, c.us]; }"
@@ -445,9 +449,9 @@ def test_us_240v_on_no_distro_packs_to_80(page):
     # a US distro elsewhere in the show, the screen on none
     setup(pg, walls=[{'powerVoltage': 240}], distros=[distro('d9', 'US', 200, system='120/240')])
     assert pg.evaluate(cap) == [0.8, pytest.approx(3840), True]
-    # every distro in the show EU: 240 V is a UK figure
+    # every distro in the show EU: 240 V packs as 208 V and 110 V do
     setup(pg, walls=[{'powerVoltage': 240}], distros=[distro('d9', 'EU', 63, system='230/400')])
-    assert pg.evaluate(cap) == [1, pytest.approx(4800), False]
+    assert pg.evaluate(cap) == [0.8, pytest.approx(3840), True]
     setup(pg, walls=[{'powerVoltage': 230}])
     assert pg.evaluate(cap) == [1, pytest.approx(4600), False]
     assert errors == []

@@ -187,7 +187,10 @@ def test_jumpers_and_breakouts_follow_each_screens_connector(page):
     Breakout AND a powerCON Breakout on it; each wall's power jumpers under
     its own connector's name, one row per length."""
     pg, errors = page
-    setup(pg, distros=[DIST], walls={
+    # the Socapex on the walls' own 12.5 A: plugged-in circuits pack to the
+    # output's breaker (owner, 2026-11-12), so each wall keeps its circuits
+    soca = [dict(DIST['outputRows'][0], breakerA=12.5)] + DIST['outputRows'][1:]
+    setup(pg, distros=[dict(DIST, outputRows=soca)], walls={
         'a': {'powerBreakoutType': 'soca-true1', 'powerSocaSplits': [3], 'powerAmperage': 12.5,
               'powerSocaDistro': {'1': 'd1', '2': 'd1'}, 'powerSocaNumber': {'1': 1, '2': 2},
               'powerSocaLengths': {'1': '100', '2': '50'}},
@@ -251,7 +254,8 @@ def test_an_edison_screen_picks_its_panel_input(page):
                                   'powerBreakoutType': 'soca-edison'}})['WALL B']
     assert len(nums) == 3, nums
     rows = pg.evaluate(ROWS_JS)
-    assert _qty(rows, 'Edison → TRUE1 cable') == {'EA': 3}, rows
+    # the outlet its 12.5 A Amperage picks, a 5-15 (owner, 2026-11-12)
+    assert _qty(rows, 'Edison 5-15 → TRUE1 cable') == {'EA': 3}, rows
     # never "tail" (the owner, 2026-10-21)
     assert not [r for r in rows if re.search(r'\btails?\b', str(r[0]).lower())], rows
     assert _qty(rows, 'TRUE1 Power Jump') and not _qty(rows, 'Edison Power Jump'), rows
@@ -268,7 +272,7 @@ def test_an_edison_screen_picks_its_panel_input(page):
         .layers.find(l => l.id === id) || {}).powerPanelInput""", ev(pg, "return B.id;"))
     assert served == 'powercon', served
     rows = pg.evaluate(ROWS_JS)
-    assert _qty(rows, 'Edison → powerCON cable') == {'EA': 3} and not _qty(rows, 'Edison → TRUE1 cable'), rows
+    assert _qty(rows, 'Edison 5-15 → powerCON cable') == {'EA': 3}         and not _qty(rows, 'Edison 5-15 → TRUE1 cable'), rows
     assert _qty(rows, 'powerCON Power Jump') and not [r for r in rows if r[0] == 'TRUE1 Power Jump'
                                                        and r[3] == 'WALL B'], rows
     # the splitter is on the panels' side
@@ -388,9 +392,11 @@ def test_the_old_names_carry_over(page):
 
 def test_an_edit_on_the_old_edison_tail_row_answers_to_the_cable_row(page):
     """The 1.5.4 betas printed the Edison adapter as "Edison → TRUE1 tail";
-    it is "Edison → TRUE1 cable" now (the owner, 2026-10-21: never
-    "tail"). An edit a file saved on the old row (its count, its note)
-    lands on the cable row, and the sheet says tail nowhere."""
+    it is "Edison → TRUE1 cable" since (the owner, 2026-10-21: never
+    "tail"), and "Edison 5-15 → TRUE1 cable" on a 12.5 A Edison screen
+    now (its outlet, 2026-11-12). An edit a file saved on the old row (its
+    count, its note) lands on the cable row, and the sheet says tail
+    nowhere."""
     pg, errors = page
     setup(pg, walls={'b': {'powerVoltage': 120, 'powerAmperage': 12.5,
                            'powerBreakoutType': 'soca-edison'}})
@@ -402,7 +408,7 @@ def test_an_edit_on_the_old_edison_tail_row_answers_to_the_cable_row(page):
                     'Edison → TRUE1 cable', 'Edison → TRUE1 tailgate|EA', "TRUE1|10'"], keys
     edited = ev(pg, """
         const sheet = app.buildPullSheet();
-        const pos = sheet.positions.find(p => p.rows.some(r => r.type === 'Edison → TRUE1 cable'));
+        const pos = sheet.positions.find(p => p.rows.some(r => r.type === 'Edison 5-15 → TRUE1 cable'));
         const key = app.pullPositionKey(pos);
         app.project.pullSheetEdits = { positions: { [key]: { rows: [
             { key: 'Edison → TRUE1 tail|EA', qty: 7, notes: 'spares' }], added: [] } } };
@@ -411,8 +417,8 @@ def test_an_edit_on_the_old_edison_tail_row_answers_to_the_cable_row(page):
             .map(r => [r.type, r.length, r.qty, r.notes]);
         delete app.project.pullSheetEdits;
         return { keys, rows };""")
-    assert edited['keys'] == ['Edison → TRUE1 cable|EA'], edited
-    assert ['Edison → TRUE1 cable', 'EA', 7, 'spares'] in edited['rows'], edited
+    assert edited['keys'] == ['Edison 5-15 → TRUE1 cable|EA'], edited
+    assert ['Edison 5-15 → TRUE1 cable', 'EA', 7, 'spares'] in edited['rows'], edited
     assert not [r for r in edited['rows'] if re.search(r'\btails?\b', str(r[0]).lower())], edited
     assert errors == [], errors
 

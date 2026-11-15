@@ -151,9 +151,13 @@ def page(e2e_server, pw_browser):
     context.close()
 
 
-def dist(name, i=1):
+def dist(name, i=1, breaker=20):
+    # `breaker`: the Socapex rows' breaker, which the circuits plugged into
+    # them pack to (owner, 2026-11-12) - the wall's own Amperage where a
+    # test lays one column a circuit
     return {'id': f'd{i}', 'name': name, 'ratingA': 400, 'system': '120/208',
-            'outputRows': [{'id': f'r{i}', 'connector': 'soca', 'count': 130, 'coupling': 'll', 'breakerA': 20}]}
+            'outputRows': [{'id': f'r{i}', 'connector': 'soca', 'count': 130, 'coupling': 'll',
+                            'breakerA': breaker}]}
 
 
 def multis(n, did='d1', start=1, length=None):
@@ -359,7 +363,8 @@ def test_a_deep_stack_of_single_circuit_multis(page, name):
     print tags plus a key wherever their labels would be cut."""
     pg, errors = page
     configure(pg, 'WIDE', {'powerFlowPattern': 'tl-v', 'powerAmperage': 12.5,
-                           'powerSocaSplits': list(range(1, 36)), **multis(36, length='125')}, [dist(name)])
+                           'powerSocaSplits': list(range(1, 36)), **multis(36, length='125')},
+              [dist(name, breaker=12.5)])
     got = run_all(pg, 36)
     if name != 'SR':
         assert got['letter'] == 'tags', got

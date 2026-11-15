@@ -203,9 +203,12 @@ def test_blank_cabinets_draw_no_power_in_the_circuits_loads_and_label(seeded):
 
 def test_eu_powercon_defaults_to_16a_and_a_row_overrides_it(seeded):
     pg, _ = seeded
+    # the rows on the screen's own 20 A breaker: plugged-in circuits pack
+    # to the output's breaker (owner, 2026-11-12), and 32 A would load a
+    # powerCON to 32 A
     eu = {'id': 'd1', 'name': 'UK', 'ratingA': 63, 'system': '230/400',
           'outputRows': [{'id': 'r1', 'connector': 'powercon20', 'count': 3, 'coupling': 'ln',
-                          'breakerA': 32}]}
+                          'breakerA': 20}]}
     rating = ev(pg, """
         const pc = app.distroConnector('powercon20'), t1 = app.distroConnector('true1');
         return [app.connectorRatingA(pc, 'eu'), app.connectorRatingA(pc, 'us'),
@@ -598,7 +601,10 @@ def test_a_connector_change_a_preset_and_a_removed_row_all_ask(seeded):
 
 def test_a_pin_onto_a_direct_output_is_refused(seeded):
     pg, _ = seeded
-    setup(pg, distros=[FACE], walls=WALLS)
+    # WALL B of 550 W cabinets keeps its three circuits: plugged into PD's
+    # 20 A Socapex it packs to that breaker (owner, 2026-11-12), 208 x 20 x
+    # 80% = 3,328 W, six cabinets (3,300 W) a circuit, 18 cabinets make 3.
+    setup(pg, distros=[FACE], walls=dict(WALLS, b=dict(WALLS['b'], panelWatts=550)))
     out = ev(pg, """
         const n = app.historyIndex;
         const touched = app.setSocaNumber(A, 1, 2);

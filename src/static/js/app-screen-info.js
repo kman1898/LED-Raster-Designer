@@ -1679,6 +1679,10 @@ class _ScreenInfo {
         if (typeof this._canvasGuardEdit === 'function' && !this._canvasGuardEdit()) return;
         // Kept 2fers this edit repacked go (app-power pruneStaleKeptShares).
         if (typeof this.pruneStaleKeptShares === 'function') this.pruneStaleKeptShares();
+        // So does an older show's kept layout on a screen whose power this
+        // edit changed (app-power-sources pruneOldPowerRules); another
+        // screen it writes off rides along unsent, as above.
+        if (typeof this.pruneOldPowerRules === 'function') this.pruneOldPowerRules();
 
         // Save state before update if requested
         if (saveHistory) {
@@ -1890,6 +1894,14 @@ class _ScreenInfo {
         if (typeof this.pruneStaleKeptShares === 'function') {
             const pruned = this.pruneStaleKeptShares().filter(l => !layers.includes(l));
             if (pruned.length) layers = layers.concat(pruned);
+        }
+
+        // An older show's kept layout goes from a screen whose power this
+        // edit changed (app-power-sources pruneOldPowerRules), and the
+        // rest of its wall rides along.
+        if (typeof this.pruneOldPowerRules === 'function') {
+            const released = this.pruneOldPowerRules().filter(l => !layers.includes(l));
+            if (released.length) layers = layers.concat(released);
         }
 
         // A power source nobody feeds any more goes, and its circuits

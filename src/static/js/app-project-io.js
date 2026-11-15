@@ -52,6 +52,8 @@ class _ProjectIo {
     // this, so a round trip through File > Open reads the stamp back.
     serializeProjectForFile(project = this.project) {
         project.app_version = this.appVersion();
+        // and the power rules it is laid out by (app-power-sources.js)
+        if (typeof this.stampPowerRules === 'function') this.stampPowerRules(project);
         return JSON.stringify(this._projectWithOpenRedraw(project), null, 2);
     }
 
@@ -67,6 +69,7 @@ class _ProjectIo {
 
     saveProject() {
         this.project.app_version = this.appVersion();
+        if (typeof this.stampPowerRules === 'function') this.stampPowerRules(this.project);
         fetch('/api/project', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -444,6 +447,12 @@ class _ProjectIo {
                     this.normalizeLoadedPowerFlowPattern(layer);
                 });
             }
+            // A show saved before the power rules of 2026-11-12
+            // keeps every screen's circuits as they were laid out
+            // until that screen's power is edited (app-power-sources
+            // keepOldPowerRules), so nothing moves on open. First,
+            // so the kept 2fers below read the screens as kept.
+            if (typeof this.keepOldPowerRules === 'function') this.keepOldPowerRules(this.project);
             // A show saved before US circuits packed to 80%
             // keeps its automatic 2fers and 3fers as saved
             // (app-power keepOlderShowShares). Read off the

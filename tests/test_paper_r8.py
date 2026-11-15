@@ -231,7 +231,7 @@ def test_sixty_multis_across_a_wide_wall_print_tags_never_cut(page, names):
             'powerSocaDistro': {str(i): f'd{(i - 1) % k + 1}' for i in range(1, 61)},
             'powerSocaNumber': {str(i): (i - 1) // k + 1 for i in range(1, 61)},
             'powerSocaLengths': {str(i): '125' for i in range(1, 61)}}
-    configure(pg, 'XWIDE', wall, [dist(nm, i + 1) for i, nm in enumerate(names)])
+    configure(pg, 'XWIDE', wall, [dist(nm, i + 1, breaker=10) for i, nm in enumerate(names)])
     got = {sheet: check(sheet, pg.evaluate(SHEET_JS, sheet), 60) for sheet in SHEETS}
     assert got['letter'] == got['a4'] == 'tags', got
     for sheet in ('letter', 'a4'):

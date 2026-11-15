@@ -37,6 +37,15 @@ class _Distros {
         if (typeof this._followingHolds === 'function' && this._followingHolds('distros')) {
             return Promise.resolve();
         }
+        // A row change under a screen an older show keeps lets its kept
+        // layout go, or a locked one takes the new reading
+        // (app-power-sources pruneOldPowerRules); the screens it wrote are
+        // saved with it.
+        if (typeof this.pruneOldPowerRules === 'function') {
+            this.pruneOldPowerRules().forEach(l => {
+                if (typeof this._putLayer === 'function') this._putLayer(l.id, l);
+            });
+        }
         const send = () => {
             const body = { distros: this.getDistros() };
             if (this.project && Array.isArray(this.project.services)) {
@@ -284,8 +293,11 @@ class _Distros {
             && (patch.voltage !== undefined || patch.phase !== undefined);
         // An Edison row's 5-15 or 5-20 moves what its screens pack to
         // (circuitCapacity's connector cap, owner 2026-11-11).
+        // So does any row's breaker, or what a row is (owner, 2026-11-12:
+        // the circuits pack to the breaker of the output they are on).
         const edisonOf = (rows) => JSON.stringify((Array.isArray(rows) ? rows : [])
-            .filter(r => r && r.connector === 'edison').map(r => [r.id, r.edisonType || null]));
+            .map(r => r && [r.id, r.connector, r.count, r.breakerA, r.pairedWith || null,
+                            r.connector === 'edison' ? (r.edisonType || null) : null]));
         const edison = patch.outputRows !== undefined
             && edisonOf(patch.outputRows) !== edisonOf(d.outputRows);
         if (!flips && !moves && !pair && !edison) return false;
@@ -336,7 +348,7 @@ class _Distros {
         if (typeof this.circuitCapacity !== 'function' || typeof apply !== 'function') return false;
         const locked = this._repackLockedScreens(near);
         if (!locked.length) return false;
-        const pctOf = () => new Map(locked.map(l => [l, this.circuitCapacity(l).pct]));
+        const pctOf = () => new Map(locked.map(l => [l, this._repackFigure(l)]));
         this._circuitTailCache = null;
         const before = pctOf();
         const release = this._holdPowerRecords();
@@ -350,6 +362,15 @@ class _Distros {
         }
         const repacked = locked.filter(l => before.get(l) !== after.get(l));
         return repacked.length ? this._lockedRefused(repacked, 'repack') : false;
+    }
+
+    // What a locked screen packs to, as the repack locks compare it: its
+    // packing % and its usable amps a circuit (circuitCapacity), since the
+    // breaker of the outputs it is plugged into moves its packing as well
+    // as the % (owner, 2026-11-12).
+    _repackFigure(layer) {
+        const c = this.circuitCapacity(layer);
+        return `${c.pct}|${+Number(c.amps || 0).toFixed(6)}`;
     }
 
     // The locked screens a change near `near` (a layer or a list) can
@@ -398,7 +419,7 @@ class _Distros {
         const shared = typeof this._lockedOnDistrosOf === 'function'
             ? this._lockedOnDistrosOf([...reach]) : [];
         if (!locked.length && !shared.length) return null;
-        const pctOf = () => new Map(locked.map(l => [l, this.circuitCapacity(l).pct]));
+        const pctOf = () => new Map(locked.map(l => [l, this._repackFigure(l)]));
         const factsOf = () => new Map(shared.map(l => [l, this._lockedPowerFacts(l)]));
         this._circuitTailCache = null;
         const before = pctOf();
@@ -440,7 +461,7 @@ class _Distros {
         if (typeof this.circuitCapacity !== 'function') return shared;
         const locked = this._repackLockedScreens(near);
         if (!locked.length) return shared;
-        const pctOf = () => new Map(locked.map(l => [l, this.circuitCapacity(l).pct]));
+        const pctOf = () => new Map(locked.map(l => [l, this._repackFigure(l)]));
         this._circuitTailCache = null;
         const before = pctOf();
         const release = this._holdPowerRecords();

@@ -473,6 +473,14 @@ class _MenuBar {
                     this._mergeMenuAction.run();
                 }
                 break;
+            // "Reset these circuits" on a hole, armed at open time on the
+            // circuit the cursor named, same doctrine.
+            case 'hw-reset-hole':
+                if (this._resetHoleMenuAction
+                        && typeof this._resetHoleMenuAction.run === 'function') {
+                    this._resetHoleMenuAction.run();
+                }
+                break;
             // The Soca two-fer's add or remove, same doctrine: armed at open
             // time on the output the cursor named, re-checked here; a
             // refused add stays on the menu to be read, never to run.

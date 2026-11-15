@@ -67,6 +67,9 @@ export function stripScreenFeeds(layer) {
     // Nor is a copy a mirror (2026-10-30): the source's copy outputs carry
     // one mirror screen, and a copy would claim the same sockets.
     delete layer.dataMirrorOf;
+    // Nor does it keep an older show's circuits as they were laid out
+    // (app-power-sources.js powerOldRules): a copy is a new screen.
+    delete layer.powerOldRules;
     return layer;
 }
 

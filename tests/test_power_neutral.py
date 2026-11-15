@@ -18,8 +18,9 @@ The model (app-neutral.js):
     a continuous load, NEC 215.2(A)(1)); amber past 80% of it on a US
     system whose main is not 100% rated, the way the legs' limit reads.
   * h: Active PFC (low) 33%, No PFC (high) 87%, or a Custom percent; the
-    show sets it, a screen may set its own. A show with none reads No PFC,
-    the most conservative sourced figure, PENDING THE OWNER'S RULING.
+    show sets it, a screen may set its own. A show with none reads Active
+    PFC (owner, 2026-11-12: he measures very little neutral current on his
+    real shows); a pick, the show's or a screen's, is kept.
 
 The walls, by hand. Every wall is 10 cabinets a row, one row a circuit:
   * US: 144 W panels at 120 V on a 25 A breaker (80% = 20 A = 2400 W): a
@@ -257,15 +258,23 @@ def test_balanced_120v_multi_is_the_harmonic_part_only(seeded):
     assert not errors, errors
 
 
-def test_a_show_with_no_setting_reads_no_pfc_pending_a_ruling(seeded):
+def test_a_show_with_no_setting_reads_active_pfc(seeded):
     pg, _ = seeded
     setup(pg, distros=[us(400)], walls={'W6': {}})
     out = pg.evaluate("() => window.app.showSupplyHarmonics()")
-    assert out == {'id': 'nopfc', 'name': 'No PFC (high)', 'pct': 87, 'pending': True}
-    # 0.87 x 72 = 62.64 A
-    assert read(pg)['neutral']['amps'] == pytest.approx(62.64, abs=1e-9)
+    assert out == {'id': 'pfc', 'name': 'Active PFC (low)', 'pct': 33}
+    # balanced: I_N1 = 0, I_N3 = 0.33 x (24 + 24 + 24) = 23.76 A
+    assert read(pg)['neutral']['amps'] == pytest.approx(23.76, abs=1e-9)
     assert pg.evaluate("() => 'supplyHarmonics' in window.app.project") is False, \
         'reading the default writes nothing'
+    # a show that picked No PFC keeps its pick: 0.87 x 72 = 62.64 A
+    setup(pg, distros=[us(400)], walls={'W6': {}}, show='nopfc')
+    assert read(pg)['neutral']['amps'] == pytest.approx(62.64, abs=1e-9)
+    # a screen that picked No PFC keeps its pick on a show with none:
+    # 0.87 x 72 = 62.64 A
+    setup(pg, distros=[us(400)], walls={'W6': {'supplyHarmonics': 'nopfc'}})
+    assert pg.evaluate("() => 'supplyHarmonics' in window.app.project") is False
+    assert read(pg)['neutral']['amps'] == pytest.approx(62.64, abs=1e-9)
 
 
 def test_a_screen_sets_its_own_panels_apart(seeded):
@@ -503,7 +512,11 @@ def test_the_show_setting_from_the_sidebar_persists_and_undoes(seeded):
         app.syncSupplyHarmonicsControls();
     }""")
     sel = pg.locator('#power-harmonics-show')
-    assert sel.input_value() == 'nopfc'
+    # a show with none reads the default, Active PFC
+    assert sel.input_value() == 'pfc'
+    sel.select_option('nopfc')
+    pg.wait_for_timeout(500)
+    assert pg.evaluate("() => window.app.project.supplyHarmonics") == 'nopfc'
     sel.select_option('pfc')
     pg.wait_for_timeout(500)
     assert pg.evaluate("() => window.app.project.supplyHarmonics") == 'pfc'
@@ -534,9 +547,9 @@ def test_the_show_setting_from_the_sidebar_persists_and_undoes(seeded):
     assert pg.evaluate("() => window.app.project.layers[0].supplyHarmonics") == 'nopfc'
     # 0.87 x 72 = 62.64 A
     assert read(pg)['neutral']['amps'] == pytest.approx(62.64, abs=1e-9)
-    # undo, one step at a time: the screen, then the show back to 33, 'pfc'
-    # and none
-    for want in (20, 33, 'pfc', None):
+    # undo, one step at a time: the screen, then the show back to 33,
+    # 'pfc', 'nopfc' and none
+    for want in (20, 33, 'pfc', 'nopfc', None):
         pg.evaluate("() => window.app.undo()")
         pg.wait_for_timeout(500)
     assert pg.evaluate("() => window.app.project.supplyHarmonics === undefined "
@@ -546,7 +559,7 @@ def test_the_show_setting_from_the_sidebar_persists_and_undoes(seeded):
 
 def test_an_old_show_opens_with_no_setting_and_nothing_moved(seeded):
     """A show saved before the neutral: no supplyHarmonics, no neutral200.
-    It opens on the defaults (No PFC pending a ruling, a 100% neutral) and
+    It opens on the defaults (Active PFC, a 100% neutral) and
     nothing is written for it - not to the show, the distro, or a screen -
     and the legs read what they always read."""
     pg, errors = seeded
@@ -579,7 +592,7 @@ def test_an_old_show_opens_with_no_setting_and_nothing_moved(seeded):
     }""")
     assert out['legs2'] == out['legs'] == pytest.approx([24, 12, 12], abs=1e-9)
     assert not out['showKey'] and not out['distroKey'] and out['layerKeys'] == 0
-    assert out['show']['pending'] and out['show']['id'] == 'nopfc'
+    assert out['show'] == {'id': 'pfc', 'name': 'Active PFC (low)', 'pct': 33}
     assert out['size'] == 100
     assert 'supplyHarmonics' not in out['served']
     assert all('neutral200' not in d for d in out['served'].get('distros', []))

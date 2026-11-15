@@ -592,6 +592,11 @@ def update_layer(layer_id):
                 # screen's circuits (app-power-sources.js). Listed or a
                 # PUT drops it and the circuits fall back on reload.
                 'powerSources',
+                # An older show's screen kept as it was laid out until its
+                # power is edited ({sig}; null once it is). Listed or a PUT
+                # drops it and the screen repacks on reload. Left off the
+                # add route's list on purpose: a copy is a new screen.
+                'powerOldRules',
                 # v0.11.0: the gradient/panel-colour block was never on this
                 # list - not removed, never added (git log -S finds no commit
                 # that took it out). The client has always PUT these fields and

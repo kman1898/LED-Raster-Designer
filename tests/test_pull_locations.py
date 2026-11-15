@@ -445,13 +445,14 @@ def test_a_box_at_its_beach_pulls_its_ports_rows_and_two_boxes_list_once(page):
         ('TRUE1 Power Jump', "6'", 10, 'WALL-B', ''),
     ]
     # CENTER's Edison breakout reaches its TRUE1 panels through a cable per
-    # circuit, and its splitter is on the panels' side (2026-10-21)
+    # circuit, and its splitter is on the panels' side (2026-10-21); its
+    # 18.75 A Amperage picks a 5-15 outlet, named on the cable (2026-11-12)
     tails = pg.evaluate(f"""() => {{
         const app = window.app, c = app.project.layers.find(l => l.id === {json.dumps(ids['c'])});
         return app.screenCircuits(c).map(x => app.getPowerCircuitLabel(c, x.num)).join(', ');
     }}""")
     assert _rows(pos['CENTER']['rows']) == [
-        ('Edison → TRUE1 cable', 'EA', 2, tails, ''),
+        ('Edison 5-15 → TRUE1 cable', 'EA', 2, tails, ''),
         ('TRUE1 2fer', 'EA', 1, ids['centerLabel'], ''),
         ('TRUE1 Power Jump', "3'", 12, 'CENTER', ''),
     ]

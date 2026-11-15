@@ -561,6 +561,13 @@ def _build_initial_project():
         # what keeps an undo snapshot of a fresh project from being mistaken
         # for a legacy file and "migrated" onto pins nobody placed.
         port_assignment.STATE_KEY: port_assignment.new_state(),
+        # The power rules this project's screens are laid out by (2, the
+        # rulings of 2026-11-12; app-power-sources.js POWER_RULES). A show
+        # file without it was saved before them, and opening it keeps each
+        # screen's circuits as they were laid out until that screen's power
+        # is edited (keepOldPowerRules). Born here, so a new project never
+        # reads as an older show.
+        'powerRules': 2,
         'is_pristine': True,
     }
     # Pre-populate v0.8 fields so a fresh project already passes the
@@ -786,6 +793,9 @@ def strip_copied_feeds(layer):
     # same sockets. Not a feed key - it is the screen's data setting - so
     # it goes without being reported among them.
     layer.pop('dataMirrorOf', None)
+    # Nor does it keep an older show's circuits as they were laid out
+    # (app-power-sources.js powerOldRules): a copy is a new screen.
+    layer.pop('powerOldRules', None)
     return [k for k in COPIED_SCREEN_FEED_KEYS if layer.pop(k, None) is not None]
 
 

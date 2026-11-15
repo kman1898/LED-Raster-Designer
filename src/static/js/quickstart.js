@@ -133,6 +133,70 @@
     function mixedDistro() {
         return ((A() && A().getDistros && A().getDistros()) || []).find(function (d) { return d.name === 'VX'; }) || null;
     }
+    // A practice wall of the Power guide's own, under every screen there
+    // is, set by `setup` (voltage, breaker, breakout...), selected with the
+    // Power tab's fields showing it and framed. Resolves the live layer.
+    function practiceWall(name, cols, rows, setup) {
+        var a = A(), w = wall();
+        var bottom = screens().reduce(function (m, l) {
+            return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+        }, 0);
+        return j('POST', '/api/layer/add', {
+            name: name, columns: cols, rows: rows,
+            cabinet_width: w.cabinet_width, cabinet_height: w.cabinet_height,
+            offset_x: (Number(w.offset_x) || 0), offset_y: bottom + 200
+        }).then(function (layer) {
+            practiceScreen(layer);
+            setup(layer);
+            layer.powerMaximize = false;
+            layer.powerOrganized = false;
+            layer.powerFlowPattern = 'tl-h';
+            a.upsertProjectLayer(layer);
+            a.updateLayers([layer]);
+            var l = (a.project.layers || []).find(function (x) { return x.id === layer.id; }) || layer;
+            a.selectLayer(l);
+            frameLayers([l]);
+            a.saveState('Add Layer');
+            if (a.loadLayerToInputs) a.loadLayerToInputs();
+            if (a.updatePowerCapacityDisplay) a.updatePowerCapacityDisplay();
+            return l;
+        });
+    }
+    // The line beside the selected screen's Amperage ("20 A breaker · 16 A
+    // usable · Edison 5-20"), and the one under it that names the output
+    // the circuits are on ('' while hidden).
+    function usableText() { var el = $('#power-amperage-usable'); return el ? el.textContent.trim() : ''; }
+    function sourceLine() {
+        var el = $('#power-amperage-source');
+        return el && el.style.display !== 'none' ? el.textContent.trim() : '';
+    }
+    // A free Socapex output of the guide's distro (no multi on it, not a
+    // two-fer): the first, or with `last` the last. Picked once, as the
+    // step that uses it begins (pluggedOut, twoferOut), so its callout
+    // stays on the one it acts on.
+    function freeSoca(last) {
+        var a = A(), d = distro();
+        var face = d && a.distroFace ? a.distroFace(d) : null;
+        if (!face) return null;
+        var used = a._distroMultiNumbers ? a._distroMultiNumbers(d.id) : new Map();
+        var free = face.boxes.filter(function (b) {
+            return b.conn && b.conn.id === 'soca' && !b.paired && !(used.get(b.number) || []).length
+                && !(a.twoferOf && a.twoferOf(d, b.number));
+        }).map(function (b) { return b.number; });
+        return free.length ? free[last ? free.length - 1 : 0] : null;
+    }
+    var pluggedOut = null, twoferOut = null;
+    // The two-fer the guide added, and how many multis ride box `number`
+    // of the guide's distro (a leg's number for a leg).
+    function twoferOutput() {
+        var a = A(), d = distro();
+        var outs = d && a.distroTwoferOutputs ? a.distroTwoferOutputs(d) : [];
+        return outs.length ? outs[0] : null;
+    }
+    function legHeld(number) {
+        var a = A(), d = distro();
+        return d && a._distroMultiNumbers ? (a._distroMultiNumbers(d.id).get(number) || []).length : 0;
+    }
     function practiceScreen(layer) {
         A().initializeLayerDefaults(layer);
         Object.keys(PRACTICE_PROCESSING).forEach(function (k) { layer[k] = PRACTICE_PROCESSING[k]; });
@@ -7921,6 +7985,259 @@
                 return 'Circuits 7 on ride the L21-30 Edison box at 110V, 3 panels each; circuits 1 to 6 keep 8 on the Socapex.';
             }
         },
+        // A gap, and closing it (1.7.0, app-power-sources.js; the owner,
+        // 2026-11-12). TWO SOURCES from the step before: the Socapex 208
+        // on circuits 1-6 (8 cabinets each), the L21-30 Edison box on 7-12
+        // and 13-14 (3 each). Unseen, VX's Socapex is dropped once more and
+        // takes over at circuit 13 (the 6 cabinets left, one circuit), and
+        // the box is unplugged: its circuits 7-12 stay where they were, a
+        // gap with fed circuits after it. Reset lays circuits 7 on again
+        // with the screen's own setting, 24 cabinets at 8, circuits 7-9.
+        resetHole: {
+            since: '1.7.0',
+            target: '#main-canvas', place: 'top', title: 'Closing a gap',
+            body: 'Unplug one kind of power in the middle of a screen and its circuits stay put, so nothing after them moves. Right-click the gap and pick Reset these circuits to close it; one undo puts it back.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A(), d = mixedDistro();
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.name === 'TWO SOURCES'; }) || null;
+                };
+                var l = find();
+                if (!l || !d) throw new Error('TWO SOURCES and VX are missing');
+                t.mem.layer = l.id;
+                a._dockDropPlug({ type: 'plug', distroId: d.id, output: 'soca208', title: 'VX · Multi 208' },
+                                { kind: 'screen', layerId: l.id });
+                return t.wait(function () {
+                    var q = find();
+                    return q && (q.powerSources || []).length >= 2;
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Socapex did not take the last circuits');
+                    var q = find();
+                    a._circuitTailCache = null;
+                    var num = a.screenCircuits(q)[6].num;
+                    var box = Array.from(a._powerNaming(q).socas.values()).find(function (r) {
+                        return r.circuits.indexOf(num) >= 0;
+                    });
+                    if (!box) throw new Error('no multi holds circuit 7');
+                    a.setSocaDistro(q, box.index, null);
+                    return t.wait(function () { var x = find(); return x && a.powerSourceHoles(x).length ? x : null; });
+                }).then(function (q) {
+                    if (!q) throw new Error('unplugging the box left no gap');
+                    frameLayers([q]);
+                    return t.rightClick(t.cabinetPoint(q, { circuit: 8, mid: true }));
+                }).then(function () {
+                    return t.pickMenu('hw-reset-hole');
+                }).then(function () {
+                    return t.wait(function () { var x = find(); return x && !a.powerSourceHoles(x).length; });
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l || a.powerSourceHoles(l).length) return null;
+                a._circuitTailCache = null;
+                var c = a.screenCircuits(l);
+                if (!c[6] || c[6].panels.length !== 8) return null;
+                return 'The gap is closed: circuits 7 on are laid again with TWO SOURCES\' own setting, '
+                    + '8 panels a circuit.';
+            }
+        },
+        // An Edison breakout's outlet follows the Amperage (1.7.0; the
+        // owner, 2026-11-12: "if I choose 20 amps, then it should be 5-20.
+        // If I choose 15, it should be 5-15"). EDISON WALL is a 110V wall
+        // on Multi to Edison at 15 A: a 5-15, 12 A. 20 A makes it a 5-20,
+        // 16 A, and the line beside the Amperage says so.
+        edisonOutlet: {
+            since: '1.7.0',
+            target: '#power-amperage-select', place: 'right', title: 'Edison outlets',
+            avoid: ['#power-amperage-select', '#power-amperage-usable'],
+            body: 'On an Edison breakout the Amperage picks the outlet: 15 A is a 5-15 that carries 12 A, 20 A is a 5-20 that carries 16 A. The outlet shows beside the Amperage, on the circuit cables, the pull sheet and the binder.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A();
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                return practiceWall('EDISON WALL', 6, 3, function (layer) {
+                    a.setScreenVoltage(layer, 110);
+                    layer.powerAmperage = 15;
+                    layer.powerAmperageCustom = 15;
+                    layer.panelWatts = 200;
+                    layer.powerBreakoutType = 'soca-edison';
+                    a.normalizePowerBreakout(layer);
+                }).then(function (l) {
+                    t.mem.layer = l.id;
+                    return t.wait(function () { return /Edison 5-15$/.test(usableText()); });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('EDISON WALL does not read 5-15');
+                    return t.select('#power-amperage-select', '20');
+                }).then(function () {
+                    return t.wait(function () {
+                        var l = find();
+                        return l && Number(l.powerAmperage) === 20 && /Edison 5-20$/.test(usableText());
+                    });
+                });
+            },
+            check: function (mem) {
+                var l = (A().project.layers || []).find(function (x) { return x.id === mem.layer; });
+                var text = usableText();
+                if (!l || Number(l.powerAmperage) !== 20 || !/Edison 5-20$/.test(text)) return null;
+                return 'EDISON WALL\'s outlet is a 5-20 now: ' + text + '.';
+            }
+        },
+        // The output's breaker wins (1.7.0; the owner, 2026-11-12: "it
+        // should be what a real one would be plugged into"). PLUGGED WALL
+        // is 6 x 4 cabinets of 400 W on 208V TRUE1 at 15 A: 80% of 15 A is
+        // 12 A, 2,496 W, 6 cabinets a circuit, 4 circuits. Dragged onto a
+        // free Socapex of the distro (20 A breakers): 16 A, 3,328 W, 8
+        // cabinets, 3 circuits, and the line under the Amperage names the
+        // output.
+        pluggedBreaker: {
+            since: '1.7.0',
+            target: function () { var n = pluggedOut; var d = distro(); return d && n ? '[data-hwdock="slot-' + d.id + '-' + n + '"]' : '#hardware-dock-body'; },
+            place: 'top', title: 'Plugged in',
+            avoid: [function () { var n = pluggedOut; var d = distro(); return d && n ? '[data-hwdock="slot-' + d.id + '-' + n + '"]' : null; }],
+            body: 'Plug a screen into a distro and its circuits pack to the breaker of the output they are on. Where that differs from the Amperage, the line under it says which output wins.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); pluggedOut = freeSoca(false); },
+            act: function (t) {
+                var a = A(), d = distro();
+                var n = pluggedOut;
+                if (!d || !n) throw new Error('the distro has no free Socapex output');
+                t.mem.output = n;
+                var find = function () {
+                    return (a.project.layers || []).find(function (x) { return x.id === t.mem.layer; }) || null;
+                };
+                return practiceWall('PLUGGED WALL', 6, 4, function (layer) {
+                    a.setScreenVoltage(layer, 208);
+                    layer.powerAmperage = 15;
+                    layer.powerAmperageCustom = 15;
+                    layer.panelWatts = 400;
+                    layer.powerBreakoutType = 'soca-true1';
+                    a.normalizePowerBreakout(layer);
+                }).then(function (l) {
+                    t.mem.layer = l.id;
+                    return t.drag('[data-hwdock="slot-' + d.id + '-' + n + '"]', t.cabinetPoint(l, { circuit: 0, mid: true }));
+                }).then(function () {
+                    return t.wait(function () {
+                        var l = find(), m = (l && l.powerSocaDistro) || {};
+                        return Object.keys(m).some(function (k) { return m[k] === d.id; }) && sourceLine() ? true : null;
+                    }, 8000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('PLUGGED WALL did not take the multi');
+                    return t.spot('#power-amperage-source').then(function () { return t.pause(PACE.acted); });
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var l = (a.project.layers || []).find(function (x) { return x.id === mem.layer; });
+                if (!l) return null;
+                a._circuitTailCache = null;
+                var c = a.screenCircuits(l);
+                var line = sourceLine();
+                if (c.length !== 3 || c[0].panels.length !== 8 || !line) return null;
+                return 'PLUGGED WALL packs to its output\'s 20 A breaker: 8 panels a circuit, not the 6 its 15 A Amperage gave.';
+            }
+        },
+        // The Soca two-fer (1.7.0, app-soca-twofer.js; the owner,
+        // 2026-11-12): right-click a free Socapex output of the distro,
+        // Add Soca two-fer, and it shows as one pair of legs A and B.
+        socaTwofer: {
+            since: '1.7.0',
+            target: function () { var n = twoferOut; var d = distro(); return d && n ? '[data-hwdock="slot-' + d.id + '-' + n + '"]' : '#hardware-dock-body'; },
+            place: 'top', title: 'Soca two-fer',
+            avoid: [function () { var n = twoferOut; var d = distro(); return d && n ? '[data-hwdock="slot-' + d.id + '-' + n + '"]' : null; }],
+            body: 'Split an output with a Soca two-fer: right-click a Socapex output in the Power tray and pick Add Soca two-fer. The output becomes a pair, leg A and leg B, each with six circuits of its own.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); twoferOut = freeSoca(true); },
+            act: function (t) {
+                var a = A(), d = distro();
+                var n = twoferOut;
+                if (!d || !n) throw new Error('the distro has no free Socapex output');
+                t.mem.output = n;
+                return t.rightClick('[data-hwdock="slot-' + d.id + '-' + n + '"]').then(function () {
+                    return t.pickMenu('hw-twofer');
+                }).then(function () {
+                    return t.wait(function () {
+                        var q = distro();
+                        return q && a.twoferOf(q, n) && $('[data-lrd-twofer="' + q.id + '-' + n + '"]');
+                    });
+                }).then(function (strip) {
+                    if (!strip) throw new Error('the two-fer did not take');
+                    return t.spot(strip).then(function () { return t.pause(PACE.acted); });
+                });
+            },
+            check: function (mem) {
+                var a = A(), d = distro();
+                var tw = d && a.twoferOf(d, mem.output);
+                if (!tw || !$('[data-lrd-twofer="' + d.id + '-' + mem.output + '"]')) return null;
+                return a.twoferName(d, mem.output) + ' is a Soca two-fer: ' + a.distroBoxName(d, tw.a)
+                    + ' and ' + a.distroBoxName(d, tw.b) + ', six circuits each.';
+            }
+        },
+        // A leg of the two-fer onto a screen of its own: TWO-FER WALL, 6 x
+        // 2 cabinets of 400 W on 208V TRUE1 at 20 A, 8 a circuit, so 2
+        // circuits on leg B.
+        socaTwoferLeg: {
+            since: '1.7.0',
+            target: function () { var d = distro(), n = twoferOutput(); return d && n ? '[data-hwdock="slot-' + d.id + '-' + A().twoferLegBNumber(n) + '"]' : '#hardware-dock-body'; },
+            place: 'top', title: 'Drag a two-fer leg',
+            avoid: [function () { var d = distro(), n = twoferOutput(); return d && n ? '[data-hwdock="slot-' + d.id + '-' + A().twoferLegBNumber(n) + '"]' : null; }],
+            body: 'Drag each leg onto a screen like any multi. Circuit 1 of both legs shares breaker 1, so the two together stay within 80% of it; past that, both read OVER.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A(), d = distro(), n = twoferOutput();
+                if (!d || !n) throw new Error('the distro has no two-fer');
+                var leg = a.twoferLegBNumber(n);
+                t.mem.leg = leg;
+                return practiceWall('TWO-FER WALL', 6, 2, function (layer) {
+                    a.setScreenVoltage(layer, 208);
+                    layer.powerAmperage = 20;
+                    layer.powerAmperageCustom = 20;
+                    layer.panelWatts = 400;
+                    layer.powerBreakoutType = 'soca-true1';
+                    a.normalizePowerBreakout(layer);
+                }).then(function (l) {
+                    t.mem.layer = l.id;
+                    return t.drag('[data-hwdock="slot-' + d.id + '-' + leg + '"]', t.cabinetPoint(l, { circuit: 1, mid: true }));
+                }).then(function () {
+                    return t.wait(function () { return legHeld(leg) > 0; }, 8000);
+                });
+            },
+            check: function (mem) {
+                var a = A(), d = distro();
+                if (!d || !mem.leg || !legHeld(mem.leg)) return null;
+                return 'TWO-FER WALL is on ' + a.distroBoxName(d, mem.leg) + ': its circuits share '
+                    + a.twoferName(d, a.twoferOutputOf(mem.leg)) + '\'s breakers with leg A.';
+            }
+        },
+        // The two-fer's home run, typed on the pair's header.
+        socaTwoferHomeRun: {
+            since: '1.7.0',
+            target: function () { var d = distro(), n = twoferOutput(); return d && n ? '[data-lrd-field="twofer-home-run-' + d.id + '-' + n + '"]' : '#hardware-dock-body'; },
+            place: 'top', title: 'The two-fer&rsquo;s lengths',
+            avoid: [function () { var d = distro(), n = twoferOutput(); return d && n ? '[data-lrd-field="twofer-home-run-' + d.id + '-' + n + '"]' : null; }],
+            body: 'Type the home run to the splitter on the pair&rsquo;s header, and each leg&rsquo;s own length on its row. Right-click the pair to remove it.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A(), d = distro(), n = twoferOutput();
+                if (!d || !n) throw new Error('the distro has no two-fer');
+                t.mem.output = n;
+                t.mem.value = a.cableUnit && a.cableUnit() === 'm' ? '30' : '100';
+                return t.type('[data-lrd-field="twofer-home-run-' + d.id + '-' + n + '"]', t.mem.value, { enter: true }).then(function () {
+                    return t.wait(function () {
+                        var tw = a.twoferOf(distro(), n);
+                        return tw && String(tw.rec.homeRun) === t.mem.value;
+                    });
+                });
+            },
+            check: function (mem) {
+                var a = A(), d = distro();
+                var tw = d && a.twoferOf(d, mem.output);
+                if (!tw || String(tw.rec.homeRun) !== mem.value) return null;
+                return a.twoferName(d, mem.output) + '\'s home run to the splitter is ' + mem.value
+                    + (mem.value === '30' ? ' m' : ' ft') + '.';
+            }
+        },
         // Redraw several circuits as one (1.7.0, app-merge-circuits.js; the
         // owner, 2026-11-12: "Redraw should work just like data"). CUT
         // COLUMNS is 4 x 5 of the wall's cabinets at 800 W on 208V / 20A,
@@ -9085,7 +9402,8 @@
     // close their guide, after its runs, so nothing they add reaches a
     // later run or another guide's demo show.
     var DATA_PRACTICE = ['mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'redrawAsOne', 'sweepPorts'];
-    var POWER_PRACTICE = ['powerZPattern', 'circuitNumbers', 'mixedSources', 'redrawCircuits'];
+    var POWER_PRACTICE = ['powerZPattern', 'circuitNumbers', 'mixedSources', 'resetHole', 'redrawCircuits',
+                          'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun'];
     var GUIDE_SEED = { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } };
     // Help > Guides, in this order. `prep` is the guide's demo show, `own`
     // its steps between its intro and its outro.

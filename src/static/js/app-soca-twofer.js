@@ -313,7 +313,9 @@ class _SocaTwofer {
                 const breakerA = box ? Number(box.breakerA) || 0 : 0;
                 return breakerA > 0 ? breakerA * pct : Infinity;
             }
-            const capA = s.spec ? s.spec.breakerA * this.circuitCapacity(layer).pct
+            // what a circuit of the screen is packed to: the source's
+            // breaker, held to an Edison breakout's outlet (specUsableA)
+            const capA = s.spec ? this.specUsableA(s.spec, this.circuitCapacity(layer).pct)
                 : this.circuitCapacity(layer).amps;
             return capA > 0 ? capA : Infinity;
         };

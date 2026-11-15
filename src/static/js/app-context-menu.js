@@ -45,6 +45,12 @@ class _ContextMenu {
         const merge = (typeof this._prepareMergeMenu === 'function')
             ? this._prepareMergeMenu(x, y) : null;
         this._mergeMenuAction = merge;
+        // A hole a power source left when it was unplugged in the middle of
+        // a screen (app-power-sources.js): "Reset these circuits", on the
+        // canvas circuit under the cursor only.
+        const resetHole = (!inDock && typeof this._prepareResetHoleMenu === 'function')
+            ? this._prepareResetHoleMenu(x, y) : null;
+        this._resetHoleMenuAction = resetHole;
         // The Soca two-fer (app-soca-twofer.js): Add on a Socapex output's
         // box in the tray, Remove on a two-fer. Absent everywhere else.
         const twofer = (typeof this._prepareTwoferMenu === 'function')
@@ -263,6 +269,14 @@ class _ContextMenu {
         if (mergeItem && merge) {
             mergeItem.textContent = merge.label;
             mergeItem.title = merge.title || '';
+        }
+        const resetItem = menu.querySelector('[data-action="hw-reset-hole"]');
+        if (resetItem) {
+            resetItem.style.display = resetHole ? '' : 'none';
+            if (resetHole) {
+                resetItem.textContent = resetHole.label;
+                resetItem.title = resetHole.title || '';
+            }
         }
         // The batch entries: up to three sizes plus the un-share, written
         // at open time like the clear - each slot names its own deal, and
