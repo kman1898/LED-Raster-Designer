@@ -336,6 +336,42 @@ def test_the_cursor_is_the_plain_mouse(page):
         l.locked = false; }""")
 
 
+def test_off_the_panels_the_wall_shows_no_highlight(page):
+    """The module under the mouse blinks on the wall; off every panel (the
+    gap between screens, or out of the view) the wall shows nothing. The
+    Mark button and the arrows pick up from the module the mouse left; a
+    highlight from the keys stays put when the mouse moves in the gap."""
+    reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    a = point(page, 'IdmA', 0, 0, 0, 0)
+    gap = client_of(page, 480, 100)          # between the two screens
+    page.mouse.move(a['x'], a['y'])
+    settled(page, lambda: hl(page), lambda v: v == ['IdmA', '0,0,0,0'])
+    page.mouse.move(gap['x'], gap['y'])
+    assert settled(page, lambda: hl(page), lambda v: v is None) is None
+    # back on a panel it shows again, then out of the view: gone
+    page.mouse.move(a['x'], a['y'])
+    settled(page, lambda: hl(page), lambda v: v == ['IdmA', '0,0,0,0'])
+    page.mouse.move(5, 5)
+    assert settled(page, lambda: hl(page), lambda v: v is None) is None
+    # the Mark button marks the module the mouse left
+    page.click('#idm-pad-mark')
+    settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '0,0,0,0' in v)
+    assert '0,0,0,0' in marks_of(page, 'IdmA')
+    assert hl(page) == ['IdmA', '0,0,0,0']
+    # a highlight from the keys stays while the mouse moves in the gap
+    page.keyboard.press('ArrowRight')
+    assert hl(page) == ['IdmA', '0,0,1,0']
+    page.mouse.move(gap['x'], gap['y'])
+    page.mouse.move(gap['x'] + 3, gap['y'] + 3)
+    page.wait_for_timeout(200)
+    assert hl(page) == ['IdmA', '0,0,1,0']
+    # Esc forgets the module too: Mark then has nothing to mark
+    page.keyboard.press('Escape')
+    assert hl(page) is None
+    assert page.is_disabled('#idm-pad-mark')
+
+
 # ── the mouse on the wall ─────────────────────────────────────────────────
 
 def arrow_px(p):

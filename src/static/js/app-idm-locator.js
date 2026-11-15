@@ -53,8 +53,12 @@
 // and a saved show opens with it. It blinks white / the field's inverse on the wall
 // (canvas-idm.js renderIdmHighlight); the blink refreshes the output window by
 // laying the highlight over its last frame (app-output-display.js), not by
-// rendering it again. It stays until Esc or Clear highlight, and goes when
-// its screen or module does. A tap of Space marks it; Space held with a
+// rendering it again. A highlight the mouse put there goes when the mouse
+// leaves the modules (off every module, or out of the view), so the wall
+// shows nothing while the mouse is not on a panel; the next arrow key, pad
+// step or Mark button picks up from the module it left. A highlight from
+// the keys, the pad, a controller or a tablet stays until Esc or Clear
+// highlight. Any highlight goes when its screen or module does. A tap of Space marks it; Space held with a
 // drag pans the view like every other tab and marks nothing.
 //
 // The MOUSE ON THE WALL: while the mouse is over a canvas of this view, an
@@ -808,6 +812,9 @@ class _IdmLocator {
     }
 
     _idmClearHighlight() {
+        const st = this._idmState();
+        st.hover = null;
+        st.hoverLast = null;
         this._idmSetHighlight(null, null);
     }
 
@@ -861,14 +868,48 @@ class _IdmLocator {
     }
 
     // The mouse over the view: the module under it is highlighted. Off every
-    // module the highlight stays where it was.
+    // module the highlight the mouse put there goes (_idmHoverOff).
     _idmHover(worldX, worldY) {
         const st = this._idmState();
         const r = window.canvasRenderer;
         if (!st.active || !r || st.stroke) return;
         const hit = r.idmHitAt(worldX, worldY);
-        if (!hit || !hit.cell) return;
-        this._idmSetHighlight(hit.layer.id, r.idmCellKey(hit.panel, hit.cell));
+        if (!hit || !hit.cell) {
+            this._idmHoverOff();
+            return;
+        }
+        const key = r.idmCellKey(hit.panel, hit.cell);
+        this._idmSetHighlight(hit.layer.id, key);
+        // a finger's tap is a highlight that stays, never a hover
+        st.hover = this._idmTouchPress() ? null : { layerId: hit.layer.id, key };
+    }
+
+    // The mouse left the modules: the highlight it put there leaves the
+    // wall. The module is remembered (st.hoverLast) so the next arrow key,
+    // pad step or Mark button carries on from it.
+    _idmHoverOff() {
+        const st = this._idmState();
+        const h = st.hover;
+        st.hover = null;
+        if (!h) return;
+        const cur = this._idmHl();
+        if (!cur || cur.layerId !== h.layerId || cur.key !== h.key) return;
+        this._idmClearHighlight();
+        st.hoverLast = h;
+        this._idmSyncPad();
+    }
+
+    // The module the mouse last left, while it is still on the wall; it
+    // becomes the highlight again (true), or there is none (false).
+    _idmResumeHover() {
+        const st = this._idmState();
+        const h = st.hoverLast;
+        st.hoverLast = null;
+        if (!h || this._idmHl()) return false;
+        this._idmSetHighlight(h.layerId, h.key);
+        if (this._idmHighlightTarget()) return true;
+        this._idmClearHighlight();
+        return false;
     }
 
     // A press that came from a finger (a touch screen's tap): it moves the
@@ -890,8 +931,12 @@ class _IdmLocator {
         const names = { left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown' };
         const vec = ARROWS[names[dir] || dir];
         if (!vec) return false;
-        const t = this._idmHighlightTarget();
-        if (!t) return this._idmStartHighlight();
+        let t = this._idmHighlightTarget();
+        if (!t) {
+            // the module the mouse left, one step on; else the first one
+            if (!this._idmResumeHover()) return this._idmStartHighlight();
+            t = this._idmHighlightTarget();
+        }
         const canvasId = r._effectiveLayerCanvasId(t.layer);
         const all = r.idmModuleRects(l => r._effectiveLayerCanvasId(l) === canvasId);
         const cur = r.idmModuleWorldRect(t.layer, t.panel, t.cell);
@@ -960,6 +1005,7 @@ class _IdmLocator {
     // A Space tap or the Mark button: the highlighted module marked or cleared,
     // the same rules and the same single undo step a click makes.
     _idmMarkHighlight() {
+        if (!this._idmHighlightTarget()) this._idmResumeHover();
         const t = this._idmHighlightTarget();
         if (!t) {
             this._toast('Move the highlight onto a module first.');
@@ -1011,7 +1057,7 @@ class _IdmLocator {
         if (e.code === 'Space') {
             const el = document.activeElement;
             const owned = !!(el && el.tagName === 'INPUT');
-            if (!e.repeat && !st.spaceTap && !owned && !st.stroke && this._idmHl()) {
+            if (!e.repeat && !st.spaceTap && !owned && !st.stroke && (this._idmHl() || st.hoverLast)) {
                 st.spaceTap = { at: Date.now() };
             }
             return false;
@@ -1033,6 +1079,7 @@ class _IdmLocator {
     // Delete / Backspace: the highlighted module's mark cleared, one undo
     // step. Nothing when no module is highlighted or it has no mark.
     _idmDeleteMark() {
+        if (!this._idmHighlightTarget()) this._idmResumeHover();
         const t = this._idmHighlightTarget();
         const marks = t && t.layer.idm && t.layer.idm.marks;
         if (!t || !marks || !marks[t.key]) return false;
@@ -1128,6 +1175,7 @@ class _IdmLocator {
     _idmPointerAt(worldX, worldY) {
         const st = this._idmState();
         const r = window.canvasRenderer;
+        this._idmBindLeave();
         let next = null;
         if (st.active && st.pointerOn && r && Number.isFinite(worldX) && Number.isFinite(worldY)) {
             const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
@@ -1142,7 +1190,6 @@ class _IdmLocator {
         const cur = st.pointer;
         if (!next && !cur) return;
         if (next && cur && next.canvasId === cur.canvasId && next.x === cur.x && next.y === cur.y) return;
-        this._idmBindLeave();
         st.pointer = next;
         if (!st.pointerCanvases) st.pointerCanvases = new Set();
         if (cur) st.pointerCanvases.add(cur.canvasId);
@@ -1159,13 +1206,17 @@ class _IdmLocator {
             ? requestAnimationFrame(flush) : setTimeout(flush, 16);
     }
 
-    // The mouse leaving the view takes the pointer off the wall.
+    // The mouse leaving the view takes the pointer, and the highlight the
+    // mouse put there, off the wall.
     _idmBindLeave() {
         const st = this._idmState();
         const r = window.canvasRenderer;
         if (st.leaveBound || !r || !r.canvas) return;
         st.leaveBound = true;
-        r.canvas.addEventListener('mouseleave', () => this._idmPointerAt(null));
+        r.canvas.addEventListener('mouseleave', () => {
+            this._idmPointerAt(null);
+            if (this._idmState().active) this._idmHoverOff();
+        });
     }
 
     // The pointer an IDM output of `canvasId` draws: {x, y} in workspace
@@ -1254,7 +1305,7 @@ class _IdmLocator {
             ptr.classList.toggle('active', !!st.pointerOn);
             ptr.setAttribute('aria-pressed', st.pointerOn ? 'true' : 'false');
         }
-        const has = !!this._idmHl();
+        const has = !!this._idmHl() || !!st.hoverLast;
         ['idm-pad-mark', 'idm-pad-clear'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.disabled = !has;

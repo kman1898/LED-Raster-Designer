@@ -308,7 +308,8 @@ app at once, and Default puts a color back.
 
 Point at a module, step with the arrow keys (Shift jumps a cabinet) or
 tap it on a tablet, and the module blinks on the wall output; a tap of
-Space or the Mark button marks it. The highlight follows from any
+Space or the Mark button marks it. Move the mouse off the panels and the
+wall shows nothing until you point again. The highlight follows from any
 computer or tablet connected to the app and is kept with the show.
 
 Your mouse shows on the wall: while it is over a canvas, an arrow sits

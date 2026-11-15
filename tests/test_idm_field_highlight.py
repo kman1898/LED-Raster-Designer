@@ -557,7 +557,10 @@ def test_hover_arrows_shift_space_and_esc_drive_the_highlight(page):
     assert page.inner_text('#idm-status-readout') == 'IdmA · A1 · Module A1'
     assert 'Row 1, col 1' in page.inner_text('#idm-hl-where')
     page.mouse.move(5, 5)
-    assert hl(page) == ['IdmA', '0,0,0,0']        # off the canvas it stays
+    # off the canvas the wall shows nothing; the arrows carry on from there
+    settled(page, lambda: hl(page), lambda v: v is None)
+    assert hl(page) is None
+    assert not page.is_disabled('#idm-pad-mark')
     # one module at a time, across the cabinet edge
     page.keyboard.press('ArrowRight')
     assert hl(page) == ['IdmA', '0,0,1,0']
