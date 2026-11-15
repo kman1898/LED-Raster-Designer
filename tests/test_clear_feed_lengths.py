@@ -84,8 +84,12 @@ def page(e2e_server, pw_browser):
     context.close()
 
 
-# 208V x 5A / 208W = five cabinets a circuit, tl-v organized, five rows: a
-# screen's `columns` IS its circuit count. PD is a distro FACE - five TRUE1
+# 208V x 16A (80% of 20 A) / 665W = five cabinets a circuit (3,325 W),
+# tl-v organized, five rows: a screen's `columns` IS its circuit count.
+# Every circuit is on a 20 A breaker wherever it is fed (PD's rows, SR, or
+# the screen's own 20 A Amperage), because a plugged circuit packs to the
+# breaker of the output it is on (owner, 2026-11-12): the 5 A Amperage this
+# fixture once used no longer sets the circuit on a 20 A output. PD is a distro FACE - five TRUE1
 # direct outputs (1-5) then two soca multis (6, 7); SR an old-style distro.
 #   A  7 wide: multi 1 (circuits 1-6) on PD 6, home run 100', cables on 1
 #      and 2; multi 2 (circuit 7) on PD 1 - a direct output - home run 25'.
@@ -99,8 +103,9 @@ window.__fl = {
             type: 'screen', visible: true, locked: false,
             columns: 3, rows: 5, cabinet_width: 128, cabinet_height: 128,
             offset_x: 0, offset_y: 0, panel_weight: 20, weight_unit: 'kg',
-            // A US circuit packs to 80 percent of its breaker (2026-10-22): the amps here are x 1.25, so a circuit carries what this wall was laid out for.
-            panelWatts: 208, powerVoltage: 208, powerAmperage: 6.25,
+            // 80% of 20 A at 208 V is 3,328 W: five 665 W cabinets a circuit,
+            // the same on a distro's 20 A output as on the Amperage (above).
+            panelWatts: 665, powerVoltage: 208, powerAmperage: 20,
             processorType: 'novastar-armor', bitDepth: 8, frameRate: 60, lowLatency: false,
             flowPattern: 'tl-h', portMappingMode: 'organized',
             powerFlowPattern: 'tl-v', powerOrganized: true, powerMaximize: false,

@@ -21,6 +21,12 @@ The show is test_distro_rulings_1018's: WALL A (10 x 6, six circuits, one
 multi) before WALL B (6 x 3) in the layer list, on PD: TRUE1 x 3 (outputs
 1-3, direct) then Socapex x 2 (outputs 4-5).
 
+On PD a circuit packs to the breaker of the output it is on (owner,
+2026-11-12), 80% of PD's 20 A, 16 A = 3,328 W, not the walls' 12.5 A
+Amperage (10 A): WALL A's 2,000 W rows still take a circuit each (six
+circuits), but two of WALL B's 1,200 W rows now share one, so B has two
+circuits, not three, and the counts below follow (8 on PD4, not 9).
+
 Run locally:
     ~/.venvs/led-raster-designer/bin/python -m pytest tests/test_r7_crowding.py -v --browser chromium
 """
@@ -114,7 +120,7 @@ def test_a_visible_multi_past_its_output_keeps_its_own_line_only(seeded):
 
 def test_a_visible_screen_pinned_onto_a_hidden_screens_socapex_is_flagged_everywhere(seeded):
     """WALL A (hidden) fills PD4, a Socapex, with its six circuits; WALL B's
-    three-circuit multi is pinned onto PD4 (setSocaNumber). B is dealt
+    two-circuit multi (module note) is pinned onto PD4 (setSocaNumber). B is dealt
     past the sixth socket, and every surface says so, naming A."""
     pg, errors = seeded
     setup(pg, distros=[FACE], walls={
@@ -124,14 +130,15 @@ def test_a_visible_screen_pinned_onto_a_hidden_screens_socapex_is_flagged_everyw
     ev(pg, "app.setSocaNumber(B, 1, 4); return null;")
     pg.wait_for_function("() => window.app._layerSavesSettled()")
     out = ev(pg, SURFACES_JS, 4)
-    assert out['planB'] == [[4, [7, 8, 9]]], out['planB']
+    # B's two circuits dealt past A's six (see the module note)
+    assert out['planB'] == [[4, [7, 8]]], out['planB']
     said = 'PD4 has more circuits than the six a Socapex 208V holds. WALL A is hidden and still holds it.'
     assert said in out['checks'], out['checks']
     assert out['strip'].count(said) == 1, out['strip']
-    assert out['overfull'] == {'circuits': 9, 'size': 6}, out
+    assert out['overfull'] == {'circuits': 8, 'size': 6}, out
     assert out['crowded'] == 0, 'a multi box is not a crowded direct output'
-    assert ['Multi', '9 circuits on a six-circuit output'] in out['rows'], out['rows']
-    assert out['binder'] == [['Crowded', 'PD4 Socapex 208V carries 9 circuits · more than the six '
+    assert ['Multi', '8 circuits on a six-circuit output'] in out['rows'], out['rows']
+    assert out['binder'] == [['Crowded', 'PD4 Socapex 208V carries 8 circuits · more than the six '
                               'it holds, move a multi to another output']], out['binder']
     assert not errors, errors
 
@@ -145,8 +152,8 @@ def test_two_visible_screens_past_a_socapex_are_flagged_everywhere(seeded):
     said = 'PD4 has more circuits than the six a Socapex 208V holds.'
     assert said in out['checks'], out['checks']
     assert out['strip'].count(said) == 1, out['strip']
-    assert out['overfull'] == {'circuits': 9, 'size': 6}, out
-    assert out['binder'] == [['Crowded', 'PD4 Socapex 208V carries 9 circuits · more than the six '
+    assert out['overfull'] == {'circuits': 8, 'size': 6}, out
+    assert out['binder'] == [['Crowded', 'PD4 Socapex 208V carries 8 circuits · more than the six '
                               'it holds, move a multi to another output']], out['binder']
     assert not errors, errors
 
@@ -175,9 +182,17 @@ def test_a_socapex_within_its_six_and_one_only_hidden_screens_fill_are_not_flagg
 # ── 1(c). two visible screens on a one-circuit output (kept) ─────────────
 
 def test_two_visible_screens_on_a_one_circuit_output_are_said_on_the_tray_and_checks(seeded):
+    """Packed to PD's 16 A (the module note), A's first circuit is a row,
+    2,000 W, 9.6 A, and B's is two rows, 2,400 W, 11.5 A: 21.2 A on a TRUE1
+    rated 20 A, and the checks say that first. At 300 W a cabinet B's
+    circuit is one row, 1,800 W, 8.7 A: 18.3 A in all, within the TRUE1,
+    and the crowding is what is said."""
     pg, errors = seeded
     one = {'powerSocaSplits': [1], 'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 1}}
     setup(pg, distros=[FACE], walls={'a': one, 'b': one})
+    out = ev(pg, SURFACES_JS, 1)
+    assert out['checks'] == ['PD1 TRUE1 at 21.2 A of 20 A: over capacity'], out['checks']
+    setup(pg, distros=[FACE], walls={'a': one, 'b': dict(one, panelWatts=300)})
     out = ev(pg, SURFACES_JS, 1)
     said = ('PD1 TRUE1 carries 2 circuits, and it takes one circuit only. '
             'Move one to a multi output.')

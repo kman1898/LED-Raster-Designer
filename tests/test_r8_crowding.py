@@ -14,6 +14,13 @@ The show is test_distro_rulings_1018's: WALL A (10 x 6, six circuits, one
 multi) before WALL B (6 x 3) in the layer list, on PD: TRUE1 x 3 (outputs
 1-3, direct) then Socapex x 2 (outputs 4-5).
 
+On PD a circuit packs to the breaker of the output it is on (owner,
+2026-11-12), 80% of PD's 20 A, 16 A = 3,328 W, not the walls' 12.5 A
+Amperage (10 A): WALL A's 2,000 W rows still take a circuit each (six
+circuits), but two of WALL B's 1,200 W rows now share one, so B has two
+circuits, not three, and the counts below follow (8 on PD4, not 9;
+3 on PD1, not 4).
+
 Run locally:
     ~/.venvs/led-raster-designer/bin/python -m pytest tests/test_r8_crowding.py -v --browser chromium
 """
@@ -38,21 +45,21 @@ from test_audit_final_fixes import CAPTIONS_JS  # noqa: E402
 # ── 2. the checks name the hidden holder and agree on the count ──────────
 
 def test_a_visible_multi_past_an_output_a_hidden_screen_holds_names_it(seeded):
-    """WALL A (hidden) holds PD1, a TRUE1, with one circuit; WALL B's three
+    """WALL A (hidden) holds PD1, a TRUE1, with one circuit; WALL B's two
     circuits are pinned onto it. The checks and the tray say the output's
-    four circuits, as the pull sheet and the distro sheet do, and name A."""
+    three circuits, as the pull sheet and the distro sheet do, and name A."""
     pg, errors_ = seeded
     setup(pg, distros=[FACE], walls={
         'a': dict({'powerSocaSplits': [1], 'powerSocaDistro': {'1': 'd1'},
                    'powerSocaNumber': {'1': 1}}, **HIDDEN),
         'b': {'powerSocaSplits': [3], 'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 1}}})
     out = ev(pg, SURFACES_JS, 1)
-    said = ("WALL B's 3 circuits are on PD1, a TRUE1 that takes one circuit only, and PD1 "
-            "carries 4 circuits in all. Move it to a multi output. WALL A is hidden and still holds it.")
+    said = ("WALL B's 2 circuits are on PD1, a TRUE1 that takes one circuit only, and PD1 "
+            "carries 3 circuits in all. Move it to a multi output. WALL A is hidden and still holds it.")
     assert said in out['checks'], out['checks']
     assert out['strip'].count(said) == 1, out['strip']
-    assert out['crowded'] == 4, out
-    assert out['binder'] == [['Crowded', 'PD1 TRUE1 carries 4 circuits · a multi on a '
+    assert out['crowded'] == 3, out
+    assert out['binder'] == [['Crowded', 'PD1 TRUE1 carries 3 circuits · a multi on a '
                               'one-circuit output, move it to a multi output']], out['binder']
     assert not errors_, errors_
 
@@ -63,9 +70,9 @@ def test_a_visible_multi_alone_past_its_output_keeps_its_plain_line(seeded):
         'a': {'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 4}},
         'b': {'powerSocaSplits': [3], 'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 1}}})
     out = ev(pg, SURFACES_JS, 1)
-    assert ("WALL B's 3 circuits are on PD1, a TRUE1 that takes one circuit only. "
+    assert ("WALL B's 2 circuits are on PD1, a TRUE1 that takes one circuit only. "
             'Move it to a multi output.') in out['checks'], out['checks']
-    assert out['crowded'] == 3, out
+    assert out['crowded'] == 2, out
     assert not errors_, errors_
 
 
@@ -101,7 +108,7 @@ def test_the_crowded_line_of_an_overfull_box_names_it_as_the_sheet_does(seeded):
                                      'b': dict(pin, powerSocaSplits=[3])})
     out = ev(pg, LABELS_JS, 4)
     assert out['label'] == 'BIG SOCA' and out['pull'] == 'BIG SOCA', out
-    assert out['binder'] == [['Crowded', 'BIG SOCA Socapex 208V carries 9 circuits · more than '
+    assert out['binder'] == [['Crowded', 'BIG SOCA Socapex 208V carries 8 circuits · more than '
                               'the six it holds, move a multi to another output']], out['binder']
     assert not errors_, errors_
 
@@ -175,7 +182,7 @@ def test_the_wiring_caption_marks_an_overfull_box(seeded):
     pin = {'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 4}}
     setup(pg, distros=[FACE], walls={'a': dict(pin, **HIDDEN), 'b': dict(pin, powerSocaSplits=[3])})
     titles = pg.evaluate(CAPTIONS_JS, 'WALL B')
-    assert [t for t in titles if t.endswith(' · 9 circuits on a six-circuit output')], titles
+    assert [t for t in titles if t.endswith(' · 8 circuits on a six-circuit output')], titles
     # a box within its six says nothing of the kind
     setup(pg, distros=[FACE], walls={'a': dict(pin), 'b': dict(pin, powerSocaSplits=[3], powerSocaNumber={'1': 5})})
     titles = pg.evaluate(CAPTIONS_JS, 'WALL B')
