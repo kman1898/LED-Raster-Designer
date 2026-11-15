@@ -91,19 +91,6 @@ const SEND_MS = 40;
 // The tablet layout: the IDM Locator tab on a narrow window or a touch
 // screen (style.css carries the same query).
 const COMPACT_QUERY = '(max-width: 1100px), (pointer: coarse)';
-// The cursor over a module: a crosshair with a plus (a click marks) or a
-// minus (a click clears), white edged in black so it reads on any field.
-function idmCursor(minus) {
-    const sign = minus ? 'M15 20h9' : 'M15 20h9M19.5 15.5v9';
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">'
-        + '<g fill="none" stroke-linecap="round">'
-        + `<path d="M9 1v16M1 9h16 ${sign}" stroke="#000" stroke-width="4"/>`
-        + `<path d="M9 1v16M1 9h16 ${sign}" stroke="#fff" stroke-width="2"/>`
-        + '</g></svg>';
-    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 9 9, ${minus ? 'cell' : 'crosshair'}`;
-}
-const IDM_CURSOR_MARK = idmCursor(false);
-const IDM_CURSOR_CLEAR = idmCursor(true);
 const ARROWS = {
     ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
 };
@@ -1122,16 +1109,13 @@ class _IdmLocator {
         return true;
     }
 
-    // The cursor over the view: a plus where a click marks, a minus where
-    // it clears, no-entry on a locked screen or a blanked cabinet, the
-    // arrow off every screen.
+    // The cursor over the view: the plain mouse, no-entry on a locked
+    // screen or a blanked cabinet.
     _idmCursorAt(worldX, worldY) {
         const r = window.canvasRenderer;
         const hit = r && typeof r.idmHitAt === 'function' ? r.idmHitAt(worldX, worldY) : null;
-        if (!hit) return 'default';
-        if (!hit.cell || this._layerLocked(hit.layer)) return 'not-allowed';
-        const marks = hit.layer.idm && hit.layer.idm.marks;
-        return marks && marks[r.idmCellKey(hit.panel, hit.cell)] ? IDM_CURSOR_CLEAR : IDM_CURSOR_MARK;
+        if (hit && (!hit.cell || this._layerLocked(hit.layer))) return 'not-allowed';
+        return 'default';
     }
 
     // ── the mouse on the wall ─────────────────────────────────────────────

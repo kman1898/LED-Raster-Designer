@@ -313,9 +313,9 @@ computer or tablet connected to the app and is kept with the show.
 
 Your mouse shows on the wall: while it is over a canvas, an arrow sits
 at the same spot on that canvas's IDM Locator output, black or white to
-stand out on the field. Show mouse on wall turns it off. The cursor
-shows a plus where a click marks and a minus where it clears,
-right-click a mark or press Delete to clear it, and Esc in the middle
+stand out on the field. Show mouse on wall turns it off. Click a
+module to mark it or clear it, right-click a mark or press Delete to
+clear it, and Esc in the middle
 of a drag puts the modules back. Hold Space and drag to pan, as on
 every tab.
 

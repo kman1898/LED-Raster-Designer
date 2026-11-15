@@ -4,7 +4,7 @@ A press on a canvas's outline edge drags the canvas only on the two tabs
 that lay canvases out: Pixel Map and Show Look. The hover cursor must say
 the same thing. On Cabinet ID, Data, Power and Header/Footer the edge does
 not move (their canvas position comes from the other two), so it must not
-show the move cursor there; the IDM Locator says mark or clear; the 3D tab
+show the move cursor there; the IDM Locator shows the plain mouse; the 3D tab
 has no 2D canvas edge at all.
 
 What this file pins, with real mouse events on every tab:

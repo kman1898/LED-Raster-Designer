@@ -15,7 +15,7 @@ What this file pins:
 * The marking gestures: Esc in the middle of a drag puts the modules back
   and makes no edit; a right-click on a marked module clears it (one undo
   step) and anywhere else opens the menu; a quick drag marks every module
-  it crossed; the cursor says mark or clear; no gesture moves a screen.
+  it crossed; the cursor is the plain mouse; no gesture moves a screen.
 * Output to Display feeds several displays at once: two outputs with
   different canvases and views both follow edits, closing one leaves the
   other, the dialog offers another output and names the display each is
@@ -309,16 +309,16 @@ def test_right_click_clears_a_mark_and_opens_the_menu_elsewhere(page):
     assert '0,1,1,0' in marks_of(page, 'IdmA')
 
 
-def test_the_cursor_says_mark_or_clear(page):
+def test_the_cursor_is_the_plain_mouse(page):
     reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
     cursor = lambda: page.evaluate("() => window.canvasRenderer.canvas.style.cursor")  # noqa: E731
     a = point(page, 'IdmA', 0, 0, 0, 0)
     page.mouse.move(a['x'], a['y'])
-    assert 'crosshair' in cursor()
+    assert cursor() == 'default'            # a module to mark: just the mouse
     page.mouse.click(a['x'], a['y'])
     page.mouse.move(a['x'] + 1, a['y'] + 1)
-    assert 'cell' in cursor()
+    assert cursor() == 'default'            # a mark to clear: the same
     gap = client_of(page, 480, 100)          # between the two screens
     page.mouse.move(gap['x'], gap['y'])
     assert cursor() == 'default'

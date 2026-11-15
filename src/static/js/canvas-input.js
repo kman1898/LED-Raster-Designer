@@ -1250,7 +1250,7 @@ Object.assign(CanvasRenderer.prototype, {
             this.canvas.style.cursor = 'grab';
         } else if (this.viewMode === 'idm' && !this.isDragging && window.app
                 && typeof window.app._idmCursorAt === 'function') {
-            // IDM Locator: plus where a click marks, minus where it clears
+            // IDM Locator: the plain mouse, no-entry on a locked screen
             // (a canvas edge does not move on this tab).
             this.canvas.style.cursor = window.app._idmCursorAt(worldX, worldY);
         } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingGroupName && !this.isDraggingCanvas) {
