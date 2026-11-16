@@ -543,6 +543,14 @@ FIXES
   labels are no longer crossed by the pixel grid when zoomed in close,
   the outline of selected cabinets, a group's circle and X or the canvas
   outline. A screen lying over another still covers it.
+- FIX: On the Data and Power tabs, a screen lying over a grouped wall now
+  covers that wall's names, the way it covers its cabinets. The group's
+  name and each screen's own name used to show through it.
+- FIX: A group with Names set to Group shows its corner X,Y readouts once,
+  at the corners of the whole wall. Each screen in the group used to show
+  its own, so a wall of three screens showed three Top Right readouts.
+  With Names set to Both, the wall's corners show along with each
+  screen's own.
 - FIX: The start page shows only when the app first opens. Opening the
   running app in another tab, or from a tablet or another computer at this
   computer's address, now goes straight into the show as it stands. It used

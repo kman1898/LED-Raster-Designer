@@ -747,6 +747,8 @@ Object.assign(CanvasRenderer.prototype, {
         // sends it. The ctx.save above pops it; an ungrouped screen's name still
         // rotates with its screen.
         if (gplan) this._unrotateLayerInPlace(layer);
+        // It sits over every member, so it goes under whatever covers them.
+        if (gplan) this._clipOutGroupCovers(gplan, layer);
 
         // v0.11.0: a group's label is positioned against the union of its
         // members' drawn footprints - the real shape of the wall - not one
@@ -1435,17 +1437,32 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
         
-        if (!layer.showOffsetTL && !layer.showOffsetTR && !layer.showOffsetBL && !layer.showOffsetBR) {
-            return;
+        // A grouped wall's Names switch decides whose corners are read out
+        // (the owner, 2026-11-16: "both shows both"). Screens: each screen
+        // its own. Group: the wall's only, at the corners of the outline
+        // its label is placed against, drawn once by the host with the
+        // first member's choice of corners, size and colour. Both: each
+        // screen's and the wall's, the wall leaving out a corner a screen
+        // already reads out on the same spot.
+        const mode = this._groupNameMode(layer);
+        const plan = mode === 'screens' ? null : this._groupLabelPlan(layer);
+        if (!plan || mode === 'both') {
+            // v0.9.3: the rotated footprint, so the readouts sit at the
+            // rotated screen's corners and report that orientation's
+            // coordinates.
+            this._renderCornerReadouts(layer, this.getLayerFootprintBounds(layer));
         }
-        
-        // Save context and clip to active raster bounds (translate-aware)
-        this.ctx.save();
-        this._clipToActiveRaster();
+        if (plan && plan.host === layer) {
+            const shown = mode !== 'both' ? [] : plan.members.flatMap(m =>
+                this._cornerReadouts(m, this.getLayerFootprintBounds(m))
+                    .filter(c => c.show).map(c => c.align + c.baseline + c.text));
+            this._renderCornerReadouts(plan.cfg, this._groupUnionBounds(plan.members, layer),
+                plan, layer, c => shown.includes(c.align + c.baseline + c.text));
+        }
+    },
 
-        // v0.9.3: use the rotated footprint so the corner X,Y readouts sit at the
-        // rotated screen's corners and report that orientation's coordinates.
-        const bounds = this.getLayerFootprintBounds(layer);
+    // The four corner readouts of `bounds`, with `cfg`'s ticks.
+    _cornerReadouts(cfg, bounds) {
         const layerWidth = bounds.width;
         const layerHeight = bounds.height;
 
@@ -1464,22 +1481,33 @@ Object.assign(CanvasRenderer.prototype, {
         const brX = bounds.x + layerWidth - 1;   // Account for zero-indexing
         const brY = bounds.y + layerHeight - 1;  // Account for zero-indexing
         
-        const corners = [
-            { x: tlX, y: tlY, text: `X ${tlX}, Y ${tlY}`, show: layer.showOffsetTL, align: 'left', baseline: 'top', offsetX: 5, offsetY: 5 },
-            { x: trX, y: trY, text: `X ${trX}, Y ${trY}`, show: layer.showOffsetTR, align: 'right', baseline: 'top', offsetX: -5, offsetY: 5 },
-            { x: blX, y: blY, text: `X ${blX}, Y ${blY}`, show: layer.showOffsetBL, align: 'left', baseline: 'bottom', offsetX: 5, offsetY: -5 },
-            { x: brX, y: brY, text: `X ${brX}, Y ${brY}`, show: layer.showOffsetBR, align: 'right', baseline: 'bottom', offsetX: -5, offsetY: -5 }
+        return [
+            { x: tlX, y: tlY, text: `X ${tlX}, Y ${tlY}`, show: cfg.showOffsetTL, align: 'left', baseline: 'top', offsetX: 5, offsetY: 5 },
+            { x: trX, y: trY, text: `X ${trX}, Y ${trY}`, show: cfg.showOffsetTR, align: 'right', baseline: 'top', offsetX: -5, offsetY: 5 },
+            { x: blX, y: blY, text: `X ${blX}, Y ${blY}`, show: cfg.showOffsetBL, align: 'left', baseline: 'bottom', offsetX: 5, offsetY: -5 },
+            { x: brX, y: brY, text: `X ${brX}, Y ${brY}`, show: cfg.showOffsetBR, align: 'right', baseline: 'bottom', offsetX: -5, offsetY: -5 }
         ];
-        
+    },
+
+    // Draws `cfg`'s ticked readouts at the corners of `bounds`, leaving out
+    // any corner `skip` picks. A group's (`plan`, drawn by `host`) goes under
+    // whatever covers the wall.
+    _renderCornerReadouts(cfg, bounds, plan = null, host = null, skip = null) {
+        const corners = this._cornerReadouts(cfg, bounds).filter(c => c.show && !(skip && skip(c)));
+        if (!corners.length) return;
+
+        // Save context and clip to active raster bounds (translate-aware)
+        this.ctx.save();
+        this._clipToActiveRaster();
+        if (plan) this._clipOutGroupCovers(plan, host);
+
         // Use absolute pixel sizes - no scaling with zoom
-        const fontSize = layer.labelsFontSize || 30;
+        const fontSize = cfg.labelsFontSize || 30;
         const padding = 4;
         
         this.ctx.font = `${fontSize}px ${projectFontFamily()}`;
         
         corners.forEach(corner => {
-            if (!corner.show) return;
-            
             // Skip if corner is outside raster bounds
             if (corner.x < 0 || corner.x >= this.rasterWidth || corner.y < 0 || corner.y >= this.rasterHeight) {
                 return;
@@ -1513,7 +1541,7 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.fillRect(snappedCornerRect.x, snappedCornerRect.y, snappedCornerRect.width, snappedCornerRect.height);
             
             // Draw text
-            this.ctx.fillStyle = layer.labelsColor || '#ffffff';
+            this.ctx.fillStyle = cfg.labelsColor || '#ffffff';
             this.ctx.textAlign = corner.align;
             this.ctx.textBaseline = corner.baseline;
             
