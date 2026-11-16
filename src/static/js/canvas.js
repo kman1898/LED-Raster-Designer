@@ -3216,6 +3216,37 @@ class CanvasRenderer {
         this.render();
     }
 
+    // What 1:1 (Zoom to Selection) frames: every screen in the selection, as
+    // drawn. A grouped screen stands for its whole wall - every member this
+    // view draws (shown, on a shown canvas), wherever its canvas sits - the
+    // way a canvas click selects it; a screen picked on its own in the
+    // Screens list (#125, app _listPickedMember) stands for itself. Empty
+    // when nothing selected is drawn; the caller then frames the current
+    // screen alone, as before.
+    _zoomSelectionLayers() {
+        const app = window.app;
+        if (!app || !app.project) return [];
+        const layers = app.project.layers || [];
+        const sel = app.selectedLayerIds;
+        const chosen = layers.filter(l => (sel && sel.has(l.id)) || l === app.currentLayer);
+        const picked = typeof app._listPickedMember === 'function' ? app._listPickedMember() : null;
+        const canvases = Array.isArray(app.project.canvases) ? app.project.canvases : [];
+        const drawn = l => {
+            if (!l || l.visible === false) return false;
+            const cid = this._effectiveLayerCanvasId(l);
+            const c = cid ? canvases.find(cv => cv && cv.id === cid) : null;
+            return !(c && c.visible === false);
+        };
+        const out = new Set();
+        chosen.forEach(l => {
+            const g = l === picked ? null : this._groupForLayer(l);
+            const members = g && typeof app.getGroupMembers === 'function'
+                ? app.getGroupMembers(g).filter(m => m && (m.type || 'screen') === 'screen') : [];
+            (members.length ? members : [l]).forEach(m => { if (drawn(m)) out.add(m); });
+        });
+        return layers.filter(l => out.has(l));
+    }
+
     zoomActual() {
         if (!window.app || !window.app.currentLayer) {
             // 1:1 sizing: 1 raster px == 1 device px (so on Retina, halve the
@@ -3224,35 +3255,30 @@ class CanvasRenderer {
             this.panX = 100;
             this.panY = 100;
         } else {
-            const layer = window.app.currentLayer;
-            // Zoom-to-layer in the active view, so it matches what's rendered.
-            const bounds = this.getLayerBoundsInActiveView(layer);
-            // bounds.x/y are canvas-relative (in the layer's parent canvas's
-            // raster coords). Add the canvas's workspace_x/y so the pan
-            // centers on where the layer is actually drawn in the workspace,
-            // otherwise 1:1 zooms to the wrong canvas's slot.
-            let wx = 0, wy = 0;
-            // v0.8.5: zoom-to-layer in Show Look / Data / Power must use
-            // the layer's effective show canvas (show_canvas_id), since the
-            // layer renders at THAT canvas's workspace position there.
-            const zoomCanvasId = this._effectiveLayerCanvasId(layer);
-            if (window.app.project && window.app.project.canvases && zoomCanvasId) {
-                const c = window.app.project.canvases.find(c => c.id === zoomCanvasId);
-                if (c) {
-                    // v0.8.5.3: pick the right workspace position per view.
-                    const ws = this._canvasWorkspace(c);
-                    wx = ws.wx; wy = ws.wy;
-                }
-            }
-            const layerWidth = bounds.width;
-            const layerHeight = bounds.height;
-            const zoomX = (this.canvas.width * 0.9) / layerWidth;
-            const zoomY = (this.canvas.height * 0.9) / layerHeight;
+            // Zoom to the selection in the active view, so it matches what's
+            // rendered: the union of each screen's footprint (where a rotated
+            // screen actually draws) moved by its own canvas's workspace
+            // position in this view (_layerCanvasOffset: show_canvas_id in
+            // Show Look / Data / Power). A group can span canvases, so the
+            // union is taken in workspace coordinates.
+            let layers = this._zoomSelectionLayers();
+            if (!layers.length) layers = [window.app.currentLayer];
+            let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+            layers.forEach(layer => {
+                const b = this.getLayerFootprintInActiveView(layer);
+                const ws = this._layerCanvasOffset(layer);
+                x1 = Math.min(x1, b.x + ws.wx);
+                y1 = Math.min(y1, b.y + ws.wy);
+                x2 = Math.max(x2, b.x + ws.wx + b.width);
+                y2 = Math.max(y2, b.y + ws.wy + b.height);
+            });
+            const width = x2 - x1;
+            const height = y2 - y1;
+            const zoomX = (this.canvas.width * 0.9) / width;
+            const zoomY = (this.canvas.height * 0.9) / height;
             this.zoom = Math.min(zoomX, zoomY);
-            const layerCenterX = bounds.x + wx + layerWidth / 2;
-            const layerCenterY = bounds.y + wy + layerHeight / 2;
-            this.panX = this.canvas.width / 2 - layerCenterX * this.zoom;
-            this.panY = this.canvas.height / 2 - layerCenterY * this.zoom;
+            this.panX = this.canvas.width / 2 - (x1 + width / 2) * this.zoom;
+            this.panY = this.canvas.height / 2 - (y1 + height / 2) * this.zoom;
         }
         document.getElementById('zoom-level').value = `${this._zoomToPercent(this.zoom)}%`;
         this.render();

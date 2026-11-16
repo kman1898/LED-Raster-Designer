@@ -520,6 +520,10 @@ FIXES
 - FIX: A group's up and down arrows move it among the rows of the canvas
   it is listed under, also when Show Look has one of its screens on
   another canvas.
+- FIX: 1:1 (Zoom to Selection) on a grouped screen frames the whole group,
+  also when its screens sit on different canvases. A screen picked on its
+  own in the Screens list is still framed alone, and several screens
+  selected together are framed together.
 - FIX: Binder sheets use the room beside and under a wide, short wall. The
   tables are only as wide as what they hold, so more of them fit side by
   side and the wall draws bigger.
