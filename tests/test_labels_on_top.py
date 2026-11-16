@@ -240,6 +240,154 @@ def test_a_screen_drawn_over_another_still_covers_its_name(page):
     assert out == [0, 255, 0], out
 
 
+# Two walls of three screens each (4, 4 and 2 columns side by side), the
+# second a copy of the first moved left and down so it lies over most of it
+# and is drawn after it. The first wall's label and corner readouts are
+# drawn by its LAST member but sit over the others. The frame is drawn with
+# and without the first wall's writing (`suppress`, the renderer method
+# that draws it, no-op'd for the first wall's members): inside `box`, where
+# the second wall lies, the two must match (`covered` counts the pixels
+# that differ). `shown` is the same count with the second wall hidden,
+# proving the writing really is in the box.
+COVER_JS = """([mode, names, suppress, what]) => {
+    const gc = window.__gc, r = window.canvasRenderer, app = window.app;
+    const green = { r: 0, g: 255, b: 0 };
+    const wall = (gid, id0, x0, y0, extra) => [4, 4, 2].map((cols, i) => gc.screen(Object.assign({
+        id: id0 + i, name: 'S' + (id0 + i), group_id: gid, columns: cols, rows: 3,
+        offset_x: x0 + i * 512, offset_y: y0, show_circle_with_x: false,
+    }, extra)));
+    const first = wall('g1', 1, 400, 0, { showOffsetBL: true });
+    const second = wall('g2', 11, 100, 40, {
+        color1: green, color2: green, show_panel_borders: false, show_numbers: false,
+        showLabelName: false, showLabelSizePx: false });
+    const groups = [gc.group(first, { id: 'g1', name: 'Group 1' }),
+                    gc.group(second, { id: 'g2', name: 'Group 2' })];
+    return gc.withProject(first.concat(second), groups, mode, () => {
+        app.project.groupNameDisplay = names;
+        r.zoom = 0.5; r.panX = 0; r.panY = 0;
+        const W = r.canvas.width, H = r.canvas.height;
+        r.render();
+        let b;
+        if (what === 'readout') {
+            // the bottom-left readout, inside the first member's corner
+            b = { x: 410, y: 346, w: 120, h: 30 };
+        } else {
+            const owner = what === 'group' ? first[0] : first[1];
+            const h = owner._screenNameHitRect;
+            if (!h) return { error: 'no name plate' };
+            b = { x: h.x1, y: h.y1, w: h.x2 - h.x1, h: h.y2 - h.y1 };
+        }
+        const x0 = Math.floor(b.x * r.zoom), y0 = Math.floor(b.y * r.zoom);
+        const x1 = Math.ceil((b.x + b.w) * r.zoom), y1 = Math.ceil((b.y + b.h) * r.zoom);
+        const grab = () => { r.render(); return r.ctx.getImageData(0, 0, W, H).data; };
+        const diff = () => {
+            const A = grab();
+            const orig = r[suppress];
+            r[suppress] = function (layer, ...rest) {
+                return first.includes(layer) ? undefined : orig.call(this, layer, ...rest);
+            };
+            let B;
+            try { B = grab(); } finally { delete r[suppress]; }
+            let n = 0;
+            for (let y = y0; y < y1; y++) {
+                for (let x = x0; x < x1; x++) {
+                    const i = (y * W + x) * 4;
+                    if (Math.abs(A[i] - B[i]) + Math.abs(A[i + 1] - B[i + 1]) + Math.abs(A[i + 2] - B[i + 2]) > 24) n++;
+                }
+            }
+            return n;
+        };
+        const covered = diff();
+        second.forEach(l => { l.visible = false; });
+        const shown = diff();
+        return { covered, shown, box: [x0, y0, x1 - x0, y1 - y0] };
+    });
+}"""
+
+
+def cover(page, mode, names, suppress, what):
+    out = page.evaluate(COVER_JS, [mode, names, suppress, what])
+    assert 'error' not in out, out
+    assert out['shown'] >= 40, f'{what}: the writing is not in the box to judge: {out}'
+    return out
+
+
+def test_a_later_wall_covers_an_earlier_groups_label(page):
+    """The owner's two overlapping groups (2026-11-16: "i can see a group
+    1's label through group 2's layers"): the first wall's one label, drawn
+    by its last member but sitting over its middle one, goes under the
+    second wall wherever the second wall lies over the first."""
+    out = cover(page, 'pixel-map', 'group', 'renderLayerLabels', 'group')
+    assert out['covered'] == 0, f"the first group's label showed through the second group: {out}"
+
+
+@pytest.mark.parametrize('names', ['group', 'screens'])
+@pytest.mark.parametrize('mode', ['data-flow', 'power'])
+def test_a_later_wall_covers_member_names_on_the_data_and_power_tabs(page, mode, names):
+    """The Data and Power tabs draw a group's names after the runs that
+    cross between its members, still under a later wall lying over them: the
+    group's label and, with the Names switch on Screens, a member's own name."""
+    out = cover(page, mode, names, 'renderLayerLabels', names)
+    assert out['covered'] == 0, f'a {names} name showed through the second group: {out}'
+
+
+def test_a_later_wall_covers_the_groups_corner_readout(page):
+    """The group's one corner readout, drawn by its last member at the
+    wall's bottom-left (the first member's corner), goes under the second
+    wall too."""
+    out = cover(page, 'pixel-map', 'group', 'renderLayerOffsets', 'readout')
+    assert out['covered'] == 0, f"the first group's corner readout showed through: {out}"
+
+
+# A wall of three screens (4, 4 and 2 columns side by side) with the top
+# right and bottom left readouts ticked on every screen. `drop` lowers the
+# last screen 64 px, so the wall's corners are no screen's corners. Returns
+# every readout drawn in one frame.
+READOUTS_JS = """([names, drop]) => {
+    const gc = window.__gc, r = window.canvasRenderer, app = window.app;
+    const members = [4, 4, 2].map((cols, i) => gc.screen({
+        id: i + 1, name: 'S' + (i + 1), group_id: 'g1', columns: cols, rows: 3,
+        offset_x: i * 512, offset_y: i === 2 ? drop : 0,
+        showOffsetTR: true, showOffsetBL: true }));
+    return gc.withProject(members, [gc.group(members)], 'pixel-map', () => {
+        app.project.groupNameDisplay = names;
+        r.zoom = 0.5; r.panX = 0; r.panY = 0;
+        return gc.drawn().filter(t => /^X \\d+, Y \\d+$/.test(t)).sort();
+    });
+}"""
+
+SCREENS_OWN = ['X 0, Y 383', 'X 1023, Y 0', 'X 1024, Y 383', 'X 1279, Y 0',
+               'X 511, Y 0', 'X 512, Y 383']
+SCREENS_OWN_DROPPED = ['X 0, Y 383', 'X 1023, Y 0', 'X 1024, Y 447', 'X 1279, Y 64',
+                       'X 511, Y 0', 'X 512, Y 383']
+WALL_DROPPED = ['X 0, Y 447', 'X 1279, Y 0']
+
+
+def test_a_group_shows_one_set_of_corner_readouts(page):
+    """The owner (2026-11-16): "in a group with group label selected it
+    shows X,Y of each screen. this is not correct". With the Names switch
+    on Group the readouts belong to the wall: one top right and one bottom
+    left, at the wall's own corners."""
+    assert page.evaluate(READOUTS_JS, ['group', 0]) == ['X 0, Y 383', 'X 1279, Y 0']
+    assert page.evaluate(READOUTS_JS, ['group', 64]) == WALL_DROPPED
+
+
+def test_screens_keep_their_own_corner_readouts(page):
+    """With the Names switch on Screens every screen shows its own corners,
+    and only those."""
+    assert page.evaluate(READOUTS_JS, ['screens', 0]) == SCREENS_OWN
+    assert page.evaluate(READOUTS_JS, ['screens', 64]) == SCREENS_OWN_DROPPED
+
+
+def test_both_shows_the_screens_and_the_walls_corner_readouts(page):
+    """The owner (2026-11-16): "both shows both". Every screen shows its
+    own corners and the wall shows its own, except where the wall's corner
+    is a screen's corner already showing the same readout: that one is
+    drawn once."""
+    assert page.evaluate(READOUTS_JS, ['both', 64]) == sorted(SCREENS_OWN_DROPPED + WALL_DROPPED)
+    assert page.evaluate(READOUTS_JS, ['both', 0]) == SCREENS_OWN
+
+
 def test_the_writing_is_drawn_once_after_every_screen(page):
     """The order itself: every screen's cabinets, then the lines, then the
     writing - one name per screen, in the screens' order, never twice."""

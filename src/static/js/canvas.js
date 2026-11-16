@@ -749,8 +749,12 @@ class CanvasRenderer {
     // _withLayerWs), where each later layer overlaps this screen. Writing
     // that hangs OUTSIDE the screen (a bracket under it, a tag) is never
     // clipped: on a stacked wall it sits over its neighbour's cabinets.
-    _clipOutLaterLayers(layer, later) {
+    // `off` is the render offset of the frame the clip is made in, when
+    // that frame is one screen's own (a group's writing, drawn in its host's
+    // frame); null in the canvas's frame.
+    _clipOutLaterLayers(layer, later, off = null) {
         if (!Array.isArray(later) || !later.length) return;
+        const ox = off ? off.dx : 0, oy = off ? off.dy : 0;
         // One footprint per layer per frame: render() empties the memo.
         const memo = this._labelPassRects || (this._labelPassRects = new Map());
         const rectOf = (l) => {
@@ -774,8 +778,33 @@ class CanvasRenderer {
             if (!(x1 - x0 > 1e-6 && y1 - y0 > 1e-6)) return;
             this.ctx.beginPath();
             this.ctx.rect(-BIG, -BIG, 2 * BIG, 2 * BIG);
-            this.ctx.rect(x0, y0, x1 - x0, y1 - y0);
+            this.ctx.rect(x0 - ox, y0 - oy, x1 - x0, y1 - y0);
             this.ctx.clip('evenodd');
+        });
+    }
+
+    // The screens, images and text layers the label pass saw drawn after
+    // `layer` on its canvas, leaving out `skip` (a group's own members).
+    // Empty outside the label pass.
+    _layersDrawnAfter(layer, skip = []) {
+        const drawn = this._labelPassDrawn || [];
+        const at = drawn.findIndex(d => d.layer === layer);
+        if (at < 0) return [];
+        return drawn.slice(at + 1)
+            .filter(d => d.canvasId === drawn[at].canvasId && !skip.includes(d.layer))
+            .map(d => d.layer);
+    }
+
+    // A group's own writing (its label, its corner readouts) belongs to the
+    // wall, so it goes under whatever covers the wall: wherever a screen,
+    // image or text layer that is not a member was drawn after a member and
+    // lies over it, that member's part of the writing is clipped away, the
+    // same as its cabinets. Members never cover their own group's writing.
+    // Called in the host's frame (renderLayerLabels, renderLayerOffsets).
+    _clipOutGroupCovers(plan, host) {
+        const off = this.getLayerRenderOffset(host);
+        plan.members.forEach(m => {
+            this._clipOutLaterLayers(m, this._layersDrawnAfter(m, plan.members), off);
         });
     }
 
@@ -2949,16 +2978,13 @@ class CanvasRenderer {
                     this._activeRenderCanvas = _prevCanvas;
                 }
             };
+            // _labelPassDrawn is read through the member labels below
+            // (_layersDrawnAfter) and emptied after them.
             const _labelLayers = this._labelPassLayers || [];
-            const _drawn = this._labelPassDrawn || [];
             this._labelPassLayers = [];
-            this._labelPassDrawn = [];
             _labelLayers.forEach(layer => {
                 if (!layer || !layer.visible) return;
-                const at = _drawn.findIndex(d => d.layer === layer);
-                const later = at < 0 ? null : _drawn.slice(at + 1)
-                    .filter(d => d.canvasId === _drawn[at].canvasId).map(d => d.layer);
-                _inLayerFrame(layer, later,
+                _inLayerFrame(layer, this._layersDrawnAfter(layer),
                     (rotating) => this._renderLayerWriting(layer, rotating),
                     () => {
                         // The corner X,Y readouts (Pixel Map only), upright.
@@ -2980,16 +3006,20 @@ class CanvasRenderer {
 
             // Group members' name plates, held back from the loop above so
             // they sit on top of the crossing runs the overlay just drew,
-            // each in the frame its own pass used.
+            // each in the frame its own pass used. Still under any screen,
+            // image or text layer drawn over the member later, other than
+            // its own group's members.
             const _deferredLabels = this._deferredMemberLabels || [];
             this._deferredMemberLabels = [];
             _deferredLabels.forEach(layer => {
                 if (!layer || !layer.visible) return;
-                _inLayerFrame(layer, null, () => {
+                const peers = (window.app && window.app.groupMembersOf(layer)) || [];
+                _inLayerFrame(layer, this._layersDrawnAfter(layer, peers), () => {
                     this._svgGroup('Screen name', layer);
                     this.renderLayerLabels(layer);
                 });
             });
+            this._labelPassDrawn = [];
 
             // IDM Locator: the live highlight, over every screen. The output
             // window's frame is drawn without it (_idmNoHighlight) and has
