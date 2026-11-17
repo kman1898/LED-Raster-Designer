@@ -41,6 +41,7 @@ Object.assign(CanvasRenderer.prototype, {
     },
     
     // Render capacity error overlay ON TOP of everything (including labels)
+    // but the pixel grid, which is drawn over it at 1000% and past it.
     // This renders WITHOUT clipping so it's visible even outside raster bounds.
     // Called from the third render pass (outside the per-layer ctx.translate),
     // so use show-translated bounds, getLayerBounds returns processor coords

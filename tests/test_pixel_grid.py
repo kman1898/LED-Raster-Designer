@@ -11,9 +11,14 @@ those the cabinets showed and the grid did not, over part or all of the wall.
 The owner (2026-11-16): "labels should not cover the grid i need to be able
 to see the pixels". The grid is drawn after every screen's writing: name
 plates, group names, corner readouts, Cabinet IDs, the data and power runs
-with their discs and tags. A screen laid over another still hides the lower
-screen's grid where it covers it, as it hides its cabinets. Exports never
-draw the grid.
+with their discs and tags. The owner (2026-11-17): "i still want to see the
+grid", like a photo editor's pixel grid: it is drawn over everything on the
+screens, the red error boxes, the BACK badge and the IDM Locator highlight
+included. Only what is not part of the picture stays over it: the selected
+screens' outlines, the drag and marquee boxes, the landing pulse and the
+Pixel Map's "N panels selected" count, a readout fixed to the frame's
+corner. A screen laid over another still hides the lower screen's grid where
+it covers it, as it hides its cabinets. Exports never draw the grid.
 
 Each test draws one frame at 1200 % with the grid and without it, and walks
 the LED pixel edges inside the screen: every one must show a grid line, under
@@ -64,12 +69,16 @@ ZOOM = 12
 # centred on, in the workspace's coordinates (where the eye sees the screen
 # in that view). `find` recentres the frame on the first screen's name plate
 # (a grouped wall's own, 'name') or the label disc nearest `at` ('disc').
-# `writing` names the renderer method that draws the writing under test.
+# `writing` names the renderer method that draws the writing (or the error
+# box, the badge, the IDM highlight) under test. `find` 'idm' lights the
+# first module of the first cabinet in the IDM Locator and centres on it;
+# `idmField` is the IDM Locator's field.
 #
 # Frames: A as drawn; G without the grid; N without the grid and the
 # writing; NP without those and the cabinets. A pixel is on the screen where
 # N and NP differ (the cabinets with no writing on them), under the writing
-# where G and the frame without `writing` differ.
+# where G and the frame without `writing` differ. N and NP leave `writing` out
+# too, so a box drawn over the whole screen still lets the cabinets be found.
 GRID_JS = """([mode, spec]) => {
     const gc = window.__gc, r = window.canvasRenderer, app = window.app;
     const layers = (spec.layers || [Object.assign({
@@ -77,10 +86,14 @@ GRID_JS = """([mode, spec]) => {
     }, spec.layer || {})]).map(o => gc.screen(o));
     const groups = spec.group ? [gc.group(layers)] : [];
     return gc.withProject(layers, groups, mode, () => {
+      const ownHl = Object.prototype.hasOwnProperty.call(app, '_idmHighlightTarget');
+      const keepHl = app._idmHighlightTarget;
+      try {
         const c1 = app.project.canvases[0];
         Object.assign(c1, spec.canvas || {});
         (spec.extra || []).forEach(c => app.project.canvases.push(c));
         if (spec.active) app.project.active_canvas_id = spec.active;
+        if (spec.idmField) app.project.idmField = spec.idmField;
         const W = r.canvas.width, H = r.canvas.height;
         const z = spec.zoom;
         const frame = ([wx, wy]) => {
@@ -104,6 +117,16 @@ GRID_JS = """([mode, spec]) => {
                               - Math.hypot(b.x + b.w / 2 - W / 2, b.y + b.h / 2 - H / 2))[0];
             if (!disc) return { error: 'no disc' };
             frame([(disc.x + disc.w / 2 - r.panX) / z, (disc.y + disc.h / 2 - r.panY) / z]);
+        } else if (spec.find === 'idm') {
+            // the IDM Locator's live highlight on one module, lit steadily
+            const layer = layers[0], panel = layer.panels[0];
+            const counts = r.idmCounts(layer);
+            const cell = r.idmModuleCells(layer, panel, counts.x, counts.y,
+                                          r._idmVisibleLookup(layer))[0];
+            if (!cell) return { error: 'no module' };
+            app._idmHighlightTarget = () => ({ layer, panel, cell, key: '0,0,0,0', on: true });
+            const m = r.idmModuleWorldRect(layer, panel, cell);
+            frame([m.x + m.w / 2, m.y + m.h / 2]);
         }
         const grab = () => r.ctx.getImageData(0, 0, W, H).data;
         const draw = (names) => {
@@ -117,8 +140,9 @@ GRID_JS = """([mode, spec]) => {
                          '_renderCrossMemberPaths'];
         const A = draw([]);
         const G = draw(['renderPixelGrid']);
-        const N = draw(['renderPixelGrid', ...WRITING]);
-        const NP = draw(['renderPixelGrid', 'renderPanel', ...WRITING]);
+        const OFF = spec.writing ? [...WRITING, spec.writing] : WRITING;
+        const N = draw(['renderPixelGrid', ...OFF]);
+        const NP = draw(['renderPixelGrid', 'renderPanel', 'renderIdmLayer', ...OFF]);
         const M = spec.writing ? draw(['renderPixelGrid', spec.writing]) : G;
         const diff = (X, Y, i) => Math.abs(X[i] - Y[i]) + Math.abs(X[i + 1] - Y[i + 1])
             + Math.abs(X[i + 2] - Y[i + 2]);
@@ -143,6 +167,10 @@ GRID_JS = """([mode, spec]) => {
         for (let x = px; x < W; x += z) for (let y = 1; y < H; y += 3) look(x, y, i => i - 4);
         for (let y = py; y < H; y += z) for (let x = 1; x < W; x += 3) look(x, y, i => i - W * 4);
         return { edges, lined, under, misses };
+      } finally {
+        if (!ownHl) delete app._idmHighlightTarget;
+        else app._idmHighlightTarget = keepHl;
+      }
     });
 }"""
 
@@ -276,6 +304,191 @@ def test_grid_over_the_port_and_circuit_disc(page, mode, writing):
     assert_grid_everywhere(grid(page, mode, spec), f'{mode} disc', under=20)
 
 
+# ── Over the error boxes, the badges and the IDM highlight ──────────────
+
+# The owner (2026-11-17): "i still want to see the grid". Nothing drawn on a
+# screen hides a pixel edge: not the red error box with its message, not a
+# badge, not the IDM Locator's highlight.
+
+def test_grid_over_the_power_error_box(page):
+    """A cabinet drawing more than a circuit carries puts the red box and
+    its message over the whole screen. The frame sits on the message box's
+    top edge (728 - 45): the red wash above, the box's red border, the black
+    box and its writing below."""
+    spec = {'at': [1256, 683], 'writing': 'renderPowerErrorOverlay',
+            'layer': {'panelWatts': 100000}}
+    assert_grid_everywhere(grid(page, 'power', spec), 'power error box', under=2000)
+
+
+def test_grid_over_the_data_error_box(page):
+    """One cabinet bigger than a port (1024 x 1024 px): the Data tab's red
+    box and message over the screen. The frame sits on the message box's top
+    edge (1112 - 65)."""
+    spec = {'at': [1512, 1047], 'writing': 'renderCapacityErrorOverlay',
+            'layer': {'columns': 1, 'rows': 1, 'cabinet_width': 1024,
+                      'cabinet_height': 1024}}
+    assert_grid_everywhere(grid(page, 'data-flow', spec), 'data error box', under=2000)
+
+
+@pytest.mark.parametrize('mode,key', [('data-flow', 'data_flow_perspective'),
+                                      ('power', 'power_perspective')])
+def test_grid_over_the_back_badge(page, mode, key):
+    """The BACK badge, held in the frame's top right corner while the
+    canvas's own corner is off the frame, lies over the screen there."""
+    spec = {'at': [8192 - 1256, 728], 'canvas': {key: 'back'},
+            'writing': 'renderPerspectiveBadge'}
+    assert_grid_everywhere(grid(page, mode, spec), f'{mode} BACK badge', under=20)
+
+
+def test_grid_over_the_idm_highlight(page):
+    """The IDM Locator's lit module (white, with its accent outline) on a
+    black field."""
+    spec = {'at': [1256, 728], 'find': 'idm', 'writing': 'renderIdmHighlight',
+            'idmField': {'color': '#000000', 'border': 'lines', 'moduleIds': False}}
+    assert_grid_everywhere(grid(page, 'idm', spec), 'IDM highlight', under=200)
+
+
+# ── The interaction chrome stays over the grid ──────────────────────────
+
+# Every cabinet of a screen picked on the Pixel Map, the frame inside the
+# screen: the "8 panels selected" count sits in the frame's top left corner
+# over the screen. A as drawn, G without the grid, B without the grid and
+# without the count. Where G and B differ is the count. Inside the pill (its
+# box less the 6 px corner radius and one more pixel, where the pill covers
+# whole pixels, not part of one at its rounded or fractional rim) the grid
+# must not show: the pill is 95 % opaque, so a line under it moves a pixel by
+# less than the 24 allowed; a line over it moves it by 100 and more.
+COUNT_JS = """() => {
+    const gc = window.__gc, r = window.canvasRenderer, app = window.app;
+    const a = gc.screen({ id: 1, name: 'Picked', columns: 4, rows: 2,
+                          offset_x: 1000, offset_y: 600 });
+    return gc.withProject([a], [], 'pixel-map', () => {
+        const keep = app.pixelMapSelection;
+        try {
+            app.currentLayer = a;
+            app.selectedLayerIds = new Set([a.id]);
+            app.pixelMapSelection = new Set(a.panels.map(
+                p => a.id + ':' + (p.row || 0) + ',' + (p.col || 0)));
+            const W = r.canvas.width, H = r.canvas.height, z = 12;
+            r.zoom = z;
+            r.panX = Math.round(W / 2 - 1256 * z);
+            r.panY = Math.round(H / 2 - 728 * z);
+            const grab = () => r.ctx.getImageData(0, 0, W, H).data;
+            const draw = (names) => {
+                names.forEach(n => { r[n] = function () {}; });
+                try { r.render(); return grab(); } finally { names.forEach(n => { delete r[n]; }); }
+            };
+            const A = draw([]);
+            const G = draw(['renderPixelGrid']);
+            const B = draw(['renderPixelGrid', 'renderPixelMapSelectionBadge']);
+            const diff = (X, Y, i) => Math.abs(X[i] - Y[i]) + Math.abs(X[i + 1] - Y[i + 1])
+                + Math.abs(X[i + 2] - Y[i + 2]);
+            let badge = 0, gridSeen = 0, x0 = W, y0 = H, x1 = -1, y1 = -1;
+            for (let i = 0; i < W * H * 4; i += 4) {
+                if (diff(A, G, i) >= 3) gridSeen++;
+                if (diff(G, B, i) < 30) continue;
+                badge++;
+                const x = (i / 4) % W, y = Math.floor(i / 4 / W);
+                x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+                y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+            }
+            let inside = 0, crossed = 0;
+            for (let y = y0 + 7; y <= y1 - 7; y++) for (let x = x0 + 7; x <= x1 - 7; x++) {
+                const i = (y * W + x) * 4;
+                inside++;
+                if (diff(A, G, i) > 24) crossed++;
+            }
+            return { badge, inside, crossed, gridSeen, label: app.pixelMapSelection.size };
+        } finally { app.pixelMapSelection = keep; }
+    });
+}"""
+
+
+def test_the_panels_selected_count_stays_over_the_grid(page):
+    """The count is not part of any screen: the grid never crosses it."""
+    out = page.evaluate(COUNT_JS)
+    assert not page.errors, page.errors
+    assert out['gridSeen'] > 1000, f'no grid in the frame: {out}'
+    assert out['badge'] > 500, f'the count was never drawn: {out}'
+    assert out['inside'] > 500, f'too little of the pill walked: {out}'
+    assert out['crossed'] == 0, f'the grid crosses the count: {out}'
+
+
+# One screen, picked (its outline drawn in the current screen's colour), or
+# a screen marquee being dragged over it. The frame is centred on the
+# screen's left edge. A as drawn, G without the grid, GS without the grid and
+# without the outline / marquee. A chrome pixel is one G shows in the
+# outline's own colour and GS does not; on every one of those A must be G:
+# the grid never crosses the outline.
+CHROME_JS = """([mode, kind]) => {
+    const gc = window.__gc, r = window.canvasRenderer, app = window.app;
+    const a = gc.screen({ id: 1, name: 'Picked', columns: 4, rows: 2,
+                          offset_x: 1000, offset_y: 600 });
+    return gc.withProject([a], [], mode, () => {
+        const W = r.canvas.width, H = r.canvas.height, z = 12;
+        r.zoom = z;
+        r.panX = Math.round(W / 2 - 1000 * z);
+        r.panY = Math.round(H / 2 - 728 * z);
+        const grab = () => r.ctx.getImageData(0, 0, W, H).data;
+        const keep = { sel: r.isSelectingLayers, rect: r.layerSelectionRect };
+        const on = () => {
+            if (kind === 'selected') {
+                app.currentLayer = a;
+                app.selectedLayerIds = new Set([a.id]);
+            } else {
+                r.isSelectingLayers = true;
+                r.layerSelectionRect = { x1: 990, y1: 700, x2: 1020, y2: 760 };
+            }
+        };
+        const off = () => {
+            app.currentLayer = null;
+            app.selectedLayerIds = new Set();
+            r.isSelectingLayers = keep.sel;
+            r.layerSelectionRect = keep.rect;
+        };
+        const drawn = (grid) => {
+            if (!grid) r.renderPixelGrid = function () {};
+            try { r.render(); return grab(); } finally { delete r.renderPixelGrid; }
+        };
+        let A, G, GS;
+        try {
+            on(); A = drawn(true); G = drawn(false);
+            off(); GS = drawn(false);
+        } finally { off(); }
+        const ink = kind === 'selected' ? [0, 204, 255] : [74, 144, 226];
+        const near = (X, i) => [0, 1, 2].every(k => Math.abs(X[i + k] - ink[k]) <= 6);
+        const diff = (X, Y, i) => Math.abs(X[i] - Y[i]) + Math.abs(X[i + 1] - Y[i + 1])
+            + Math.abs(X[i + 2] - Y[i + 2]);
+        let chrome = 0, crossed = 0, gridSeen = 0;
+        const at = [];
+        for (let i = 0; i < W * H * 4; i += 4) {
+            if (diff(A, G, i) >= 3) gridSeen++;
+            if (!near(G, i) || near(GS, i)) continue;
+            chrome++;
+            if (diff(A, G, i) > 3) {
+                crossed++;
+                if (at.length < 5) at.push([(i / 4) % W, Math.floor(i / 4 / W)]);
+            }
+        }
+        return { chrome, crossed, gridSeen, at };
+    });
+}"""
+
+
+@pytest.mark.parametrize('mode', ['pixel-map', 'data-flow', 'power'])
+@pytest.mark.parametrize('kind', ['selected', 'marquee'])
+def test_the_selection_outline_and_marquee_stay_over_the_grid(page, mode, kind):
+    """The picked screen's outline and the screen marquee are not part of
+    the picture: at 1200 % they are drawn after the grid, never crossed."""
+    out = page.evaluate(CHROME_JS, [mode, kind])
+    assert not page.errors, page.errors
+    assert out['gridSeen'] > 1000, f'{mode} {kind}: no grid in the frame: {out}'
+    assert out['chrome'] > 50, f'{mode} {kind}: the outline was never drawn: {out}'
+    assert out['crossed'] == 0, (
+        f'{mode} {kind}: the grid crosses {out["crossed"]} of {out["chrome"]} outline '
+        f'pixels (first at {out["at"]}): {out}')
+
+
 # ── A screen over another ───────────────────────────────────────────────
 
 # Screen A (4 x 2 at 1000, 600) under screen B (2 x 1 at 1100, 650). The
@@ -346,7 +559,9 @@ ORDER_JS = """(mode) => {
                        'renderLayerOffsets', 'renderPixelMapSelectionOverlay',
                        'renderPixelMapSelectionBadge', 'renderCustomSelectionOverlay',
                        'renderCustomActivePortBadge', 'renderPowerSelectionOverlay',
-                       'renderPowerActiveCircuitBadge'];
+                       'renderPowerActiveCircuitBadge', 'renderPerspectiveBadge',
+                       'renderCapacityErrorOverlay', 'renderPowerErrorOverlay',
+                       'renderIdmHighlight'];
         names.forEach(k => {
             const f = r[k];
             r[k] = function (...args) { order.push(k); return f.apply(this, args); };
@@ -360,14 +575,18 @@ ORDER_JS = """(mode) => {
 }"""
 
 
-@pytest.mark.parametrize('mode,tint,badge', [
-    ('pixel-map', 'renderPixelMapSelectionOverlay', 'renderPixelMapSelectionBadge'),
-    ('data-flow', 'renderCustomSelectionOverlay', 'renderCustomActivePortBadge'),
-    ('power', 'renderPowerSelectionOverlay', 'renderPowerActiveCircuitBadge'),
+@pytest.mark.parametrize('mode,under,over', [
+    ('pixel-map', ['renderPixelMapSelectionOverlay'], ['renderPixelMapSelectionBadge']),
+    ('data-flow', ['renderCustomSelectionOverlay', 'renderCustomActivePortBadge',
+                   'renderPerspectiveBadge', 'renderCapacityErrorOverlay'], []),
+    ('power', ['renderPowerSelectionOverlay', 'renderPowerActiveCircuitBadge',
+               'renderPerspectiveBadge', 'renderPowerErrorOverlay'], []),
+    ('idm', ['renderIdmHighlight'], []),
 ])
-def test_the_grid_is_drawn_after_the_writing_and_the_selection_tint(page, mode, tint, badge):
-    """The order: every screen's writing and the picked cabinets' tint, then
-    the grid, then the badges in the frame's corner."""
+def test_the_grid_is_drawn_after_everything_on_the_screens(page, mode, under, over):
+    """The order: every screen's writing, the picked cabinets' tint, the
+    BACK badge, the IDM highlight and the error boxes, then the grid, and
+    after it the Pixel Map's "N panels selected" count."""
     order = page.evaluate(ORDER_JS, mode)
     assert not page.errors, page.errors
     grid_at = [i for i, k in enumerate(order) if k == 'renderPixelGrid']
@@ -375,8 +594,13 @@ def test_the_grid_is_drawn_after_the_writing_and_the_selection_tint(page, mode, 
                   if k in ('renderLayerLabels', '_renderLayerWriting', 'renderLayerOffsets')]
     assert grid_at and writing_at, order
     assert max(writing_at) < min(grid_at), order
-    assert order.index(tint) < min(grid_at), order
-    assert order.index(badge) > max(grid_at), order
+    for k in under:
+        assert k in order, (k, order)
+        last = max(i for i, o in enumerate(order) if o == k)
+        assert last < min(grid_at), (k, order)
+    for k in over:
+        assert k in order, (k, order)
+        assert order.index(k) > max(grid_at), (k, order)
 
 
 # ── Seen on every colour ────────────────────────────────────────────────
@@ -459,13 +683,16 @@ def test_the_grid_is_crisp_and_clear_on_every_cell_colour(page, name, rgb):
     assert out['smeared'] == 0, f'{name}: a grid line is blurred onto a third pixel: {out}'
 
 
-def test_an_export_never_draws_the_grid(page):
+@pytest.mark.parametrize('mode', ['pixel-map', 'data-flow', 'power', 'idm'])
+def test_an_export_never_draws_the_grid(page, mode):
     """A drawing for paper or a file (exportMode) has no grid, whatever its
-    zoom: a small wall on a binder map can be drawn past 1000 %."""
-    out = page.evaluate("""() => {
+    zoom: a small wall on a binder map can be drawn past 1000 %. The Power
+    case has its red error box on it, which an export still prints."""
+    out = page.evaluate("""(mode) => {
         const gc = window.__gc, r = window.canvasRenderer;
-        const a = gc.screen({ id: 1, name: 'A', offset_x: 1000, offset_y: 600 });
-        return gc.withProject([a], [], 'pixel-map', () => {
+        const a = gc.screen({ id: 1, name: 'A', offset_x: 1000, offset_y: 600,
+                              panelWatts: mode === 'power' ? 100000 : 200 });
+        return gc.withProject([a], [], mode, () => {
             let calls = 0;
             r.renderPixelGrid = function () { calls++; };
             r.zoom = 12;
@@ -480,7 +707,7 @@ def test_an_export_never_draws_the_grid(page):
             } finally { r.exportMode = keep; delete r.renderPixelGrid; }
             return { live, exported };
         });
-    }""")
+    }""", mode)
     assert not page.errors, page.errors
     assert out['live'] > 0, out
     assert out['exported'] == 0, out

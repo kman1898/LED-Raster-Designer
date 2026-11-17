@@ -644,6 +644,12 @@ FIXES
   sharp dark pixel beside a light one, so it reads on dark and light
   cabinets, white, gray and black alike. It used to be a faint gray blur
   that all but vanished on the default dark cabinets.
+- FIX: Zoomed in to 1000% or more, the pixel grid shows over everything
+  on a screen, so no pixel is hidden: the red error boxes and their
+  messages on the Data and Power tabs, the BACK badge and the IDM
+  Locator's lit module. The outline of a selected screen, the box dragged
+  to select screens and the panels selected count still draw over the
+  grid, so they stay easy to see.
 - FIX: On the Data and Power tabs, a screen lying over a grouped wall now
   covers that wall's names, the way it covers its cabinets. The group's
   name and each screen's own name used to show through it.

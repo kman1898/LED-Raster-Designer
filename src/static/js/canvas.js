@@ -2761,146 +2761,156 @@ class CanvasRenderer {
                 });
             }
 
-            // Draw bounding boxes around selected layers (skip during export)
-            // These render OUTSIDE the per-layer ctx.translate, so use the
-            // active-view bounds.
-            if (!this.exportMode && window.app && window.app.selectedLayerIds && window.app.selectedLayerIds.size > 0) {
-                const selectedIds = window.app.selectedLayerIds;
-                window.app.project.layers.forEach(layer => {
-                    if (!layer.visible) return;
-                    if (!selectedIds.has(layer.id)) return;
-                    _withLayerWs(layer, () => {
-                        const bounds = this.getLayerFootprintInActiveView(layer);
-                        const layerWidth = bounds.width;
-                        const layerHeight = bounds.height;
-                        this.ctx.strokeStyle = (window.app.currentLayer && window.app.currentLayer.id === layer.id) ? '#00ccff' : '#4A90E2';
-                        this.ctx.lineWidth = 2 / this.zoom;
-                        this.ctx.setLineDash([8 / this.zoom, 4 / this.zoom]);
-                        this.ctx.strokeRect(bounds.x, bounds.y, layerWidth, layerHeight);
-                        this.ctx.setLineDash([]);
-                    });
-                });
-            }
-
-            // Draw bounding box around selected layer ONLY during Shift+Drag (skip during export)
-            if (!this.exportMode && this.isDraggingLayer && window.app && window.app.currentLayer) {
-                const selectedLayer = window.app.currentLayer;
-                if (selectedLayer.visible) {
-                    _withLayerWs(selectedLayer, () => {
-                        const bounds = this.getLayerFootprintInActiveView(selectedLayer);
-                        const layerWidth = bounds.width;
-                        const layerHeight = bounds.height;
-
-                        this.ctx.strokeStyle = '#4A90E2';  // Blue highlight color
-                        this.ctx.lineWidth = 3 / this.zoom;  // Scale with zoom
-                        this.ctx.setLineDash([10 / this.zoom, 5 / this.zoom]);
-                        this.ctx.strokeRect(
-                            bounds.x,
-                            bounds.y,
-                            layerWidth,
-                            layerHeight
-                        );
-                        this.ctx.setLineDash([]);
-                    });
-                }
-            }
-
-            // Draw selection rectangle + highlight for layer multi-select (skip during export)
-            if (!this.exportMode && this.isSelectingLayers && this.layerSelectionRect) {
-                const minX = Math.min(this.layerSelectionRect.x1, this.layerSelectionRect.x2);
-                const maxX = Math.max(this.layerSelectionRect.x1, this.layerSelectionRect.x2);
-                const minY = Math.min(this.layerSelectionRect.y1, this.layerSelectionRect.y2);
-                const maxY = Math.max(this.layerSelectionRect.y1, this.layerSelectionRect.y2);
-
-                this.ctx.save();
-                // Darken selected layers while dragging
-                if (window.app && window.app.project) {
+            // The interaction chrome: the selected screens' outlines, the
+            // Shift+drag box, the screen marquee, the port pick box and the
+            // landing pulse. None of it is part of the picture, so while the
+            // pixel grid is drawn (1000% and past it) it goes on after the grid
+            // and stays clear of it; with no grid it goes here, under the
+            // writing (the label pass below).
+            const _gridOn = this.zoom >= 10 && !this.exportMode;
+            const _drawChrome = () => {
+                // Draw bounding boxes around selected layers (skip during export)
+                // These render OUTSIDE the per-layer ctx.translate, so use the
+                // active-view bounds.
+                if (!this.exportMode && window.app && window.app.selectedLayerIds && window.app.selectedLayerIds.size > 0) {
+                    const selectedIds = window.app.selectedLayerIds;
                     window.app.project.layers.forEach(layer => {
                         if (!layer.visible) return;
-                        // Active-view bounds, selection rect is in world coords
-                        // matching the rendered (possibly show-shifted) layout.
-                        // For multi-canvas, shift bounds into workspace coords
-                        // so the intersection test compares apples-to-apples
-                        // with the selection rect (which is in workspace coords
-                        //, captured from world-space mouse events).
-                        const { wx, wy } = _layerWs(layer);
-                        const bounds = this.getLayerBoundsInActiveView(layer);
-                        const layerWidth = bounds.width;
-                        const layerHeight = bounds.height;
-                        const x1 = bounds.x + wx;
-                        const y1 = bounds.y + wy;
-                        const x2 = x1 + layerWidth;
-                        const y2 = y1 + layerHeight;
-                        const intersects = x1 <= maxX && x2 >= minX && y1 <= maxY && y2 >= minY;
-                        if (intersects) {
-                            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-                            this.ctx.fillRect(x1, y1, layerWidth, layerHeight);
-                        }
+                        if (!selectedIds.has(layer.id)) return;
+                        _withLayerWs(layer, () => {
+                            const bounds = this.getLayerFootprintInActiveView(layer);
+                            const layerWidth = bounds.width;
+                            const layerHeight = bounds.height;
+                            this.ctx.strokeStyle = (window.app.currentLayer && window.app.currentLayer.id === layer.id) ? '#00ccff' : '#4A90E2';
+                            this.ctx.lineWidth = 2 / this.zoom;
+                            this.ctx.setLineDash([8 / this.zoom, 4 / this.zoom]);
+                            this.ctx.strokeRect(bounds.x, bounds.y, layerWidth, layerHeight);
+                            this.ctx.setLineDash([]);
+                        });
                     });
                 }
 
-                this.ctx.strokeStyle = '#4A90E2';
-                this.ctx.lineWidth = 2 / this.zoom;
-                this.ctx.setLineDash([6 / this.zoom, 4 / this.zoom]);
-                this.ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
-                this.ctx.setLineDash([]);
-                this.ctx.restore();
-            }
+                // Draw bounding box around selected layer ONLY during Shift+Drag (skip during export)
+                if (!this.exportMode && this.isDraggingLayer && window.app && window.app.currentLayer) {
+                    const selectedLayer = window.app.currentLayer;
+                    if (selectedLayer.visible) {
+                        _withLayerWs(selectedLayer, () => {
+                            const bounds = this.getLayerFootprintInActiveView(selectedLayer);
+                            const layerWidth = bounds.width;
+                            const layerHeight = bounds.height;
 
-            // The Shift+drag box picking data ports (app-merge-runs.js): the
-            // same dashed outline the screen marquee draws; the ports it
-            // will pick light up under it (_runUnderlayLit).
-            const pickBox = this._portPickPending && this._portPickPending.rect;
-            if (!this.exportMode && pickBox) {
-                this.ctx.save();
-                this.ctx.strokeStyle = '#4A90E2';
-                this.ctx.lineWidth = 2 / this.zoom;
-                this.ctx.setLineDash([6 / this.zoom, 4 / this.zoom]);
-                this.ctx.strokeRect(Math.min(pickBox.x1, pickBox.x2), Math.min(pickBox.y1, pickBox.y2),
-                    Math.abs(pickBox.x2 - pickBox.x1), Math.abs(pickBox.y2 - pickBox.y1));
-                this.ctx.setLineDash([]);
-                this.ctx.restore();
-            }
-
-            // The landing pulse (pulseLayer): a transient outline that grows
-            // and fades over the pulsed layer for ~1.2s, so "center on this
-            // screen" ends with the eye on the right wall. Pure view state -
-            // it self-clears by time, never touches the project, and skips
-            // exports entirely. The animation rides ONE queued frame at a
-            // time rather than a timer: render() is called from everywhere,
-            // and a second scheduler would double-draw.
-            if (!this.exportMode && this._pulse) {
-                const now = performance.now();
-                if (now >= this._pulse.until) {
-                    this._pulse = null;
-                } else {
-                    const layer = window.app.project.layers.find(
-                        l => String(l.id) === String(this._pulse.layerId));
-                    if (layer && layer.visible) {
-                        _withLayerWs(layer, () => {
-                            const b = this.getLayerFootprintInActiveView(layer);
-                            // 0 at the click, 1 at the fade's end.
-                            const t = 1 - (this._pulse.until - now)
-                                / this._pulse.span;
-                            const grow = (4 + 16 * t) / this.zoom;
-                            this.ctx.save();
-                            this.ctx.strokeStyle =
-                                `rgba(255, 85, 85, ${0.85 * (1 - t)})`;
-                            this.ctx.lineWidth = 3 / this.zoom;
-                            this.ctx.strokeRect(b.x - grow, b.y - grow,
-                                                b.width + grow * 2,
-                                                b.height + grow * 2);
-                            this.ctx.restore();
-                        });
-                    }
-                    if (!this._pulseFrame) {
-                        this._pulseFrame = requestAnimationFrame(() => {
-                            this._pulseFrame = null;
-                            this.render();
+                            this.ctx.strokeStyle = '#4A90E2';  // Blue highlight color
+                            this.ctx.lineWidth = 3 / this.zoom;  // Scale with zoom
+                            this.ctx.setLineDash([10 / this.zoom, 5 / this.zoom]);
+                            this.ctx.strokeRect(
+                                bounds.x,
+                                bounds.y,
+                                layerWidth,
+                                layerHeight
+                            );
+                            this.ctx.setLineDash([]);
                         });
                     }
                 }
-            }
+
+                // Draw selection rectangle + highlight for layer multi-select (skip during export)
+                if (!this.exportMode && this.isSelectingLayers && this.layerSelectionRect) {
+                    const minX = Math.min(this.layerSelectionRect.x1, this.layerSelectionRect.x2);
+                    const maxX = Math.max(this.layerSelectionRect.x1, this.layerSelectionRect.x2);
+                    const minY = Math.min(this.layerSelectionRect.y1, this.layerSelectionRect.y2);
+                    const maxY = Math.max(this.layerSelectionRect.y1, this.layerSelectionRect.y2);
+
+                    this.ctx.save();
+                    // Darken selected layers while dragging
+                    if (window.app && window.app.project) {
+                        window.app.project.layers.forEach(layer => {
+                            if (!layer.visible) return;
+                            // Active-view bounds, selection rect is in world coords
+                            // matching the rendered (possibly show-shifted) layout.
+                            // For multi-canvas, shift bounds into workspace coords
+                            // so the intersection test compares apples-to-apples
+                            // with the selection rect (which is in workspace coords
+                            //, captured from world-space mouse events).
+                            const { wx, wy } = _layerWs(layer);
+                            const bounds = this.getLayerBoundsInActiveView(layer);
+                            const layerWidth = bounds.width;
+                            const layerHeight = bounds.height;
+                            const x1 = bounds.x + wx;
+                            const y1 = bounds.y + wy;
+                            const x2 = x1 + layerWidth;
+                            const y2 = y1 + layerHeight;
+                            const intersects = x1 <= maxX && x2 >= minX && y1 <= maxY && y2 >= minY;
+                            if (intersects) {
+                                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+                                this.ctx.fillRect(x1, y1, layerWidth, layerHeight);
+                            }
+                        });
+                    }
+
+                    this.ctx.strokeStyle = '#4A90E2';
+                    this.ctx.lineWidth = 2 / this.zoom;
+                    this.ctx.setLineDash([6 / this.zoom, 4 / this.zoom]);
+                    this.ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+                    this.ctx.setLineDash([]);
+                    this.ctx.restore();
+                }
+
+                // The Shift+drag box picking data ports (app-merge-runs.js): the
+                // same dashed outline the screen marquee draws; the ports it
+                // will pick light up under it (_runUnderlayLit).
+                const pickBox = this._portPickPending && this._portPickPending.rect;
+                if (!this.exportMode && pickBox) {
+                    this.ctx.save();
+                    this.ctx.strokeStyle = '#4A90E2';
+                    this.ctx.lineWidth = 2 / this.zoom;
+                    this.ctx.setLineDash([6 / this.zoom, 4 / this.zoom]);
+                    this.ctx.strokeRect(Math.min(pickBox.x1, pickBox.x2), Math.min(pickBox.y1, pickBox.y2),
+                        Math.abs(pickBox.x2 - pickBox.x1), Math.abs(pickBox.y2 - pickBox.y1));
+                    this.ctx.setLineDash([]);
+                    this.ctx.restore();
+                }
+
+                // The landing pulse (pulseLayer): a transient outline that grows
+                // and fades over the pulsed layer for ~1.2s, so "center on this
+                // screen" ends with the eye on the right wall. Pure view state -
+                // it self-clears by time, never touches the project, and skips
+                // exports entirely. The animation rides ONE queued frame at a
+                // time rather than a timer: render() is called from everywhere,
+                // and a second scheduler would double-draw.
+                if (!this.exportMode && this._pulse) {
+                    const now = performance.now();
+                    if (now >= this._pulse.until) {
+                        this._pulse = null;
+                    } else {
+                        const layer = window.app.project.layers.find(
+                            l => String(l.id) === String(this._pulse.layerId));
+                        if (layer && layer.visible) {
+                            _withLayerWs(layer, () => {
+                                const b = this.getLayerFootprintInActiveView(layer);
+                                // 0 at the click, 1 at the fade's end.
+                                const t = 1 - (this._pulse.until - now)
+                                    / this._pulse.span;
+                                const grow = (4 + 16 * t) / this.zoom;
+                                this.ctx.save();
+                                this.ctx.strokeStyle =
+                                    `rgba(255, 85, 85, ${0.85 * (1 - t)})`;
+                                this.ctx.lineWidth = 3 / this.zoom;
+                                this.ctx.strokeRect(b.x - grow, b.y - grow,
+                                                    b.width + grow * 2,
+                                                    b.height + grow * 2);
+                                this.ctx.restore();
+                            });
+                        }
+                        if (!this._pulseFrame) {
+                            this._pulseFrame = requestAnimationFrame(() => {
+                                this._pulseFrame = null;
+                                this.render();
+                            });
+                        }
+                    }
+                }
+            };
+            if (!_gridOn) _drawChrome();
 
             // The Pixel Map's cabinet selection: a tint and an outline on
             // each picked cabinet, under the writing (its count badge is
@@ -3017,26 +3027,6 @@ class CanvasRenderer {
             if (!this.exportMode && this.viewMode === 'data-flow') this.renderCustomSelectionOverlay();
             if (!this.exportMode && this.viewMode === 'power') this.renderPowerSelectionOverlay();
 
-            // The pixel grid (all view modes, 1000%+ zoom, never on paper),
-            // over every cabinet AND every screen's writing: name plates,
-            // group names, corner readouts, Cabinet IDs, the data and power
-            // runs with their discs and tags (the owner, 2026-11-16: "labels
-            // should not cover the grid i need to be able to see the
-            // pixels"). Each screen's grid is drawn in the frame its
-            // cabinets were: its canvas's workspace and Front/Back mirror,
-            // its Show Look offset, its rotation and its own canvas's
-            // raster. A screen, image or text layer drawn later over this
-            // one covers its grid there, as it covers its cabinets
-            // (_clipOutLaterLayers): only the upper layer's grid shows.
-            if (this.zoom >= 10 && !this.exportMode) {
-                (this._labelPassDrawn || []).forEach(({ layer }) => {
-                    if (!layer || !layer.visible) return;
-                    _inLayerFrame(layer, this._layersDrawnAfter(layer),
-                        () => this.renderPixelGrid(layer));
-                });
-            }
-            this._labelPassDrawn = [];
-
             // IDM Locator: the live highlight, over every screen. The output
             // window's frame is drawn without it (_idmNoHighlight) and has
             // it laid on by app-output-display.js, so a blink costs that
@@ -3052,9 +3042,6 @@ class CanvasRenderer {
             if (!this.exportMode && this.viewMode === 'data-flow') this.renderCustomActivePortBadge();
             if (!this.exportMode && this.viewMode === 'power') this.renderPowerActiveCircuitBadge();
             if (!this.exportMode && !this._activeBadgeShown) this._syncCustomRunReadout(null);
-            if (!this.exportMode && this.viewMode === 'pixel-map' && !this._idmPass) {
-                this.renderPixelMapSelectionBadge();
-            }
             // Always show the perspective badge (BACK VIEW) in wiring views
             // when in back perspective. Renders in both interactive view and
             // export so the printed map is unambiguous.
@@ -3067,7 +3054,8 @@ class CanvasRenderer {
                 this.renderPerspectiveBadge();
             }
 
-            // Third pass: render capacity error overlays ON TOP of labels (Data Flow mode only)
+            // Third pass: the capacity error overlays, on top of the labels and
+            // under the pixel grid (Data Flow mode only)
             if (this.viewMode === 'data-flow' && _wiringStageOn) {
                 window.app.project.layers.forEach(layer => {
                     if (layer.visible) {
@@ -3083,6 +3071,40 @@ class CanvasRenderer {
                         _withLayerWs(layer, () => this.renderPowerErrorOverlay(layer));
                     }
                 });
+            }
+
+            // The pixel grid (all view modes, 1000%+ zoom, never on paper),
+            // over everything drawn on the screens: every cabinet, every
+            // screen's writing (name plates, group names, corner readouts,
+            // Cabinet IDs, the data and power runs with their discs and
+            // tags), the picked cabinets' tint, the IDM Locator highlight,
+            // the BACK badge and the red error boxes, the way a photo
+            // editor lays its pixel grid over the whole picture (the owner,
+            // 2026-11-16: "labels should not cover the grid i need to be
+            // able to see the pixels"; 2026-11-17: "i still want to see
+            // the grid"). Each screen's grid is drawn in the frame its
+            // cabinets were: its canvas's workspace and Front/Back mirror,
+            // its Show Look offset, its rotation and its own canvas's
+            // raster. A screen, image or text layer drawn later over this
+            // one covers its grid there, as it covers its cabinets
+            // (_clipOutLaterLayers): only the upper layer's grid shows.
+            if (_gridOn) {
+                (this._labelPassDrawn || []).forEach(({ layer }) => {
+                    if (!layer || !layer.visible) return;
+                    _inLayerFrame(layer, this._layersDrawnAfter(layer),
+                        () => this.renderPixelGrid(layer));
+                });
+            }
+            this._labelPassDrawn = [];
+
+            // The interaction chrome, over the grid (see _drawChrome).
+            if (_gridOn) _drawChrome();
+
+            // The Pixel Map's "N panels selected" count: a readout fixed to
+            // the frame's corner, not part of any screen, so it is drawn
+            // last, over the grid and the chrome.
+            if (!this.exportMode && this.viewMode === 'pixel-map' && !this._idmPass) {
+                this.renderPixelMapSelectionBadge();
             }
         }
         
