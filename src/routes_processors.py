@@ -859,6 +859,17 @@ def update_card(processor_id, card_id):
         why = _check_redundancy_mixed(proc, data.get('redundancyMixed'))
         if why:
             return jsonify({'error': why}), 400
+    # `clearBackups`: the hand-picked backup of each port listed goes, in
+    # one edit - a card's or a box's Clear forgets the picks in its range
+    # with its ports (app-dock _dockClearPortPicks). Each is the per-port
+    # PUT's `backup: null`, so a port with no pick is simply left as it is.
+    clear_backups = data.get('clearBackups')
+    if 'clearBackups' in data and (
+            not isinstance(clear_backups, list)
+            or any(isinstance(n, bool) or not isinstance(n, int) or n < 1
+                   for n in clear_backups)):
+        return jsonify({'error': 'clearBackups must be a list of port '
+                                 'numbers'}), 400
     # The redundancy fields are validated, not allow-listed: a mode the
     # catalog does not know, a partner that cannot mirror this card, or a
     # vendor-fixed pairing are all refused with the reason, never stored.
@@ -881,6 +892,10 @@ def update_card(processor_id, card_id):
     for key in ('redundancyMode', 'backupCardId', 'snakes', 'portCables'):
         if key in data:
             changed[key] = card.get(key)
+    if 'clearBackups' in data:
+        for number in clear_backups:
+            _set_port_backup(card, card_id, number, None)
+        changed['clearBackups'] = list(clear_backups)
     if 'redundancyMixed' in data and proc.get('redundancy'):
         _set_redundancy_mixed(proc, data.get('redundancyMixed'))
         changed['redundancyMixed'] = proc.get('redundancyMixed', False)

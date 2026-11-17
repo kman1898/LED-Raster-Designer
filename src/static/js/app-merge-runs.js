@@ -247,14 +247,11 @@ class _MergeRuns {
             run: () => {
                 sendClientLog('dock_clear', { kind: 'runs', layerId: scr.layerId,
                     indices: on.map(q => q.index) });
-                let chain = Promise.resolve();
-                on.forEach((q, i) => {
-                    chain = chain.then(() => this._assignmentRequest(
-                        '/api/port-assignments/unpin', 'POST',
-                        { layerId: scr.layerId, index: q.index }, null,
-                        i === on.length - 1 ? 'Release Ports' : null));
-                });
-                return chain;
+                // All of them in one request and one history entry, the
+                // way a card's Clear goes (_dockReleasePins).
+                return this._dockReleasePins(
+                    on.map(q => ({ layerId: scr.layerId, index: q.index })),
+                    'Release Ports');
             },
         } : { label: clearLabel, disabled: true,
               title: `None of these ports is attached to ${word}, so there is nothing to clear.` };

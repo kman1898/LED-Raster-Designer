@@ -300,9 +300,9 @@ class _PortAssignment {
                                       body || {});
         // A release takes the port's cable with it (owner, 2026-10-17), and
         // a pull-sheet edit on the row that cable printed goes too - the
-        // rows as they print now, read before the request. Every release
-        // of a chain reads its own (only the LAST names the history
-        // action - _dockReleasePins), so the one snapshot holds them all.
+        // rows as they print now, read before the request. A card's Clear
+        // sends all its pins in this one request (_dockReleasePins), so the
+        // one read and the one snapshot hold them all.
         const pullBefore = (/\/unpin$/.test(url)
                 && typeof this._pullLiveRowKeys === 'function')
             ? this._pullLiveRowKeys() : null;
@@ -396,9 +396,8 @@ class _PortAssignment {
                 // A released socket forgets its port cable on the server
                 // (owner, 2026-10-17), and the tree rides the reply when it
                 // did: folded in BEFORE the snapshot, so undo puts the
-                // cable back with the pin. A chain's earlier releases fold
-                // theirs in as they land, so the last one's snapshot holds
-                // every cable the chain let go of.
+                // cable back with the pin - every cable a card's Clear let
+                // go of, its pins all released in this one request.
                 if (data.resolved
                         && typeof this._applyProcessorState === 'function') {
                     this._applyProcessorState(data);

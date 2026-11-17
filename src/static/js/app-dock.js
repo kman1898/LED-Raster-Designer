@@ -4596,16 +4596,22 @@ class _HardwareDock {
         return head;
     }
 
-    // One release per pin, ONE history entry for the gesture - the snapshot
-    // rides the last request the way the drag-back's does, so a single
-    // Ctrl+Z puts the whole card back.
+    // Every pin in ONE request and ONE history entry for the gesture, so a
+    // single Ctrl+Z puts the whole card back. It was one request per pin,
+    // each sending every screen, re-solving the whole assignment on the
+    // server and re-drawing the page after it: a processor with 30 ports
+    // took seconds to clear where a distro cleared at once (owner,
+    // 2026-11-16). The server releases them as one edit
+    // (routes_port_assignment _unpin_many), each exactly as its own
+    // release would have.
     //
     // A LOCKED screen keeps its port (the owner's ruling, 2026-10-16): its
     // pins are left out HERE, before the chain, so the one error names every
     // locked screen at once and the undo step lands on the last release that
     // really goes out (the request guard skips a locked pin without sending
     // anything, so a locked pin last in the chain used to take the step with
-    // it). The chain is one action for the locked error (_beginLockedAction).
+    // it). The request is one action for the locked error
+    // (_beginLockedAction).
     _dockReleasePins(pins, action) {
         const layers = (this.project && this.project.layers) || [];
         const layerOf = (p) => layers.find(l => String(l.id) === String(p.layerId));
@@ -4621,14 +4627,14 @@ class _HardwareDock {
         this._showLockedError(lockedMet);
         if (going.length === 0) return Promise.resolve();
         const end = this._beginLockedAction();
-        let chain = Promise.resolve();
-        going.forEach((p, i) => {
-            chain = chain.then(() => this._assignmentRequest(
-                '/api/port-assignments/unpin', 'POST',
-                { layerId: p.layerId, index: p.index },
-                null, i === going.length - 1 ? action : null));
-        });
-        return chain.finally(end);
+        // One pin keeps the single release's own form.
+        const body = going.length === 1
+            ? { layerId: going[0].layerId, index: going[0].index }
+            : { pins: going.map(p => ({ layerId: p.layerId,
+                                         index: p.index })) };
+        return this._assignmentRequest('/api/port-assignments/unpin', 'POST',
+                                       body, null, action)
+            .finally(end);
     }
 
     // Clear a set of multis as ONE gesture with ONE history entry: a
@@ -4871,20 +4877,16 @@ class _HardwareDock {
         return null;
     }
 
-    // Clear the hand-picked backup on each named port of one card - one
-    // PUT per port through the same route the chip's Backed-by fields use,
-    // the snapshot riding the LAST request so the whole gesture is one
-    // history entry (the _dockReleasePins convention).
+    // Clear the hand-picked backup on each named port of one card, all in
+    // ONE request (the card's `clearBackups`, each the port route's
+    // `backup: null`). Its snapshot is the gesture's one history entry: a
+    // Clear that released pins first named no action there
+    // (_clearMenuForDock), so Ctrl+Z puts pins and picks back together.
     _dockClearPortPicks(found, ports, action) {
-        let chain = Promise.resolve();
-        ports.forEach((pn, i) => {
-            chain = chain.then(() => this._processorRequest(
-                `/api/processors/${found.proc.id}/cards/${found.card.id}`
-                    + `/ports/${pn}`,
-                'PUT', { backup: null },
-                i === ports.length - 1 ? action : null));
-        });
-        return chain;
+        if (!found || !ports || !ports.length) return Promise.resolve();
+        return this._processorRequest(
+            `/api/processors/${found.proc.id}/cards/${found.card.id}`,
+            'PUT', { clearBackups: ports.slice() }, action);
     }
 
     // One resolved port off the same tree the tiles drew, so a menu can

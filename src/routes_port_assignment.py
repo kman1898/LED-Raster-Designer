@@ -46,7 +46,9 @@ port_assignment_bp = Blueprint('port_assignment', __name__)
 # reply with a higher number was read from pins at least as new. The page
 # keeps the newest it has applied and drops an older answer that arrives
 # after it (app-port-assignment _assignmentRequest). A card's Release Ports
-# is a chain of unpins, and a released socket that had a port cable
+# was a chain of unpins (one request since 2026-11-16, _unpin_many, but a
+# read can still cross an edit the same way), and a released socket that
+# had a port cable
 # re-reads the processor tree, which re-resolves the assignment while the
 # chain's next unpin is already on its way: a resolve read before that
 # unpin and answered after the chain's last reply put the released ports
@@ -435,8 +437,13 @@ def unpin_port():
     On a MIRROR screen a release is "unplug the copy" (owner, 2026-11-01:
     "Unplugging only the copy screen just removes the copy"): the screen
     stops mirroring - its dataMirrorOf comes off - and its source keeps
-    every port. A mirror holds no pins, so nothing else changes."""
+    every port. A mirror holds no pins, so nothing else changes.
+
+    `pins`, a list of {layerId, index}, releases them all in ONE edit (a
+    card's or a box's Clear): see _unpin_many."""
     data = request.json or {}
+    if 'pins' in data:
+        return _unpin_many(data.get('pins'))
     layer_id = data.get('layerId')
     if layer_id is None:
         return jsonify({'error': 'layerId is required'}), 400
@@ -458,6 +465,64 @@ def unpin_port():
     state = assignment.clear_pin(_working(), layer_id,
                                  None if index is None else int(index))
     log_event('port_assignment_unpin', {'layer': layer_id, 'index': index})
+    return _saved(_store(state))
+
+
+def _unpin_many(pins):
+    """Release several pins as one edit: a card's or a box's Clear (owner,
+    2026-11-16: clearing a processor was slow where clearing a distro was
+    instant). It used to be one request per port, each sending every
+    screen, re-solving and saving the project, and the page re-drew after
+    each one. Here the pins come off together, in the order given, and the
+    project is solved and saved once.
+
+    Each pin reads exactly as its own release would: a pin on a MIRROR
+    screen unplugs the copy (once - after that the screen is no mirror, so
+    its other pins release as plain ones, which a mirror does not hold),
+    every other pin comes off its card. One _store means one look at the
+    sockets let go of and the sources unplugged, against the pins as they
+    were before the first release; pins only ever come OFF here, so that
+    is the same set the per-port chain arrived at step by step."""
+    if not isinstance(pins, list) or not pins:
+        return jsonify({'error': 'pins must be a list of {layerId, index}'}), 400
+    wanted = []
+    for pin in pins:
+        if not isinstance(pin, dict) or pin.get('layerId') is None:
+            return jsonify({'error': 'every pin needs a layerId'}), 400
+        index = pin.get('index')
+        try:
+            index = None if index is None else int(index)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'index must be a port index'}), 400
+        wanted.append((str(pin.get('layerId')), index))
+    layers = {str(l.get('id')): l
+              for l in app.current_project.get('layers') or []
+              if isinstance(l, dict)}
+    sent = {str(s.get('layerId', s.get('id'))): s
+            for s in (request.json or {}).get('screens') or []
+            if isinstance(s, dict)}
+    unplugged = set()
+    released = []
+    for layer_id, index in wanted:
+        layer = layers.get(layer_id)
+        scr = sent.get(layer_id) or {}
+        if layer_id not in unplugged and layer is not None \
+                and (layer.get('dataMirrorOf') not in (None, '')
+                     or scr.get('mirrorOf') not in (None, '')):
+            clear_mirror(layer, 'copy_unplugged')
+            unplugged.add(layer_id)
+            continue
+        released.append((layer_id, index))
+    _retire()
+    if not (app.current_project.get(assignment.STATE_KEY) or {}).get('pins'):
+        # nothing pinned: only the copies unplugged above changed anything
+        return _saved(_state()) if unplugged else jsonify(_payload())
+    state = _working()
+    for layer_id, index in released:
+        state = assignment.clear_pin(state, layer_id, index)
+    log_event('port_assignment_unpin', {
+        'pins': [[layer_id, index] for layer_id, index in released],
+        'mirrors': sorted(unplugged)})
     return _saved(_store(state))
 
 

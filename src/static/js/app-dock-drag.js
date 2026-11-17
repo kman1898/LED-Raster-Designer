@@ -1469,18 +1469,13 @@ class _DockDrag {
             const occupants = claimants.filter(o => { const l = layerOf(o); return !(l && this._layerLocked(l)); });
             if (!occupants.length) return;
             // Every claim on a socket is a pin - nothing lands any other
-            // way - so every claimant is released. One release per
-            // claimant, one history entry for the gesture: the snapshot is
-            // taken after the last request lands, so a single Ctrl+Z
+            // way - so every claimant is released, all in one request and
+            // one history entry (_dockReleasePins): a single Ctrl+Z
             // empties the socket back to how it was.
-            let chain = Promise.resolve();
-            occupants.forEach((o, i) => {
-                chain = chain.then(() => this._assignmentRequest(
-                    '/api/port-assignments/unpin', 'POST',
-                    { layerId: o.layerId, index: o.number - 1 },
-                    null, i === occupants.length - 1 ? 'Release Port' : null));
-            });
-            return chain;
+            return this._dockReleasePins(
+                occupants.map(o => ({ layerId: o.layerId,
+                                      index: o.number - 1 })),
+                'Release Port');
         }
     }
 
