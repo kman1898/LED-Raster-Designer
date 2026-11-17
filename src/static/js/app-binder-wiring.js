@@ -577,8 +577,9 @@ class _BinderWiring {
             for (const off of _BinderWiring.OFFSETS) {
                 const s = this._bwStub(d, near, wall, off);
                 if (!this._bwCost(s.head, far(near, s.at), pad, labels, own)) {
-                    if (taken && this._bwLong(d, near, s)) return this._bwSeamExit(d, wall, labels, own, pad, room, taken) || { edge: near, stub: s, cost: 0 };
-                    return { edge: near, stub: s, cost: 0 };
+                    const straight = { edge: near, stub: s, cost: 0 };
+                    if (taken && this._bwLong(d, near, s)) return this._bwSeamExit(d, wall, labels, own, pad, room, taken, straight);
+                    return straight;
                 }
             }
         }
@@ -602,7 +603,7 @@ class _BinderWiring {
         // "its covering all the signal cables"). It goes by the SEAMS
         // instead - see _bwSeamExit.
         if (best && taken && this._bwLong(d, best.edge, best.stub)) {
-            return this._bwSeamExit(d, wall, labels, own, pad, room, taken) || best;
+            return this._bwSeamExit(d, wall, labels, own, pad, room, taken, best);
         }
         return best;
     }
@@ -626,7 +627,11 @@ class _BinderWiring {
     // past the disc's own panel, straight where it is not; the clear one
     // that crosses the least wall wins. Two runs never share a stretch of
     // the same seam (`taken`), so a seam is never nudged off its line.
-    _bwSeamExit(d, wall, labels, own, pad, room, taken) {
+    // `straight` is the straight way out it stands in for: kept where every
+    // seam would be drawn through a neighbour's disc and it is not - a run
+    // along a chain still reads, a name it covers does not ("IMAG SR-6"
+    // printed "IMAG R-6", _bwCost).
+    _bwSeamExit(d, wall, labels, own, pad, room, taken, straight = null) {
         const E = 0.5;
         const far = (e, at) => e === 'left' ? [room.x0, at] : e === 'right' ? [room.x1, at]
             : e === 'top' ? [at, room.y0] : [at, room.y1];
@@ -679,9 +684,11 @@ class _BinderWiring {
                              len: gap + dc, cost });
             }
         }
-        if (!tries.length) return null;
+        if (!tries.length) return straight;
         tries.sort((a, b) => (a.cost - b.cost) || (a.len - b.len));
         const pick = tries[0];
+        // (1000: _bwCost's price for covering a disc)
+        if (straight && pick.cost >= 1000 && pick.cost > straight.cost) return straight;
         if (pick.stub.seam) taken.push(pick.stub.seam);
         return { edge: pick.edge, stub: pick.stub, cost: pick.cost };
     }
