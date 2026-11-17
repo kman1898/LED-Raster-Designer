@@ -1670,13 +1670,17 @@ class _Wiring {
         if (powerPanelWattsInput) {
             powerPanelWattsInput.addEventListener('change', () => {
                 const parsed = this.evaluateNumericExpression(powerPanelWattsInput.value);
-                const val = parsed === null ? 0 : parsed;
+                // An emptied field is no power (owner, 2026-11-16: "panels
+                // with no power have no power"), the way a library panel
+                // with none published lands; it is not a typing mistake.
+                const emptied = String(powerPanelWattsInput.value || '').trim() === '';
+                const val = emptied ? null : (parsed === null ? 0 : parsed);
                 // Write the resolved number back so the field shows the result
                 if (parsed !== null) powerPanelWattsInput.value = this._formatEvaluatedNumber(parsed);
                 // v0.11.0: class, not an inline outline - Enter fires `change`
                 // while the field still has focus and theme.css forces
                 // `input:focus { outline:none !important }`, so the cue never showed.
-                powerPanelWattsInput.classList.toggle('invalid', parsed === null);
+                powerPanelWattsInput.classList.toggle('invalid', parsed === null && !emptied);
                 this.applyToSelectedLayers(layer => {
                     layer.panelWatts = val;
                 });

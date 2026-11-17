@@ -446,6 +446,13 @@ POWER FIXES
   show saved before this reads them as 5-15: its circuits stay as they
   are, any past 12 A shows OVER, and Repack at 5-15 in the Power tray, or
   picking 5-20 on the row, settles it.
+- FIX (IMPORTANT): A screen made from a library panel with no published
+  power, or changed to one, took the watts from Preferences or kept the
+  old panel's, so its circuits and amps came from nowhere. A panel with no
+  power now has none. Watts per Panel stays empty with a note under it,
+  the Power tab shows "No power figure" on the screen, and the totals name
+  the screens they leave out, until you type the watts. Emptying Watts
+  per Panel does the same. A show saved earlier keeps its watts.
 
 ALSO NEW
 

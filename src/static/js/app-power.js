@@ -837,6 +837,8 @@ class _Power {
             if (sourceEl) { sourceEl.textContent = ''; sourceEl.style.display = 'none'; }
             const row1 = document.getElementById('power-total-amps-1ph-row');
             if (row1) row1.style.display = '';
+            const noteEl = document.getElementById('power-panel-watts-note');
+            if (noteEl) { noteEl.textContent = ''; noteEl.style.display = 'none'; }
             return;
         }
         const layer = this.currentLayer;
@@ -946,7 +948,7 @@ class _Power {
         const differ = (key, dflt) => picked.length > 1 && picked.some(l =>
             String(l[key] ?? dflt) !== String(picked[0][key] ?? dflt));
         if (differ('powerVoltage', 110) || differ('powerAmperage', 15)
-                || differ('panelWatts', 200)) {
+                || differ('panelWatts', '')) {
             if (usableEl) { usableEl.textContent = ''; usableEl.title = ''; }
             if (sourceEl) { sourceEl.textContent = ''; sourceEl.style.display = 'none'; }
             if (wattsEl) { wattsEl.textContent = '-'; wattsEl.title = ''; }
@@ -990,6 +992,28 @@ class _Power {
         const amps = (v) => (mixed ? '-' : (v ? v.toFixed(2) + ' A' : '0'));
         if (amps1El) { amps1El.textContent = amps(shown.amps1); amps1El.title = wallTitle; }
         if (amps3El) { amps3El.textContent = amps(shown.amps3); amps3El.title = wallTitle; }
+        // A panel with no power figure (owner, 2026-11-16: "panels with no
+        // power have no power"): no panels a circuit, no amps, and no
+        // circuit count unless circuits were drawn by hand - "-", as a
+        // figure nobody can give reads - and a note under the Watts box
+        // until watts are typed.
+        const isScreen = (l) => (l.type || 'screen') === 'screen';
+        const scope = (picked.length > 1 && picked.includes(layer) ? picked : [layer]).filter(isScreen);
+        const noneHave = scope.length > 0 && scope.every(l => !this.hasPanelPower(l));
+        const noteEl = document.getElementById('power-panel-watts-note');
+        if (noteEl) {
+            noteEl.textContent = !noneHave ? ''
+                : (scope.every(l => this._libraryPanelHasNoPower(l))
+                    ? 'No published power for this panel. Type its watts.'
+                    : 'No power figure for this panel. Type its watts.');
+            noteEl.style.display = noneHave ? '' : 'none';
+        }
+        if (isScreen(layer) && !this.hasPanelPower(layer)) {
+            if (panelsEl) { panelsEl.textContent = '-'; panelsEl.title = ''; }
+            if (circuitsEl && !mixed && !(shown.circuits > 0)) circuitsEl.textContent = '-';
+            if (amps1El) { amps1El.textContent = '-'; amps1El.title = ''; }
+            if (amps3El) { amps3El.textContent = '-'; amps3El.title = ''; }
+        }
         // The cap under the custom controls reads the same figures.
         this._syncCustomFillReadout('power');
         // A change that cuts a row, or stops cutting one, shows or hides

@@ -524,6 +524,13 @@ Object.assign(CanvasRenderer.prototype, {
                             dynamicLines.push(`3-Phase${pass.suffix}: ${pwr.threePhaseAmps.toFixed(2)}A`);
                         }
                     }
+                    // The screens left out of these figures, their panel
+                    // having no power figure (owner, 2026-11-16), by name.
+                    const unset = typeof window.app.noPowerText === 'function'
+                        ? window.app.noPowerText(pwr.wattsUnset) : '';
+                    if (unset) {
+                        dynamicLines.push(unset.replace(/^No power figure/, `No power figure${pass.suffix}`));
+                    }
                 }
             });
         }

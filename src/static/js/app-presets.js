@@ -36,7 +36,8 @@ class _Presets {
         if (entry.panel_width_mm != null && entry.panel_height_mm != null) {
             parts.push(`${entry.panel_width_mm}×${entry.panel_height_mm}mm`);
         }
-        if (entry.panelWatts != null) {
+        // a panel with no power (null, or the library's 0) shows none
+        if (Number(entry.panelWatts) > 0) {
             parts.push(`${entry.panelWatts}W/panel`);
         }
         return parts.length > 0 ? parts.join(' • ') : 'Saved preset';
@@ -946,7 +947,8 @@ class _Presets {
     // for reference where the sheet gives one (owner, 2026-10-30) -
     // "340W max · 120W avg", or "340W" with no average.
     _panelWattsText(p) {
-        if (!p || p.watts_max == null) return '';
+        // none for a panel with no power (null, or 0 on a few older entries)
+        if (!p || !(Number(p.watts_max) > 0)) return '';
         return p.watts_ave != null ? `${p.watts_max}W max · ${p.watts_ave}W avg` : `${p.watts_max}W`;
     }
 
@@ -1001,7 +1003,7 @@ class _Presets {
             if (p.width_mm != null && p.height_mm != null) specs.push(`${p.width_mm}×${p.height_mm}mm`);
             if (p.pixels_w != null && p.pixels_h != null) specs.push(`${p.pixels_w}×${p.pixels_h}px`);
             if (p.weight_kg != null) specs.push(`${p.weight_kg}kg`);
-            if (p.watts_max != null) specs.push(this._panelWattsText(p));
+            if (Number(p.watts_max) > 0) specs.push(this._panelWattsText(p));
             // Verified ⭐: panel specs were cross-checked against the manufacturer's
             // own published spec sheet/PDF (not just the aggregated catalog).
             const verified = this._isPanelVerified(p);
@@ -1071,7 +1073,7 @@ class _Presets {
             if (p.width_mm != null) parts.push(`${p.width_mm}×${p.height_mm}mm`);
             if (p.pixels_w != null) parts.push(`${p.pixels_w}×${p.pixels_h}px`);
             if (p.weight_kg != null) parts.push(`${p.weight_kg}kg`);
-            if (p.watts_max != null) parts.push(this._panelWattsText(p));
+            if (Number(p.watts_max) > 0) parts.push(this._panelWattsText(p));
             summary.textContent = `Panel: ${this._catalogModelLabel(p._mfr, p)}, ${parts.join(' · ')}`;
         } else if (sel.type === 'preset' && sel.key && sel.key !== '__default__') {
             summary.textContent = `Preset: ${sel.label || sel.key}`;
@@ -1159,9 +1161,13 @@ class _Presets {
             rows: prefs.rows,
             _presetName: `${src.name || 'last screen'}'s panel`,
         };
-        ['cabinet_width', 'cabinet_height', 'panel_width_mm', 'panel_height_mm', 'panelWatts'].forEach(k => {
+        ['cabinet_width', 'cabinet_height', 'panel_width_mm', 'panel_height_mm'].forEach(k => {
             if (src[k] != null && src[k] !== '') data[k] = src[k];
         });
+        // The same panel's power, or none where it has none (owner,
+        // 2026-11-16: "panels with no power have no power"): never the
+        // Preferences' watts in its place.
+        data.panelWatts = this.hasPanelPower(src) ? src.panelWatts : null;
         if (src.panel_weight != null && src.panel_weight !== '') {
             data.panel_weight = src.panel_weight;
             data.weight_unit = src.weight_unit || 'kg';
@@ -1507,6 +1513,13 @@ class _Presets {
             const n = Number(data[k]);
             if (Number.isFinite(n)) out[k] = n;
         });
+        // A pick that says its panel has no power (a library panel with
+        // none published, or a preset saved from such a screen) leaves the
+        // screen with none: the old cabinet's watts never stay behind.
+        // A preset that does not mention watts leaves them as they are.
+        if (Object.prototype.hasOwnProperty.call(data, 'panelWatts') && !(Number(data.panelWatts) > 0)) {
+            out.panelWatts = null;
+        }
         if (data.weight_unit) out.weight_unit = data.weight_unit;
         // The panel the pick names (a library model, or a preset saved from
         // a screen that had one) - and none for a pick that names none, so
@@ -1645,7 +1658,11 @@ class _Presets {
             // the model itself, saved on the screen (catalogPanelModelFields)
             ...this.catalogPanelModelFields(panel)
         };
-        if (panel.watts_max != null) data.panelWatts = panel.watts_max;
+        // A panel the library lists with no power (watts_max null, or 0
+        // on a few older entries) gives the screen no power: never the
+        // Preferences' figure or the server's default in its place (owner,
+        // 2026-11-16: "panels with no power have no power").
+        data.panelWatts = Number(panel.watts_max) > 0 ? Number(panel.watts_max) : null;
         return data;
     }
 
@@ -2350,6 +2367,39 @@ class _Presets {
     //             getGroupTotals, updatePowerCapacityDisplay, the canvas
     //             power label). The old `|| 200` stand-in invented a wattage
     //             the user never entered.
+    // ── Panels with no power (owner, 2026-11-16) ──
+    //
+    // "panels with no power have no power": a screen whose panel has no
+    // watts (a library panel with none published, a field left empty, or
+    // a 0) is planned on nothing. It draws no circuits and no amps, and
+    // wherever a figure would show, the app says "No power figure"
+    // instead, until watts are typed. Totals that leave such a screen out
+    // name it (noPowerText), so they never pass for complete.
+    hasPanelPower(layer) {
+        return !!layer && parseFloat(layer.panelWatts) > 0;
+    }
+
+    // Is the screen's panel a library model the library lists with no
+    // power? Then its note can say "No published power"; a panel of the
+    // user's own, or one the library has power for, says "No power figure".
+    _libraryPanelHasNoPower(layer) {
+        const saved = typeof this._catalogSavedPanel === 'function' ? this._catalogSavedPanel(layer) : null;
+        return !!(saved && saved.F) && !(Number(saved.F.watts_max) > 0);
+    }
+
+    // "No power figure: Screen3, Screen5" for the screens `ids` names
+    // (getPowerCounts / getGroupTotals wattsUnset), or '' with none.
+    noPowerText(ids) {
+        const list = Array.isArray(ids) ? ids : [];
+        if (!list.length) return '';
+        const layers = (this.project && this.project.layers) || [];
+        const names = list.map(id => {
+            const l = layers.find(x => String(x.id) === String(id));
+            return (l && l.name) || 'a screen';
+        });
+        return `No power figure: ${names.join(', ')}`;
+    }
+
     getPowerCounts(onlyCanvasId) {
         const empty = {
             circuits: 0, totalWatts: 0, singlePhaseAmps: 0, threePhaseAmps: 0,

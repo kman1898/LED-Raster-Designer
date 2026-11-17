@@ -1446,6 +1446,8 @@
                         <div class="info-row" data-tooltip="Watts per Panel, Power draw of a single LED cabinet at full white, used to calculate circuits required. Math OK (e.g., 200+50, 500*2, 1000/3).">
                             <label>Watts per Panel</label>
                             <input type="text" inputmode="decimal" id="power-panel-watts" value="200" autocomplete="off" style="width: 64px;" placeholder="e.g., 200 or 200+50">
+                            <!-- A panel with no power figure (updatePowerCapacityDisplay) -->
+                            <div id="power-panel-watts-note" style="display: none; color: #f5a623; font-size: 11px; margin-top: 2px;"></div>
                         </div>
                         <!-- LED supply harmonics (2026-11-11, app-neutral.js): how
                              much third-harmonic current the panels' power
@@ -1859,6 +1861,7 @@
                             <div>Circuits: <span id="power-totals-project-circuits">0</span></div>
                             <div>Amps (1φ): <span id="power-totals-project-1ph">0</span></div>
                             <div>Amps (3φ): <span id="power-totals-project-3ph">0</span></div>
+                            <div id="power-totals-project-unset" style="display: none; color: #f5a623;"></div>
                         </div>
                     </div>
                 </div>

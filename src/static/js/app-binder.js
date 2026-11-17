@@ -8194,9 +8194,13 @@ class _Binder {
         }
         let panels = 0, watts = 0, circuits = 0, ports = 0;
         const byVoltage = new Map();
+        // screens whose panel has no power figure (owner, 2026-11-16): left
+        // out of the Load and named under it, never counted as 0
+        const noPower = [];
         for (const l of screens) {
             const f = this._bScreenFacts(l);
             panels += f.active; watts += f.watts;
+            if (f.active > 0 && !(parseFloat(l.panelWatts) > 0)) noPower.push(l.name || 'a screen');
             const scr = list.byScreen[l.id];
             let mine = 0;
             if (scr) {
@@ -8244,6 +8248,7 @@ class _Binder {
             ['Circuits', String(circuits)],
             ['Ports', String(ports)],
             ...loads,
+            ...(noPower.length ? [['No power figure', noPower.join(', ')]] : []),
             ['Distros', String(distros.length)],
             ['Processors', String(procs.length)],
         ]) });

@@ -3115,7 +3115,10 @@ class _ScreenInfo {
             powerAmperageCustomInput.value = primary.powerAmperageCustom ?? primary.powerAmperage ?? 15;
         }
         if (powerPanelWattsInput) {
-            setTextInput('power-panel-watts', getCommon(l => l.panelWatts ?? 200));
+            // A panel with no power shows an empty box (null), never a
+            // stand-in figure; the note under it says so
+            // (updatePowerCapacityDisplay).
+            setTextInput('power-panel-watts', getCommon(l => (l.panelWatts === undefined ? 200 : (l.panelWatts ?? ''))));
         }
         if (powerLineWidthInput) {
             powerLineWidthInput.value = primary.powerLineWidth ?? 8;

@@ -2913,6 +2913,10 @@ export class LEDRasterApp {
                 rows.push(['Amps (1φ)', fmtAmps(p.singlePhaseAmps)]);
                 rows.push(['Amps (3φ)', fmtAmps(p.threePhaseAmps)]);
             }
+            // Screens left out for want of a power figure are named, so
+            // the figures above never pass for the whole canvas.
+            const unset = this.noPowerText(p.wattsUnset);
+            if (unset) rows.push(['No power figure', unset.replace(/^No power figure: /, '')]);
             return rows;
         };
         buildPerCanvas('power-totals-per-canvas', (cid) => powerRows(this.getPowerCounts(cid)));
@@ -2928,6 +2932,14 @@ export class LEDRasterApp {
         } else {
             setText('power-totals-project-1ph', fmtAmps(pwrProject.singlePhaseAmps));
             setText('power-totals-project-3ph', fmtAmps(pwrProject.threePhaseAmps));
+        }
+        // The screens these totals leave out: their panel has no power
+        // figure (owner, 2026-11-16), so they are named, never counted as 0.
+        const unsetEl = document.getElementById('power-totals-project-unset');
+        if (unsetEl) {
+            const said = this.noPowerText(pwrProject.wattsUnset);
+            unsetEl.textContent = said;
+            unsetEl.style.display = said ? '' : 'none';
         }
     }
 

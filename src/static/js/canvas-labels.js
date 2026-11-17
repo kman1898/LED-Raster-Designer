@@ -637,6 +637,15 @@ Object.assign(CanvasRenderer.prototype, {
             // null and the label says so instead of printing a blended
             // figure nobody can act on.
             const circuits = groupTotals.circuits;
+            // Members whose panel has no power figure (owner, 2026-11-16)
+            // are left out of the wall's figures, and the line says so -
+            // "(+1 screen with no power figure)", as the group's row says
+            // "(+1 on another canvas)". With none counted, it says only
+            // that.
+            const unset = (groupTotals.wattsUnset || []).length;
+            if (unset > 0 && unset >= (Number(groupTotals.memberCount) || 0)) return 'No power figure';
+            const tail = unset > 0
+                ? ` (+${unset} ${unset === 1 ? 'screen' : 'screens'} with no power figure)` : '';
             // Counted by box across the members (infoMultiCount): the
             // parts of a multi left on one box are one multi, a box two
             // members share is one, a direct output is none, and a part
@@ -654,7 +663,7 @@ Object.assign(CanvasRenderer.prototype, {
             }
             if (groupTotals.voltageMismatch) {
                 const volts = groupTotals.voltages.filter(v => v > 0).join(' / ');
-                return `${multis} Multi, ${circuits} Circuits | Mixed voltage: ${volts} V`;
+                return `${multis} Multi, ${circuits} Circuits | Mixed voltage: ${volts} V${tail}`;
             }
             const amps1 = groupTotals.amps1ph || 0;
             const amps3 = groupTotals.amps3ph || 0;
@@ -665,8 +674,8 @@ Object.assign(CanvasRenderer.prototype, {
             const placed = members.filter(m => Object.values(m.powerSocaDistro || {}).some(Boolean));
             const threeOnly = placed.length > 0 && typeof window.app.screenOnThreePhase === 'function'
                 && placed.every(m => window.app.screenOnThreePhase(m));
-            if (threeOnly) return `${multis} Multi, ${circuits} Circuits | ${amps3.toFixed(2)}A 3φ`;
-            return `${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`;
+            if (threeOnly) return `${multis} Multi, ${circuits} Circuits | ${amps3.toFixed(2)}A 3φ${tail}`;
+            return `${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ${tail}`;
         }
         return null;
     },
@@ -985,7 +994,13 @@ Object.assign(CanvasRenderer.prototype, {
                         ? window.app.infoMultiCount(layer)
                         : Math.ceil(circuits / 6))
                     : 0;
-                if (!peerServed) {
+                if (!(panelWatts > 0)) {
+                    // A panel with no power figure (owner, 2026-11-16:
+                    // "panels with no power have no power"): no circuits
+                    // or amps are made up for it, and the screen says so
+                    // until watts are typed.
+                    centerLines.push('No power figure');
+                } else if (!peerServed) {
                     // On a 3-phase distro the 1φ figure describes no wire
                     // (owner, 2026-11-11): the label reads the 3φ one only.
                     const threeOnly = typeof window.app.screenOnThreePhase === 'function'
@@ -994,6 +1009,13 @@ Object.assign(CanvasRenderer.prototype, {
                         ? `${multis} Multi, ${circuits} Circuits | ${amps3.toFixed(2)}A 3φ`
                         : `${multis} Multi, ${circuits} Circuits | ${amps1.toFixed(2)}A 1φ / ${amps3.toFixed(2)}A 3φ`);
                 }
+            } else {
+                // With the circuit figures switched off, a screen with no
+                // power figure still says so: it has no circuits to draw,
+                // and nothing else on the tab tells why. (A group's own
+                // label keeps to the switch: its line is measured ahead by
+                // _groupCenterInfoLine.)
+                if (!groupTotals && !(parseFloat(layer.panelWatts) > 0)) centerLines.push('No power figure');
             }
         }
         
