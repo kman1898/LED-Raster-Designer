@@ -368,6 +368,55 @@ def test_a_preset_that_says_no_weight_gives_no_weight(page):
     assert errors == [], errors
 
 
+def test_a_saved_preset_with_no_weight_or_watts_at_all_gives_none(page):
+    """Owner, 2026-11-17: a preset saved with no weight or watts key (a
+    very old one, or one edited by hand) lands as no weight figure and no
+    power figure: never 20 kg, the screen beside it's, the Preferences'
+    watts or the old panel's. Both for a screen it makes and for a
+    Change cabinet."""
+    pg, errors = page
+    wall = _seed(pg)
+    name = 'Old Preset Without Figures'
+    data = {'columns': 2, 'rows': 2, 'cabinet_width': 160, 'cabinet_height': 160,
+            'panel_width_mm': 500, 'panel_height_mm': 500}
+    pg.evaluate("""async ([n, d]) => { await fetch('/api/presets/' + encodeURIComponent(n), {method: 'PUT',
+        headers: {'Content-Type': 'application/json'}, body: JSON.stringify({data: d})}); }""", [name, data])
+    row = f'#preset-picker-list .preset-picker-row[data-key="{name}"]'
+    figures = """async (id) => {
+        const app = window.app;
+        await (app._layerSavesSettled ? app._layerSavesSettled() : Promise.resolve());
+        const l = app.project.layers.find(x => x.id === id);
+        const s = (await (await fetch('/api/project')).json()).layers.find(x => x.id === id);
+        const v = (o, k) => (o[k] === undefined ? 'undefined' : o[k]);
+        return {weight: v(l, 'panel_weight'), watts: v(l, 'panelWatts'), cw: l.cabinet_width,
+                servedWeight: v(s, 'panel_weight'), servedWatts: v(s, 'panelWatts')};
+    }"""
+    try:
+        # Add Screen from it
+        before = _layer_ids(pg)
+        pg.evaluate("() => window.app.openPresetPicker()")
+        pg.wait_for_selector(row, timeout=5000)
+        pg.locator(row).click()
+        pg.locator('#preset-picker-add').click()
+        pg.wait_for_function("(n) => window.app.project.layers.length === n + 1", arg=len(before), timeout=10000)
+        new_id = [i for i in _layer_ids(pg) if i not in before][0]
+        got = pg.evaluate(figures, new_id)
+        assert got == {'weight': None, 'watts': None, 'cw': 160, 'servedWeight': None, 'servedWatts': None}, got
+        _expect_no_weight(pg.evaluate(WEIGHT_VIEW_JS, new_id), published=False)
+        # Change cabinet to it: the 20 kg, 250 W wall keeps neither
+        pg.evaluate("(id) => window.app.openChangeCabinet([window.app.project.layers.find(l => l.id === id)])", wall)
+        pg.wait_for_selector(row, timeout=5000)
+        pg.locator(row).click()
+        pg.locator('#preset-picker-add').click()
+        pg.wait_for_function("(id) => window.app.project.layers.find(l => l.id === id).cabinet_width === 160",
+                             arg=wall, timeout=10000)
+        got = pg.evaluate(figures, wall)
+        assert got == {'weight': None, 'watts': None, 'cw': 160, 'servedWeight': None, 'servedWatts': None}, got
+    finally:
+        pg.evaluate("(n) => fetch('/api/presets/' + encodeURIComponent(n), {method: 'DELETE'})", name)
+    assert errors == [], errors
+
+
 # ── the totals name the screens they leave out ───────────────────────────
 
 GROUP_JS = """async ([a, b]) => {

@@ -2184,6 +2184,14 @@ Object.assign(CanvasRenderer.prototype, {
         // 2026-09-23). The finding and the rule live on the predicate.
         let isTyping = window.isTypingTarget(document.activeElement);
 
+        // The start page or the startup picker is up over the stand-in
+        // screen: no shortcut reaches the show behind it (a paste, a
+        // delete, a nudge, an undo), so the stand-in never becomes a real
+        // screen from here (owner, 2026-11-17). The dialogs' own keys
+        // (Esc, Enter in their fields) are theirs.
+        if (window.app && typeof window.app.startupQuestionOpen === 'function'
+                && window.app.startupQuestionOpen()) return;
+
         // Esc ends an open redraw (one port taken over, or several redrawn
         // as one) even from a field: a box in the side panel clicked while
         // drawing kept the focus, Escape was that field's own and the

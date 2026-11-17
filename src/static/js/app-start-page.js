@@ -233,6 +233,49 @@ class _StartPage {
         if (first) first.focus();
     }
 
+    // Is this page asking how the project starts? The start page (not a
+    // guide's step showing it) or the startup picker is up. Nothing on the
+    // show is edited from behind it (canvas-input.js handleKeyDown).
+    startupQuestionOpen() {
+        if (this.startPageOpen() && this._startPageReason !== 'guide') return true;
+        const picker = document.getElementById('preset-picker-modal');
+        return !!(picker && picker.style.display === 'block' && this._pickerMode === 'startup');
+    }
+
+    // ── The stand-in screen on every page (owner, 2026-11-17) ──
+    //
+    // A launch or a File > New puts a stand-in screen under the start page
+    // or the picker; it is never a screen anybody made. Every page that
+    // sees another page's change runs this once it has taken it in
+    // (app-core _takeReplacedProject):
+    //   - its own start page or startup picker stood over a stand-in that
+    //     is gone now (a pick, an X, a show opened elsewhere): it closes,
+    //     and the page shows the project as it stands;
+    //   - the stand-in is there with nothing on this page asking (a page
+    //     that joined, a File > New elsewhere, a guide that handed the
+    //     project back): the start page comes up here too
+    //     (maybeOpenStartupPicker 'join').
+    // A page with only a real project to show asks nothing (owner,
+    // 2026-11-09: a page that joins a running show joins it live).
+    _standInWatch(reason) {
+        const target = this._startupTargetId;
+        if (target != null && this.startupQuestionOpen() && !this._startupScreenStands(target)) {
+            this._startupPickerToken = (this._startupPickerToken || 0) + 1;
+            this._startupWaiting = null;
+            this.closeStartPage();
+            if (this._pickerMode === 'startup') {
+                this._pickerFromStartPage = false;
+                this.closePresetPicker();
+            }
+            this._startupTargetId = null;
+            sendClientLog('startup_question_answered_elsewhere', { reason: reason || null, layerId: target });
+            if (reason !== 'guide' && typeof this._toast === 'function') {
+                this._toast('The project was started in another window.', false, 5000);
+            }
+        }
+        if (typeof this.maybeOpenStartupPicker === 'function') this.maybeOpenStartupPicker('join');
+    }
+
     // Hide it, nothing else. True when it was up.
     closeStartPage() {
         const modal = document.getElementById('start-page-modal');
@@ -425,6 +468,11 @@ class _StartPage {
             // project the page's X left empty: take it out again.
             this._startupTargetId = this.project.layers[0].id;
             this._startEmpty();
+        } else if (typeof this.maybeOpenStartupPicker === 'function') {
+            // Nothing was waiting on this page, but the stand-in may be
+            // there (a page that joined, reloaded): it asks, as a page
+            // joining over the stand-in does (owner, 2026-11-17).
+            this.maybeOpenStartupPicker('join');
         }
         return true;
     }

@@ -1266,9 +1266,17 @@ class _Presets {
     // stands: 'launch' asks nothing there (app-start-page.js
     // _claimLaunchPage). File > New ('new') still opens the picker on any
     // page.
+    //
+    // ...except over the stand-in screen (owner, 2026-11-17): while the
+    // project is still the one a launch or a File > New made, a page that
+    // joins (another tab, a tablet), or any page that finds it there after
+    // another page's change (_standInWatch), gets the start page too
+    // ('join'), so nobody edits the stand-in into a real screen. Once a
+    // real project exists a joining page asks nothing, as before.
     maybeOpenStartupPicker(reason) {
         if (reason === 'launch' && this._launchRole !== 'launch') {
-            if (this._launchRole !== undefined || !this._launchClaim) return false;
+            if (this._launchRole === undefined && !this._launchClaim) return false;
+            if (this._launchRole !== undefined) return this.maybeOpenStartupPicker('join');
             // The server has not answered yet: ask again when it has. A
             // reload meanwhile counts it as still to come.
             this._startupWaiting = 'launch';
@@ -1280,17 +1288,25 @@ class _Presets {
             });
             return true;
         }
-        const startPage = reason === 'launch' && typeof this._startPageAllowed === 'function'
+        const join = reason === 'join';
+        const startPage = (reason === 'launch' || join) && typeof this._startPageAllowed === 'function'
             && this._startPageAllowed();
+        // A joining page: only a browser that shows the start page, and
+        // only over the stand-in, with nothing of its own asking already.
+        // A guide here or on another page holds the show meanwhile.
+        if (join && (!startPage || !this._isPristineStartupProject() || this.startupQuestionOpen()
+                || this._startupWaiting
+                || (typeof this._guideHoldsWindow === 'function' && this._guideHoldsWindow())
+                || (typeof this._guideRunningElsewhere === 'function' && this._guideRunningElsewhere()))) return false;
         // File > New made while the start page stood: the picker takes over.
-        if (reason !== 'launch' && typeof this.closeStartPage === 'function') this.closeStartPage();
+        if (!startPage && typeof this.closeStartPage === 'function') this.closeStartPage();
         if (!startPage && typeof navigator !== 'undefined' && navigator.webdriver
                 && window.__lrdStartupPicker !== true) return false;
         if (!startPage && !this._isPristineStartupProject()) return false;
         const token = this._startupPickerToken = (this._startupPickerToken || 0) + 1;
         // Still to show, for a reload made while it waits (app-start-page
         // _launchChoicePending).
-        this._startupWaiting = reason === 'launch' ? 'launch' : 'new';
+        this._startupWaiting = reason === 'new' ? 'new' : 'launch';
         let idle = 0;
         const tick = () => {
             if (token !== this._startupPickerToken) return;
@@ -1303,6 +1319,8 @@ class _Presets {
             if (idle < 2) { setTimeout(tick, 300); return; }
             this._startupWaiting = null;
             const pristine = this._isPristineStartupProject();
+            // the stand-in went meanwhile: a joining page has nothing to ask
+            if (join && (!pristine || this.startupQuestionOpen())) return;
             if (startPage) {
                 // Over the startup screen, or over whatever the launch
                 // brought back (no startup screen to replace then).
@@ -1498,6 +1516,13 @@ class _Presets {
                 // a screen is never made of nothing (the server's stand-in
                 // panel, owner 2026-11-17).
                 if (!data) return Promise.reject({ error: 'it holds no screen' });
+                // A preset saved with no weight or no watts at all (a very
+                // old one, or one edited by hand) is a panel with no such
+                // figure (owner, 2026-11-17): the screen it makes, or
+                // changes, has none, never the server's 20 kg, the
+                // Preferences' watts or the old panel's.
+                if (!Object.prototype.hasOwnProperty.call(data, 'panel_weight')) data.panel_weight = null;
+                if (!Object.prototype.hasOwnProperty.call(data, 'panelWatts')) data.panelWatts = null;
                 data._presetName = sel.key;
                 deliver(data);
             }).catch(err => {
@@ -1527,7 +1552,8 @@ class _Presets {
         // A pick that says its panel has no power (a library panel with
         // none published, or a preset saved from such a screen) leaves the
         // screen with none: the old cabinet's watts never stay behind.
-        // A preset that does not mention watts leaves them as they are.
+        // A saved preset that does not mention them at all says the same
+        // (confirmPresetPicker fills in the null, owner 2026-11-17).
         if (Object.prototype.hasOwnProperty.call(data, 'panelWatts') && !(Number(data.panelWatts) > 0)) {
             out.panelWatts = null;
         }

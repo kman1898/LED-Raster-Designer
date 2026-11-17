@@ -717,6 +717,16 @@ FIXES
 - FIX: Typing 0 in Watts per Panel is the same as leaving it empty: the
   box empties and the screen has no power figure until you type the watts,
   as Weight per Panel already did.
+- FIX: A second tab, browser or tablet that opens while the start page is
+  still up on the first one now gets the start page too, instead of the
+  placeholder Screen1 it could edit into a real screen. The same goes for
+  every other page after File > New on one of them. The first choice made
+  on any of them closes it on the others. Once a project exists, a page
+  that joins shows it as before. Keyboard shortcuts no longer reach the
+  placeholder from behind the start page or the panel picker.
+- FIX: A saved preset with no weight or watts in it, an old one or one
+  edited by hand, makes a screen with no weight figure and no power
+  figure, instead of 20 kg and the watts from Preferences.
 
 v1.6.0 - November 6, 2026
 ----------------------------

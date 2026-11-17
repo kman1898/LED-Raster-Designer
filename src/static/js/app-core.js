@@ -1304,6 +1304,10 @@ export class LEDRasterApp {
         // project that was there: a show opened or made new elsewhere
         // answered it.
         if (reason === 'open' || reason === 'new') this._launchAnsweredElsewhere();
+        // The stand-in screen a launch or a File > New makes: this page's
+        // question closes when it went, and comes up when it is here with
+        // nobody on this page asking (app-start-page.js _standInWatch).
+        if (typeof this._standInWatch === 'function') this._standInWatch(reason);
         try { this.updateCustomFlowUI(); } catch (_) { /* no flow panel */ }
         try { this.updateCustomPowerUI(); } catch (_) { /* no power panel */ }
         if (typeof this._refreshPowerPanelsAfterRestore === 'function') this._refreshPowerPanelsAfterRestore();
@@ -2598,9 +2602,16 @@ export class LEDRasterApp {
     // step. So a history longer than that one entry is an edit - undone
     // or not, the way the server's flag stays cleared after an undo. A
     // debounced picker commit still waiting is landed first so it counts.
+    // Another page's change is not this page's edit (_recordForeignStep):
+    // the project it brought carries the server's own flag, which that
+    // page's edit cleared or (File > New's raster, keep_pristine) did not.
+    // Counted as an edit here, a File > New made on another page never
+    // showed this page the start page over its stand-in (owner,
+    // 2026-11-17).
     startupScreenWasEdited() {
         if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
-        return Array.isArray(this.history) && this.history.length > 1;
+        return Array.isArray(this.history)
+            && this.history.some((step, i) => i > 0 && !(step && step.action === FOREIGN_STEP));
     }
 
     shouldUseSavedClientProps() {

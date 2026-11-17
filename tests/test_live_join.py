@@ -16,6 +16,13 @@ socket has been gone a moment. A joining page gets no start page, no
 launch picker and no first-run guide, and shows the project exactly as
 the server holds it, an empty one included.
 
+...except over the stand-in screen (owner, 2026-11-17): while the project
+is still the one a launch or a File > New made, every page that shows it
+gets the start page too (app-start-page.js _standInWatch,
+maybeOpenStartupPicker 'join'), so nobody edits the stand-in into a real
+screen. The first answer, on any page, closes it on every other page, and
+no shortcut reaches the stand-in from behind it.
+
 conftest starts every test as a fresh server run (new_server_run).
 
 Run locally (each session takes its own free port):
@@ -246,15 +253,34 @@ def _layers(pg):
     return pg.evaluate("() => window.app.project.layers.map(l => l.name)")
 
 
+def _wait_no_start(pg, timeout=10000):
+    pg.wait_for_function("() => !window.app.startPageOpen()", timeout=timeout)
+
+
+def _pick_from_start_page(pg):
+    """New project on the start page, the panel library's first row, Use
+    Panel: the first screen of a real project."""
+    pg.locator('#start-page-new').click()
+    pg.wait_for_function("() => document.getElementById('preset-picker-modal').style.display === 'block'")
+    pg.wait_for_selector('#panel-catalog-list .panel-catalog-row', timeout=15000)
+    pg.locator('#panel-catalog-list .panel-catalog-row').first.click()
+    pg.locator('#preset-picker-add').click()
+    pg.wait_for_function("() => !window.app.startPageOpen()"
+                         " && document.getElementById('preset-picker-modal').style.display !== 'block'"
+                         " && window.app.project.layers.length === 1"
+                         " && !!window.app.project.layers[0].panelModelName", timeout=15000)
+
+
 def _guide_visible(pg):
     return pg.evaluate("() => { const q = window.QuickStart; try { return !!(q && q.state().visible); }"
                        " catch (e) { return false; } }")
 
 
-def test_the_first_page_gets_the_start_page_and_a_second_joins_the_live_show(e2e_server, pw_browser):
+def test_the_first_page_gets_the_start_page_and_a_second_over_the_stand_in_asks_too(e2e_server, pw_browser):
     """The second page comes while the first still stands on its start
-    page: no start page, no picker, and the live project as the server
-    holds it."""
+    page, over the stand-in screen: it joins (no launch of its own), and
+    it gets the start page too (owner, 2026-11-17). The first page's pick
+    closes it, and a page after the pick joins the live show with none."""
     _fresh_launch(e2e_server)
     first_ctx = _context(pw_browser, BOTH)
     second_ctx = _context(pw_browser, BOTH)
@@ -263,22 +289,22 @@ def test_the_first_page_gets_the_start_page_and_a_second_joins_the_live_show(e2e
         _wait_start(first)
         assert _role(first) == 'launch'
         second, more = _open(second_ctx, e2e_server)
-        _settle(second)
+        _wait_start(second)
         assert _role(second) == 'join'
-        assert not _start_up(second) and not _picker_up(second)
-        assert second.evaluate("() => window.app._launchChoicePending()") is None
+        assert not _picker_up(second)
+        assert second.evaluate("() => window.app._launchChoicePending()") == 'launch'
         srv = _server_project(e2e_server)
         assert _layers(second) == [l['name'] for l in srv['layers']] == ['Screen1']
         # the first page's start page is untouched by the join
         assert _start_up(first)
-        # and the first page's choice still works: New, a pick
-        first.locator('#start-page-new').click()
-        first.wait_for_function("() => document.getElementById('preset-picker-modal').style.display === 'block'")
-        first.locator('#panel-catalog-list .panel-catalog-row').first.click()
-        first.locator('#preset-picker-add').click()
-        first.wait_for_function("() => !window.app.startPageOpen()"
-                                " && document.getElementById('preset-picker-modal').style.display !== 'block'")
-        # a third page after the choice: none either
+        # and the first page's choice still works: New, a pick; the second
+        # page's start page closes on it, and it shows the picked screen
+        _pick_from_start_page(first)
+        _wait_no_start(second)
+        second.wait_for_function("() => window.app.project.layers.length === 1"
+                                 " && !!window.app.project.layers[0].panelModelName", timeout=10000)
+        assert not _picker_up(second)
+        # a third page after the choice: none
         third, most = _open(second_ctx, e2e_server)
         _settle(third)
         assert not _start_up(third) and not _picker_up(third)
@@ -295,9 +321,16 @@ def test_another_tab_in_the_same_browser_joins(e2e_server, pw_browser):
         first, problems = _open(context, e2e_server)
         _wait_start(first)
         second, more = _open(context, e2e_server)
-        _settle(second)
-        assert not _start_up(second)
+        # over the stand-in, the second tab asks too (owner, 2026-11-17)
+        _wait_start(second)
+        assert _role(second) == 'join'
         assert _start_up(first)
+        # the first tab's X: an empty project, and the second tab's start
+        # page closes on it
+        first.locator('#start-page-close').click()
+        _wait_no_start(second)
+        second.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+        assert _server_project(e2e_server)['layers'] == []
         assert problems == [] and more == [], problems + more
     finally:
         context.close()
@@ -321,8 +354,9 @@ def test_two_pages_loading_at_once_get_one_start_page(e2e_server, pw_browser):
                 _settle(pg)
             roles = [_role(pg) for pg in pages]
             shown = [_start_up(pg) for pg in pages]
+            # one launch; every page asks over the stand-in (2026-11-17)
             assert roles.count('launch') == 1, roles
-            assert shown == [r == 'launch' for r in roles], (roles, shown)
+            assert shown == [True, True, True], (roles, shown)
         finally:
             for c in contexts:
                 c.close()
@@ -343,12 +377,19 @@ def test_the_launch_page_s_reload_keeps_its_start_page_and_a_joined_page_s_does_
             assert _role(first) == 'launch'
         second.reload(wait_until='domcontentloaded')
         _loaded(second)
-        _settle(second)
-        assert not _start_up(second)
+        # the joined page's reload is still a join, and it asks again over
+        # the stand-in (2026-11-17)
+        _wait_start(second)
+        assert _role(second) == 'join'
         # the reloaded launch page still answers for the run: its X leaves
         # an empty project, and every page then has it empty
         first.locator('#start-page-close').click()
         first.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+        _wait_no_start(second)
+        second.reload(wait_until='domcontentloaded')
+        _loaded(second)
+        _settle(second)
+        assert not _start_up(second) and _layers(second) == []
         third, most = _open(second_ctx, e2e_server)
         _settle(third)
         assert not _start_up(third)
@@ -413,12 +454,19 @@ def test_a_show_opened_on_a_joined_page_answers_the_launch(e2e_server, pw_browse
 
 
 def test_file_new_on_a_joined_page_still_opens_the_picker(e2e_server, pw_browser):
+    """File > New on a joined page: its picker over the new stand-in, and
+    every other page asks over that stand-in too (2026-11-17), until the
+    pick; then a reload has no start page."""
     _fresh_launch(e2e_server)
     first_ctx = _context(pw_browser, BOTH)
     second_ctx = _context(pw_browser, BOTH)
     try:
         first, problems = _open(first_ctx, e2e_server)
         _wait_start(first)
+        # the launch answered first (its X: an empty project, nothing to
+        # save), so the second page joins it with no start page
+        first.locator('#start-page-close').click()
+        first.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
         second, more = _open(second_ctx, e2e_server)
         _settle(second)
         assert not _start_up(second) and not _picker_up(second)
@@ -428,8 +476,18 @@ def test_file_new_on_a_joined_page_still_opens_the_picker(e2e_server, pw_browser
         second.wait_for_function("() => document.getElementById('preset-picker-modal').style.display === 'block'"
                                  " && window.app._pickerMode === 'startup'", timeout=10000)
         assert not _start_up(second)
-        # File > New answered the launch: the first page's reload has no
-        # start page, and a new page none either
+        # the new project's stand-in on the first page: it asks
+        _wait_start(first)
+        assert first.evaluate("() => window.app.project.layers.length") == 1
+        # the second page's pick answers it on the first page too
+        second.wait_for_selector('#panel-catalog-list .panel-catalog-row', timeout=15000)
+        second.locator('#panel-catalog-list .panel-catalog-row').first.click()
+        second.locator('#preset-picker-add').click()
+        second.wait_for_function("() => window.app.project.layers.length === 1"
+                                 " && !!window.app.project.layers[0].panelModelName", timeout=15000)
+        _wait_no_start(first)
+        first.wait_for_function("() => !!(window.app.project.layers[0] || {}).panelModelName", timeout=10000)
+        # a real project: the first page's reload has no start page
         first.reload(wait_until='domcontentloaded')
         _loaded(first)
         _settle(first)
@@ -495,7 +553,8 @@ def test_no_first_run_guide_on_a_joining_page(e2e_server, pw_browser):
         tablet.wait_for_function("() => window.QuickStart && !window.QuickStart.autoPending()", timeout=20000)
         tablet.wait_for_timeout(1500)
         assert not _guide_visible(tablet)
-        assert not _start_up(tablet)
+        # over the stand-in it asks, as every page does (2026-11-17)
+        _wait_start(tablet)
         assert tablet.evaluate("(k) => localStorage.getItem(k)", FIRST_RUN_KEY) == '0'
         assert tablet.locator('#menu-help .menu-option[data-action="quick-start"]').count() == 1
         assert problems == [] and more == [], problems + more
@@ -506,10 +565,11 @@ def test_no_first_run_guide_on_a_joining_page(e2e_server, pw_browser):
 
 def test_a_tablet_at_the_computer_s_address_joins_live(e2e_server, pw_browser, monkeypatch):
     """A page from another machine (the address check says so, as it does
-    for a tablet at the computer's IP) joins with no start page, even as
-    the first page of the run, and leaves the launch to the host: the
-    host's own first page still gets the start page, and the tablet's
-    reload still joins."""
+    for a tablet at the computer's IP) joins, even as the first page of
+    the run, and leaves the launch to the host: the host's own first page
+    still gets the start page, and the tablet's reload still joins. Over
+    the stand-in the tablet asks too (2026-11-17), and its answer is the
+    answer for every page."""
     import routes_dialog
     _fresh_launch(e2e_server)
     tablet_ctx = _context(pw_browser, BOTH)
@@ -525,22 +585,69 @@ def test_a_tablet_at_the_computer_s_address_joins_live(e2e_server, pw_browser, m
         _settle(tablet)
         assert _role(tablet) == 'join'
         assert claims == [{'startPage': False, 'why': 'remote'}], claims
-        assert not _start_up(tablet) and not _picker_up(tablet)
+        # over the stand-in it asks all the same (owner, 2026-11-17)
+        _wait_start(tablet)
+        assert not _picker_up(tablet)
         assert _layers(tablet) == [l['name'] for l in _server_project(e2e_server)['layers']] == ['Screen1']
         tablet.reload(wait_until='domcontentloaded')
         _loaded(tablet)
-        _settle(tablet)
-        assert not _start_up(tablet) and not _picker_up(tablet)
+        _wait_start(tablet)
         assert claims[-1] == {'startPage': False, 'why': 'remote'}, claims
         monkeypatch.undo()
         host, more = _open(host_ctx, e2e_server)
         _wait_start(host)
         assert _role(host) == 'launch'
-        assert not _start_up(tablet)
+        # the tablet answers: its pick closes the host's start page
+        _pick_from_start_page(tablet)
+        _wait_no_start(host)
+        host.wait_for_function("() => window.app.project.layers.length === 1"
+                               " && !!window.app.project.layers[0].panelModelName", timeout=10000)
+        # a real project: the tablet's reload joins it live
+        tablet.reload(wait_until='domcontentloaded')
+        _loaded(tablet)
+        _settle(tablet)
+        assert not _start_up(tablet) and not _picker_up(tablet)
         assert problems == [] and more == [], problems + more
     finally:
         tablet_ctx.close()
         host_ctx.close()
+
+
+def test_no_shortcut_reaches_the_stand_in_from_behind_the_start_page(e2e_server, pw_browser):
+    """Delete, a paste, a duplicate, a nudge or an undo pressed while the
+    start page (or the startup picker) is up never touch the stand-in: it
+    stays the one untouched startup screen, on the page and the server."""
+    _fresh_launch(e2e_server)
+    context = _context(pw_browser, BOTH)
+    try:
+        pg, problems = _open(context, e2e_server)
+        _wait_start(pg)
+        pg.evaluate("() => { const app = window.app; app.selectLayer(app.project.layers[0]); app.copyLayer(); }")
+        before = _server_project(e2e_server)['layers']
+
+        def untouched():
+            pg.wait_for_timeout(800)
+            assert _layers(pg) == ['Screen1']
+            srv = _server_project(e2e_server)
+            assert srv['is_pristine'] is True, srv['is_pristine']
+            got = [(l['id'], l['offset_x'], l['offset_y']) for l in srv['layers']]
+            assert got == [(l['id'], l['offset_x'], l['offset_y']) for l in before], got
+
+        for key in ('Delete', 'Control+v', 'Control+d', 'ArrowRight', 'Control+z'):
+            pg.keyboard.press(key)
+        untouched()
+        assert _start_up(pg)
+        # the startup picker the same way
+        pg.locator('#start-page-new').click()
+        pg.wait_for_function("() => document.getElementById('preset-picker-modal').style.display === 'block'")
+        pg.locator('#preset-picker-title').click()
+        for key in ('Delete', 'Control+v', 'ArrowRight'):
+            pg.keyboard.press(key)
+        untouched()
+        assert _picker_up(pg)
+        assert problems == [], problems
+    finally:
+        context.close()
 
 
 # ── a guide in one tab, the show joined in another ────────────────────────
