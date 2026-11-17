@@ -101,7 +101,9 @@ class _BinderFiber {
     // dialog offers its tick only then.
     binderUsesFiber() {
         if (typeof this._fiberAllBoxes !== 'function' || typeof this.fiberBoxLinks !== 'function') return false;
-        return this._fiberAllBoxes().some(({ box }) => this.fiberBoxLinks(box).some(l => l.cable));
+        // (a box only hidden screens use is off the binder: _bBoxPrints)
+        return this._fiberAllBoxes().some(({ box, card }) => this._bBoxPrints(box, card)
+            && this.fiberBoxLinks(box).some(l => l.cable));
     }
 
     // ---- the facts ----------------------------------------------------------
@@ -115,6 +117,8 @@ class _BinderFiber {
     _bfProcessors() {
         const out = [];
         for (const proc of this._processorsResolved || []) {
+            // one only hidden screens use is not drawn (owner, 2026-11-17)
+            if (this._bProcHiddenOnly(proc)) continue;
             const title = this._bProcessorTitle(proc);
             // (an input with nothing picked is the processor page's "no
             // fiber picked"; it is no link to draw)
@@ -170,7 +174,8 @@ class _BinderFiber {
             if (n && !names.includes(n)) names.push(n);
         };
         for (const port of box.ports || []) {
-            for (const o of this._portOccupants(card.id, port.number)) {
+            // the screens that print: a hidden one is never named
+            for (const o of this._bShownOccupants(card.id, port.number)) {
                 const carrier = o && layers.find(l => String(l.id) === String(o.layerId));
                 const run = carrier ? runsOf(carrier).find(r => r.num === o.number) : null;
                 if (!run) { add(o && o.name); continue; }

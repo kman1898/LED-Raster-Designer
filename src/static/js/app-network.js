@@ -271,17 +271,27 @@ class _Network {
     // unit's - only once some unit in the show has an IP; a unit with none
     // prints a blank value.
     _bNetworkFacts(proc) {
-        const units = this.networkUnits();
+        const units = this._bNetworkUnits();
         if (!NET() || !NET().anyIp(units)) return [];
         return units.filter(u => u.procId === proc.id)
             .map(u => [u.slot === 'bu' ? 'Backup IP' : 'IP', u.ip]);
+    }
+
+    // The units the binder lists: every unit but those of a processor
+    // only hidden screens use (owner, 2026-11-17: nothing of a hidden
+    // screen prints - its processor is off the binder, so is its IP).
+    _bNetworkUnits() {
+        const off = new Set((this._processorsResolved || [])
+            .filter(p => typeof this._bProcHiddenOnly === 'function' && this._bProcHiddenOnly(p))
+            .map(p => p.id));
+        return this.networkUnits().filter(u => !off.has(u.procId));
     }
 
     // A processor sheet's NETWORK table: the named units of `proc` (`slots`:
     // 'main', 'bu') - UNIT, IP, SUBNET, GATEWAY, NOTE - or null while no
     // unit in the show has an IP. Empty cells stay blank.
     _bProcNetworkTable(book, proc, slots) {
-        const units = this.networkUnits();
+        const units = this._bNetworkUnits();
         if (!NET() || !NET().anyIp(units)) return null;
         const rows = units.filter(u => u.procId === proc.id && slots.includes(u.slot))
             .map(u => ({ cells: [u.name, u.ip, u.subnet, u.gateway, u.note] }));
@@ -301,7 +311,7 @@ class _Network {
     // series; a list longer than the sheet continues "(cont.)". Nothing
     // where no unit has an IP. Front and Rear do not apply.
     _bNetworkSheets(book) {
-        const units = this.networkUnits();
+        const units = this._bNetworkUnits();
         if (!NET() || !NET().anyIp(units)) return;
         const lines = this._bTableLines(book, {
             title: `${units.length} ${units.length === 1 ? 'unit' : 'units'}`,

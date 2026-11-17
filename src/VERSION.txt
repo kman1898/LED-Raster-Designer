@@ -542,6 +542,13 @@ FIXES
 - FIX: Quick fill on a multi's cable sheet gives a cable only to circuits
   that feed panels. A hand-drawn circuit whose cabinets were all blanked
   or removed used to get one too. none still clears every circuit.
+- FIX: A hidden screen keeps its cable lengths, and quick fill still gives
+  it lengths, but while it stays hidden nothing of it prints in the
+  binder or on the pull sheet: not its cables, ports or circuits, and not
+  a distro, processor, breakout box, fiber cable or snake only hidden
+  screens use, nor its IP on the Network page. Gear it shares with a
+  screen that prints lists that screen's rows alone. Show it again and
+  everything is back with its lengths.
 - FIX: Screen order Top to bottom prints the binder's screens and groups
   in the order the Screens list shows them in Show Look, Data and Power,
   whichever tab is open when you export, and Bottom to top prints them the

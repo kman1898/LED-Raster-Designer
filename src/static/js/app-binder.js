@@ -8291,7 +8291,8 @@ class _Binder {
         // nothing at all is not counted
         const distros = ((typeof this.getDistros === 'function') ? this.getDistros() : [])
             .filter(d => this._bDistroPrints(d));
-        const procs = this._processorsResolved || [];
+        // (a processor only hidden screens use is not counted)
+        const procs = (this._processorsResolved || []).filter(p => !this._bProcHiddenOnly(p));
         blocks.push({ lines: this._bKvLines(book, 'Show totals', [
             ['Screens', String(screens.length)],
             ['Panels', this._bNum(panels, 0)],
@@ -9185,6 +9186,9 @@ class _Binder {
     // 2026-10-22), and so is one whose screens are all hidden (2026-10-23).
     _bDistroPrints(d) {
         if (!d) return false;
+        // one only hidden screens use is off, its Power in set or not
+        // (owner, 2026-11-17: nothing of a hidden screen prints)
+        if (typeof this._pullHiddenOnlyDistro === 'function' && this._pullHiddenOnlyDistro(d)) return false;
         const id = String(d.id);
         if (d.feeder && typeof d.feeder === 'object') return true;
         const all = typeof this.getDistros === 'function' ? this.getDistros() : [];
@@ -9422,10 +9426,42 @@ class _Binder {
     // A processor's column: CARDS, BREAKOUT BOXES, REDUNDANCY, SNAKES &
     // HOME RUNS, its pull list; null where it holds no card.
     _bProcessorGroup(book, proc) {
+        if (this._bProcHiddenOnly(proc)) return null;
         const cards = (proc.slots || []).filter(s => s && s.card).map(s => ({ slot: s.index, card: s.card }));
         if (!cards.length) return null;
         const procTitle = this._bProcessorTitle(proc);
         return { kind: 'processor', name: procTitle, blocks: this._bProcessorBlocks(book, proc, cards, procTitle) };
+    }
+
+    // A PROCESSOR ONLY HIDDEN SCREENS USE is off the binder (owner,
+    // 2026-11-17: while a screen stays hidden nothing of it prints) - its
+    // sheet, its backup unit's, its Fiber page drawing, its Network row
+    // and the Overview's count alike.
+    _bProcHiddenOnly(proc) {
+        return typeof this._pullHiddenOnlyProc === 'function' && this._pullHiddenOnlyProc(proc);
+    }
+
+    // A breakout box that prints: any box but one only hidden screens use.
+    _bBoxPrints(box, card) {
+        return !(typeof this._pullHiddenOnlyBox === 'function' && this._pullHiddenOnlyBox(box, card));
+    }
+
+    // The screens on a card socket that print (_pullShownOccupants).
+    _bShownOccupants(cardId, socket) {
+        return typeof this._pullShownOccupants === 'function'
+            ? this._pullShownOccupants(cardId, socket) : this._portOccupants(cardId, socket);
+    }
+
+    // A snake whose sockets carry screens, every one of them hidden.
+    _bSnakeHiddenOnly(snake) {
+        let used = false;
+        for (const m of (snake && snake.members) || []) {
+            const owner = typeof this._dataCableOwner === 'function' ? this._dataCableOwner(m.kind, m.id) : null;
+            if (!owner || !this._portOccupants(owner.cardId, m.socket).length) continue;
+            used = true;
+            if (this._bShownOccupants(owner.cardId, m.socket).length) return false;
+        }
+        return used;
     }
 
     // The unit's own name, as its column and the Fiber page head it: a
@@ -9549,9 +9585,15 @@ class _Binder {
         // Sockets taken on the card - primaries AND the returns landing on
         // it - the same count the tray's card header reads (socketsTaken,
         // owner 2026-09-24: "11 primary and 11 redundant ... it's 22/40").
+        // A socket only hidden screens are on is not counted: nothing of
+        // a hidden screen prints (owner, 2026-11-17).
         const used = (cardId) => {
             const count = this.socketsTaken(cardId);
-            return count ? count.taken : 0;
+            const taken = count ? count.taken : 0;
+            const occ = ((this._assignment && this._assignment.occupancy) || {})[cardId] || {};
+            const hidden = Object.keys(occ).filter(k => (occ[k] || []).length
+                && !this._bShownOccupants(cardId, k).length).length;
+            return Math.max(0, taken - hidden);
         };
         // A card by name: its own where it is in this processor, else the
         // unit it belongs to (a 1:1 partner in ANOTHER processor - "WALL B",
@@ -9649,6 +9691,8 @@ class _Binder {
             });
             mixed.filter(f => !ordered.includes(f)).forEach(f => ordered.push(f));
             for (const box of ordered) {
+                // a box only hidden screens use is off the sheet
+                if (!this._bBoxPrints(box, card)) continue;
                 const near = fars.has(box.id) ? list.find(n => n.id === box.backupOf) : null;
                 // ...and a box straddling a main OPT and its copy says its own
                 const loop = !fars.has(box.id) && this.boxLoopMixed(box)
@@ -9705,7 +9749,15 @@ class _Binder {
         for (const map of this._bStrandMaps(proc)) blocks.push({ lines: this._bTableLines(book, map) });
         // A show past this processor's canvas is flagged on its page in the
         // tray's words (port_assignment.canvas_spans) - never changed.
-        const span = ((this._assignment && this._assignment.canvas) || {})[proc.id];
+        // A span that takes in a hidden screen is not printed: its line
+        // would name that screen (owner, 2026-11-17).
+        const spanAll = ((this._assignment && this._assignment.canvas) || {})[proc.id];
+        const layersNow = (this.project && this.project.layers) || [];
+        const shownNames = new Set(layersNow.filter(l => this._bShownScreen(l)).map(l => l.name));
+        const hiddenNames = new Set(layersNow.filter(l => l && (l.type || 'screen') === 'screen'
+            && l.visible === false && !shownNames.has(l.name)).map(l => l.name));
+        const span = spanAll && (spanAll.screens || []).some(n => hiddenNames.has(Array.isArray(n) ? n[0] : n))
+            ? null : spanAll;
         blocks.push({ lines: this._bKvLines(book, 'Redundancy', [
             ['Device', proc.deviceName || proc.deviceId || ''],
             ['Redundancy', this._bRedundancyText(proc)],
@@ -9743,6 +9795,8 @@ class _Binder {
                 for (const s of this.getShowSnakes()) {
                     const here = this.snakeMembersOn(s, o);
                     if (!here.length) continue;
+                    // a snake only hidden screens ride is not printed
+                    if (this._bSnakeHiddenOnly(s)) continue;
                     const connId = this.dataPortConnectorId({ rec: o.rec }, s.connector);
                     const away = this.snakeElsewhere(s, o)
                         .map(a => ` · also on ${this.dataOwnerTitle(a.owner)}`)
@@ -9773,14 +9827,16 @@ class _Binder {
                 const typed = Object.entries(o.rec.portCables || {}).filter(([socket]) => mine(socket));
                 const loose = occ ? Object.keys(occ[card.id] || {})
                     .filter(socket => !(o.rec.portCables || {})[socket]
-                        && this._portOccupants(card.id, socket).length)
+                        && this._bShownOccupants(card.id, socket).length)
                     .filter(mine)
                     .sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0))
                     .map(socket => [socket, null]) : [];
                 for (const [socket, c] of [...typed, ...loose]) {
                     const ft = this.parseCableLength(c && c.ft);
                     const has = Number.isFinite(ft) && ft > 0;
-                    if (occ && !this._portOccupants(card.id, socket).length) continue;
+                    // (a socket only hidden screens are on prints nothing:
+                    // its length stays in the app, owner 2026-11-17)
+                    if (occ && !this._bShownOccupants(card.id, socket).length) continue;
                     const connId = this.dataPortConnectorId({ rec: o.rec }, c && c.connector);
                     const snake = this.dataPortSnake(o, socket);
                     if (!has) {
@@ -9806,7 +9862,7 @@ class _Binder {
                 if (o.kind === 'cvt') {
                     for (const m of o.rec.backsUpPorts || []) {
                         if (m.boxId !== o.id) continue;
-                        if (!occ || !this._portOccupants(card.id, m.number).length) continue;
+                        if (!occ || !this._bShownOccupants(card.id, m.number).length) continue;
                         const c = (o.rec.portCables || {})[`r${m.number}`] || null;
                         const ft = this.parseCableLength(c && c.ft);
                         const has = Number.isFinite(ft) && ft > 0;
@@ -9844,17 +9900,22 @@ class _Binder {
         const procsOf = new Map();     // cableId -> [processor titles]
         const uses = new Map();        // cableId -> Map(strand -> { box, key })
         for (const { box, proc: p, card } of this._fiberAllBoxes()) {
+            // a box only hidden screens use places no map: a cable on such
+            // boxes alone is off, one shared with a box that prints is
+            // mapped there, whole, every strand as it is stored
+            const prints = this._bBoxPrints(box, card);
             for (const key of box.fiberLinkKeys || []) {
                 const link = (box.fiberLinks || {})[key];
                 if (!link || !link.cable || !this.getFiberCable(link.cable)) continue;
+                const m = uses.get(link.cable) || new Map();
+                (link.strands || []).forEach(s => { if (!m.has(s)) m.set(s, { box, key, card }); });
+                uses.set(link.cable, m);
+                if (!prints) continue;
                 if (!firsts.has(link.cable)) firsts.set(link.cable, p.id);
                 const names = procsOf.get(link.cable) || [];
                 const title = p.name || p.deviceName || p.id;
                 if (!names.includes(title)) names.push(title);
                 procsOf.set(link.cable, names);
-                const m = uses.get(link.cable) || new Map();
-                (link.strands || []).forEach(s => { if (!m.has(s)) m.set(s, { box, key, card }); });
-                uses.set(link.cable, m);
             }
         }
         const here = proc.name || proc.deviceName || proc.id;
@@ -10072,7 +10133,13 @@ class _Binder {
         // output by output (Matt's option 1): the main's output, then the
         // backup's same output onto the same breakout - p1 then b1, p2
         // then b2 on a box taking two
-        const both = (box, outputOf) => {
+        const both = (box, outputOf, card, output) => {
+            // a box only hidden screens use is not there on paper: its
+            // output reads as nothing plugged in
+            if (!this._bBoxPrints(box, card)) {
+                if (output != null) rows.push(unused(output));
+                return;
+            }
             const links = this.fiberBoxLinks(box);
             const nth = (l) => Number(l.key.slice(1)) || 0;
             const ks = [...new Set(links.map(nth))].sort((x, y) => x - y);
@@ -10104,7 +10171,7 @@ class _Binder {
             }
             // an SQ200's OUT onto the QD-S's IN 1, and the backup SQ200's
             // same OUT onto its IN 2
-            if (card.linkHost) both(card, () => slotName);
+            if (card.linkHost) both(card, () => slotName, card, slotName);
             const boxes = card.cvts || [];
             if (!boxes.length) continue;
             const titles = card.trunkTitles || [];
@@ -10115,13 +10182,13 @@ class _Binder {
                 const covering = onTrunk.find(b => b.trunkIndex <= t && t < b.trunkIndex + (b.trunksIn || 1));
                 if (!covering) { rows.push(unused(onCard(slot, card, titles[t]))); continue; }
                 if (covering.trunkIndex !== t) continue;
-                both(covering, l => outputOf(covering, l));
+                both(covering, l => outputOf(covering, l), card, onCard(slot, card, titles[t]));
             }
             // a box hanging past the card's trunks (an old file), or a card
             // that names none: by the box's own trunk, after the rest
             for (const box of boxes) {
                 if (titles.length && onTrunk.includes(box) && box.trunkIndex < titles.length) continue;
-                both(box, l => outputOf(box, l));
+                both(box, l => outputOf(box, l), card, null);
             }
         }
         return linked ? rows : [];
