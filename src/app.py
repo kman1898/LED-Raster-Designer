@@ -1073,7 +1073,8 @@ def sanitize_idm(value, layer):
     """The `idm` block held to its shape against `layer`'s cabinets: module
     counts as integers 1..64, every mark on a module that exists (inside the
     cabinet grid, inside the module grid, not on a blanked cabinet), style
-    'color' or 'x', colour '#rrggbb'. None when `value` is not a dict or the
+    'color' or 'x', colour '#rrggbb', and swapped: True (the swap list's
+    tick, kept only when ticked). None when `value` is not a dict or the
     layer is not a screen (the key is then removed). Idempotent."""
     if not isinstance(value, dict) or not isinstance(layer, dict):
         return None
@@ -1093,6 +1094,8 @@ def sanitize_idm(value, layer):
                 'style': 'x' if mark.get('style') == 'x' else 'color',
                 'color': idm_color(mark.get('color')) or IDM_DEFAULT_COLOR,
             }
+            if mark.get('swapped') is True:
+                marks[k]['swapped'] = True
     return {'modulesX': modules_x, 'modulesY': modules_y, 'marks': marks}
 
 
@@ -2707,6 +2710,7 @@ from routes_layers import layers_bp  # noqa: E402
 from routes_processors import processors_bp  # noqa: E402
 from routes_port_assignment import port_assignment_bp  # noqa: E402
 from routes_pull_sheet import pull_sheet_bp  # noqa: E402
+from routes_idm_phone import idm_phone_bp  # noqa: E402
 app.register_blueprint(system_bp)
 app.register_blueprint(dialog_bp)
 app.register_blueprint(presets_bp)
@@ -2724,6 +2728,7 @@ app.register_blueprint(layers_bp)
 app.register_blueprint(processors_bp)
 app.register_blueprint(port_assignment_bp)
 app.register_blueprint(pull_sheet_bp)
+app.register_blueprint(idm_phone_bp)
 app.register_blueprint(export_bp)
 
 

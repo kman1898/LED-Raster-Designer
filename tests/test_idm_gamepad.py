@@ -7,7 +7,9 @@ What this file pins:
   deadzone, along its stronger axis) move the highlight one module, LB / L1
   or RB / R1 held makes it a cabinet, A / Cross marks or clears, B / Circle
   undoes, X / Square steps the field color, Y / Triangle goes to the next
-  screen, View / Share clears the highlight.
+  screen on the canvas, View / Share to the next canvas (owner, 2026-11-17;
+  tests/test_idm_phone.py walks two canvases). The map is idm-pad.js's one
+  table, re-exported here.
 * The repeat: a held direction steps at once, again after 350 ms, then
   every 90 ms; a late frame never fires a burst; let go and pressed again,
   it steps at once.
@@ -181,6 +183,7 @@ def test_a_fake_pad_walks_marks_paints_and_undoes(page):
     assert 'Controller connected: Xbox Wireless Controller' in toast, toast
     assert page.is_visible('#idm-pad-help')
     assert 'A / Cross' in page.inner_text('#idm-pad-help')
+    assert 'View / Share' in page.inner_text('#idm-pad-help')
     assert 'focus' in page.inner_text('#idm-pad-help')
     page.wait_for_function("() => !!window.app._idmPad.frame")
     page.evaluate("""() => { const app = window.app;
@@ -239,9 +242,12 @@ def test_a_fake_pad_walks_marks_paints_and_undoes(page):
     assert settled(page, lambda: hl(page), lambda v: v and v[0] == 'IdmB')[0] == 'IdmB'
     tap(page, 2)
     assert settled(page, lambda: (served_field(page) or {}).get('color'), lambda v: v == '#ff0000') == '#ff0000'
-    # View / Share: clear the highlight
+    # View / Share: the next canvas; this show has only the one
+    at = hl(page)
     tap(page, 8)
-    assert settled(page, lambda: hl(page), lambda v: v is None) is None
+    assert 'This show has one canvas with screens.' in page.locator('#app-toast-host').inner_text()
+    assert hl(page) == at
+    page.evaluate("() => window.app._idmClearHighlight()")
     # held: the repeat runs on its own
     tap(page, 15)
     start = hl(page)

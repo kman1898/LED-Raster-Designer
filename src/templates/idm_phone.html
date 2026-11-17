@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="dark">
+    <!-- The IDM Locator on a phone (routes_idm_phone.py, idm-phone.js): a
+         tech walking the wall moves the live highlight, marks modules and
+         ticks off the swap list. It loads the renderer's geometry
+         (canvas.js, canvas-labels.js, canvas-idm.js) to name and step
+         modules exactly as the tab does, and nothing else of the designer.
+
+         The main screen is the controls alone, sized to fill a phone held
+         upright with no scrolling; the swap list and the controller's
+         button list are sheets of their own over it. Dark unless this phone
+         picked light (owner, 2026-11-17), whatever the phone's own setting. -->
+    <title>IDM Locator</title>
+    <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
+    <script>
+        // The theme before the first paint: dark unless this phone picked
+        // light (idm-phone.js THEME_KEY).
+        (function () {
+            var light = false;
+            try { light = localStorage.getItem('lrdIdmPhoneTheme') === 'light'; } catch (e) { light = false; }
+            document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
+        })();
+    </script>
+    <style>
+        :root, :root[data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #151618; --card: #222327; --text: #f2f2f3; --dim: #c3c5ca; --faint: #9a9ea6;
+            --line: #3a3c42; --btn: #34363c; --btn-text: #f2f2f3; --accent: #ef3340; --on-accent: #ffffff;
+            --ok: #5fd27a; --warn-bg: #3b3218; --warn-text: #ffe39a; --sheet: #1c1d20;
+        }
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --bg: #f4f4f5; --card: #ffffff; --text: #111214; --dim: #4b4f57; --faint: #6b7079;
+            --line: #d4d6db; --btn: #e8e9ec; --btn-text: #111214; --accent: #e22330; --on-accent: #ffffff;
+            --ok: #1e7b34; --warn-bg: #fff4d6; --warn-text: #5a4300; --sheet: #f4f4f5;
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+        body {
+            font: 16px/1.3 system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            -webkit-text-size-adjust: 100%; overflow-x: hidden;
+        }
+        button { font: inherit; color: var(--btn-text); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+        [hidden] { display: none !important; }
+
+        /* The main screen: one column the height of the phone's screen. */
+        .ph-app {
+            display: flex; flex-direction: column; gap: 8px;
+            height: 100vh; height: 100dvh; max-width: 520px; margin: 0 auto;
+            padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+                max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+        }
+        .ph-top { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-height: 48px; }
+        .ph-who { flex: 1 1 auto; min-width: 0; }
+        .ph-title { font-size: 15px; font-weight: 700; }
+        .ph-conn { display: block; font-size: 13px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ph-conn.on { color: var(--ok); }
+        .ph-btn { min-height: 48px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--btn);
+            cursor: pointer; }
+        .ph-btn:active { filter: brightness(0.85); }
+        .ph-btn:disabled { opacity: 0.45; }
+        .ph-icon { flex: 0 0 48px; width: 48px; padding: 0; display: flex; align-items: center; justify-content: center; }
+        .ph-icon svg { width: 22px; height: 22px; fill: currentColor; }
+        .ph-open { flex: 0 0 auto; font-weight: 600; white-space: nowrap; }
+        .ph-message { flex: 0 0 auto; background: var(--warn-bg); color: var(--warn-text); border-radius: 12px; padding: 14px 16px;
+            font-size: 18px; overflow-wrap: anywhere; }
+
+        .ph-controls { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+        .ph-readout { flex: 0 0 auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+        .ph-readout-top { display: flex; align-items: baseline; gap: 8px; }
+        .ph-screen { flex: 1 1 auto; min-width: 0; font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ph-state { flex: 0 0 auto; font-size: 15px; color: var(--dim); }
+        .ph-state.marked { color: var(--accent); font-weight: 700; }
+        .ph-module { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ph-seg { flex: 0 0 auto; display: flex; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+        .ph-seg button { flex: 1 1 0; min-width: 0; min-height: 48px; border: 0; background: var(--btn); font-size: 17px; cursor: pointer; }
+        .ph-seg button + button { border-left: 1px solid var(--line); }
+        .ph-seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+        /* The arrows and Mark take every pixel the rest leaves. */
+        .ph-pad { flex: 1 1 auto; min-height: 168px; display: grid; grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr); gap: 8px; }
+        .ph-pad .ph-btn { min-height: 0; border-radius: 16px; }
+        .ph-pad .ph-arrow { font-size: 34px; }
+        .ph-up { grid-column: 2; grid-row: 1; }
+        .ph-left { grid-column: 1; grid-row: 2; }
+        .ph-mark { grid-column: 2; grid-row: 2; background: var(--accent) !important; color: var(--on-accent) !important;
+            border-color: var(--accent) !important; font-size: 22px; font-weight: 700; }
+        .ph-right { grid-column: 3; grid-row: 2; }
+        .ph-down { grid-column: 2; grid-row: 3; }
+        .ph-actions { flex: 0 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .ph-actions .ph-btn { min-height: 52px; font-size: 16px; line-height: 1.15; }
+        .ph-field { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+        .ph-field-label { font-size: 15px; color: var(--dim); flex: 0 0 auto; }
+        .ph-swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; flex: 1 1 auto; }
+        .ph-swatch { min-height: 48px; border-radius: 12px; border: 2px solid var(--line); background: var(--sw); cursor: pointer; }
+        .ph-swatch[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+        /* The canvas: its name, and a tap goes to the next one. */
+        .ph-canvas { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 52px; text-align: left; }
+        .ph-canvas-label { flex: 0 0 auto; font-size: 15px; color: var(--dim); }
+        .ph-canvas-name { flex: 1 1 auto; min-width: 0; font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ph-canvas-go { flex: 0 0 auto; font-size: 15px; font-weight: 600; color: var(--accent); }
+        .ph-canvas:disabled { opacity: 1; cursor: default; }
+        .ph-canvas:disabled .ph-canvas-go { display: none; }
+
+        /* A sheet: the swap list or the controller's buttons, over the
+           whole screen, with Back to the controls. */
+        .ph-sheet { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--sheet);
+            padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+                0 max(12px, env(safe-area-inset-left)); }
+        .ph-sheet-in { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 520px; margin: 0 auto; min-height: 0; flex: 1 1 auto; }
+        .ph-sheet-head { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; min-height: 48px; }
+        .ph-back { flex: 0 0 auto; font-weight: 600; padding: 6px 14px; }
+        .ph-sheet-head h2 { flex: 1 1 auto; min-width: 0; font-size: 20px; margin: 0; }
+        .ph-count { font-weight: 400; color: var(--faint); font-size: 16px; }
+        .ph-side-label { flex: 0 0 auto; font-size: 14px; color: var(--faint); margin: 0; }
+        .ph-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+            padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+        .ph-group { font-size: 15px; font-weight: 700; color: var(--dim); margin: 12px 0 4px; }
+        .ph-row { display: flex; align-items: stretch; gap: 6px; border-top: 1px solid var(--line); }
+        .ph-row-go { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left;
+            background: transparent; border: 0; padding: 10px 2px; min-height: 60px; cursor: pointer; }
+        .ph-row-text { min-width: 0; overflow-wrap: anywhere; font-size: 18px; }
+        .ph-row-where { display: block; font-size: 14px; color: var(--faint); }
+        .ph-chip { flex: 0 0 20px; width: 20px; height: 20px; border-radius: 4px; border: 1px solid var(--line); }
+        .ph-chip.x { background: transparent !important; position: relative; }
+        .ph-chip.x::before, .ph-chip.x::after { content: ''; position: absolute; left: -1px; top: 8px; width: 20px; height: 3px;
+            background: var(--chip, #ff1a1a); transform: rotate(45deg); }
+        .ph-chip.x::after { transform: rotate(-45deg); }
+        .ph-swap { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 0 4px 0 10px; min-height: 60px;
+            font-size: 16px; color: var(--dim); cursor: pointer; }
+        .ph-swap input { width: 32px; height: 32px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+        .ph-row.swapped .ph-row-go { opacity: 0.5; }
+        .ph-row.swapped .ph-row-text { text-decoration: line-through; }
+        .ph-row.here .ph-row-go { font-weight: 700; }
+        .ph-empty { color: var(--faint); font-size: 17px; padding: 8px 0; }
+        .ph-help dl { margin: 6px 0 0; font-size: 17px; }
+        .ph-help dt { font-weight: 700; margin-top: 10px; }
+        .ph-help dd { margin: 0; color: var(--dim); }
+
+        .ph-toast { position: fixed; z-index: 20; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+            max-width: calc(100vw - 32px); background: #2b2d31; color: #fff; padding: 12px 16px; border-radius: 12px;
+            font-size: 16px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+        .ph-toast.show { opacity: 1; }
+    </style>
+</head>
+<body>
+    <div class="ph-app" id="ph-app">
+        <header class="ph-top">
+            <div class="ph-who">
+                <div class="ph-title">IDM Locator</div>
+                <span id="ph-conn" class="ph-conn">Connecting</span>
+            </div>
+            <button type="button" id="ph-theme" class="ph-btn ph-icon" aria-label="Light mode">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2v16a8 8 0 0 1 0-16z"/></svg>
+            </button>
+            <button type="button" id="ph-pad-open" class="ph-btn ph-open" hidden>Controller</button>
+            <button type="button" id="ph-swap-open" class="ph-btn ph-open" hidden>Swap list</button>
+        </header>
+        <div id="ph-message" class="ph-message" role="status" hidden></div>
+        <section id="ph-controls" class="ph-controls" hidden>
+            <div class="ph-readout" id="ph-readout">
+                <div class="ph-readout-top">
+                    <div id="ph-screen" class="ph-screen">No module highlighted</div>
+                    <span id="ph-state" class="ph-state"></span>
+                </div>
+                <div id="ph-module" class="ph-module">Tap an arrow to start.</div>
+            </div>
+            <div class="ph-seg" role="group" aria-label="Each arrow moves">
+                <button type="button" data-ph-step="module" aria-pressed="true">One module</button>
+                <button type="button" data-ph-step="cabinet" aria-pressed="false">One cabinet</button>
+            </div>
+            <div class="ph-pad">
+                <button type="button" class="ph-btn ph-arrow ph-up" data-ph-move="up" aria-label="Up">&#9650;</button>
+                <button type="button" class="ph-btn ph-arrow ph-left" data-ph-move="left" aria-label="Left">&#9664;</button>
+                <button type="button" id="ph-mark" class="ph-btn ph-mark">Mark</button>
+                <button type="button" class="ph-btn ph-arrow ph-right" data-ph-move="right" aria-label="Right">&#9654;</button>
+                <button type="button" class="ph-btn ph-arrow ph-down" data-ph-move="down" aria-label="Down">&#9660;</button>
+            </div>
+            <div class="ph-actions">
+                <button type="button" id="ph-undo" class="ph-btn">Undo</button>
+                <button type="button" id="ph-next-screen" class="ph-btn">Next screen</button>
+                <button type="button" id="ph-clear" class="ph-btn">Clear highlight</button>
+            </div>
+            <div class="ph-field">
+                <span class="ph-field-label">Field</span>
+                <div class="ph-swatches" role="group" aria-label="Field color">
+                    <button type="button" class="ph-swatch" data-ph-field="#ffffff" style="--sw: #ffffff" aria-label="White" aria-pressed="false"></button>
+                    <button type="button" class="ph-swatch" data-ph-field="#ff0000" style="--sw: #ff0000" aria-label="Red" aria-pressed="false"></button>
+                    <button type="button" class="ph-swatch" data-ph-field="#00ff00" style="--sw: #00ff00" aria-label="Green" aria-pressed="false"></button>
+                    <button type="button" class="ph-swatch" data-ph-field="#0000ff" style="--sw: #0000ff" aria-label="Blue" aria-pressed="false"></button>
+                    <button type="button" class="ph-swatch" data-ph-field="#000000" style="--sw: #000000" aria-label="Black" aria-pressed="false"></button>
+                </div>
+            </div>
+            <button type="button" id="ph-canvas-next" class="ph-btn ph-canvas" aria-label="Canvas">
+                <span class="ph-canvas-label">Canvas</span>
+                <span id="ph-canvas-name" class="ph-canvas-name"></span>
+                <span class="ph-canvas-go">Next &#8250;</span>
+            </button>
+        </section>
+    </div>
+    <section id="ph-swap-sheet" class="ph-sheet" role="dialog" aria-labelledby="ph-swap-title" hidden>
+        <div class="ph-sheet-in">
+            <div class="ph-sheet-head">
+                <button type="button" id="ph-swap-close" class="ph-btn ph-back">&#8249; Back</button>
+                <h2 id="ph-swap-title">Swap list <span id="ph-count" class="ph-count"></span></h2>
+            </div>
+            <div class="ph-seg ph-side" role="group" aria-label="Module names from the">
+                <button type="button" data-ph-side="front" aria-pressed="true">Front</button>
+                <button type="button" data-ph-side="back" aria-pressed="false">Back</button>
+            </div>
+            <p id="ph-side-label" class="ph-side-label">Module names as they read from the front.</p>
+            <div class="ph-scroll"><div id="ph-list"></div></div>
+        </div>
+    </section>
+    <section id="ph-pad-sheet" class="ph-sheet" role="dialog" aria-labelledby="ph-pad-title" hidden>
+        <div class="ph-sheet-in">
+            <div class="ph-sheet-head">
+                <button type="button" id="ph-pad-close" class="ph-btn ph-back">&#8249; Back</button>
+                <h2 id="ph-pad-title">Controller <span id="ph-pad-name" class="ph-count"></span></h2>
+            </div>
+            <div class="ph-scroll ph-help" id="ph-pad-help"><dl id="ph-pad-map"></dl></div>
+        </div>
+    </section>
+    <div id="ph-toast" class="ph-toast" role="status" aria-live="polite"></div>
+    <script src="/static/js/socket.io.min.js"></script>
+    <script src="/static/js/canvas.js"></script>
+    <script src="/static/js/canvas-labels.js"></script>
+    <script src="/static/js/canvas-idm.js"></script>
+    <script type="module" src="/static/js/idm-phone.js"></script>
+</body>
+</html>

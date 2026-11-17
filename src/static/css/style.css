@@ -3053,11 +3053,45 @@ body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
 .idm-list { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow-y: auto; }
 .idm-empty { font-size: 11px; color: var(--ps-faint, #969696); }
 .idm-group { font-size: 11px; font-weight: 600; color: var(--ps-dim, #c0c0c0); margin: 6px 0 2px; }
-.idm-row { display: flex; align-items: flex-start; gap: 6px; width: 100%; padding: 3px 6px; font-size: 11px; text-align: left;
-    color: var(--ps-text, #f0f0f0); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; }
+/* The swap list: a row is the mark (a click finds it in the view) and its
+   Swapped tick; a ticked row stays in place, dimmed. */
+.idm-row { display: flex; align-items: flex-start; gap: 4px; width: 100%; padding: 0; font-size: 11px;
+    color: var(--ps-text, #f0f0f0); border: 1px solid transparent; border-radius: 3px; box-sizing: border-box; }
 .idm-row:hover { background: var(--ps-tile, #3c3c3c); }
-.idm-row:focus-visible { outline: none; border-color: var(--ps-accent, #e22330); }
 .idm-row.active { border-color: var(--ps-accent, #e22330); }
+.idm-row-go { display: flex; align-items: flex-start; gap: 6px; flex: 1 1 auto; min-width: 0; padding: 3px 6px; font: inherit;
+    text-align: left; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; }
+.idm-row-go:focus-visible { outline: none; border-color: var(--ps-accent, #e22330); }
+.idm-swap { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 3px 6px 3px 2px; font-size: 11px;
+    color: var(--ps-dim, #c0c0c0); cursor: pointer; white-space: nowrap; }
+.idm-swap input { margin: 0; cursor: pointer; }
+.idm-row.idm-row-swapped .idm-row-go { opacity: 0.5; }
+.idm-row.idm-row-swapped .idm-row-text { text-decoration: line-through; }
+.idm-side-bar { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; }
+.idm-side-label { flex: 1 1 auto; min-width: 0; font-size: 11px; color: var(--ps-faint, #969696); }
+.idm-side-bar .idm-seg { flex: 0 0 auto; margin: 0; }
+.idm-side-bar .idm-seg .idm-seg-btn { padding: 4px 10px; }
+/* the tab's labels are capitals; the tick's word is not */
+.idm-row .idm-swap { text-transform: none; letter-spacing: 0; }
+.idm-phone-open { width: 100%; margin: 0 0 4px; }
+/* The phone dialog (app-idm-phone.js): centred in the window in the app's
+   dialog style (the title bar from theme.css), the QR code on white, so any
+   phone reads it in either theme. */
+#idm-phone-modal { align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
+.idm-phone-dialog { width: min(480px, calc(100vw - 32px)); margin: auto; padding: 0 0 16px; border-radius: 4px; box-sizing: border-box; }
+.idm-phone-dialog > h2 { margin: 0 0 14px; padding: 10px 16px; font-size: 15px; }
+.idm-phone-body { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin: 0 16px; }
+.idm-phone-qr { flex: 0 0 auto; background: #ffffff; padding: 8px; border-radius: 6px; line-height: 0; }
+.idm-phone-qr svg { display: block; width: 200px; height: 200px; }
+.idm-phone-qr[hidden] { display: none; }
+.idm-phone-text { flex: 1 1 180px; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--ps-dim, #c0c0c0); }
+.idm-phone-url { display: block; margin: 4px 0 8px; font-size: 15px; font-weight: 600; color: var(--ps-text, #f0f0f0);
+    overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
+.idm-phone-note { margin: 8px 0 0; color: var(--ps-faint, #969696); }
+.idm-phone-note[hidden], .idm-phone-pick[hidden] { display: none; }
+.idm-phone-pick { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.idm-phone-pick select { flex: 1 1 auto; min-width: 0; }
+.idm-phone-actions { display: flex; justify-content: flex-end; gap: 8px; margin: 16px 16px 0; }
 .idm-chip { flex: 0 0 12px; width: 12px; height: 12px; margin-top: 1px; border-radius: 2px; box-sizing: border-box; }
 .idm-chip.idm-chip-x { background: transparent !important; position: relative; border: 1px solid var(--ps-dark, #131313); }
 .idm-chip.idm-chip-x::before, .idm-chip.idm-chip-x::after { content: ''; position: absolute; left: -1px; top: 4px; width: 12px; height: 2px;
@@ -3184,6 +3218,9 @@ body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
     body.idm-tab .idm-pad-arrows .idm-pad-arrow { font-size: 18px !important; }
     body.idm-tab .idm-pad-side .btn { min-height: 48px; font-size: 13px !important; }
     body.idm-tab .idm-pad .idm-pad-mark { min-height: 56px; font-size: 18px !important; }
+    body.idm-tab .idm-row-go { padding: 8px 6px; font-size: 13px; }
+    body.idm-tab .idm-swap { min-height: 40px; font-size: 13px; }
+    body.idm-tab .idm-swap input { width: 22px; height: 22px; }
 }
 
 /* ---- Quick Palettes (Pixel Map tab, app-quick-palettes.js) ---- */

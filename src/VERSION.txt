@@ -12,8 +12,9 @@ on the pull sheet.
 Screens can also be placed, turned and cornered on a stage in a 3D view, any
 canvas can go full screen on a second display, and the new IDM Locator
 tab marks the bad modules on a wall and points at them live, from the
-computer running the app or a tablet on the same network. Windows gets a
-setup file too.
+computer running the app or a tablet or phone on the same network, with a
+swap list to tick off as modules are replaced. Windows gets a setup file
+too.
 
 QUICK PALETTES
 
@@ -332,8 +333,34 @@ Find bad modules with a game controller: pair a PlayStation or Xbox
 controller with the computer and the D-pad steps the highlight one
 module at a time (hold LB or RB for a cabinet), A or Cross marks or
 clears, held while moving it paints, B or Circle undoes, X or Square
-changes the field color and Y or Triangle goes to the next screen. The
-panel lists the buttons while one is connected.
+changes the field color, Y or Triangle goes to the next screen and View
+or Share goes to the next canvas. The controller stays on the canvas you
+are on until you change canvas. The panel lists the buttons while one is
+connected.
+
+Walk the wall with a phone: Use a phone on the IDM Locator tab opens a
+dialog with a QR code of the phone page and its address beside it, with
+Copy address. Scan it with a phone on the same network as the computer
+and the phone's whole screen becomes big buttons: move the highlight a
+module or a cabinet at a time, Mark, Undo, Next screen, Clear highlight
+and the field color. The arrows and Next screen stay on the canvas you
+are on; Canvas at the bottom names it, and a tap goes to the next canvas.
+Swap list at the top opens the swap list on its own screen, and Back
+returns to the buttons. The page is dark, with a switch for light that
+the phone remembers. What the phone does shows on the computer and on the
+wall at once, a locked screen stays locked, and the computer can undo it
+like its own edits; Undo on the phone takes back that phone's own last
+change. A controller paired with the phone works there with the same
+buttons. If the app is set to this computer only, the dialog says what
+to change.
+
+The list of marks is a swap list: tick Swapped once a module has been
+replaced. The row stays where it is, dimmed, and the tick is saved with
+the show, shows on every computer and phone and undoes like any other
+change. Front and Back above the list name every module as it reads from
+in front of the wall or from behind it, so on a cabinet two modules wide
+A1 from the front is B1 from the back. Cabinet IDs stay as they are. The
+swap list does not print in the binder.
 
 A SETUP FILE FOR WINDOWS
 

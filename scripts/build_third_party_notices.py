@@ -49,6 +49,7 @@ RELEASE_YML = os.path.join(ROOT, '.github', 'workflows', 'release.yml')
 SOCKETIO_JS = os.path.join(ROOT, 'src', 'static', 'js', 'socket.io.min.js')
 THREE_DIR = os.path.join(ROOT, 'src', 'static', 'vendor', 'three')
 THREE_JS = os.path.join(THREE_DIR, 'three.module.min.js')
+QR_JS = os.path.join(ROOT, 'src', 'static', 'js', 'qr-code.js')
 OUTPUT = os.path.join(ROOT, 'THIRD-PARTY-NOTICES')
 
 # Bundled by a build but not in requirements.txt: release.yml installs rumps
@@ -291,8 +292,30 @@ def _three_block():
     return '\n'.join(lines) + '\n'
 
 
+def _qr_block():
+    """The QR code encoder in src/static/js/qr-code.js (the IDM Locator's
+    phone address), parts of which follow an MIT-licensed library. The file
+    carries the copyright line and the license text in its header."""
+    try:
+        with open(QR_JS, encoding='utf-8', errors='replace') as f:
+            head = f.read(4000)
+    except OSError:
+        return ''
+    holder = re.search(r'Copyright \(c\) ([^\n(]+)', head)
+    page = re.search(r'(https://\S+qr-code-generator-library)', head)
+    if not holder:
+        return ''
+    lines = ['', '  The QR Code generator library, in part (src/static/js/qr-code.js)',
+             '  Copyright (c) ' + holder.group(1).strip(),
+             '  License: MIT',
+             '  license text: the header of src/static/js/qr-code.js']
+    if page:
+        lines.append('  ' + page.group(1))
+    return '\n'.join(lines) + '\n'
+
+
 def render():
-    blocks = [HEADER + _socketio_block() + _three_block()]
+    blocks = [HEADER + _socketio_block() + _three_block() + _qr_block()]
     entries = sorted((entry(k) for k in closure()), key=lambda e: e[0].lower())
     for name, lic, url, files in entries:
         lines = [RULE, f'Package: {name}', f'License: {lic}']

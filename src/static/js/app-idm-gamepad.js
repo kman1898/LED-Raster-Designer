@@ -2,21 +2,15 @@
 // pairs a PlayStation or Xbox pad with the computer (Bluetooth or a cable,
 // no driver) and walks the wall with it: the D-pad steps the live highlight
 // one module at a time, a press of A / Cross marks or clears the
-// highlighted module, held while moving it paints. The browser's Gamepad
-// API reads the pad in its "standard" layout, the same button numbers for
-// both makes:
+// highlighted module, held while moving it paints. Which button does what
+// is ONE table, idm-pad.js PAD_MAP, which the phone page (idm-phone.js)
+// reads too; this file gives each job its code on the computer
+// (_idmPadHost) and the panel's button list is built from the table.
 //
-//   D-pad, left stick      move one module (held: a short wait, then a
-//                          steady repeat); with LB / L1 or RB / R1 held,
-//                          one cabinet (Cabinet jump)
-//   A / Cross              mark or clear the highlighted module; held while
-//                          moving, every module passed takes the first
-//                          module's change (mark or clear, never both)
-//   B / Circle             undo
-//   X / Square             the next field color (White, Red, Green, Blue,
-//                          Black)
-//   Y / Triangle           the next screen
-//   View / Share           clear the highlight
+// Moves, the next screen and the start of a highlight keep to the canvas
+// the highlight is on (owner, 2026-11-17: the controls stay on the active
+// canvas); only the next-canvas button takes it to another canvas. The
+// keyboard's arrows keep to their canvas as they always did.
 //
 // Every move, mark, undo and field change goes through the very calls the
 // keyboard and the pad in the panel use (app-idm-locator.js), so locked
@@ -25,81 +19,16 @@
 // while this window has the focus: nothing runs when no pad is there.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
+import {
+    PAD_BUTTONS, REPEAT_DELAY_MS, REPEAT_EVERY_MS, DEADZONE, FIELD_CYCLE,
+    idmPadDirection, idmPadFrame, idmPadName, idmPadDispatch, idmPadFillHelp,
+} from './idm-pad.js';
+import {
+    idmActiveCanvas, idmNextScreenFrom, idmNextCanvasFrom, idmCanvasList, idmTargetOf, idmCanvasIdOf,
+} from './idm-core.js';
 
-// The standard layout's button numbers.
-export const PAD_BUTTONS = {
-    A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8, MENU: 9,
-    LS: 10, RS: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, HOME: 16,
-};
-// A held direction: the first step at once, the next after REPEAT_DELAY_MS,
-// then one every REPEAT_EVERY_MS. The stick counts past DEADZONE.
-export const REPEAT_DELAY_MS = 350;
-export const REPEAT_EVERY_MS = 90;
-export const DEADZONE = 0.5;
-// X / Square walks the field through the panel's quick colors.
-const FIELD_CYCLE = ['#ffffff', '#ff0000', '#00ff00', '#0000ff', '#000000'];
-
-function pressed(pad, i) {
-    const b = pad && pad.buttons ? pad.buttons[i] : null;
-    if (!b) return false;
-    return typeof b === 'object' ? !!b.pressed || Number(b.value) > 0.5 : Number(b) > 0.5;
-}
-
-// The direction the pad holds: the D-pad first, then the left stick past
-// the deadzone along its stronger axis. 'up' | 'down' | 'left' | 'right' |
-// null.
-export function idmPadDirection(pad) {
-    if (!pad) return null;
-    if (pressed(pad, PAD_BUTTONS.UP)) return 'up';
-    if (pressed(pad, PAD_BUTTONS.DOWN)) return 'down';
-    if (pressed(pad, PAD_BUTTONS.LEFT)) return 'left';
-    if (pressed(pad, PAD_BUTTONS.RIGHT)) return 'right';
-    const axes = pad.axes || [];
-    const x = Number(axes[0]) || 0, y = Number(axes[1]) || 0;
-    if (Math.max(Math.abs(x), Math.abs(y)) < DEADZONE) return null;
-    if (Math.abs(x) >= Math.abs(y)) return x > 0 ? 'right' : 'left';
-    return y > 0 ? 'down' : 'up';
-}
-
-// One frame of one pad: what it asks for, from what it held last frame
-// (`prev`, {buttons: [bool], dir, nextAt} or null) and the time `now` in
-// ms. Returns {state, actions}; each action is {type: 'move', dir, cabinet}
-// or {type: 'press' | 'release', button}. Pure, so the repeat and the
-// button edges are tested apart from the app.
-export function idmPadFrame(prev, pad, now) {
-    const was = prev || { buttons: [], dir: null, nextAt: 0 };
-    const buttons = [];
-    const n = Math.max((pad && pad.buttons ? pad.buttons.length : 0), was.buttons.length);
-    for (let i = 0; i < n; i++) buttons.push(pressed(pad, i));
-    const actions = [];
-    // Presses and releases first, so A pressed with a move this frame marks
-    // the module it started on, then paints the next.
-    for (let i = 0; i < buttons.length; i++) {
-        if (i >= PAD_BUTTONS.UP && i <= PAD_BUTTONS.RIGHT) continue;
-        if (buttons[i] && !was.buttons[i]) actions.push({ type: 'press', button: i });
-        else if (!buttons[i] && was.buttons[i]) actions.push({ type: 'release', button: i });
-    }
-    const dir = idmPadDirection(pad);
-    const cabinet = buttons[PAD_BUTTONS.LB] || buttons[PAD_BUTTONS.RB];
-    let nextAt = was.nextAt;
-    if (dir && dir !== was.dir) {
-        actions.push({ type: 'move', dir, cabinet });
-        nextAt = now + REPEAT_DELAY_MS;
-    } else if (dir && now >= was.nextAt) {
-        actions.push({ type: 'move', dir, cabinet });
-        // a late frame never fires a burst: the next step is a beat on
-        nextAt = Math.max(was.nextAt + REPEAT_EVERY_MS, now + REPEAT_EVERY_MS / 2);
-    }
-    return { state: { buttons, dir, nextAt: dir ? nextAt : 0 }, actions };
-}
-
-// The pad's name without the browser's vendor and product tail.
-export function idmPadName(id) {
-    const text = String(id || '').trim();
-    const cut = text.search(/\s*\((?:STANDARD GAMEPAD|Vendor|vendor)/);
-    const name = (cut > 0 ? text.slice(0, cut) : text).trim();
-    return name || 'Controller';
-}
+// The tests read these from here, as they always have.
+export { PAD_BUTTONS, REPEAT_DELAY_MS, REPEAT_EVERY_MS, DEADZONE, idmPadDirection, idmPadFrame, idmPadName };
 
 class _IdmGamepad {
     _idmPadState() {
@@ -116,6 +45,8 @@ class _IdmGamepad {
         ps.wired = true;
         window.addEventListener('gamepadconnected', (e) => this._idmPadConnected(e && e.gamepad));
         window.addEventListener('gamepaddisconnected', (e) => this._idmPadDisconnected(e && e.gamepad));
+        // The button list, from the one table.
+        idmPadFillHelp(document.querySelector('#idm-pad-help .idm-pad-help-map'));
         // A pad paired before the page loaded shows once it is used.
         this._idmPadSyncHelp();
     }
@@ -216,33 +147,55 @@ class _IdmGamepad {
     }
 
     _idmPadAct(a) {
-        const B = PAD_BUTTONS;
-        if (a.type === 'move') {
-            this._idmStep(a.dir, a.cabinet || !!this._idmState().cabinetJump);
-            this._idmPadPaintHere();
-            return;
-        }
-        if (a.type === 'release') {
-            if (a.button === B.A) this._idmPadEndPaint();
-            return;
-        }
-        // presses
+        idmPadDispatch(this._idmPadHost(), a);
+    }
+
+    // Each job of the table (idm-pad.js PAD_ACTIONS) on the computer.
+    _idmPadHost() {
+        if (this._idmPadJobs) return this._idmPadJobs;
+        this._idmPadJobs = {
+            move: (dir, cabinet) => {
+                this._idmStep(dir, cabinet || !!this._idmState().cabinetJump, { canvasId: this._idmPadCanvas() });
+                this._idmPadKeepCanvas();
+                this._idmPadPaintHere();
+            },
+            mark: {
+                press: () => this._idmPadStartPaint(),
+                release: () => this._idmPadEndPaint(),
+            },
+            undo: () => {
+                if (this._idmState().stroke) return;      // not in the middle of a paint
+                sendClientLog('idm_pad_undo', {});
+                if (typeof this.undo === 'function') this.undo();
+            },
+            fieldColor: () => {
+                const cur = this._idmFieldNow().color;
+                const i = FIELD_CYCLE.indexOf(cur);
+                this._idmSetField({ color: FIELD_CYCLE[(i + 1) % FIELD_CYCLE.length] });
+            },
+            nextScreen: () => this._idmNextScreen(),
+            nextCanvas: () => this._idmNextCanvas(),
+            clearHighlight: () => this._idmClearHighlight(),
+        };
+        return this._idmPadJobs;
+    }
+
+    // The canvas the controller is on: the highlight's, else the module
+    // the mouse last left, else the one it was last on, else the show's
+    // active canvas (idm-core idmActiveCanvas).
+    _idmPadCanvas() {
+        const r = window.canvasRenderer;
+        const ps = this._idmPadState();
         const st = this._idmState();
-        if (a.button === B.A) {
-            this._idmPadStartPaint();
-        } else if (a.button === B.B) {
-            if (st.stroke) return;           // not in the middle of a paint
-            sendClientLog('idm_pad_undo', {});
-            if (typeof this.undo === 'function') this.undo();
-        } else if (a.button === B.X) {
-            const cur = this._idmFieldNow().color;
-            const i = FIELD_CYCLE.indexOf(cur);
-            this._idmSetField({ color: FIELD_CYCLE[(i + 1) % FIELD_CYCLE.length] });
-        } else if (a.button === B.Y) {
-            this._idmNextScreen();
-        } else if (a.button === B.VIEW) {
-            this._idmClearHighlight();
-        }
+        let remembered = ps.canvas;
+        const left = st.hoverLast ? idmTargetOf(r, this.project, st.hoverLast) : null;
+        if (left) remembered = idmCanvasIdOf(r, left.layer);
+        return idmActiveCanvas(r, this.project, this._idmHl(), remembered);
+    }
+
+    _idmPadKeepCanvas() {
+        const t = this._idmHighlightTarget();
+        if (t) this._idmPadState().canvas = idmCanvasIdOf(window.canvasRenderer, t.layer);
     }
 
     // A / Cross down: the highlighted module marked or cleared - the click's
@@ -251,7 +204,8 @@ class _IdmGamepad {
         const st = this._idmState();
         const t = this._idmHighlightTarget();
         if (!t) {
-            this._idmStartHighlight();
+            if (!this._idmResumeHover()) this._idmStartHighlight({ canvasId: this._idmPadCanvas() });
+            this._idmPadKeepCanvas();
             return;
         }
         if (this._layerLocked(t.layer)) {
@@ -290,20 +244,31 @@ class _IdmGamepad {
     }
 
     // Y / Triangle: the highlight to the first module of the next screen
-    // (the Screens order), round to the first after the last.
+    // ON THIS CANVAS (the Screens order), round to the first after the last.
     _idmNextScreen() {
         const r = window.canvasRenderer;
-        if (!r || typeof r.idmModuleRects !== 'function') return false;
-        const mods = r.idmModuleRects();
-        if (!mods.length) return false;
-        const order = [];
-        mods.forEach(m => { if (!order.includes(m.layer)) order.push(m.layer); });
-        const hl = this._idmHl();
-        const at = hl ? order.findIndex(l => l.id === hl.layerId) : -1;
-        const next = order[(at + 1) % order.length];
-        const own = mods.filter(m => m.layer === next);
-        const first = own.reduce((a, m) => ((m.y < a.y - 0.5 || (Math.abs(m.y - a.y) <= 0.5 && m.x < a.x)) ? m : a));
-        this._idmSetHighlight(next.id, first.key);
+        const next = idmNextScreenFrom(r, this._idmHl(), this._idmPadCanvas());
+        if (!next) return false;
+        this._idmSetHighlight(next.layerId, next.key);
+        this._idmPadKeepCanvas();
+        return true;
+    }
+
+    // View / Share: the highlight to the first module of the next canvas
+    // that has modules, round to the first; its name in a toast.
+    _idmNextCanvas() {
+        const r = window.canvasRenderer;
+        const from = this._idmPadCanvas();
+        const next = idmNextCanvasFrom(r, this.project, from);
+        if (!next) {
+            if (idmCanvasList(r, this.project).length < 2) this._toast('This show has one canvas with screens.');
+            return false;
+        }
+        this._idmSetHighlight(next.layerId, next.key);
+        this._idmPadState().canvas = next.canvasId;
+        const c = idmCanvasList(r, this.project).find(x => x.id === next.canvasId);
+        sendClientLog('idm_pad_canvas', { from, to: next.canvasId });
+        this._toast(`Canvas: ${(c && c.name) || 'Canvas'}`);
         return true;
     }
 }

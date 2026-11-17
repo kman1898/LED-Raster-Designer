@@ -67,27 +67,30 @@
 // wall is off; the tablet's tap is the highlight, so it sends no arrow.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog, isTypingTarget } from './helpers.js';
+import {
+    idmCount, idmColor, idmKey, idmMarkOf, idmShadeLevel, idmFieldSanitize, idmHighlightOf,
+    idmMarkCount as markCount, idmTargetOf, idmStepFrom, idmStartModule, idmDescribe, idmMarkGroups,
+    idmBlockOf, idmApplyMark, idmApplySwapped, idmCanvasIdOf,
+    DEFAULT_COLOR, FIELD_BORDERS, COLOUR_KEYS, PRESETS_MAX, ARROWS,
+} from './idm-core.js';
 
-const MAX_MODULES = 64;
-const DEFAULT_COLOR = '#ff1a1a';
+// The tests and the other modules read these from here, as they always have.
+export { idmColor, idmFieldSanitize };
+
 const FLASH_MS = 1800;
 const BLINK_MS = 250;
 const STYLE_KEY = 'lrdIdmMarkStyle';
 const COLOR_KEY = 'lrdIdmMarkColor';
 // Show the mouse on the wall (per viewer, on unless turned off).
 const POINTER_KEY = 'lrdIdmPointer';
+// The swap list's Front / Back switch (per viewer, Front unless turned).
+export const SIDE_KEY = 'lrdIdmListSide';
 // A Space press held longer than this, or with a press of the mouse in it,
 // is a pan (or nothing), never a mark: only a tap marks.
 const SPACE_TAP_MS = 500;
-// The field's border styles; white with shaded borders when unset.
-const FIELD_BORDERS = ['shade', 'lines', 'ticks', 'none'];
-const FIELD_DEFAULT = { color: '#ffffff', border: 'shade', moduleIds: false };
 const FIELD_PUT_MS = 150;
-// The Colours (app.sanitize_idm_field): the three plain colour settings,
-// the saved mark colours a show starts with, and how many it may keep.
-const COLOUR_KEYS = ['labelColor', 'moduleEdgeColor', 'cabinetEdgeColor'];
+// The saved mark colours a show starts with.
 const PRESETS_DEFAULT = ['#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000'];
-const PRESETS_MAX = 12;
 // The live highlight: half a blink (2.5 blinks a second) and the least time
 // between two sends to the other clients (25 a second).
 const BLINK_HALF_MS = 200;
@@ -95,39 +98,6 @@ const SEND_MS = 40;
 // The tablet layout: the IDM Locator tab on a narrow window or a touch
 // screen (style.css carries the same query).
 const COMPACT_QUERY = '(max-width: 1100px), (pointer: coarse)';
-const ARROWS = {
-    ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
-};
-
-function idmCount(value) {
-    if (typeof value === 'boolean' || value === null || value === undefined) return 1;
-    const n = Number(value);
-    if (!Number.isFinite(n)) return 1;
-    return Math.max(1, Math.min(MAX_MODULES, Math.trunc(n)));
-}
-
-// '#rrggbb' (lower case), or null when `value` is not a colour.
-export function idmColor(value) {
-    if (typeof value !== 'string') return null;
-    const text = value.trim();
-    let m = /^#?([0-9a-fA-F]{6})$/.exec(text);
-    if (m) return '#' + m[1].toLowerCase();
-    m = /^#?([0-9a-fA-F]{3})$/.exec(text);
-    if (m) return '#' + m[1].split('').map(c => c + c).join('').toLowerCase();
-    return null;
-}
-
-function idmKey(value) {
-    const parts = String(value).split(',');
-    if (parts.length !== 4) return null;
-    const out = [];
-    for (const part of parts) {
-        const text = part.trim();
-        if (!/^\d+$/.test(text)) return null;
-        out.push(parseInt(text, 10));
-    }
-    return out.join(',');
-}
 
 function idmValidKeys(layer, modulesX, modulesY) {
     const r = window.canvasRenderer;
@@ -157,66 +127,10 @@ export function idmSanitize(value, layer) {
             const k = idmKey(key);
             const mark = raw[key];
             if (!k || !valid.has(k) || !mark || typeof mark !== 'object' || Array.isArray(mark)) return;
-            out.marks[k] = {
-                style: mark.style === 'x' ? 'x' : 'color',
-                color: idmColor(mark.color) || DEFAULT_COLOR,
-            };
+            out.marks[k] = idmMarkOf(mark);
         });
     }
     return out;
-}
-
-// The shade setting: '#rrggbb', a whole percent 0..100 (half up), or null
-// for Auto (app.idm_shade_level).
-function idmShadeLevel(value) {
-    if (typeof value === 'number') {
-        if (!Number.isFinite(value) || value < 0 || value > 100) return null;
-        return Math.floor(value + 0.5);
-    }
-    return idmColor(value);
-}
-
-// The saved mark colours: '#rrggbb' each, no repeats, at most PRESETS_MAX;
-// null when not a list (app.idm_mark_presets).
-function idmMarkPresets(value) {
-    if (!Array.isArray(value)) return null;
-    const out = [];
-    for (const item of value) {
-        const c = idmColor(item);
-        if (c && !out.includes(c)) out.push(c);
-        if (out.length >= PRESETS_MAX) break;
-    }
-    return out;
-}
-
-// The field block held to its shape (the client's copy of
-// app.sanitize_idm_field): the defaults for anything unusable, and a
-// Colours key only when it holds something usable (missing = Auto).
-export function idmFieldSanitize(value) {
-    const v = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
-    const out = {
-        color: idmColor(v.color) || FIELD_DEFAULT.color,
-        border: FIELD_BORDERS.includes(v.border) ? v.border : FIELD_DEFAULT.border,
-        moduleIds: v.moduleIds === true,
-    };
-    COLOUR_KEYS.forEach(k => {
-        const c = idmColor(v[k]);
-        if (c) out[k] = c;
-    });
-    const shade = idmShadeLevel(v.shade);
-    if (shade !== null) out.shade = shade;
-    const presets = idmMarkPresets(v.markPresets);
-    if (presets) out.markPresets = presets;
-    return out;
-}
-
-// The stored highlight held to its shape: {layerId, key} or null.
-function idmHighlightOf(value) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-    const id = value.layerId;
-    if (typeof id !== 'number' || !Number.isInteger(id)) return null;
-    const key = typeof value.key === 'string' ? idmKey(value.key) : null;
-    return key ? { layerId: id, key } : null;
 }
 
 // What a copy of `layer` carries: its module layout, no marks. Undefined
@@ -224,11 +138,6 @@ function idmHighlightOf(value) {
 export function idmCopyLayout(layer) {
     if (!layer || !layer.idm || typeof layer.idm !== 'object' || Array.isArray(layer.idm)) return undefined;
     return { modulesX: idmCount(layer.idm.modulesX), modulesY: idmCount(layer.idm.modulesY), marks: {} };
-}
-
-function markCount(layer) {
-    const marks = layer && layer.idm && layer.idm.marks;
-    return (marks && typeof marks === 'object') ? Object.keys(marks).length : 0;
 }
 
 function plural(n, word) {
@@ -241,13 +150,15 @@ class _IdmLocator {
             let style = 'color';
             let color = DEFAULT_COLOR;
             let pointerOn = true;
+            let side = 'front';
             try {
                 style = localStorage.getItem(STYLE_KEY) === 'x' ? 'x' : 'color';
                 color = idmColor(localStorage.getItem(COLOR_KEY)) || DEFAULT_COLOR;
                 pointerOn = localStorage.getItem(POINTER_KEY) !== '0';
+                side = localStorage.getItem(SIDE_KEY) === 'back' ? 'back' : 'front';
             } catch (_) { /* storage blocked: the defaults */ }
             this._idmS = {
-                active: false, wired: false, style, color,
+                active: false, wired: false, style, color, side,
                 stroke: null, flash: null, flashTimer: null,
                 fieldsKey: '', listKey: '', fieldUiKey: '', readoutKey: '', presetsKey: '',
                 // the field's PUT, held back while a colour is dragged
@@ -291,9 +202,24 @@ class _IdmLocator {
         on('idm-modules-x', 'change', () => this._idmCommitModules());
         on('idm-modules-y', 'change', () => this._idmCommitModules());
         on('idm-list', 'click', (e) => {
+            // the Swapped tick is its own (the change below)
+            if (e.target.closest('.idm-swap')) return;
             const row = e.target.closest('[data-idm-key]');
             if (!row) return;
             this._idmFlashModule(Number(row.dataset.idmLayer), row.dataset.idmKey);
+        });
+        on('idm-list', 'change', (e) => {
+            const box = e.target.closest('[data-idm-swap]');
+            const row = box && box.closest('[data-idm-key]');
+            if (!row) return;
+            this._idmSetSwapped(Number(row.dataset.idmLayer), row.dataset.idmKey, box.checked);
+            this._idmBlurButton(box);
+        });
+        document.querySelectorAll('[data-idm-side]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this._idmSetSide(btn.dataset.idmSide);
+                this._idmBlurButton(btn);
+            });
         });
         // The field: the quick colours, the custom swatch (the app's colour
         // picker opens on it), the border styles.
@@ -410,6 +336,8 @@ class _IdmLocator {
         this._idmSyncPad();
         // A game controller (app-idm-gamepad.js).
         if (typeof this._idmPadWire === 'function') this._idmPadWire();
+        // The phone page's QR code (app-idm-phone.js).
+        if (typeof this._idmPhoneWire === 'function') this._idmPhoneWire();
     }
 
     // A button that took focus from a click lets it go, so Space and the
@@ -777,20 +705,9 @@ class _IdmLocator {
     _idmHighlightTarget() {
         const st = this._idmState();
         const hl = this._idmHl();
-        const r = window.canvasRenderer;
         if (hl && !st.blinkTimer) this._idmEnsureBlink();
-        if (!hl || !r || !this.project) return null;
-        const layer = (this.project.layers || []).find(l => l && l.id === hl.layerId);
-        if (!layer || (layer.type || 'screen') !== 'screen') return null;
-        const parts = String(hl.key).split(',').map(n => parseInt(n, 10));
-        if (parts.length !== 4 || parts.some(n => !Number.isFinite(n))) return null;
-        const panel = (layer.panels || []).find(p => p && (p.col || 0) === parts[0] && (p.row || 0) === parts[1]);
-        if (!panel) return null;
-        const counts = r.idmCounts(layer);
-        const cell = r.idmModuleCells(layer, panel, counts.x, counts.y, r._idmVisibleLookup(layer))
-            .find(c => c.mx === parts[2] && c.my === parts[3]);
-        if (!cell) return null;
-        return { layer, panel, cell, key: hl.key, on: st.blinkOn !== false };
+        const t = idmTargetOf(window.canvasRenderer, this.project, hl);
+        return t ? { ...t, on: st.blinkOn !== false } : null;
     }
 
     // Move the highlight (null clears it). `send`: tell the other clients
@@ -925,80 +842,31 @@ class _IdmLocator {
     // looks), carries on across cabinet edges and onto the next screen in
     // that row of the same canvas, and stops at the last module. With no
     // highlight it starts on the first module of the selected screen.
-    _idmStep(dir, cabinet = false) {
+    _idmStep(dir, cabinet = false, { canvasId = null } = {}) {
         const r = window.canvasRenderer;
         if (!r || !this.project) return false;
-        const names = { left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown' };
-        const vec = ARROWS[names[dir] || dir];
-        if (!vec) return false;
         let t = this._idmHighlightTarget();
         if (!t) {
             // the module the mouse left, one step on; else the first one
-            if (!this._idmResumeHover()) return this._idmStartHighlight();
+            if (!this._idmResumeHover()) return this._idmStartHighlight({ canvasId });
             t = this._idmHighlightTarget();
         }
-        const canvasId = r._effectiveLayerCanvasId(t.layer);
-        const all = r.idmModuleRects(l => r._effectiveLayerCanvasId(l) === canvasId);
-        const cur = r.idmModuleWorldRect(t.layer, t.panel, t.cell);
-        const cx = cur.x + cur.w / 2, cy = cur.y + cur.h / 2;
-        const [dx, dy] = vec;
-        const eps = 0.5;
-        let pick = null;
-        if (!cabinet) {
-            let best = Infinity;
-            for (const m of all) {
-                if (m.layer === t.layer && m.key === t.key) continue;
-                let gap;
-                if (dx) {
-                    if (!(m.y - eps <= cy && cy < m.y + m.h - eps)) continue;
-                    gap = dx > 0 ? m.x - (cur.x + cur.w) : cur.x - (m.x + m.w);
-                } else {
-                    if (!(m.x - eps <= cx && cx < m.x + m.w - eps)) continue;
-                    gap = dy > 0 ? m.y - (cur.y + cur.h) : cur.y - (m.y + m.h);
-                }
-                if (gap < -eps) continue;
-                // the nearest; on a tie the current screen's own module
-                const score = gap + (m.layer === t.layer ? 0 : 0.25);
-                if (score < best) { best = score; pick = m; }
-            }
-        } else {
-            // A whole cabinet on: the point one cabinet along, as the
-            // cabinet stands on the wall (a quarter turn swaps its sides).
-            // A blanked cabinet is stepped over; past the last one, stop.
-            const swap = r._layerDrawFrame(t.layer).swap;
-            const cw = Math.round(Number(t.layer.cabinet_width) || 0);
-            const ch = Math.round(Number(t.layer.cabinet_height) || 0);
-            const ext = dx ? (swap ? ch : cw) : (swap ? cw : ch);
-            if (ext > 0 && all.length) {
-                const minX = Math.min(...all.map(m => m.x)), maxX = Math.max(...all.map(m => m.x + m.w));
-                const minY = Math.min(...all.map(m => m.y)), maxY = Math.max(...all.map(m => m.y + m.h));
-                for (let n = 1; n <= 512 && !pick; n++) {
-                    const px = cx + dx * ext * n, py = cy + dy * ext * n;
-                    if (px < minX || px > maxX || py < minY || py > maxY) break;
-                    const inside = all.filter(m => px >= m.x && px < m.x + m.w && py >= m.y && py < m.y + m.h);
-                    pick = inside.find(m => m.layer === t.layer) || inside[inside.length - 1] || null;
-                }
-            }
-        }
+        const pick = idmStepFrom(r, t, dir, cabinet);
         if (!pick) return false;
-        this._idmSetHighlight(pick.layer.id, pick.key);
+        this._idmSetHighlight(pick.layerId, pick.key);
         return true;
     }
 
     // The first module (top-left as drawn) of the selected screen, or of
-    // the topmost-leftmost screen.
-    _idmStartHighlight() {
+    // the topmost-leftmost screen; on `canvasId` alone when one is given
+    // (the controller and the phone keep to their canvas).
+    _idmStartHighlight({ canvasId = null } = {}) {
         const r = window.canvasRenderer;
         if (!r) return false;
         const sel = this.currentLayer && (this.currentLayer.type || 'screen') === 'screen' ? this.currentLayer : null;
-        let mods = sel ? r.idmModuleRects(l => l === sel) : [];
-        if (!mods.length) mods = r.idmModuleRects();
-        if (!mods.length) return false;
-        const topLeft = (list) => list.reduce((a, m) =>
-            ((m.y < a.y - 0.5 || (Math.abs(m.y - a.y) <= 0.5 && m.x < a.x)) ? m : a));
-        const first = topLeft(mods);
-        const start = topLeft(mods.filter(m => m.layer === first.layer));
-        this._idmSetHighlight(start.layer.id, start.key);
+        const start = idmStartModule(r, { layer: sel, canvasId });
+        if (!start) return false;
+        this._idmSetHighlight(start.layerId, start.key);
         return true;
     }
 
@@ -1243,26 +1111,8 @@ class _IdmLocator {
     // Screen · Cabinet ID · Module label for one module - the locator list's
     // own naming (_idmMarkGroups), the module label the Module ID labels
     // draw (canvas-idm idmModuleLabeler). Null when the module is not there.
-    _idmDescribe(layer, key) {
-        const r = window.canvasRenderer;
-        if (!r || !layer) return null;
-        const parts = String(key).split(',').map(n => parseInt(n, 10));
-        const panel = (layer.panels || []).find(p => p && (p.col || 0) === parts[0] && (p.row || 0) === parts[1]);
-        if (!panel) return null;
-        const counts = r.idmCounts(layer);
-        const cells = r.idmModuleCells(layer, panel, counts.x, counts.y, r._idmVisibleLookup(layer));
-        const cell = cells.find(c => c.mx === parts[2] && c.my === parts[3]);
-        if (!cell) return null;
-        const xs = [...new Set(cells.map(c => c.mx))].sort((a, b) => a - b);
-        const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
-        const screen = layer.name || 'Screen';
-        const cabinet = r.cabinetIdLabeler(layer)(panel);
-        const module = r.idmModuleLabeler(layer)(cell, cells);
-        return {
-            screen, cabinet, module,
-            row: ys.indexOf(parts[3]) + 1, col: xs.indexOf(parts[2]) + 1,
-            text: `${screen} · ${cabinet} · Module ${module}`,
-        };
+    _idmDescribe(layer, key, opts = {}) {
+        return idmDescribe(window.canvasRenderer, layer, key, opts);
     }
 
     // The readout in the pad and in the status bar.
@@ -1436,11 +1286,7 @@ class _IdmLocator {
     // `layer.idm` as a fresh, whole block (its own marks object), so an
     // edit never writes into an object an earlier state still holds.
     _idmEnsureBlock(layer) {
-        const r = window.canvasRenderer;
-        const counts = r ? r.idmCounts(layer) : { x: 1, y: 1 };
-        const marks = (layer.idm && layer.idm.marks && typeof layer.idm.marks === 'object' && !Array.isArray(layer.idm.marks))
-            ? { ...layer.idm.marks } : {};
-        layer.idm = { modulesX: counts.x, modulesY: counts.y, marks };
+        layer.idm = idmBlockOf(window.canvasRenderer, layer);
         return layer.idm;
     }
 
@@ -1449,8 +1295,7 @@ class _IdmLocator {
         const stroke = st.stroke;
         if (!stroke) return;
         stroke.touched.add(key);
-        if (stroke.mode === 'clear') delete layer.idm.marks[key];
-        else layer.idm.marks[key] = { style: st.style, color: st.color };
+        idmApplyMark(layer.idm, key, stroke.mode, st.style, st.color);
     }
 
     // ── module counts and clears ──────────────────────────────────────────
@@ -1654,63 +1499,42 @@ class _IdmLocator {
 
     // Every mark, screen by screen: Screen · Cabinet ID · Module label, and
     // the module's row and column inside its cabinet. A module's label is
-    // the screen's Cabinet ID style over the cabinet's module grid, as seen
-    // from the front (canvas-idm idmModuleLabeler - what the Module ID
-    // labels draw); Cabinet IDs are the Cabinet ID view's own (canvas-labels
-    // cabinetIdLabeler). Rows run in reading order, cabinet by cabinet.
+    // the screen's Cabinet ID style over the cabinet's module grid
+    // (canvas-idm idmModuleLabeler - what the Module ID labels draw), read
+    // from the front, or from behind the wall when the list's switch is on
+    // Back; Cabinet IDs are the Cabinet ID view's own (canvas-labels
+    // cabinetIdLabeler). Rows run in reading order, cabinet by cabinet
+    // (idm-core.js idmMarkGroups, the phone page's list too).
     _idmMarkGroups() {
-        const r = window.canvasRenderer;
-        const groups = [];
-        if (!r || !this.project) return groups;
-        for (const layer of (this.project.layers || [])) {
-            if (!layer || (layer.type || 'screen') !== 'screen' || markCount(layer) === 0) continue;
-            const labelOf = r.cabinetIdLabeler(layer);
-            const moduleOf = r.idmModuleLabeler(layer);
-            const counts = r.idmCounts(layer);
-            const seen = r._idmVisibleLookup(layer);
-            const byCell = new Map();
-            (layer.panels || []).forEach(p => { if (p) byCell.set(`${p.col || 0},${p.row || 0}`, p); });
-            const rows = [];
-            Object.keys(layer.idm.marks).forEach(key => {
-                const parts = key.split(',').map(n => parseInt(n, 10));
-                const panel = byCell.get(`${parts[0]},${parts[1]}`);
-                if (!panel) return;
-                const cells = r.idmModuleCells(layer, panel, counts.x, counts.y, seen);
-                const cell = cells.find(c => c.mx === parts[2] && c.my === parts[3]);
-                if (!cell) return;
-                const index = cells.indexOf(cell);
-                const xs = [...new Set(cells.map(c => c.mx))].sort((a, b) => a - b);
-                const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
-                const mark = layer.idm.marks[key];
-                rows.push({
-                    key, panel, index,
-                    cabinet: labelOf(panel),
-                    module: moduleOf(cell, cells),
-                    row: ys.indexOf(parts[3]) + 1,
-                    col: xs.indexOf(parts[2]) + 1,
-                    style: mark.style === 'x' ? 'x' : 'color',
-                    color: idmColor(mark.color) || DEFAULT_COLOR,
-                });
-            });
-            rows.sort((a, b) => (a.panel.row - b.panel.row) || (a.panel.col - b.panel.col) || (a.index - b.index));
-            if (rows.length) groups.push({ layer, rows });
-        }
-        return groups;
+        return idmMarkGroups(window.canvasRenderer, this.project, { back: this._idmState().side === 'back' });
     }
 
+    // The swap list: one row per mark with its Swapped tick. A ticked row
+    // stays where it is, dimmed, so the list keeps the wall's reading order
+    // while the crew works down it.
     _idmRenderList() {
         const st = this._idmState();
         const host = document.getElementById('idm-list');
         const count = document.getElementById('idm-count');
+        this._idmSyncSide();
         if (!host) return;
         const groups = this._idmMarkGroups();
         const flash = st.flash && Date.now() < st.flash.until ? `${st.flash.layerId}:${st.flash.key}` : '';
-        const key = JSON.stringify([flash, groups.map(g => [g.layer.id, g.layer.name,
-            g.rows.map(x => [x.key, x.cabinet, x.module, x.row, x.col, x.style, x.color])])]);
-        if (key === st.listKey) return;
+        // The blinking row is a class on the rows as they stand: a blink
+        // starting or ending never rebuilds the list, so a tick box being
+        // reached for is never swapped out from under the pointer.
+        const key = JSON.stringify([st.side, groups.map(g => [g.layer.id, g.layer.name,
+            g.rows.map(x => [x.key, x.cabinet, x.module, x.row, x.col, x.style, x.color, x.swapped])])]);
+        if (key === st.listKey) {
+            host.querySelectorAll('.idm-row').forEach(row => {
+                row.classList.toggle('active', flash === `${row.dataset.idmLayer}:${row.dataset.idmKey}`);
+            });
+            return;
+        }
         st.listKey = key;
         const total = groups.reduce((n, g) => n + g.rows.length, 0);
-        if (count) count.textContent = total ? `(${total})` : '';
+        const done = groups.reduce((n, g) => n + g.rows.filter(x => x.swapped).length, 0);
+        if (count) count.textContent = total ? (done ? `(${done} of ${total} swapped)` : `(${total})`) : '';
         host.innerHTML = '';
         if (!groups.length) {
             const empty = document.createElement('div');
@@ -1720,33 +1544,95 @@ class _IdmLocator {
             return;
         }
         groups.forEach(g => {
+            const name = g.layer.name || 'Screen';
+            const swapped = g.rows.filter(x => x.swapped).length;
             const head = document.createElement('div');
             head.className = 'idm-group';
-            head.textContent = `${g.layer.name || 'Screen'} · ${plural(g.rows.length, 'mark')}`;
+            head.textContent = `${name} · ${plural(g.rows.length, 'mark')}` + (swapped ? ` · ${swapped} swapped` : '');
             host.appendChild(head);
             g.rows.forEach(x => {
-                const row = document.createElement('button');
-                row.type = 'button';
-                row.className = 'idm-row';
+                const words = `${name} · ${x.cabinet} · Module ${x.module}`;
+                const row = document.createElement('div');
+                row.className = 'idm-row' + (x.swapped ? ' idm-row-swapped' : '');
                 if (flash === `${g.layer.id}:${x.key}`) row.classList.add('active');
                 row.dataset.idmLayer = String(g.layer.id);
                 row.dataset.idmKey = x.key;
+                row.title = `${words} (row ${x.row}, col ${x.col})` + (x.swapped ? ', swapped' : '');
+                const go = document.createElement('button');
+                go.type = 'button';
+                go.className = 'idm-row-go';
                 const chip = document.createElement('span');
                 chip.className = 'idm-chip' + (x.style === 'x' ? ' idm-chip-x' : '');
                 if (x.style === 'x') chip.style.setProperty('--idm-chip', x.color);
                 else chip.style.background = x.color;
                 const text = document.createElement('span');
                 text.className = 'idm-row-text';
-                text.textContent = `${g.layer.name || 'Screen'} · ${x.cabinet} · Module ${x.module} `;
+                text.textContent = `${words} `;
                 const where = document.createElement('span');
                 where.className = 'idm-row-where';
                 where.textContent = `(row ${x.row}, col ${x.col})`;
                 text.appendChild(where);
-                row.title = `${g.layer.name || 'Screen'} · ${x.cabinet} · Module ${x.module} (row ${x.row}, col ${x.col})`;
-                row.appendChild(chip);
-                row.appendChild(text);
+                go.appendChild(chip);
+                go.appendChild(text);
+                const tick = document.createElement('label');
+                tick.className = 'idm-swap';
+                tick.dataset.tooltip = 'Swapped, Tick it when this module has been replaced. The row stays on the list, dimmed.';
+                const box = document.createElement('input');
+                box.type = 'checkbox';
+                box.dataset.idmSwap = '1';
+                // its own id, so a rebuild hands a pointer on its way to it
+                // the new box (the guides find it again by id)
+                box.id = `idm-swap-${g.layer.id}-${x.key.replace(/,/g, '-')}`;
+                box.checked = !!x.swapped;
+                box.setAttribute('aria-label', `Swapped: ${words}`);
+                tick.appendChild(box);
+                tick.appendChild(document.createTextNode('Swapped'));
+                row.appendChild(go);
+                row.appendChild(tick);
                 host.appendChild(row);
             });
+        });
+    }
+
+    // A row's Swapped tick: the mark kept, its tick saved with the show,
+    // one undo step, on every device. A locked screen refuses it.
+    _idmSetSwapped(layerId, key, on) {
+        const st = this._idmState();
+        const layer = ((this.project && this.project.layers) || []).find(l => l && l.id === layerId);
+        const marks = layer && layer.idm && layer.idm.marks;
+        if (!layer || !marks || !marks[key]) return false;
+        if (this._layerLocked(layer)) {
+            this._showLockedError([layer]);
+            // the tick goes back to what the screen holds
+            st.listKey = '';
+            this._idmRenderList();
+            return false;
+        }
+        const block = idmBlockOf(window.canvasRenderer, layer);
+        if (!idmApplySwapped(block, key, on)) return false;
+        layer.idm = block;
+        sendClientLog('idm_swapped', { id: layer.id, key, on: !!on });
+        this.updateLayers([layer], true, on ? 'Tick Swapped' : 'Untick Swapped');
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        return true;
+    }
+
+    // The list's Front / Back switch (per viewer): how the module names
+    // read, from the front of the wall or from behind it.
+    _idmSetSide(side) {
+        const st = this._idmState();
+        st.side = side === 'back' ? 'back' : 'front';
+        try { localStorage.setItem(SIDE_KEY, st.side); } catch (_) { /* per-viewer only */ }
+        sendClientLog('idm_list_side', { side: st.side });
+        this._idmRenderList();
+    }
+
+    _idmSyncSide() {
+        const st = this._idmState();
+        document.querySelectorAll('[data-idm-side]').forEach(btn => {
+            const on = btn.dataset.idmSide === st.side;
+            btn.classList.toggle('active', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
         });
     }
 

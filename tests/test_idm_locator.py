@@ -796,7 +796,7 @@ def test_the_locator_list_names_the_cabinet_ids_and_finds_the_module(page):
     click_module(page, 'IdmA', 0, 1, 0, 1)
     wait_served_marks(page, 'IdmA', ['1,0,1,0', '0,1,0,1'])
     page.wait_for_timeout(200)
-    rows = page.eval_on_selector_all('#idm-list .idm-row', 'els => els.map(e => e.textContent.trim())')
+    rows = page.eval_on_selector_all('#idm-list .idm-row .idm-row-text', 'els => els.map(e => e.textContent.trim())')
     # Cabinet ID view's default numbering: column letter + row number,
     # reading order top row first.
     # The module is named in the same style, over the cabinet's own module
@@ -814,7 +814,7 @@ def test_the_locator_list_names_the_cabinet_ids_and_finds_the_module(page):
         window.canvasRenderer.render();
     }""")
     page.wait_for_timeout(400)
-    rows = page.eval_on_selector_all('#idm-list .idm-row', 'els => els.map(e => e.textContent.trim())')
+    rows = page.eval_on_selector_all('#idm-list .idm-row .idm-row-text', 'els => els.map(e => e.textContent.trim())')
     labels = page.evaluate("""() => {
         const r = window.canvasRenderer;
         const l = window.app.project.layers.find(x => x.name === 'IdmA');

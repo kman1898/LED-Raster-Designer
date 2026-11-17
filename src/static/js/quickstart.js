@@ -3612,7 +3612,7 @@
     // is this machine's within one project - restore3d makes the next 3D
     // sync take the restored project's own camera, units and grid again.
     var IDM_STYLE_KEY = 'lrdIdmMarkStyle', IDM_COLOR_KEY = 'lrdIdmMarkColor';   // app-idm-locator.js
-    var IDM_POINTER_KEY = 'lrdIdmPointer';
+    var IDM_POINTER_KEY = 'lrdIdmPointer', IDM_SIDE_KEY = 'lrdIdmListSide';
     function notesCollapsed() { var n = $('#notes-panel'); return !n || n.classList.contains('collapsed'); }
     // The panel's own toggle (app-wiring.js), so its arrow follows.
     function setNotesCollapsed(v) {
@@ -3624,8 +3624,9 @@
     function captureIdm() {
         var st = idmState();
         return { style: st ? st.style : null, color: st ? st.color : null,
-                 pointerOn: st ? st.pointerOn : null,
-                 lsStyle: lsGet(IDM_STYLE_KEY), lsColor: lsGet(IDM_COLOR_KEY), lsPointer: lsGet(IDM_POINTER_KEY) };
+                 pointerOn: st ? st.pointerOn : null, side: st ? st.side : null,
+                 lsStyle: lsGet(IDM_STYLE_KEY), lsColor: lsGet(IDM_COLOR_KEY), lsPointer: lsGet(IDM_POINTER_KEY),
+                 lsSide: lsGet(IDM_SIDE_KEY) };
     }
     function restoreIdm(v) {
         var a = A(), st = idmState();
@@ -3633,9 +3634,11 @@
         if (st && v.style) st.style = v.style;
         if (st && v.color) st.color = v.color;
         if (st && typeof v.pointerOn === 'boolean') st.pointerOn = v.pointerOn;
+        if (st && v.side) { st.side = v.side; st.listKey = ''; }
         lsPut(IDM_STYLE_KEY, v.lsStyle);
         lsPut(IDM_COLOR_KEY, v.lsColor);
         lsPut(IDM_POINTER_KEY, v.lsPointer);
+        lsPut(IDM_SIDE_KEY, v.lsSide);
         if (a && typeof a._idmSyncToolbar === 'function') { try { a._idmSyncToolbar(); } catch (e) {} }
         if (a && typeof a._idmSyncPad === 'function') { try { a._idmSyncPad(); } catch (e) {} }
     }
@@ -3831,6 +3834,13 @@
     // one the arrow keys reach (right three times, then down) and Space marks.
     var MARK_COLOR = '1,1,0,0', MARK_X = '3,2,1,1', MARK_KEYS = '1,0,0,1';
     function idmRows() { return $$('#idm-list .idm-row'); }
+    function idmPhoneOpen() { var m = $('#idm-phone-modal'); return !!m && m.style.display !== 'none'; }
+    function closeIdmPhone() {
+        var a = A();
+        if (idmPhoneOpen() && a && typeof a.closeIdmPhoneDialog === 'function') a.closeIdmPhoneDialog();
+    }
+    // The swap list's Front / Back switch, read off the tab.
+    function idmSide() { var st = idmState(); return st ? st.side : 'front'; }
     function checklist() { var a = A(); return (a && a.project && a.project.notesChecklist) || []; }
 
     // ── the step library ─────────────────────────────────────────────────
@@ -9343,7 +9353,7 @@
         idmController: {
             since: '1.7.0',
             target: '#idm-pad-help', place: 'right', title: 'Walk the wall with a controller',
-            body: 'Pair a PlayStation or Xbox controller with this computer: the D-pad steps one module at a time and A or Cross marks. This list of its buttons shows while one is connected.',
+            body: 'Pair a PlayStation or Xbox controller with this computer: the D-pad steps one module at a time on the canvas you are on, and A or Cross marks. This list of its buttons shows while one is connected.',
             // No controller in a guide: the list is shown as it shows with one.
             before: function () {
                 openIdm();
@@ -9357,12 +9367,37 @@
             },
             check: function () {
                 var c = $('#idm-pad-help');
-                return c && !c.hidden ? 'B or Circle undoes, Y or Triangle goes to the next screen; keep this window in front.' : null;
+                return c && !c.hidden ? 'B or Circle undoes, Y or Triangle goes to the next screen on this canvas and View or Share to the next canvas; keep this window in front.' : null;
             },
             after: function () {
                 var a = A();
                 if (a && typeof a._idmPadPreviewHelp === 'function') a._idmPadPreviewHelp(false);
             }
+        },
+        idmPhone: {
+            since: '1.7.0',
+            target: '#idm-phone-open', place: 'right', title: 'Walk the wall with a phone',
+            avoid: ['#idm-phone-open', '#idm-phone-modal .modal-content'],
+            body: 'Use a phone shows a QR code of the phone page. Scan it with a phone on the same network: big buttons move the highlight and Mark marks, Swap list opens the list on its own screen, and Canvas goes to the next canvas.',
+            before: function () { openIdm(); closeIdmPhone(); },
+            act: function (t) {
+                return t.click('#idm-phone-open').then(function () {
+                    // the address comes from the server: the code shows once it is in
+                    return t.wait(function () {
+                        var body = $('#idm-phone-modal .idm-phone-body');
+                        return idmPhoneOpen() && body && !body.hasAttribute('aria-busy') ? body : null;
+                    });
+                }).then(function () {
+                    return t.spot($('#idm-phone-modal .modal-content')).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                if (!idmPhoneOpen()) return null;
+                var url = $('#idm-phone-url'), note = $('#idm-phone-note');
+                if (url && url.textContent) return 'The phone opens ' + url.textContent + '.';
+                return note && !note.hidden && note.textContent ? note.textContent : null;
+            },
+            after: closeIdmPhone
         },
         idmList: {
             since: '1.7.0',
@@ -9379,6 +9414,52 @@
             check: function (mem) {
                 var n = idmRows().length;
                 return n >= 3 && mem.text ? n + ' marks. ' + mem.text + ' blinks in the view.' : null;
+            }
+        },
+        idmSwap: {
+            since: '1.7.0',
+            target: '#idm-list', ring: ['#idm-list', '.idm-side-bar'], place: 'right', title: 'Tick off the swaps',
+            avoid: [function () { return idmRows()[0] || null; }, '[data-idm-side="back"]'],
+            body: 'Tick Swapped once a module is replaced: the row stays, dimmed, and the tick is saved with the show. Back names each module as it reads from behind the wall.',
+            before: function () {
+                openIdm();
+                var a = A();
+                if (a && idmSide() !== 'front' && typeof a._idmSetSide === 'function') a._idmSetSide('front');
+            },
+            act: function (t) {
+                var row = idmRows()[0];
+                if (!row) throw new Error('no marks in the list');
+                var layerId = Number(row.dataset.idmLayer), key = row.dataset.idmKey;
+                t.mem.key = key;
+                var ticked = function () {
+                    var l = screens().find(function (x) { return x.id === layerId; });
+                    var m = idmMarks(l)[key];
+                    return !!(m && m.swapped);
+                };
+                // by its id: found again if the list is rebuilt on the way
+                var box = row.querySelector('input[data-idm-swap]');
+                var tick = ticked() ? Promise.resolve() : t.click('#' + CSS.escape(box.id)).then(function () {
+                    return t.wait(ticked);
+                });
+                return tick.then(function () { return t.pause(PACE.acted); }).then(function () {
+                    return t.click('[data-idm-side="back"]');
+                }).then(function () {
+                    return t.wait(function () { return idmSide() === 'back'; });
+                }).then(function () {
+                    var back = $('#idm-list .idm-row[data-idm-key="' + key + '"]');
+                    t.mem.back = back ? back.title : '';
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return t.click('[data-idm-side="front"]');
+                }).then(function () {
+                    return t.wait(function () { return idmSide() === 'front'; });
+                });
+            },
+            check: function (mem) {
+                var row = $('#idm-list .idm-row[data-idm-key="' + mem.key + '"]');
+                if (!row || !row.classList.contains('idm-row-swapped') || idmSide() !== 'front' || !mem.back) return null;
+                var name = / Module ([^ ]+) /.exec(mem.back);
+                return 'Swapped and dimmed. From behind the wall it reads Module ' + (name ? name[1] : '') + '.';
             }
         },
         notesChecklist: {
@@ -9488,7 +9569,8 @@
                  's3dCamera', 's3dFocus', 's3dBars', 's3dCorner', 'outputOpen', 'outputChoices'],
         // IDM, and the checklist in the Notes
         idm: ['idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
-              'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmList', 'notesChecklist'],
+              'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap',
+              'notesChecklist'],
         // Pixel Map: groups
         pixelGroups: ['groupScreens', 'groupNames', 'groupDrag', 'groupMove'],
         // Binder and Exports
