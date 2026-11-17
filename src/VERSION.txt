@@ -461,6 +461,15 @@ POWER FIXES
   the Power tab shows "No power figure" on the screen, and the totals name
   the screens they leave out, until you type the watts. Emptying Watts
   per Panel does the same. A show saved earlier keeps its watts.
+- FIX (IMPORTANT): A screen made from a library panel with no published
+  weight, or changed to one, weighed 20 kg a panel or took the weight of
+  the screen beside it or of its old panel, so its weight came from
+  nowhere. A panel with no weight now has none. Weight per Panel stays
+  empty with a note under it, the screen's weight label says "No weight
+  figure", and a group's totals name the screens they leave out, until
+  you type the weight. Emptying Weight per Panel does the same. The panel
+  library no longer lists such a panel as 0kg. A show saved earlier keeps
+  its weight.
 
 ALSO NEW
 
@@ -514,6 +523,9 @@ ALSO NEW
   the computer running it, asking first and offering to save unsaved
   changes. The tray and menu bar icon's Quit asks about unsaved changes
   too.
+- NEW: The binder export's warning names the screens with no power
+  figure and the screens with no weight figure, along with the screens
+  that cannot fit a circuit, so you can type the missing figures first.
 
 FIXES
 

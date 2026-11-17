@@ -495,7 +495,9 @@ class _Presets {
             if (typeof this._ensurePanelCatalogData === 'function') this._ensurePanelCatalogData();
             return null;
         }
-        const w = Number(layer.panel_weight) || 20;
+        // a panel with no weight figure has no half's weight either
+        const w = this.panelWeightValue(layer);
+        if (!(w > 0)) return null;
         const kg = (layer.weight_unit || 'kg') === 'lb' ? w / 2.20462 : w;
         // The screen's SAVED panel first (owner, 2026-10-22): its own
         // half, whatever other models share its figures. A weight typed
@@ -646,7 +648,9 @@ class _Presets {
         // The screen's SAVED panel first, as the half's weight reads it.
         const saved = this._catalogSavedPanel(layer);
         if (saved !== undefined) return saved ? this._catalogHalfWattsOf(saved.mfr, saved.F, axis) : null;
-        const w = Number(layer.panel_weight) || 20;
+        // found by its weight among others: a screen with no weight
+        // figure matches no library model (none weighs 0)
+        const w = this.panelWeightValue(layer);
         const kg = (layer.weight_unit || 'kg') === 'lb' ? w / 2.20462 : w;
         const key = [layer.panel_width_mm, layer.panel_height_mm, layer.cabinet_width, layer.cabinet_height,
                      kg.toFixed(4), axis].join('|');
@@ -1002,7 +1006,8 @@ class _Presets {
             const specs = [];
             if (p.width_mm != null && p.height_mm != null) specs.push(`${p.width_mm}×${p.height_mm}mm`);
             if (p.pixels_w != null && p.pixels_h != null) specs.push(`${p.pixels_w}×${p.pixels_h}px`);
-            if (p.weight_kg != null) specs.push(`${p.weight_kg}kg`);
+            // none for a panel with no weight (null, or 0 on a few entries)
+            if (Number(p.weight_kg) > 0) specs.push(`${p.weight_kg}kg`);
             if (Number(p.watts_max) > 0) specs.push(this._panelWattsText(p));
             // Verified ⭐: panel specs were cross-checked against the manufacturer's
             // own published spec sheet/PDF (not just the aggregated catalog).
@@ -1072,7 +1077,7 @@ class _Presets {
             const parts = [];
             if (p.width_mm != null) parts.push(`${p.width_mm}×${p.height_mm}mm`);
             if (p.pixels_w != null) parts.push(`${p.pixels_w}×${p.pixels_h}px`);
-            if (p.weight_kg != null) parts.push(`${p.weight_kg}kg`);
+            if (Number(p.weight_kg) > 0) parts.push(`${p.weight_kg}kg`);
             if (Number(p.watts_max) > 0) parts.push(this._panelWattsText(p));
             summary.textContent = `Panel: ${this._catalogModelLabel(p._mfr, p)}, ${parts.join(' · ')}`;
         } else if (sel.type === 'preset' && sel.key && sel.key !== '__default__') {
@@ -1168,10 +1173,11 @@ class _Presets {
         // 2026-11-16: "panels with no power have no power"): never the
         // Preferences' watts in its place.
         data.panelWatts = this.hasPanelPower(src) ? src.panelWatts : null;
-        if (src.panel_weight != null && src.panel_weight !== '') {
-            data.panel_weight = src.panel_weight;
-            data.weight_unit = src.weight_unit || 'kg';
-        }
+        // Its weight the same way: none where it has none (owner,
+        // 2026-11-16: "no weight means no weight"), never the server's
+        // 20 kg or the screen beside it.
+        data.panel_weight = this.hasPanelWeight(src) ? this.panelWeightValue(src) : null;
+        data.weight_unit = src.weight_unit || 'kg';
         data.panelModelId = src.panelModelId || null;
         data.panelModelName = src.panelModelName || null;
         data.panelModelHalves = src.panelModelHalves && typeof src.panelModelHalves === 'object'
@@ -1520,6 +1526,13 @@ class _Presets {
         if (Object.prototype.hasOwnProperty.call(data, 'panelWatts') && !(Number(data.panelWatts) > 0)) {
             out.panelWatts = null;
         }
+        // The weight the same way (owner, 2026-11-16: "no weight means no
+        // weight"): a pick that says its panel has none leaves none, never
+        // the old cabinet's.
+        if (Object.prototype.hasOwnProperty.call(data, 'panel_weight') && data.panel_weight !== undefined
+                && !(Number(data.panel_weight) > 0)) {
+            out.panel_weight = null;
+        }
         if (data.weight_unit) out.weight_unit = data.weight_unit;
         // The panel the pick names (a library model, or a preset saved from
         // a screen that had one) - and none for a pick that names none, so
@@ -1582,6 +1595,10 @@ class _Presets {
             fields,
             preset: data._presetName || null
         });
+        // the browser's own copy of the startup show's screen carries the
+        // weight and watts too (loadClientSideProperties): kept in step, or
+        // a reload brought the old cabinet's figures back
+        if (typeof this.saveClientSideProperties === 'function') this.saveClientSideProperties();
         this.updateLayers(targets);
         this.saveState('Change Cabinet');
         this.loadLayerToInputs();
@@ -1638,13 +1655,14 @@ class _Presets {
     _panelToPresetData(panel) {
         const prefs = this.getPreferences() || {};
         const weightUnit = prefs.weightUnit || 'kg';
-        const weightKg = panel.weight_kg;
-        // A figure the library lacks is left out (undefined), and the
-        // server's default stands (addLayer); a weight it lacks takes no
-        // unit either.
-        const weight = (weightKg != null)
+        const weightKg = Number(panel.weight_kg);
+        // A panel the library lists with no weight (weight_kg null, or 0
+        // on a few older entries) gives the screen no weight (null): never
+        // the server's 20 kg or the screen beside it (owner, 2026-11-16:
+        // "no weight means no weight").
+        const weight = weightKg > 0
             ? (weightUnit === 'lb' ? +(weightKg * 2.20462).toFixed(2) : weightKg)
-            : undefined;
+            : null;
         const data = {
             columns: prefs.columns,
             rows: prefs.rows,
@@ -1653,7 +1671,7 @@ class _Presets {
             panel_width_mm: panel.width_mm,
             panel_height_mm: panel.height_mm,
             panel_weight: weight,
-            weight_unit: weight === undefined ? undefined : weightUnit,
+            weight_unit: weightUnit,
             _presetName: `${(panel._mfr || panel.manufacturer || '').replace(/_/g, ' ')} ${panel.name}`.trim(),
             // the model itself, saved on the screen (catalogPanelModelFields)
             ...this.catalogPanelModelFields(panel)
@@ -2646,7 +2664,9 @@ class _Presets {
         // these from the add request (e.g. from a preset or catalog panel).
         // The weight is the server's own default (create_layer); it is no
         // longer a preference (1.6.0).
-        if (layer.panel_weight == null) layer.panel_weight = 20;
+        // A null weight is a panel with no weight figure (2026-11-16) and
+        // stays null; only a layer that never carried the key takes 20.
+        if (layer.panel_weight === undefined) layer.panel_weight = 20;
         if (layer.weight_unit == null) layer.weight_unit = prefs.weightUnit || 'kg';
     }
 }

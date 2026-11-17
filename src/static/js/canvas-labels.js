@@ -798,7 +798,8 @@ Object.assign(CanvasRenderer.prototype, {
                 }
                 return sum + 1;
             }, 0);
-        const panelWeightValue = layer.panel_weight || 20;
+        const panelWeightValue = window.app && typeof window.app.panelWeightValue === 'function'
+            ? window.app.panelWeightValue(layer) : (parseFloat(layer.panel_weight) || 0);
         const panelWeightUnit = layer.weight_unit || 'kg';
         const panelWeightKg = panelWeightUnit === 'lb' ? (panelWeightValue / 2.20462) : panelWeightValue;
         // The roll-up already weighs each member against its OWN cabinet, so a
@@ -813,6 +814,21 @@ Object.assign(CanvasRenderer.prototype, {
         // One decimal, with en-US thousands separators ("156,788.9 kg").
         const weightText = (v) => (Number(v) || 0).toLocaleString('en-US',
             { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        // Panels with no weight figure (owner, 2026-11-16: "no weight means
+        // no weight"): a screen of them says so in place of a weight; a
+        // group weighs the members that have one and names the rest, so
+        // the figure never passes for the whole wall.
+        const noWeightIds = groupTotals ? (groupTotals.weightUnset || [])
+            : (panelWeightValue > 0 ? [] : [layer.id]);
+        const weighedNone = noWeightIds.length > 0
+            && (!groupTotals || noWeightIds.length >= (Number(groupTotals.memberCount) || 0));
+        const noWeightNamed = noWeightIds.length && window.app && typeof window.app.noWeightText === 'function'
+            ? window.app.noWeightText(noWeightIds) : 'No weight figure';
+        const weightFigure = `${weightText(totalWeightKg)} kg / ${weightText(totalWeightLb)} lb`;
+        const leftOut = noWeightIds.length && !weighedNone ? ` (${noWeightNamed})` : '';
+        // the screen itself: "No weight figure"; a group with none weighed
+        // names its screens
+        const noneLine = groupTotals ? noWeightNamed : 'No weight figure';
 
         // Build labels - Screen Name is separate with white background
         // Per-tab showLabelName: each view mode has its own property, falling back to global → true
@@ -896,7 +912,7 @@ Object.assign(CanvasRenderer.prototype, {
                 }
             }
             if (cfg.showLabelWeight) {
-                centerLines.push(`Weight ${weightText(totalWeightKg)} kg / ${weightText(totalWeightLb)} lb`);
+                centerLines.push(weighedNone ? noneLine : `Weight ${weightFigure}${leftOut}`);
             }
         } else if (this.viewMode === 'data-flow') {
             if (cfg.showDataFlowPortInfo && groupTotals) {
@@ -1039,7 +1055,7 @@ Object.assign(CanvasRenderer.prototype, {
             infoParts.push(`${activePanels} Cabinets Total`);
             infoParts.push(`Resolution: ${layerWidth} X ${layerHeight}`);
             infoParts.push(`Aspect Ratio: ${aspectRatioStr}`);
-            infoParts.push(`Weight: ${weightText(totalWeightKg)} kg / ${weightText(totalWeightLb)} lb`);
+            infoParts.push(weighedNone ? noneLine : `Weight: ${weightFigure}${leftOut}`);
         }
         
         // Use absolute pixel sizes - no scaling with zoom

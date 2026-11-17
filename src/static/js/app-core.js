@@ -3212,7 +3212,13 @@ export class LEDRasterApp {
         const given = (v) => (v != null && v !== '' ? v : undefined);
         let serverProps;
         if (presetData && typeof presetData === 'object') {
-            const weight = given(presetData.panel_weight);
+            // ...except a pick that SAYS its panel has no weight (null, or
+            // the library's 0): that lands as null, never the server's
+            // 20 kg or the canvas's newest screen's (owner, 2026-11-16:
+            // "no weight means no weight").
+            const noWeight = Object.prototype.hasOwnProperty.call(presetData, 'panel_weight')
+                && presetData.panel_weight !== undefined && !(Number(presetData.panel_weight) > 0);
+            const weight = noWeight ? null : given(presetData.panel_weight);
             serverProps = {
                 columns: presetData.columns != null ? presetData.columns : prefs.columns,
                 rows: presetData.rows != null ? presetData.rows : prefs.rows,

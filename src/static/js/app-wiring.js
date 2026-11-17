@@ -684,9 +684,13 @@ class _Wiring {
                 screens.forEach(layer => {
                     const oldUnit = layer.weight_unit || 'kg';
                     if (this._layerLocked(layer) || oldUnit === newUnit) return;
-                    // || 20: the figure Screen Info and the labels show
-                    // for a screen with no weight stored
-                    const value = Number(layer.panel_weight) || 20;
+                    // A panel with no weight figure keeps none in either
+                    // unit (owner, 2026-11-16); only the unit changes.
+                    if (!this.hasPanelWeight(layer)) {
+                        layer.weight_unit = newUnit;
+                        return;
+                    }
+                    const value = this.panelWeightValue(layer);
                     const converted = (oldUnit === 'kg' && newUnit === 'lb')
                         ? (value * 2.20462)
                         : (oldUnit === 'lb' && newUnit === 'kg')
@@ -698,7 +702,7 @@ class _Wiring {
                 // blank - and a blank field writes nothing.
                 const weightInput = document.getElementById('panel-weight-kg');
                 if (weightInput && screens.length) {
-                    const weights = new Set(screens.map(l => Number(l.panel_weight) || 20));
+                    const weights = new Set(screens.map(l => (this.hasPanelWeight(l) ? this.panelWeightValue(l) : '')));
                     weightInput.value = weights.size === 1 ? String([...weights][0]) : '';
                 }
                 this.updateLayerFromInputs();

@@ -2170,8 +2170,16 @@ class _ScreenGroups {
         const weight = unit === 'lb' ? totals.weightLb : totals.weightKg;
         const n = (value) => Math.round(Number(value) || 0).toLocaleString('en-US');
         const counted = Number(totals.memberCount) || 0;
+        // Members whose panel has no weight figure (owner, 2026-11-16) are
+        // left out of the weight and named, so the figure handed to a
+        // rigger never passes for the whole wall; with none weighed, the
+        // names stand in its place.
+        const unset = totals.weightUnset || [];
+        const named = unset.length && typeof this.noWeightText === 'function' ? this.noWeightText(unset) : '';
+        const weightPart = !unset.length ? `${n(weight)} ${unit}`
+            : unset.length >= counted ? named : `${n(weight)} ${unit} (${named})`;
         const line = `${n(counted)} ${counted === 1 ? 'screen' : 'screens'} · ${n(totals.cabinets)} cab `
-            + `· ${n(weight)} ${unit}`;
+            + `· ${weightPart}`;
         // Say so rather than quietly counting fewer: a member sitting on
         // another canvas is still in the group, and its absence from these
         // figures is exactly the sort of thing that goes unnoticed.

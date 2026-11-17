@@ -55,7 +55,10 @@ class _ScreenInfo {
     // (_panelWeightFactor), as it always was.
     // Power reads its own factor (getPanelLoadFactor).
     getPanelWeightKg(layer, panel) {
-        const w = Number(layer && layer.panel_weight) || 20;
+        const w = this.panelWeightValue(layer);
+        // a panel with no weight figure weighs nothing here, and the
+        // totals name its screen (noWeightText)
+        if (!(w > 0)) return 0;
         const fullKg = ((layer && layer.weight_unit) || 'kg') === 'lb' ? w / 2.20462 : w;
         const factor = this._panelWeightFactor(layer, panel);
         const axis = panel && panel.halfTile;
@@ -65,6 +68,63 @@ class _ScreenInfo {
             if (half > 0) return half;
         }
         return factor * fullKg;
+    }
+
+    // ── Panels with no weight (owner, 2026-11-16) ──
+    //
+    // "No weight means no weight", as a panel with no power has no power:
+    // a screen whose panel has no weight (a library panel with none
+    // published, a field left empty, or a 0) is weighed as nothing, never
+    // as a stand-in 20 kg, and wherever its weight would show the app says
+    // "No weight figure" instead, until a weight is typed. Totals that
+    // leave such a screen out name it (noWeightText).
+    //
+    // The figure the screen's panel weighs in its own unit, or 0 for none.
+    // A screen saved before the weight was stored at all (no key) reads
+    // the server's 20, as it always has.
+    panelWeightValue(layer) {
+        if (!layer) return 0;
+        if (layer.panel_weight === undefined) return 20;
+        const w = parseFloat(layer.panel_weight);
+        return w > 0 ? w : 0;
+    }
+
+    hasPanelWeight(layer) {
+        return this.panelWeightValue(layer) > 0;
+    }
+
+    // Is the screen's panel a library model the library lists with no
+    // weight? Then its note can say "No published weight".
+    _libraryPanelHasNoWeight(layer) {
+        const saved = typeof this._catalogSavedPanel === 'function' ? this._catalogSavedPanel(layer) : null;
+        return !!(saved && saved.F) && !(Number(saved.F.weight_kg) > 0);
+    }
+
+    // "No weight figure: Screen3, Screen5" for the screens `ids` names
+    // (getGroupTotals weightUnset), or '' with none.
+    noWeightText(ids) {
+        const list = Array.isArray(ids) ? ids : [];
+        if (!list.length) return '';
+        const layers = (this.project && this.project.layers) || [];
+        const names = list.map(id => {
+            const l = layers.find(x => String(x.id) === String(id));
+            return (l && l.name) || 'a screen';
+        });
+        return `No weight figure: ${names.join(', ')}`;
+    }
+
+    // The note under Weight per Panel: shown while every screen in the
+    // selection has no weight figure.
+    _syncPanelWeightNote(layers) {
+        const noteEl = document.getElementById('panel-weight-note');
+        if (!noteEl) return;
+        const screens = (layers || []).filter(l => l && (l.type || 'screen') === 'screen');
+        const noneHave = screens.length > 0 && screens.every(l => !this.hasPanelWeight(l));
+        noteEl.textContent = !noneHave ? ''
+            : (screens.every(l => this._libraryPanelHasNoWeight(l))
+                ? 'No published weight for this panel. Type its weight.'
+                : 'No weight figure for this panel. Type its weight.');
+        noteEl.style.display = noneHave ? '' : 'none';
     }
 
     // A screen's cabinets' weight in kg: every one that hangs (not blank,
@@ -490,6 +550,7 @@ class _ScreenInfo {
             nonScreenCount: 0,     // members skipped because they are not screens
             offCanvasCount: 0,     // members skipped because they sit on another canvas
             wattsUnset: [],        // members with no panelWatts entered
+            weightUnset: [],       // members whose panel has no weight figure
             cabinets: 0,
             pixels: 0,
             equivalentPanels: 0,
@@ -541,9 +602,10 @@ class _ScreenInfo {
             // parseFloat(...) || 0 rather than a stand-in default, because
             // calculatePowerAssignments below reads panelWatts the same way -
             // a group reporting 200 W a cabinet while reporting 0 circuits
-            // would be incoherent. The weight fallback mirrors the canvas
-            // weight label (layer.panel_weight || 20) so the group figure and
-            // the member's own label can never disagree.
+            // would be incoherent. The weight reads the canvas weight
+            // label's figure (getLayerWeightKg; none for a panel with no
+            // weight, 2026-11-16) so the group figure and the member's own
+            // label can never disagree.
             //
             // v0.11.0 audit: this is now the ONE rule project-wide - the
             // getPowerCounts stand-in of 200 W a cabinet is gone, because a
@@ -557,6 +619,8 @@ class _ScreenInfo {
             // each cabinet its own weight - a half tile the library's half
             // where it has one (getPanelWeightKg)
             const weightKg = this.getLayerWeightKg(layer, activePanels);
+            // left out of the weight and named (owner, 2026-11-16)
+            if (!this.hasPanelWeight(layer)) totals.weightUnset.push(layer.id);
             const voltage = parseFloat(layer.powerVoltage) || 0;
             if (!voltages.includes(voltage)) voltages.push(voltage);
 
@@ -2224,7 +2288,16 @@ class _ScreenInfo {
         // Panel physical dimensions
         const panelWidthMMVal = readNumber('panel-width-mm').value;
         const panelHeightMMVal = readNumber('panel-height-mm').value;
-        const panelWeightVal = readNumber('panel-weight-kg').value;
+        const panelWeightRead = readNumber('panel-weight-kg');
+        const panelWeightVal = panelWeightRead.value;
+        // Weight per Panel emptied (or set to 0) is no weight (owner,
+        // 2026-11-16: "no weight means no weight"), the way a library panel
+        // with none published lands; it is not a typing mistake. Only an
+        // edit of the box itself empties it: the weight unit's change
+        // blanks the box on a selection whose weights now differ, and that
+        // blank writes nothing.
+        const panelWeightNone = (panelWeightRead.raw === '' && this._lastChangedInputId === 'panel-weight-kg')
+            || (panelWeightVal !== null && !(Number(panelWeightVal) > 0));
         // The panel's name (2026-10-22): what was typed, trimmed - '' clears
         // the saved panel - or null where the field was not touched.
         const panelModelNameEl = pick('panel-model-name');
@@ -2442,7 +2515,8 @@ class _ScreenInfo {
                 if (numberSizeVal !== null) layer.number_size = Math.round(numberSizeVal);
                 if (panelWidthMMVal !== null) layer.panel_width_mm = panelWidthMMVal;
                 if (panelHeightMMVal !== null) layer.panel_height_mm = panelHeightMMVal;
-                if (panelWeightVal !== null) layer.panel_weight = panelWeightVal;
+                if (panelWeightNone) layer.panel_weight = null;
+                else if (panelWeightVal !== null) layer.panel_weight = panelWeightVal;
                 if (panelWeightUnitVal !== null) layer.weight_unit = panelWeightUnitVal;
                 if (showPanelBordersVal !== null) layer.show_panel_borders = showPanelBordersVal;
                 if (showCircleWithXVal !== null) layer.show_circle_with_x = showCircleWithXVal;
@@ -2498,7 +2572,18 @@ class _ScreenInfo {
         if (numberSizeVal !== null && document.getElementById('number-size')) document.getElementById('number-size').value = Math.round(numberSizeVal);
         if (panelWidthMMVal !== null && document.getElementById('panel-width-mm')) document.getElementById('panel-width-mm').value = panelWidthMMVal;
         if (panelHeightMMVal !== null && document.getElementById('panel-height-mm')) document.getElementById('panel-height-mm').value = panelHeightMMVal;
-        if (panelWeightVal !== null && document.getElementById('panel-weight-kg')) document.getElementById('panel-weight-kg').value = panelWeightVal;
+        if (document.getElementById('panel-weight-kg')) {
+            if (panelWeightNone) document.getElementById('panel-weight-kg').value = '';
+            else if (panelWeightVal !== null) document.getElementById('panel-weight-kg').value = panelWeightVal;
+        }
+        this._syncPanelWeightNote(targetLayers);
+        // The weight rides the browser's own copy of the startup show's
+        // screen too (loadClientSideProperties): kept in step, or a reload
+        // brought the old figure back over the new one (or over none).
+        if ((panelWeightNone || panelWeightVal !== null || panelWeightUnitVal !== null)
+                && typeof this.saveClientSideProperties === 'function') {
+            this.saveClientSideProperties();
+        }
         this._showPanelModelName(targetLayers);
         this._captureScreenInfoBaseline();
         
@@ -2823,7 +2908,10 @@ class _ScreenInfo {
         // Load panel physical dimensions if elements exist
         setTextInput('panel-width-mm', getCommon(l => l.panel_width_mm || 500));
         setTextInput('panel-height-mm', getCommon(l => l.panel_height_mm || 500));
-        setTextInput('panel-weight-kg', getCommon(l => l.panel_weight || 20));
+        // A panel with no weight shows an empty box, never a stand-in
+        // figure; the note under it says so (_syncPanelWeightNote).
+        setTextInput('panel-weight-kg', getCommon(l => (this.hasPanelWeight(l) ? this.panelWeightValue(l) : '')));
+        this._syncPanelWeightNote(layers);
         this._showPanelModelName(layers);
         const weightUnitEl = document.getElementById('panel-weight-unit');
         if (weightUnitEl) {
