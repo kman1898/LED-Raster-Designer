@@ -1115,13 +1115,28 @@ class _IdmLocator {
         return idmDescribe(window.canvasRenderer, layer, key, opts);
     }
 
+    // The project was replaced with no redraw to follow yet (a delete's
+    // reply, with the rest of the delete still to land; an undo or redo
+    // before its restore lands): the readout, the status bar, the pad and
+    // the mark list say what the project holds now. Without it they named
+    // the deleted screen's module, with no highlight left, until the next
+    // blink or the redraw (1.7.0 CI). The blink and the canvas are left to
+    // their own timing.
+    _idmFollowProject() {
+        this._idmRefreshReadout();
+        if (this._idmState().active) this._idmRenderList();
+    }
+
     // The readout in the pad and in the status bar.
     _idmRefreshReadout() {
         const st = this._idmState();
         const t = st.active ? this._idmHighlightTarget() : null;
         const d = t ? this._idmDescribe(t.layer, t.key) : null;
         const marked = !!(t && t.layer.idm && t.layer.idm.marks && t.layer.idm.marks[t.key]);
-        const key = JSON.stringify([st.active, d && d.text, d && d.row, d && d.col, marked]);
+        // The pad's Mark and Clear too: a highlight on a module that is gone
+        // reads as none, and the blink dropping it later changes only them.
+        const padOn = !!this._idmHl() || !!st.hoverLast;
+        const key = JSON.stringify([st.active, d && d.text, d && d.row, d && d.col, marked, padOn]);
         if (key === st.readoutKey) return;
         st.readoutKey = key;
         const out = document.getElementById('idm-hl-readout');

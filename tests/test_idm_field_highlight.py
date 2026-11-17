@@ -27,7 +27,8 @@ at. What this file pins:
   keeps its arrows. From a tablet (a touch, mobile-sized page) a tap moves
   the highlight without marking, the pad's arrows and Mark drive it, and the
   host's output window shows it blinking white / the field's inverse. A
-  deleted screen takes its highlight with it.
+  deleted screen takes its highlight with it, and the panel never names a
+  module a delete, undo or redo took away, even before the view redraws.
 
 Run locally:
     python -m pytest tests/test_idm_field_highlight.py -v -p no:cacheprovider --browser chromium
@@ -723,6 +724,129 @@ def test_a_deleted_screen_takes_its_highlight_with_it(page):
     got = settled(page, lambda: page.evaluate("() => window.app._idmHl()"), lambda v: v is None)
     assert got is None, got
     assert page.inner_text('#idm-hl-readout') == 'No module highlighted'
+
+
+# The panel as the page shows it: readout, where line, status bar, the pad's
+# Mark and Clear, the mark list.
+PANEL_JS = """() => {
+    const q = (id) => document.getElementById(id);
+    return {readout: q('idm-hl-readout').textContent, where: q('idm-hl-where').textContent,
+            status: q('idm-status-readout').textContent, statusHidden: q('idm-status-readout').hidden,
+            markDisabled: q('idm-pad-mark').disabled, clearDisabled: q('idm-pad-clear').disabled,
+            list: q('idm-list').textContent,
+            hl: window.app._idmHl(), deleting: !!window.app.deletionInProgress};
+}"""
+
+
+def test_the_panel_follows_the_highlight_as_the_delete_reply_lands(page):
+    """A delete's reply replaces the project (the highlight on the deleted
+    screen gone with it) and the delete's own redraw waits for the next
+    request. The panel follows the reply at once: it never names a module
+    of the screen that is gone. (1.7.0 CI: the readout still read
+    'IdmB · B2 · Module A1' with no highlight left, until the next blink.)
+    The page's request for the project after the DELETE is held, and the
+    panel read in the same task as the reply, so neither the blink nor the
+    redraw can come in between."""
+    reset_project(page)
+    page.evaluate("""() => {
+        const app = window.app, b = app.project.layers.find(x => x.name === 'IdmB');
+        b.idm = {modulesX: 2, modulesY: 2, marks: {'0,0,0,0': {style: 'color', color: '#ff1a1a'}}};
+        app.updateLayers([b], true, 'Set Modules');
+        window.canvasRenderer.render();
+    }""")
+    settled(page, lambda: marks_of(page, 'IdmB'), lambda v: '0,0,0,0' in v)
+    page.evaluate("""() => {
+        const app = window.app, b = app.project.layers.find(x => x.name === 'IdmB');
+        app._idmSetHighlight(b.id, '1,1,0,0');
+    }""")
+    assert hl(page) == ['IdmB', '1,1,0,0']
+    before = page.evaluate(PANEL_JS)
+    steps = page.evaluate("() => window.app.history.length")
+    assert before['readout'].startswith('IdmB'), before
+    assert 'IdmB' in before['list'], before
+    page.evaluate("""(PANEL) => {
+        const read = eval(PANEL), real = window.fetch;
+        let release, deleted = false;
+        const gate = new Promise(r => { release = r; });
+        window.__idmGet = {release: () => { window.fetch = real; release(); }, panel: null};
+        window.fetch = function (url, opts) {
+            const method = (opts && opts.method) || 'GET';
+            if (method === 'DELETE' && String(url).includes('/api/layer/')) deleted = true;
+            else if (deleted && method === 'GET' && String(url).endsWith('/api/project')) {
+                deleted = false;
+                window.__idmGet.panel = read();
+                return gate.then(() => real.call(window, url, opts));
+            }
+            return real.call(window, url, opts);
+        };
+        const app = window.app;
+        app.selectLayer(app.project.layers.find(x => x.name === 'IdmB'));
+        app.deleteCurrentLayer();
+    }""", PANEL_JS)
+    try:
+        page.wait_for_function("() => window.__idmGet.panel !== null", timeout=10000)
+        at_reply = page.evaluate("() => window.__idmGet.panel")
+    finally:
+        page.evaluate("() => window.__idmGet.release()")
+    # the reply has landed and the delete is not done
+    assert at_reply['deleting'] is True and at_reply['hl'] is None, at_reply
+    assert at_reply['readout'] == 'No module highlighted', at_reply
+    assert at_reply['where'] == 'Point at a module, tap it, or use the arrows.', at_reply
+    assert at_reply['status'] == '' and at_reply['statusHidden'] is True, at_reply
+    assert at_reply['markDisabled'] is True and at_reply['clearDisabled'] is True, at_reply
+    assert 'IdmB' not in at_reply['list'], at_reply
+    page.wait_for_function("(n) => !window.app.deletionInProgress && window.app.history.length === n + 1",
+                           arg=steps, timeout=10000)
+    end = page.evaluate(PANEL_JS)
+    assert {k: end[k] for k in ('readout', 'where', 'status', 'statusHidden', 'markDisabled', 'clearDisabled')} \
+        == {k: at_reply[k] for k in ('readout', 'where', 'status', 'statusHidden', 'markDisabled', 'clearDisabled')}
+    assert 'IdmB' not in end['list'], end
+    assert not page._errors, page._errors
+
+
+NOTHING_NAMED = {'readout': 'No module highlighted', 'where': 'Point at a module, tap it, or use the arrows.',
+                 'status': '', 'statusHidden': True}
+
+
+def _panel_after(pg, call):
+    """window.app[call]() and the panel read in the same task: the restore
+    is on its way to the server and nothing has redrawn yet. The highlight
+    itself stays until the blink drops it (a highlight is view state, never
+    an undo step), so the pad's Mark and Clear go with the blink."""
+    got = pg.evaluate("([PANEL, call]) => { window.app[call](); return eval(PANEL)(); }", [PANEL_JS, call])
+    pg.wait_for_function("() => !window.app._restorePutPending", timeout=10000)
+    assert got['hl'] is not None, got
+    after = settled(pg, lambda: pg.evaluate(PANEL_JS), lambda v: v['hl'] is None)
+    assert after['markDisabled'] is True and after['clearDisabled'] is True, after
+    assert {k: after[k] for k in NOTHING_NAMED} == NOTHING_NAMED, after
+    return {k: got[k] for k in NOTHING_NAMED}
+
+
+def test_the_panel_follows_an_undo_or_redo_that_takes_the_module_away(page):
+    """An undo or redo that takes the highlighted module away (the screen's
+    modules across and down put back) leaves the panel naming nothing from
+    the moment it is pressed, not from the redraw once the restore lands."""
+    reset_project(page)
+    set_layout(page, 'IdmB', 2, 2)
+    settled(page, lambda: page.evaluate("() => window.app.history.length"), lambda v: v == 2)
+    set_layout(page, 'IdmB', 1, 1)
+    settled(page, lambda: page.evaluate("() => window.app.history.length"), lambda v: v == 3)
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_function("() => !window.app._restorePutPending && window.app.historyIndex === 1", timeout=10000)
+    # redo to the 1 x 1 layout: module 1,1,1,1 of the 2 x 2 goes
+    page.evaluate("() => { const app = window.app; app._idmSetHighlight("
+                  "app.project.layers.find(x => x.name === 'IdmB').id, '1,1,1,1'); }")
+    assert page.inner_text('#idm-hl-readout') == 'IdmB · B2 · Module B2'
+    assert _panel_after(page, 'redo') == NOTHING_NAMED
+    page.evaluate("() => window.app.undo()")
+    page.wait_for_function("() => !window.app._restorePutPending && window.app.historyIndex === 1", timeout=10000)
+    # undo to the screen with no modules set: the same module goes
+    page.evaluate("() => { const app = window.app; app._idmSetHighlight("
+                  "app.project.layers.find(x => x.name === 'IdmB').id, '1,1,1,1'); }")
+    assert page.inner_text('#idm-hl-readout') == 'IdmB · B2 · Module B2'
+    assert _panel_after(page, 'undo') == NOTHING_NAMED
+    assert page.evaluate("() => window.app.historyIndex") == 0
+    assert not page._errors, page._errors
 
 
 # ── 3. Pictures for the record ────────────────────────────────────────────

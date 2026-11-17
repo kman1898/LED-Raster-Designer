@@ -285,6 +285,10 @@ class _History {
                 try { this.syncRasterFromProject(); } catch (_) {}
             }
 
+            // The IDM Locator's panel says what the restored project holds
+            // now: a highlighted module the undo took away is not named.
+            if (typeof this._idmFollowProject === 'function') this._idmFollowProject();
+
             // Sync the restored state to the backend - AFTER any layer PUT
             // still in flight has settled. The server is threaded, so a
             // drag's commit PUT racing past this one would re-write the
@@ -564,6 +568,9 @@ class _History {
                 try { this.syncRasterFromProject(); } catch (_) {}
             }
             
+            // The IDM Locator's panel follows the restored project, as on undo.
+            if (typeof this._idmFollowProject === 'function') this._idmFollowProject();
+
             // Same sequenced sync-and-adopt as undo - see _syncRestoredProject.
             this._syncRestoredProject(state, 'Redo');
             if (typeof this._noteUnsavedState === 'function') this._noteUnsavedState();
@@ -706,6 +713,11 @@ class _History {
                 .then(res => res.json())
                 .then(project => {
                     this.project = project;
+                    // The view is drawn again once the last delete lands,
+                    // but a highlight on the deleted screen went with this
+                    // reply: the IDM Locator's readout follows it now, so
+                    // it never names a module of a screen that is gone.
+                    if (typeof this._idmFollowProject === 'function') this._idmFollowProject();
                     deleteNext(ids);
                 })
                 .catch(error => {
