@@ -665,6 +665,12 @@ FIXES
 - FIX: When a page can't load all of the app, say on a weak network or a
   busy computer, it now says "The app didn't finish loading." with a
   Reload button. Before, the page looked normal but nothing on it worked.
+- FIX: In a project with no screens, Add Screen always asks for the panel
+  first, and Cancel adds nothing. A saved preset that failed to load could
+  still add a screen of 500 mm, 20 kg panels nobody picked.
+- FIX: Typing 0 in Watts per Panel is the same as leaving it empty: the
+  box empties and the screen has no power figure until you type the watts,
+  as Weight per Panel already did.
 
 v1.6.0 - November 6, 2026
 ----------------------------

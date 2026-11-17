@@ -178,10 +178,10 @@ def test_a_new_screen_reads_every_colour_preference():
             # the preference, checked - a malformed stored value never lands raw
             prop = {'screenNameColor': 'labelsColor', 'cabinetIdColor': 'cabinetIdColor'}[key]
             assert f"const {prop} = color(prefs.{key}, '{shipped}');" in add, (pid, prop)
-            # the plain branch sends the checked preference; the preset branch
-            # checks the preset's value with the preference behind it (a
-            # preset 'nope' or 'red' is no colour: item 3 of the re-test)
-            assert f"{prop}: {prop}" in add, (pid, prop)
+            # every add carries a panel (a pick, a preset or the last
+            # screen's; never none, 2026-11-17), and checks its value with
+            # the preference behind it (a preset 'nope' or 'red' is no
+            # colour: item 3 of the re-test)
             assert f"{prop}: color(presetData.{prop}, {prop})" in add, (pid, prop)
             assert f"presetData.{prop} ||" not in add, f'{prop}: a junk preset colour must not pass on ||'
             assert f'prefs.{key}' not in init, f'{key} is the server\'s to set'

@@ -191,8 +191,9 @@ def test_the_panel_preference_rows_are_gone():
 
 def test_old_saved_panel_preferences_are_harmless(e2e_server, pw_browser):
     """A record saved before 1.6.0 still carries the panel keys: nothing
-    reads them, the dialog opens and saves without them, and a screen
-    made in an empty project takes the server's cabinet, not theirs."""
+    reads them, the dialog opens and saves without them, and Add Screen in
+    an empty project asks for a panel: it never makes a screen of theirs
+    (or of the server's stand-in panel)."""
     context, pg, problems = _open_page(pw_browser, e2e_server,
                                        init="try{localStorage.setItem('lrd_quickstart_first_run_done','1');}catch(e){}")
     try:
@@ -214,7 +215,8 @@ def test_old_saved_panel_preferences_are_harmless(e2e_server, pw_browser):
         pg.wait_for_timeout(600)
         saved = pg.evaluate("async () => (await fetch('/api/preferences')).json()")
         assert not {'panelWidth', 'panelHeight', 'panelWeight'} & set(saved), saved
-        # an empty project's first screen: the server's cabinet
+        # an empty project's first screen: the picker asks, and the pick
+        # is the panel, never the old preference's 999 x 777 or 88 kg
         pg.evaluate("""async () => {
             const proj = await (await fetch('/api/project')).json();
             proj.layers = []; proj.groups = [];
@@ -225,10 +227,15 @@ def test_old_saved_panel_preferences_are_harmless(e2e_server, pw_browser):
             window.app.updateUI();
         }""")
         pg.evaluate("() => window.app.addLayer()")
-        pg.wait_for_function("() => window.app.project.layers.length === 1", timeout=5000)
+        pg.wait_for_selector('#preset-picker-modal', state='visible', timeout=5000)
+        assert pg.evaluate("() => window.app.project.layers.length") == 0
+        panel = pg.evaluate(PICK_PANEL_JS, [128, 999])
+        pg.locator('#preset-picker-add').click()
+        pg.wait_for_function("() => window.app.project.layers.length === 1", timeout=10000)
+        pg.wait_for_timeout(600)
         made = pg.evaluate(LAYER_JS, None)
-        assert (made['cabinet_width'], made['cabinet_height']) == (128, 128), made
-        assert made['panel_weight'] == 20, made
+        _expect_panel(made, panel)
+        assert made['panel_weight'] != 88, made
         assert problems == [], problems
     finally:
         pg.evaluate("""async (p) => { await fetch('/api/preferences', {method: 'PUT',
@@ -396,6 +403,82 @@ def test_file_new_opens_the_picker_and_cancel_leaves_an_empty_project(e2e_server
         assert made['name'] == 'Screen1', made
         _expect_panel(made, panel)
         assert problems == [], problems
+    finally:
+        if context:
+            context.close()
+
+
+def test_with_no_screen_to_copy_no_road_makes_a_stand_in_screen(e2e_server, pw_browser):
+    """Owner, 2026-11-17: "new projects dont have empty screen i thought?
+    you have to select a panel". In an empty project every road into Add
+    Screen asks for the panel, and none makes a screen of the server's
+    stand-in panel (500 mm, 20 kg, default watts): a direct add, a saved
+    preset that does not load, and a preset that holds no screen. Cancel
+    adds nothing."""
+    context, pg, problems = None, None, []
+    posts = []
+    name = 'NoScreenPreset'
+    try:
+        context, pg, problems = _open_page(pw_browser, e2e_server)
+        pg.on('request', lambda r: posts.append(r.url)
+              if r.method == 'POST' and r.url.endswith('/api/layer/add') else None)
+        pg.wait_for_timeout(1500)
+        pg.evaluate("() => window.app.handleMenuAction('new')")
+        _wait_picker(pg)
+        pg.locator('#preset-picker-cancel').click()
+        pg.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+        pg.wait_for_timeout(600)
+        assert _server_project(pg)['layers'] == []
+
+        def nothing_made():
+            pg.wait_for_timeout(600)
+            assert pg.evaluate("() => window.app.project.layers.length") == 0
+            assert _server_project(pg)['layers'] == []
+            assert posts == [], posts
+
+        # a direct add: the Add Screen picker opens, nothing is made
+        pg.evaluate("() => window.app.addLayer()")
+        pg.wait_for_selector('#preset-picker-modal', state='visible', timeout=5000)
+        st = pg.evaluate(MODAL_JS)
+        assert st['mode'] == 'add' and st['defaultRow'] is None and st['disabled'] is True, st
+        nothing_made()
+        pg.locator('#preset-picker-cancel').click()
+        assert not _picker_shown(pg)
+        nothing_made()
+
+        # a saved preset that does not load (the server answers 500), and
+        # one that holds no screen: the picker asks again
+        pg.route('**/api/presets', lambda route: route.fulfill(
+            status=200, content_type='application/json',
+            body=json.dumps({'presets': [name], 'entries': [{'name': name}]})))
+        def answering(a):
+            return lambda route: route.fulfill(status=a['status'], content_type='application/json',
+                                               body=json.dumps(a['body']))
+        for answer in ({'status': 500, 'body': {'error': 'gone'}},
+                       {'status': 200, 'body': {'data': None}}):
+            pg.route(f'**/api/presets/{name}', answering(answer))
+            pg.evaluate("() => window.app.openPresetPicker()")
+            row = f'#preset-picker-list .preset-picker-row[data-key="{name}"]'
+            pg.wait_for_selector(row, timeout=5000)
+            pg.locator(row).click()
+            pg.locator('#preset-picker-add').click()
+            pg.wait_for_function("() => document.getElementById('preset-picker-modal').style.display === 'block'"
+                                 " && window.app._pickerMode === 'add'", timeout=5000)
+            nothing_made()
+            pg.locator('#preset-picker-cancel').click()
+            nothing_made()
+            pg.unroute(f'**/api/presets/{name}')
+        pg.unroute('**/api/presets')
+        # ...and a pick still makes the first screen, of that panel
+        pg.evaluate("() => window.app.openPresetPicker()")
+        panel = pg.evaluate(PICK_PANEL_JS, [128])
+        pg.locator('#preset-picker-add').click()
+        pg.wait_for_function("() => window.app.project.layers.length === 1", timeout=10000)
+        pg.wait_for_timeout(800)
+        _expect_panel(pg.evaluate(LAYER_JS, None), panel)
+        assert len(posts) == 1, posts
+        # the deliberate 500 above is the only failed answer
+        assert [p for p in problems if f'/api/presets/{name}' not in p] == [], problems
     finally:
         if context:
             context.close()

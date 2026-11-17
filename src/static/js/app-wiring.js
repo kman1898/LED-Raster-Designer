@@ -1678,9 +1678,14 @@ class _Wiring {
                 // with no power have no power"), the way a library panel
                 // with none published lands; it is not a typing mistake.
                 const emptied = String(powerPanelWattsInput.value || '').trim() === '';
-                const val = emptied ? null : (parsed === null ? 0 : parsed);
+                // A 0 (or less) is the same as an empty box (owner,
+                // 2026-11-17: "type 0 is same as blank"), as Weight per
+                // Panel reads it: no power figure, and the box empties.
+                const none = emptied || (parsed !== null && !(parsed > 0));
+                const val = none ? null : (parsed === null ? 0 : parsed);
                 // Write the resolved number back so the field shows the result
-                if (parsed !== null) powerPanelWattsInput.value = this._formatEvaluatedNumber(parsed);
+                if (none) powerPanelWattsInput.value = '';
+                else if (parsed !== null) powerPanelWattsInput.value = this._formatEvaluatedNumber(parsed);
                 // v0.11.0: class, not an inline outline - Enter fires `change`
                 // while the field still has focus and theme.css forces
                 // `input:focus { outline:none !important }`, so the cue never showed.

@@ -261,6 +261,27 @@ def test_a_no_power_panel_takes_the_old_panels_power_away_and_typing_brings_it_b
     assert errors == [], errors
 
 
+def test_typing_0_watts_is_the_same_as_emptying_the_box(page):
+    """Owner, 2026-11-17: "type 0 is same as blank". A 0 typed in Watts
+    per Panel leaves no power figure, exactly as an emptied box does: no
+    watts stored (client and server), an empty box with its note, no
+    circuits, and the totals name the screen."""
+    pg, errors = page
+    wall = _seed(pg)
+    _expect_power(pg.evaluate(POWER_VIEW_JS, wall), POWER_TILE_WATTS)
+    _type_watts(pg, '0')
+    zero = pg.evaluate(POWER_VIEW_JS, wall)
+    _expect_no_power(zero, published=False)
+    _type_watts(pg, '300')
+    _expect_power(pg.evaluate(POWER_VIEW_JS, wall), 300)
+    _type_watts(pg, '')
+    blank = pg.evaluate(POWER_VIEW_JS, wall)
+    _expect_no_power(blank, published=False)
+    for k in ('panelWatts', 'servedWatts', 'field', 'note', 'circuits', 'totalsUnset'):
+        assert zero[k] == blank[k], (k, zero[k], blank[k])
+    assert errors == [], errors
+
+
 def test_a_zero_watt_panel_also_replaces_the_old_power(page):
     pg, errors = page
     wall = _seed(pg)

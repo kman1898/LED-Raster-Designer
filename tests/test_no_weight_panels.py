@@ -270,6 +270,27 @@ def test_a_zero_weight_panel_also_replaces_the_old_weight(page):
     assert errors == [], errors
 
 
+def test_typing_0_weight_is_the_same_as_emptying_the_box(page):
+    """Owner, 2026-11-17: "type 0 is same as blank". A 0 typed in Weight
+    per Panel leaves no weight figure, exactly as an emptied box does:
+    no weight stored (client and server), an empty box with its note,
+    and "No weight figure" on the screen."""
+    pg, errors = page
+    wall = _seed(pg)
+    _expect_weight(pg.evaluate(WEIGHT_VIEW_JS, wall), WALL_KG)
+    _type_weight(pg, '0')
+    zero = pg.evaluate(WEIGHT_VIEW_JS, wall)
+    _expect_no_weight(zero, published=False)
+    _type_weight(pg, '15')
+    _expect_weight(pg.evaluate(WEIGHT_VIEW_JS, wall), 15)
+    _type_weight(pg, '')
+    blank = pg.evaluate(WEIGHT_VIEW_JS, wall)
+    _expect_no_weight(blank, published=False)
+    for k in ('weight', 'servedWeight', 'field', 'note', 'kg'):
+        assert zero[k] == blank[k], (k, zero[k], blank[k])
+    assert errors == [], errors
+
+
 def test_a_no_weight_screen_changes_its_unit_without_inventing_a_weight(page):
     pg, errors = page
     wall = _seed(pg)

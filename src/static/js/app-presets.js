@@ -1493,14 +1493,19 @@ class _Presets {
                 return;
             }
             this.fetchPreset(sel.key).then(resp => {
-                const data = resp && resp.data ? resp.data : null;
-                if (data) data._presetName = sel.key;
+                const data = resp && resp.data && typeof resp.data === 'object' ? resp.data : null;
+                // A preset holding no screen is a preset that did not load:
+                // a screen is never made of nothing (the server's stand-in
+                // panel, owner 2026-11-17).
+                if (!data) return Promise.reject({ error: 'it holds no screen' });
+                data._presetName = sel.key;
                 deliver(data);
             }).catch(err => {
                 this._toast('The preset did not load: ' + (err && err.error || 'unknown error'), true, 6000);
                 // Add Screen still makes a screen, of the last screen's
-                // panel; an existing screen is left exactly as it was, and
-                // the startup picker asks again.
+                // panel, and with no screen to copy the picker asks again
+                // (addLayer); an existing screen is left exactly as it
+                // was, and the startup picker asks again.
                 if (startup) this.openPresetPicker({ mode: 'startup', fromStartPage: this._pickerFromStartPage === true });
                 else if (!replace) this.addLayer();
             });

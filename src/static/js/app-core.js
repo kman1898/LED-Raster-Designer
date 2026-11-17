@@ -3167,10 +3167,22 @@ export class LEDRasterApp {
         const prefs = this.getPreferences();
         // Nothing picked: the new screen hangs the last screen's panel
         // (1.6.0, owner 2026-11-02; the cabinet is no longer a
-        // preference). With no screen to copy, the server's own cabinet.
+        // preference).
         if (!(presetData && typeof presetData === 'object')
                 && typeof this._lastScreenPanelData === 'function') {
             presetData = this._lastScreenPanelData() || undefined;
+        }
+        // With no screen to copy either (an empty project), nothing is
+        // made: the panel picker asks for the panel, and its Cancel adds
+        // nothing. A screen is never made of the server's stand-in panel
+        // (500 mm, 20 kg, default watts; owner, 2026-11-17: "new projects
+        // dont have empty screen i thought? you have to select a panel").
+        if (!(presetData && typeof presetData === 'object')) {
+            sendClientLog('add_layer_needs_panel', {
+                layers: this.project && this.project.layers ? this.project.layers.length : 0
+            });
+            if (typeof this.openPresetPicker === 'function') this.openPresetPicker();
+            return Promise.resolve(false);
         }
         // A stored preference that is not a colour ('#FFF', 'abcdef', '')
         // must not reach the server verbatim; the literal is what shipped.
@@ -3210,56 +3222,39 @@ export class LEDRasterApp {
         // unit travel as a pair, so a missing weight never takes a unit
         // that does not belong to it.
         const given = (v) => (v != null && v !== '' ? v : undefined);
-        let serverProps;
-        if (presetData && typeof presetData === 'object') {
-            // ...except a pick that SAYS its panel has no weight (null, or
-            // the library's 0): that lands as null, never the server's
-            // 20 kg or the canvas's newest screen's (owner, 2026-11-16:
-            // "no weight means no weight").
-            const noWeight = Object.prototype.hasOwnProperty.call(presetData, 'panel_weight')
-                && presetData.panel_weight !== undefined && !(Number(presetData.panel_weight) > 0);
-            const weight = noWeight ? null : given(presetData.panel_weight);
-            serverProps = {
-                columns: presetData.columns != null ? presetData.columns : prefs.columns,
-                rows: presetData.rows != null ? presetData.rows : prefs.rows,
-                cabinet_width: given(presetData.cabinet_width),
-                cabinet_height: given(presetData.cabinet_height),
-                color1: tileRgb(presetData.color1, color1),
-                color2: tileRgb(presetData.color2, color2),
-                border_color: tile(presetData.border_color, borderColor),
-                panel_weight: weight,
-                weight_unit: weight === undefined ? undefined : (presetData.weight_unit || prefs.weightUnit),
-                // The two colours the server sets on a new layer (create_layer);
-                // the Look tab's "Info labels" and "Cabinet ID text" preferences.
-                // A preset value that is not a colour ('nope', 'red', [], {})
-                // is no colour: the preference default applies, the same
-                // rule applyPresetClientProps holds for the rest.
-                labelsColor: color(presetData.labelsColor, labelsColor),
-                cabinetIdColor: color(presetData.cabinetIdColor, cabinetIdColor),
-                // The voltage the screen will run at, so the server's
-                // breakout write-in judges eligibility at THIS figure and
-                // not at the newest sibling's (a 120 V preference beside a
-                // 208 V wall used to land True1 because the server saw 208).
-                // applyNewScreenPowerPreferences writes the same figure on
-                // the client; normalizePowerBreakout runs after it.
-                powerVoltage: presetData.powerVoltage != null ? presetData.powerVoltage : prefs.powerVoltage,
-                powerVoltageCustom: presetData.powerVoltage != null ? presetData.powerVoltage : prefs.powerVoltage
-            };
-        } else {
-            // No screen to copy (an empty project): the server's cabinet.
-            serverProps = {
-                columns: prefs.columns,
-                rows: prefs.rows,
-                color1: color1,
-                color2: color2,
-                border_color: borderColor,
-                labelsColor: labelsColor,
-                cabinetIdColor: cabinetIdColor,
-                // Same reason as the preset branch above.
-                powerVoltage: prefs.powerVoltage,
-                powerVoltageCustom: prefs.powerVoltage
-            };
-        }
+        // ...except a pick that SAYS its panel has no weight (null, or
+        // the library's 0): that lands as null, never the server's
+        // 20 kg or the canvas's newest screen's (owner, 2026-11-16:
+        // "no weight means no weight").
+        const noWeight = Object.prototype.hasOwnProperty.call(presetData, 'panel_weight')
+            && presetData.panel_weight !== undefined && !(Number(presetData.panel_weight) > 0);
+        const weight = noWeight ? null : given(presetData.panel_weight);
+        const serverProps = {
+            columns: presetData.columns != null ? presetData.columns : prefs.columns,
+            rows: presetData.rows != null ? presetData.rows : prefs.rows,
+            cabinet_width: given(presetData.cabinet_width),
+            cabinet_height: given(presetData.cabinet_height),
+            color1: tileRgb(presetData.color1, color1),
+            color2: tileRgb(presetData.color2, color2),
+            border_color: tile(presetData.border_color, borderColor),
+            panel_weight: weight,
+            weight_unit: weight === undefined ? undefined : (presetData.weight_unit || prefs.weightUnit),
+            // The two colours the server sets on a new layer (create_layer);
+            // the Look tab's "Info labels" and "Cabinet ID text" preferences.
+            // A preset value that is not a colour ('nope', 'red', [], {})
+            // is no colour: the preference default applies, the same
+            // rule applyPresetClientProps holds for the rest.
+            labelsColor: color(presetData.labelsColor, labelsColor),
+            cabinetIdColor: color(presetData.cabinetIdColor, cabinetIdColor),
+            // The voltage the screen will run at, so the server's
+            // breakout write-in judges eligibility at THIS figure and
+            // not at the newest sibling's (a 120 V preference beside a
+            // 208 V wall used to land True1 because the server saw 208).
+            // applyNewScreenPowerPreferences writes the same figure on
+            // the client; normalizePowerBreakout runs after it.
+            powerVoltage: presetData.powerVoltage != null ? presetData.powerVoltage : prefs.powerVoltage,
+            powerVoltageCustom: presetData.powerVoltage != null ? presetData.powerVoltage : prefs.powerVoltage
+        };
 
         const spot = this._newScreenSpot(serverProps, presetData);
         return fetch('/api/layer/add', {

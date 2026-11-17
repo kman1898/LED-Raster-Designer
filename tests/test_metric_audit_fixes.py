@@ -183,7 +183,11 @@ def test_a_new_screens_untouched_jumpers_follow_the_unit_and_are_not_counted(pag
     number and is the only one the change counts."""
     pg, errors = page
     _reset(pg, [])
-    ev(pg, "app.addLayer(); return null;")
+    # an empty project's Add Screen needs a panel (2026-11-17): one, the
+    # way a pick hands it over
+    ev(pg, "app.addLayer({cabinet_width: 128, cabinet_height: 128, panel_width_mm: 500,"
+           " panel_height_mm: 500, panel_weight: 20, weight_unit: 'kg', panelWatts: 200,"
+           " _presetName: 'test panel'}); return null;")
     pg.wait_for_function("() => window.app.project.layers.length === 1 && window.app.currentLayer")
     out = pg.evaluate("""async () => {
         """ + J + """
