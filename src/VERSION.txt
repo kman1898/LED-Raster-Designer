@@ -509,6 +509,19 @@ ALSO NEW
 
 FIXES
 
+- FIX: Quick fill on a data cable sheet now gives the backup ports their
+  length too. With a looped XD pair, a backup box, or a box backing up the
+  unit's own ports folded under its primary, or with the processor
+  minimized to its own cable list, all 100' filled only the primary's
+  ports and left the backups with no length. With ticked: Fill reaches a
+  ticked backup row the same way, and none clears the backups too. Each
+  is still one undo step.
+- FIX: Quick fill on a data cable sheet gives a length only to ports with
+  a screen on them and to the ports backing those up. Empty ports used to
+  get one too. none still clears every port, empty ones included.
+- FIX: Quick fill on a multi's cable sheet gives a cable only to circuits
+  that feed panels. A hand-drawn circuit whose cabinets were all blanked
+  or removed used to get one too. none still clears every circuit.
 - FIX: Screen order Top to bottom prints the binder's screens and groups
   in the order the Screens list shows them in Show Look, Data and Power,
   whichever tab is open when you export, and Bottom to top prints them the

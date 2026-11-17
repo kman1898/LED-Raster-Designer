@@ -3680,7 +3680,8 @@ class _HardwareDock {
                     const list = byTail.get(leg.leg) || [];
                     list.push({ who: l.name, layerId: l.id,
                                 circuit: leg.circuit, label: leg.label,
-                                amps: leg.amps, capA: a, src });
+                                amps: leg.amps, capA: a, src,
+                                tiles: leg.tiles });
                     byTail.set(leg.leg, list);
                 });
                 boxAmps += s.amps;

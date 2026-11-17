@@ -1307,12 +1307,84 @@ def test_unsnake_from_the_bracket_menu_and_from_lit_chips(page):
     _sheet_open(pg, 'cvt', bid, False)
 
 
+# A second screen, SIDE (the size of WALL: six ports), on the card's own
+# sockets 9-14 for the length of one test, so the quick fills have ports in
+# use beside the empty 15 and 16 (owner, 2026-11-16: "when i fill it puts
+# lengths on empty ports"). Taken off again with the card's lengths put
+# back as they were, since a deleted screen's sockets forget theirs.
+SIDE_ON_JS = """async (ids) => {
+    const app = window.app;
+    const send = (url, method, body) => fetch(url, { method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body) })
+        .then(r => r.json());
+    await send('/api/layer/add', 'POST', { name: 'SIDE', columns: 8, rows: 12,
+        cabinet_width: 200, cabinet_height: 200, x: 2000, y: 0 });
+    let p = await send('/api/project', 'GET');
+    const side = p.layers.find(l => l.name === 'SIDE');
+    await send(`/api/layer/${side.id}`, 'PUT', { processorType: 'novastar-armor' });
+    app.project = await send('/api/project', 'GET');
+    app.dedupeProjectLayers('snakes_side');
+    await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST', {
+        layerId: String(side.id), cardId: ids.cardId, firstPort: 9, lastPort: 14,
+        screens: [{ layerId: String(side.id), name: 'SIDE',
+                    ports: app.getLayerPortsRequired(
+                        app.project.layers.find(l => l.id === side.id)) }] });
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    app.renderLayers();
+    app.renderHardwareDock();
+    const scr = app._assignment.screens.find(s => s.layerId === String(side.id));
+    return { id: side.id, sockets: scr.ports.map(pt => pt.port) };
+}"""
+
+SIDE_OFF_JS = """async ([ids, sideId]) => {
+    const app = window.app;
+    const send = (url, method, body) => fetch(url, { method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body) })
+        .then(r => r.json());
+    const keep = JSON.parse(JSON.stringify(
+        app._dockFindCard(ids.cardId).card.portCables || {}));
+    const raw = {};
+    Object.entries(keep).forEach(([k, v]) => {
+        raw[k] = v.connector ? { ft: v.ft, connector: v.connector } : { ft: v.ft };
+    });
+    await send(`/api/layer/${sideId}`, 'DELETE');
+    await send(`/api/processors/${ids.procId}/cards/${ids.cardId}`, 'PUT',
+               { portCables: raw });
+    app.project = await send('/api/project', 'GET');
+    app.dedupeProjectLayers('snakes_side_off');
+    app.selectLayer(app.project.layers.find(l => l.id === ids.id));
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    app.renderLayers();
+    app.renderHardwareDock();
+    app.resetHistory('Snakes Side Off');
+}"""
+
+
+def _side_on(pg, ids):
+    side = pg.evaluate(SIDE_ON_JS, ids)
+    _settle(pg)
+    assert side['sockets'] == [9, 10, 11, 12, 13, 14], side
+    pg.evaluate("() => window.app.resetHistory('Snakes Side On')")
+    return side['id']
+
+
+def _side_off(pg, ids, side_id):
+    pg.evaluate(SIDE_OFF_JS, [ids, side_id])
+    _settle(pg)
+
+
 def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
-    """all 100' on the card's sheet writes every LOOSE socket (9, 10, 14,
-    15, 16 - 11-13 ride SNAKE A) as ONE 'Set Port Cable', keeping 10's
-    CAT pick; none forgets them all as one; undo restores."""
+    """all 100' on the card's sheet writes every LOOSE socket a screen is
+    on (9, 10, 14 - 11-13 ride SNAKE A, 15 and 16 are empty and take no
+    length) as ONE 'Set Port Cable', keeping 10's CAT pick; none forgets
+    them all as one; undo restores."""
     pg, ids = page
     cid = ids['cardId']
+    side = _side_on(pg, ids)
     assert _sheet_open(pg, 'card', cid)['sheet']
     index = pg.evaluate(STATE_JS, ids)['index']
     pg.locator(f'[data-lrd-field="data-cable-fill-{cid}-100"]').click()
@@ -1321,9 +1393,7 @@ def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
     assert st['card']['cables'] == {
         '9': {'ft': 100, 'connector': None},
         '10': {'ft': 100, 'connector': 'cat'},
-        '14': {'ft': 100, 'connector': None},
-        '15': {'ft': 100, 'connector': None},
-        '16': {'ft': 100, 'connector': None}}, st
+        '14': {'ft': 100, 'connector': None}}, st
     assert st['action'] == 'Set Port Cable' and st['index'] == index + 1, st
     assert st['card']['snakes'][0]['ports'] == [11, 12, 13]
     pg.locator(f'[data-lrd-field="data-cable-fill-{cid}-none"]').click()
@@ -1332,7 +1402,7 @@ def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
     assert st['card']['cables'] == {} and st['index'] == index + 2, st
     pg.evaluate('() => window.app.undo()')
     _settle(pg)
-    assert pg.evaluate(STATE_JS, ids)['card']['cables']['16'] == {
+    assert pg.evaluate(STATE_JS, ids)['card']['cables']['14'] == {
         'ft': 100, 'connector': None}
     pg.evaluate('() => window.app.undo()')
     _settle(pg)
@@ -1340,6 +1410,7 @@ def test_quick_fill_is_one_entry_and_leaves_snakes_alone(page):
     assert st['card']['cables'] == {'9': {'ft': 50, 'connector': None},
                                     '10': {'ft': 75, 'connector': 'cat'}}
     _sheet_open(pg, 'card', cid, False)
+    _side_off(pg, ids, side)
 
 
 # The card's port cables as GET /api/project serves them - the raw record
@@ -1360,14 +1431,16 @@ def _status(page):
 def test_a_typed_length_fills_the_loose_ports_and_leaves_the_snake(page):
     """"adding quick fill of any length I choose ... this should just be
     for extensions for individual ports or circuits" (2026-09-24). 37 in
-    the Quick fill box and its all writes every LOOSE socket (9, 10, 14,
-    15, 16 - 11-13 ride SNAKE A and keep nothing, as all 100' leaves
-    them) as ONE 'Set Port Cable', on the client and on GET /api/project,
+    the Quick fill box and its all writes every LOOSE socket a screen is
+    on (9, 10, 14 - 11-13 ride SNAKE A and keep nothing, as all 100'
+    leaves them, and the empty 15 and 16 take no length) as ONE 'Set
+    Port Cable', on the client and on GET /api/project,
     10 keeping its CAT; Enter fills with 12.5; blank, 0, -5 and text write
     nothing and add no entry; all 100' still works beside it; three undos
     restore."""
     pg, ids = page
     cid = ids['cardId']
+    side = _side_on(pg, ids)
     assert _sheet_open(pg, 'card', cid)['sheet']
     box = pg.locator(f'[data-lrd-field="data-cable-fill-any-{cid}"]')
     btn = pg.locator(f'[data-lrd-field="data-cable-fill-any-{cid}-btn"]')
@@ -1378,16 +1451,14 @@ def test_a_typed_length_fills_the_loose_ports_and_leaves_the_snake(page):
     st = pg.evaluate(STATE_JS, ids)
     want = {'9': {'ft': 37, 'connector': None},
             '10': {'ft': 37, 'connector': 'cat'},
-            '14': {'ft': 37, 'connector': None},
-            '15': {'ft': 37, 'connector': None},
-            '16': {'ft': 37, 'connector': None}}
+            '14': {'ft': 37, 'connector': None}}
     assert st['card']['cables'] == want, st
     assert st['action'] == 'Set Port Cable' and st['index'] == index + 1, st
     assert st['card']['snakes'][0]['ports'] == [11, 12, 13]
     # the raw store keeps no `connector` key where none is picked
     raw = {'9': {'ft': 37}, '10': {'ft': 37, 'connector': 'cat'},
-           '14': {'ft': 37}, '15': {'ft': 37}, '16': {'ft': 37}}
-    served = _served(pg, ids, lambda s: (s['cardCables'] or {}).get('16', {})
+           '14': {'ft': 37}}
+    served = _served(pg, ids, lambda s: (s['cardCables'] or {}).get('14', {})
                      .get('ft') == 37)
     assert served['cardCables'] == raw, served
     assert pg.evaluate(PROJECT_CABLES_JS, ids) == raw
@@ -1419,7 +1490,8 @@ def test_a_typed_length_fills_the_loose_ports_and_leaves_the_snake(page):
     pg.locator(f'[data-lrd-field="data-cable-fill-{cid}-100"]').click()
     _settle(pg)
     st = pg.evaluate(STATE_JS, ids)
-    assert st['card']['cables']['16'] == {'ft': 100, 'connector': None}, st
+    assert st['card']['cables']['14'] == {'ft': 100, 'connector': None}, st
+    assert '16' not in st['card']['cables'], st
     assert st['index'] == index + 3, st
     for _ in range(3):
         pg.evaluate('() => window.app.undo()')
@@ -1429,6 +1501,7 @@ def test_a_typed_length_fills_the_loose_ports_and_leaves_the_snake(page):
                                     '10': {'ft': 75, 'connector': 'cat'}}, st
     assert st['index'] == index, st
     _sheet_open(pg, 'card', cid, False)
+    _side_off(pg, ids, side)
 
 
 def test_a_typed_length_with_ticked_writes_only_the_ticked_rows(page):

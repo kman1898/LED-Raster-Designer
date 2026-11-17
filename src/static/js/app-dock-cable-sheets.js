@@ -125,7 +125,7 @@ class _DockCableSheets {
         const layerOf = (id) => (this.project.layers || [])
             .find(l => l.id === id);
         const connectors = this.getPowerCableConnectors();
-        const held = [];   // {layer, circuit} - every circuit on this box
+        const held = [];   // {layer, circuit, tiles} - every circuit on this box
         const ftInputs = [];
         const commit = (layer, circuit, ft, connector) => {
             const changed = this.setCircuitCable(
@@ -159,7 +159,7 @@ class _DockCableSheets {
             holders.forEach((h, hi) => {
                 const layer = layerOf(h.layerId);
                 if (!layer) return;
-                held.push({ layer, circuit: h.circuit });
+                held.push({ layer, circuit: h.circuit, tiles: h.tiles });
                 const stored = (layer.powerCircuitCables || {})[h.circuit]
                     || null;
                 const tr = document.createElement('tr');
@@ -275,20 +275,27 @@ class _DockCableSheets {
         table.appendChild(tot);
         sheet.appendChild(table);
 
-        // Quick fill: every held circuit on THIS box gets the one length
-        // (its connector pick untouched), or forgets its cable. ONE entry.
-        // Above the table, the data sheet's order.
+        // Quick fill: every held circuit on THIS box that feeds a cabinet
+        // gets the one length (its connector pick untouched), or forgets
+        // its cable. A circuit with no cabinet on it (a hand-drawn one
+        // whose cabinets were all removed: the plan's `tiles` is 0) takes
+        // no length, the way the data fill skips an empty port (owner,
+        // 2026-11-16: "this also happens on power and should not fill
+        // empty ones"); none still clears it. ONE entry. Above the table,
+        // the data sheet's order.
         const quick = document.createElement('div');
         quick.className = 'hw-dock-cable-quick';
         const cap = document.createElement('span');
         cap.textContent = 'Quick fill:';
         quick.appendChild(cap);
         // The one write every fill on this sheet makes - a fixed button's
-        // length, the typed one's, or null to forget: every held circuit,
-        // ONE updateLayers over the layers it touched.
+        // length, the typed one's, or null to forget: every held circuit
+        // (a length only where it feeds a cabinet), ONE updateLayers over
+        // the layers it touched.
         const apply = (ft) => {
             const touched = new Set();
-            held.forEach(({ layer, circuit }) => {
+            held.forEach(({ layer, circuit, tiles }) => {
+                if (ft !== null && !(tiles > 0)) return;
                 const cur = (layer.powerCircuitCables || {})[circuit];
                 const changed = this.setCircuitCable(layer, circuit,
                     ft === null ? null
@@ -324,10 +331,10 @@ class _DockCableSheets {
         const prefFt = this.defaultPowerCableFt();
         const second = this.cableUnit() === 'm' ? 2 : 6;
         quick.appendChild(fill(`all ${this.cableLengthText(prefFt)}`, prefFt,
-            `Every circuit on this ${typeName} gets a ${this.cableLengthWords(prefFt)} cable. One undo step.`));
+            `Every circuit with panels on this ${typeName} gets a ${this.cableLengthWords(prefFt)} cable. Empty circuits are left alone. One undo step.`));
         if (prefFt !== second) {
             quick.appendChild(fill(`all ${this.cableLengthText(second)}`, second,
-                `Every circuit on this ${typeName} gets a ${this.cableLengthWords(second)} cable. One undo step.`));
+                `Every circuit with panels on this ${typeName} gets a ${this.cableLengthWords(second)} cable. Empty circuits are left alone. One undo step.`));
         }
         quick.appendChild(fill('none', null,
             `Every circuit on this ${typeName} forgets its cable. One undo step.`));
@@ -335,7 +342,7 @@ class _DockCableSheets {
         // quick fill of any length I choose would be nice for cable
         // sheets", 2026-09-24): the same write as the buttons beside it.
         this._cableQuickAny(quick, `power-cable-fill-any-${d.id}-${n}`, 'all',
-            `Every circuit on this ${typeName} gets the typed length. `
+            `Every circuit with panels on this ${typeName} gets the typed length. Empty circuits are left alone. `
             + 'One undo step.', apply);
         sheet.insertBefore(quick, table);
         return sheet;
@@ -833,10 +840,12 @@ class _DockCableSheets {
             tr.appendChild(runCell(snake ? 'ext' : '', ft));
             table.appendChild(tr);
         });
-        // The fills below write the sheet's own record only, as they always
-        // have: another box's rows are typed one by one, or filled from
-        // that box's own sheet.
-        const ownPorts = ports.filter(p => !p.sheetOwner);
+        // The fills below reach EVERY row the sheet lists, another box's
+        // rows (a loop's far box, a backup box) on that box's own store:
+        // a folded strip and a minimized processor list the backups only
+        // here (owner, 2026-11-16: "quick fill lengths doesnt work on
+        // backups when using looped backup XD's and the processor is
+        // minimized"). The quick fills skip a socket with nothing on it.
 
         // With ticked: Snake / Unsnake. Quick fill: all 100' / none. On
         // TOP of the sheet, before the rows ("move snake and quick fill
@@ -917,7 +926,7 @@ class _DockCableSheets {
             `Every ticked port on this ${this.unitWordForCard(owner.cardId)} or box gets the typed length: `
             + 'a loose port as its home run, a snaked port as its extension. '
             + 'One undo step.',
-            (ft) => this.fillTickedPortCables(owner, ft, ownPorts).then(after));
+            (ft) => this.fillTickedPortCables(owner, ft, ports).then(after));
         const sp = document.createElement('span');
         sp.style.flex = '1';
         quick.appendChild(sp);
@@ -926,21 +935,23 @@ class _DockCableSheets {
         // 30 m as shipped) - read here, where the cables are made.
         const fillFt = this.defaultLoosePortCableFt();
         fills.appendChild(button(`all ${this.cableLengthText(fillFt)}`, `data-cable-fill-${owner.id}-${fillFt}`,
-            `Every loose port here gets a ${this.cableLengthWords(fillFt)} home run; snakes keep `
-            + 'theirs. One undo step.',
-            () => this.fillPortCables(owner, fillFt, ownPorts).then(after)));
+            `Every port here with a screen on it, backups included, gets a `
+            + `${this.cableLengthWords(fillFt)} home run. Empty ports and snakes are left `
+            + 'alone. One undo step.',
+            () => this.fillPortCables(owner, fillFt, ports).then(after)));
         fills.appendChild(button('none', `data-cable-fill-${owner.id}-none`,
-            'Every loose port here forgets its cable; snakes keep theirs. '
-            + 'One undo step.',
-            () => this.fillPortCables(owner, null, ownPorts).then(after)));
+            'Every port here forgets its cable, backups and empty ports '
+            + 'included; snakes keep theirs. One undo step.',
+            () => this.fillPortCables(owner, null, ports).then(after)));
         // ...and a length of the user's own, the loose ports' fill with
         // the typed length ("this should just be for extensions for
         // individual ports or circuits", 2026-09-24): snakes keep theirs,
         // as the fixed buttons leave them.
         this._cableQuickAny(fills, `data-cable-fill-any-${owner.id}`, 'all',
-            'Every loose port here gets the typed length as its home run; '
-            + 'snakes keep theirs. One undo step.',
-            (ft) => this.fillPortCables(owner, ft, ownPorts).then(after));
+            'Every port here with a screen on it, backups included, gets the '
+            + 'typed length as its home run. Empty ports and snakes are left '
+            + 'alone. One undo step.',
+            (ft) => this.fillPortCables(owner, ft, ports).then(after));
         // A box's fiber is the sheet's FIRST block, above the quick fills
         // and the ports (2026-09-25) - a fact of the box, not of a port, so
         // the fills below it never reach it.
@@ -1697,35 +1708,51 @@ class _DockCableSheets {
     // entry is its home run, a snaked socket's its extension from the
     // fan-out (the same portCables store, read apart by whether the
     // socket is snaked - setPortCable's rule). A stored connector rides
-    // the write untouched. Ticks on other cards or boxes are not this
-    // sheet's rows - one owner, one PUT, one entry ('Set Port Cable', or
-    // 'Set Port Extension' when every ticked row is a member). The ticks
-    // are the gesture and the fill consumes them, as Snake does; nothing
-    // ticked says so and writes nothing.
+    // the write untouched. A ticked row of another box on this sheet (a
+    // loop's far box on a folded sheet, `sheetOwner`) is written on that
+    // box's own store; ticks on cards or boxes this sheet does not list
+    // are not its rows. ONE entry however many boxes it wrote ('Set Port
+    // Cable', or 'Set Port Extension' when every ticked row is a member):
+    // each box is its own PUT, the last one the entry. The ticks are the
+    // gesture and the fill consumes them, as Snake does; nothing ticked
+    // says so and writes nothing. A ticked row is written whether or not
+    // a screen is on it: the tick is the pick.
     fillTickedPortCables(owner, ft, ports) {
+        // a self-backing box's backup output row has no tick of its own
         const list = (ports || owner.rec.ports || [])
-            .filter(p => this._cableTicked(owner, p.number));
+            .filter(p => !p.cableKey && this._cableTicked(p.sheetOwner || owner, p.number));
         if (!list.length) {
             this._dockSay('Tick the ports first, then Fill.');
             return Promise.resolve();
         }
-        const stores = this._dataCableStores(owner);
-        const before = JSON.stringify(stores.portCables);
+        const touched = new Map();
         let snaked = 0;
         list.forEach(p => {
+            const at = p.sheetOwner || owner;
+            const k = `${at.kind}:${at.id}`;
+            if (!touched.has(k)) {
+                const stores = this._dataCableStores(at);
+                touched.set(k, { owner: at, stores,
+                                 before: JSON.stringify(stores.portCables) });
+            }
+            const cables = touched.get(k).stores.portCables;
             const key = String(p.number);
-            const cur = stores.portCables[key] || {};
             const next = { ft };
-            if (cur.connector) next.connector = cur.connector;
-            stores.portCables[key] = next;
-            if (this.dataPortSnake(owner, p.number)) snaked += 1;
+            if (cables[key] && cables[key].connector) next.connector = cables[key].connector;
+            cables[key] = next;
+            if (this.dataPortSnake(at, p.number)) snaked += 1;
         });
-        if (JSON.stringify(stores.portCables) === before) {
-            return Promise.resolve();
-        }
-        list.forEach(p => this._setCableTick(owner, p.number, false));
-        return this._dataCablePut(owner, stores,
-            snaked === list.length ? 'Set Port Extension' : 'Set Port Cable');
+        const changed = [...touched.values()]
+            .filter(t => JSON.stringify(t.stores.portCables) !== t.before);
+        if (!changed.length) return Promise.resolve();
+        list.forEach(p => this._setCableTick(p.sheetOwner || owner, p.number, false));
+        const action = snaked === list.length ? 'Set Port Extension' : 'Set Port Cable';
+        let chain = Promise.resolve();
+        changed.forEach((t, i) => {
+            chain = chain.then(() => this._dataCablePut(t.owner, t.stores,
+                i === changed.length - 1 ? action : null));
+        });
+        return chain;
     }
 }
 

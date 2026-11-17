@@ -2674,37 +2674,64 @@ class _Processors {
         return this._dataCablePut(owner, stores, action);
     }
 
-    // Quick fill: every LOOSE socket among `ports` (the sockets the
-    // owner's sheet lists - a card's are the ones no box delivers, so the
-    // fill never reaches into a box's span) gets the one length (its
-    // connector pick untouched), or forgets its cable; snaked sockets are
-    // left alone - their run is the snake's, and an extension is typed
-    // per member, never filled. ONE 'Set Port Cable'.
+    // Quick fill: every LOOSE socket among `ports` (the rows the sheet
+    // lists - a card's are the ones no box delivers, so the fill never
+    // reaches into a box's span) THAT CARRIES SOMETHING gets the one length
+    // (its connector pick untouched); `ft` null forgets every row's cable,
+    // an empty socket's stale one included. A row of another box (a loop's
+    // far box or a backup box on a folded sheet, `sheetOwner`) is filled on
+    // that box's own store: the sheet lists it, so the fill reaches it
+    // (owner, 2026-11-16: the backups of looped XDs were left out on a
+    // minimized processor). Snaked sockets are left alone - their run is
+    // the snake's, and an extension is typed per member, never filled.
+    //
+    // "Carries something" is the assignment's answer (_portOccupants): a
+    // screen's port on the socket, or the return of a used port on a
+    // backup socket. An empty socket takes no length (owner, 2026-11-16:
+    // "when i fill it puts lengths on empty ports").
+    //
+    // ONE 'Set Port Cable' however many boxes it wrote: each box is its own
+    // PUT, the earlier ones silent and the last one the entry, so undo
+    // takes the whole fill back (_clearForSnake's pattern).
     fillPortCables(owner, ft, ports) {
-        const stores = this._dataCableStores(owner);
-        const snaked = new Set();
-        this.getShowSnakes().forEach(s => (s.members || []).forEach(m => {
-            if (m.kind === owner.kind && m.id === owner.id) snaked.add(m.socket);
-        }));
-        const before = JSON.stringify(stores.portCables);
+        const touched = new Map();
+        const storeOf = (at) => {
+            const k = `${at.kind}:${at.id}`;
+            if (!touched.has(k)) {
+                const snaked = new Set();
+                this.getShowSnakes().forEach(s => (s.members || []).forEach(m => {
+                    if (m.kind === at.kind && m.id === at.id) snaked.add(m.socket);
+                }));
+                const stores = this._dataCableStores(at);
+                touched.set(k, { owner: at, stores, snaked,
+                                 before: JSON.stringify(stores.portCables) });
+            }
+            return touched.get(k);
+        };
         (ports || owner.rec.ports || []).forEach(p => {
+            const at = storeOf(p.sheetOwner || owner);
             // a self-backing box's backup output rides no snake and keeps
             // its own key (boxSheetPorts' cableKey)
-            if (!p.cableKey && snaked.has(p.number)) return;
+            if (!p.cableKey && at.snaked.has(p.number)) return;
             const key = p.cableKey || String(p.number);
-            const cur = stores.portCables[key] || {};
+            const cables = at.stores.portCables;
             if (ft == null) {
-                delete stores.portCables[key];
+                delete cables[key];
                 return;
             }
+            if (!this._portOccupants(at.owner.cardId, p.number).length) return;
             const next = { ft };
-            if (cur.connector) next.connector = cur.connector;
-            stores.portCables[key] = next;
+            if (cables[key] && cables[key].connector) next.connector = cables[key].connector;
+            cables[key] = next;
         });
-        if (JSON.stringify(stores.portCables) === before) {
-            return Promise.resolve();
-        }
-        return this._dataCablePut(owner, stores, 'Set Port Cable');
+        const changed = [...touched.values()]
+            .filter(t => JSON.stringify(t.stores.portCables) !== t.before);
+        let chain = Promise.resolve();
+        changed.forEach((t, i) => {
+            chain = chain.then(() => this._dataCablePut(t.owner, t.stores,
+                i === changed.length - 1 ? 'Set Port Cable' : null));
+        });
+        return chain;
     }
 
     // Who is sitting on one card port, as the assignment last resolved it.
