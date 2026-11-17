@@ -1219,8 +1219,9 @@ def test_smoke_live_show_b_sr_main(page):
     within a column the breakout whose circuits stand higher goes further
     out, so the row reads SR3 SR4 SR2 SR1 - and none of them over the wall
     or over another. A run is TWO SEGMENTS exactly where its socket stands clear of
-    the wall on the side it leaves by - out at its own row and straight
-    down; a run whose socket stands UNDER the wall comes down a rail beside
+    the wall on the side it leaves by - out at its own row (SR3's and SR4's,
+    from the wall's middle column, a step onto the seam beside it first) and
+    straight down; a run whose socket stands UNDER the wall comes down a rail beside
     it and back along a lane under its foot. The wall is held to the height
     rev 1.1 drew it at, so it stays narrow and centred and the outer fans
     have room: SR3's and SR1's circuits drop straight - all but the one on
@@ -1295,7 +1296,16 @@ def test_smoke_live_show_b_sr_main(page):
     assert len(pwr['runs']) == 22
     _check_runs(pwr, pw)
     _check_blocks(pwr)
-    shapes = [_segs(r) for r in pwr['runs']]
+    # SR3's and SR4's circuits start in the wall's middle column, so all but
+    # the two on its top and foot rows leave by the SEAMS (2026-11-17, "its
+    # covering all the signal cables"): a short step off the disc onto its
+    # panel's edge, then along the line between two rows - not along their
+    # own row, where the chain runs. Past that step each run is the run it
+    # was, so the drawing is read from there on.
+    seam = sorted(r['from'] for r in pwr['runs'] if r.get('seam'))
+    assert seam == ['SR3-%d' % n for n in (2, 3, 4, 5, 6)] + ['SR4-%d' % n for n in (1, 2, 4, 5)], seam
+    pts = {r['from']: (r['points'][1:] if r.get('seam') else r['points']) for r in pwr['runs']}
+    shapes = [(_segs(r)[1:] if r.get('seam') else _segs(r)) for r in pwr['runs']]
     m = pwr['map']
     # every circuit leaves by a side but the four on the wall's top and foot
     # rows, which leave by their breakout's own edge - SR3-1 and SR1-1 up
@@ -1313,7 +1323,7 @@ def test_smoke_live_show_b_sr_main(page):
     for r, sh in zip(pwr['runs'], shapes):
         if sh[0] == 'v':
             continue
-        head, turn = r['points'][0], r['points'][1]
+        head, turn = pts[r['from']][0], pts[r['from']][1]
         tail = r['points'][-1]
         clear = tail[0] < m['x'] if turn[0] < head[0] else tail[0] > m['x'] + m['w']
         assert sh == (['h', 'v'] if clear else ['h', 'v', 'h', 'v']), (r['from'], sh, tail, m)
@@ -1331,9 +1341,9 @@ def test_smoke_live_show_b_sr_main(page):
     for r, s in zip(pwr['runs'], shapes):
         if s != ['h', 'v', 'h', 'v']:
             continue
-        rail = r['points'][1][0]
+        rail = pts[r['from']][1][0]
         assert rail < m['x'] or rail > m['x'] + m['w'], ('the rail stands past the wall', r, m)
-        lane = r['points'][2][1]
+        lane = pts[r['from']][2][1]
         assert m['y'] + m['h'] < lane < min(b['y'] for b in pwr['blocks'] if b['side'] == 'bottom'), (
             'the lane runs under the wall and over the blocks', r, m)
 
@@ -2051,3 +2061,37 @@ def test_a_disc_in_the_middle_of_the_wall_leaves_by_the_seams(page, palette):
     assert _through_the_wall(h) == [], _through_the_wall(h)
     _check_runs(h)
     assert ids['errors'] == []
+
+
+# The way out it picks, weighed on a wall drawn by hand: 10 x 6 panels of
+# 100, a disc of 30 on the panel at column 6, row 4, and other discs (`at`,
+# 60 across) wherever the case puts them.
+EXIT_JS = """([discs, near]) => {
+    const app = window.app;
+    const wall = {x: 0, y: 0, w: 1000, h: 600};
+    const room = {x0: -200, x1: 1200, y0: -200, y1: 800};
+    const d = {x: 550, y: 350, r: 30, panel: {x: 500, y: 300, w: 100, h: 100}};
+    const own = {kind: 'disc', x: 520, y: 320, w: 60, h: 60};
+    const labels = [own, ...discs.map(([x, y]) => ({kind: 'disc', x: x - 30, y: y - 30, w: 60, h: 60}))];
+    const taken = [];
+    const out = app._bwExit(d, wall, labels, own, 2, room, near, taken);
+    return {edge: out.edge, cost: out.cost, seam: !!out.stub.seam, at: out.stub.at, taken: taken.length};
+}"""
+
+
+def test_a_seam_is_never_drawn_through_a_disc_the_straight_way_misses(page):
+    """Out by a seam where one is clear; but where every seam either side
+    of the disc's panel runs into a neighbour's disc and the straight way
+    out runs into none, the run keeps the straight way - a run on a chain
+    still reads, a name it covers does not - and claims no seam."""
+    pg, _ids = page
+    # nothing in the way: out by a seam, and that seam is taken
+    clear = pg.evaluate(EXIT_JS, [[], 'bottom'])
+    assert clear['seam'] and clear['cost'] == 0 and clear['taken'] == 1, clear
+    # a disc on every seam, every way out; the column and row the disc
+    # stands on clear
+    walls_in = [[150, 300], [850, 300], [150, 400], [850, 400],
+                [500, 100], [600, 100], [500, 500], [600, 500]]
+    boxed = pg.evaluate(EXIT_JS, [walls_in, 'bottom'])
+    assert not boxed['seam'] and boxed['cost'] == 0 and boxed['taken'] == 0, boxed
+    assert boxed['edge'] == 'bottom' and boxed['at'] == 550, boxed
