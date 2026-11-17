@@ -564,7 +564,7 @@ class _BinderWiring {
     // two corner circuits alone kept the wall at half its growth and the
     // owner saw a wall "too justified" that "could be much bigger". Out by
     // its box's edge the run is on its way whatever the wall's width.
-    _bwExit(d, wall, labels, own, pad, room, near = 'bottom') {
+    _bwExit(d, wall, labels, own, pad, room, near = 'bottom', taken = null) {
         const far = (e, at) => e === 'left' ? [room.x0, at] : e === 'right' ? [room.x1, at]
             : e === 'top' ? [at, room.y0] : [at, room.y1];
         const by = (names) => names
@@ -576,7 +576,10 @@ class _BinderWiring {
         if (own0.gap <= Math.max(sides[0].s.gap, 2 * d.r) + 0.01) {
             for (const off of _BinderWiring.OFFSETS) {
                 const s = this._bwStub(d, near, wall, off);
-                if (!this._bwCost(s.head, far(near, s.at), pad, labels, own)) return { edge: near, stub: s, cost: 0 };
+                if (!this._bwCost(s.head, far(near, s.at), pad, labels, own)) {
+                    if (taken && this._bwLong(d, near, s)) return this._bwSeamExit(d, wall, labels, own, pad, room, taken) || { edge: near, stub: s, cost: 0 };
+                    return { edge: near, stub: s, cost: 0 };
+                }
             }
         }
         let best = null;
@@ -585,12 +588,102 @@ class _BinderWiring {
                 for (const off of _BinderWiring.OFFSETS) {
                     const s = this._bwStub(d, c.e, wall, off);
                     const cost = this._bwCost(s.head, far(c.e, s.at), pad, labels, own);
-                    if (!cost) return { edge: c.e, stub: s, cost: 0 };
+                    if (!cost) { best = { edge: c.e, stub: s, cost: 0 }; break; }
                     if (!best || cost < best.cost) best = { edge: c.e, stub: s, cost };
                 }
+                if (best && !best.cost) break;
             }
+            if (best && !best.cost) break;
+        }
+        // A way out that crosses more of the wall than the disc's own panel
+        // is not taken straight: straight along the middle of a row (or a
+        // column) is exactly where the screen's own chain runs, and it lay
+        // on top of the signal cables for panels on end (owner, 2026-11-17:
+        // "its covering all the signal cables"). It goes by the SEAMS
+        // instead - see _bwSeamExit.
+        if (best && taken && this._bwLong(d, best.edge, best.stub)) {
+            return this._bwSeamExit(d, wall, labels, own, pad, room, taken) || best;
         }
         return best;
+    }
+
+    // Whether a straight way out by `edge` crosses wall beyond the disc's
+    // own panel - its panel's half and a little more.
+    _bwLong(d, edge, s) {
+        if (!d.panel) return false;
+        const across = edge === 'left' || edge === 'right' ? d.panel.w : d.panel.h;
+        return s.gap > across * 0.6;
+    }
+
+    // THE WAY OUT BY THE SEAMS (2026-11-17). A disc in the middle of the
+    // wall leaves along the line BETWEEN two rows (or two columns) of
+    // panels: a short step off its rim to its own panel's edge, then along
+    // that seam to the wall's edge, and from there round the wall like any
+    // other run (`at` is the seam). The screen's chains run panel middle to
+    // panel middle and its discs sit on the middles, so a run on a seam
+    // never lies along a chain or over a disc - it only crosses a chain, at
+    // a right angle. Every edge is weighed: by a seam where the edge is
+    // past the disc's own panel, straight where it is not; the clear one
+    // that crosses the least wall wins. Two runs never share a stretch of
+    // the same seam (`taken`), so a seam is never nudged off its line.
+    _bwSeamExit(d, wall, labels, own, pad, room, taken) {
+        const E = 0.5;
+        const far = (e, at) => e === 'left' ? [room.x0, at] : e === 'right' ? [room.x1, at]
+            : e === 'top' ? [at, room.y0] : [at, room.y1];
+        const P = d.panel;
+        const tries = [];
+        for (const e of ['left', 'right', 'top', 'bottom']) {
+            const flat = e === 'left' || e === 'right';
+            const s0 = this._bwStub(d, e, wall, 0);
+            if (!this._bwLong(d, e, s0)) {
+                for (const off of _BinderWiring.OFFSETS) {
+                    const s = this._bwStub(d, e, wall, off);
+                    tries.push({ edge: e, stub: s, len: Math.max(0, s.gap),
+                                 cost: this._bwCost(s.head, far(e, s.at), pad, labels, own) });
+                }
+                continue;
+            }
+            // the seams either side of the disc's own panel, never the
+            // wall's own border (that is the way out by an end)
+            const seams = flat ? [P.y, P.y + P.h] : [P.x, P.x + P.w];
+            const lo = flat ? wall.y : wall.x, hi = flat ? wall.y + wall.h : wall.x + wall.w;
+            for (const c of seams) {
+                if (c <= lo + E || c >= hi - E) continue;
+                const toward = flat ? (c < d.y ? -1 : 1) : (c < d.x ? -1 : 1);
+                const along = flat ? (e === 'left' ? -1 : 1) : (e === 'top' ? -1 : 1);
+                const dc = Math.abs(c - (flat ? d.y : d.x));
+                let head, lead = [];
+                if (dc < d.r - E) {
+                    // the seam runs through the disc: off its rim on the seam
+                    const q = Math.sqrt(d.r * d.r - dc * dc);
+                    head = flat ? [d.x + along * q, c] : [c, d.y + along * q];
+                } else {
+                    head = flat ? [d.x, d.y + toward * d.r] : [d.x + toward * d.r, d.y];
+                    lead = [flat ? [d.x, c] : [c, d.y]];
+                }
+                const start = lead.length ? lead[0] : head;
+                const out = flat ? [e === 'left' ? wall.x : wall.x + wall.w, c]
+                                 : [c, e === 'top' ? wall.y : wall.y + wall.h];
+                const gap = flat ? Math.abs(out[0] - start[0]) : Math.abs(out[1] - start[1]);
+                let cost = this._bwCost(start, far(e, c), pad, labels, own);
+                if (lead.length) cost += this._bwCost(head, lead[0], pad, labels, own);
+                // the seam's line on past the wall's edge too: a socket's
+                // drop standing on it would print as one with the run
+                const end = far(e, c);
+                const span = { k: flat ? 1 : 0, c,
+                               lo: Math.min(start[flat ? 0 : 1], end[flat ? 0 : 1]),
+                               hi: Math.max(start[flat ? 0 : 1], end[flat ? 0 : 1]) };
+                if (taken.some(t => t.k === span.k && Math.abs(t.c - c) < pad * 2
+                        && Math.min(t.hi, span.hi) - Math.max(t.lo, span.lo) > E)) cost += 200;
+                tries.push({ edge: e, stub: { head, lead, out, at: c, gap, seam: span },
+                             len: gap + dc, cost });
+            }
+        }
+        if (!tries.length) return null;
+        tries.sort((a, b) => (a.cost - b.cost) || (a.len - b.len));
+        const pick = tries[0];
+        if (pick.stub.seam) taken.push(pick.stub.seam);
+        return { edge: pick.edge, stub: pick.stub, cost: pick.cost };
     }
 
     // The lanes: every run that has to travel along one is given the lowest
@@ -1025,6 +1118,18 @@ class _BinderWiring {
             // What each run wants: where it leaves the wall, where its
             // socket is, which side of the wall its box stands on, and
             // whether it can go straight to it from the side it leaves by.
+            // the seams the runs leave by, taken as they are handed out,
+            // and from the start every socket's drop: no seam is chosen on
+            // a line a socket's run comes down (or up) on
+            const taken = [];
+            for (const w of facts.wires) {
+                const b = blockOf.get(w.device.key);
+                const tx = (socketX.get(w.device.key) || new Map()).get(w.socket);
+                if (!b || !Number.isFinite(tx)) continue;
+                const edgeY = b.side === 'top' ? wall.y : wall.y + wall.h;
+                const sy = b.side === 'top' ? b.y + b.h : b.y;
+                taken.push({ k: 0, c: tx, lo: Math.min(edgeY, sy), hi: Math.max(edgeY, sy) });
+            }
             const plans = facts.wires.map((w) => {
                 const disc = discFor.get(w.stub);
                 const b = blockOf.get(w.device.key);
@@ -1034,7 +1139,7 @@ class _BinderWiring {
                 const ty = !b ? bottom
                     : T === 'top' ? b.y + (BOXH - SOCKET_DY + SOCK) * K : b.y + (SOCKET_DY - SOCK) * K;
                 const own = ownOf(disc);
-                const { edge, stub, cost } = this._bwExit(disc, wall, ink, own, pad, room, near);
+                const { edge, stub, cost } = this._bwExit(disc, wall, ink, own, pad, room, near, taken);
                 // is the socket already clear of the wall on the side this
                 // run can travel? then the rail IS the way to it. Clear
                 // means as far out as the first rail stands: a socket a
@@ -1058,7 +1163,8 @@ class _BinderWiring {
                 // disc, the stub stepped round it and the drop went through
                 // it).
                 let straight = false;
-                if (edge === near && Number.isFinite(tx) && Math.abs(tx - disc.x) < STRAIGHT * K) {
+                if (edge === near && !stub.seam && Number.isFinite(tx) && Math.abs(tx - disc.x) < STRAIGHT * K
+                        && !this._bwLong(disc, near, stub)) {
                     const dy = Math.sqrt(Math.max(0, disc.r * disc.r - (tx - disc.x) * (tx - disc.x)));
                     const head = [tx, near === 'top' ? disc.y - dy : disc.y + dy];
                     straight = this._bwCost(head, [tx, ty], pad, ink, own) <= (cost || 0);
@@ -1148,7 +1254,7 @@ class _BinderWiring {
                 const farZ = p.near === 'top' ? underZ : overZ;
                 const nearY = () => nearZ.y(p);
                 const at = p.stub.at;
-                const pts = [p.stub.head];
+                const pts = [p.stub.head, ...(p.stub.lead || [])];
                 if (p.edge === 'left' || p.edge === 'right') {
                     // out at its own row, and on to its box - at its socket
                     // where the socket is already outside the wall on this
@@ -1178,7 +1284,7 @@ class _BinderWiring {
                 pts.push([tx, ty]);
                 return { kind: w.kind, from: w.stub.text, device: w.device.title, socket: w.socket,
                          colour, dash: pattern.map(v => v * K), width: RUN_W * K,
-                         points: this._bwTidy(pts) };
+                         points: this._bwTidy(pts), seam: !!p.stub.seam };
             });
             // The rev 1.1 lanes stand as they were placed; only two runs
             // that print as one are nudged apart (see _bwNudge).
@@ -1361,6 +1467,12 @@ class _BinderWiring {
         const over = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 0.5
                             && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 0.5;
         const tryMove = (s, to) => {
+            // a stretch inside the wall stays on its seam: moved, it would
+            // lie along the screen's own chain
+            const pa = runs[s.ri].points[s.j], pb = runs[s.ri].points[s.j + 1];
+            const inX = (x) => x > wall.x + E && x < wall.x + wall.w - E;
+            const inY = (y) => y > wall.y + E && y < wall.y + wall.h - E;
+            if ((inX(pa[0]) && inY(pa[1])) || (inX(pb[0]) && inY(pb[1]))) return false;
             const [b0, b1] = bound(s.k);
             if (to < b0 || to > b1) return false;
             const old = runs[s.ri].points;
@@ -1635,7 +1747,7 @@ class _BinderWiring {
             this._bwPath(ctx, r.points, r.colour, r.width, r.dash);
             if (log) log.runs.push({ kind: r.kind, from: r.from, device: r.device, socket: r.socket,
                                      colour: r.colour, dash: r.dash, width: r.width,
-                                     points: r.points.map(p => [p[0], p[1]]) });
+                                     points: r.points.map(p => [p[0], p[1]]), seam: !!r.seam });
         }
 
         if (P.unplaced) {
