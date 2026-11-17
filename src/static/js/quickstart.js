@@ -9117,19 +9117,18 @@
         outputOpen: {
             since: '1.7.0',
             window: 'output',
-            target: '[data-menu="view"]', place: 'bottom', title: 'Output to Display',
-            avoid: ['[data-menu="view"]', '#menu-view [data-action="output-to-display"]'],
-            body: 'View &rsaquo; Output to Display sends a canvas full screen to another display, live. Pick the canvas, view and display, then Open output; open one for each display you need.',
+            // The button beside Preferences (Matt, 2026-11-17); View >
+            // Output to Display does the same.
+            target: '#btn-output-display', place: 'bottom', title: 'Output to Display',
+            avoid: ['#btn-output-display'],
+            body: 'Output to Display, next to Preferences, sends a canvas full screen to another display, live. Pick the canvas, view and display, then Open output; open one for each display you need.',
             before: function () { closeOutput(); },
             act: function (t) {
                 // Up already on a Back from the next step, which shares it.
-                var open = outputOpen() ? Promise.resolve() : t.click('[data-menu="view"]').then(function () {
-                    return t.wait(function () { var m = $('#menu-view'); return m && m.style.display === 'block' ? m : null; });
-                }).then(function (m) {
-                    if (!m) throw new Error('the View menu did not open');
-                    return t.click('#menu-view [data-action="output-to-display"]', { hover: PACE.menuHover });
-                }).then(function () {
+                var open = outputOpen() ? Promise.resolve() : t.click('#btn-output-display').then(function () {
                     return t.wait(outputOpen);
+                }).then(function (up) {
+                    if (!up) throw new Error('Output to Display did not open');
                 });
                 return open.then(function () {
                     return t.spot($('#output-display-modal .modal-content')).then(function () { return t.pause(PACE.opened); });

@@ -609,7 +609,9 @@ HEADER_JS = """() => {
 }"""
 
 
-@pytest.mark.parametrize('width', [1024, 800])
+# 1120 to 1279: one row, the title text given way so the Output to Display
+# button beside Preferences still fits (2026-11-17).
+@pytest.mark.parametrize('width', [1024, 800, 1120, 1200, 1279])
 def test_the_header_wraps_in_a_narrow_window(e2e_server, pw_browser, width):
     context, pg, problems = _open_page(pw_browser, e2e_server, width=width, height=900)
     try:

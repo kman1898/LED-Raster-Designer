@@ -47,6 +47,13 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
     #canvas-controls { flex-wrap: wrap; row-gap: 6px; min-height: 0; overflow-y: auto; }
     #canvas-controls .magnet-toggle { margin-left: 0 !important; }
 }
+/* Output to Display's button (beside Preferences, 2026-11-17) left the
+   one-row toolbar too wide below about 1220 px: from 1280 down, the title
+   text gives way to the logo so the buttons still fit on the one row. */
+@media (max-width: 1279px) {
+    #toolbar h1 .lrd-app-title { display: none; }
+    #toolbar h1 .lrd-logo-mark { margin-right: 0 !important; }
+}
 #project-name { color: #e0e0e0; font-size: 13px; background: transparent; border: 1px solid transparent; padding: 4px 8px; border-radius: 4px; min-width: 200px; }
 #project-name:hover { background: #1a1a1a; border-color: #3a3a3a; }
 #project-name:focus { background: #1a1a1a; border-color: #4A90E2; outline: none; }
@@ -59,6 +66,8 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 #toolbar input[type="number"] { width: 70px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #e0e0e0; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
 .btn { background: #3a3a3a; color: #e0e0e0; border: 1px solid #4a4a4a; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-size: 13px; }
 .btn:hover { background: #4a4a4a; }
+/* Disabled with its View menu item (app-wiring.js). */
+#btn-output-display:disabled { opacity: 0.45; cursor: default; background: #3a3a3a; }
 .btn-primary { background: #4A90E2; border-color: #4A90E2; color: white; }
 .btn-primary:hover { background: #357ABD; }
 .full-width { width: 100%; }

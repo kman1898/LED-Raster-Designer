@@ -2475,6 +2475,25 @@ class _Wiring {
             this.openPreferencesModal();
         });
 
+        // Output to Display beside Preferences (Matt, 2026-11-17): the View
+        // menu item's action, and that item's state. Whatever hides or
+        // disables the item hides or disables the button with it.
+        const outBtn = document.getElementById('btn-output-display');
+        const outItem = document.querySelector('#menu-view [data-action="output-to-display"]');
+        if (outBtn && outItem) {
+            const sync = () => {
+                outBtn.hidden = outItem.style.display === 'none' || outItem.hidden;
+                outBtn.disabled = outItem.classList.contains('menu-disabled');
+            };
+            sync();
+            new MutationObserver(sync).observe(outItem, { attributes: true, attributeFilter: ['class', 'style', 'hidden'] });
+            outBtn.addEventListener('click', () => {
+                sync();
+                if (outBtn.hidden || outBtn.disabled) return;
+                this.handleMenuAction('output-to-display');
+            });
+        }
+
         document.getElementById('btn-export').addEventListener('click', () => {
             this.openExportModal();
         });

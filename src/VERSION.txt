@@ -295,6 +295,8 @@ for each one, any canvas in any view, and the dialog lists each output
 with the display it is on. In a browser, Chrome and Edge pick the display
 themselves; elsewhere drag each window onto its own display and click it
 for full screen.
+Output to Display has its own button in the top bar, next to Preferences,
+and is still in the View menu and on the canvas right-click.
 
 FINDING BAD MODULES ON THE WALL
 

@@ -28,6 +28,9 @@ canvas - and hands every frame over. Pinned here:
   no full screen closes it, and closing the designer window closes its
   outputs;
 * the canvas right-click menu offers it on the canvas only.
+* the top bar has an Output to Display button right after Preferences
+  (Matt, 2026-11-17) that opens the same dialog the View menu item does
+  and is shown and enabled wherever that item is.
 
 Run locally:
     python -m pytest tests/test_output_display.py -v --browser chromium
@@ -789,3 +792,72 @@ def test_view_menu_and_canvas_right_click_offer_it(page):
         page.mouse.click(rb['x'] + 10, rb['y'] + rb['height'] / 2, button='right')
         assert not item.is_visible()
     page.evaluate("window.app.hideContextMenu()")
+
+
+def test_the_top_bar_button_beside_preferences_opens_it(page):
+    """Output to Display has a button right after Preferences that does what
+    View > Output to Display does, and is shown and clickable wherever the
+    menu item is: today the item is never hidden or disabled, and anything
+    that hides or disables it later takes the button with it."""
+    ids = reset_project(page)
+    bar = page.evaluate("""() => {
+        const prefs = document.getElementById('btn-preferences');
+        const btn = document.getElementById('btn-output-display');
+        const item = document.querySelector('#menu-view [data-action="output-to-display"]');
+        return {
+            next: prefs && prefs.nextElementSibling ? prefs.nextElementSibling.id : null,
+            sameParent: !!btn && btn.parentElement === prefs.parentElement,
+            cls: btn ? btn.className : null, prefsCls: prefs.className,
+            text: btn ? btn.textContent.trim() : null,
+            tip: btn ? btn.dataset.tooltip : null,
+            sameHeight: !!btn && Math.round(btn.getBoundingClientRect().height)
+                === Math.round(prefs.getBoundingClientRect().height),
+            itemDisabled: !!item && item.classList.contains('menu-disabled'),
+            itemHidden: !!item && item.style.display === 'none',
+        };
+    }""")
+    assert bar['next'] == 'btn-output-display', bar
+    assert bar['sameParent'] and bar['cls'] == bar['prefsCls'] and bar['sameHeight'], bar
+    assert bar['text'] == 'Output to Display', bar
+    assert bar['tip'] and '\u2014' not in bar['tip'] and '\u2013' not in bar['tip'], bar
+    # The same rule as the menu item: it is never hidden or disabled, so
+    # neither is the button.
+    assert not bar['itemDisabled'] and not bar['itemHidden'], bar
+    btn = page.locator('#btn-output-display')
+    assert btn.is_visible() and btn.is_enabled()
+    # The menu item opens on the active canvas; so does the button.
+    page.evaluate("window.app.handleMenuAction('output-to-display')")
+    page.wait_for_selector('#output-display-modal', state='visible')
+    from_menu = page.input_value('#output-display-canvas')
+    close_dialog(page)
+    page.wait_for_selector('#output-display-modal', state='hidden')
+    outputs = page.evaluate("(window.app._outputDisplayWindows || []).length")
+    btn.click()
+    page.wait_for_selector('#output-display-modal', state='visible')
+    assert page.input_value('#output-display-canvas') == from_menu == ids['c1']
+    # A dialog only: the button opens no output by itself.
+    assert page.evaluate("(window.app._outputDisplayWindows || []).length") == outputs
+    close_dialog(page)
+    page.wait_for_selector('#output-display-modal', state='hidden')
+    # Whatever disables or hides the menu item does the same to the button,
+    # and a click on it then opens nothing; put back, the button is back.
+    item_js = "document.querySelector('#menu-view [data-action=\"output-to-display\"]')"
+    state_js = """() => { const b = document.getElementById('btn-output-display');
+        return { hidden: b.hidden || getComputedStyle(b).display === 'none', disabled: b.disabled }; }"""
+    open_js = """() => { const m = document.getElementById('output-display-modal');
+        return !!m && m.style.display !== 'none'; }"""
+    try:
+        page.evaluate(f"{item_js}.classList.add('menu-disabled')")
+        assert page.evaluate(state_js) == {'hidden': False, 'disabled': True}
+        page.evaluate("document.getElementById('btn-output-display').click()")
+        page.wait_for_timeout(150)
+        assert not page.evaluate(open_js)
+        page.evaluate(f"{item_js}.classList.remove('menu-disabled'); {item_js}.style.display = 'none'")
+        assert page.evaluate(state_js) == {'hidden': True, 'disabled': False}
+        page.evaluate("document.getElementById('btn-output-display').click()")
+        page.wait_for_timeout(150)
+        assert not page.evaluate(open_js)
+    finally:
+        page.evaluate(f"{item_js}.classList.remove('menu-disabled'); {item_js}.style.display = ''")
+    assert page.evaluate(state_js) == {'hidden': False, 'disabled': False}
+    assert btn.is_visible() and btn.is_enabled()
