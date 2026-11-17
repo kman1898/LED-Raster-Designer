@@ -265,8 +265,14 @@ def _check_runs(half, out=None):
             'a run lands on its socket', r, sk)
         shape = _segs(r)
         assert 'x' not in shape, ('the drawing has no diagonals', r)
-        assert shape in (['v'], ['h', 'v'], ['h', 'v', 'h', 'v'],
-                         ['v', 'h', 'v'], ['v', 'h', 'v', 'h', 'v']), (r, shape)
+        shapes = (['v'], ['h', 'v'], ['h', 'v', 'h', 'v'],
+                  ['v', 'h', 'v'], ['v', 'h', 'v', 'h', 'v'])
+        if r.get('seam') and _seam_lead(r, d, _wall(half)) == 2:
+            # out by a seam: one short step off the rim onto the seam first
+            assert [shape[0]] + shape in shapes or shape[1:] in shapes \
+                or (['h' if shape[0] == 'v' else 'v'] + shape[1:]) in shapes, (r, shape)
+            continue
+        assert shape in shapes, (r, shape)
         if shape == ['v']:
             assert abs(sk['x'] - d['x']) < STRAIGHT * s + 0.01, (
                 'only a run already above its socket drops straight', r, d, sk)
@@ -357,6 +363,39 @@ def _is_stub(a, b, d, w):
     return False
 
 
+def _seam_lead(r, d, w):
+    """How many of a run's first segments are its way out BY A SEAM
+    (2026-11-17, "its covering all the signal cables"): a short step off
+    its own disc's rim to an edge of the disc's own panel, then along that
+    seam - the line between two rows or two columns of panels, never the
+    middle of one, where the screen's chain runs - out to the wall's edge.
+    0 where the run does not leave that way."""
+    if not r.get('seam'):
+        return 0
+    P, pts = d['panel'], r['points']
+    rows = (P['y'], P['y'] + P['h'])
+    cols = (P['x'], P['x'] + P['w'])
+    E = 0.05
+    for n in (1, 2):
+        if len(pts) < n + 1:
+            break
+        a, b = pts[n - 1], pts[n]
+        if n == 2:
+            h0 = pts[0]
+            step = abs(a[0] - h0[0]) + abs(a[1] - h0[1])
+            if step > max(P['w'], P['h']) / 2 + 0.5:
+                break
+        if abs(a[1] - b[1]) < E and any(abs(a[1] - y) < E for y in rows):
+            reach = min(a[0], b[0]) <= w['x'] + 0.5 or max(a[0], b[0]) >= w['x'] + w['w'] - 0.5
+        elif abs(a[0] - b[0]) < E and any(abs(a[0] - x) < E for x in cols):
+            reach = min(a[1], b[1]) <= w['y'] + 0.5 or max(a[1], b[1]) >= w['y'] + w['h'] - 0.5
+        else:
+            continue
+        if reach:
+            return n
+    return 0
+
+
 def _through_the_wall(half):
     """Every run segment with ink inside the wall's rectangle but for that
     one stub. This is the fault the user pointed at: a run travelling the
@@ -368,10 +407,13 @@ def _through_the_wall(half):
     bad = []
     for r in half['runs']:
         d = discs[r['from']]
+        lead = _seam_lead(r, d, w)
         for i, (a, b) in enumerate(zip(r['points'], r['points'][1:])):
             if not _box_over(_seg_box(a, b, 0.75 * s), w, 0.5 * s):
                 continue
             if i == 0 and _is_stub(a, b, d, w):
+                continue
+            if i < lead:
                 continue
             bad.append('%s: segment %d, (%.0f,%.0f)-(%.0f,%.0f), is inside the wall'
                        % (r['from'], i, a[0], a[1], b[0], b[1]))
@@ -450,6 +492,8 @@ def _dearer_way_out(half):
     bad = []
     for r in half['runs']:
         d = discs[r['from']]
+        if _seam_lead(r, d, _wall(half)):
+            continue                       # out by a seam: its own rule, below
         clear = _clear_ways_out(half, d)
         if not clear:
             continue                       # boxed in; the cheapest way stands
@@ -1903,4 +1947,107 @@ def test_a_run_in_line_with_its_socket_is_not_drawn_through_its_disc_tag(page, p
     assert _through_the_wall(h) == [], _through_the_wall(h)
     _check_runs(h)
     _check_blocks(h)
+    assert ids['errors'] == []
+
+
+# ---- a run never lies along the screen's own chain -----------------------
+#
+# The owner's sheet (2026-11-17, a CVT4K-S on a 20 x 6 wall whose ports
+# start in the middle of the wall): "this is super ugly unfortunately. its
+# covering all the signal cables". A disc in the middle of the wall left
+# straight along its own row, which is exactly where the chain runs, and
+# across the discs at the far end of it. It now goes by the SEAMS between
+# the panels (app-binder-wiring.js _bwSeamExit).
+
+MID_SEED_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
+    delete proj.port_assignments; delete proj.pullSheet; delete proj.binder;
+    await j('PUT', '/api/project', proj);
+    const cols = 20, rows = 6;
+    await j('POST', '/api/layer/add', {name: 'MID', columns: cols, rows: rows,
+        cabinet_width: 168, cabinet_height: 168});
+    const added = (await j('GET', '/api/project')).layers[0];
+    // ports 1-6 from the right edge leftwards to column 7; ports 7-12 from
+    // column 6 - the middle of the wall - leftwards to the left edge
+    const paths = {};
+    for (let r = 0; r < rows; r++) {
+        paths[r + 1] = []; for (let c = cols - 1; c >= 6; c--) paths[r + 1].push({row: r, col: c});
+        paths[r + 7] = []; for (let c = 5; c >= 0; c--) paths[r + 7].push({row: r, col: c});
+    }
+    await j('PUT', `/api/layer/${added.id}`, {flowPattern: 'custom', processorType: 'novastar-armor',
+        customPortPaths: paths, customPortIndex: 12, customPortOverrides: []});
+    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9'});
+    const pid = st.processors[0].id;
+    st = await j('PUT', `/api/processors/${pid}/slots/0`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+    const cardId = st.processors[0].slots[0].card.id;
+    app.project = await j('GET', '/api/project');
+    app.dedupeProjectLayers('wiring_mid_seed');
+    const l = app.project.layers[0];
+    app.selectLayer(l);
+    await app.refreshProcessors();
+    await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST', {layerId: String(l.id), cardId});
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    app.renderLayers();
+    window.canvasRenderer.render();
+    return true;
+}"""
+
+
+def _along_a_chain(half):
+    """Every stretch of a run inside the wall that lies along the MIDDLE of
+    a row or a column of panels - where the screen's chain runs - for more
+    than the short step off its own disc's rim."""
+    w = _wall(half)
+    discs = {d['text']: d for d in half['discs']}
+    P = next(d['panel'] for d in half['discs'] if d.get('panel'))
+    pw, ph = P['w'], P['h']
+    bad = []
+    for r in half['runs']:
+        d = discs[r['from']]
+        for i, (a, b) in enumerate(zip(r['points'], r['points'][1:])):
+            x0, x1 = sorted((a[0], b[0]))
+            y0, y1 = sorted((a[1], b[1]))
+            # the part of it inside the wall
+            x0, x1 = max(x0, w['x']), min(x1, w['x'] + w['w'])
+            y0, y1 = max(y0, w['y']), min(y1, w['y'] + w['h'])
+            if x1 < x0 - 0.01 or y1 < y0 - 0.01:
+                continue
+            if abs(y1 - y0) < 0.01:            # along a row
+                k = (y0 - w['y']) / ph - 0.5
+                if abs(k - round(k)) * ph < 1.0 and x1 - x0 > max(d['r'], pw / 2) + 0.5:
+                    bad.append('%s: segment %d lies along the middle of a row for %.0f'
+                               % (r['from'], i, x1 - x0))
+            elif abs(x1 - x0) < 0.01:          # along a column
+                k = (x0 - w['x']) / pw - 0.5
+                if abs(k - round(k)) * pw < 1.0 and y1 - y0 > max(d['r'], ph / 2) + 0.5:
+                    bad.append('%s: segment %d lies along the middle of a column for %.0f'
+                               % (r['from'], i, y1 - y0))
+    return bad
+
+
+@pytest.mark.parametrize('palette', ['colour', 'printer'])
+def test_a_disc_in_the_middle_of_the_wall_leaves_by_the_seams(page, palette):
+    """MID, 20 x 6: ports 7-12 start in column 6 and run to the left edge,
+    whose end discs stand on that edge. Every run from the middle of the
+    wall goes out along the line between two rows or two columns, so none
+    lies along a chain, none is drawn over a disc or anything else the map
+    wrote, and nothing but that way out is inside the wall."""
+    pg, ids = page
+    pg.evaluate(MID_SEED_JS)
+    pg.wait_for_timeout(400)
+    opts = {**json.loads(_SHOW_JSON), 'palette': palette}
+    (h,) = _probe(pg, opts, 'MID - Data Wiring')
+    assert len(h['runs']) >= 12, [r['from'] for r in h['runs']]
+    seams = [r['from'] for r in h['runs'] if r.get('seam')]
+    assert len(seams) >= 4, seams
+    assert _along_a_chain(h) == [], _along_a_chain(h)
+    assert _covers_lettering(h) == [], _covers_lettering(h)
+    assert _through_the_wall(h) == [], _through_the_wall(h)
+    _check_runs(h)
     assert ids['errors'] == []
