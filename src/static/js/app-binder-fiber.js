@@ -716,7 +716,12 @@ class _BinderFiber {
             subject: 'Fiber', layout: 'fiber', cols: L.cols.length + (L.tableCols || 0),
             scale: L.scale, extent: L.extent, names: titles, view, fiber,
         }, (page, scaled) => scaled(() => {
-            const w = Math.max(drawW, tableX - da.x + (L.tableCols ? L.tableCols * L.TW + (L.tableCols - 1) * COL_GAP : 0));
+            // the head's rule over the drawing and the tables, as wide as
+            // they are: the gap beside the drawing only where tables stand
+            // in it (a drawing as wide as the sheet with none beside it ran
+            // its rule 60 past it, into the title block at letter and A4)
+            const tablesW = L.tableCols ? L.tableCols * L.TW + (L.tableCols - 1) * COL_GAP : 0;
+            const w = Math.max(drawW, tablesW ? tableX - da.x + tablesW : 0);
             let tableY = da.y + GROUP_H;
             this._bGroupHead(book, `Fiber${cont}`, da.x, da.y, w);
             const top = da.y + GROUP_H;

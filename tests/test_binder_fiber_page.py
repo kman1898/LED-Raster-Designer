@@ -456,24 +456,28 @@ def test_the_title_block_on_or_off(page):
 # ── never wider than the sheet ──────────────────────────────────────────
 
 SHEETS = ('letter', 'a4', 'tabloid', 'a3', 'archc', 'archd')
-SHEET_IN = {'letter': (11, 8.5), 'a4': (11.69, 8.27), 'tabloid': (17, 11),
-            'a3': (16.54, 11.69), 'archc': (24, 18), 'archd': (36, 24)}
-# app-binder.js: 200 px/in, the border's PAD, the title block, the drawing
-# area's pad, the table gap; app-binder-fiber.js: the drawing columns' gap
-PX_IN, PAD, TB_W, DA_PAD, COL_GAP, DRAW_GAP = 200, 50, 480, 30, 30, 70
+# app-binder.js: the table gap; app-binder-fiber.js: the drawing columns' gap
+COL_GAP, DRAW_GAP = 30, 70
+
+# The drawing area the binder lays the sheet out in, as the app has it
+# (_bGeo) - never a copy of its constants, which move (the inset beside the
+# border went from 30 to 10, and to none with the title block off).
+DA_JS = """(opts) => {
+    const app = window.app;
+    const p = app.planBinder(opts)[0];
+    const da = app._bGeo({w: p.w, h: p.h}, opts.titleBlock !== false).da;
+    return [da.w, da.h];
+}"""
 
 
-def _da(sheet, tb):
-    w, h = SHEET_IN[sheet]
-    W, H = w * PX_IN, h * PX_IN
-    tbx = W - PAD - (TB_W if tb else 0)
-    return tbx - PAD - DA_PAD * 2, H - PAD * 2 - DA_PAD * 2
+def _da(pg, sheet, tb):
+    return pg.evaluate(DA_JS, _opts(sheet=sheet, titleBlock=tb))
 
 
-def _overflow(plan, sheet, tb):
+def _overflow(plan, da):
     """Every Fiber sheet's drawing and tables, at its scale, against the
     drawing area: what runs past its right or its foot."""
-    da_w, da_h = _da(sheet, tb)
+    da_w, da_h = da
     bad = []
     for p in plan:
         f, s = p['fiber'], p['scale']
@@ -499,7 +503,8 @@ def test_the_page_never_runs_past_the_drawing_area(page, sheet):
     for tb in (True, False):
         plan = [p for p in pg.evaluate(PLAN_JS, _opts(sheet=sheet, titleBlock=tb)) if p['kind'] == 'fiber']
         assert plan, (sheet, tb)
-        assert not _overflow(plan, sheet, tb), (sheet, tb, _overflow(plan, sheet, tb), plan)
+        da = _da(pg, sheet, tb)
+        assert not _overflow(plan, da), (sheet, tb, _overflow(plan, da), plan)
 
 
 def test_at_letter_the_drawing_fills_the_width_and_the_tables_start_under_it(page):
@@ -510,7 +515,7 @@ def test_at_letter_the_drawing_fills_the_width_and_the_tables_start_under_it(pag
     pg, _ids = page
     plan = [p for p in pg.evaluate(PLAN_JS, _opts(sheet='letter')) if p['kind'] == 'fiber']
     f, s = plan[0]['fiber'], plan[0]['scale']
-    da_w, _ = _da('letter', True)
+    da_w, _ = _da(pg, 'letter', True)
     assert f['drawW'] > da_w, f  # wider than the sheet at the base size
     assert s < 1 and f['drawW'] * s <= da_w + 1, (s, f)
     assert f['tableCols'] >= 1 and f['under'], f
@@ -568,14 +573,84 @@ def test_past_two_columns_it_continues_onto_the_next_sheet(many):
     assert all(p['scale'] >= 0.8 for p in plan), plan
 
 
+# Every Fiber sheet painted: how far past the drawing area's right edge
+# anything its body drew stands (the frame - border, title block, rev -
+# drawn first, counted off) - texts measured in their font, rules and
+# rects at their own extent. The plan's numbers (_overflow) say where the
+# drawing and the tables stand; this is the ink.
+INK_RIGHT_JS = """(opts) => {
+    const app = window.app;
+    const own = Object.prototype.hasOwnProperty.call(app, '_bPageFrame');
+    const frame = app._bPageFrame;
+    let mark = 0;
+    app._bPageFrame = function (book, page) {
+        const r = frame.call(this, book, page);
+        mark = page.ops.length;
+        return r;
+    };
+    const mc = document.createElement('canvas').getContext('2d');
+    const out = [];
+    try {
+        app.planBinder(opts).forEach((p, i) => {
+            if (p.kind !== 'fiber') return;
+            const r = app.renderBinderPage(opts, i);
+            const da = app._bGeo(r.sheet, opts.titleBlock !== false).da;
+            let right = -Infinity, what = null;
+            for (const o of r.record.ops.slice(mark)) {
+                let x = -Infinity;
+                if (o.op === 'text' && String(o.text).trim()) {
+                    mc.font = app._bFont(o.size, o.weight);
+                    const w = mc.measureText(String(o.text)).width;
+                    x = o.align === 'center' ? o.x + w / 2 : o.align === 'right' ? o.x : o.x + w;
+                } else if (o.op === 'rect') {
+                    x = o.x + o.w;
+                } else if (o.op === 'line') {
+                    x = Math.max(...o.points.map(q => q[0]));
+                }
+                if (x > right) { right = x; what = o.op === 'text' ? o.text : o.op; }
+            }
+            out.push({title: p.title, over: Math.round(right - (da.x + da.w)), what});
+        });
+    } finally {
+        if (own) app._bPageFrame = frame; else delete app._bPageFrame;
+    }
+    return out;
+}"""
+
+
+@pytest.mark.parametrize('sheet', ['letter', 'a4', 'tabloid'])
+def test_nothing_drawn_runs_past_the_right_edge(many, sheet):
+    """Sixteen processors with long names, the drawing wider than the
+    letter and A4 drawing areas: as drawn, not one mark - the drawing, the
+    tables, the head's rule over them - stands past the drawing area's
+    right edge, into the title block."""
+    pg = many
+    assert pg.evaluate(MANY_JS, 16) == 16
+    pg.evaluate("""async () => {
+        for (const p of window.app.project.processors || []) {
+            await fetch(`/api/processors/${p.id}`, {method: 'PUT', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: `VIDEO WORLD ${p.name} FRONT OF HOUSE`})});
+        }
+        await window.app.refreshProcessors();
+    }""")
+    assert pg.evaluate(FEED_JS) == 16
+    for tb in (True, False):
+        out = pg.evaluate(INK_RIGHT_JS, _opts(sheet=sheet, titleBlock=tb))
+        assert out, (sheet, tb)
+        assert not [o for o in out if o['over'] > 1], (sheet, tb, out)
+
+
 @pytest.mark.parametrize('sheet', SHEETS)
 def test_that_much_fiber_never_runs_past_the_drawing_area(many, sheet):
     pg = many
     for n in (8, 16):
         assert pg.evaluate(MANY_JS, n) == n
+        # every processor carries a screen, or the binder leaves it off
+        assert pg.evaluate(FEED_JS) == n
         for tb in (True, False):
             plan = [p for p in pg.evaluate(PLAN_JS, _opts(sheet=sheet, titleBlock=tb)) if p['kind'] == 'fiber']
             drawn = [t for p in plan for col in p['fiber']['procs'] for t in col]
             assert [t.replace(' (cont.)', '') for t in drawn if not t.endswith('(cont.)')] == \
                 [f'RACK {i}' for i in range(1, n + 1)], (sheet, tb, drawn)
-            assert not _overflow(plan, sheet, tb), (sheet, tb, _overflow(plan, sheet, tb))
+            da = _da(pg, sheet, tb)
+            assert not _overflow(plan, da), (sheet, tb, _overflow(plan, da))
