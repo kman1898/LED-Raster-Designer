@@ -130,8 +130,9 @@ def test_a_visible_screen_pinned_onto_a_hidden_screens_output_is_crowded_everywh
     assert said in out['checks'], out['checks']
     assert said in out['strip'], out['strip']
     assert out['count'] == 2 and out['pull'] == 2, out
-    assert out['binder'] == [['Crowded', 'PD1 TRUE1 carries 2 circuits · a multi on a '
-                              'one-circuit output, move it to a multi output']], out['binder']
+    # the binder leaves a hidden screen's circuits off its Crowded line
+    # (owner, 2026-11-17: a hidden screen is not there on a binder export)
+    assert out['binder'] == [], out['binder']
     # crowded: no circuit's cable stands in for the output's one cable
     assert out['cable'] is None, out
     # the load still leaves the hidden screen out

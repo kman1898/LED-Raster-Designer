@@ -433,6 +433,10 @@ def page(e2e_server, pw_browser):
     pg.locator('[data-mode="data-flow"]').click()
     pg.wait_for_timeout(500)
     ids = pg.evaluate(SEED_JS)
+    # a processor with no screens is off the binder and the pull sheet
+    # (owner, 2026-11-17): every processor here gets one
+    from test_hidden_screen_binder import FEED_JS
+    pg.evaluate(FEED_JS)
     settled(pg, lambda: pg.evaluate(
         "(id) => !!(window.app._processorsResolved || []).find(p => p.id === id)", ids['nova']),
         bool, 5000)

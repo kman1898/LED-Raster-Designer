@@ -101,8 +101,8 @@ class _BinderFiber {
     // dialog offers its tick only then.
     binderUsesFiber() {
         if (typeof this._fiberAllBoxes !== 'function' || typeof this.fiberBoxLinks !== 'function') return false;
-        // (a box only hidden screens use is off the binder: _bBoxPrints)
-        return this._fiberAllBoxes().some(({ box, card }) => this._bBoxPrints(box, card)
+        // (a box off paper is not there: _bBoxPrints)
+        return this._fiberAllBoxes().some(({ box, card, proc }) => this._bBoxPrints(box, card, proc)
             && this.fiberBoxLinks(box).some(l => l.cable));
     }
 
@@ -117,8 +117,8 @@ class _BinderFiber {
     _bfProcessors() {
         const out = [];
         for (const proc of this._processorsResolved || []) {
-            // one only hidden screens use is not drawn (owner, 2026-11-17)
-            if (this._bProcHiddenOnly(proc)) continue;
+            // one off paper is not drawn (owner, 2026-11-17)
+            if (this._bProcOffPaper(proc)) continue;
             const title = this._bProcessorTitle(proc);
             // (an input with nothing picked is the processor page's "no
             // fiber picked"; it is no link to draw)
@@ -296,7 +296,15 @@ class _BinderFiber {
                 }
             }
             if (!rows.length) continue;
-            const used = this.fiberStrandUsers(cable.id);
+            // the strands of the boxes that print: a box off paper leaves
+            // its strands spare (owner, 2026-11-17)
+            const used = new Set();
+            for (const { box, card, proc } of this._fiberAllBoxes()) {
+                if (!this._bBoxPrints(box, card, proc)) continue;
+                for (const link of Object.values(box.fiberLinks || {})) {
+                    if (link && link.cable === cable.id) (link.strands || []).forEach(n => used.add(n));
+                }
+            }
             const spare = [];
             for (let n = 1; n <= (cable.strands || 0); n++) if (!used.has(n)) spare.push(n);
             out.push({ cable, title: this._bStrandMapTitle(cable), rows, spare: this._bfSpareText(spare, cable) });

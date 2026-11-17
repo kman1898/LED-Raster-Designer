@@ -645,6 +645,10 @@ def page(e2e_server, pw_browser):
     pg.locator('[data-mode="data-flow"]').click()
     pg.wait_for_timeout(500)
     ids = pg.evaluate(SEED_JS)
+    # a processor with no screens is off the binder and the pull sheet
+    # (owner, 2026-11-17): every processor here gets one
+    from test_hidden_screen_binder import FEED_JS
+    pg.evaluate(FEED_JS)
     pg.wait_for_timeout(1200)
     ids['errors'] = errors
     yield pg, ids
@@ -820,6 +824,10 @@ def test_the_binder_and_the_pull_sheet_name_the_ports_and_count_the_backup(page)
     HELIOS's backup its own RS12, and no second XD."""
     pg, ids = page
     a, b, c, d = ids['xds']
+    # the gear tests above may have moved the pins: every processor carries
+    # a screen again (a processor with no screens is off the binder)
+    from test_hidden_screen_binder import FEED_JS
+    pg.evaluate(FEED_JS)
     out = pg.evaluate("""(ids) => {
         const app = window.app;
         const box = (id) => app._dockFindCvt(id).cvt;

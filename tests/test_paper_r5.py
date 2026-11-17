@@ -264,14 +264,15 @@ def test_an_empty_distro_is_off_the_service_sheet_and_the_overview(page):
         assert svc['Distros'] == 'ratings 800 A on 600 A', svc
         totals = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Show totals')
         assert totals['Distros'] == '2', totals
-        # a feeder set brings it back, everywhere at once
+        # a Power in set does not bring it back, anywhere (owner,
+        # 2026-11-17: a distro feeding no screens does not print)
         ev(pg, "app.project.distros.find(d => d.id === 'd3').feeder = { ft: 50 };"
                " app._distroFaceMemo = null; app.getDistros(); return null;")
         b = pg.evaluate(BINDER_JS, {'cover': True, 'kinds': ['overview', 'service']})
         totals = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Show totals')
-        assert totals['Distros'] == '3', totals
+        assert totals['Distros'] == '2', totals
         svc = next(dict(k['pairs']) for k in b['kv'] if k['title'] == 'Service')
-        assert svc['Distros'] == 'ratings 900 A on 600 A', svc
+        assert svc['Distros'] == 'ratings 800 A on 600 A', svc
     finally:
         _reset(pg)
     assert errors == [], errors

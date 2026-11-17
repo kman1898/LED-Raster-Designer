@@ -93,10 +93,11 @@ def test_a_hidden_multi_past_its_one_circuit_output_is_said_on_the_tray_and_chec
             'Move one to a multi output. WALL A is hidden and still holds it.')
     assert said in out['checks'], out['checks']
     assert out['strip'].count(said) == 1, out['strip']
-    # the paperwork already said it, and still does
+    # the pull sheet already said it, and still does
     assert out['crowded'] == 7, out
-    assert out['binder'] == [['Crowded', 'PD1 TRUE1 carries 7 circuits · a multi on a '
-                              'one-circuit output, move it to a multi output']], out['binder']
+    # the binder leaves a hidden screen's circuits off its Crowded line
+    # (owner, 2026-11-17: a hidden screen is not there on a binder export)
+    assert out['binder'] == [], out['binder']
     assert not errors, errors
 
 
@@ -138,8 +139,9 @@ def test_a_visible_screen_pinned_onto_a_hidden_screens_socapex_is_flagged_everyw
     assert out['overfull'] == {'circuits': 8, 'size': 6}, out
     assert out['crowded'] == 0, 'a multi box is not a crowded direct output'
     assert ['Multi', '8 circuits on a six-circuit output'] in out['rows'], out['rows']
-    assert out['binder'] == [['Crowded', 'PD4 Socapex 208V carries 8 circuits · more than the six '
-                              'it holds, move a multi to another output']], out['binder']
+    # the binder leaves a hidden screen's circuits off its Crowded line
+    # (owner, 2026-11-17: a hidden screen is not there on a binder export)
+    assert out['binder'] == [], out['binder']
     assert not errors, errors
 
 

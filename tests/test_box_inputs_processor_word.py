@@ -170,6 +170,8 @@ SEED_JS = """async (kind) => {
     await app.refreshProcessors();
     await app.refreshPortAssignment();
     app.renderLayers();
+    // a processor with no screens is off the binder (owner, 2026-11-17)
+    await window.__lrdFeed();
     const opts = { sheet: 'tabloid', palette: 'colour', sides: {power: true, data: true},
                    scope: {kind: 'show'}, cover: false, pull: false, hardware: true, wiring: false };
     const plan = app.planBinder(opts);
@@ -199,6 +201,10 @@ def page(e2e_server, pw_browser):
 
 def _sheet(page, kind):
     pg, errors = page
+    # a processor with no screens is off the binder and the pull sheet
+    # (owner, 2026-11-17): every processor here gets one (SEED_JS calls it)
+    from test_hidden_screen_binder import FEED_JS
+    pg.evaluate(f"() => {{ window.__lrdFeed = {FEED_JS}; }}")
     out = pg.evaluate(SEED_JS, kind)
     assert out, f'no processor sheet for {kind}'
     assert errors == []
@@ -405,6 +411,10 @@ PAGE_JS = """([kind, title, wiring, view]) => {
 def fiber(page):
     pg, errors = page
     ids = pg.evaluate(FIBER_SEED_JS)
+    # a processor with no screens is off the binder and the pull sheet
+    # (owner, 2026-11-17): every processor here gets one
+    from test_hidden_screen_binder import FEED_JS
+    pg.evaluate(FEED_JS)
     pg.wait_for_timeout(600)
     return pg, ids, errors
 

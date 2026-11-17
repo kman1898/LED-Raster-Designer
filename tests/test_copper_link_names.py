@@ -290,6 +290,10 @@ def page(e2e_server, pw_browser):
     pg.locator('[data-mode="data-flow"]').click()
     pg.wait_for_timeout(500)
     ids = pg.evaluate(SEED_JS)
+    # a processor with no screens is off the binder and the pull sheet
+    # (owner, 2026-11-17): every processor here gets one
+    from test_hidden_screen_binder import FEED_JS
+    pg.evaluate(FEED_JS)
     pg.wait_for_timeout(1200)
     ids['errors'] = errors
     yield pg, ids
@@ -379,7 +383,9 @@ def test_the_name_prints_in_the_binder_and_on_the_pull_sheet(page):
     # the pull sheet: one Cat6A 150' row of two, labeled by the names, the
     # boxes they land on in Notes
     assert len(out['pull']) == 1, out
-    assert out['pull'] == [['Cat6A', "150'", 2, 'Cat6A 2, SL Rack', 'XD A (X1); XD C (X1)']], out
+    # (the boxes in either order: the screen fed off XD A puts its rows first)
+    assert [r[:4] + [sorted(r[4].split('; '))] for r in out['pull']] == [
+        ['Cat6A', "150'", 2, 'Cat6A 2, SL Rack', ['XD A (X1)', 'XD C (X1)']]], out
     # back on its default, the two names fold as a run, the way TAC names do
     pg.evaluate("""async (box) => { await window.app.setFiberLink(
         window.app._dockFindCvt(box).cvt, 'p1', {copper: 'Cat6A', ft: 150, name: ''}); }""", a)
@@ -389,5 +395,6 @@ def test_the_name_prints_in_the_binder_and_on_the_pull_sheet(page):
     assert out['a'] == "X1 Cat6A 1 150'", out
     assert out['wiring'] == [{'head': 'X1', 'strands': [{'text': 'Cat6A 1', 'swatch': None}]}], out
     assert ["Cat6A 1 · 150'", ['Cat6A'], ['Cat6A']] in out['links'], out
-    assert out['pull'] == [['Cat6A', "150'", 2, 'Cat6A 1-2', 'XD A (X1); XD C (X1)']], out
+    assert [r[:4] + [sorted(r[4].split('; '))] for r in out['pull']] == [
+        ['Cat6A', "150'", 2, 'Cat6A 1-2', ['XD A (X1)', 'XD C (X1)']]], out
     assert ids['errors'] == []

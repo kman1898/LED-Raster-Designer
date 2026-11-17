@@ -495,12 +495,13 @@ def test_a_service_with_nothing_printing_is_off_the_binder(page):
             return app.planBinder(opts).filter(p => String(p.number).startsWith('4.')).map(p => [p.number, p.kind]);""")
         assert nums and nums[0] == ['4.1', 'service'], nums
         assert [n for n, _ in nums] == [f'4.{i}' for i in range(1, len(nums) + 1)], nums
-        # a feeder set on SPARE brings GENNY back
+        # a Power in set on SPARE does not bring GENNY back (owner,
+        # 2026-11-17: a distro feeding no screens does not print)
         ev(pg, "app.project.distros.find(d => d.id === 'd2').feeder = { ft: 50 };"
                " app._distroFaceMemo = null; app.getDistros(); return null;")
         b = pg.evaluate(BINDER_JS, {'kinds': ['service']})
         titles = [p['title'] for p in b['plan'] if p['kind'] == 'service']
-        assert titles and 'GENNY' in ' '.join(titles) and 'SHORE' not in ' '.join(titles), titles
+        assert titles == ['Service - HOUSE'], titles
     finally:
         _reset(pg)
     assert errors == [], errors

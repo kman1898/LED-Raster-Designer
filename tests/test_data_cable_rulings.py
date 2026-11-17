@@ -165,6 +165,10 @@ def page(e2e_server, pw_browser):
     pg.locator('[data-mode="power"]').click()
     pg.wait_for_timeout(500)
     ids = pg.evaluate(SEED_JS)
+    # a processor with no screens is off the binder and the pull sheet
+    # (owner, 2026-11-17): every processor here gets one
+    from test_hidden_screen_binder import FEED_JS
+    pg.evaluate(FEED_JS)
     pg.wait_for_timeout(1200)
     ids['errors'] = errors
     yield pg, ids
@@ -492,6 +496,10 @@ def test_the_qd_s_input_fiber_goes_where_the_qd_s_is(page):
     binder's CABLES THIS SCREEN lists it."""
     pg, _ids = page
     ids = pg.evaluate(QD_SEED_JS)
+    # a processor with no screens is off the binder and the pull sheet
+    # (owner, 2026-11-17): every processor here gets one
+    from test_hidden_screen_binder import FEED_JS
+    pg.evaluate(FEED_JS)
     pg.wait_for_timeout(600)
     out = pg.evaluate("""async (ids) => {
         const app = window.app;

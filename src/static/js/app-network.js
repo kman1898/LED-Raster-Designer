@@ -278,11 +278,11 @@ class _Network {
     }
 
     // The units the binder lists: every unit but those of a processor
-    // only hidden screens use (owner, 2026-11-17: nothing of a hidden
-    // screen prints - its processor is off the binder, so is its IP).
+    // with no screen that prints (owner, 2026-11-17) - it is off the
+    // binder, and so is its IP.
     _bNetworkUnits() {
         const off = new Set((this._processorsResolved || [])
-            .filter(p => typeof this._bProcHiddenOnly === 'function' && this._bProcHiddenOnly(p))
+            .filter(p => typeof this._bProcOffPaper === 'function' && this._bProcOffPaper(p))
             .map(p => p.id));
         return this.networkUnits().filter(u => !off.has(u.procId));
     }

@@ -15,9 +15,10 @@ binder's distro and pull tables printing whole (owner rulings, 2026-10-21).
     said; text that is no length is refused, saying so, and the length
     that was there stays. The gear's first pick says "Fed from: none" on a
     distro with no service. A service is named "HOUSE · 400 A · ...".
-  * A distro another distro is fed thru, or with a feeder set, is on the
-    pull sheet (its Distro row and its feeder row) and its own pull list
-    even with nothing plugged in; a distro with nothing at all stays off.
+  * A distro another distro is fed thru is on the pull sheet (its Distro
+    row and its feeder row) and its own pull list even with nothing plugged
+    in, while that one feeds a screen; a distro feeding no screens stays
+    off, its feeder set or not (owner, 2026-11-17).
   * The binder: every distro's rating reads "400 A service · 120/208V 3φ",
     an old-style one too; the distro sheet's block is INPUT, its rows never
     print over each other and a number keeps its unit when a row wraps; a
@@ -282,14 +283,15 @@ LIST_JS = """() => {
 
 
 def test_a_pass_through_or_fed_distro_is_listed_with_nothing_plugged_in(page):
-    """SL feeds WALL A; FOH has nothing plugged in but MON is fed thru it;
-    MON has nothing plugged in but a feeder set; SPARE has nothing at all.
-    FOH and MON each get their Distro row and feeder row on the pull sheet
-    and their own pull list; SPARE stays off."""
+    """SL feeds WALL A; FOH has nothing plugged in but MON is fed thru it,
+    and MON feeds WALL B; SPARE feeds nothing, its feeder set. FOH and MON
+    each get their Distro row and feeder row on the pull sheet and their
+    own pull list; SPARE stays off (owner, 2026-11-17: a distro feeding no
+    screens does not print)."""
     pg, errors = page
     setup(pg, distros=[US('d1', 'SL'), US('d2', 'FOH'), dict(thru('d3', 'MON', 'd2'), input='cam400'),
-                       US('d4', 'SPARE')],
-          assign=[['WALL A', 0, 1, 'd1']])
+                       dict(US('d4', 'SPARE'), feeder={'ft': 50})],
+          assign=[['WALL A', 0, 1, 'd1'], ['WALL B', 0, 0, 'd3']])
     out = pg.evaluate(LIST_JS)
     labels = {n for r in out['rows'] for n in r[4].split(', ')}
     assert {'SL', 'FOH', 'MON'} <= labels and 'SPARE' not in labels, out['rows']
@@ -299,8 +301,8 @@ def test_a_pass_through_or_fed_distro_is_listed_with_nothing_plugged_in(page):
     assert set(hw) == {'d1', 'd2', 'd3'}, hw
     assert ['Distro', 'EA', 'FOH', ''] in hw['d2'] and ['Power in', '', 'FOH', 'no length'] in hw['d2'], hw['d2']
     assert ['400 A cam set', '', 'MON', '5-wire · no length'] in hw['d3'], hw['d3']
-    # the pass-through's row lands where a screen is: WALL A's position
-    assert {r[0] for r in out['rows'] if r[4] in ('FOH', 'MON')} == {'WALL A'}, out['rows']
+    # the pass-through's row lands where the screen it feeds thru MON is
+    assert {r[0] for r in out['rows'] if r[4] in ('FOH', 'MON')} == {'WALL B'}, out['rows']
     assert not errors, errors
 
 
@@ -381,14 +383,14 @@ def test_the_kv_rows_never_draw_past_their_height(page):
 
 
 def test_the_distro_sheet_prints_input_names_whole_and_no_length(page):
-    """SR DISTRO B feeds WALL A and WALL B; FOH is fed thru it with a 400 A
-    cam input and no length. The distro sheet: an INPUT block (no SERVICE),
+    """SR DISTRO B feeds WALL A; FOH, feeding WALL B, is fed thru it with a
+    400 A cam input and no length. The distro sheet: an INPUT block (no SERVICE),
     its Rating "400 A service · 120/208V 3φ", its table's names never cut;
     FOH's Pull list says "400 A cam set · 5-wire" and "no length"; no pull
     page cuts a cable, a length or a name."""
     pg, errors = page
     setup(pg, distros=[US('d1', 'SR DISTRO B'), dict(thru('d2', 'FOH', 'd1'), input='cam400')],
-          assign=[['WALL A', 0, 9, 'd1'], ['WALL B', 0, 0, 'd1']])
+          assign=[['WALL A', 0, 9, 'd1'], ['WALL B', 0, 0, 'd2']])
     b = pg.evaluate(BINDER_JS)
     titles = {c['title'] for c in b['caught']}
     assert 'Distro' in titles and 'Service' not in titles, titles

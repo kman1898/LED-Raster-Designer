@@ -59,7 +59,9 @@ def test_a_visible_multi_past_an_output_a_hidden_screen_holds_names_it(seeded):
     assert said in out['checks'], out['checks']
     assert out['strip'].count(said) == 1, out['strip']
     assert out['crowded'] == 3, out
-    assert out['binder'] == [['Crowded', 'PD1 TRUE1 carries 3 circuits · a multi on a '
+    # the binder leaves a hidden screen's circuits off its Crowded line
+    # (owner, 2026-11-17: a hidden screen is not there on a binder export)
+    assert out['binder'] == [['Crowded', 'PD1 TRUE1 carries 2 circuits · a multi on a '
                               'one-circuit output, move it to a multi output']], out['binder']
     assert not errors_, errors_
 
@@ -108,8 +110,9 @@ def test_the_crowded_line_of_an_overfull_box_names_it_as_the_sheet_does(seeded):
                                      'b': dict(pin, powerSocaSplits=[3])})
     out = ev(pg, LABELS_JS, 4)
     assert out['label'] == 'BIG SOCA' and out['pull'] == 'BIG SOCA', out
-    assert out['binder'] == [['Crowded', 'BIG SOCA Socapex 208V carries 8 circuits · more than '
-                              'the six it holds, move a multi to another output']], out['binder']
+    # the binder leaves a hidden screen's circuits off its Crowded line
+    # (owner, 2026-11-17: a hidden screen is not there on a binder export)
+    assert out['binder'] == [], out['binder']
     assert not errors_, errors_
 
 
@@ -121,8 +124,9 @@ def test_the_crowded_line_of_a_direct_output_names_it_as_the_sheet_does(seeded):
     out = ev(pg, LABELS_JS, 1)
     assert out['label'] == 'MAIN' and out['pull'] == 'MAIN', out
     assert out['where'] == ['MAIN'], out
-    assert out['binder'] == [['Crowded', 'MAIN TRUE1 carries 2 circuits · a multi on a '
-                              'one-circuit output, move it to a multi output']], out['binder']
+    # the binder leaves a hidden screen's circuits off its Crowded line
+    # (owner, 2026-11-17: a hidden screen is not there on a binder export)
+    assert out['binder'] == [], out['binder']
     assert not errors_, errors_
 
 

@@ -8291,8 +8291,8 @@ class _Binder {
         // nothing at all is not counted
         const distros = ((typeof this.getDistros === 'function') ? this.getDistros() : [])
             .filter(d => this._bDistroPrints(d));
-        // (a processor only hidden screens use is not counted)
-        const procs = (this._processorsResolved || []).filter(p => !this._bProcHiddenOnly(p));
+        // the processors the binder prints (_bProcOffPaper)
+        const procs = (this._processorsResolved || []).filter(p => !this._bProcOffPaper(p));
         blocks.push({ lines: this._bKvLines(book, 'Show totals', [
             ['Screens', String(screens.length)],
             ['Panels', this._bNum(panels, 0)],
@@ -9180,26 +9180,13 @@ class _Binder {
 
     // DOES THIS DISTRO PRINT? The pull sheet's test (buildPullList), one
     // for every sheet that names distros - its own sheet, the Service
-    // sheet's rows and ratings, the Overview's count: something plugged
-    // into it on a screen that prints, another distro fed thru it, or its
-    // feeder set. A distro with nothing at all is off the binder (owner,
-    // 2026-10-22), and so is one whose screens are all hidden (2026-10-23).
+    // sheet's rows and ratings, the Overview's count: a screen that prints
+    // is plugged into it or into a distro powered thru it. A distro feeding
+    // no screens - none at all or hidden ones only - is off the binder, its
+    // Power in set or not (owner, 2026-11-17: "processor with no screens
+    // doesnt print and same with a distro"; _pullDistroOffPaper).
     _bDistroPrints(d) {
-        if (!d) return false;
-        // one only hidden screens use is off, its Power in set or not
-        // (owner, 2026-11-17: nothing of a hidden screen prints)
-        if (typeof this._pullHiddenOnlyDistro === 'function' && this._pullHiddenOnlyDistro(d)) return false;
-        const id = String(d.id);
-        if (d.feeder && typeof d.feeder === 'object') return true;
-        const all = typeof this.getDistros === 'function' ? this.getDistros() : [];
-        if (all.some(x => x && x.feeder && typeof x.feeder === 'object' && x.feeder.from != null
-                && String(x.feeder.from) === id && String(x.id) !== id)) return true;
-        const layers = new Map(((this.project && this.project.layers) || []).map(l => [String(l.id), l]));
-        const numbers = typeof this._distroMultiNumbers === 'function' ? this._distroMultiNumbers(d.id) : new Map();
-        for (const members of numbers.values()) {
-            if ((members || []).some(m => this._bShownScreen(layers.get(String(m.layerId))))) return true;
-        }
-        return false;
+        return !!d && !this._pullDistroOffPaper(d);
     }
 
     _bDistroBlocks(book, d, load, boxes, counts, allCircuits) {
@@ -9250,8 +9237,14 @@ class _Binder {
             }
             // What its power in carries with the distros fed thru it (owner,
             // 2026-11-11): the tray's words, OVER where it is past the limit.
-            if (load.thru && typeof this.distroThruText === 'function') {
-                pairs.push(['Thru load', this.distroThruText(load)
+            // Only the distros thru it that print are named: one feeding no
+            // screens is off the binder (owner, 2026-11-17) and draws nothing.
+            const all = typeof this.getDistros === 'function' ? this.getDistros() : [];
+            const thruOn = load.thru ? (load.thru.distros || [])
+                .filter(x => this._bDistroPrints(all.find(y => String(y.id) === String(x.id)))) : [];
+            if (thruOn.length && typeof this.distroThruText === 'function') {
+                const shown = { ...load, thru: { ...load.thru, distros: thruOn, names: thruOn.map(x => x.name) } };
+                pairs.push(['Thru load', this.distroThruText(shown)
                     + (load.thru.over ? ' · OVER' + (load.overloadAccepted ? ' · overload accepted' : '') : '')]);
             }
         }
@@ -9271,7 +9264,12 @@ class _Binder {
             // 6), so a visible screen pinned onto it is crowded here as on
             // the tray and the pull sheet; the load is what the visible
             // screens draw (_faceCrowding).
-            for (const cr of this._faceCrowding(d)) {
+            for (const all of this._faceCrowding(d)) {
+                // a hidden screen's circuits are not there on paper (owner,
+                // 2026-11-17): crowded only by the screens that print
+                const circuits = all.members.filter(m => !m.hidden).reduce((t, m) => t + (m.legs || 0), 0);
+                if (!(circuits > all.box.size)) continue;
+                const cr = { ...all, circuits };
                 const cap = this._crowdCapacityText(d, cr);
                 pairs.push([cap ? 'Over capacity' : 'Crowded',
                     `${cap || `${cr.where} ${cr.box.conn.short} carries ${cr.circuits} circuits`}`
@@ -9283,7 +9281,10 @@ class _Binder {
         // tray, the checks and the pull sheet say it too (_boxOverflows).
         if (typeof this._boxOverflows === 'function') {
             for (const ov of this._boxOverflows(d)) {
-                pairs.push(['Crowded', `${ov.label} ${ov.type.name} carries ${ov.circuits} circuits`
+                // (the circuits of the screens that print)
+                const circuits = ov.members.filter(m => !m.hidden).reduce((t, m) => t + (m.legs || 0), 0);
+                if (!(circuits > ov.size)) continue;
+                pairs.push(['Crowded', `${ov.label} ${ov.type.name} carries ${circuits} circuits`
                     + ` · more than the ${this._fanWord(ov.size)} it holds, move a multi to another output`]);
             }
         }
@@ -9426,23 +9427,26 @@ class _Binder {
     // A processor's column: CARDS, BREAKOUT BOXES, REDUNDANCY, SNAKES &
     // HOME RUNS, its pull list; null where it holds no card.
     _bProcessorGroup(book, proc) {
-        if (this._bProcHiddenOnly(proc)) return null;
+        if (this._bProcOffPaper(proc)) return null;
         const cards = (proc.slots || []).filter(s => s && s.card).map(s => ({ slot: s.index, card: s.card }));
         if (!cards.length) return null;
         const procTitle = this._bProcessorTitle(proc);
         return { kind: 'processor', name: procTitle, blocks: this._bProcessorBlocks(book, proc, cards, procTitle) };
     }
 
-    // A PROCESSOR ONLY HIDDEN SCREENS USE is off the binder (owner,
-    // 2026-11-17: while a screen stays hidden nothing of it prints) - its
-    // sheet, its backup unit's, its Fiber page drawing, its Network row
-    // and the Overview's count alike.
-    _bProcHiddenOnly(proc) {
-        return typeof this._pullHiddenOnlyProc === 'function' && this._pullHiddenOnlyProc(proc);
+    // A PROCESSOR WITH NO SCREEN THAT PRINTS is off the binder (owner,
+    // 2026-11-17: "processor with no screens doesnt print"; hidden screens
+    // are not there on paper) - its sheet, its backup unit's, its Fiber
+    // page drawing, its Network row and the Overview's count alike.
+    _bProcOffPaper(proc) {
+        return typeof this._pullProcOffPaper === 'function' && this._pullProcOffPaper(proc);
     }
 
-    // A breakout box that prints: any box but one only hidden screens use.
-    _bBoxPrints(box, card) {
+    // A breakout box that prints: any box of a processor that prints, but
+    // one only hidden screens use ("if something is attached to only
+    // hidden screens dont print it").
+    _bBoxPrints(box, card, proc = null) {
+        if (proc && this._bProcOffPaper(proc)) return false;
         return !(typeof this._pullHiddenOnlyBox === 'function' && this._pullHiddenOnlyBox(box, card));
     }
 
@@ -9900,17 +9904,16 @@ class _Binder {
         const procsOf = new Map();     // cableId -> [processor titles]
         const uses = new Map();        // cableId -> Map(strand -> { box, key })
         for (const { box, proc: p, card } of this._fiberAllBoxes()) {
-            // a box only hidden screens use places no map: a cable on such
-            // boxes alone is off, one shared with a box that prints is
-            // mapped there, whole, every strand as it is stored
-            const prints = this._bBoxPrints(box, card);
+            // a box off paper is not there: a cable on such boxes alone is
+            // off, and on one shared with a box that prints its strands
+            // read spare, as strands nothing uses (owner, 2026-11-17)
+            if (!this._bBoxPrints(box, card, p)) continue;
             for (const key of box.fiberLinkKeys || []) {
                 const link = (box.fiberLinks || {})[key];
                 if (!link || !link.cable || !this.getFiberCable(link.cable)) continue;
                 const m = uses.get(link.cable) || new Map();
                 (link.strands || []).forEach(s => { if (!m.has(s)) m.set(s, { box, key, card }); });
                 uses.set(link.cable, m);
-                if (!prints) continue;
                 if (!firsts.has(link.cable)) firsts.set(link.cable, p.id);
                 const names = procsOf.get(link.cable) || [];
                 const title = p.name || p.deviceName || p.id;

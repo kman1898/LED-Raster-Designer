@@ -19,7 +19,11 @@ While HID A and HID B are hidden, no sheet of the binder and no row of the
 pull sheet (the workbook is built from the same list) says anything of
 them: no name, no length, no circuit, no port, no box or distro or
 processor that only they use. Unhidden, everything is back with the lengths
-the app kept.
+the app kept. On a binder export a hidden screen is simply not there: a
+shared trunk reads its box's strands as spare, a crowded multi counts the
+shown screens' circuits, and a processor or distro with no screen that
+prints (none at all, or hidden ones only) is off the binder and the pull
+sheet.
 
 Run locally:
     python -m pytest tests/test_hidden_screen_binder.py -n 4 --dist loadfile --browser chromium
@@ -156,6 +160,52 @@ SEED_JS = """async () => {
     app.renderHardwareDock();
     return { ports, procs };
 }"""
+
+# A screen on every processor no screen is on yet, on its first box (or
+# its card's own first port where it has none): a processor with no
+# screens is off the binder and the pull sheet (owner, 2026-11-17:
+# "processor with no screens doesnt print"), so a show that pins a
+# processor's paper gives it a screen. Each is FEED <processor>, 1 x 1
+# cabinet of 200 px, one port. Returns how many processors got one.
+FEED_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    await app.refreshProcessors();
+    await app.refreshPortAssignment();
+    let fed = 0, at = 0;
+    for (const p of (app._processorsResolved || []).slice()) {
+        if (!app._pullProcOffPaper(p)) continue;
+        let card = null, box = null, nums = [];
+        for (const s of p.slots || []) {
+            const c = s && s.card;
+            if (!c) continue;
+            const b = (c.cvts || [])[0];
+            const ports = b ? app.boxMainPorts(b).map(x => x.number)
+                : (c.ports || []).filter(x => !x.cvtId).map(x => x.number);
+            if (ports.length) { card = c; box = b || null; nums = ports.sort((x, y) => x - y); break; }
+        }
+        if (!card) continue;
+        const name = `FEED ${p.name || p.deviceName || p.id}`;
+        await j('POST', '/api/layer/add', {name, columns: 1, rows: 1, cabinet_width: 200,
+                                           cabinet_height: 200, offset_x: 9000 + (at++) * 400});
+        app.project = await j('GET', '/api/project');
+        const wall = app.project.layers.find(l => l.name === name);
+        const body = {layerId: String(wall.id), cardId: card.id,
+            firstPort: nums[0], lastPort: nums[nums.length - 1],
+            screens: [{layerId: String(wall.id), name, ports: app.getLayerPortsRequired(wall)}]};
+        if (box) body.boxId = box.id;
+        await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST', body);
+        await app.refreshPortAssignment();
+        if (app._screenPortPin(wall, 1)) fed++;
+    }
+    await app.refreshProcessors();
+    app.renderLayers();
+    app.renderHardwareDock();
+    return fed;
+}"""
+
 
 HIDE_JS = """(hidden) => {
     const app = window.app;
@@ -457,3 +507,154 @@ def test_quick_fill_fills_a_hidden_screen_and_its_binder_stays_clean(page):
     assert [r[2] for r in runs if r[0].startswith('XD A') and r[1] == 'cable'].count("100'") == 8, runs
     assert errors == [], errors
 
+
+# ── on a binder export a hidden screen is simply not there ───────────────
+#
+# The owner, 2026-11-17: "you're looking into hidden screens too much. the
+# idea is typically hide them for a bit and then bring them back... drop
+# them if hidden on a binder export", "if something is attached to only
+# hidden screens dont print it", and "processor with no screens doesnt
+# print and same with a distro".
+
+FIBER_FACTS_JS = """() => window.app.binderFiberPage(null).cables
+    .map(c => ({ id: c.id, title: c.title, spare: c.spare }))"""
+
+
+def _strand_rows(out, cable_name):
+    rows = [r for t in _table(out, f'Strand map · {cable_name} ·') for r in t['rows']]
+    # the processor page's map: one row per strand, its link in cell 1
+    return {r[0].split(' ')[0]: r[1] for r in rows if len(r) == 3}
+
+
+def test_a_shared_trunk_reads_a_hidden_only_boxs_strands_as_spare(page):
+    """TAC SHARED also feeds RACK LONE's XD A, which only hidden HID B uses:
+    on the binder its strands there read spare, on the processor page's
+    strand map and in the Fiber page's spare count alike, and RACK LONE is
+    named nowhere. Shown again, the strands are that box's."""
+    pg, seed, errors = page
+    seed = pg.evaluate(SEED_JS)
+    landed(pg)
+    lone = seed['procs']['lone']
+    pg.evaluate("""async ([p, b]) => {
+        const app = window.app;
+        const j = (method, url, body) => fetch(url, { method,
+            headers: { 'Content-Type': 'application/json' },
+            body: body === undefined ? undefined : JSON.stringify(body) }).then(r => r.json());
+        const st = await j('GET', '/api/project');
+        const tac = (st.fiberCables || []).find(c => c.name === 'TAC SHARED');
+        await j('PUT', `/api/processors/${p}/cvts/${b}/fiber-links/p1`, { cable: tac.id });
+        await app.refreshProcessors();
+        app.renderHardwareDock();
+    }""", [lone['id'], lone['xd']])
+    landed(pg)
+    pg.evaluate(HIDE_JS, [])
+    shown = pg.evaluate(BINDER_JS)
+    facts = {c['title']: c['spare'] for c in pg.evaluate(FIBER_FACTS_JS)}
+    strands = _strand_rows(shown, 'TAC SHARED')
+    assert [strands[str(n)] for n in (1, 2, 3, 4, 5)] == [
+        'XD A · X1', 'XD A · X1', 'XD A · X1', 'XD A · X1', 'spare'], strands
+    shared = next(k for k in facts if 'TAC SHARED' in k)
+    assert facts[shared].endswith('spare (8)'), facts
+    pg.evaluate(HIDE_JS, ['HID A', 'HID B'])
+    hidden = pg.evaluate(BINDER_JS)
+    hidden_facts = {c['title']: c['spare'] for c in pg.evaluate(FIBER_FACTS_JS)}
+    assert _page_hits(hidden) == [], _page_hits(hidden)
+    strands = _strand_rows(hidden, 'TAC SHARED')
+    assert [strands[str(n)] for n in (1, 2, 3, 4, 5)] == [
+        'XD A · X1', 'XD A · X1', 'spare', 'spare', 'spare'], strands
+    assert hidden_facts[shared].endswith('spare (10)'), hidden_facts
+    pg.evaluate(HIDE_JS, [])
+    again = pg.evaluate(BINDER_JS)
+    assert _strand_rows(again, 'TAC SHARED') == _strand_rows(shown, 'TAC SHARED')
+    assert errors == [], errors
+
+
+CROWD_JS = """() => {
+    const app = window.app;
+    for (const name of ['SHOWN', 'HID A']) {
+        const l = app.project.layers.find(x => x.name === name);
+        l.panelWatts = 3000;
+        l.powerSocaNumber = { '1': 1 };
+        l.powerCircuitCables = {};
+    }
+    app._circuitTailCache = null;
+    app._distroFaceMemo = null;
+    return app.project.layers.filter(l => l.name === 'SHOWN' || l.name === 'HID A')
+        .map(l => app.screenCircuits(l).length);
+}"""
+
+
+def test_a_crowded_multi_counts_only_the_shown_screens_circuits(page):
+    """SHOWN and HID A on one Socapex, six circuits each on it: shown, the
+    distro sheet says it carries 12, more than the six it holds; HID A
+    hidden, SHOWN's six fit and the note is gone."""
+    pg, seed, errors = page
+    pg.evaluate(SEED_JS)
+    landed(pg)
+    assert pg.evaluate(CROWD_JS) == [8, 8]
+    pg.evaluate(HIDE_JS, [])
+    shown = [x.get('Crowded') for x in _kv(pg.evaluate(BINDER_JS), 'Distro') if x.get('Crowded')]
+    assert len(shown) == 1 and 'carries 12 circuits' in shown[0], shown
+    pg.evaluate(HIDE_JS, ['HID A', 'HID B'])
+    hidden = [x.get('Crowded') for x in _kv(pg.evaluate(BINDER_JS), 'Distro') if x.get('Crowded')]
+    assert hidden == [], hidden
+    pg.evaluate(HIDE_JS, [])
+    assert errors == [], errors
+
+
+IDLEGEAR_JS = """async () => {
+    const app = window.app;
+    const j = (method, url, body) => fetch(url, { method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body) }).then(r => r.json());
+    const st = await j('POST', '/api/processors', { deviceId: 'brompton-sx40', name: 'RACK IDLE' });
+    const p = st.processors[st.processors.length - 1];
+    await j('PUT', `/api/processors/${p.id}`, { network: { ip: '10.0.0.99' } });
+    await j('PUT', `/api/processors/${p.id}/cvts/${p.slots[0].card.cvts[0].id}`, { location: 'IDLE DOCK' });
+    await app.refreshProcessors();
+    const row = [{ id: 'r1', connector: 'soca', count: 4, coupling: 'll', breakerA: 20 }];
+    app.project.distros.push(
+        { id: 'dspare', name: 'IDLE', ratingA: 200, system: '120/208', outputRows: row,
+          serviceId: 's2', feeder: { ft: 50 } },
+        { id: 'dsparethru', name: 'IDLE THRU', ratingA: 100, system: '120/208', outputRows: row,
+          feeder: { ft: 25, from: 'dspare' } },
+        { id: 'dsharedthru', name: 'EMPTY THRU', ratingA: 100, system: '120/208', outputRows: row,
+          feeder: { ft: 25, from: 'dshared' } });
+    app._distroFaceMemo = null;
+    app.getDistros();
+    app.renderHardwareDock();
+}"""
+
+
+def test_a_processor_or_distro_with_no_screens_does_not_print(page):
+    """A processor no screen is on (RACK IDLE, its box placed, its IP set)
+    and a distro feeding no screen (IDLE, its Power in set, and IDLE
+    THRU powered thru it; EMPTY THRU powered thru SHARED) print nowhere in
+    the binder or on the pull sheet: no sheet, no row, no count, no IP. A
+    service whose distros are all off goes with them. Hidden screens count
+    as none: with HID B hidden, LONE and RACK LONE are off the same way."""
+    pg, seed, errors = page
+    pg.evaluate(SEED_JS)
+    landed(pg)
+    pg.evaluate(IDLEGEAR_JS)
+    landed(pg)
+    pg.evaluate(HIDE_JS, [])
+    out = pg.evaluate(BINDER_JS)
+    words = ('IDLE', 'EMPTY THRU', '10.0.0.99')
+    hits = sorted({(p['title'], t) for p in out['pages'] for t in p['texts'] + [p['title']]
+                   if any(w in t for w in words)})
+    assert hits == [], hits
+    pull = json.dumps(out['pull'])
+    assert not any(w in pull for w in words), [w for w in words if w in pull]
+    totals = _kv(out, 'Show totals')
+    assert [(t['Distros'], t['Processors']) for t in totals] == [('2', '2')], totals
+    # SHARED still prints, its Power in with it; GENNY LONE's one printing
+    # distro is LONE, so the service stays
+    assert [x['Circuits'] for x in _kv(out, 'Distro')] and len(_kv(out, 'Service')) == 2
+    pg.evaluate(HIDE_JS, ['HID A', 'HID B'])
+    hidden = pg.evaluate(BINDER_JS)
+    assert _page_hits(hidden) == [], _page_hits(hidden)
+    totals = _kv(hidden, 'Show totals')
+    assert [(t['Distros'], t['Processors']) for t in totals] == [('1', '1')], totals
+    pg.evaluate(HIDE_JS, [])
+    assert errors == [], errors

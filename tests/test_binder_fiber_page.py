@@ -42,6 +42,7 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 from test_fiber_connections import SEED_JS  # noqa: E402
 from test_binder_ink import RULE_JS, _struck  # noqa: E402
+from test_hidden_screen_binder import FEED_JS  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -144,6 +145,8 @@ def page(e2e_server, pw_browser):
     settled(pg, lambda: pg.evaluate(
         "(sq) => !!(window.app._processorsResolved || []).find(p => p.id === sq)", ids['sq']),
         bool, 5000)
+    # WALL SR, NOVA, SQ A and DUAL each carry a screen
+    assert pg.evaluate(FEED_JS) == 4
     ids['errors'] = errors
     yield pg, ids
     context.close()
@@ -456,6 +459,7 @@ def many(page):
     seeded show is replaced; the module's guard puts the project back)."""
     pg, ids = page
     assert pg.evaluate(MANY_JS, 8) == 8
+    assert pg.evaluate(FEED_JS) == 8
     return pg
 
 
@@ -480,6 +484,7 @@ def test_that_much_fiber_draws_two_columns_on_one_sheet(many):
 def test_past_two_columns_it_continues_onto_the_next_sheet(many):
     pg = many
     assert pg.evaluate(MANY_JS, 16) == 16
+    assert pg.evaluate(FEED_JS) == 16
     plan = [p for p in pg.evaluate(PLAN_JS, _opts()) if p['kind'] == 'fiber']
     assert len(plan) >= 2, plan
     assert plan[0]['title'] == 'Fiber' and all(p['title'] == 'Fiber (cont.)' for p in plan[1:]), plan

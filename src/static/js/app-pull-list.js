@@ -1085,9 +1085,14 @@ class _PullList {
     // have lengths in the app but not in the binder if they remain
     // hidden"). Its own rows never reach the list (_pullScreens); these
     // say which GEAR is there only for hidden screens - a socket, a
-    // breakout box, a card, a processor, a distro whose every user is
-    // hidden - so the pull list and the binder leave it off. Gear nobody
-    // uses at all is not "hidden only": it prints as it always has.
+    // breakout box, a card whose every user is hidden - so the pull list
+    // and the binder leave it off.
+    //
+    // A PROCESSOR OR A DISTRO WITH NO SCREEN THAT PRINTS is off as well
+    // (owner, 2026-11-17: "processor with no screens doesnt print and same
+    // with a distro"), the way an empty distro is off the service sheet
+    // (2026-11-03): no screens at all, or hidden ones only. A breakout box
+    // nothing uses follows its processor.
 
     // Whether a screen's layer id is one the papers print.
     _pullShownLayerId(layerId) {
@@ -1125,29 +1130,28 @@ class _PullList {
         return this._pullHiddenOnlySockets(card.id, (box.ports || []).map(p => p.number));
     }
 
-    // A processor whose every screen is hidden: every card of it carrying
-    // a screen carries hidden ones only, and one does.
-    _pullHiddenOnlyProc(proc) {
-        const cards = ((proc && proc.slots) || []).map(s => s && s.card).filter(Boolean);
-        const occ = (this._assignment && this._assignment.occupancy) || {};
-        const used = cards.filter(c => Object.values(occ[c.id] || {}).some(list => (list || []).length));
-        return used.length > 0 && used.every(c => this._pullHiddenOnlySockets(c.id));
+    // A processor off paper: no socket of any card of it carries a screen
+    // that prints. Before the assignment is read nothing says so, and it
+    // stays on.
+    _pullProcOffPaper(proc) {
+        const occ = this._assignment && this._assignment.occupancy;
+        if (!occ || !proc) return false;
+        const cards = (proc.slots || []).map(s => s && s.card).filter(Boolean);
+        return !cards.some(c => Object.keys(occ[c.id] || {})
+            .some(k => this._pullShownOccupants(c.id, k).length));
     }
 
-    // A distro that only hidden screens use: none of its multis carries a
-    // screen that prints, and it carries a hidden one or every distro
-    // powered thru it is itself hidden only.
-    _pullHiddenOnlyDistro(d, seen = new Set()) {
-        if (!d || seen.has(String(d.id))) return false;
+    // A distro off paper: no multi of it, and of no distro powered thru it,
+    // carries a screen that prints - its Power in set or not.
+    _pullDistroOffPaper(d, seen = new Set()) {
+        if (!d || seen.has(String(d.id))) return true;
         seen.add(String(d.id));
         const numbers = typeof this._distroMultiNumbers === 'function' ? this._distroMultiNumbers(d.id) : new Map();
-        const own = [...numbers.values()].flat();
-        if (own.some(m => this._pullShownLayerId(m.layerId))) return false;
+        if ([...numbers.values()].flat().some(m => this._pullShownLayerId(m.layerId))) return false;
         const all = typeof this.getDistros === 'function' ? this.getDistros() : [];
-        const kids = all.filter(x => x && x.feeder && typeof x.feeder === 'object' && x.feeder.from != null
-            && String(x.feeder.from) === String(d.id) && String(x.id) !== String(d.id));
-        if (!own.length && !kids.length) return false;
-        return kids.every(k => this._pullHiddenOnlyDistro(k, seen));
+        return all.filter(x => x && x.feeder && typeof x.feeder === 'object' && x.feeder.from != null
+                && String(x.feeder.from) === String(d.id) && String(x.id) !== String(d.id))
+            .every(k => this._pullDistroOffPaper(k, seen));
     }
 
     // The screens' own positions: the project's beaches in ORDER, each with
@@ -1468,7 +1472,7 @@ class _PullList {
             const type = String(box.deviceName || '').trim();
             if (!type) continue;
             // a box only hidden screens use is off the list
-            if (this._pullHiddenOnlyBox(box, card)) continue;
+            if (this._pullHiddenOnlyBox(box, card) || this._pullProcOffPaper(proc)) continue;
             const r = { type, length: 'EA', qty: 1, label: this.pullBoxLabel(box),
                         notes: '', side: 'data' };
             if (!gearAt(r, this.pullLocationOf(box), boxFirstLayer.get(box.id))) continue;
@@ -1488,7 +1492,7 @@ class _PullList {
             if (!type) continue;
             // a processor only hidden screens use is off the list, its
             // backup unit and its boxes with it
-            if (this._pullHiddenOnlyProc(proc)) continue;
+            if (this._pullProcOffPaper(proc)) continue;
             const procName = proc.name || proc.deviceName || proc.id;
             const boxes = this._pullAllBoxes()
                 .filter(b => b.proc === proc && !this._pullHiddenOnlyBox(b.box, b.card)).map(b => b.box);
@@ -1554,7 +1558,7 @@ class _PullList {
             for (const { box, proc, card } of hosts) {
                 // a host only hidden screens use pulls no cable: a cable
                 // shared with a box that prints is said there, whole
-                if (this._pullHiddenOnlyBox(box, card)) continue;
+                if (this._pullHiddenOnlyBox(box, card) || this._pullProcOffPaper(proc)) continue;
                 // A card cabled on links of its own (a QD-S, `box` the
                 // card itself) has no location and no first screen: its
                 // fiber goes where its boxes are, as its gear row does,
@@ -1641,14 +1645,10 @@ class _PullList {
         for (const d of distros) {
             const n = boxesOn.get(String(d.id)) || 0;
             const k = directOn.get(String(d.id)) || 0;
-            // Listed when something is plugged into it, when another distro
-            // is fed thru it, or when its feeder is set; a distro with none
-            // of those stays off.
-            const passes = fedThru.has(String(d.id));
-            const fed = !!(d.feeder && typeof d.feeder === 'object');
-            if (!n && !k && !passes && !fed) continue;
-            // nor one that only hidden screens use, its Power in with it
-            if (!n && !k && this._pullHiddenOnlyDistro(d)) continue;
+            // Listed only while a screen that prints is plugged into it or
+            // into a distro powered thru it (owner, 2026-11-17: a distro
+            // feeding no screens does not print, its Power in set or not).
+            if (this._pullDistroOffPaper(d)) continue;
             // Named by its Type; a distro feeding direct outputs only says
             // its outputs in Notes, as it always has.
             const r = { type: this.pullDistroType(d), length: 'EA', qty: 1,

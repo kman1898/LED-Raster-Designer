@@ -345,12 +345,15 @@ def test_a_distro_with_nothing_at_all_is_off_the_binder(page):
     assert names and not [t for t in names if 'SPARE' in t], names
     texts = ' '.join(str(c) for t in b['tables'] for r in t['rows'] for c in r)
     assert 'nothing on this distro' not in texts.lower(), texts
-    # a feeder set keeps it on, the way the pull sheet lists it
+    # a Power in set does not bring it back (owner, 2026-11-17: a distro
+    # feeding no screens does not print), on the pull sheet either
     setup(pg, distros=[DIST, dict(empty, feeder={'ft': 50})],
           walls={'a': {'powerSocaDistro': {'1': 'd1'}, 'powerSocaNumber': {'1': 1}}})
     b = pg.evaluate(BINDER_JS, {'kinds': []})
     names = [p['title'] for p in b['plan'] if p['kind'] == 'distro']
-    assert [t for t in names if 'SPARE' in t], names
+    assert names and not [t for t in names if 'SPARE' in t], names
+    labels = pg.evaluate("() => window.app.buildPullList().totals.map(r => r.label)")
+    assert 'SPARE' not in labels, labels
     assert errors == [], errors
 
 
