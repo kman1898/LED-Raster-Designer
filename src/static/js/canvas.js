@@ -2443,9 +2443,10 @@ class CanvasRenderer {
         // overtop of borders"): every screen the loop below draws is queued
         // here, and its writing - name plate, sizes, corner readouts,
         // Cabinet IDs, module IDs, the data and power runs with their discs
-        // and tags - is drawn once every border, outline, selection box and
-        // grid line is down. `_labelPassDrawn` is the loop's draw order, so
-        // a screen's writing can still go under a screen drawn over it.
+        // and tags - is drawn once every border, outline and selection box
+        // is down, and the pixel grid after it. `_labelPassDrawn` is the
+        // loop's draw order, so a screen's writing and grid can still go
+        // under a screen drawn over it.
         this._labelPassLayers = [];
         this._labelPassDrawn = [];
         this._labelPassRects = new Map();
@@ -2910,11 +2911,11 @@ class CanvasRenderer {
 
             // ── The label pass ──────────────────────────────────────────
             // Every screen's writing, in the order the screens were drawn,
-            // now that every border, outline, selection box and grid line
-            // is down (Matt, 2026-11-09: "on any screen or canvas ... we
-            // need to have screen labels and stuff to be overtop of borders
-            // etc."). Each screen is put back in the frame its own pass
-            // used: its canvas's workspace and Front/Back mirror
+            // now that every border, outline and selection box is down,
+            // with the pixel grid after it (Matt, 2026-11-09: "on any
+            // screen or canvas ... we need to have screen labels and stuff
+            // to be overtop of borders etc."). Each screen is put back in
+            // the frame its own pass used: its canvas's workspace and Front/Back mirror
             // (_withLayerWs), its Show Look offset and its rotation with
             // the raster clip that goes with it. A screen, image or text
             // layer drawn LATER over this one still covers its writing
@@ -2968,20 +2969,8 @@ class CanvasRenderer {
                     this._activeRenderCanvas = _prevCanvas;
                 }
             };
-            // The pixel grid (all view modes, 1000%+ zoom), over every cabinet
-            // and under the writing. Each screen's grid is drawn in the frame
-            // its cabinets were: its canvas's workspace and Front/Back mirror,
-            // its Show Look offset, its rotation and its own canvas's raster.
-            if (this.zoom >= 10) {
-                window.app.project.layers.forEach(layer => {
-                    if (layer.visible) {
-                        _inLayerFrame(layer, null, () => this.renderPixelGrid(layer));
-                    }
-                });
-            }
-
-            // _labelPassDrawn is read through the member labels below
-            // (_layersDrawnAfter) and emptied after them.
+            // _labelPassDrawn is read through the member labels and the
+            // pixel grid below (_layersDrawnAfter) and emptied after them.
             const _labelLayers = this._labelPassLayers || [];
             this._labelPassLayers = [];
             _labelLayers.forEach(layer => {
@@ -3021,6 +3010,31 @@ class CanvasRenderer {
                     this.renderLayerLabels(layer);
                 });
             });
+
+            // The cabinets picked for a custom data or power run: a dark
+            // tint on each, over the writing and, like the Pixel Map's
+            // cabinet selection, under the pixel grid.
+            if (!this.exportMode && this.viewMode === 'data-flow') this.renderCustomSelectionOverlay();
+            if (!this.exportMode && this.viewMode === 'power') this.renderPowerSelectionOverlay();
+
+            // The pixel grid (all view modes, 1000%+ zoom, never on paper),
+            // over every cabinet AND every screen's writing: name plates,
+            // group names, corner readouts, Cabinet IDs, the data and power
+            // runs with their discs and tags (the owner, 2026-11-16: "labels
+            // should not cover the grid i need to be able to see the
+            // pixels"). Each screen's grid is drawn in the frame its
+            // cabinets were: its canvas's workspace and Front/Back mirror,
+            // its Show Look offset, its rotation and its own canvas's
+            // raster. A screen, image or text layer drawn later over this
+            // one covers its grid there, as it covers its cabinets
+            // (_clipOutLaterLayers): only the upper layer's grid shows.
+            if (this.zoom >= 10 && !this.exportMode) {
+                (this._labelPassDrawn || []).forEach(({ layer }) => {
+                    if (!layer || !layer.visible) return;
+                    _inLayerFrame(layer, this._layersDrawnAfter(layer),
+                        () => this.renderPixelGrid(layer));
+                });
+            }
             this._labelPassDrawn = [];
 
             // IDM Locator: the live highlight, over every screen. The output
@@ -3035,14 +3049,8 @@ class CanvasRenderer {
             // never touches it - the strip is not on paper and the next
             // interactive frame is the one that decides.
             if (!this.exportMode) this._activeBadgeShown = false;
-            if (!this.exportMode && this.viewMode === 'data-flow') {
-                this.renderCustomSelectionOverlay();
-                this.renderCustomActivePortBadge();
-            }
-            if (!this.exportMode && this.viewMode === 'power') {
-                this.renderPowerSelectionOverlay();
-                this.renderPowerActiveCircuitBadge();
-            }
+            if (!this.exportMode && this.viewMode === 'data-flow') this.renderCustomActivePortBadge();
+            if (!this.exportMode && this.viewMode === 'power') this.renderPowerActiveCircuitBadge();
             if (!this.exportMode && !this._activeBadgeShown) this._syncCustomRunReadout(null);
             if (!this.exportMode && this.viewMode === 'pixel-map' && !this._idmPass) {
                 this.renderPixelMapSelectionBadge();
@@ -3842,28 +3850,63 @@ class CanvasRenderer {
         this.ctx.rect(left, top, right - left, bottom - top);
         this.ctx.clip();
 
-        this.ctx.strokeStyle = 'rgba(80, 80, 80, 0.55)';
-        this.ctx.lineWidth = 1 / this.zoom;  // 1 screen pixel wide
+        // Each line is drawn on whole canvas pixels (the owner, 2026-11-16:
+        // the grid must be clearly visible on every cell colour). The edge's
+        // place on the canvas is worked out through the context's transform
+        // and rounded, and the line filled there with no transform, so it is
+        // never smeared half and half over two pixels at any zoom, mirror or
+        // turn. The canvas's backing store is one pixel per CSS pixel
+        // (devicePixelRatio is applied to the zoom readout, not the store),
+        // so a canvas pixel is a whole number of the display's pixels and
+        // stays crisp. Every edge is a pair: a dark pixel just after it
+        // and a light one just before it, so one of the two stands out on
+        // any colour under it (a dark or light cabinet, white, mid grey,
+        // black, or the writing).
+        const m = this.ctx.getTransform();
+        const dev = (x, y) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f];
+        const dark = new Path2D();
+        const light = new Path2D();
+        const edge = (ax, ay, bx, by) => {
+            const [px0, py0] = dev(ax, ay);
+            const [px1, py1] = dev(bx, by);
+            if (Math.abs(px1 - px0) < Math.abs(py1 - py0)) {
+                // upright on the canvas: columns e (dark) and e - 1 (light)
+                const e = Math.round(px0);
+                const s = Math.round(Math.min(py0, py1));
+                const len = Math.round(Math.max(py0, py1)) - s;
+                dark.rect(e, s, 1, len);
+                light.rect(e - 1, s, 1, len);
+            } else {
+                const e = Math.round(py0);
+                const s = Math.round(Math.min(px0, px1));
+                const len = Math.round(Math.max(px0, px1)) - s;
+                dark.rect(s, e, len, 1);
+                light.rect(s, e - 1, len, 1);
+            }
+        };
 
         // Lines on the screen's own pixel edges (bounds.x + n, bounds.y + n)
-        this.ctx.beginPath();
         const c0 = Math.max(0, Math.floor(x0 - bounds.x));
         const c1 = Math.ceil(x1 - bounds.x);
         for (let col = c0; col <= c1; col++) {
             const x = bounds.x + col;
             if (x < left || x > right) continue;
-            this.ctx.moveTo(x, y0);
-            this.ctx.lineTo(x, y1);
+            edge(x, y0, x, y1);
         }
         const r0 = Math.max(0, Math.floor(y0 - bounds.y));
         const r1 = Math.ceil(y1 - bounds.y);
         for (let row = r0; row <= r1; row++) {
             const y = bounds.y + row;
             if (y < top || y > bottom) continue;
-            this.ctx.moveTo(x0, y);
-            this.ctx.lineTo(x1, y);
+            edge(x0, y, x1, y);
         }
-        this.ctx.stroke();
+        // The clip above stays where it was set; only the drawing is in
+        // canvas pixels.
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        this.ctx.fill(dark);
+        this.ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        this.ctx.fill(light);
         this.ctx.restore();
     }
     

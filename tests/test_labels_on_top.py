@@ -1,13 +1,16 @@
-"""Labels are drawn over every border, grid line and outline, on every view.
+"""Labels are drawn over every border and outline, on every view.
 
 Matt's ruling (2026-11-09): "on any screen or canvas, including 3D we need
 to have screen labels and stuff to be overtop of borders etc."
 
 canvas.js render() draws every screen's cabinets first, then the lines that
 go with them - the canvas outlines, the selection boxes, the Pixel Map's
-cabinet selection, the pixel grid - and only then each screen's writing (the
-label pass): name plates and sizes, corner readouts, Cabinet IDs, the IDM
-Locator's module IDs, the data and power runs with their discs and tags. A
+cabinet selection - and only then each screen's writing (the label pass):
+name plates and sizes, corner readouts, Cabinet IDs, the IDM Locator's
+module IDs, the data and power runs with their discs and tags. The pixel
+grid (1000 % and past it) is the one line drawn over the writing (the
+owner, 2026-11-16: "labels should not cover the grid i need to be able to
+see the pixels"); test_pixel_grid has the rest of it. A
 screen drawn later that lies OVER another still covers it. The 3D tab paints
 a screen's writing onto a sheet of its own laid 5 mm proud of the face, over
 the seam lines, depth tested so a screen truly in front still hides it.
@@ -166,36 +169,45 @@ def assert_label_wins(out, what):
     assert out['changed'] == 0, f'{what}: a line was drawn over the label text: {out}'
 
 
+def assert_grid_wins(out, what):
+    """The one exception: the pixel grid is drawn over the label (the owner,
+    2026-11-16: "labels should not cover the grid i need to be able to see
+    the pixels"). Its lines cross the ink, about one pixel in six each way."""
+    assert out['inked'] >= 40, f'{what}: too little label ink in the frame to judge: {out}'
+    assert out['coverSeen'] > 0, f'{what}: the grid was never drawn: {out}'
+    assert out['changed'] >= out['inked'] // 10, f'{what}: the label hides the pixel grid: {out}'
+
+
 NAMED = {'name': 'MMMMMMM', 'columns': 2, 'rows': 2}
 
 GRID_VIEWS = ['pixel-map', 'cabinet-id', 'show-look', 'data-flow', 'power', 'rigging']
 
 
 @pytest.mark.parametrize('mode', GRID_VIEWS)
-def test_the_name_plate_is_over_the_pixel_grid(page, mode):
+def test_the_pixel_grid_is_over_the_name_plate(page, mode):
     """Zoomed to 1200 %, every view draws the LED pixel grid over the
-    cabinets; the screen's name plate is drawn over the grid."""
+    cabinets and over the screen's name plate."""
     spec = {'layers': [dict(NAMED)], 'kind': 'name', 'zoom': 12, 'cover': 'renderPixelGrid'}
     if mode == 'cabinet-id':
         spec['layers'][0]['showLabelNameCabinet'] = True
-    assert_label_wins(ink(page, mode, spec), f'{mode} name plate')
+    assert_grid_wins(ink(page, mode, spec), f'{mode} name plate')
 
 
 @pytest.mark.parametrize('mode', ['data-flow', 'power'])
-def test_the_port_and_circuit_discs_are_over_the_pixel_grid(page, mode):
-    """The run's label disc (P1, S1-1) is drawn over the grid too: the runs
-    and their discs go in the label pass with the name plate."""
+def test_the_pixel_grid_is_over_the_port_and_circuit_discs(page, mode):
+    """The run's label disc (P1, S1-1) is under the grid too: the runs and
+    their discs go in the label pass with the name plate."""
     spec = {'layers': [dict(NAMED)], 'kind': 'disc', 'at': [64, 64], 'zoom': 12,
             'cover': 'renderPixelGrid'}
-    assert_label_wins(ink(page, mode, spec), f'{mode} disc')
+    assert_grid_wins(ink(page, mode, spec), f'{mode} disc')
 
 
-def test_the_idm_module_ids_are_over_the_pixel_grid(page):
-    """The IDM Locator's module IDs are drawn over the grid."""
+def test_the_pixel_grid_is_over_the_idm_module_ids(page):
+    """The IDM Locator's module IDs are under the grid."""
     spec = {'layers': [dict(NAMED)], 'kind': 'module', 'zoom': 12, 'cover': 'renderPixelGrid',
             'idmField': {'color': '#ffffff', 'border': 'lines', 'moduleIds': True,
                          'labelColor': '#ff00ff'}}
-    assert_label_wins(ink(page, 'idm', spec), 'IDM module ID')
+    assert_grid_wins(ink(page, 'idm', spec), 'IDM module ID')
 
 
 def test_the_name_plate_is_over_the_cabinet_selection(page):
@@ -390,7 +402,8 @@ def test_both_shows_the_screens_and_the_walls_corner_readouts(page):
 
 def test_the_writing_is_drawn_once_after_every_screen(page):
     """The order itself: every screen's cabinets, then the lines, then the
-    writing - one name per screen, in the screens' order, never twice."""
+    writing - one name per screen, in the screens' order, never twice - and
+    then, zoomed in, the pixel grid over all of it."""
     out = page.evaluate("""() => {
         const gc = window.__gc, r = window.canvasRenderer;
         const a = gc.screen({ id: 1, name: 'A' });
@@ -409,8 +422,11 @@ def test_the_writing_is_drawn_once_after_every_screen(page):
     }""")
     labels = [o for o in out if o.startswith('renderLayerLabels')]
     assert labels == ['renderLayerLabels:A', 'renderLayerLabels:B'], out
-    last_line = max(i for i, o in enumerate(out) if not o.startswith('renderLayerLabels'))
+    last_line = max(i for i, o in enumerate(out)
+                    if not o.startswith(('renderLayerLabels', 'renderPixelGrid')))
     assert out.index('renderLayerLabels:A') > last_line, out
+    grids = [i for i, o in enumerate(out) if o.startswith('renderPixelGrid')]
+    assert grids and min(grids) > out.index('renderLayerLabels:B'), out
 
 
 # ── 3D ──────────────────────────────────────────────────────────────────
