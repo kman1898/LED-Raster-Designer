@@ -249,7 +249,7 @@ class _BinderWiring {
         }, () => {
             if (book.log) book.log.wiring = { halves: [] };
             this._bwDrawHalf(book, subject, plan);
-            this._bViewBubble(book, view, sheetTitle, book.geo.da.x + 20, area.bubbleY);
+            this._bViewBubble(book, view, sheetTitle, book.geo.da.x + 20, area.bubbleY, null, book.geo.da.w - 20);
         });
     }
 
