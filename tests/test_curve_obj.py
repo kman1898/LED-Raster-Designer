@@ -352,10 +352,11 @@ def test_custom_and_remove_bar_leave_a_curved_screen_alone_and_clear_turns_it_of
     assert page.errors == []
 
 
-def test_a_grouped_row_is_refused_and_named_and_a_turned_screen_curves(page):
+def test_a_turned_screen_curves(page):
     # A Pixel Map rotation turns only the picture: the bars and joints stay
     # the wall's own columns, so a turned screen takes a Curve (owner,
-    # 2026-11-10).
+    # 2026-11-10). A grouped row curves as one wall (owner, 2026-11-16):
+    # tests/test_curve_group.py.
     ids = reset(page, [{'name': 'TURNED', 'columns': 6, 'rows': 2, 'offset_x': 0, 'offset_y': 0}])
     page.evaluate("(id) => { const l = window.app.project.layers.find(x => x.id === id); l.rotation = 90; window.app.updateLayers([l], false); }", ids[0])
     open_rigging(page)
@@ -364,22 +365,6 @@ def test_a_grouped_row_is_refused_and_named_and_a_turned_screen_curves(page):
     turned = layer(page, ids[0])
     assert (turned.get('riggingCurve') or {}).get('on')
     assert turned['riggingBars'] == [1] * 6 and joints_of(turned) == expected(page, ids[0])['joints']
-
-    # two grouped screens standing edge to edge share one row of bars
-    ids = reset(page, [{'name': 'LEFT', 'columns': 4, 'rows': 2, 'offset_x': 0, 'offset_y': 0},
-                       {'name': 'RIGHT', 'columns': 4, 'rows': 2, 'offset_x': 512, 'offset_y': 0}])
-    group_two(page, ids)
-    open_rigging(page)
-    page.evaluate(f"window.app.setSelectedLayersByIds({ids}, {ids[0]})")
-    page.click('#rigging-auto-btn')
-    settled(page, lambda: layer(page, ids[0]).get('riggingBars'), bool)
-    n = history_len(page)
-    page.click('#rigging-curve-on')
-    page.wait_for_timeout(300)
-    said = toast_says(page, 'RIGHT cannot take a Curve')
-    assert 'LEFT cannot take a Curve: its bars run across its group' in said, said
-    assert not any((layer(page, i).get('riggingCurve') or {}).get('on') for i in ids)
-    assert history_len(page) == n
     assert page.errors == []
 
 

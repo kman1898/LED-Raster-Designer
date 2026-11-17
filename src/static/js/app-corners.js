@@ -167,7 +167,8 @@ class _Corners {
             seen.add(row.key);
             if (row.layers.some(m => this._layerLocked(m))) continue;
             if (row.layers.some(m => typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(m))) {
-                if (row.layers.length === 1) curved.push(row.layers[0]);
+                // a curved row (a group's too) is laid again by its Curve
+                if (typeof this.riggingCurveRowCurved === 'function' && this.riggingCurveRowCurved(row)) curved.push(row.layers[0]);
                 continue;
             }
             if (!row.placed.length && !row.pieces.length) continue;
@@ -448,7 +449,13 @@ class _Corners {
         if (hold) {
             hold.style.display = list.length ? '' : 'none';
             const curved = typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(primary);
-            const words = cornerAnchorWords(s3dCornerAnchor(primary, cols), cols);
+            // A curved group's row folds from the Build from point along
+            // the whole row (app-curve.js _curveRowAnchor).
+            const row = curved && typeof this._curveRow === 'function' ? this._curveRow(primary) : null;
+            const multi = !!row && row.layers.length > 1;
+            const words = multi
+                ? `${cornerAnchorWords(s3dCornerAnchor({ riggingCurve: this.riggingCurveFor(primary) }, row.width), row.width)} of the group`
+                : cornerAnchorWords(s3dCornerAnchor(primary, cols), cols);
             const text = `In 3D, ${words} stays put and the rest folds away from it`
                 + (curved ? ' (the Curve\'s Build from).' : '.');
             if (hold.textContent !== text) hold.textContent = text;

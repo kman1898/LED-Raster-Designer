@@ -293,6 +293,47 @@ def test_two_group_commits_in_flight_both_land(page):
     assert out['clientName'] == 'Upstage', out
 
 
+def test_grouping_waits_for_a_screen_save_still_on_its_way(page):
+    """A screen's save sent just before Group Screens landed after the
+    group's own PUT and put that screen back as it was, out of the group
+    (2026-11-16: the Curve a group guide step grouped three screens it had
+    just saved and the group came back with two). The screen's save is held
+    half a second here; the group still holds all three on the server, and
+    the edit the save carried is kept."""
+    out = page.evaluate(r"""async () => {
+      const ids = await window.__gi.fresh(3);
+      const real = window.fetch;
+      window.fetch = (url, opts) => {
+        if (opts && opts.method === 'PUT' && /\/api\/layer\/\d+/.test(String(url))) {
+          return new Promise(r => setTimeout(r, 500)).then(() => real(url, opts));
+        }
+        return real(url, opts);
+      };
+      try {
+        const l = window.__gi.layer(ids[2]);
+        l.name = 'S2 EDITED';
+        window.app.updateLayers([l]);
+        window.__gi.select(ids);
+        await window.app.groupSelectedLayers();
+        await window.__gi.drain();
+        await window.__gi.settle(900);
+      } finally {
+        window.fetch = real;
+      }
+      const server = await window.__gi.serverProject();
+      const g = (server.groups || [])[0] || {};
+      const sort = (a) => a.slice().sort((x, y) => x - y);
+      return {
+        ids: sort(ids),
+        members: sort(g.layer_ids || []),
+        grouped: sort(server.layers.filter(l => g.id && l.group_id === g.id).map(l => l.id)),
+        name: (server.layers.find(l => l.id === ids[2]) || {}).name,
+      };
+    }""")
+    assert out['members'] == out['ids'] and out['grouped'] == out['ids'], out
+    assert out['name'] == 'S2 EDITED', out
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # 3. the mismatch dialog cannot build a combination that does not exist
 # ══════════════════════════════════════════════════════════════════════════

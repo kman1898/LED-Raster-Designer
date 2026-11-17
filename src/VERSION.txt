@@ -201,6 +201,14 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   in one undo step. Auto lays it again too. While Curve is on, the bars are
   the Curve's: Custom and Remove Bar leave that screen alone, and Clear
   takes the bars off and turns the Curve off.
+- NEW: A group whose screens stand edge to edge curves as one wall. Tick
+  Curve on any of its screens and one curve runs across all of them, the
+  seams between screens bending like any other joint. The % is of the
+  whole wall, Build from counts its panels end to end, and the bars, the
+  pull sheet, the 3D view and Export OBJ follow, the screens meeting at
+  every seam. A group whose panels are different widths or share no lock
+  position, or with a screen standing beside the row out of line, can't
+  be curved, and the Curve says why.
 - NEW: Build from the center or either end, or drag the red dot on the
   plan onto any panel or the joint between two.
 - NEW: Ways to build it lists every way the lock positions can make the
@@ -540,6 +548,9 @@ FIXES
 - FIX: A group's up and down arrows move it among the rows of the canvas
   it is listed under, also when Show Look has one of its screens on
   another canvas.
+- FIX: Grouping screens straight after a change to one of them keeps every
+  screen in the group. The change's save could land after the grouping
+  and leave that screen out.
 - FIX: 1:1 (Zoom to Selection) on a grouped screen frames the whole group,
   also when its screens sit on different canvases. A screen picked on its
   own in the Screens list is still framed alone, and several screens

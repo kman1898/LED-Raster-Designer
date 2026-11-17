@@ -409,7 +409,10 @@ class _Rigging {
         const next = new Set(this._riggingSizesOf(this._riggingPrimary(selected)));
         if (next.has(size)) next.delete(size); else next.add(size);
         const sizes = [...next].sort((a, b) => a - b);
-        const screens = this._writableLayers(selected);
+        // A curved group's row has one stock: a size picked on one of its
+        // screens is picked for all of them (app-curve.js).
+        const withRows = typeof this.riggingCurveRowMates === 'function' ? this.riggingCurveRowMates(selected) : selected;
+        const screens = this._writableLayers(withRows);
         if (screens.length) {
             screens.forEach(l => { l.riggingSizes = [...sizes]; });
             // The lit sizes are a curved screen's stock: its curve is laid
@@ -566,8 +569,9 @@ class _Rigging {
         const curved = [];
         rows.forEach(row => {
             row.layers.forEach(m => { m.riggingSizes = [...sizes]; if (!changed.includes(m)) changed.push(m); });
-            // A curved screen's Auto lays its curve again (app-curve.js).
-            if (row.layers.length === 1 && typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(row.layers[0])) {
+            // A curved screen's Auto lays its curve again, a curved group's
+            // across the whole row (app-curve.js).
+            if (typeof this.riggingCurveRowCurved === 'function' && this.riggingCurveRowCurved(row)) {
                 curved.push(row.layers[0]);
                 return;
             }
@@ -602,7 +606,7 @@ class _Rigging {
             const row = this.riggingRow(m.layers[0], m.kind);
             const held = row.layers.filter(l => this._layerLocked(l));
             if (held.length) { held.forEach(l => { if (!locked.includes(l)) locked.push(l); }); return; }
-            if (row.layers.length === 1 && typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(row.layers[0])) {
+            if (typeof this.riggingCurveRowCurved === 'function' && this.riggingCurveRowCurved(row)) {
                 curved.push(row.layers[0]);
                 return;
             }
@@ -631,6 +635,7 @@ class _Rigging {
         const screens = this._writableLayers(withBars);
         if (screens.length === 0) return;
         const kinds = new Set();
+        const curved = screens.filter(l => typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(l));
         screens.forEach(l => {
             const side = this.riggingSideOf(l);
             KINDS.forEach(k => {
@@ -645,13 +650,11 @@ class _Rigging {
                 this._riggingSetCornerBars(l, laid, false);
                 kinds.add(side === 'footer' ? 'footer' : 'header');
             }
-            // A curve with its bars taken off is a curve no more: Clear
-            // turns it off and the joints go back to flat (app-curve.js).
-            if (typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(l)) {
-                l.riggingCurve = { ...this.riggingCurveOf(l), on: false };
-                this._curveUnlay(l);
-            }
         });
+        // A curve with its bars taken off is a curve no more: Clear turns it
+        // off and the joints go back to flat, a curved group's screens back
+        // in one straight line (app-curve.js riggingCurveOff).
+        if (curved.length) this.riggingCurveOff(curved);
         const word = kinds.size === 1 ? `${KIND_WORD[[...kinds][0]]} ` : '';
         this.updateLayers(screens, true, `Clear ${word}Bars`);
         this._riggingPicked = null;

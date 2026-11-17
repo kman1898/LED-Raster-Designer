@@ -1169,18 +1169,26 @@ class _Stage3D {
     // Back to the Show Look place: the screen and its group lose their 3D
     // block (null, so the PUT carries the removal - the route drops the key).
     // A screen whose Curve is on keeps the Curve's angles: it stands at its
-    // Show Look place, still curved.
+    // Show Look place, still curved; a curved group's row stands chained
+    // from there, its middle where the flat row's middle stands.
     _s3dReset() {
         const layer = this._s3dCurrentScreen();
         if (!layer) return;
         const all = this._writableLayers([layer, ...this._s3dGroupPeers(layer)].filter(l => l.stage3d));
         if (!all.length) return;
         const layout = this._s3dLayout();
-        all.forEach(l => {
+        const back = () => all.forEach(l => {
             const own = s3dResolve(l, l.stage3d);
             l.stage3d = own && Object.keys(own.jointsCol).length
                 ? { ...this._s3dShowLookPlacement(l, layout), jointsCol: own.jointsCol } : null;
         });
+        // A curved group's screens stand chained again from their Show Look
+        // places, still curved (app-curve.js riggingCurveResetRows).
+        if (typeof this.riggingCurveResetRows === 'function') {
+            this.riggingCurveResetRows(all, back).forEach(l => { if (!all.includes(l)) all.push(l); });
+        } else {
+            back();
+        }
         this._s3dPickCorner(null);
         this.updateLayers(all, true, 'Reset 3D Placement');
         this._s3dSchedule();
@@ -1272,7 +1280,7 @@ class _Stage3D {
         if (note) {
             const group = peers.length ? (this.project.groups || []).find(g => g && g.id === layer.group_id) : null;
             note.hidden = !group;
-            note.textContent = group ? `Moves and turns with its group, ${group.name || 'Group'}. The curve and corners are this screen's own.` : '';
+            note.textContent = group ? `Moves and turns with its group, ${group.name || 'Group'}. The group's screens in one row share one Curve; the corners are each screen's own.` : '';
         }
         this._s3dPanelFigures(shown, force);
         this._s3dPanelReadouts(layer, p);

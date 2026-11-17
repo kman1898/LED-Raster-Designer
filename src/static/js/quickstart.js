@@ -394,8 +394,11 @@
     // Curve short of the drawing must not pass (QA, 2026-11-11: a corner
     // down a panel's middle left the shorter side Out of range while the
     // step said done).
-    function curveTabClean() {
-        var a = A(), w = wall();
+    function curveTabClean() { return curveTabCleanFor(wall()); }
+    // The same for the screen `w` the tab shows (a grouped row's: the
+    // answer is the row's, app-curve.js).
+    function curveTabCleanFor(w) {
+        var a = A();
         if (!w || !w.riggingCurve || !w.riggingCurve.on || a.riggingCurveBusy()) return false;
         var out = a.riggingCurveCached(w);
         if (!out || out.errors.length || !a._curveLaidMatches(w, out)) return false;
@@ -6748,6 +6751,100 @@
                     ? 'Exterior turned the fold away from the audience; × took it off and DEMO WALL is one wall again, curved ' + sweep + '.' : null;
             }
         },
+        // A grouped wall curves as one (1.7.0, owner's report 2026-11-16:
+        // "groups arent allowing curve which is not correct"). Three
+        // screens of the demo's panel, four columns each, stand edge to
+        // edge under everything and are grouped; Curve ticked with the
+        // middle one picked lays one curve across all twelve columns, the
+        // seams between the screens joints like any other. They take DEMO
+        // WALL's panel, lit sizes and Curve settings (its Curve ticked
+        // off), so the row asks the calculator what the Curve a wall step
+        // asked of the demo's twelve columns, which the demo's lock
+        // positions reach cleanly; the step does not pass while the tab
+        // warns. A practice step: it closes its guide, so its screens reach
+        // no later run.
+        groupCurve: {
+            since: '1.7.0',
+            target: '#rigging-curve', place: 'right', title: 'Curve a group',
+            body: 'A group whose screens stand edge to edge curves as one wall. Tick Curve on any of its screens: one curve runs across them all, and the seams between screens bend like any other joint.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('rigging'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                if (!w) return Promise.reject(new Error('the demo wall is missing'));
+                var names = ['CURVE LEFT', 'CURVE MIDDLE', 'CURVE RIGHT'];
+                var cols = 4;
+                var cw = Number(w.cabinet_width) || 128;
+                var bottom = screens().reduce(function (m, l) {
+                    return Math.max(m, (Number(l.offset_y) || 0) + (Number(l.rows) || 0) * (Number(l.cabinet_height) || 0));
+                }, 0);
+                var find = function (id) { return screens().find(function (l) { return l.id === id; }) || null; };
+                var made = [];
+                var add = function (i) {
+                    return j('POST', '/api/layer/add', {
+                        name: names[i], columns: cols, rows: 2,
+                        cabinet_width: w.cabinet_width, cabinet_height: w.cabinet_height,
+                        offset_x: (Number(w.offset_x) || 0) + i * cols * cw, offset_y: bottom + 200
+                    }).then(function (layer) {
+                        practiceScreen(layer);
+                        ['processorType', 'bitDepth', 'frameRate', 'lowLatency', 'panel_width_mm', 'panel_height_mm',
+                         'panelModelId', 'panelModelName'].forEach(function (k) {
+                            if (w[k] !== undefined) layer[k] = w[k];
+                        });
+                        if (Array.isArray(w.riggingSizes)) layer.riggingSizes = w.riggingSizes.slice();
+                        layer.riggingCurve = Object.assign({}, w.riggingCurve || {}, { on: false, pick: null });
+                        delete layer.riggingCurve.sidePicks;
+                        a.upsertProjectLayer(layer);
+                        a.updateLayers([layer]);
+                        made.push(layer.id);
+                    });
+                };
+                return add(0).then(function () { return add(1); }).then(function () { return add(2); }).then(function () {
+                    t.mem.ids = made.slice();
+                    a.setSelectedLayersByIds(made, made[1]);
+                    frameLayers(made.map(find));
+                    a.saveState('Add Layer');
+                    return a.groupSelectedLayers();
+                }).then(function () {
+                    return Promise.resolve(a._groupCommitChain);
+                }).then(function () {
+                    return t.wait(function () {
+                        var m = find(made[1]);
+                        return m && m.group_id && made.every(function (id) { var l = find(id); return l && l.group_id === m.group_id; });
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the three screens were not grouped');
+                    a.setSelectedLayersByIds([made[1]], made[1]);
+                    a.refreshRiggingPanel();
+                    return t.pause(PACE.rest);
+                }).then(function () {
+                    return t.click('#rigging-curve-on');
+                }).then(function () {
+                    // one curve laid across the three, and the tab drawn
+                    // from it with nothing to warn of
+                    return t.wait(function () {
+                        var ls = made.map(find);
+                        if (!ls.every(function (l) { return l && l.riggingCurve && l.riggingCurve.on; })) return false;
+                        return curveTabCleanFor(ls[1]);
+                    }, 10000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the group was not curved as one wall');
+                    return t.spot($('#rigging-curve-result')).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var ls = ((mem && mem.ids) || []).map(function (id) {
+                    return screens().find(function (l) { return l.id === id; }) || null;
+                });
+                if (ls.length !== 3 || !ls.every(function (l) { return l && l.riggingCurve && l.riggingCurve.on; })) return null;
+                var g = a.getGroupOfLayer(ls[1]);
+                var head = $('#rigging-curve-head');
+                var sweep = sweepShown();
+                if (!g || !sweep || !curveTabCleanFor(ls[1])) return null;
+                return g.name + ' curves as one wall across its three screens, ' + sweep + ': '
+                    + ((head && head.textContent) || '') + '.';
+            }
+        },
         // Services (1.5.3, app-services.js): the house power several
         // distros are fed from. One step adds the Service card, the next
         // drags the distro's header bar onto it.
@@ -9402,6 +9499,7 @@
     // close their guide, after its runs, so nothing they add reaches a
     // later run or another guide's demo show.
     var DATA_PRACTICE = ['mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'redrawAsOne', 'sweepPorts'];
+    var HEADER_PRACTICE = ['groupCurve'];
     var POWER_PRACTICE = ['powerZPattern', 'circuitNumbers', 'mixedSources', 'resetHole', 'redrawCircuits',
                           'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun'];
     var GUIDE_SEED = { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } };
@@ -9418,7 +9516,7 @@
           own: BUILD.power.concat(POWER_PRACTICE),
           intro: 'On a demo show with its data wired, this guide powers the wall: distros, multis, jumpers, cable stock, custom circuits, balance, a service and two kinds of power. Your own project is put back when you leave.' },
         { name: 'headerFooter', title: 'Header/Footer and Curves', prep: BUILD.pixelWall.concat(BUILD.data, BUILD.power),
-          own: BUILD.headerFooter,
+          own: BUILD.headerFooter.concat(HEADER_PRACTICE),
           intro: 'On a demo show with a wired wall, this guide lays its header and footer bars, then curves the wall and bends a corner. Your own project is put back when you leave.' },
         { name: 'threeD', title: '3D and Output', prep: BUILD.pixelWall.concat(BUILD.data, BUILD.power, BUILD.headerFooter, BUILD.pixelScreens),
           own: BUILD.threeD,

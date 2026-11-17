@@ -1060,7 +1060,7 @@ NEW_IN_1_7 = [
     # Header/Footer and Curves
     'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide',
     'riggingTotals', 'riggingCurveLocks', 'riggingCurve', 'riggingCorner', 'riggingCornerBars',
-    'riggingCornerSide',
+    'riggingCornerSide', 'groupCurve',
     # 3D and Output
     's3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',
     's3dCamera', 's3dFocus', 's3dBars', 's3dCorner', 'outputOpen', 'outputChoices',

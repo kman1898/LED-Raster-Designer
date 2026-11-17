@@ -74,8 +74,35 @@
 // was, flagged, until Auto or Use this lays it again from the list. The
 // typed "Lock angles" of the first 1.7.0 builds (riggingCurve.angles) are
 // no longer read.
+//
+// A GROUPED WALL TAKES ONE CURVE (owner, 2026-11-16: "groups arent
+// allowing curve which is not correct"). The members of a group that
+// stand edge to edge carry one row of bars (app-rigging.js riggingRow),
+// and the Curve runs along that row the same way: the calculator lays one
+// curve over every member's columns in wall order, the % is of the whole
+// row's front face, the datum is in the row's panels, and the seam between
+// two members is an ordinary joint that takes a curve angle. The group has
+// one Curve setting, set from any member: an edit writes it, and the lit
+// sizes of the screen the tab shows, to every screen of the group, and
+// each row of the group is laid again (a stacked group's screens are each
+// a row of their own and each curved as its own wall). The bars go on the
+// member each starts on, as Auto lays them; each member's own joints are
+// its part of the answer; in 3D the members are chained (_curveRowPlace),
+// each starting where the one before ends, turned by the seam's angle,
+// the middle of the row (with a corner along it, the Build from point)
+// staying where it stands. A row is refused, said in plain words, when its
+// panels are different widths, when its panels share no lock position but
+// flat (the Curve lays only the positions every member's panel locks at),
+// or when a member of the group stands beside it out of line. A locked
+// group is refused with the locked error. Grouping screens that each had a
+// Curve moves nothing until Auto lays the row; ungrouping leaves each
+// screen standing as it is, its part of the curve kept (the tab says it is
+// not that screen's own curve until Auto lays it again).
 import { LEDRasterApp } from './app-core.js';
-import { s3dCleanCorners, s3dCornerSeams, s3dCornerTurn, s3dResolve, s3dSanitize } from './app-stage3d.js';
+import {
+    anglesFromQuat, quatFromPlacement, quatInv, quatMul, quatRotate, round, s3dBuild, s3dCleanCorners,
+    s3dCornerSeams, s3dCornerTurn, s3dResolve, s3dSanitize, wrap180, DEG, PIVOT,
+} from './app-stage3d.js';
 import {
     cleanCurve, cleanLocks, convertCurveEntry, datumLabel, formatAngle, formatLength, formatLock, formatSmall,
     hasLockPositions, ownerCurveLocks, parseLocks, screenCurve, snapDatum, toleranceField,
@@ -87,6 +114,7 @@ const LOCK_SOURCE_WORDS = {
     user: 'Set by you',
     library: 'From the panel library',
     owner: 'Built-in list',
+    group: 'Every panel of the group locks at these',
 };
 
 const CACHE_MAX = 40;
@@ -97,6 +125,70 @@ const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
 const listWords = (names) => (names.length <= 1 ? (names[0] || '')
     : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
+
+// ---- a grouped row in 3D (pure) ---------------------------------------------
+//
+// A frame is { p: [x, y, z] mm, q: quaternion }. A heading h (radians) is
+// a direction along the floor in a screen's own frame, as its column
+// chain walks it (app-stage3d.js s3dWalk: positive turns toward the
+// audience); the frame along the wall at heading h is q times the turn
+// about the upright by -h.
+const yawQ = (rad) => quatFromPlacement({ pitch: 0, yaw: rad / DEG, roll: 0 });
+const vAdd = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const vSub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+
+// A screen's bottom edge as built with `jointsCol` (and its own corners),
+// in its own frame: { len mm, cum, colLen, at(a, side) }, at(a) the point
+// `a` mm along it ({ x, z }) and the heading there on that side of a
+// joint ('left' the segment ending there, 'right' the one starting).
+// Null for a screen with no cabinets.
+function curveEdge(layer, jointsCol) {
+    const b = s3dBuild(layer, { jointsCol: jointsCol || {} });
+    const n = b.colLen.length, k = b.rowLen.length - 1;
+    if (!n || k < 0) return null;
+    const cum = [0];
+    b.colLen.forEach(v => cum.push(cum[cum.length - 1] + v));
+    const pt = (i, u) => { const p = b.point(i, u, k, b.rowLen[k]); return [p[0], p[2]]; };
+    const at = (a, side) => {
+        let i = 0;
+        if (side === 'left') { while (i < n - 1 && a > cum[i + 1] + 1e-6) i++; } else { while (i < n - 1 && a >= cum[i + 1] - 1e-6) i++; }
+        const len = b.colLen[i];
+        const u = Math.max(0, Math.min(len, a - cum[i]));
+        const f = b.foldAt(i);
+        let u0 = 0, u1 = len;
+        if (f !== null) {
+            if (u < f - 1e-6 || (side === 'left' && u <= f + 1e-6)) u1 = f; else u0 = f;
+        }
+        const p = pt(i, u), p0 = pt(i, u0), p1 = pt(i, u1);
+        return { x: p[0], z: p[1], h: Math.atan2(p1[1] - p0[1], p1[0] - p0[0]) };
+    };
+    return { len: cum[n], cum, colLen: b.colLen, at };
+}
+
+// The frame `a` mm along a row of edges, each member standing at its own
+// frame: on a joint (a seam between two members too) it heads halfway
+// between the two sides, as a screen's middle does (app-stage3d.js
+// s3dChain).
+function frameAlong(edges, frames, a) {
+    const offs = [];
+    let acc = 0;
+    edges.forEach(e => { offs.push(acc); acc += e.len; });
+    const pick = (side) => {
+        let i = 0;
+        if (side === 'left') { while (i < edges.length - 1 && a > offs[i] + edges[i].len + 1e-6) i++; } else { while (i < edges.length - 1 && a >= offs[i] + edges[i].len - 1e-6) i++; }
+        const e = edges[i].at(Math.max(0, Math.min(edges[i].len, a - offs[i])), side);
+        const f = frames[i];
+        return { p: vAdd(f.p, quatRotate(f.q, [e.x, 0, e.z])), q: quatMul(f.q, yawQ(-e.h)) };
+    };
+    const L = pick('left'), R = pick('right');
+    const rel = anglesFromQuat(quatMul(quatInv(L.q), R.q)).yaw * DEG;
+    return { p: L.p, q: quatMul(L.q, yawQ(rel / 2)) };
+}
+
+// The turn in degrees from frame `from` to frame `to` along the wall.
+function turnBetween(from, to) {
+    return -anglesFromQuat(quatMul(quatInv(from), to)).yaw;
+}
 
 class _Curve {
     _wireRiggingCurve() {
@@ -198,13 +290,15 @@ class _Curve {
     // The angles a curved screen stands at that its panel's list does not
     // have, signed, each once ([] when every one is on it).
     _curveOffList(layer, list) {
-        const table = (layer && layer.stage3d && layer.stage3d.jointsCol) || {};
+        const row = this._curveRow(layer);
+        const tables = (this._curveMulti(row) ? row.layers : [layer])
+            .map(l => (l && l.stage3d && l.stage3d.jointsCol) || {});
         const have = new Set((list || []).map(a => Math.round(a * 1000)));
         const off = new Set();
-        Object.values(table).forEach(v => {
+        tables.forEach(table => Object.values(table).forEach(v => {
             const a = Number(v);
             if (Number.isFinite(a) && a !== 0 && !have.has(Math.round(a * 1000))) off.add(a);
-        });
+        }));
         return [...off].sort((a, b) => a - b);
     }
 
@@ -227,6 +321,7 @@ class _Curve {
         const curved = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen'
             && this.curveLockKey(l) === key && this.riggingCurveOn(l) && !this._curveCannot(l)
             && !(typeof this._layerLocked === 'function' && this._layerLocked(l)));
+        // (a grouped row lays again whole, its other screens with it)
         if (!(curved.length && this.riggingCurveRelayLater(curved, action, curved))) this.saveState(action);
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
@@ -392,19 +487,172 @@ class _Curve {
         }
     }
 
+    // ---- the row a curve runs along -----------------------------------------
+
+    // The row of bars a screen's Curve runs along (app-rigging.js
+    // riggingRow): the screen alone, or the members of its group standing
+    // edge to edge with it. Null on a screen with a header and a footer.
+    _curveRow(layer) {
+        if (!layer || (layer.type || 'screen') !== 'screen') return null;
+        const side = this.riggingSideOf(layer);
+        if (side === 'both') return null;
+        return this.riggingRow(layer, side);
+    }
+
+    _curveMulti(row) {
+        return !!row && row.layers.length > 1;
+    }
+
+    // A row's name in a message: its screen, or its screens.
+    _curveRowWords(row) {
+        return listWords(row.layers.map(l => l.name || `Screen ${l.id}`));
+    }
+
+    // The Curve a row is laid at: its first screen's with the Curve on,
+    // else its first screen's. Every edit writes it to every screen of the
+    // row, so they differ only on screens grouped after each was curved.
+    _curveRowSettings(row) {
+        const on = row.layers.find(l => this.riggingCurveOf(l).on);
+        return this.riggingCurveOf(on || row.layers[0]);
+    }
+
+    // The Curve a screen shows and is laid at: its row's.
+    riggingCurveFor(layer) {
+        const row = this._curveRow(layer);
+        return this._curveMulti(row) ? this._curveRowSettings(row) : this.riggingCurveOf(layer);
+    }
+
+    // Is a row curved: its Curve on, and one it can take.
+    riggingCurveRowCurved(row) {
+        return !!row && row.layers.length > 0 && this._curveRowSettings(row).on && !this._curveCannot(row.layers[0]);
+    }
+
+    // `layers` and the other screens of every curved grouped row they are
+    // on: a lit size picked on one member is the whole row's stock.
+    riggingCurveRowMates(layers) {
+        const out = [...(layers || [])];
+        for (const l of layers || []) {
+            const row = this._curveRow(l);
+            if (this._curveMulti(row) && this._curveRowSettings(row).on) {
+                row.layers.forEach(m => { if (!out.includes(m)) out.push(m); });
+            }
+        }
+        return out;
+    }
+
+    // The lock positions a row's Curve lays: a screen's own panel's, and
+    // across a group only the positions every member's panel locks at.
+    // Null when a panel has none.
+    _curveRowLocks(row) {
+        const lists = row.layers.map(l => this.curveLocksOf(l).list);
+        if (lists.length === 1) return lists[0] || null;
+        if (lists.some(x => !hasLockPositions(x))) return null;
+        const has = (list, a) => list.some(b => Math.abs(b - a) < 1e-6);
+        return cleanLocks(lists[0].filter(a => lists.every(x => has(x, a))));
+    }
+
+    // The lock positions the tab shows for the screen it shows: its
+    // panel's, or on a grouped row whose panels differ, the ones every
+    // panel of it locks at (the panel's own when they have none in common,
+    // and the tab says why the group cannot curve).
+    _curveLocksShown(primary, row) {
+        const own = this.curveLocksOf(primary);
+        if (!this._curveMulti(row)) return own;
+        const list = this._curveRowLocks(row);
+        if (!hasLockPositions(list)) return own;
+        const same = row.layers.every(m => JSON.stringify(this.curveLocksOf(m).list) === JSON.stringify(own.list));
+        return same ? own : { ...own, list, source: 'group', note: '' };
+    }
+
+    // A member of the row's group standing beside it, left or right, that
+    // the row does not take in: why one curve cannot run on, or ''.
+    _curveBeside(row) {
+        const members = typeof this.groupMembersOf === 'function' ? this.groupMembersOf(row.layers[0]) : [];
+        if (members.length < 2) return '';
+        const ids = new Set(row.ids);
+        const rects = row.layers.map(l => this._riggingRect(l));
+        const unit = (r) => r.w / Math.max(1, r.panels);
+        for (const m of members) {
+            if (ids.has(m.id)) continue;
+            const r = this._riggingRect(m);
+            const touch = rects.some(q => (Math.abs(q.x + q.w - r.x) <= 1 || Math.abs(r.x + r.w - q.x) <= 1)
+                && q.y < r.y + r.h - 1 && r.y < q.y + q.h - 1);
+            if (!touch) continue;
+            let why;
+            if (this.riggingTurned(m) || row.layers.some(l => this.riggingTurned(l))) {
+                why = 'a Pixel Map rotation turns one of them';
+            } else if (!this._riggingKindsOf(m).includes(row.kind)) {
+                why = `its bars are on the ${row.kind === 'header' ? 'footer' : 'header'}`;
+            } else if (Math.abs(unit(r) - unit(rects[0])) > 1) {
+                why = 'its panels are a different size';
+            } else {
+                why = `their ${row.kind === 'footer' ? 'bottom' : 'top'} edges do not line up`;
+            }
+            return `${m.name || `Screen ${m.id}`} stands beside ${row.layers.length > 1 ? 'them' : 'it'} in the group but ${why}, so one curve cannot run across them`;
+        }
+        return '';
+    }
+
     // Why a screen cannot take a Curve, or '' when it can.
     // A Pixel Map rotation is no reason: it turns only the picture, and the
     // bars and the joints stay the wall's own columns (owner, 2026-11-10).
+    // A grouped row curves as one wall (owner, 2026-11-16) unless its
+    // panels differ in width, share no lock position but flat, or a member
+    // of the group stands beside it out of line. Panels of different
+    // heights are no reason: a curve bends the columns only.
     _curveCannot(layer) {
         if (this.riggingSideOf(layer) === 'both') return 'it has a header and a footer';
-        const row = this.riggingRow(layer, this.riggingSideOf(layer));
-        if (row.layers.length > 1) return 'its bars run across its group, and a curve is one screen\'s';
+        const row = this._curveRow(layer);
+        if (!row) return '';
+        const name = (l) => l.name || `Screen ${l.id}`;
+        const both = row.layers.filter(l => this.riggingSideOf(l) === 'both');
+        if (both.length) return `${listWords(both.map(name))} ${both.length === 1 ? 'has' : 'have'} a header and a footer`;
+        const beside = this._curveBeside(row);
+        if (beside) return beside;
+        if (row.layers.length < 2) return '';
+        const mm = (l) => Number(l.panel_width_mm) || 500;
+        if (new Set(row.layers.map(mm)).size > 1) {
+            return `their panels are different widths (${row.layers.map(l => `${name(l)} ${mm(l)} mm`).join(', ')}), and one curve needs one panel width`;
+        }
+        const lists = row.layers.map(l => this.curveLocksOf(l).list);
+        const without = row.layers.filter((l, i) => !hasLockPositions(lists[i]));
+        if (without.length && without.length < row.layers.length) {
+            const one = without.length === 1;
+            return `${listWords(without.map(name))} ${one ? 'has' : 'have'} no curve lock positions for ${one ? 'its' : 'their'} panel yet. Select ${one ? 'it' : 'them'} to set them`;
+        }
+        if (!without.length && !hasLockPositions(this._curveRowLocks(row))) {
+            return 'their panels share no lock position besides flat, and the Curve lays only positions every panel locks at';
+        }
         return '';
+    }
+
+    // The name a refusal goes by: the screen, or a grouped row's screens.
+    _curveWho(layer) {
+        const row = this._curveRow(layer);
+        return this._curveMulti(row) ? this._curveRowWords(row) : (layer.name || `Screen ${layer.id}`);
     }
 
     // What the calculator is asked for a screen as it stands: its corners
     // too, when it has any (a screen without keeps the input it always had).
+    // On a grouped row, the row: every member's columns in wall order, the
+    // first member's panel width and lit sizes (a Curve edit gives every
+    // member the same), the lock positions every panel has, the corners
+    // along it.
     _curveInput(layer, settings = null) {
+        const row = this._curveRow(layer);
+        if (this._curveMulti(row)) {
+            const lead = row.layers[0];
+            const pieces = (row.spots || []).map(sp => ({ start: sp.start, size: sp.size }));
+            return {
+                panels: row.width,
+                panelWidthM: (Number(lead.panel_width_mm) || 500) / 1000,
+                sizes: this._riggingSizesOf(lead),
+                settings: { ...(settings || this._curveRowSettings(row)), on: true },
+                system: this._curveSystem(),
+                locks: this._curveRowLocks(row),
+                ...(pieces.length ? { pieces } : {}),
+            };
+        }
         const s = settings || this.riggingCurveOf(layer);
         return {
             panels: Number(layer.columns) || 0,
@@ -531,8 +779,11 @@ class _Curve {
     }
 
     // The answer written onto the screen: its bars on its side, its
-    // corners' corner bars, and the angle at every column joint.
+    // corners' corner bars, and the angle at every column joint. On a
+    // grouped row, onto the row (_curveWriteRow). Returns the screens.
     _curveWrite(layer, out) {
+        const row = this._curveRow(layer);
+        if (this._curveMulti(row)) return this._curveWriteRow(row, out);
         const side = this.riggingSideOf(layer) === 'footer' ? 'footer' : 'header';
         this._riggingWrite(layer, side, this._curvePlaced(out).filter(b => !b.corner).map(b => ({ start: b.start, size: b.size })));
         const ats = typeof this.riggingCornerSpots === 'function' ? this.riggingCornerSpots(layer).map(sp => sp.at) : [];
@@ -542,10 +793,231 @@ class _Curve {
         this._curveJoints(layer, out).forEach((a, j) => { jointsCol[String(j)] = a; });
         const prev = this._s3dPlacementOf(layer);
         layer.stage3d = s3dSanitize({ ...prev, jointsCol });
+        return [layer];
     }
 
-    // True when the screen carries exactly this answer's bars and angles.
+    // The answer written onto a grouped row: its bars across the row, each
+    // on the member it starts on (as Auto lays them), the corner bars on
+    // their members, the row's Curve on every member, each member's own
+    // joints its part of the answer, and the members chained in 3D.
+    _curveWriteRow(row, out) {
+        const s = this._curveRowSettings(row);
+        const placed = this._curvePlaced(out);
+        this._riggingWriteRow(row, placed.filter(b => !b.corner).map(b => ({ start: b.start, size: b.size })));
+        row.layers.forEach(m => {
+            m.riggingCustom = false;
+            m.riggingCurve = { ...s };
+            const ats = (row.spots || []).filter(sp => sp.owner === m).map(sp => sp.at);
+            if (ats.length) this._riggingSetCornerBars(m, ats, true);
+        });
+        const { joints, seams } = this._curveSplit(row, this._curveJoints(row.layers[0], out));
+        this._curveRowPlace(row, joints, seams);
+        return row.layers;
+    }
+
+    // A row's joints (0-based, across the row) as each member's own and the
+    // seams between members: { joints: [[...] per member], seams: [...] }.
+    _curveSplit(row, list) {
+        const joints = row.layers.map((m, i) => Array.from({ length: Math.max(0, row.panels[i] - 1) },
+            (_, j) => Number(list[row.offsets[i] + j]) || 0));
+        const seams = row.layers.slice(0, -1).map((m, i) => Number(list[row.offsets[i] + row.panels[i] - 1]) || 0);
+        return { joints, seams };
+    }
+
+    // Where the row's members stand in 3D, now, each { p, q } with the
+    // joints it is built with (`flat`: as if every joint were flat).
+    _curveRowNow(row, flat = false) {
+        const lay = typeof this._s3dLayout === 'function' ? this._s3dLayout() : undefined;
+        return row.layers.map(m => {
+            const p = this._s3dPlacementOf(m, lay);
+            return { p: [p.x, p.y, p.z], q: quatFromPlacement(p), edge: curveEdge(m, flat ? {} : p.jointsCol) };
+        });
+    }
+
+    // The angle at each seam of a grouped row as it stands in 3D, in
+    // degrees, read off where its members stand; null when one has no
+    // cabinets.
+    _curveRowSeams(row) {
+        const now = this._curveRowNow(row);
+        if (now.some(n => !n.edge)) return null;
+        return now.slice(0, -1).map((n, i) => {
+            const e = n.edge.at(n.edge.len, 'left');
+            const s = now[i + 1].edge.at(0, 'right');
+            const a = turnBetween(quatMul(n.q, yawQ(-e.h)), quatMul(now[i + 1].q, yawQ(-s.h)));
+            return Math.round(a * 1000) / 1000;
+        });
+    }
+
+    // How far along a grouped row (mm, as `edges` build it) its members
+    // stand put from: its middle, or with a corner along it the Curve's
+    // Build from point, the side there staying put as on a screen
+    // (app-stage3d.js s3dCornerAnchor).
+    _curveRowAnchor(row, edges) {
+        const total = edges.reduce((t, e) => t + e.len, 0);
+        if (!(row.spots || []).length) return total / 2;
+        const from = this._curveRowSettings(row).from;
+        if (from === 'left') return 0;
+        if (from === 'right') return total;
+        if (typeof from !== 'number') return total / 2;
+        const half = snapDatum(from, row.width);
+        // where row panel p (0-based) starts, and which member and column
+        const startOf = (p) => {
+            let i = 0;
+            while (i < row.layers.length - 1 && p >= row.offsets[i] + row.panels[i]) i++;
+            const before = edges.slice(0, i).reduce((t, e) => t + e.len, 0);
+            const c = Math.max(0, Math.min(edges[i].colLen.length, p - row.offsets[i]));
+            return { at: before + edges[i].cum[c], len: edges[i].colLen[c] || 0 };
+        };
+        if (Number.isInteger(half)) { const s = startOf(half - 1); return s.at + s.len / 2; }
+        return startOf(half - 0.5).at;
+    }
+
+    // Where each member of a grouped row stands in 3D for `joints` (each
+    // member's own) and `seams`: one chain across the row, each member's
+    // columns bent by its joints and its corners, the next member starting
+    // where it ends, turned by the seam's angle. The row's anchor
+    // (_curveRowAnchor) stays where it stands now, facing the same way;
+    // `opts.flat` reads where it stands as if the row were flat (after a
+    // reset to Show Look). Each member's footer that came or went since the
+    // last step raises or lowers it, as a placed screen's does
+    // (app-stage3d.js _s3dFollowFooters). `opts.off` stores no joints.
+    _curveRowPlace(row, joints, seams, opts = {}) {
+        const ms = row.layers;
+        if (ms.length < 2 || typeof this._s3dPlacementOf !== 'function') return;
+        const table = (list) => Object.fromEntries((list || []).map((a, j) => [String(j), a]));
+        const now = this._curveRowNow(row, !!opts.flat);
+        const edges = ms.map((m, i) => curveEdge(m, table(joints[i])));
+        if (now.some(n => !n.edge) || edges.some(e => !e)) return;
+        const anchor = this._curveRowAnchor(row, edges);
+        const here = frameAlong(now.map(n => n.edge), now, anchor);
+        // the new chain in the first member's frame, each member at the
+        // height it stands at against the first
+        const q0 = quatInv(now[0].q);
+        const local = [{ p: [0, 0, 0], q: yawQ(0), psi: 0 }];
+        for (let i = 1; i < ms.length; i++) {
+            const prev = local[i - 1];
+            const e = edges[i - 1].at(edges[i - 1].len, 'left');
+            const s = edges[i].at(0, 'right');
+            const psi = s.h - (e.h - prev.psi + (Number(seams[i - 1]) || 0) * DEG);
+            const end = vAdd(prev.p, quatRotate(prev.q, [e.x, 0, e.z]));
+            const q = yawQ(psi);
+            const start = quatRotate(q, [s.x, 0, s.z]);
+            const dy = quatRotate(q0, vSub(now[i].p, now[0].p))[1];
+            local.push({ p: [end[0] - start[0], dy, end[2] - start[2]], q, psi });
+        }
+        const there = frameAlong(edges, local, anchor);
+        const qG = quatMul(here.q, quatInv(there.q));
+        const pG = vSub(here.p, quatRotate(qG, there.p));
+        const lifts = this._curveFooterLifts(ms);
+        ms.forEach((m, i) => {
+            const p = vAdd(vAdd(pG, quatRotate(qG, local[i].p)), quatRotate(qG, [0, lifts[i], 0]));
+            const a = anglesFromQuat(quatMul(qG, local[i].q));
+            m.stage3d = s3dSanitize({
+                x: round(p[0], 3), y: round(p[1], 3), z: round(p[2], 3),
+                pitch: round(wrap180(a.pitch), 6), yaw: round(wrap180(a.yaw), 6), roll: round(wrap180(a.roll), 6),
+                pivot: PIVOT, jointsCol: opts.off ? {} : table(joints[i]),
+            });
+        });
+    }
+
+    // How far each of `layers` rises (mm) for a footer that came since the
+    // last undo step, or falls for one that went: placed screens only, as
+    // app-stage3d.js _s3dFollowFooters moves them.
+    _curveFooterLifts(layers) {
+        const entry = Array.isArray(this.history) ? this.history[this.historyIndex] : null;
+        if (!entry || !entry.project || typeof this._s3dFootersIn !== 'function') return layers.map(() => 0);
+        let before;
+        try { before = this._s3dFootersIn(entry.project); } catch (_) { return layers.map(() => 0); }
+        return layers.map(m => (before.has(m.id) ? this._s3dFooterMm(m) - before.get(m.id) : 0));
+    }
+
+    // Curve off on `layers` and the rest of their rows: every joint flat,
+    // and a grouped row stands in one straight line again where its middle
+    // stood. Returns every screen it changed.
+    riggingCurveOff(layers) {
+        const out = [];
+        const seen = new Set();
+        for (const l of layers || []) {
+            const row = this._curveRow(l) || { key: `one:${l.id}`, layers: [l], panels: [Number(l.columns) || 0] };
+            if (seen.has(row.key)) continue;
+            seen.add(row.key);
+            if (!row.layers.some(m => this.riggingCurveOf(m).on)) continue;
+            if (this._curveMulti(row)) {
+                const flat = row.layers.map((m, i) => new Array(Math.max(0, row.panels[i] - 1)).fill(0));
+                this._curveRowPlace(row, flat, new Array(row.layers.length - 1).fill(0), { off: true });
+            }
+            row.layers.forEach(m => {
+                const s = this.riggingCurveOf(m);
+                if (s.on) m.riggingCurve = { ...s, on: false };
+                if (!this._curveMulti(row)) this._curveUnlay(m);
+            });
+            row.layers.forEach(m => { if (!out.includes(m)) out.push(m); });
+        }
+        return out;
+    }
+
+    // A reset to Show Look on the 3D tab (app-stage3d.js _s3dReset) of
+    // `layers`: `apply` puts each back at its Show Look place, then each
+    // curved grouped row among them is chained again from there, still
+    // curved, its middle where the flat row's middle stands. Returns the
+    // screens it placed.
+    riggingCurveResetRows(layers, apply) {
+        const keep = [];
+        const seen = new Set();
+        for (const l of layers || []) {
+            const row = this._curveRow(l);
+            if (!this._curveMulti(row) || seen.has(row.key)) continue;
+            seen.add(row.key);
+            if (!this._curveRowSettings(row).on) continue;
+            const seams = this._curveRowSeams(row);
+            if (!seams) continue;
+            const joints = row.layers.map((m, i) => {
+                const t = (s3dSanitize(m.stage3d) || {}).jointsCol || {};
+                return Array.from({ length: Math.max(0, row.panels[i] - 1) }, (_, j) => Number(t[String(j)]) || 0);
+            });
+            keep.push({ row, joints, seams });
+        }
+        apply();
+        keep.forEach(({ row, joints, seams }) => this._curveRowPlace(row, joints, seams, { flat: true }));
+        return keep.flatMap(k => k.row.layers);
+    }
+
+    // The angles a grouped row stands at, for the 3D panel: every joint
+    // across it (each member's own but its corners' seams, and the seams
+    // between members), and the row's name. Null for a screen alone.
+    riggingCurveAcross(layer) {
+        const row = this._curveRow(layer);
+        if (!this._curveMulti(row) || !this._curveRowSettings(row).on) return null;
+        const seams = this._curveRowSeams(row) || [];
+        const angles = [];
+        row.layers.forEach((m, i) => {
+            const cols = row.panels[i];
+            const corners = s3dCornerSeams(m, cols);
+            const t = (s3dResolve(m, m.stage3d) || {}).jointsCol || {};
+            for (let j = 0; j < cols - 1; j++) if (!corners.has(j)) angles.push(Number(t[String(j)]) || 0);
+            if (i < seams.length) angles.push(seams[i]);
+        });
+        return { angles, name: this._riggingRowName(row) };
+    }
+
+    // True when the screen carries exactly this answer's bars and angles
+    // (a grouped row: every member, and its seams as they stand in 3D).
     _curveLaidMatches(layer, out) {
+        const row = this._curveRow(layer);
+        if (this._curveMulti(row)) {
+            const want = this._curvePlaced(out).filter(b => !b.corner);
+            if (JSON.stringify(row.placed.map(b => [b.start, b.size])) !== JSON.stringify(want.map(b => [b.start, b.size]))) return false;
+            if ((row.spots || []).some(sp => !sp.bar)) return false;
+            const { joints, seams } = this._curveSplit(row, this._curveJoints(layer, out));
+            const laid = row.layers.every((m, i) => {
+                const table = (m.stage3d && m.stage3d.jointsCol) || {};
+                const placed = s3dSanitize({ jointsCol: Object.fromEntries(joints[i].map((a, j) => [String(j), a])) }).jointsCol;
+                return joints[i].every((_, j) => table[String(j)] === placed[String(j)]);
+            });
+            if (!laid) return false;
+            const got = this._curveRowSeams(row);
+            return !!got && seams.every((a, i) => Math.abs(got[i] - a) < 0.01);
+        }
         const side = this.riggingSideOf(layer) === 'footer' ? 'footer' : 'header';
         const bars = this.riggingPlaced(layer, side);
         const want = this._curvePlaced(out).filter(b => !b.corner);
@@ -575,18 +1047,30 @@ class _Curve {
     // screens and `others` (whose edit rides in the same step) are saved as
     // one undo step named `action`. False, with nothing scheduled, when
     // none of `layers` is curved. `opts.misses` are rows the caller could
-    // not fit, said with any the Curve could not lay.
+    // not fit, said with any the Curve could not lay. A screen on a grouped
+    // row lays the whole row, one answer for all of its screens.
     riggingCurveRelayLater(layers, action, others = [], opts = {}) {
-        const curved = (layers || []).filter(l => this.riggingCurveOn(l) && !this._curveCannot(l));
-        if (!curved.length) return false;
+        const rows = [];
+        const seen = new Set();
+        for (const l of layers || []) {
+            const row = this._curveRow(l);
+            if (!row || seen.has(row.key)) continue;
+            seen.add(row.key);
+            if (this.riggingCurveRowCurved(row)) rows.push(row);
+        }
+        if (!rows.length) return false;
+        const curved = rows.flatMap(r => r.layers);
         const project = this.project;
         this._curveSeq = (this._curveSeq || 0) + 1;
         const seq = this._curveSeq;
         if (!this._curveLatest) this._curveLatest = new Map();
-        const jobs = curved.map(l => {
-            const input = this._curveInput(l);
-            this._curveLatest.set(l.id, seq);
-            return { id: l.id, key: JSON.stringify(input), name: l.name || `Screen ${l.id}`, p: this.riggingCurveRequest(input) };
+        const jobs = rows.map(row => {
+            const lead = row.layers[0];
+            const input = this._curveInput(lead);
+            row.layers.forEach(m => this._curveLatest.set(m.id, seq));
+            return { id: lead.id, ids: [...row.ids], key: JSON.stringify(input),
+                     name: this._curveMulti(row) ? this._riggingRowName(row) : (lead.name || `Screen ${lead.id}`),
+                     p: this.riggingCurveRequest(input) };
         });
         const otherIds = [...new Set((others || []).map(l => l.id))];
         // The edit itself is an undo step at once, so an undo pressed while
@@ -616,7 +1100,8 @@ class _Curve {
             this._curveBusy -= 1;
             // This answer is the newest for these screens: their bars are
             // checked again from here (a newer one on its way keeps them).
-            const settled = jobs.filter(j => this._curveLatest.get(j.id) === seq).map(j => j.id);
+            const newest = (j) => j.ids.every(id => this._curveLatest.get(id) === seq);
+            const settled = jobs.filter(newest).flatMap(j => j.ids);
             settled.forEach(id => this._curveRelaying.delete(id));
             // An undo, a redo or a reload since: this answer belongs to a
             // show that is gone.
@@ -627,18 +1112,19 @@ class _Curve {
             const misses = [...(opts.misses || [])];
             jobs.forEach((j, i) => {
                 // a newer edit of this screen is on its way (it carries this
-                // one's change too), or the screen is no longer what was
-                // asked about: nothing of this request lands on it
+                // one's change too), or the screen (or its row) is no longer
+                // what was asked about: nothing of this request lands on it
                 const live = byId(j.id);
+                const row = live ? this._curveRow(live) : null;
                 // (its Curve turned off since is one of those)
-                if (this._curveLatest.get(j.id) !== seq || !live || !this.riggingCurveOn(live)
-                    || JSON.stringify(this._curveInput(live)) !== j.key) {
-                    stale.add(j.id);
+                if (!newest(j) || !live || !row || row.ids.join(',') !== j.ids.join(',')
+                    || !this._curveRowSettings(row).on || JSON.stringify(this._curveInput(live)) !== j.key) {
+                    j.ids.forEach(id => stale.add(id));
                     return;
                 }
                 if (outs[i].errors.length) misses.push(j.name);
                 else this._curveWrite(live, outs[i]);
-                changed.push(live);
+                row.layers.forEach(m => { if (!changed.includes(m)) changed.push(m); });
             });
             const laid = changed.length > 0;
             otherIds.forEach(id => {
@@ -667,38 +1153,74 @@ class _Curve {
         return true;
     }
 
-    // The selected screens (and none locked) that a Curve edit acts on.
-    _curveTargets(onlyOn) {
-        const screens = this._riggingScreens().filter(l => !onlyOn || this.riggingCurveOn(l));
-        return this._writableLayers(screens);
+    // The rows a Curve edit acts on: the selected screens and the rest of
+    // their groups (a group has one Curve setting, set from any member,
+    // like its bars), each row once. A row with a locked screen on it is
+    // left whole and its locked screens named. A screen with a header and
+    // a footer stands as a row of its own.
+    _curveTargetRows() {
+        const rows = [];
+        const seen = new Set();
+        const locked = [];
+        for (const l of this._riggingWithGroups(this._riggingScreens())) {
+            const row = this._curveRow(l) || { key: `both:${l.id}`, kind: 'both', layers: [l], ids: [l.id],
+                                               offsets: [0], panels: [Number(l.columns) || 0], width: Number(l.columns) || 0 };
+            if (seen.has(row.key)) continue;
+            seen.add(row.key);
+            const held = row.layers.filter(m => this._layerLocked(m));
+            if (held.length) { held.forEach(m => { if (!locked.includes(m)) locked.push(m); }); continue; }
+            rows.push(row);
+        }
+        if (locked.length) this._showLockedError(locked);
+        return rows;
+    }
+
+    // A group's stock is one: every screen of `row` takes the lit sizes of
+    // the screen the tab shows when that screen is on the row or in its
+    // group (as Auto gives a row the sizes the tab shows), else of the
+    // row's first screen. True when any changed.
+    _curveSyncSizes(row, primary) {
+        const lead = row.layers[0];
+        const mate = primary && (row.layers.includes(primary) || (primary.group_id && primary.group_id === lead.group_id));
+        const want = this._riggingSizesOf(mate ? primary : lead);
+        let moved = false;
+        row.layers.forEach(m => {
+            if (JSON.stringify(this._riggingSizesOf(m)) === JSON.stringify(want)) return;
+            m.riggingSizes = [...want];
+            moved = true;
+        });
+        return moved;
     }
 
     setRiggingCurveOn(on) {
-        const screens = this._curveTargets(false);
+        const primary = this._riggingPrimary(this._riggingScreens());
+        const rows = this._curveTargetRows();
         const changed = [];
         const refused = [];
         const noLocks = [];
-        for (const l of screens) {
-            const s = this.riggingCurveOf(l);
+        for (const row of rows) {
+            const lead = row.layers[0];
+            const s = row.kind === 'both' ? this.riggingCurveOf(lead) : this._curveRowSettings(row);
             if (on) {
-                const why = this._curveCannot(l);
-                if (why) { refused.push([l, why]); continue; }
-                if (s.on) continue;
+                const why = this._curveCannot(lead);
+                if (why) { refused.push([row, why]); continue; }
+                if (row.layers.every(m => this.riggingCurveOf(m).on)) continue;
                 // No positions, no curve: it waits until they are set.
-                if (!hasLockPositions(this.curveLocksOf(l).list)) { noLocks.push(l); continue; }
-                l.riggingCurve = { ...s, on: true };
+                if (!hasLockPositions(this._curveRowLocks(row))) { noLocks.push(row); continue; }
+                row.layers.forEach(m => { m.riggingCurve = { ...s, on: true }; });
+                this._curveSyncSizes(row, primary);
             } else {
-                if (!s.on) continue;
-                l.riggingCurve = { ...s, on: false };
-                this._curveUnlay(l);
+                if (!row.layers.some(m => this.riggingCurveOf(m).on)) continue;
+                this.riggingCurveOff(row.layers);
             }
-            changed.push(l);
+            row.layers.forEach(m => { if (!changed.includes(m)) changed.push(m); });
         }
         if (refused.length || noLocks.length) {
-            const lines = refused.map(([l, why]) => `${l.name || `Screen ${l.id}`} cannot take a Curve: ${why}.`);
+            const lines = refused.map(([row, why]) => `${this._curveRowWords(row)} cannot take a Curve: ${why}.`);
             if (noLocks.length) {
-                lines.push(screens.length === 1 ? NO_LOCKS_MESSAGE
-                    : `${listWords(noLocks.map(l => l.name || `Screen ${l.id}`))}: ${NO_LOCKS_MESSAGE.replace('this screen', noLocks.length === 1 ? 'it' : 'them')}`);
+                const lone = noLocks.length === 1 && noLocks[0].layers.length === 1;
+                lines.push(rows.length === 1 && lone ? NO_LOCKS_MESSAGE
+                    : `${listWords(noLocks.map(r => this._curveRowWords(r)))}: ${NO_LOCKS_MESSAGE.replace('this screen', lone ? 'it' : 'them')}`);
             }
             this._toast(lines.join(' '), true, 7000);
         }
@@ -717,10 +1239,10 @@ class _Curve {
     setRiggingCurveField(key, raw, side = null) {
         // Every selected screen: a curve that is off keeps its settings for
         // when it is ticked, one that is on is laid again.
-        const screens = this._curveTargets(false);
-        if (!screens.length) { this.refreshRiggingPanel(); return; }
-        const primary = this._riggingPrimary(screens);
-        const base = this.riggingCurveOf(primary);
+        const rows = this._curveTargetRows();
+        if (!rows.length) { this.refreshRiggingPanel(); return; }
+        const primary = this._riggingPrimary(this._riggingScreens()) || rows[0].layers[0];
+        const base = this.riggingCurveFor(primary);
         const patch = {};
         if (key === 'entry') {
             if (raw !== 'percent' && raw !== 'degrees') return;
@@ -770,10 +1292,11 @@ class _Curve {
             return;
         }
         const changed = [];
-        for (const l of screens) {
-            const s = this.riggingCurveOf(l);
+        for (const row of rows) {
+            const s = row.kind === 'both' ? this.riggingCurveOf(row.layers[0]) : this._curveRowSettings(row);
             const next = cleanCurve({ ...s, ...patch });
-            if (typeof next.from === 'number') next.from = snapDatum(next.from, Number(l.columns) || 1);
+            // the datum is in the row's panels: a group's spans its screens
+            if (typeof next.from === 'number') next.from = snapDatum(next.from, row.width || 1);
             // Switching % and degrees says the same curve the other way:
             // the wall does not change.
             if (patch.entry && patch.entry !== s.entry) {
@@ -781,9 +1304,10 @@ class _Curve {
                     s.entry === 'degrees' ? 'sweep_deg' : 'percent_circle',
                     patch.entry === 'degrees' ? 'sweep_deg' : 'percent_circle') * 1e6) / 1e6;
             }
-            if (JSON.stringify(next) === JSON.stringify(s)) continue;
-            l.riggingCurve = next;
-            changed.push(l);
+            const sized = row.kind !== 'both' && this._curveSyncSizes(row, primary);
+            if (!sized && row.layers.every(m => JSON.stringify(next) === JSON.stringify(this.riggingCurveOf(m)))) continue;
+            row.layers.forEach(m => { m.riggingCurve = { ...next }; });
+            row.layers.forEach(m => { if (!changed.includes(m)) changed.push(m); });
         }
         if (changed.length && !this.riggingCurveRelayLater(changed, 'Curve', changed)) {
             this.updateLayers(changed, true, 'Curve');
@@ -812,7 +1336,13 @@ class _Curve {
         const primary = this._riggingPrimary(screens);
         block.style.display = primary ? '' : 'none';
         if (!primary) return;
-        const s = this.riggingCurveOf(primary);
+        // A grouped row shows its one Curve (the row's), the lock
+        // positions every panel of it has, and why it cannot curve when it
+        // cannot.
+        const row = this._curveRow(primary);
+        const multi = this._curveMulti(row);
+        const s = this.riggingCurveFor(primary);
+        const cannot = this._curveCannot(primary);
         const onCount = screens.filter(l => this.riggingCurveOn(l)).length;
         box.checked = s.on;
         box.indeterminate = onCount > 0 && onCount < screens.length;
@@ -823,7 +1353,7 @@ class _Curve {
             this._curveCatalogAsked = true;
             this._ensurePanelCatalogData().then(() => this.refreshRiggingCurve(), () => {});
         }
-        const locks = this.curveLocksOf(primary);
+        const locks = this._curveLocksShown(primary, row);
         const hasLocks = hasLockPositions(locks.list);
         box.disabled = !s.on && onCount === 0 && !hasLocks;
         this._curveDrawLocks(primary, locks);
@@ -832,19 +1362,26 @@ class _Curve {
         const fields = document.getElementById('rigging-curve-fields');
         if (fields) fields.style.display = '';
         const note = document.getElementById('rigging-curve-note');
+        // "Group 1's 3 screens": the wall a grouped row's curve runs across
+        const across = multi ? `${this._riggingRowName(row)}'s ${row.layers.length} screens` : '';
         if (note) {
             note.style.display = '';
-            note.textContent = !s.on
-                ? (hasLocks ? 'Tick Curve to lay these bars and angles on the screen.' : 'Set this panel\'s lock positions below, then tick Curve.')
-                : !hasLocks
-                    ? 'This screen keeps the angles it was laid at until its panel\'s lock positions are set.'
-                    : this._riggingToolNow() === 'custom'
-                        ? 'The Curve lays this screen\'s bars, so Custom does not. Turn Curve off to lay them by hand.'
-                        : 'The Curve lays this screen\'s bars from the lit sizes. Auto lays it again.';
+            note.textContent = cannot
+                ? `${this._curveWho(primary)} cannot take a Curve: ${cannot}.`
+                : !s.on
+                    ? (hasLocks ? (multi ? `Tick Curve to lay these bars and angles across ${across} as one wall.` : 'Tick Curve to lay these bars and angles on the screen.')
+                        : 'Set this panel\'s lock positions below, then tick Curve.')
+                    : !hasLocks
+                        ? 'This screen keeps the angles it was laid at until its panel\'s lock positions are set.'
+                        : this._riggingToolNow() === 'custom'
+                            ? 'The Curve lays this screen\'s bars, so Custom does not. Turn Curve off to lay them by hand.'
+                            : multi
+                                ? `The Curve lays the bars across ${across} from the lit sizes, as one wall. Auto lays it again.`
+                                : 'The Curve lays this screen\'s bars from the lit sizes. Auto lays it again.';
         }
         // A saved curve laid at angles its panel does not lock at opens as
         // it was, flagged, until Auto or Use this lays it from the list.
-        const offList = s.on && hasLocks ? this._curveOffList(primary, locks.list) : [];
+        const offList = s.on && hasLocks && !cannot ? this._curveOffList(primary, locks.list) : [];
         if (note && offList.length) {
             note.textContent = `This screen is laid at ${listWords(offList.map(a => formatLock(a)))}, which this panel does not lock at. Press Auto to lay it again from its lock positions.`;
         }
@@ -861,7 +1398,7 @@ class _Curve {
         const fromLabel = document.getElementById('rigging-curve-from-label');
         if (fromLabel) {
             fromLabel.textContent = typeof s.from === 'number'
-                ? `From ${datumLabel(snapDatum(s.from, Number(primary.columns) || 1))}. Drag the red dot on the plan to move it.`
+                ? `From ${datumLabel(snapDatum(s.from, (multi ? row.width : Number(primary.columns)) || 1))}. Drag the red dot on the plan to move it.`
                 : 'Or drag the red dot on the plan onto any panel or joint.';
         }
         const system = this._curveSystem();
@@ -875,7 +1412,7 @@ class _Curve {
         if (tolUnit) tolUnit.textContent = system === 'metric' ? 'mm' : 'in';
         const valueUnit = document.getElementById('rigging-curve-value-unit');
         if (valueUnit) valueUnit.textContent = s.entry === 'degrees' ? 'degrees of sweep' : '% of a circle';
-        if (!s.on) {
+        if (!s.on || cannot) {
             ['rigging-curve-working', 'rigging-curve-errors', 'rigging-curve-result'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
@@ -911,9 +1448,13 @@ class _Curve {
             note.textContent = 'These bars and angles are not this curve\'s yet. Press Auto to lay it.';
         }
         // The seams a corner takes over (app-corners.js): no curve angle.
-        const cornerSeams = s3dCornerSeams(primary, Number(primary.columns) || 0);
+        // Across a group, the row's joints: a seam corner's piece starts on
+        // the panel left of its seam.
+        const cornerSeams = multi
+            ? new Map((row.spots || []).filter(sp => sp.size === 2).map(sp => [sp.start, sp]))
+            : s3dCornerSeams(primary, Number(primary.columns) || 0);
         this._curveDrawSheet(document.getElementById('rigging-curve-sheet'), out, cornerSeams);
-        if (out.sides) this._curveDrawCornerPlan(document.getElementById('rigging-curve-plan'), primary, out);
+        if (out.sides) this._curveDrawCornerPlan(document.getElementById('rigging-curve-plan'), this._curveWallOf(primary, row), out);
         else this._curveDrawPlan(document.getElementById('rigging-curve-plan'), out);
         // One group per side on a screen with corners, each named; the
         // screen itself without.
@@ -1198,13 +1739,12 @@ class _Curve {
     // (the corner bars' arms with it), each corner folding 90 degrees, and
     // each side's drawn arc dashed. The red mark is the datum, dragged as
     // on a plain wall.
-    _curveDrawCornerPlan(host, layer, out) {
+    _curveDrawCornerPlan(host, wall, out) {
         if (!host) return;
         const n = out.joints.length + 1;
-        const w = (Number(layer.panel_width_mm) || 500) / 1000;
-        const corners = s3dCleanCorners(layer.riggingCorners);
-        const spots = this.riggingCornerSpots(layer);
-        const turn = (sp) => s3dCornerTurn(corners.find(c => c.at === sp.at) || {}) * Math.PI / 180;
+        const w = wall.w;
+        const spots = wall.spots;
+        const turn = (sp) => sp.turn;
         // Walk the wall left to right: concave turns left, as the
         // calculator walks it (curve-math.js buildCurve).
         let x = 0, y = 0, h = 0;
@@ -1291,6 +1831,20 @@ class _Curve {
         svg.appendChild(mark);
         host._curvePlan = { spots: marks, mark, svg, panels: n, at: datum };
         host.appendChild(svg);
+    }
+
+    // The wall a curve runs along, for the plan of one with corners: its
+    // panel width in meters and its corners, each { start, size, turn } in
+    // its panels (turn in radians, interior positive). A grouped row's
+    // corners are its members', in the row's panels.
+    _curveWallOf(layer, row = this._curveRow(layer)) {
+        const list = this._curveMulti(row) ? (row.spots || []).map(sp => [sp, sp.owner])
+            : this.riggingCornerSpots(layer).map(sp => [sp, layer]);
+        const spots = list.map(([sp, owner]) => {
+            const c = s3dCleanCorners(owner.riggingCorners).find(k => k.at === sp.at) || {};
+            return { start: sp.start, size: sp.size, turn: s3dCornerTurn(c) * Math.PI / 180 };
+        });
+        return { w: (Number(layer.panel_width_mm) || 500) / 1000, spots };
     }
 
     // The nearest spot on the plan to a client point.

@@ -596,6 +596,10 @@ class _ScreenGroups {
             this._groupCommitDepth = (this._groupCommitDepth || 0) + 1;
             let repaired = null;
             try {
+                // A screen's save still on its way lands first: landing
+                // after this PUT, it put the screen back as it was before
+                // the change, out of the group (2026-11-16).
+                if (typeof this._layerSavesSettled === 'function') await this._layerSavesSettled();
                 const res = await fetch(`/api/project?${this._replaceQuery('group')}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },

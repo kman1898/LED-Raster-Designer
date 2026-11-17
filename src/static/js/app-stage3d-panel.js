@@ -674,22 +674,29 @@ class _Stage3DPanel {
         if (!s3dCurveOn(layer)) return 'No curve. The Curve on the Header/Footer tab bends the column joints.';
         const cannot = typeof this._curveCannot === 'function' ? this._curveCannot(layer) : '';
         if (cannot) return `The Curve is on but cannot be laid: ${cannot}.`;
-        const cols = this._s3dGridCounts(layer).cols;
-        const seams = s3dCornerSeams(layer, cols);
-        const angles = [];
-        for (let j = 0; j < cols - 1; j++) {
-            if (!seams.has(j)) angles.push(Number((p.jointsCol || {})[String(j)]) || 0);
+        // A grouped row's Curve runs across its screens: every joint of
+        // the row, the seams between them too (app-curve.js).
+        const row = typeof this.riggingCurveAcross === 'function' ? this.riggingCurveAcross(layer) : null;
+        const tail = row ? ` It runs across ${row.name}.` : '';
+        let angles = row ? row.angles : null;
+        if (!angles) {
+            const cols = this._s3dGridCounts(layer).cols;
+            const seams = s3dCornerSeams(layer, cols);
+            angles = [];
+            for (let j = 0; j < cols - 1; j++) {
+                if (!seams.has(j)) angles.push(Number((p.jointsCol || {})[String(j)]) || 0);
+            }
         }
         const bent = angles.filter(a => Math.abs(a) > 1e-9);
-        if (!bent.length) return 'Curve on, every joint flat.';
+        if (!bent.length) return `Curve on, every joint flat.${tail}`;
         const deg = (a) => `${round(Math.abs(a), 2)}°`;
         const mags = [...new Set(bent.map(a => round(Math.abs(a), 2)))].sort((a, b) => a - b);
         const bend = (layer.riggingCurve && layer.riggingCurve.bend) === 'convex' ? 'convex' : 'concave';
         const total = `${round(Math.abs(bent.reduce((s, a) => s + a, 0)), 1)}° in all`;
-        if (mags.length === 1 && bent.length === angles.length) return `Curve: ${deg(mags[0])} per joint, ${bend}, ${total}.`;
+        if (mags.length === 1 && bent.length === angles.length) return `Curve: ${deg(mags[0])} per joint, ${bend}, ${total}.${tail}`;
         const at = `${bent.length} of ${angles.length} joints`;
-        if (mags.length === 1) return `Curve: ${deg(mags[0])} at ${at}, ${bend}, ${total}.`;
-        return `Curve: ${deg(mags[0])} to ${deg(mags[mags.length - 1])} at ${at}, ${bend}, ${total}.`;
+        if (mags.length === 1) return `Curve: ${deg(mags[0])} at ${at}, ${bend}, ${total}.${tail}`;
+        return `Curve: ${deg(mags[0])} to ${deg(mags[mags.length - 1])} at ${at}, ${bend}, ${total}.${tail}`;
     }
 
     _s3dPanelReadouts(layer, p) {
