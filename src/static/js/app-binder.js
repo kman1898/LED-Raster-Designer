@@ -1784,25 +1784,25 @@ class _Binder {
     // Where one panel alone is more than a circuit carries, no pattern
     // helps, and the warning says so rather than offering one.
     binderCannotFitWarning(opts) {
-        // The screens with no power figure or no weight figure (owner,
-        // 2026-11-16) are named after the ones that cannot fit, in the same
-        // plain words: their figures are left out until they are typed.
+        // The screens with no power figure (owner, 2026-11-16) are named
+        // after the ones that cannot fit, in the same plain words: their
+        // watts are left out until they are typed. Weight is not named:
+        // the binder prints no weight (owner, 2026-11-17).
         const missing = this._bMissingFiguresWarning(opts);
         const fits = this._bCannotFitSentence(opts);
         return [fits, missing].filter(Boolean).join(' ');
     }
 
     // The screens a binder with these options prints whose panel has no
-    // power figure (power side only) or no weight figure: { power, weight },
-    // each a list of names in layer order. A hidden screen, and one with
-    // no panel that hangs, is in neither.
+    // power figure (power side only): { power }, a list of names in layer
+    // order. A hidden screen, and one with no panel that hangs, is not in it.
     binderMissingFigures(opts) {
         const o = opts || this.readBinderOptions();
         const scoped = o.scope && o.scope.kind === 'screen' ? String(o.scope.layerId) : null;
         const screens = typeof this._pullScreens === 'function' ? this._pullScreens()
             : ((this.project && this.project.layers) || []).filter(l => (l.type || 'screen') === 'screen');
         const shown = new Set(screens);
-        const out = { power: [], weight: [] };
+        const out = { power: [] };
         for (const l of screens) {
             if (!l || l.visible === false) continue;
             if (!(l.panels || []).some(p => p && !p.blank && !p.hidden)) continue;
@@ -1815,13 +1815,12 @@ class _Binder {
             if (o.sides && o.sides.power && typeof this.hasPanelPower === 'function' && !this.hasPanelPower(l)) {
                 out.power.push(name);
             }
-            if (typeof this.hasPanelWeight === 'function' && !this.hasPanelWeight(l)) out.weight.push(name);
         }
         return out;
     }
 
     // "This screen has no power figure: WALL. Type its watts in Power
-    // Settings." and the same for weight; '' with none.
+    // Settings."; '' with none.
     _bMissingFiguresWarning(opts) {
         const m = this.binderMissingFigures(opts);
         const say = (names, what, typed, where) => {
@@ -1830,8 +1829,7 @@ class _Binder {
             return `${one ? 'This screen has' : 'These screens have'} no ${what} figure: ${names.join(', ')}. `
                 + `Type ${one ? 'its' : 'their'} ${typed} in ${where}.`;
         };
-        return [say(m.power, 'power', 'watts', 'Power Settings'),
-                say(m.weight, 'weight', 'weight', 'Screen Info')].filter(Boolean).join(' ');
+        return say(m.power, 'power', 'watts', 'Power Settings');
     }
 
     // The cannot-fit part of the warning: each such screen and why.

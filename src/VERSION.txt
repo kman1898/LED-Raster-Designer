@@ -524,8 +524,8 @@ ALSO NEW
   changes. The tray and menu bar icon's Quit asks about unsaved changes
   too.
 - NEW: The binder export's warning names the screens with no power
-  figure and the screens with no weight figure, along with the screens
-  that cannot fit a circuit, so you can type the missing figures first.
+  figure, along with the screens that cannot fit a circuit, so you can
+  type the missing watts first.
 
 FIXES
 

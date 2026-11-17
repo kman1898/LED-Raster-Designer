@@ -19,9 +19,9 @@ means the same thing.
     typing mistake. A saved screen with a number keeps it, and a screen
     saved with none stays with none across a reload.
   - The picker never shows "0kg" for such a tile.
-  - The binder's export warning names the screens with no power figure
-    and the screens with no weight figure, beside the ones that cannot
-    fit a circuit.
+  - The binder's export warning names the screens with no power figure,
+    beside the ones that cannot fit a circuit. It never names a screen
+    for its weight: the binder prints no weight.
 
 Run locally (each session takes its own free port):
     python -m pytest tests/test_no_weight_panels.py -v --browser chromium
@@ -397,7 +397,7 @@ WARN_JS = """() => {
 }"""
 
 
-def test_the_binder_warning_names_screens_with_no_power_or_no_weight(page):
+def test_the_binder_warning_names_no_power_but_never_weight(page):
     pg, errors = page
     wall = _seed(pg)
     # no weight (power listed): DVS ZERA-1.5XPS
@@ -413,15 +413,15 @@ def test_the_binder_warning_names_screens_with_no_power_or_no_weight(page):
                         [wall, no_weight])
     warn = pg.evaluate(WARN_JS)
     assert f'This screen has no power figure: {names[0]}. Type its watts in Power Settings.' in warn, warn
-    assert f'This screen has no weight figure: {names[1]}. Type its weight in Screen Info.' in warn, warn
+    assert 'weight' not in warn and names[1] not in warn, warn
     assert ' - ' not in warn and '—' not in warn and '–' not in warn, warn
-    # with every figure in, the warning is empty
-    pg.evaluate("""async (ids) => {
+    # with the watts in, the warning is empty though one screen has no weight
+    pg.evaluate("""async (id) => {
         const app = window.app;
-        const [a, b] = ids.map(id => app.project.layers.find(x => x.id === id));
-        a.panelWatts = 250; b.panel_weight = 9;
-        await app.updateLayers([a, b]);
-    }""", [wall, no_weight])
+        const a = app.project.layers.find(x => x.id === id);
+        a.panelWatts = 250;
+        await app.updateLayers([a]);
+    }""", wall)
     assert pg.evaluate(WARN_JS) == '', pg.evaluate(WARN_JS)
     assert errors == [], errors
 
