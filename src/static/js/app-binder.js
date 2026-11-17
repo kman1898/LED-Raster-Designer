@@ -212,8 +212,11 @@ const MAP_MIN_FRAC = 0.45;
 // growing it moved every map on every sheet and broke the approved fill.
 const MAP_GUTTER = { left: 200, right: 180, top: 74, bottom: 16 };
 // The sheet the column ruler needs above the map's own lettering:
-// its tick, and its numbers over that.
-const COL_RULER_H = 34;
+// its tick, and its numbers over that - their baseline 30 up and the
+// digits' own height over it (34 counted the tick and the baseline only,
+// and on a letter sheet a power map's numbers stood 7 over the drawing
+// area's top, against the border, 2026-11-17).
+const COL_RULER_H = 30 + Math.ceil(SZ.ruler * 0.72);
 // The brackets beside a power map (_bBoxBrackets): the tick back toward
 // the wall, the label's first glyph out from the bracket's line, the first
 // bracket's distance from the wall each side (the left leaves the row
@@ -331,7 +334,7 @@ const BINDER_MAPS = ['power', 'data', 'both'];
 // after them takes the next number as its first sheet prints - the Fiber
 // page, the pull sheets, the hardware: 3, 4, 5 with all three, pull 3 and
 // hardware 4 without the Fiber page - so the numbers never leave a hole.
-const SUBJECT = { overview: 'overview', power: 'screens', data: 'screens', wiring: 'screens', rigging: 'screens',
+const SUBJECT = { overview: 'overview', contents: 'overview', power: 'screens', data: 'screens', wiring: 'screens', rigging: 'screens',
                   fiber: 'fiber', pull: 'pull',
                   service: 'hardware', distro: 'hardware', processor: 'hardware', totals: 'hardware',
                   network: 'hardware' };
@@ -1384,8 +1387,31 @@ class _Binder {
     // (page units before the scale), `names` the subjects a column sheet
     // carries.
     planBinder(opts) {
-        const book = this._binderBook(opts || this.readBinderOptions(), { dry: true });
+        const book = this._binderDryBook(opts || this.readBinderOptions());
         return book.pages.map(p => this._bPlanEntry(book, p));
+    }
+
+    // The plan, settled. The overview's CONTENTS lists every sheet, and the
+    // first dry pass has no list to give it (it lists nothing). Where the
+    // list, once known, does not fit the overview's sheet with the
+    // drawing under it (a long set on a letter sheet, 2026-11-17: it ran
+    // off the foot of the page), it continues on CONTENTS sheets of its
+    // own right after the overview - which are sheets of the set too, so
+    // the pass is made again with the plan in hand until the list stands
+    // still. A set whose contents fit is planned once, as it always was.
+    _binderDryBook(opts) {
+        let book = this._binderBook(opts, { dry: true });
+        for (let i = 0; i < 4 && book.overviewProbe; i++) {
+            const plan = book.pages.map(p => this._bPlanEntry(book, p));
+            if (i === 0 && !this._bContentsMove(book, book.overviewProbe, this._bContentsRows(plan))) break;
+            const next = this._binderBook(opts, { dry: true, plan });
+            next.overviewProbe = book.overviewProbe;
+            const same = next.pages.length === plan.length
+                && next.pages.every((p, j) => p.number === plan[j].number && p.sheetTitle === plan[j].sheetTitle);
+            book = next;
+            if (same) break;
+        }
+        return book;
     }
 
     _bPlanEntry(book, p) {
@@ -1409,7 +1435,7 @@ class _Binder {
     // it off, having no use for it).
     renderBinderPages(opts, run) {
         const o = opts || this.readBinderOptions();
-        const dry = this._binderBook(o, { dry: true });
+        const dry = this._binderDryBook(o);
         const plan = dry.pages.map(p => this._bPlanEntry(dry, p));
         const bitmaps = !run || run.bitmaps !== false;
         const book = this._binderBook(o, { dry: false, total: plan.length, plan, bitmaps });
@@ -1421,7 +1447,7 @@ class _Binder {
     // drew, every dash the map set, the map's place and the view bubble.
     renderBinderPage(opts, index, run) {
         const o = opts || this.readBinderOptions();
-        const dry = this._binderBook(o, { dry: true });
+        const dry = this._binderDryBook(o);
         const plan = dry.pages.map(p => this._bPlanEntry(dry, p));
         const log = { texts: [], textInfo: [], mapTexts: [], dashes: [] };
         const bitmaps = !!(run && run.bitmaps);
@@ -5142,7 +5168,8 @@ class _Binder {
             if (!placed.length) break;
             const tallest = placed.reduce((m, p) => Math.max(m, ...p.cols.map(c => c.h)), 0);
             const extent = { w: used * colW + (used - 1) * COL_GAP, h: GROUP_H + tallest };
-            const scale = continues ? 1 : this._bFillScale(book, extent);
+            // (`spec.fill` false: a list read down its rows, never blown up)
+            const scale = continues || spec.fill === false ? 1 : this._bFillScale(book, extent);
             const heads = placed.map(p => p.group.name + (p.group.cont ? ' (cont.)' : ''));
             const colX = (i) => da.x + i * (colW + COL_GAP);
             this._bPage(book, { ...spec.page(placed.map(p => p.group)), layout: 'tables', cols: used, scale, extent,
@@ -5235,10 +5262,17 @@ class _Binder {
         ctx.stroke();
         this._bText(book, String(number), cx, cy + 11, { size: SZ.viewNumber, weight: 700, align: 'center' });
         const nx = cx + r + 22;
-        const label = this._bText(book, name, nx, cy + 2, { size: SZ.view, weight: 700, upper: true });
-        const ctxM = book.measureCtx;
-        ctxM.font = this._bFont(SZ.view, 700);
-        const ruleW = Math.max(240, Math.ceil(ctxM.measureText(label).width) + 40);
+        // The name as wide as the bubble's room lets it stand, where the
+        // caller gives one: shrunk to it, then cut. A long screen name on
+        // a letter sheet whose type the fill grows (a Header/Footer sheet
+        // at 2.3x) ran its bubble's name and rule into the title block,
+        // 2026-11-17. The rule under it no longer than that room either.
+        const nameRoom = Number.isFinite(room) ? Math.max(240, room - (nx - x)) : 0;
+        const nameOpts = { size: SZ.view, weight: 700, upper: true,
+                           ...(nameRoom ? { maxWidth: nameRoom, shrink: true } : {}) };
+        const label = this._bText(book, name, nx, cy + 2, nameOpts);
+        const labelW = this._bTextWidth(book, name, nameOpts);
+        const ruleW = Math.max(240, Math.min(Math.ceil(labelW) + 40, nameRoom || Infinity));
         ctx.fillStyle = INK;
         ctx.fillRect(nx, cy + 12, ruleW, 3);
         let noteText = null;
@@ -8306,10 +8340,20 @@ class _Binder {
             ['Processors', String(procs.length)],
         ]) });
         // The contents: every sheet of the set, from the plan the dry pass
-        // made (a dry pass has none yet and lists nothing).
-        const contents = (book.plan || []).map(p => ({ cells: [p.number, p.sheetTitle] }));
-        const band = this._bOverviewBand(book, blocks[0].lines, blocks[1].lines,
-                                         contents.length ? contents : [{ cells: ['', ''] }], across, wide);
+        // made (a dry pass has none yet and lists nothing). A list too long
+        // for this sheet with the drawing under it goes, whole, onto the
+        // CONTENTS sheets that follow (_bContentsSheets), and this sheet
+        // keeps the positions, the totals and the drawing - the positions
+        // too where they alone leave the drawing no room (a show of many
+        // positions on a letter sheet): they go ahead of the contents.
+        const contents = this._bContentsRows(book.plan);
+        const probe = { positions: blocks[0].lines, totals: blocks[1].lines, across, wide };
+        if (book.dry && !book.plan) book.overviewProbe = probe;
+        const moved = this._bContentsMove(book, probe, contents);
+        const posMoved = moved && !(this._bOverviewBand(book, blocks[0].lines, blocks[1].lines, null,
+                                                        across, wide).area.h > 0);
+        const band = this._bOverviewBand(book, posMoved ? null : blocks[0].lines, blocks[1].lines,
+                                         moved ? null : contents.length ? contents : [{ cells: ['', ''] }], across, wide);
         const pack = { cols: band.cols, rest: [] };
         const L = { kind: 'overview', cols: across, colW: wide, top: da.y, pack,
                     colX: (i) => da.x + i * (wide + COL_GAP) };
@@ -8328,6 +8372,43 @@ class _Binder {
                 book.log.map.tables = pack.cols.map((c, i) => ({ x: L.colX(i), y: da.y, w: wide, h: c.h }));
             }
         });
+        if (moved) this._bContentsSheets(book, contents, wide, posMoved ? blocks[0].lines : null);
+    }
+
+    // The CONTENTS' rows: each sheet's number and title, as the plan has it.
+    _bContentsRows(plan) {
+        return (plan || []).map(p => ({ cells: [p.number, p.sheetTitle] }));
+    }
+
+    // Whether the contents leave the overview's sheet: the band with every
+    // row of them in it, laid out every way it can be, leaves the drawing
+    // no room under it - it would run off the sheet's foot.
+    _bContentsMove(book, probe, contents) {
+        if (!contents.length) return false;
+        const band = this._bOverviewBand(book, probe.positions, probe.totals, contents, probe.across, probe.wide);
+        return !(band.area.h > 0);
+    }
+
+    // THE CONTENTS SHEETS (2026-11-17): a set too long for the overview's
+    // CONTENTS lists its sheets on sheets of their own, right after it - in
+    // the overview's columns, as many as the sheet holds, "(cont.)" past
+    // the first, at the overview's own size.
+    // `positions`: the overview's POSITIONS table where it went too, first.
+    _bContentsSheets(book, rows, wide, positions = null) {
+        const lines = this._bTableLines(book, {
+            title: `${rows.length} sheets`,
+            cols: [{ title: 'sheet', w: 0.4 }, { title: 'title', w: 1.6 }], rows, width: wide,
+        });
+        const groups = [{ kind: 'contents', name: 'Contents', blocks: [{ lines }] }];
+        if (positions) groups.unshift({ kind: 'contents', name: 'Positions', blocks: [{ lines: positions }] });
+        this._bColumnSheets(book, {
+            colW: Math.floor(wide),
+            fill: false,
+            page: (gs) => {
+                const label = gs.map(g => g.name + (g.cont ? ' (cont.)' : '')).join(', ');
+                return { kind: 'contents', title: label, sheetTitle: label.toUpperCase(), subject: book.meta.show };
+            },
+        }, groups);
     }
 
     // TABLES ACROSS THE TOP, THE DRAWING UNDER THEM (owner, 2026-11-02, on
@@ -8363,10 +8444,10 @@ class _Binder {
         });
         // the contents' rows' heights, as one table measures them: its
         // head lines (title, headings), then one line per row
-        const whole = contentsTable('Contents', contents);
+        const whole = contentsTable('Contents', contents || [{ cells: ['', ''] }]);
         const headH = sum(whole.filter(l => l.head));
         const rowH = whole.filter(l => !l.head).map(l => l.h);
-        const posH = sum(positions), totH = sum(totals);
+        const posH = positions ? sum(positions) : 0, totH = sum(totals);
         // the smallest height under which `fill(cap)` takes no more than
         // `n` columns, and what it fills
         const shortest = (fill, n, lo, hi) => {
@@ -8393,7 +8474,16 @@ class _Binder {
         // Every candidate: a list of columns, each a list of items - 'P',
         // 'T' or a contents part (its rows' indexes).
         const tries = [];
-        for (let k = 1; k <= Math.max(1, Math.min(contents.length, across)); k++) {
+        if (!contents) {
+            // (the contents on sheets of their own: the two tables alone,
+            // or the totals alone where the positions went with them)
+            if (!positions) tries.push({ layout: 'stacked', cols: [['T']] });
+            else {
+                if (across >= 2) tries.push({ layout: 'side', cols: [['P'], ['T']] });
+                tries.push({ layout: 'stacked', cols: [['P', 'T']] });
+            }
+        }
+        for (let k = 1; contents && k <= Math.max(1, Math.min(contents.length, across)); k++) {
             const parts = shortest(rowsIn, k, headH + tallestRow, headH + allRows);
             if (parts.length !== k) continue;
             if (2 + k <= across) tries.push({ layout: 'side', cols: [['P'], ['T'], ...parts.map(p => [p])] });
@@ -8421,8 +8511,10 @@ class _Binder {
             });
             return cols.map(c => c.items);
         };
-        tries.push({ layout: 'run', cols: shortest(runIn, across, Math.max(posH, totH, headH + tallestRow),
-                                                   posH + totH + headH + allRows + 2 * BLOCK_GAP) });
+        if (contents) {
+            tries.push({ layout: 'run', cols: shortest(runIn, across, Math.max(posH, totH, headH + tallestRow),
+                                                       posH + totH + headH + allRows + 2 * BLOCK_GAP) });
+        }
         // a column of blocks, one under the next
         const column = (blocks) => {
             const items = [];

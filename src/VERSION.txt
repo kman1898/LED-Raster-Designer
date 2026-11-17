@@ -660,6 +660,23 @@ FIXES
 - FIX: When a binder table runs on into a second column, the second part
   repeats the band its rows belong to (like "H9 Card 1 · 16 ports"), not
   just the title and the column headings.
+- FIX: On letter and A4 sheets with the title block on, the Fiber sheet's
+  drawing is sized to the room beside the title block instead of running
+  under the logo and the revisions, and where that leaves no room beside
+  it, the strand maps and the pull list start under it on the same sheet.
+  The rule under the FIBER heading stops at the drawing too.
+- FIX: On a wiring sheet, a run from a label in the middle of the wall
+  leaves along the line between two rows or two columns of panels, not
+  along its own row on top of the signal cables. Where every such line
+  would cross another label and the straight way would not, it keeps the
+  straight way.
+- FIX: A binder with more sheets than the overview's CONTENTS can hold
+  lists them on CONTENTS sheets right after the overview, 1.2 on, instead
+  of running off the foot of the page. The overview keeps the positions,
+  the totals and the drawing, and every other sheet keeps its number.
+- FIX: A power sheet's column numbers over the wall print only where
+  they fit inside the drawing area. On letter and A4 they could stand
+  against the border at the top of the sheet.
 - FIX: Two edits landing at the same moment, from one computer or from a
   tablet beside it, no longer make the app refuse one of them. The second
   could fail with a server error while the screens were sent out.
