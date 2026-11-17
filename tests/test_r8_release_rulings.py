@@ -84,7 +84,7 @@ def test_the_overfull_box_note_is_the_apps_own_wording():
     assert "box.overfull ? `${box.overfull.circuits} circuits on a `" in pull
     assert "+ `${this._fanWord(box.overfull.size)}-circuit output` : ''" in pull
     binder = _read(JS, 'app-binder.js')
-    assert "pairs.push(['Crowded', `${ov.label} ${ov.type.name} carries ${ov.circuits} circuits`" in binder
+    assert "pairs.push(['Crowded', `${ov.label} ${ov.type.name} carries ${circuits} circuits`" in binder
 
 
 def test_hidden_screens_keep_their_outputs_and_leave_the_loads():
