@@ -554,6 +554,11 @@ FIXES
   labels are no longer crossed by the pixel grid when zoomed in close,
   the outline of selected cabinets, a group's circle and X or the canvas
   outline. A screen lying over another still covers it.
+- FIX: Zoomed in to 1000% or more, the pixel grid covers every screen. It
+  was missing over part or all of a wall on a canvas moved away from the
+  top left of the workspace, in the Data and Power tabs' Back view, on a
+  screen with its own Show Look position, on a rotated screen, and on a
+  canvas other than the selected one.
 - FIX: On the Data and Power tabs, a screen lying over a grouped wall now
   covers that wall's names, the way it covers its cabinets. The group's
   name and each screen's own name used to show through it.

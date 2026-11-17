@@ -2908,16 +2908,6 @@ class CanvasRenderer {
                 this.renderPixelMapSelectionOverlay();
             }
 
-            // The pixel grid (all view modes, 1000%+ zoom), over every cabinet
-            // and under the writing
-            if (this.zoom >= 10) {
-                window.app.project.layers.forEach(layer => {
-                    if (layer.visible) {
-                        _withLayerWs(layer, () => this.renderPixelGrid(layer));
-                    }
-                });
-            }
-
             // ── The label pass ──────────────────────────────────────────
             // Every screen's writing, in the order the screens were drawn,
             // now that every border, outline, selection box and grid line
@@ -2978,6 +2968,18 @@ class CanvasRenderer {
                     this._activeRenderCanvas = _prevCanvas;
                 }
             };
+            // The pixel grid (all view modes, 1000%+ zoom), over every cabinet
+            // and under the writing. Each screen's grid is drawn in the frame
+            // its cabinets were: its canvas's workspace and Front/Back mirror,
+            // its Show Look offset, its rotation and its own canvas's raster.
+            if (this.zoom >= 10) {
+                window.app.project.layers.forEach(layer => {
+                    if (layer.visible) {
+                        _inLayerFrame(layer, null, () => this.renderPixelGrid(layer));
+                    }
+                });
+            }
+
             // _labelPassDrawn is read through the member labels below
             // (_layersDrawnAfter) and emptied after them.
             const _labelLayers = this._labelPassLayers || [];
@@ -3785,72 +3787,82 @@ class CanvasRenderer {
     }
 
     renderPixelGrid(layer) {
-        // Render pixel grid over the ENTIRE layer (on top of everything)
-        // This shows the actual LED pixel boundaries (1 world unit = 1 LED pixel)
-        
+        // The LED pixel boundaries over the whole screen (1 world unit = 1 LED
+        // pixel). Called inside the screen's own frame (render()'s
+        // _inLayerFrame): its canvas's workspace and mirror, its Show Look
+        // offset and its rotation are already on the context, so the grid
+        // is drawn in the screen's own processor coordinates, like its
+        // cabinets.
+
+        // Only when pixels are large enough to see (3+ screen px per LED pixel)
+        if (this.zoom < 3) return;
+
         const bounds = this.getLayerBounds(layer);
-        const layerLeft = bounds.x;
-        const layerTop = bounds.y;
-        const layerWidth = bounds.width;
-        const layerHeight = bounds.height;
-        const layerRight = layerLeft + layerWidth;
-        const layerBottom = layerTop + layerHeight;
-        
-        // Clip to raster bounds
-        const clipX = Math.max(0, layerLeft);
-        const clipY = Math.max(0, layerTop);
-        const clipRight = Math.min(layerRight, this.rasterWidth);
-        const clipBottom = Math.min(layerBottom, this.rasterHeight);
-        
-        if (clipRight <= clipX || clipBottom <= clipY) return;
-        
+        let left = bounds.x;
+        let top = bounds.y;
+        let right = bounds.x + bounds.width;
+        let bottom = bounds.y + bounds.height;
+
+        // The raster, in this frame: renderPanel's clip. A rotated screen
+        // has its raster clip on the context already (in unrotated space),
+        // and a drawing the raster does not bound skips it.
+        if (!this._layerRotating && !this.ignoreRasterBounds) {
+            const dx = this._renderDx || 0;
+            const dy = this._renderDy || 0;
+            left = Math.max(left, -dx);
+            top = Math.max(top, -dy);
+            right = Math.min(right, this.rasterWidth - dx);
+            bottom = Math.min(bottom, this.rasterHeight - dy);
+        }
+        if (right <= left || bottom <= top) return;
+
+        // What part of this frame is on screen: the canvas's corners carried
+        // back through the context's transform (zoom, pan, workspace,
+        // mirror, Show Look offset, rotation).
+        const inv = this.ctx.getTransform().invertSelf();
+        const W = this.canvas.width;
+        const H = this.canvas.height;
+        let vl = Infinity, vt = Infinity, vr = -Infinity, vb = -Infinity;
+        [[0, 0], [W, 0], [0, H], [W, H]].forEach(([px, py]) => {
+            const x = inv.a * px + inv.c * py + inv.e;
+            const y = inv.b * px + inv.d * py + inv.f;
+            if (x < vl) vl = x;
+            if (x > vr) vr = x;
+            if (y < vt) vt = y;
+            if (y > vb) vb = y;
+        });
+        const x0 = Math.max(left, vl);
+        const x1 = Math.min(right, vr);
+        const y0 = Math.max(top, vt);
+        const y1 = Math.min(bottom, vb);
+        if (x1 < x0 || y1 < y0) return;
+
         this.ctx.save();
         this.ctx.beginPath();
-        this.ctx.rect(clipX, clipY, clipRight - clipX, clipBottom - clipY);
+        this.ctx.rect(left, top, right - left, bottom - top);
         this.ctx.clip();
-        
-        // Only draw grid if pixels are large enough to see (at least 3 screen pixels per LED pixel)
-        const screenPixelSize = this.zoom;  // 1 world unit = 1 LED pixel
-        if (screenPixelSize < 3) {
-            this.ctx.restore();
-            return;
-        }
-        
-        // Calculate visible range to optimize rendering
-        const visibleLeft = (0 - this.panX) / this.zoom;
-        const visibleTop = (0 - this.panY) / this.zoom;
-        const visibleRight = (this.canvas.width - this.panX) / this.zoom;
-        const visibleBottom = (this.canvas.height - this.panY) / this.zoom;
-        
-        // Grid line style - darker gray, more pronounced
+
         this.ctx.strokeStyle = 'rgba(80, 80, 80, 0.55)';
         this.ctx.lineWidth = 1 / this.zoom;  // 1 screen pixel wide
-        
-        // Draw vertical lines (every 1 world unit = 1 LED pixel)
+
+        // Lines on the screen's own pixel edges (bounds.x + n, bounds.y + n)
         this.ctx.beginPath();
-        const startCol = Math.max(0, Math.floor(visibleLeft - layerLeft));
-        const endCol = Math.min(layerWidth, Math.ceil(visibleRight - layerLeft));
-        
-        for (let col = startCol; col <= endCol; col++) {
-            const x = layerLeft + col;
-            if (x >= clipX && x <= clipRight) {
-                this.ctx.moveTo(x, clipY);
-                this.ctx.lineTo(x, clipBottom);
-            }
+        const c0 = Math.max(0, Math.floor(x0 - bounds.x));
+        const c1 = Math.ceil(x1 - bounds.x);
+        for (let col = c0; col <= c1; col++) {
+            const x = bounds.x + col;
+            if (x < left || x > right) continue;
+            this.ctx.moveTo(x, y0);
+            this.ctx.lineTo(x, y1);
         }
-        
-        // Draw horizontal lines
-        const startRow = Math.max(0, Math.floor(visibleTop - layerTop));
-        const endRow = Math.min(layerHeight, Math.ceil(visibleBottom - layerTop));
-        
-        for (let row = startRow; row <= endRow; row++) {
-            const y = layerTop + row;
-            if (y >= clipY && y <= clipBottom) {
-                this.ctx.moveTo(clipX, y);
-                this.ctx.lineTo(clipRight, y);
-            }
+        const r0 = Math.max(0, Math.floor(y0 - bounds.y));
+        const r1 = Math.ceil(y1 - bounds.y);
+        for (let row = r0; row <= r1; row++) {
+            const y = bounds.y + row;
+            if (y < top || y > bottom) continue;
+            this.ctx.moveTo(x0, y);
+            this.ctx.lineTo(x1, y);
         }
-        
         this.ctx.stroke();
         this.ctx.restore();
     }
