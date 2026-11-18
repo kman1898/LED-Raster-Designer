@@ -790,6 +790,10 @@ FIXES
   empty box, to pick a connector from the list, or type your own. The
   length's unit also stays beside its box instead of dropping to a line
   of its own.
+- FIX: Renaming a screen in the Screens list and pressing Enter now shows
+  the new name on the canvas straight away. It used to keep the old name
+  there until you clicked somewhere else. Canvas, group and beach names
+  also save the moment you press Enter.
 
 v1.6.0 - November 6, 2026
 ----------------------------

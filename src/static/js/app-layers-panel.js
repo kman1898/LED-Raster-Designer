@@ -2,7 +2,7 @@
 // builds one row per screen (swatch, name edit, visibility, lock, drag
 // handle) and then hands the flat list to the canvas and group regroupers.
 import { LEDRasterApp } from './app-core.js';
-import { holdDragOff } from './helpers.js';
+import { holdDragOff, nameFieldEnter } from './helpers.js';
 
 class _LayersPanel {
 
@@ -327,7 +327,11 @@ ${cabinetBtn}
                 nameInput.select();
             };
 
+            // Enter commits here and the blur after it finds the edit
+            // closed (the read-only check), so one rename is one PUT and one
+            // undo step however the browser orders the two.
             const exitEditMode = () => {
+                if (nameInput.readOnly) return;
                 nameInput.readOnly = true;
                 if (releaseDrag) { releaseDrag(); releaseDrag = null; }
                 nameInput.style.cursor = 'default';
@@ -350,6 +354,11 @@ ${cabinetBtn}
                     // and a later undo restored a stale name (client/server
                     // desync). The renameLayer() path already does this.
                     this.saveState('Rename Layer');
+                    // The name on the canvas. Nothing else drew it: the
+                    // PUT's own echo, which did, is let go when it holds
+                    // what the page already has (_onSocketLayerUpdated),
+                    // so the old name stayed until the next redraw.
+                    if (window.canvasRenderer) window.canvasRenderer.render();
                 }
             };
 
@@ -358,8 +367,11 @@ ${cabinetBtn}
                 enterEditMode();
             });
             nameInput.addEventListener('blur', exitEditMode);
+            const endsEdit = nameFieldEnter(nameInput);
             nameInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') {
+                if (endsEdit(e)) {
+                    e.preventDefault();
+                    exitEditMode();
                     nameInput.blur();
                 } else if (e.key === 'Escape' && !nameInput.readOnly) {
                     // Drop the typing and end the edit, as the canvas name
