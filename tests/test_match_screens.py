@@ -8,9 +8,18 @@ The rulings:
     becomes the furthest right edge (x + width) and the height the furthest
     bottom edge (y + height) of the canvas's VISIBLE screens. One screen at
     960,540 sized 960 x 540 makes the canvas 1920 x 1080.
-  * Each screen is measured as the app draws it (the renderer's
-    getLayerFootprintInActiveView): its cabinets' own rectangles, half
-    columns at their real size, turned for a 90 or 270 rotation.
+  * Each screen is measured as the app draws it (the renderer's draw
+    frame): its cabinets' own rectangles, half columns at their real size,
+    turned for a 90 or 270 rotation, at its Show Look position in Show
+    Look, Data and Power. Only cabinets with pixels count: hidden and blank
+    cabinets are left out, as the processor span leaves them out. A screen
+    counts where the renderer draws it (its `visible` flag is truthy);
+    text and image layers never count.
+  * Pixel Map and Cabinet ID size the Pixel Map canvas (raster_* fields,
+    and the Show Look size with it only while the two are linked); Show
+    Look, Data and Power size only the Show Look canvas (show_raster_*).
+  * A screen that starts left of or above 0,0 stays put, and a toast
+    names it: part of it is outside the canvas.
   * It writes through the toolbar fields' own path, as one undo step. With
     no visible screen on the canvas it does nothing and says so.
   * It is hidden wherever the fields are (the 3D tab).
@@ -70,8 +79,12 @@ def page(e2e_server, pw_browser):
 # A scratch project: one canvas ("Main", 3840 x 2160) and a second
 # ("Other"), then the screens `specs` names. Each spec: name, x, y,
 # columns, rows, cabinet w, cabinet h, and optional extras - canvas
-# ('other'), visible (false), rotation, halfLastColumn.
-SEED_JS = """async (specs) => {
+# ('other'), visible (false), rotation, halfLastColumn, panelStates
+# ([{row, col, hidden|blank}]), show ([x, y], its Show Look position),
+# group (a group name; members of one name are grouped), kind ('text' or
+# 'image', placed at x, y and cols x cw by rows x ch). `opts.show` gives
+# both canvases a Show Look size of their own ([w, h]), unlinked.
+SEED_JS = """async ({specs, opts}) => {
     const app = window.app, r = window.canvasRenderer;
     await app._layerSavesSettled();
     const j = (method, url, body) => fetch(url, {method,
@@ -82,8 +95,9 @@ SEED_JS = """async (specs) => {
     delete proj.port_assignments; delete proj.pullSheet; delete proj.fiberCables;
     delete proj.pullSheetEdits;
     const base = proj.canvases[0];
+    const show = (opts && opts.show) || [3840, 2160];
     const size = {raster_width: 3840, raster_height: 2160,
-                  show_raster_width: 3840, show_raster_height: 2160};
+                  show_raster_width: show[0], show_raster_height: show[1]};
     proj.canvases = [
         Object.assign({}, base, size, {id: 'c1', name: 'Main', workspace_x: 0, workspace_y: 0}),
         Object.assign({}, base, size, {id: 'c2', name: 'Other', workspace_x: 0, workspace_y: 6000}),
@@ -91,17 +105,42 @@ SEED_JS = """async (specs) => {
     proj.active_canvas_id = 'c1';
     await j('PUT', '/api/project', proj);
     const ids = {};
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
     for (const s of specs) {
-        const l = await j('POST', '/api/layer/add', Object.assign({
-            name: s.name, offset_x: s.x, offset_y: s.y, columns: s.cols, rows: s.rows,
-            cabinet_width: s.cw, cabinet_height: s.ch,
-            canvas_id: s.canvas === 'other' ? 'c2' : 'c1'},
-            s.halfLastColumn ? {halfLastColumn: true} : {}));
+        const canvas_id = s.canvas === 'other' ? 'c2' : 'c1';
+        let l;
+        if (s.kind === 'text') {
+            l = await j('POST', '/api/layer/add-text', {name: s.name, textContent: s.name,
+                offset_x: s.x, offset_y: s.y, textWidth: s.cols * s.cw,
+                textHeight: s.rows * s.ch, canvas_id});
+        } else if (s.kind === 'image') {
+            l = await j('POST', '/api/layer/add-image', {name: s.name, imageData: PNG,
+                imageWidth: s.cols * s.cw, imageHeight: s.rows * s.ch,
+                offset_x: s.x, offset_y: s.y, canvas_id});
+        } else {
+            l = await j('POST', '/api/layer/add', Object.assign({
+                name: s.name, offset_x: s.x, offset_y: s.y, columns: s.cols, rows: s.rows,
+                cabinet_width: s.cw, cabinet_height: s.ch, canvas_id},
+                s.halfLastColumn ? {halfLastColumn: true} : {},
+                s.panelStates ? {panelStates: s.panelStates} : {}));
+        }
         const put = {};
         if (s.visible === false) put.visible = false;
         if (s.rotation) put.rotation = s.rotation;
+        if (s.show) { put.showOffsetX = s.show[0]; put.showOffsetY = s.show[1]; }
         if (Object.keys(put).length) await j('PUT', `/api/layer/${l.id}`, put);
         ids[s.name] = l.id;
+    }
+    const groupNames = [...new Set(specs.filter(s => s.group).map(s => s.group))];
+    if (groupNames.length) {
+        const now = await j('GET', '/api/project');
+        now.groups = groupNames.map((g, i) => ({id: 'g' + (i + 1), name: g,
+            layer_ids: specs.filter(s => s.group === g).map(s => ids[s.name])}));
+        now.layers.forEach(l => {
+            const s = specs.find(x => ids[x.name] === l.id);
+            if (s && s.group) l.group_id = 'g' + (groupNames.indexOf(s.group) + 1);
+        });
+        await j('PUT', '/api/project', now);
     }
     app.project = await j('GET', '/api/project');
     app.dedupeProjectLayers('match_screens_seed');
@@ -125,7 +164,7 @@ STATE_JS = """async () => {
     const app = window.app, r = window.canvasRenderer;
     const c = app.project.canvases.find(x => x.id === app.project.active_canvas_id);
     const srv = await (await fetch('/api/project')).json();
-    const sc = srv.canvases.find(x => x.id === 'c1');
+    const sc = srv.canvases.find(x => x.id === app.project.active_canvas_id);
     return {
         active: app.project.active_canvas_id,
         renderer: [r.rasterWidth, r.rasterHeight],
@@ -134,6 +173,7 @@ STATE_JS = """async () => {
         canvas: [c.raster_width, c.raster_height, c.show_raster_width, c.show_raster_height],
         server: [sc.raster_width, sc.raster_height, sc.show_raster_width, sc.show_raster_height],
         at: Object.fromEntries(srv.layers.map(l => [l.name, [l.offset_x, l.offset_y]])),
+        show: Object.fromEntries(srv.layers.map(l => [l.name, [l.showOffsetX ?? null, l.showOffsetY ?? null]])),
         index: app.historyIndex,
         toasts: [...document.querySelectorAll('#app-toast-host > div')]
             .map(t => ({text: t.textContent, bg: getComputedStyle(t).backgroundColor})),
@@ -145,8 +185,8 @@ def _state(pg):
     return pg.evaluate(STATE_JS)
 
 
-def _seed(pg, specs):
-    ids = pg.evaluate(SEED_JS, specs)
+def _seed(pg, specs, **opts):
+    ids = pg.evaluate(SEED_JS, {'specs': specs, 'opts': opts})
     s = _state(pg)
     assert s['fields'] == ['3840', '2160'] and s['server'][:2] == [3840, 2160], s
     return ids
@@ -459,4 +499,273 @@ def test_a_brompton_span_is_its_screens_not_the_canvas_size(page):
     assert not any(t['bg'] == TOAST_RED for t in s['toasts']), s
     assert pg.evaluate(SPANS_JS) == [[3728, 1344, True]]
     assert pg.evaluate("() => window.app.project.port_assignments.pins.length") == pins
+    assert errors == []
+
+
+# ── what counts ──────────────────────────────────────────────────────────
+
+def test_hidden_and_blank_cabinets_do_not_count(page):
+    """A 4 x 3 wall of 100 px cabinets whose last column is hidden and whose
+    bottom row is blank has pixels out to 300 x 200 only, and the canvas
+    ends there. A hidden cabinet inside the wall changes nothing, and a
+    screen further out whose cabinets are all hidden does not count."""
+    pg, errors = page
+    hidden_col = [dict(row=r, col=3, hidden=True) for r in range(3)]
+    blank_row = [dict(row=2, col=c, blank=True) for c in range(3)]
+    inner = [dict(row=0, col=1, hidden=True)]
+    dark = [dict(row=r, col=c, hidden=True) for r in range(2) for c in range(2)]
+    ids = _seed(pg, [_screen('WALL', 0, 0, 4, 3, 100, 100, panelStates=hidden_col + blank_row + inner),
+                     _screen('DARK', 2000, 1500, 2, 2, 100, 100, panelStates=dark)])
+    flags = pg.evaluate("""(ids) => Object.fromEntries(Object.entries(ids).map(([n, id]) => {
+        const l = window.app.project.layers.find(x => x.id === id);
+        return [n, [l.panels.filter(p => p.hidden).length, l.panels.filter(p => p.blank).length]];
+    }))""", ids)
+    assert flags == {'WALL': [4, 3], 'DARK': [4, 0]}, flags
+    _match(pg)
+    s = _expect_size(pg, 300, 200)
+    assert s['at'] == {'WALL': [0, 0], 'DARK': [2000, 1500]}, s
+    assert errors == []
+
+
+def test_a_screen_the_renderer_does_not_draw_does_not_count(page):
+    """The renderer draws a screen only when its visible flag is truthy, so
+    a screen with no flag at all is not drawn and Match leaves it out."""
+    pg, errors = page
+    ids = _seed(pg, [_screen('A', 0, 0, 5, 5, 100, 100),
+                     _screen('NOFLAG', 2000, 1000, 2, 2, 100, 100)])
+    drawn = pg.evaluate("""(id) => {
+        const app = window.app, r = window.canvasRenderer;
+        const l = app.project.layers.find(x => x.id === id);
+        delete l.visible;
+        const seen = [];
+        const keep = r.renderPanel;
+        r.renderPanel = function (panel, layer) {
+            if (layer && !seen.includes(layer.name)) seen.push(layer.name);
+            return keep.apply(this, arguments);
+        };
+        try { r.render(); } finally { r.renderPanel = keep; }
+        return seen;
+    }""", ids['NOFLAG'])
+    assert 'A' in drawn and 'NOFLAG' not in drawn, drawn
+    _match(pg)
+    s = _expect_size(pg, 500, 500)
+    assert s['at']['NOFLAG'] == [2000, 1000], s
+    assert errors == []
+
+
+def test_text_and_image_layers_further_out_do_not_count(page):
+    pg, errors = page
+    _seed(pg, [_screen('A', 0, 0, 5, 5, 100, 100),
+               _screen('NOTE', 3000, 1500, 3, 1, 300, 300, kind='text'),
+               _screen('LOGO', 2500, 1800, 1, 1, 300, 300, kind='image')])
+    kinds = pg.evaluate("() => window.app.project.layers.map(l => [l.name, l.type || 'screen'])")
+    assert sorted(kinds) == [['A', 'screen'], ['LOGO', 'image'], ['NOTE', 'text']], kinds
+    _match(pg)
+    s = _expect_size(pg, 500, 500)
+    assert s['at'] == {'A': [0, 0], 'NOTE': [3000, 1500], 'LOGO': [2500, 1800]}, s
+    assert errors == []
+
+
+def test_a_grouped_wall_counts_each_member_where_it_is(page):
+    """Two screens of different cabinets grouped as one wall: the canvas
+    takes the members' own edges (600 + 400 wide, 4 x 100 tall), and
+    neither member moves."""
+    pg, errors = page
+    ids = _seed(pg, [_screen('G1', 0, 0, 3, 2, 200, 200, group='Wall'),
+                     _screen('G2', 600, 0, 4, 4, 100, 100, group='Wall')])
+    groups = pg.evaluate("""() => window.app.project.groups.map(g => [g.name, g.layer_ids.slice().sort()])""")
+    assert groups == [['Wall', sorted([ids['G1'], ids['G2']])]], groups
+    _match(pg)
+    s = _expect_size(pg, 1000, 400)
+    assert s['at'] == {'G1': [0, 0], 'G2': [600, 0]}, s
+    assert errors == []
+
+
+def test_the_active_canvas_is_the_one_sized(page):
+    """With the second canvas active, Match sizes it from its own screens
+    and leaves the first canvas as it was."""
+    pg, errors = page
+    _seed(pg, [_screen('MAIN', 0, 0, 10, 5, 100, 100),
+               _screen('OTHER', 500, 300, 4, 3, 100, 100, canvas='other')])
+    pg.evaluate("() => window.app.setActiveCanvas('c2')")
+    s = settled(pg, lambda: _state(pg), lambda v: v['active'] == 'c2' and v['fields'] == ['3840', '2160'])
+    assert s['active'] == 'c2' and s['fields'] == ['3840', '2160'], s
+    _match(pg)
+    s = _expect_size(pg, 900, 600)
+    assert s['active'] == 'c2', s
+    first = pg.evaluate("""() => fetch('/api/project').then(r => r.json())
+        .then(p => p.canvases.find(c => c.id === 'c1'))
+        .then(c => [c.raster_width, c.raster_height, c.show_raster_width, c.show_raster_height])""")
+    assert first == [3840, 2160, 3840, 2160], first
+    assert s['at'] == {'MAIN': [0, 0], 'OTHER': [500, 300]}, s
+    pg.evaluate("() => window.app.setActiveCanvas('c1')")
+    assert errors == []
+
+
+# ── left of or above 0,0 ─────────────────────────────────────────────────
+
+PAST_ORIGIN = ('Match Screens: {} starts left of or above 0,0 and stays there, '
+               'so the canvas does not show all of it.')
+
+
+def _toasts(pg, n):
+    s = settled(pg, lambda: _state(pg), lambda v: len(v['toasts']) >= n)
+    return s
+
+
+def test_a_screen_partly_past_0_0_counts_its_far_edges_and_is_named(page):
+    """LEFT starts at -200,-100 and is 600 x 400, so its far edges are 400
+    and 300. The canvas takes those, LEFT stays where it is, and a toast
+    (not the red one) says part of it is outside the canvas."""
+    pg, errors = page
+    _seed(pg, [_screen('LEFT', -200, -100, 6, 4, 100, 100),
+               _screen('B', 0, 0, 2, 2, 100, 100)])
+    assert _state(pg)['at']['LEFT'] == [-200, -100]
+    _match(pg)
+    s = _expect_size(pg, 400, 300)
+    assert s['at'] == {'LEFT': [-200, -100], 'B': [0, 0]}, s
+    s = _toasts(pg, 1)
+    assert [t['text'] for t in s['toasts']] == [PAST_ORIGIN.format('LEFT')], s
+    assert s['toasts'][0]['bg'] != TOAST_RED, s
+    assert errors == []
+
+
+def test_screens_wholly_past_0_0_do_nothing_and_say_so(page):
+    pg, errors = page
+    _seed(pg, [_screen('GONE', -1000, -800, 2, 2, 100, 100)])
+    before = _state(pg)
+    _match(pg)
+    s = _toasts(pg, 1)
+    assert [t['text'] for t in s['toasts']] == [
+        'Match Screens: the visible screens all sit above or left of 0,0.'], s
+    assert s['toasts'][0]['bg'] != TOAST_RED, s
+    pg.wait_for_timeout(300)
+    s = _state(pg)
+    assert s['fields'] == ['3840', '2160'] and s['server'][:2] == [3840, 2160], s
+    assert s['index'] == before['index'], s
+    assert errors == []
+
+
+# ── Show Look, Data and Power ────────────────────────────────────────────
+
+# Pixel Map: A to 500,500 and B to 2200,1200. Show Look: A at 1000,600 to
+# 1500,1100 and B at 200,200 to 400,400.
+SHOW_SPECS = [_screen('A', 0, 0, 5, 5, 100, 100, show=[1000, 600]),
+              _screen('B', 2000, 1000, 2, 2, 100, 100, show=[200, 200])]
+
+
+def _view(pg, mode):
+    pg.locator(f'#view-tabs .view-tab[data-mode="{mode}"]').click()
+    pg.wait_for_function("(m) => window.canvasRenderer.viewMode === m", arg=mode, timeout=10000)
+
+
+@pytest.mark.parametrize('mode', ['show-look', 'data-flow', 'power'])
+def test_in_a_show_view_it_sizes_only_the_show_look_canvas(page, mode):
+    """In Show Look, Data and Power the screens are where Show Look puts
+    them, and Match writes only the Show Look size: 1500 x 1100 from the
+    show positions, while the Pixel Map size stays 3840 x 2160."""
+    pg, errors = page
+    _seed(pg, SHOW_SPECS)
+    try:
+        _view(pg, mode)
+        s = settled(pg, lambda: _state(pg), lambda v: v['fields'] == ['3840', '2160'])
+        assert s['fields'] == ['3840', '2160'], s
+        _match(pg)
+        s = settled(pg, lambda: _state(pg),
+                    lambda v: v['server'] == [3840, 2160, 1500, 1100] and v['fields'] == ['1500', '1100'])
+        assert s['fields'] == ['1500', '1100'], s
+        assert s['renderer'] == [1500, 1100], s
+        assert s['canvas'] == [3840, 2160, 1500, 1100], s
+        assert s['server'] == [3840, 2160, 1500, 1100], s
+        assert s['at'] == {'A': [0, 0], 'B': [2000, 1000]}, s
+        assert s['show'] == {'A': [1000, 600], 'B': [200, 200]}, s
+    finally:
+        _view(pg, 'pixel-map')
+    s = settled(pg, lambda: _state(pg), lambda v: v['fields'] == ['3840', '2160'])
+    assert s['fields'] == ['3840', '2160'] and s['renderer'] == [3840, 2160], s
+    assert errors == []
+
+
+def test_pixel_map_reads_pixel_map_positions_not_show_look(page):
+    """The same screens on Pixel Map: 2200 x 1200 from where they sit on
+    the Pixel Map, and the Show Look size, linked, follows."""
+    pg, errors = page
+    _seed(pg, SHOW_SPECS)
+    _match(pg)
+    s = _expect_size(pg, 2200, 1200)
+    assert s['server'] == [2200, 1200, 2200, 1200], s
+    assert s['show'] == {'A': [1000, 600], 'B': [200, 200]}, s
+    assert errors == []
+
+
+def test_pixel_map_leaves_an_unlinked_show_look_size_alone(page):
+    """The Show Look canvas has a size of its own (3000 x 2000): Match on
+    the Pixel Map sizes only the Pixel Map canvas."""
+    pg, errors = page
+    _seed(pg, [_screen('MID', 960, 540, 2, 1, 480, 540)], show=[3000, 2000])
+    assert _state(pg)['server'] == [3840, 2160, 3000, 2000]
+    _match(pg)
+    s = _expect_size(pg, 1920, 1080)
+    assert s['server'] == [1920, 1080, 3000, 2000], s
+    assert s['canvas'] == [1920, 1080, 3000, 2000], s
+    assert errors == []
+
+
+# ── the words ────────────────────────────────────────────────────────────
+
+RECORD_TOASTS_JS = """() => {
+    const app = window.app;
+    if (!app.__matchToastKeep) {
+        app.__matchToastKeep = app._toast;
+        app._toast = function (msg) {
+            (window.__matchToasts = window.__matchToasts || []).push(String(msg));
+            return app.__matchToastKeep.apply(this, arguments);
+        };
+    }
+    window.__matchToasts = [];
+}"""
+
+
+def test_no_toast_or_guide_text_says_raster(page):
+    """Every toast Match Screens can show, and every guide step's title and
+    text, read Canvas Size or canvas, never raster."""
+    pg, errors = page
+    pg.evaluate(RECORD_TOASTS_JS)
+    try:
+        # no visible screen; all past 0,0; one past 0,0; already fits
+        _seed(pg, [_screen('GONE', 3000, 2000, 2, 2, 100, 100, visible=False)])
+        _match(pg)
+        _toasts(pg, 1)
+        _seed(pg, [_screen('UP', -1000, -800, 2, 2, 100, 100)])
+        _match(pg)
+        _toasts(pg, 1)
+        _seed(pg, [_screen('LEFT', -200, -100, 6, 4, 100, 100)])
+        _match(pg)
+        _expect_size(pg, 400, 300)
+        _toasts(pg, 1)
+        _match(pg)
+        said = settled(pg, lambda: pg.evaluate("() => window.__matchToasts.slice()"),
+                       lambda v: len(v) >= 5)
+    finally:
+        pg.evaluate("""() => { const app = window.app;
+            if (app.__matchToastKeep) { app._toast = app.__matchToastKeep; delete app.__matchToastKeep; } }""")
+    assert len(said) >= 5, said
+    assert 'The canvas already fits its screens: 400 × 300.' in said, said
+    assert not [t for t in said if 'raster' in t.lower()], said
+    guide = pg.evaluate("""() => {
+        const out = [];
+        const steps = window.QuickStart.steps();
+        for (const [key, s] of Object.entries(steps)) {
+            for (const f of ['title', 'body', 'intro', 'outro']) {
+                let v = s && s[f];
+                if (typeof v === 'function') { try { v = v(); } catch (e) { v = null; } }
+                if (typeof v === 'string') out.push([key, f, v]);
+            }
+        }
+        return out;
+    }""")
+    assert any(k == 'matchScreens' and f == 'body' for k, f, _ in guide), guide[:5]
+    hits = [(k, f, v) for k, f, v in guide
+            if 'raster' in v.lower().replace('led raster designer', '')]
+    assert hits == [], hits
     assert errors == []

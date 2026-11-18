@@ -1560,17 +1560,47 @@ class _CanvasUi {
     // Match Screens (owner, 2026-11-18): the toolbar button right of the
     // Canvas Size fields. The active canvas takes the furthest right edge
     // and the furthest bottom edge of its VISIBLE screens as its width and
-    // height; its origin stays 0,0 and no screen moves. A hidden screen does
-    // not count, nor do text and image layers. "On the canvas" and "where
-    // it is" are the view's own, as the toolbar fields are: Pixel Map and
-    // Cabinet ID size the Pixel Map canvas from each screen's canvas_id and
-    // position, Show Look, Data and Power the Show Look canvas from its
-    // show canvas and show position (the renderer's _effectiveLayerCanvasId
-    // and getLayerFootprintInActiveView). The footprint is the screen as
-    // drawn: its cabinets' own rectangles (half columns and rows at their
-    // real size), turned for a 90 or 270 rotation.
+    // height; its origin stays 0,0 and no screen moves. A screen counts only
+    // where the renderer draws it (render()'s own `l.visible` test, so a
+    // screen with no visible flag at all does not count either); text and
+    // image layers never count. "On the canvas" and "where it is" are the
+    // view's own, as the toolbar fields are: Pixel Map and Cabinet ID size
+    // the Pixel Map canvas from each screen's canvas_id and position, Show
+    // Look, Data and Power the Show Look canvas from its show canvas and
+    // show position (the renderer's _effectiveLayerCanvasId and its draw
+    // frame). A screen is measured by the cabinets that carry pixels, as
+    // the processor span is (_canvasFields): hidden and blank cabinets are
+    // left out, so the canvas ends at the last cabinet with pixels. Each
+    // cabinet is its own drawn rectangle (half columns and rows at their
+    // real size), turned for a 90 or 270 rotation and moved by the Show
+    // Look offset (canvas.js _layerDrawFrame / _drawnPanelRect).
     //
-    // Returns {width, height, screens} or null with no visible screen.
+    // Returns {width, height, screens, pastOrigin} or null when no visible
+    // screen has a cabinet with pixels. pastOrigin names the screens that
+    // start left of or above 0,0 (the canvas cannot show all of them).
+    _matchScreensDrawnBox(layer) {
+        const r = window.canvasRenderer;
+        const panels = Array.isArray(layer.panels) ? layer.panels : [];
+        if (!panels.length || typeof r._layerDrawFrame !== 'function'
+                || typeof r._drawnPanelRect !== 'function') {
+            // A screen with no cabinet list is drawn from its grid.
+            return panels.length ? null : r.getLayerFootprintInActiveView(layer);
+        }
+        const frame = r._layerDrawFrame(layer);
+        let box = null;
+        panels.forEach(panel => {
+            if (!panel || panel.hidden || panel.blank) return;
+            const q = r._drawnPanelRect(frame, panel);
+            if (!q || !(q.width > 0) || !(q.height > 0)) return;
+            const x1 = q.x + q.width;
+            const y1 = q.y + q.height;
+            box = box ? { x: Math.min(box.x, q.x), y: Math.min(box.y, q.y),
+                          x1: Math.max(box.x1, x1), y1: Math.max(box.y1, y1) }
+                : { x: q.x, y: q.y, x1, y1 };
+        });
+        return box ? { x: box.x, y: box.y, width: box.x1 - box.x, height: box.y1 - box.y } : null;
+    }
+
     _matchScreensSize() {
         const p = this.project;
         const r = window.canvasRenderer;
@@ -1579,20 +1609,24 @@ class _CanvasUi {
         const onCanvas = (l) => (typeof r._effectiveLayerCanvasId === 'function'
             ? r._effectiveLayerCanvasId(l) : (l.canvas_id || null)) === activeId;
         const screens = (p.layers || []).filter(l => l && (l.type || 'screen') === 'screen'
-            && l.visible !== false && onCanvas(l));
-        if (!screens.length) return null;
+            && l.visible && onCanvas(l));
         let right = 0;
         let bottom = 0;
+        let counted = 0;
+        const pastOrigin = [];
         screens.forEach(l => {
-            const b = r.getLayerFootprintInActiveView(l);
+            const b = this._matchScreensDrawnBox(l);
             if (!b) return;
+            counted += 1;
             right = Math.max(right, b.x + b.width);
             bottom = Math.max(bottom, b.y + b.height);
+            if (b.x < -1e-6 || b.y < -1e-6) pastOrigin.push(l.name || `Screen ${l.id}`);
         });
+        if (!counted) return null;
         // Whole pixels, the way the canvas check rounds a span (canvasExtent).
         const whole = (v) => (typeof this.canvasExtent === 'function'
             ? this.canvasExtent(v) : Math.ceil((Number(v) || 0) - 1e-6));
-        return { width: whole(right), height: whole(bottom), screens: screens.length };
+        return { width: whole(right), height: whole(bottom), screens: counted, pastOrigin };
     }
 
     matchCanvasToScreens() {
@@ -1608,20 +1642,34 @@ class _CanvasUi {
             say('Match Screens: the visible screens all sit above or left of 0,0.');
             return Promise.resolve(false);
         }
+        // The canvas starts at 0,0 and no screen moves, so a screen that
+        // starts left of or above it stays partly off the canvas: say which.
+        const warnPastOrigin = () => {
+            const names = size.pastOrigin || [];
+            if (!names.length) return;
+            const list = names.length === 1 ? names[0]
+                : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+            const one = names.length === 1;
+            say(`Match Screens: ${list} ${one ? 'starts' : 'start'} left of or above 0,0 and `
+                + `${one ? 'stays' : 'stay'} there, so the canvas does not show all of ${one ? 'it' : 'them'}.`);
+        };
         const isShow = r.isShowLookView();
         if (size.width === Number(r.rasterWidth) && size.height === Number(r.rasterHeight)) {
             say(`The canvas already fits its screens: ${size.width} × ${size.height}.`);
+            warnPastOrigin();
             return Promise.resolve(false);
         }
         if (typeof sendClientLog === 'function') {
             sendClientLog('match_screens', {
                 from: [r.rasterWidth, r.rasterHeight], to: [size.width, size.height],
                 screens: size.screens, isShow, canvas_id: this.project.active_canvas_id,
+                past_origin: size.pastOrigin,
             });
         }
         const done = this._writeToolbarRasterSize({ width: size.width, height: size.height }, isShow);
         if (typeof this.syncRasterFromProject === 'function') this.syncRasterFromProject();
         r.render();
+        warnPastOrigin();
         return Promise.resolve(done).then(() => true);
     }
 
