@@ -14,6 +14,10 @@ class _History {
         // view takes the opened project's saved camera when this moves
         // (app-stage3d.js _s3dAdoptViewState).
         this._projectEpoch = (this._projectEpoch || 0) + 1;
+        // A held number's step so far belonged to the history going away;
+        // the hold goes on, and what it changes from here is a step of the
+        // new one (_wireNumberHold).
+        if (this._numberHold) { this._numberHold.action = null; this._numberHold.json = null; }
         this.history = [];
         this.historyIndex = -1;
         // A new project's numbers are what it prints as opened: the commit
@@ -69,6 +73,9 @@ class _History {
         // A number spinner held down (or a slider dragged) is one step,
         // taken when it is let go (_wireNumberHold).
         if (this._numberHoldTakes(action)) return;
+        // Any other step made during a hold lands after the hold's ticks so
+        // far, as their own step: this one carries none of them.
+        if (this._numberHold && this._numberHold.action) this._numberHoldCheckpoint();
         // v0.10.5: a debounced snapshot still waiting to fire must land BEFORE
         // this one, or history ends up out of order (and the pending timer
         // would later snapshot a state that already includes this action).
@@ -113,8 +120,12 @@ class _History {
             }
         }
 
-        const json = JSON.stringify(this.project, this._snapshotReplacer);
+        this._takeStep(action, JSON.stringify(this.project, this._snapshotReplacer));
+    }
 
+    // The entry for `action`, from the project serialized as `json`
+    // (saveState's own, or a held number's tick, _numberHoldCheckpoint).
+    _takeStep(action, json) {
         // Undo audit: an action that changed nothing must not grow a step.
         // Several commit handlers snapshot unconditionally (blurring an
         // untouched field fires 'Update Properties', a locked selection skips
@@ -185,6 +196,8 @@ class _History {
      * should call saveState() directly rather than coming through here.
      */
     debouncedSaveState(action, delay = 500, key = null) {
+        // A held number's own step waits for its release (_wireNumberHold).
+        if (this._numberHoldTakes(action)) return;
         const k = key || action;
         if (this._saveStateTimer && this._pendingSaveKey !== k) {
             this._flushPendingSaveState();
@@ -217,18 +230,23 @@ class _History {
 
     // ONE STEP PER HELD NUMBER (owner, 2026-11-18). Holding a number
     // field's spinner, holding an arrow key in one, or dragging a slider
-    // changes the value on every tick, and every tick's handler takes a
-    // step: thirty steps for one hold. Like a canvas drag, the whole hold
-    // is one step now, from the value it started at to the one it ended
-    // on. The canvas and the saves still follow every tick; only the
-    // history waits. A separate click is its own hold, so its own step,
-    // and a typed value committed with Enter never starts one.
+    // changes the value on every tick, and where the browser fires a
+    // change per tick (the Mac app does) every tick's handler took a step:
+    // thirty steps for one hold. Like a canvas drag, the whole hold is one
+    // step now, from the value it started at to the one it ended on. The
+    // canvas and the saves still follow every tick; only the history
+    // waits. A separate click is its own hold, so its own step, and a
+    // typed value committed with Enter never starts one.
     //
     // A hold starts on a trusted press of the field (or an arrow key in
-    // it) and takes steps only once the field itself has changed, so
-    // another field's commit on the blur the press causes keeps its own
+    // it). It holds back only the steps the field's own input and change
+    // handlers ask for, while those events are dispatched: anything else
+    // (another field's commit on the blur the press causes, a late step of
+    // an earlier action, a show opened on another page) keeps its own
     // step. It ends a task after the release, so a change the browser
-    // fires with the release is still in it.
+    // fires with the release is still in it; a release the page never saw
+    // (let go outside the window) ends it on the next move with no button
+    // down, or on the window losing focus.
     _wireNumberHold() {
         if (this._numberHoldWired) return;
         this._numberHoldWired = true;
@@ -239,7 +257,7 @@ class _History {
             if (this._numberHold) return;
             // An edit still waiting to be recorded is its own step.
             this._flushPendingSaveState();
-            this._numberHold = { field, how, key, live: false, action: null, ticks: 0 };
+            this._numberHold = { field, how, key, action: null, json: null, ticks: 0, dispatching: 0, releasing: false };
         };
         const release = () => {
             const h = this._numberHold;
@@ -253,11 +271,13 @@ class _History {
             if (!e.isTrusted || e.button !== 0 || !held(e.target)) return;
             start(e.target, 'pointer');
         }, true);
-        window.addEventListener('pointerup', (e) => {
+        const pointerLetGo = () => {
             if (this._numberHold && this._numberHold.how === 'pointer') release();
-        }, true);
-        window.addEventListener('pointercancel', () => {
-            if (this._numberHold && this._numberHold.how === 'pointer') release();
+        };
+        window.addEventListener('pointerup', pointerLetGo, true);
+        window.addEventListener('pointercancel', pointerLetGo, true);
+        window.addEventListener('pointermove', (e) => {
+            if (e.buttons === 0) pointerLetGo();
         }, true);
         document.addEventListener('keydown', (e) => {
             if (!e.isTrusted || !KEYS.has(e.key) || !held(e.target)) return;
@@ -268,26 +288,61 @@ class _History {
             if (h && h.how === 'key' && e.key === h.key) release();
         }, true);
         window.addEventListener('blur', () => release());
-        const live = (e) => {
+        // The held field's own input / change, from the first listener
+        // (window, capture) to the last (window, bubble). A handler that
+        // stops the event short of the bubble is caught by the timeout.
+        const enter = (e) => {
             const h = this._numberHold;
-            if (h && e.target === h.field) h.live = true;
+            if (!h || e.target !== h.field) return;
+            h.dispatching += 1;
+            setTimeout(() => { h.dispatching = 0; }, 0);
         };
-        window.addEventListener('input', live, true);
-        window.addEventListener('change', live, true);
+        const leave = (e) => {
+            const h = this._numberHold;
+            if (h && e.target === h.field && h.dispatching > 0) h.dispatching -= 1;
+        };
+        ['input', 'change'].forEach((type) => {
+            window.addEventListener(type, enter, true);
+            window.addEventListener(type, leave, false);
+        });
     }
 
-    // saveState asks: is this step part of a hold? Then it is kept for
-    // the hold's end (the newest label wins) and not taken now.
+    // saveState and debouncedSaveState ask: is this step the held field's?
+    // Then it is kept for the hold's end (the newest label wins) and not
+    // taken now.
     _numberHoldTakes(action) {
         const h = this._numberHold;
-        if (!h || !h.live) return false;
+        if (!h || !h.dispatching) return false;
         h.action = action;
         h.ticks += 1;
+        // The show as this tick left it: a step made before the release
+        // (another action's, an undo) takes the hold's ticks so far from
+        // here, never from a project that already carries its own change.
+        h.json = JSON.stringify(this.project, this._snapshotReplacer);
         return true;
     }
 
-    // The hold is over: its one step, if anything changed. Undo and redo
-    // end a hold still on first, so they step over it whole.
+    // The hold's step so far, taken now; the hold goes on, and what it
+    // changes from here is its next step. Undo and redo take it first, so
+    // they step over it whole, and so does another page's change, so its
+    // step carries none of this page's ticks.
+    _numberHoldCheckpoint() {
+        const h = this._numberHold;
+        if (!h || !h.action) return;
+        const action = h.action;
+        h.action = null;
+        sendClientLog('number_hold_step', {
+            field: h.field.id || h.field.getAttribute('data-lrd-field') || '',
+            action, ticks: h.ticks, how: h.how, partial: true,
+        });
+        h.ticks = 0;
+        const json = h.json;
+        h.json = null;
+        if (json) this._takeStep(action, json);
+        else this.saveState(action);
+    }
+
+    // The hold is over: its one step, if anything changed.
     _endNumberHold() {
         const h = this._numberHold;
         if (!h) return;
@@ -313,8 +368,9 @@ class _History {
         // Land any in-flight debounced snapshot first, so Ctrl+Z steps back
         // over the edit the user just made instead of skipping past it (and
         // so the timer can't overwrite the restored state a moment later).
-        // A held number still on ends first: Ctrl+Z steps over it whole.
-        this._endNumberHold();
+        // A held number's step so far is taken first: Ctrl+Z steps over
+        // it whole, and the hold goes on as one step of its own.
+        this._numberHoldCheckpoint();
         this._flushPendingSaveState();
 
         if (this.historyIndex > 0) {
@@ -602,7 +658,7 @@ class _History {
     redo() {
         if (this._holdHistoryKey('redo')) return;
         if (typeof this._refuseWhileGuideElsewhere === 'function' && this._refuseWhileGuideElsewhere('redo')) return;
-        this._endNumberHold();
+        this._numberHoldCheckpoint();
         this._flushPendingSaveState();
 
         if (this.historyIndex < this.history.length - 1) {

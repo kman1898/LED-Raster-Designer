@@ -1078,6 +1078,9 @@ export class LEDRasterApp {
         // waiting.
         const otherPage = !own && !!(echo && echo.client);
         if (otherPage && typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
+        // A number held here: its ticks so far are its own step, not the
+        // other page's (app-history _numberHoldCheckpoint).
+        if (otherPage && typeof this._numberHoldCheckpoint === 'function') this._numberHoldCheckpoint();
         sendClientLog('socket_layer_updated', { id: layer.id });
         // The server's copy of a screen is taken in and shown; nothing
         // worked out on the way is written back (FOLLOWING). Another
@@ -1254,6 +1257,7 @@ export class LEDRasterApp {
         if (sameShow) {
             // a snapshot still waiting is of this page's own edit, before the replace
             if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
+            if (typeof this._numberHoldCheckpoint === 'function') this._numberHoldCheckpoint();
         } else if (this._saveStateTimer) {
             // the show it was of is gone, and its history with it
             clearTimeout(this._saveStateTimer);
@@ -2545,6 +2549,11 @@ export class LEDRasterApp {
         if (!this._gestureHeldRuns || !this._gestureHeldRuns.size) return;
         setTimeout(() => {
             if (this._gestureHeld() || !this._gestureHeldRuns) return;
+            // A number hold let go with this gesture takes its step before
+            // the held echoes land (this timeout is queued ahead of the
+            // hold's own, app-history _wireNumberHold).
+            const hold = this._numberHold;
+            if (hold && hold.releasing && typeof this._endNumberHold === 'function') this._endNumberHold();
             const runs = [...this._gestureHeldRuns.values()];
             this._gestureHeldRuns.clear();
             runs.forEach(run => {
