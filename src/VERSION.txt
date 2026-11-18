@@ -587,7 +587,9 @@ ALSO NEW
   fibers. A TAC or opticalCON of 8 keeps 1 to 8.
 - NEW: The pull sheet says each MTP's polarity, "MTP 24 Type A", and a
   Type A and a Type B of the same length are separate rows with their own
-  counts.
+  counts. The cable list on a box's Fiber section says it too, "MTP A ·
+  24 Type A · 300'", and so does a box's fiber in the binder, "(MTP 24 A
+  SM)".
 
 FIXES
 

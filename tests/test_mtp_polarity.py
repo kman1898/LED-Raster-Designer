@@ -697,3 +697,44 @@ def test_the_pull_sheet_says_the_polarity_and_splits_by_it(page):
             await window.app.refreshProcessors();
         }""", [sx, xds[2]])
     assert ids['errors'] == []
+
+
+def test_the_picker_and_the_box_band_say_the_polarity(page):
+    """Owner, 2026-11-18: the polarity shows in both places. A box's cable
+    list reads "MTP A · 24 Type A · 300'"; the binder's box band brackets
+    the letter alone, "(MTP 24 A)", "(MTP 24 A SM)" with a mode, so the
+    band stays small. A TAC reads as it did."""
+    pg, ids = page
+    a, mtp = ids['xds'][0], ids['mtp']
+    _set(pg, ids, strands=24, polarity='A')
+    _section(pg, a)
+    texts = """([box, id]) => {
+        const s = document.querySelector(`[data-lrd-field="fiber-link-cable-${box}-p1"]`);
+        const o = s && [...s.options].find(x => x.value === id);
+        const app = window.app;
+        const cvt = app._dockFindCvt(box).cvt;
+        return {option: o ? o.textContent : null,
+                band: (app._bBoxInputGroups(cvt) || []).map(g => g.sub || g.text),
+                summary: app.fiberLinkSummary(cvt)};
+    }"""
+    out = pg.evaluate(texts, [a, mtp])
+    assert out['option'] == "MTP A · 24 Type A · 300'", out
+    assert out['band'] == ['MTP A (MTP 24 A)'], out
+    assert out['summary'] == 'X1 MTP A (MTP 24 A) 1-2', out
+    _set(pg, ids, polarity='B')
+    out = settled(pg, lambda: pg.evaluate(texts, [a, mtp]), lambda v: v['band'] == ['MTP A (MTP 24 B)'])
+    assert out['option'] == "MTP A · 24 Type B · 300'", out
+    modes = pg.evaluate("""(id) => {
+        const app = window.app;
+        app.fiberCableMode = () => 'single';
+        try {
+            return [app.fiberCableShortKind(app.getFiberCable(id)),
+                    app.fiberCableOptionText(app.getFiberCable(id)),
+                    app.fiberCableShortKind({kind: 'tac', strands: 12}),
+                    app.fiberCableOptionText({kind: 'tac', name: 'TAC A', strands: 12, ft: 300, connector: 'ST'})];
+        } finally { delete app.fiberCableMode; }
+    }""", mtp)
+    assert modes == ['MTP 24 B SM', "MTP A · 24 Type B · 300' · Single mode", 'TAC 12 SM',
+                     "TAC A · 12 · 300' · ST · Single mode"], modes
+    _set(pg, ids, polarity='A')
+    assert ids['errors'] == []
