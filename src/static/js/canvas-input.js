@@ -2353,8 +2353,10 @@ Object.assign(CanvasRenderer.prototype, {
             }
         }
         
-        // Cmd/Ctrl+Z - Undo (works everywhere)
-        if (ctl('undo')) {
+        // Cmd/Ctrl+Z - Undo (works everywhere, a field included - but a
+        // key set with no Cmd, Ctrl or Alt is typing there, so not then)
+        const commandKey = e.ctrlKey || e.metaKey || e.altKey;
+        if (ctl('undo') && (commandKey || !isTyping)) {
             if (e.repeat) return;
             e.preventDefault();
             // Undo audit: an undo fired mid-gesture was silently reverted -
@@ -2368,8 +2370,8 @@ Object.assign(CanvasRenderer.prototype, {
             if (window.app) window.app.undo();
         }
 
-        // Cmd/Ctrl+Shift+Z - Redo (works everywhere)
-        if (ctl('redo')) {
+        // Cmd/Ctrl+Shift+Z - Redo (works everywhere, as Undo above)
+        if (ctl('redo') && (commandKey || !isTyping)) {
             if (e.repeat) return;
             e.preventDefault();
             // Same mid-gesture commit as undo above.

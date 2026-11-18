@@ -151,6 +151,19 @@ class _Stage3DNav {
         const plan = touch
             ? (ev.button === 0 ? { pick: true, select: true, move: true, moveMod: 'none', box: false, defer: null } : null)
             : window.Controls.resolvePress(this.controlMouseMap(), Object.assign({ button: ev.button }, mods));
+        if (!plan && !touch && ev.button === 2) {
+            // Nothing set to the right button: a right press is the screen
+            // menu, on its release, the way a Mac's Ctrl+click is.
+            ev.preventDefault();
+            this._s3dReleaseField();
+            st.nav = {
+                kind: 'menu', id: ev.pointerId, x: ev.clientX, y: ev.clientY,
+                lastX: ev.clientX, lastY: ev.clientY, moved: false,
+            };
+            if (st.controls) st.controls.enabled = false;
+            try { st.renderer.domElement.setPointerCapture(ev.pointerId); } catch (e) { /* a dispatched press */ }
+            return;
+        }
         if (!plan) return;
         if (plan.camera) {
             ev.preventDefault();

@@ -186,6 +186,46 @@ def test_a_key_in_use_is_named_where_the_action_acts():
     assert _js('C.conflicts(null, "nextCircuit", "Tab")') == [], 'Tab steps ports on Data, circuits on Power'
 
 
+@needs_node
+def test_any_modifier_is_only_ever_delete_and_backspace():
+    """Delete set to D answers D alone, never Ctrl+D (Duplicate's); Clear
+    The Mark set to C never takes Cmd+C; Delete itself still answers with
+    any modifier held, as it always did."""
+    m = lambda e, i, u=None, mac=False: _js(f'C.matches(A[0], A[1], A[2], {json.dumps(mac)})', e, i, u)  # noqa: E731
+    d = {'keys': {'deleteScreen': ['KeyD']}}
+    assert m({'code': 'KeyD'}, 'deleteScreen', d)
+    assert not m({'code': 'KeyD', 'ctrlKey': True}, 'deleteScreen', d)
+    assert not m({'code': 'KeyC', 'key': 'c', 'metaKey': True}, 'clearMark', {'keys': {'clearMark': ['KeyC']}}, True)
+    assert m({'code': 'Delete', 'ctrlKey': True}, 'deleteScreen') and m({'code': 'Backspace', 'shiftKey': True}, 'clearMark')
+
+
+@needs_node
+def test_a_key_that_would_answer_the_same_press_is_named_in_use():
+    """Any chord on Delete clashes with a plain Delete that answers with any
+    modifier; on a Mac a Control+key clashes with a Cmd-or-Ctrl action on
+    the same key; a strict action's Cmd key and a Control key do not."""
+    assert _js('C.conflicts(null, "undo", "shift+Delete")') == ['deleteScreen', 'removeBars', 'clearMark']
+    assert _js('C.conflicts({keys: {undo: ["shift+Delete"]}}, "deleteScreen", "Delete")') == ['undo']
+    assert _js('C.conflicts({keys: {deleteScreen: ["KeyD"]}}, "duplicate", "mod+KeyD")') == []
+    assert _js('C.conflicts(null, "paste", "ctrl+KeyZ")') == ['undo']
+    assert _js('C.conflicts({keys: {copy: ["ctrl+KeyZ"]}}, "undo", "mod+KeyZ")') == ['copy']
+    assert _js('C.conflicts(null, "paste", "ctrl+KeyS")') == []
+
+
+@needs_node
+def test_the_3d_letters_are_the_letters_typed_on_any_layout():
+    """F, W, E, G and R read the letter typed, never the key's place: on a
+    layout where the F place types u, that key is no Frame."""
+    m = lambda e, i: _js('C.matches(A[0], A[1], null, false)', e, i)  # noqa: E731
+    assert m({'code': 'KeyQ', 'key': 'f'}, 'frame3d')
+    assert not m({'code': 'KeyF', 'key': 'u'}, 'frame3d')
+    assert not m({'code': 'KeyW', 'key': 'z'}, 'moveHandles')
+    assert m({'code': 'Numpad2', 'key': '2'}, 'viewBack') and m({'code': 'Digit2', 'key': 'é'}, 'viewBack')
+    # recorded as the letter typed too
+    assert _js('C.fromEvent({code: "KeyQ", key: "a"}, false, true)') == 'KeyA'
+    assert _js('C.fromEvent({code: "KeyQ", key: "a"}, false)') == 'KeyQ'
+
+
 # ── the 3D mouse map ─────────────────────────────────────────────────────
 
 def _old_standard(button, shift, alt, mod):
@@ -479,18 +519,18 @@ def test_help_menus_and_tooltips_say_the_new_key(page):
     assert undo_label == f'Undo ({w}+Z)'
     # the tooltips that name a key
     tip = lambda sel: page.locator(sel).get_attribute('data-tooltip')  # noqa: E731
-    assert tip('#btn-fit') == f'Fit raster to view ({w}+{alt}+F)'
+    assert tip('#btn-fit') == f'Fit canvas to view ({w}+{alt}+F)'
     assert 'Press Q to frame the selected screens' in tip('#s3d-fit')
     assert tip('[data-s3d-view="front"]').startswith('Front (7),')
-    assert tip('#btn-preferences') == f'Open Preferences ({w}+,)'
+    assert tip('#btn-preferences') == 'Open Preferences (Cmd/Ctrl+,)', 'a shipped key keeps the words'
     # and the help panel reads them live as the pointer passes
     page.locator('#btn-fit').hover()
     page.wait_for_timeout(150)
     if page.locator('#help-tooltip-body').count():
-        assert page.locator('#help-tooltip-body').inner_text() == f'Fit raster to view ({w}+{alt}+F)'
+        assert page.locator('#help-tooltip-body').inner_text() == f'Fit canvas to view ({w}+{alt}+F)'
     # back to shipped: the template's own words again
     set_controls(page, {'keys': {}, 'mouse3d': {'preset': 'standard', 'actions': {}}})
-    assert tip('#btn-fit') == f'Fit raster to view ({w}+Shift+1)'
+    assert tip('#btn-fit') == 'Fit canvas to view (Ctrl/Cmd+Shift+1)'
     assert page.locator('#menu-edit .menu-option[data-action="duplicate"]').inner_text() == f'Duplicate ({w}+J)'
 
 
@@ -515,6 +555,48 @@ def test_a_key_in_use_asks_to_swap_yes_moves_it_no_keeps_both(page):
     save(page)
     keys = served(page)['keys']
     assert keys['copy'] == ['mod+KeyJ'] and keys['duplicate'] == []
+
+
+def test_reset_asks_before_it_takes_a_shipped_key_back(page):
+    """Copy holds Ctrl+J; Reset on Duplicate would take Ctrl+J back, so the
+    swap question asks first: No changes nothing, Yes moves it."""
+    w = mod_word(page)
+    set_controls(page, {'keys': {'copy': ['mod+KeyJ'], 'duplicate': []},
+                        'mouse3d': {'preset': 'standard', 'actions': {}}})
+    open_controls(page)
+    reset = page.locator('#pref-controls-list .pm-control-reset[data-control="duplicate"]')
+    reset.click()
+    asked = answer_app_dialog(page, accept=False)
+    assert asked == f'{w}+J is already Copy. Use it here and clear Copy?'
+    assert chips(page, 'copy') == [f'{w}+J'] and chips(page, 'duplicate') == []
+    page.locator('#pref-controls-list .pm-control-reset[data-control="duplicate"]').click()
+    answer_app_dialog(page, accept=True)
+    assert chips(page, 'duplicate') == [f'{w}+J'] and chips(page, 'copy') == []
+    save(page)
+    keys = served(page)['keys']
+    assert keys.get('duplicate') is None and keys['copy'] == []
+
+
+def test_undo_on_a_plain_key_never_fires_while_typing(page):
+    """Undo set to U: typing a screen's name puts a u in it and undoes
+    nothing; out of the field, U undoes."""
+    seed_one_screen(page)
+    reload_app(page)
+    set_controls(page, {'keys': {'undo': ['KeyU']}, 'mouse3d': {'preset': 'standard', 'actions': {}}})
+    page.locator('[data-mode="pixel-map"]').click()
+    before = page.evaluate("() => window.app.historyIndex")
+    field = page.locator('#layers-list .layer-name-input').first
+    field.dblclick()
+    page.wait_for_function("() => document.activeElement && document.activeElement.classList.contains('layer-name-input')"
+                           " && !document.activeElement.readOnly")
+    page.keyboard.press('End')
+    page.keyboard.type('u')
+    assert field.input_value().endswith('u'), field.input_value()
+    assert page.evaluate("() => window.app.historyIndex") == before, 'U undid while typing'
+    page.keyboard.press('Escape')
+    page.wait_for_timeout(200)
+    assert page.evaluate("() => window.app.project.layers[0].name") == 'KEYS WALL'
+    assert page.errors == []
 
 
 def test_reset_one_action_at_once_and_reset_all_asks_first(page):
@@ -689,6 +771,22 @@ def test_a_3d_action_set_on_its_own_button_works(page):
     assert angle_of(after) == pytest.approx(angle_of(before), abs=0.5), 'a middle drag turned the camera'
     assert math.dist(after['target'], before['target']) > 1, 'a middle drag did not pan'
     assert 'Right-drag orbits, Middle-drag pans' in page.locator('#s3d-hint').inner_text()
+
+
+def test_a_right_press_with_nothing_set_to_it_opens_the_screen_menu(page):
+    """Pan on Alt+left and nothing on the right button: a right click on a
+    screen still opens the menu, and the camera stays."""
+    set_controls(page, {'keys': {}, 'mouse3d': {'preset': 'standard', 'actions': {
+        'pan': {'button': 'left', 'mod': 'alt'}}}})
+    ids = fresh(page)
+    view(page, 'front')
+    cam = camera(page)
+    at = screen(page, ids[1])['at']
+    page.mouse.click(at[0], at[1], button='right')
+    page.wait_for_selector('#context-menu', state='visible')
+    assert camera(page) == cam
+    page.evaluate("window.app.hideContextMenu()")
+    assert page.errors == []
 
 
 def test_the_standard_3d_hint_keeps_its_words(page):

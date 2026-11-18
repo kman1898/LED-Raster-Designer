@@ -574,6 +574,8 @@ class _Preferences {
                 const prevCableUnit = typeof this.preferredCableUnit === 'function'
                     ? this.preferredCableUnit() : null;
                 const prefs = this.readPreferencesFromUI();
+                const controlsBefore = typeof this.controlsLogSummary === 'function'
+                    ? JSON.stringify(this.controlsLogSummary()) : null;
                 localStorage.setItem('appPreferences', JSON.stringify(prefs));
                 // Save to server so all clients share the same preferences
                 this._serverPreferences = prefs;
@@ -588,8 +590,13 @@ class _Preferences {
                     projectName: this.project ? this.project.name : null,
                     layers: this.project && this.project.layers ? this.project.layers.length : 0,
                     reset: !!this._prefsResetPending,
+                    controlsChanged: controlsBefore !== null
+                        && controlsBefore !== JSON.stringify(this.controlsLogSummary(prefs.controls)),
                     appliesToCurrentProject: !!(this.project && this.project.name === 'Untitled Project' && this.project.layers && this.project.layers.length === 1)
                 });
+                if (typeof this.controlsLogSummary === 'function') {
+                    sendClientLog('controls_saved', this.controlsLogSummary(prefs.controls));
+                }
                 this._prefsResetPending = false;
                 // Preferences are defaults for future/new projects.
                 // Only apply to the current project when it is the startup default untitled project.
@@ -631,7 +638,10 @@ class _Preferences {
                 const yes = await this.appConfirm('Put every preference back to its default?',
                     { id: 'preferences-reset-modal', title: 'Reset Defaults', okLabel: 'Reset' });
                 if (!yes) return;
-                const defaults = this.getPreferencesDefaults();
+                // Controls keep what the tab shows: they have their own
+                // Reset all (app-controls.js).
+                const defaults = { ...this.getPreferencesDefaults(),
+                    controls: this._controlsDraft || this.getPreferencesDefaults().controls };
                 this.fillPreferencesUI(defaults);
                 this._prefsResetPending = true;
                 sendClientLog('preferences_reset', {
