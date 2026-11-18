@@ -921,3 +921,71 @@ def test_after_curve_off_the_auto_button_still_lays_from_the_lit_sizes(page):
     act(page, lambda: page.click('#rigging-auto-btn'))
     assert row_bars(page, ids) == AUTO_ROW
     assert page.errors == []
+
+
+# ── a lit size lays a plain wall's Auto bars at once ────────────────────
+#
+# Owner's ruling (2026-11-18): on a plain header, lighting or unlighting a
+# bar size lays the Auto bars again right away, the same as on a curved
+# wall; a row laid by hand in Custom is left alone.
+
+def size_click(page, size):
+    page.click(f'#rigging-size-picker .rigging-size-btn[data-size="{size}"]')
+    idle(page)
+
+
+def test_a_lit_size_lays_a_groups_auto_bars_again_in_one_step(page):
+    ids = reset(page, wide_and_group()[:3])
+    group(page, ids)
+    open_rigging(page)
+    select(page, [ids[0]])
+    act(page, lambda: page.click('#rigging-auto-btn'))
+    assert row_bars(page, ids) == AUTO_ROW
+    n = history_len(page)
+    size_click(page, 2)
+    # doubles off: singles across the whole wall, every screen's sizes too
+    assert row_bars(page, ids) == [[p, 1] for p in range(30)], row_bars(page, ids)
+    assert all(layer(page, i)['riggingSizes'] == [1] for i in ids)
+    assert history_len(page) == n + 1
+    size_click(page, 2)
+    assert row_bars(page, ids) == AUTO_ROW
+    assert history_len(page) == n + 2
+    page.evaluate('window.app.undo()')
+    settled(page, lambda: row_bars(page, ids), lambda b: b == [[p, 1] for p in range(30)])
+    assert page.errors == []
+
+
+def test_a_lit_size_lays_a_screen_again_and_says_when_it_cannot(page):
+    ids = reset(page, wide_and_group()[:1])
+    open_rigging(page)
+    act(page, lambda: page.click('#rigging-auto-btn'))
+    assert layer(page, ids[0])['riggingBars'] == [2, 2, 2, 1, 2, 2, 2]
+    # doubles alone cannot make 13: the bars stay, and the tab says so
+    size_click(page, 1)
+    lay = layer(page, ids[0])
+    assert lay['riggingSizes'] == [2] and lay['riggingBars'] == [2, 2, 2, 1, 2, 2, 2]
+    assert 'No exact fit with these sizes: S1' in page.inner_text('#rigging-status')
+    size_click(page, 1)
+    assert layer(page, ids[0])['riggingBars'] == [2, 2, 2, 1, 2, 2, 2]
+    assert page.inner_text('#rigging-status') == ''
+    assert page.errors == []
+
+
+def test_a_lit_size_leaves_a_custom_row_and_a_wall_with_no_bars(page):
+    ids = reset(page, wide_and_group()[:1] + [dict(wide_and_group()[3], name='BARE', offset_y=5000)])
+    open_rigging(page)
+    select(page, [ids[0]])
+    page.click('#rigging-tool-picker [data-tool="custom"]')
+    page.evaluate("""(id) => { const a = window.app; const l = a.project.layers.find(x => x.id === id);
+        a._riggingCustomSize = 2; const d = a.riggingBeginPlace(l, 'header', 0); a.riggingPreviewPlace(d, 3);
+        a.riggingEndDrag(d, true); }""", ids[0])
+    page.click('#rigging-tool-picker [data-tool="auto"]')
+    custom = layer(page, ids[0])
+    assert custom['riggingCustom'] is True and custom['riggingBars'] == [2, 2]
+    size_click(page, 2)
+    assert layer(page, ids[0])['riggingBars'] == [2, 2]
+    select(page, [ids[1]])
+    size_click(page, 2)
+    bare = layer(page, ids[1])
+    assert bare['riggingSizes'] == [1] and not bare.get('riggingBars')
+    assert page.errors == []

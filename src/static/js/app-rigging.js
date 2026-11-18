@@ -413,16 +413,52 @@ class _Rigging {
         // screens is picked for all of them (app-curve.js).
         const withRows = typeof this.riggingCurveRowMates === 'function' ? this.riggingCurveRowMates(selected) : selected;
         const screens = this._writableLayers(withRows);
+        let misses;
         if (screens.length) {
             screens.forEach(l => { l.riggingSizes = [...sizes]; });
+            // A plain wall's Auto bars are laid again from the sizes at once
+            // (owner, 2026-11-18), in the same undo step.
+            const relaid = this._riggingRelayLit(screens, sizes);
+            misses = relaid.misses;
+            const all = [...new Set([...screens, ...relaid.changed])];
             // The lit sizes are a curved screen's stock: its curve is laid
             // again from them in the background, and the sizes land with it
             // as one undo step (app-curve.js).
             const later = typeof this.riggingCurveRelayLater === 'function'
-                && this.riggingCurveRelayLater(screens, 'Bar Sizes', screens);
-            if (!later) this.updateLayers(screens, true, 'Bar Sizes');
+                && this.riggingCurveRelayLater(screens, 'Bar Sizes', all, { misses });
+            if (!later) this.updateLayers(all, true, 'Bar Sizes');
         }
-        this.refreshRiggingPanel();
+        this.refreshRiggingPanel(misses && misses.length ? misses : undefined);
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // A size lit or unlit lays Auto's bars again at once (owner,
+    // 2026-11-18: "the same as on a curved wall") on every plain row of
+    // `screens` that has bars: across a group's seams and around its
+    // corners, the row's screens taking the sizes. A row laid by hand in
+    // Custom, a curved one (its Curve lays it), a row with a locked screen,
+    // a screen with a header and a footer, and a row with no bars yet are
+    // left as they are; with no size lit nothing is laid. { changed,
+    // misses }: the screens of the rows laid (or tried), and the rows the
+    // sizes cannot cover (left as they were, and said as Auto says it).
+    _riggingRelayLit(screens, sizes) {
+        const changed = [];
+        const misses = [];
+        if (!sizes.length) return { changed, misses };
+        const seen = new Set();
+        for (const l of screens) {
+            const side = this.riggingSideOf(l);
+            if (side === 'both') continue;
+            const row = this.riggingRow(l, side);
+            if (seen.has(row.key)) continue;
+            seen.add(row.key);
+            if (row.custom || (!row.placed.length && !row.pieces.length)) continue;
+            if (row.layers.some(m => this._layerLocked(m))) continue;
+            if (typeof this.riggingCurveOn === 'function' && row.layers.some(m => this.riggingCurveOn(m))) continue;
+            row.layers.forEach(m => { m.riggingSizes = [...sizes]; if (!changed.includes(m)) changed.push(m); });
+            if (!this._riggingFitRow(row, sizes)) misses.push(this._riggingRowName(row));
+        }
+        return { changed, misses };
     }
 
     setRiggingTool(tool) {

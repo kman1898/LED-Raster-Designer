@@ -397,8 +397,12 @@ def test_leftover_stock_is_named_and_lays_nothing(page):
     page.click('#rigging-auto-btn')
     before = settled(page, lambda: layer(page, ids[0]), lambda l: l.get('riggingBars') == [1] * 15)
     assert before['riggingBars'] == [1] * 15
-    # doubles only: 15 panels leave one over
+    # doubles only: 15 panels leave one over. Lighting the double lays
+    # Auto's bars at once (owner, 2026-11-18); taking the single off then
+    # cannot cover 15, and the bars stay as they were.
     page.click('#rigging-size-picker .rigging-size-btn[data-size="2"]')
+    mixed = settled(page, lambda: layer(page, ids[0]), lambda l: l.get('riggingBars') != [1] * 15)['riggingBars']
+    assert sorted(mixed) == [1] + [2] * 7
     page.click('#rigging-size-picker .rigging-size-btn[data-size="1"]')
     act(page, lambda: page.check('#rigging-curve-on'))
     now = layer(page, ids[0])
@@ -406,12 +410,12 @@ def test_leftover_stock_is_named_and_lays_nothing(page):
     assert page.inner_text('#rigging-curve-errors') == \
         'These bar sizes leave 1 panel uncovered on a 15-panel wall. Light another size.'
     assert not page.is_visible('#rigging-curve-result')
-    assert now['riggingBars'] == [1] * 15
+    assert now['riggingBars'] == mixed
     assert not now.get('stage3d')
     # Auto says so too, and still lays nothing
     act(page, lambda: page.click('#rigging-auto-btn'))
     assert 'No exact fit with these sizes: ODD' in page.inner_text('#rigging-status')
-    assert layer(page, ids[0])['riggingBars'] == [1] * 15 and not layer(page, ids[0]).get('stage3d')
+    assert layer(page, ids[0])['riggingBars'] == mixed and not layer(page, ids[0]).get('stage3d')
     # light singles again and it lays
     n = history_len(page)
     act(page, lambda: page.click('#rigging-size-picker .rigging-size-btn[data-size="1"]'))
