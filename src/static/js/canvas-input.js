@@ -2192,6 +2192,13 @@ Object.assign(CanvasRenderer.prototype, {
         if (window.app && typeof window.app.startupQuestionOpen === 'function'
                 && window.app.startupQuestionOpen()) return;
 
+        // A dialog, panel or menu is up: its Esc closes it and none of the
+        // canvas's Esc steps below (picked ports, a redraw, a sweep, the
+        // IDM highlight) reacts to the same press (helpers.js
+        // escapeLayerOpen).
+        if (e.code === 'Escape' && typeof window.escapeLayerOpen === 'function'
+                && window.escapeLayerOpen(e)) return;
+
         // Esc ends an open redraw (one port taken over, or several redrawn
         // as one) even from a field: a box in the side panel clicked while
         // drawing kept the focus, Escape was that field's own and the

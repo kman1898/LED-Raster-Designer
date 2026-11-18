@@ -751,20 +751,33 @@ function _escapeCoveredNow(el) {
 
 const _escapeReads = new WeakMap();
 
+function _escapeRead(event) {
+    let read = _escapeReads.get(event);
+    if (!read) {
+        const shown = [...document.querySelectorAll(ESCAPE_LAYERS)].filter(_escapeLayerShown);
+        read = { open: shown.length > 0, covered: new Set(shown.filter(_escapeCoveredNow)) };
+        _escapeReads.set(event, read);
+    }
+    return read;
+}
+
 // With no element it only takes the key press's reading (the Esc
 // dispatcher does, first of all, app-menubar _escapeClosesDialog).
 function escapeCovered(el, event) {
     if (!event) return !!el && _escapeCoveredNow(el);
-    let covered = _escapeReads.get(event);
-    if (!covered) {
-        covered = new Set([...document.querySelectorAll(ESCAPE_LAYERS)].filter(_escapeCoveredNow));
-        _escapeReads.set(event, covered);
-    }
-    return !!el && covered.has(el);
+    return !!el && _escapeRead(event).covered.has(el);
+}
+
+// True when any layer was open as the key went down. A step behind every
+// layer - the canvas's and the tray's own Esc (a cabinet selection, picked
+// ports, a sweep, a redraw, the IDM highlight) - waits while one is up:
+// that Esc closes the layer and nothing behind it.
+function escapeLayerOpen(event) {
+    return _escapeRead(event).open;
 }
 
 export { evaluateMathExpression, isMacOS, sendClientLog, setClientLogPage, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
-    FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff, escapeCovered };
+    FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff, escapeCovered, escapeLayerOpen };
 
 // Classic (non-module) scripts call these by name at runtime
 // (canvas.js -> sendClientLog, color_picker.js -> normalizeHex,
@@ -775,3 +788,4 @@ window.sendClientLog = sendClientLog;
 window.normalizeHex = normalizeHex;
 window.isTypingTarget = isTypingTarget;
 window.escapeCovered = escapeCovered;
+window.escapeLayerOpen = escapeLayerOpen;

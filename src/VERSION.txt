@@ -755,7 +755,10 @@ FIXES
   open over Preferences closes first and Preferences stays for the next
   Esc, where Esc used to close Preferences and leave the panel. A dialog
   open over a gear panel, such as Output to Display, closes on its own
-  instead of taking the panel with it.
+  instead of taking the panel with it. Nothing behind an open dialog,
+  panel or menu reacts to that Esc either: Output to Display opened from
+  the right-click menu on the Pixel Map closes on the first Esc and the
+  picked cabinets stay picked.
 - FIX: The Binder and Exports guide no longer stops at random on its
   Fiber page step. A late answer about the ports of the show before could
   land on the guide's demo show and unplug its wall from SR, which took

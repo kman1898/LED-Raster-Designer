@@ -1,6 +1,6 @@
 // LEDRasterApp core: constructor, socket wiring, and primary UI setup.
 // Feature areas live in the app-*.js modules, which extend the prototype.
-import { evaluateMathExpression, sendClientLog, setClientLogPage, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit, installNameDragSelects } from './helpers.js';
+import { evaluateMathExpression, sendClientLog, setClientLogPage, setupColorPickerWithHex, isTypingTarget, installEnterEndsEdit, installNameDragSelects, escapeLayerOpen } from './helpers.js';
 
 // The tabs the NAMES switch keeps a value for, by the canvas's view mode
 // (setupNameDisplayToggles; owner, 2026-10-01: "Yes, per tab"; per group
@@ -2761,10 +2761,14 @@ export class LEDRasterApp {
         // not typing (helpers.js isTypingTarget - the one guard every
         // shortcut shares; this was an inline INPUT/TEXTAREA/SELECT copy
         // that counted a focused checkbox as typing, 2026-09-23) and the
-        // pixel-map view is active.
+        // pixel-map view is active. A dialog, panel or menu open over the
+        // canvas takes that Esc instead (helpers.js escapeLayerOpen): an
+        // Output to Display opened from the right-click menu closes on the
+        // first Esc and the cabinets stay picked.
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
             if (isTypingTarget(document.activeElement)) return;
+            if (escapeLayerOpen(e)) return;
             if (window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map'
                     && this.pixelMapSelection && this.pixelMapSelection.size > 0) {
                 this.clearPixelMapSelection();
