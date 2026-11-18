@@ -17,6 +17,11 @@
 // screens, undo and every other rule hold the same. The pad is read once a
 // frame only while one is connected AND the tab is open, and acts only
 // while this window has the focus: nothing runs when no pad is there.
+//
+// On the computer running the app, the controller is read natively
+// instead when the app's controller reader has it
+// (app-idm-native-pad.js): the same frame code runs on its states, with
+// no focus needed, and the browser's reading of the pad steps aside.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 import {
@@ -47,11 +52,16 @@ class _IdmGamepad {
         window.addEventListener('gamepaddisconnected', (e) => this._idmPadDisconnected(e && e.gamepad));
         // The button list, from the one table.
         idmPadFillHelp(document.querySelector('#idm-pad-help .idm-pad-help-map'));
+        // The computer's own reader (app-idm-native-pad.js).
+        if (typeof this._idmNativeWire === 'function') this._idmNativeWire();
         // A pad paired before the page loaded shows once it is used.
         this._idmPadSyncHelp();
     }
 
     _idmPadList() {
+        // The native reader's controllers when it has any: never both
+        const native = typeof this._idmNativePads === 'function' ? this._idmNativePads() : null;
+        if (native && native.length) return native;
         let list = [];
         try {
             list = typeof navigator.getGamepads === 'function' ? Array.from(navigator.getGamepads() || []) : [];
@@ -63,6 +73,12 @@ class _IdmGamepad {
         const ps = this._idmPadState();
         if (!pad) return;
         ps.known.set(pad.index, idmPadName(pad.id));
+        // the native reader has it already and said so
+        const quiet = typeof this._idmNativeNames === 'function' && this._idmNativeNames();
+        if (quiet) {
+            this._idmPadSyncHelp();
+            return;
+        }
         const odd = pad.mapping !== 'standard';
         this._toast(`Controller connected: ${idmPadName(pad.id)}`
             + (odd ? '. Its buttons are not in the standard layout, so some may not match the list.' : ''));
@@ -80,7 +96,8 @@ class _IdmGamepad {
         ps.pads.delete(index);
         // a paint under way ends as one edit, the way a mouse let go does
         if (held && held.buttons[PAD_BUTTONS.A]) this._idmPadEndPaint();
-        this._toast(`Controller disconnected: ${name}`);
+        const quiet = typeof this._idmNativeNames === 'function' && this._idmNativeNames();
+        if (!quiet) this._toast(`Controller disconnected: ${name}`);
         sendClientLog('idm_pad_disconnected', { index });
         this._idmPadSyncHelp();
         this._idmPadRun();
@@ -92,10 +109,12 @@ class _IdmGamepad {
         const ps = this._idmPadState();
         const card = document.getElementById('idm-pad-help');
         if (!card) return;
-        const names = [...ps.known.values()];
+        const native = typeof this._idmNativeNames === 'function' ? this._idmNativeNames() : null;
+        const names = native || [...ps.known.values()];
         card.hidden = names.length === 0 && !ps.preview;
         const who = document.getElementById('idm-pad-help-name');
         if (who) who.textContent = names.length ? names.join(', ') : (ps.preview ? '(none connected)' : '');
+        if (typeof this._idmNativeSyncPanel === 'function') this._idmNativeSyncPanel();
     }
 
     // The guide's step shows the list with no controller there.
@@ -108,6 +127,8 @@ class _IdmGamepad {
     // otherwise it stops (and nothing reads the pad).
     _idmPadRun() {
         const ps = this._idmPadState();
+        // the server hears the tab open or close (app-idm-native-pad.js)
+        if (typeof this._idmNativeWatch === 'function') this._idmNativeWatch(false);
         const st = typeof this._idmState === 'function' ? this._idmState() : null;
         const want = !!(st && st.active) && ps.known.size > 0;
         if (want && !ps.frame) {
@@ -140,7 +161,8 @@ class _IdmGamepad {
             // where it starts when the window comes back, so nothing fires.
             const { state, actions } = idmPadFrame(ps.pads.get(pad.index), pad, now);
             ps.pads.set(pad.index, state);
-            if (!focused) continue;
+            // the native reader's pad acts with the window behind another
+            if (!focused && !pad.native) continue;
             for (const a of actions) this._idmPadAct(a);
         }
         return true;

@@ -3298,6 +3298,12 @@ body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
 .idm-pad-help-map dd { display: inline; margin: 0; color: var(--ps-dim, #c0c0c0); }
 .idm-pad-help-map dd::after { content: ''; display: block; }
 .idm-pad-help .idm-note { margin: 0; }
+/* the touchpad and its speed (app-idm-native-pad.js) */
+.idm-pad-touch { margin: 0 0 4px; font-size: 11px; color: var(--ps-dim, #c0c0c0); }
+.idm-pad-touch[hidden] { display: none; }
+.idm-pad-touch-line b { font-weight: 600; color: var(--ps-text, #f0f0f0); }
+.idm-pad-touch-speed { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.idm-pad-touch-speed input[type="range"] { flex: 1 1 auto; min-width: 0; }
 #idm-status-readout { color: var(--ps-text, #f0f0f0); font-weight: 600; }
 #idm-status-readout[hidden] { display: none; }
 

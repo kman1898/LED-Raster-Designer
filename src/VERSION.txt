@@ -344,13 +344,19 @@ of a drag puts the modules back. Hold Space and drag to pan, as on
 every tab.
 
 Find bad modules with a game controller: pair a PlayStation or Xbox
-controller with the computer and the D-pad steps the highlight one
-module at a time (hold LB or RB for a cabinet), A or Cross marks or
-clears, held while moving it paints, B or Circle undoes, X or Square
-changes the field color, Y or Triangle goes to the next screen and View
-or Share goes to the next canvas. The controller stays on the canvas you
-are on until you change canvas. The panel lists the buttons while one is
-connected.
+controller with the computer running the app and the D-pad steps the
+highlight one module at a time (hold LB or RB for a cabinet), A or Cross
+marks or clears, held while moving it paints, B or Circle undoes, X or
+Square changes the field color, Y or Triangle goes to the next screen and
+View or Share goes to the next canvas. The controller stays on the canvas
+you are on until you change canvas. On a PlayStation controller, slide a
+finger on the touchpad and the highlight glides across the wall module
+by module, at the speed set in the panel. The app reads the controller
+itself, so it works whenever the IDM Locator tab is open, even with the
+output or another app in front, and does nothing on the other tabs. The
+panel names the controller and its battery and lists the buttons while
+one is connected. On a Mac, the app asks once, the first time, for Input
+Monitoring, which a controller may need.
 
 Walk the wall with a phone: Use a phone on the IDM Locator tab opens a
 dialog with a QR code of the phone page and its address beside it, with

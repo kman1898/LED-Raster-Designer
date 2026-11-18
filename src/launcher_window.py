@@ -381,7 +381,28 @@ def quit_now():
     api = _LAUNCHER_API
     if api is not None:
         api.quit()
+    _stop_pad_reader()
     os._exit(0)
+
+
+def _start_pad_reader(settings=None):
+    """The computer's game controller, read natively for the IDM Locator
+    (native_pad.py): its reader runs as a process of its own. Never stops
+    the app: without pygame or a controller it just does not start."""
+    try:
+        import native_pad
+        native_pad.start_reader(log=lambda action, details=None: _launcher_log(action, details),
+                                settings=settings, save=save_settings)
+    except Exception as exc:
+        _launcher_log('native_pad_reader', {'state': 'failed', 'why': f'{type(exc).__name__}: {exc}'})
+
+
+def _stop_pad_reader():
+    try:
+        import native_pad
+        native_pad.stop_reader()
+    except Exception:
+        pass
 
 
 def _closing_is_app_quit():
@@ -605,6 +626,7 @@ class LauncherAPI:
         except Exception:
             pass
         _announce_quit()
+        _stop_pad_reader()
         try:
             if self._window:
                 self._window.destroy()
@@ -848,6 +870,7 @@ def run_window(settings):
         return
     # webview.start() only returns when the window is destroyed (Quit path).
     # Exit so the background Flask thread doesn't keep a headless server alive.
+    _stop_pad_reader()
     os._exit(0)
 
 
@@ -1024,6 +1047,12 @@ def _clear_mark_of_the_web():
 
 
 def main():
+    # The game controller reader (native_pad_reader.py) is this same
+    # executable started with --pad-reader by the running app: it reads the
+    # controller and nothing else, so it goes before anything below.
+    if '--pad-reader' in sys.argv[1:]:
+        import native_pad_reader
+        sys.exit(native_pad_reader.main(sys.argv[1:]))
     # First thing: from here on, nothing can fail silently.
     _install_crash_logger()
     # Before ANY pywebview/pythonnet import: a blocked Python.Runtime.dll is
@@ -1087,6 +1116,7 @@ def main():
     # Logged after the server thread so app.py (which owns the log file) is
     # already imported, and before the window so it lands even if that fails.
     _log_startup_environment()
+    _start_pad_reader(settings)
 
     # Not when the page from before an update is waiting to reload: that
     # would be a second tab (updater.open_browser_on_launch).

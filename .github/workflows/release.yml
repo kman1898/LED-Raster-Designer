@@ -93,6 +93,26 @@ jobs:
           curl -sf http://127.0.0.1:18750/api/panel-catalog/info > /dev/null && echo "catalog API: ok"
           kill $APP_PID
 
+      # The app reads a game controller by running itself with --pad-reader
+      # (native_pad_reader.py, pygame/SDL). The spec keeps only the SDL
+      # libraries it needs, so prove the bundle can load SDL: test mode runs
+      # the reader for 2 seconds with no controller. Exit 3 is "unavailable"
+      # (pygame or SDL did not load); anything but 0 is a crash.
+      - name: The controller reader loads SDL
+        timeout-minutes: 2
+        run: |
+          code=0
+          "./LED Raster Designer.app/Contents/MacOS/LED Raster Designer" --pad-reader --test --seconds 2 || code=$?
+          echo "reader exit: $code"
+          if [ "$code" -eq 3 ]; then
+            echo "::error::The packaged controller reader could not load pygame (SDL): exit 3, unavailable"
+            exit 1
+          fi
+          if [ "$code" -ne 0 ]; then
+            echo "::error::The packaged controller reader exited with $code"
+            exit 1
+          fi
+
       # ── Code Signing (requires Apple Developer cert in secrets) ──
       - name: Import code signing certificate
         if: env.MACOS_CERTIFICATE != ''
@@ -250,6 +270,32 @@ jobs:
           Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18750/api/project" | Out-Null; Write-Host "project API: ok"
           Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:18750/api/panel-catalog/info" | Out-Null; Write-Host "catalog API: ok"
           Stop-Process -Id $proc.Id -Force
+
+      # The app reads a game controller by running itself with --pad-reader
+      # (native_pad_reader.py, pygame/SDL). The spec keeps only the SDL
+      # libraries it needs, so prove the bundle can load SDL: test mode runs
+      # the reader for 2 seconds with no controller. Exit 3 is "unavailable"
+      # (pygame or SDL did not load); anything but 0 is a crash. The app is
+      # built windowed, so Start-Process -Wait -PassThru gives the exit code.
+      - name: The controller reader loads SDL
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "pad-reader-out.txt"
+          $err = Join-Path $env:RUNNER_TEMP "pad-reader-err.txt"
+          $p = Start-Process -FilePath "LED Raster Designer App\LED Raster Designer.exe" `
+                 -ArgumentList '--pad-reader', '--test', '--seconds', '2' `
+                 -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
+          foreach ($f in @($out, $err)) { if (Test-Path $f) { Get-Content $f } }
+          Write-Host "reader exit: $($p.ExitCode)"
+          if ($p.ExitCode -eq 3) {
+            Write-Error "The packaged controller reader could not load pygame (SDL): exit 3, unavailable"
+            exit 1
+          }
+          if ($p.ExitCode -ne 0) {
+            Write-Error "The packaged controller reader exited with $($p.ExitCode)"
+            exit 1
+          }
 
       # ── The .NET backend, and whether Mark of the Web breaks it ──
       #

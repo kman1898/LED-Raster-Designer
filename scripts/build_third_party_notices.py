@@ -75,6 +75,32 @@ KNOWN = {
     'clr-loader': ('clr_loader', 'MIT', 'https://github.com/pythonnet/clr-loader', ['cffi']),
 }
 
+# License files a package ships outside its dist-info: pygame keeps the
+# LGPL's text in its docs. Package -> paths inside the installed package.
+EXTRA_LICENSE_FILES = {
+    'pygame': ('pygame/docs/generated/LGPL.txt',),
+}
+
+# SDL 2, the one library of pygame's the builds keep (the spec's
+# pygame_sdl_only leaves its image, font and sound libraries out). The
+# game controller reader (src/native_pad_reader.py) reads controllers
+# with it.
+SDL_ZLIB_LICENSE = """  This software is provided 'as-is', without any express or implied
+  warranty. In no event will the authors be held liable for any damages
+  arising from the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source distribution."""
+
 # Marker environments: one per bundled platform. python_version comes from
 # the release workflow (the Python the builds are made with).
 PLATFORMS = {
@@ -210,6 +236,15 @@ def _license_files(dist):
             continue
         out.append((rel, _clean(data.decode('utf-8', errors='replace'))))
     out.sort(key=lambda item: (item[0].count('/'), item[0].lower()))
+    wanted = EXTRA_LICENSE_FILES.get(canonicalize_name(dist.metadata['Name'] or ''), ())
+    for f in dist.files or []:
+        rel = '/'.join(f.parts)
+        if rel in wanted:
+            try:
+                data = dist.locate_file(f).read_bytes()
+            except OSError:
+                continue
+            out.append((rel, _clean(data.decode('utf-8', errors='replace'))))
     return out
 
 
@@ -314,9 +349,21 @@ def _qr_block():
     return '\n'.join(lines) + '\n'
 
 
+def _sdl_block(keys):
+    """SDL 2 inside pygame, when pygame is bundled."""
+    if 'pygame' not in keys:
+        return ''
+    lines = ['', '  SDL 2 (inside pygame: the app reads game controllers with it)',
+             '  Copyright (C) 1997-2023 Sam Lantinga',
+             '  License: zlib', '  https://www.libsdl.org/license.php', '',
+             SDL_ZLIB_LICENSE]
+    return '\n'.join(lines) + '\n'
+
+
 def render():
-    blocks = [HEADER + _socketio_block() + _three_block() + _qr_block()]
-    entries = sorted((entry(k) for k in closure()), key=lambda e: e[0].lower())
+    keys = closure()
+    blocks = [HEADER + _socketio_block() + _three_block() + _qr_block() + _sdl_block(keys)]
+    entries = sorted((entry(k) for k in keys), key=lambda e: e[0].lower())
     for name, lic, url, files in entries:
         lines = [RULE, f'Package: {name}', f'License: {lic}']
         if url:

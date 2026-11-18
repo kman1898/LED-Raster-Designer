@@ -79,6 +79,45 @@ class TestLoadSaveSettings:
         assert data['port'] == 5555
         assert data['interface'] == '0.0.0.0'
 
+    def test_saves_from_two_threads_never_meet_half_way(self, tmp_path, monkeypatch):
+        """The game controller reader's thread notes the Mac's Input
+        Monitoring question in the launcher's own settings dict and saves
+        it, while the launcher may be saving the same dict (and changing
+        it) on its own thread: no save fails, and the file reads back
+        whole."""
+        import threading
+        monkeypatch.setattr(launcher_settings, 'get_config_dir', lambda: str(tmp_path))
+        settings = dict(launcher_settings.DEFAULTS)
+        errors, stop = [], threading.Event()
+
+        def launcher():
+            n = 0
+            try:
+                while not stop.is_set():
+                    n += 1
+                    settings[f'k{n}'] = n            # the dict grows under the saves
+                    launcher_settings.save_settings(settings)
+            except Exception as exc:
+                errors.append(exc)
+
+        def reader():
+            try:
+                for _ in range(150):
+                    settings['pad_input_monitoring_asked'] = True
+                    launcher_settings.save_settings(settings)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=launcher), threading.Thread(target=reader)]
+        for t in threads:
+            t.start()
+        threads[1].join(60)
+        stop.set()
+        threads[0].join(60)
+        assert not errors, errors
+        assert launcher_settings.load_settings()['pad_input_monitoring_asked'] is True
+        assert not os.path.exists(os.path.join(str(tmp_path), 'settings.json.tmp'))
+
 
 class TestGetNetworkInterfaces:
     """Tests for network interface detection.
