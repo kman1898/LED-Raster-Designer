@@ -1762,6 +1762,8 @@ class _BinderWiring {
                         A.x, A.y + A.h - 4 * K, { size: NOTE_SZ * K * 1.15, weight: 400, color: MUTED });
         }
         if (log) book.log.wiring.halves.push(log);
+        // the wall it drew, for a caller that rules it (the simple sheet)
+        return geo;
     }
 
     // A run's path, one polyline through the recorder.

@@ -590,6 +590,14 @@ ALSO NEW
   counts. The cable list on a box's Fiber section says it too, "MTP A ·
   24 Type A · 300'", and so does a box's fiber in the binder, "(MTP 24 A
   SM)".
+- NEW: The binder export has a Full or Simple choice, saved with the show.
+  Simple gives each screen one Power Wiring and one Data Wiring sheet to
+  hand a stagehand: the wiring drawing with its row and column numbers,
+  as big as the sheet allows, and under it the circuits (with the rows
+  each one feeds) or the ports, and the cables. A screen with header or
+  footer bars gets its Header/Footer sheet the same way, with every bar
+  where it hangs and the header and footer totals by size. The overview,
+  contents, FACTS, fiber, pull and hardware sheets print as in Full.
 - NEW: The binder has one FACTS sheet right after the overview instead of
   a FACTS box on every screen's power and data sheet. It is a table with a
   row for each screen, or each group printed as one: its size, panels,

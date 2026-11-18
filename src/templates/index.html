@@ -3025,6 +3025,16 @@
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-side" id="export-binder-side-data" value="data"> Data</label>
                         <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;"><input type="radio" name="export-binder-side" id="export-binder-side-both" value="both" checked> Both</label>
                     </div>
+                    <!-- Full or Simple (owner, 2026-11-18): Simple swaps each
+                         screen's sheets for one Power Wiring and one Data Wiring
+                         sheet a stagehand can carry, the drawing with its rulers
+                         over its tables. Saved with the show, like the ticks
+                         (project.binder.sheets.mode). -->
+                    <div style="display: flex; gap: 14px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 92px;" data-tooltip="Full prints every sheet. Simple gives each screen one Power Wiring and one Data Wiring sheet, and its Header/Footer sheet, each the drawing with its rulers and its tables under it. Saved with the show.">Mode</span>
+                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="Every sheet: each screen's Power and Data maps and their wiring sheets."><input type="radio" name="export-binder-mode" id="export-binder-mode-full" value="full" checked> Full</label>
+                        <label id="export-binder-mode-simple-label" style="display: flex; align-items: center; gap: 5px; cursor: pointer;" data-tooltip="A sheet per job: each screen's wiring drawing with its row and column rulers, its circuits or ports and its cables under it. No FACTS on them."><input type="radio" name="export-binder-mode" id="export-binder-mode-simple" value="simple"> Simple</label>
+                    </div>
                     <!-- One Front / Rear choice for the whole set: the side the
                          Power and Data maps (and the wiring sheets' walls) are
                          drawn from; every screen sheet names it. The overview
