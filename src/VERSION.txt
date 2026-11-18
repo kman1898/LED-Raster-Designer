@@ -756,6 +756,12 @@ FIXES
   Esc, where Esc used to close Preferences and leave the panel. A dialog
   open over a gear panel, such as Output to Display, closes on its own
   instead of taking the panel with it.
+- FIX: The Binder and Exports guide no longer stops at random on its
+  Fiber page step. A late answer about the ports of the show before could
+  land on the guide's demo show and unplug its wall from SR, which took
+  SR and its Fiber page off the binder. An answer for a show that is no
+  longer on screen is now set aside, and the ports are read again for the
+  show that is.
 
 v1.6.0 - November 6, 2026
 ----------------------------

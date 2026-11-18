@@ -298,6 +298,10 @@ class _PortAssignment {
         }
         const payload = Object.assign({ screens: this._assignmentScreens() },
                                       body || {});
+        // The read, and the project it reads for (_assignmentReadOutlived).
+        const read = /\/resolve$/.test(url) && !action;
+        const asked = this.project;
+        const restoreSeq = this._restoreSeq || 0;
         // A release takes the port's cable with it (owner, 2026-10-17), and
         // a pull-sheet edit on the row that cable printed goes too - the
         // rows as they print now, read before the request. A card's Clear
@@ -313,6 +317,18 @@ class _PortAssignment {
         })
             .then(r => r.json().then(data => ({ ok: r.ok, data })))
             .then(({ ok, data }) => {
+                // A READ ANSWERS ONLY FOR THE SHOW IT WAS ASKED ABOUT. One
+                // that outlived its show is dropped, its number and its
+                // pins with it, and the show now on the page is read once
+                // its restore has landed (owner's rule: guides never fail -
+                // the Binder guide's Fiber page step failed at random on
+                // this, 2026-11-17).
+                if (read && this._assignmentReadOutlived(asked, restoreSeq)) {
+                    sendClientLog('port_assignment_read_outlived', {
+                        n: data && data.assignmentStamp ? data.assignmentStamp.n : null,
+                    });
+                    return this._assignmentReadAgain();
+                }
                 if (!ok) {
                     if (onRefused && onRefused(data)) return;
                     // A refused move is not a failure to hide. It is usually
@@ -409,6 +425,31 @@ class _PortAssignment {
             })
             .catch(err => sendClientLog('port_assignment_request_failed',
                                         { url, method, error: String(err) }));
+    }
+
+    // Whether a read's answer is about a show the page no longer holds:
+    // the project was swapped while it was out (a guide's demo show, an
+    // undo or redo, a file open), or a restore PUT is still on its way, so
+    // the server answered from the show before it. Its number is no help
+    // here - the server may well have read it last. Taken anyway, the
+    // answer wrote the old show's pins over the new one's, and a restore
+    // still waiting behind a screen PUT carried them to the server: the
+    // scratch show's empty pins over the Binder guide's demo show, its
+    // wall off SR, SR off the binder, and the Fiber tick hidden with it.
+    _assignmentReadOutlived(asked, restoreSeq) {
+        const restoring = this._restorePutsInFlight;
+        return this.project !== asked
+            || (this._restoreSeq || 0) !== restoreSeq
+            || !!(restoring && restoring.size);
+    }
+
+    // The show on the page read again, after any restore on its way has
+    // landed (refreshProcessors waits the same way).
+    _assignmentReadAgain() {
+        const restoring = this._restorePutsInFlight;
+        const again = () => this.refreshPortAssignment();
+        return restoring && restoring.size
+            ? Promise.all([...restoring]).then(again, again) : again();
     }
 
     // Whether a reply is at least as new as the newest one applied: true
