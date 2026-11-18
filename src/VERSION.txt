@@ -602,7 +602,8 @@ ALSO NEW
   of the visible screens on the canvas and the height down to their lowest
   bottom edge, counted from 0,0, so one screen at 960,540 that is
   960 × 540 makes the canvas 1920 × 1080. No screen moves, hidden screens
-  don't count, and one undo puts the old size back.
+  don't count, the canvas ends at the last cabinet with pixels (hidden and
+  blank cabinets are left out), and one undo puts the old size back.
 
 FIXES
 
