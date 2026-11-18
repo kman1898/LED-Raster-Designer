@@ -396,9 +396,9 @@ SECTION_JS = """(boxId) => {
             kind: e.querySelector('select').value,
             kinds: [...e.querySelector('select').options].map(o => o.textContent),
             ends: [...e.querySelectorAll('.hw-dock-fiber-ext-end')].map(f => f.value),
-            offered: [...e.querySelectorAll('datalist option')].map(o => o.value),
+            carets: e.querySelectorAll('.hw-dock-combo-caret').length,
             ft: e.querySelector('.hw-dock-cable-ft').value,
-            buttons: [...e.querySelectorAll('button')].map(b => b.textContent),
+            buttons: [...e.querySelectorAll('button:not(.hw-dock-combo-caret)')].map(b => b.textContent),
         })),
     };
 }"""
@@ -472,8 +472,7 @@ def _history(pg):
 def test_the_box_sheet_shows_the_extension_under_its_link(page):
     """XD A's ≡ sheet: its X1 row (on MTP A) is followed by the extension
     line - "X1 extension", Duplex patch, the trunk end following the MTP
-    (MTP / MPO), LC duplex, 10, Remove - its ends offered from the fiber connector
-    list. No + Extension on a link that has one; XD C's opticalCON link
+    (MTP / MPO), LC duplex, 10, Remove - each end with its dropdown caret. No + Extension on a link that has one; XD C's opticalCON link
     offers none."""
     pg, ids = page
     sec = _section(pg, ids['xds'][0])
@@ -483,7 +482,7 @@ def test_the_box_sheet_shows_the_extension_under_its_link(page):
     assert sec['exts'] == [{
         'link': f"{ids['xds'][0]}:p1", 'cap': 'X1 extension', 'kind': 'patch',
         'kinds': ['Fan-out', 'Duplex patch'], 'ends': ['MTP / MPO', 'LC duplex'],
-        'offered': ['ST', 'LC duplex', 'opticalCON DUO', 'opticalCON QUAD', 'MTP / MPO'],
+        'carets': 2,
         'ft': '10', 'buttons': ['Remove']}], sec
     sec = _section(pg, ids['xds'][2])
     assert all('+ Extension' not in r['buttons'] for r in sec['rows']), sec
@@ -644,3 +643,262 @@ def test_the_text_helpers(page):
                    'Fan-out · LC duplex to LC duplex · no length',
                    'Fan-out · ST to LC duplex · no length',
                    'Duplex patch · from MTP / MPO · no length']
+
+
+# ── the ends read as dropdowns (owner, 2026-11-18) ───────────────────────
+#
+# "under fiber extensions where it says box end needs to be a drop down
+# visibly. it already is one currently but doesnt look like it". Each end
+# is a text box with a caret like the kind's select beside it; the caret,
+# or a click in the empty field, opens the connector list; a pick commits
+# in one request and one history entry; typing a connector of one's own
+# still works; Esc closes the list and nothing else. These run last: they
+# rewrite XD A's extension, which the tests above read.
+
+CONNECTORS = ['ST', 'LC duplex', 'opticalCON DUO', 'opticalCON QUAD', 'MTP / MPO']
+
+# Counts the page's writes to the boxes' fiber links.
+COUNT_PUTS_JS = """() => {
+    if (!window.__extPuts) {
+        window.__extPuts = [];
+        const was = window.fetch;
+        window.fetch = function (url, opts) {
+            if (opts && opts.method === 'PUT' && String(url).includes('/fiber-links/'))
+                window.__extPuts.push(String(url));
+            return was.apply(this, arguments);
+        };
+    }
+    window.__extPuts.length = 0;
+    return true;
+}"""
+
+
+def _menu(pg, key):
+    return pg.locator(f'[data-lrd-combo-menu="{key}"]')
+
+
+def _menu_items(pg, key):
+    return pg.evaluate("""(key) => {
+        const m = document.querySelector(`[data-lrd-combo-menu="${key}"]`);
+        return m ? [...m.querySelectorAll('[role="option"]')].map(o => o.textContent) : null;
+    }""", key)
+
+
+def _puts(pg):
+    return pg.evaluate('() => window.__extPuts.slice()')
+
+
+def _focused(pg):
+    return pg.evaluate('() => document.activeElement && document.activeElement.dataset.lrdField')
+
+
+def _box_end(pg, box_id):
+    links = _served_links(pg, box_id) or {}
+    return (links.get('p1') or {}).get('extension', {}).get('boxEnd')
+
+
+def test_each_end_shows_a_caret_and_the_caret_opens_the_list(page):
+    """Both ends carry a visible caret at their right edge, drawn the same
+    in every browser; no browser suggestion list rides the field. A click
+    on the caret opens the five connectors beside the field, the stored
+    one marked; a second click closes it."""
+    pg, ids = page
+    b = ids['xds'][0]
+    _section(pg, b)
+    for end in ('trunk', 'box'):
+        key = f'fiber-ext-{end}-{b}-p1'
+        caret = pg.locator(f'[data-lrd-combo-caret="{key}"]')
+        assert caret.is_visible(), key
+        look = pg.evaluate("""(key) => {
+            const f = document.querySelector(`[data-lrd-field="${key}"]`);
+            const c = document.querySelector(`[data-lrd-combo-caret="${key}"]`);
+            const fr = f.getBoundingClientRect(), cr = c.getBoundingClientRect();
+            return {list: f.hasAttribute('list'), img: getComputedStyle(c).backgroundImage,
+                    inside: cr.left >= fr.left && cr.right <= fr.right + 0.5
+                            && cr.top >= fr.top && cr.bottom <= fr.bottom + 0.5,
+                    atRight: fr.right - cr.right < 3, w: cr.width, h: cr.height};
+        }""", key)
+        assert look['list'] is False, look
+        assert 'svg' in look['img'], look
+        assert look['inside'] and look['atRight'] and look['w'] >= 12 and look['h'] >= 10, look
+    key = f'fiber-ext-box-{b}-p1'
+    pg.locator(f'[data-lrd-combo-caret="{key}"]').click()
+    _menu(pg, key).wait_for(state='visible')
+    assert _menu_items(pg, key) == CONNECTORS
+    cur = pg.evaluate("""(key) => [...document.querySelector(`[data-lrd-combo-menu="${key}"]`)
+        .querySelectorAll('.current')].map(o => o.textContent)""", key)
+    assert cur == ['LC duplex']
+    under = pg.evaluate("""(key) => {
+        const f = document.querySelector(`[data-lrd-field="${key}"]`).getBoundingClientRect();
+        const m = document.querySelector(`[data-lrd-combo-menu="${key}"]`).getBoundingClientRect();
+        // under the field, or over it when the tray sits low on the window
+        return [(m.top >= f.bottom - 1 && m.top - f.bottom < 6)
+                    || (m.bottom <= f.top + 1 && f.top - m.bottom < 6),
+                Math.abs(m.left - f.left) < 2];
+    }""", key)
+    assert under == [True, True]
+    assert _focused(pg) == key
+    pg.locator(f'[data-lrd-combo-caret="{key}"]').click()
+    _menu(pg, key).wait_for(state='detached')
+    pg.evaluate('() => document.activeElement && document.activeElement.blur()')
+    assert ids['errors'] == []
+
+
+def test_a_pick_from_the_list_is_one_request_and_one_step(page):
+    """Caret, then ST: the box end reads ST, ONE write, ONE history entry,
+    the list gone and the field let go. Typing narrows the list to what
+    matches, and Down then Enter picks from the keys the same way."""
+    pg, ids = page
+    b = ids['xds'][0]
+    key = f'fiber-ext-box-{b}-p1'
+    _section(pg, b)
+    pg.evaluate(COUNT_PUTS_JS)
+    index, _ = _history(pg)
+    pg.locator(f'[data-lrd-combo-caret="{key}"]').click()
+    _menu(pg, key).get_by_role('option', name='ST', exact=True).click()
+    assert settled(pg, lambda: _box_end(pg, b), lambda v: v == 'ST') == 'ST'
+    assert settled(pg, lambda: _history(pg), lambda h: h[0] == index + 1) == [index + 1, 'Set Fiber Extension']
+    pg.wait_for_timeout(400)
+    assert len(_puts(pg)) == 1, _puts(pg)
+    assert _history(pg)[0] == index + 1
+    assert _menu(pg, key).count() == 0
+    assert _focused(pg) != key
+    assert pg.locator(f'[data-lrd-field="{key}"]').input_value() == 'ST'
+    # the keys: typing narrows, Down lights the match, Enter picks it
+    pg.evaluate(COUNT_PUTS_JS)
+    field = pg.locator(f'[data-lrd-field="{key}"]')
+    field.click()
+    field.press('Control+a')
+    field.press_sequentially('quad')
+    _menu(pg, key).wait_for(state='visible')
+    assert _menu_items(pg, key) == ['opticalCON QUAD']
+    field.press('ArrowDown')
+    field.press('Enter')
+    assert settled(pg, lambda: _box_end(pg, b), lambda v: v == 'opticalCON QUAD') == 'opticalCON QUAD'
+    assert settled(pg, lambda: _history(pg), lambda h: h[0] == index + 2) == [index + 2, 'Set Fiber Extension']
+    pg.wait_for_timeout(400)
+    assert len(_puts(pg)) == 1, _puts(pg)
+    assert _menu(pg, key).count() == 0
+    assert _focused(pg) != key
+    assert ids['errors'] == []
+
+
+def test_a_typed_connector_of_ones_own_still_commits(page):
+    """A connector not on the list is typed and kept: Enter writes it once,
+    in one entry, and lets go of the field. The trunk end picks the same
+    way, and the trunk's own connector picked back is stored as blank."""
+    pg, ids = page
+    b = ids['xds'][0]
+    key = f'fiber-ext-box-{b}-p1'
+    _section(pg, b)
+    pg.evaluate(COUNT_PUTS_JS)
+    index, _ = _history(pg)
+    field = pg.locator(f'[data-lrd-field="{key}"]')
+    field.click()
+    field.press('Control+a')
+    field.press_sequentially('SC duplex')
+    assert _menu(pg, key).count() == 0     # nothing on the list matches
+    field.press('Enter')
+    assert settled(pg, lambda: _box_end(pg, b), lambda v: v == 'SC duplex') == 'SC duplex'
+    assert settled(pg, lambda: _history(pg), lambda h: h[0] == index + 1) == [index + 1, 'Set Fiber Extension']
+    pg.wait_for_timeout(400)
+    assert len(_puts(pg)) == 1, _puts(pg)
+    assert _focused(pg) != key
+    # the trunk end: pick LC duplex, then the MTP's own back (stored blank)
+    trunk = f'fiber-ext-trunk-{b}-p1'
+    for pick, stored in (('LC duplex', 'LC duplex'), ('MTP / MPO', None)):
+        pg.locator(f'[data-lrd-combo-caret="{trunk}"]').click()
+        _menu(pg, trunk).get_by_role('option', name=pick, exact=True).click()
+        links = _wait_links(pg, b, lambda v, s=stored: v and v['p1']['extension'].get('trunkEnd') == s)
+        assert links['p1']['extension'].get('trunkEnd') == stored, links
+    assert ids['errors'] == []
+
+
+def test_esc_closes_the_list_and_nothing_else(page):
+    """A click in the EMPTY field opens the list. Esc closes it and stops
+    there: the field keeps its focus and what it holds, nothing is written,
+    and nothing behind the list hears the key. A click outside closes it
+    too. The next Esc, with no list up, goes on as before."""
+    pg, ids = page
+    b = ids['xds'][0]
+    key = f'fiber-ext-box-{b}-p1'
+    _section(pg, b)
+    pg.evaluate(COUNT_PUTS_JS)
+    index, _ = _history(pg)
+    pg.evaluate("""() => {
+        window.__escHeard = 0;
+        if (!window.__escProbe) {
+            window.__escProbe = true;
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') window.__escHeard += 1;
+            }, true);
+        }
+    }""")
+    # empty the field on the page only, then click into it
+    pg.evaluate("(key) => { document.querySelector(`[data-lrd-field=\"${key}\"]`).value = ''; }", key)
+    field = pg.locator(f'[data-lrd-field="{key}"]')
+    field.click()
+    _menu(pg, key).wait_for(state='visible')
+    assert _menu_items(pg, key) == CONNECTORS
+    field.press('Escape')
+    _menu(pg, key).wait_for(state='detached')
+    assert pg.evaluate('() => window.__escHeard') == 0
+    assert _focused(pg) == key
+    assert field.input_value() == ''
+    assert pg.locator(f'[data-lrd-cable-sheet="cvt:{b}"]').count() == 1
+    # a click outside closes it too
+    pg.locator(f'[data-lrd-combo-caret="{key}"]').click()
+    _menu(pg, key).wait_for(state='visible')
+    pg.locator(f'[data-lrd-fiber-ext="{b}:p1"] .hw-dock-fiber-ext-cap').click()
+    _menu(pg, key).wait_for(state='detached')
+    # the next Esc, no list up, reaches the page as before
+    field.click()
+    _menu(pg, key).wait_for(state='visible')
+    field.press('Escape')
+    assert pg.evaluate('() => window.__escHeard') == 0
+    field.press('Escape')
+    assert pg.evaluate('() => window.__escHeard') == 1
+    pg.wait_for_timeout(300)
+    assert _puts(pg) == []
+    assert _history(pg)[0] == index
+    assert _box_end(pg, b) == 'SC duplex'
+    pg.evaluate('() => { document.activeElement && document.activeElement.blur(); '
+                'window.app.renderHardwareDock(); }')
+    assert ids['errors'] == []
+
+
+def test_the_unit_stays_beside_the_length_box_at_any_width(page):
+    """The line folds as the tray narrows, but the length box and its unit
+    are one item: at every width from well under the tray's narrowest cell
+    to a wide one, "ft" sits on the length box's line, right after it, and
+    "to" on the box end's line, right before it."""
+    pg, ids = page
+    b = ids['xds'][0]
+    _section(pg, b)
+    out = pg.evaluate("""(boxId) => {
+        const line = document.querySelector(`[data-lrd-fiber-ext="${boxId}:p1"]`);
+        const was = line.style.width;
+        const bad = [];
+        let wrapped = 0;
+        for (let w = 200; w <= 640; w += 6) {
+            line.style.width = w + 'px';
+            const ft = line.querySelector('.hw-dock-cable-ft').getBoundingClientRect();
+            const unit = line.querySelector('.hw-dock-fiber-ext-unit');
+            const u = unit.getBoundingClientRect();
+            const mid = (r) => (r.top + r.bottom) / 2;
+            if (line.getBoundingClientRect().height > ft.height * 2) wrapped += 1;
+            if (Math.abs(mid(u) - mid(ft)) > 2 || u.left < ft.right || u.left - ft.right > 8
+                    || unit.textContent !== 'ft') bad.push([w, ft.top, u.top, ft.right, u.left]);
+            // "to" rides on the box end's line, right before it
+            const to = line.querySelector('.hw-dock-fiber-ext-to');
+            const box = to.querySelector('.hw-dock-fiber-ext-end').getBoundingClientRect();
+            const t = to.getBoundingClientRect();
+            if (t.height > box.height * 1.5 || box.left - t.left > 40)
+                bad.push(['to', w, t.height, box.height, t.left, box.left]);
+        }
+        line.style.width = was;
+        return {bad, wrapped};
+    }""", b)
+    assert out['bad'] == [], out
+    assert out['wrapped'] > 0, out      # the narrow widths did fold the line
+    assert ids['errors'] == []

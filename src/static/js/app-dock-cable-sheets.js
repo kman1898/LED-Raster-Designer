@@ -4,6 +4,7 @@
 // memory of which face a box shows. Moved verbatim out of app-dock.js and
 // attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
+import { escapeCovered } from './helpers.js';
 import { fiberStrandName, FIBER_STRAND_SUGGESTIONS, TAC_CONNECTORS, COPPER_LINK_KINDS,
          FIBER_EXTENSION_KINDS, FIBER_EXTENSION_CONNECTORS } from './app-fiber.js';
 
@@ -1185,26 +1186,17 @@ class _DockCableSheets {
         kind.value = ext.kind;
         kind.addEventListener('change', () => put({ kind: kind.value }));
         line.appendChild(kind);
-        const listId = `hw-fiber-ext-connectors-${base}`;
-        const list = document.createElement('datalist');
-        list.id = listId;
-        FIBER_EXTENSION_CONNECTORS.forEach(c => {
-            const o = document.createElement('option');
-            o.value = c;
-            list.appendChild(o);
-        });
-        line.appendChild(list);
-        const end = (key, value, title, write) => {
-            const f = document.createElement('input');
-            f.type = 'text';
-            f.className = 'hw-dock-fiber-text hw-dock-fiber-ext-end';
-            f.dataset.lrdField = key;
-            f.value = value;
-            f.title = title;
-            f.setAttribute('list', listId);
-            f.addEventListener('change', () => write(f.value.trim()));
-            line.appendChild(f);
-            return f;
+        // Each end reads as the dropdown it is (owner, 2026-11-18: "box
+        // end needs to be a drop down visibly"): a caret like the kind's
+        // select beside it, the connector list on a click, typing still
+        // free (_dockConnectorCombo).
+        const end = (key, value, title, write, into = line) => {
+            const { wrap, field } = this._dockConnectorCombo({
+                key, value, title, write, options: FIBER_EXTENSION_CONNECTORS,
+                className: 'hw-dock-fiber-text hw-dock-fiber-ext-end',
+            });
+            into.appendChild(wrap);
+            return field;
         };
         const own = this.fiberCableEndText(l.cable);
         const trunk = end(`fiber-ext-trunk-${base}`, ends.trunk,
@@ -1214,9 +1206,13 @@ class _DockCableSheets {
             // so it keeps following the trunk
             (v) => put({ trunkEnd: v === own ? '' : v }));
         trunk.placeholder = own || 'trunk end';
-        line.appendChild(document.createTextNode(' to '));
+        // "to" folds with the box end, never left at the end of a line
+        const toItem = document.createElement('span');
+        toItem.className = 'hw-dock-fiber-field hw-dock-fiber-ext-to';
+        toItem.appendChild(document.createTextNode('to'));
         end(`fiber-ext-box-${base}`, ends.box, `The connector at ${l.title}.`,
-            (v) => put({ boxEnd: v })).placeholder = 'box end';
+            (v) => put({ boxEnd: v }), toItem).placeholder = 'box end';
+        line.appendChild(toItem);
         const ft = document.createElement('input');
         ft.type = 'text';
         ft.inputMode = 'decimal';
@@ -1232,8 +1228,16 @@ class _DockCableSheets {
             if (!read.ok) return;
             put({ ft: read.n });
         });
-        line.appendChild(ft);
-        line.appendChild(document.createTextNode(` ${this.cableUnitAbbr()} `));
+        // the length and its unit are one item, so a narrow tray breaks
+        // the line before the box, never between the box and its "ft"
+        const lenItem = document.createElement('span');
+        lenItem.className = 'hw-dock-fiber-field hw-dock-fiber-ext-len';
+        lenItem.appendChild(ft);
+        const unit = document.createElement('span');
+        unit.className = 'hw-dock-fiber-ext-unit';
+        unit.textContent = this.cableUnitAbbr();
+        lenItem.appendChild(unit);
+        line.appendChild(lenItem);
         const rm = document.createElement('button');
         rm.type = 'button';
         rm.className = 'btn hw-dock-btn';
@@ -1246,6 +1250,202 @@ class _DockCableSheets {
         });
         line.appendChild(rm);
         return line;
+    }
+
+    // A typed field that is also a dropdown: the text box, a caret drawn
+    // like a select's, and a small list of the offered values. A browser's
+    // own suggestion list (a datalist) shows nothing until it is used, and
+    // on a Mac reads as a plain text box, so the list here is the app's
+    // own and behaves the same in every browser:
+    //   - the caret, or a click in the empty field, opens the whole list;
+    //     typing opens it narrowed to what matches; Alt+Down or Down opens
+    //     it from the keys, Up and Down walk it;
+    //   - a pick (a click, or Enter on the lit one) sets the value and
+    //     commits it - one write, one history entry - and the field lets
+    //     go of the focus;
+    //   - anything typed is kept: Enter, Tab or a click away commits it
+    //     the way any field's change does (Enter ends the edit, the
+    //     app-wide rule);
+    //   - Esc closes the list and does nothing else (the field keeps what
+    //     it holds, nothing behind the list hears the key); a click
+    //     outside, a scroll or a resize closes it too.
+    // A value equal to the last one written is never written again, so a
+    // pick followed by the field's own change on blur is still one write.
+    _dockConnectorCombo({ key, value, title, write, options, className }) {
+        const wrap = document.createElement('span');
+        wrap.className = 'hw-dock-combo';
+        const f = document.createElement('input');
+        f.type = 'text';
+        f.className = className;
+        f.dataset.lrdField = key;
+        f.value = value;
+        f.title = title;
+        f.setAttribute('role', 'combobox');
+        f.setAttribute('aria-autocomplete', 'list');
+        f.setAttribute('aria-expanded', 'false');
+        wrap.appendChild(f);
+        const caret = document.createElement('button');
+        caret.type = 'button';
+        caret.className = 'hw-dock-combo-caret';
+        caret.tabIndex = -1;
+        caret.dataset.lrdComboCaret = key;
+        caret.title = 'Show the list';
+        caret.setAttribute('aria-label', 'Show the list');
+        wrap.appendChild(caret);
+
+        let last = String(value || '').trim();
+        const commit = (v) => {
+            if (v === last) return;
+            last = v;
+            write(v);
+        };
+        f.addEventListener('change', () => commit(f.value.trim()));
+
+        let menu = null;
+        let lit = -1;
+        let shown = [];
+        let raf = 0;
+        let at = null;     // where the field sat when the list was last placed
+        const items = () => (menu ? [...menu.children] : []);
+        const light = (i) => {
+            lit = i;
+            items().forEach((o, n) => {
+                o.classList.toggle('lit', n === i);
+                o.setAttribute('aria-selected', n === i ? 'true' : 'false');
+            });
+            const o = items()[i];
+            if (o) o.scrollIntoView({ block: 'nearest' });
+        };
+        const place = () => {
+            if (!menu) return;
+            if (!wrap.isConnected) { close(); return; }
+            const r = wrap.getBoundingClientRect();
+            at = { top: r.top, left: r.left };
+            menu.style.minWidth = `${Math.round(r.width)}px`;
+            const h = menu.offsetHeight;
+            const below = window.innerHeight - r.bottom;
+            const top = (below < h + 4 && r.top > below) ? r.top - h - 2 : r.bottom + 2;
+            const left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 4);
+            menu.style.top = `${Math.round(Math.max(4, top))}px`;
+            menu.style.left = `${Math.round(Math.max(4, left))}px`;
+        };
+        const follow = () => {
+            place();
+            if (menu) raf = requestAnimationFrame(follow);
+        };
+        const onKey = (e) => {
+            if (!menu || e.key !== 'Escape' || e.isComposing) return;
+            if (escapeCovered(menu, e)) return;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            close();
+        };
+        const onOutside = (e) => {
+            if (!menu || menu.contains(e.target) || wrap.contains(e.target)) return;
+            close();
+        };
+        // a scroll that carries the field away closes the list; one that
+        // leaves it where it was (the focus bringing it into view as the
+        // list opened) does not
+        const onScroll = (e) => {
+            if (!menu || menu.contains(e.target) || !at) return;
+            const r = wrap.getBoundingClientRect();
+            if (Math.abs(r.top - at.top) > 1 || Math.abs(r.left - at.left) > 1) close();
+        };
+        function close() {
+            if (!menu) return;
+            cancelAnimationFrame(raf);
+            menu.remove();
+            menu = null;
+            lit = -1;
+            f.setAttribute('aria-expanded', 'false');
+            wrap.classList.remove('open');
+            window.removeEventListener('keydown', onKey, true);
+            document.removeEventListener('mousedown', onOutside, true);
+            document.removeEventListener('scroll', onScroll, true);
+            window.removeEventListener('resize', close);
+        }
+        const pick = (v) => {
+            close();
+            f.value = v;
+            commit(v);
+            if (document.activeElement === f) f.blur();
+        };
+        const open = (filter) => {
+            const q = String(filter || '').trim().toLowerCase();
+            shown = q ? options.filter(o => o.toLowerCase().includes(q)) : options.slice();
+            if (!shown.length) { close(); return; }
+            if (!menu) {
+                menu = document.createElement('div');
+                menu.className = 'hw-dock-combo-menu';
+                menu.setAttribute('role', 'listbox');
+                menu.dataset.lrdComboMenu = key;
+                // a press on the list keeps the focus in the field
+                menu.addEventListener('mousedown', (e) => e.preventDefault());
+                document.body.appendChild(menu);
+                f.setAttribute('aria-expanded', 'true');
+                wrap.classList.add('open');
+                window.addEventListener('keydown', onKey, true);
+                document.addEventListener('mousedown', onOutside, true);
+                document.addEventListener('scroll', onScroll, true);
+                window.addEventListener('resize', close);
+                raf = requestAnimationFrame(follow);
+            }
+            menu.replaceChildren(...shown.map((v) => {
+                const o = document.createElement('div');
+                o.className = 'hw-dock-combo-option';
+                o.setAttribute('role', 'option');
+                o.textContent = v;
+                if (v === f.value.trim()) o.classList.add('current');
+                o.addEventListener('mouseenter', () => light(shown.indexOf(v)));
+                o.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    pick(v);
+                });
+                return o;
+            }));
+            lit = -1;
+            place();
+        };
+
+        caret.addEventListener('mousedown', (e) => e.preventDefault());
+        caret.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (menu) { close(); return; }
+            if (document.activeElement !== f) f.focus({ preventScroll: true });
+            open('');
+        });
+        f.addEventListener('click', () => {
+            if (!menu && !f.value.trim()) open('');
+        });
+        f.addEventListener('input', () => open(f.value));
+        f.addEventListener('blur', () => close());
+        f.addEventListener('keydown', (e) => {
+            if (e.isComposing) return;
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (!menu) {
+                    open('');
+                    const at = shown.indexOf(f.value.trim());
+                    light(at >= 0 ? at : 0);
+                    return;
+                }
+                const n = shown.length;
+                light(e.key === 'ArrowDown' ? (lit + 1) % n : (lit <= 0 ? n - 1 : lit - 1));
+            } else if (e.key === 'Enter' && menu) {
+                if (lit >= 0 && shown[lit] !== undefined) {
+                    // the lit option is the pick; Enter-ends-edit stands
+                    // aside on a handled key, pick lets go of the focus
+                    e.preventDefault();
+                    pick(shown[lit]);
+                } else {
+                    close();
+                }
+            } else if (e.key === 'Tab') {
+                close();
+            }
+        });
+        return { wrap, field: f };
     }
 
     // A copper link's NAME, its label the way a fiber cable has one (owner,

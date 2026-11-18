@@ -765,6 +765,11 @@ FIXES
   SR and its Fiber page off the binder. An answer for a show that is no
   longer on screen is now set aside, and the ports are read again for the
   show that is.
+- FIX: The two ends of a fiber extension now look like the dropdowns they
+  are, with a caret like the one beside them. Click the caret, or the
+  empty box, to pick a connector from the list, or type your own. The
+  length's unit also stays beside its box instead of dropping to a line
+  of its own.
 
 v1.6.0 - November 6, 2026
 ----------------------------

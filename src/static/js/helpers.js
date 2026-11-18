@@ -720,7 +720,7 @@ function installNameDragSelects(doc) {
 // layer closes on the same Esc.
 const ESCAPE_LAYERS = '.modal, #hw-gear-popover, #context-menu, .context-menu, .menu-dropdown, '
     + '.canvas-menu-popup, .lrd-cw-window, .lrd-cp-popover, .lrd-layout-dialog, '
-    + '#s3d-field-menu, #s3d-corner-pop';
+    + '#s3d-field-menu, #s3d-corner-pop, .hw-dock-combo-menu';
 
 function _escapeLayerShown(el) {
     if (!el || !el.isConnected || el.hidden) return false;
