@@ -6865,7 +6865,7 @@
         curveCustom: {
             since: '1.7.0',
             target: '#rigging-curve-result', place: 'right', title: 'Curve by hand',
-            body: 'With Curve on, Custom lays bars by hand just as on a straight wall, and the Curve sets the angles where they meet. Click a joint on the build sheet to set its angle yourself. What you set shows in blue, and Auto hands it back to the Curve.',
+            body: 'With Curve on, lay bars in Custom or click a joint on the build sheet to set its angle, and the Curve fits the rest. What you set shows in blue, and Auto hands it back.',
             before: function () {
                 closePrefs(); hideMenus(); closePopover(); switchView('rigging');
                 var m = curveMiddle();
