@@ -412,6 +412,11 @@ class _Binder {
                 if (typeof this.updateExportPreview === 'function') this.updateExportPreview();
             });
         }
+        // Full or Simple: the Wiring tick follows (_syncBinderModeControls)
+        for (const m of BINDER_MODES) {
+            const radio = document.getElementById(`export-binder-mode-${m}`);
+            if (radio) radio.addEventListener('change', () => this._syncBinderModeControls());
+        }
         // The view: project state, one undo entry, the same POST as the
         // title block's fields - the radios both commit the one field.
         for (const v of BINDER_VIEWS) {
@@ -587,6 +592,7 @@ class _Binder {
         tick('export-binder-printer', c.palette === 'printer');
         tick('export-binder-colour', c.palette !== 'printer');
         for (const m of BINDER_MODES) tick(`export-binder-mode-${m}`, c.mode === m);
+        this._syncBinderModeControls();
         for (const m of BINDER_MAPS) tick(`export-binder-side-${m}`, c.maps === m);
         for (const k of BINDER_TICKS) tick(`export-binder-${k}`, c[k]);
         return c;
@@ -671,6 +677,23 @@ class _Binder {
         this.project.binder.sheets = next;
         sendClientLog('binder_choices_remembered', next);
         return true;
+    }
+
+    // Simple prints each screen's wiring drawings as its sheets, so the
+    // Wiring tick has nothing to add or take away there: it stands off
+    // and greyed, its tooltip saying why, and comes back as it was in Full.
+    _syncBinderModeControls() {
+        const box = document.getElementById('export-binder-wiring');
+        const label = document.getElementById('export-binder-wiring-label');
+        const simple = !!(document.getElementById('export-binder-mode-simple') || {}).checked;
+        if (!box || !label) return;
+        if (label.dataset.fullTooltip == null) label.dataset.fullTooltip = label.getAttribute('data-tooltip') || '';
+        box.disabled = simple;
+        label.style.opacity = simple ? '0.45' : '';
+        label.style.cursor = simple ? 'default' : 'pointer';
+        label.setAttribute('data-tooltip', simple
+            ? 'Not used in Simple: each screen\'s Power Wiring and Data Wiring sheets are its wiring drawings, with their tables under them. Pick Full to print the maps and the wiring sheets apart.'
+            : label.dataset.fullTooltip);
     }
 
     // The logo row: the preview and Remove when one is set, "None" when not.
@@ -1374,9 +1397,12 @@ class _Binder {
             }
         }
         bitmaps.mb = Math.round(bitmaps.mb * 10) / 10;
+        // the sheets by kind (renderBinderPages' plan), Simple or Full
+        const kinds = {};
+        for (const k of pages.kinds || []) kinds[k] = (kinds[k] || 0) + 1;
         sendClientLog('export_binder_start', {
             pages: pages.length, palette: opts.palette, scope: opts.scope.kind, sheet: opts.sheet,
-            view: this.getBinderInfo().view, bitmaps,
+            view: this.getBinderInfo().view, mode: opts.mode === 'simple' ? 'simple' : 'full', kinds, bitmaps,
         });
         const response = await fetch('/api/export/pdf-from-pages', {
             method: 'POST',
@@ -1460,6 +1486,8 @@ class _Binder {
         const plan = dry.pages.map(p => this._bPlanEntry(dry, p));
         const bitmaps = !run || run.bitmaps !== false;
         const book = this._binderBook(o, { dry: false, total: plan.length, plan, bitmaps });
+        // (each sheet's kind, in order, for the export's log)
+        book.records.kinds = plan.map(p => p.kind);
         return book.records;
     }
 
@@ -1551,10 +1579,13 @@ class _Binder {
         // The screens in the order their sheets run (_bScreenRun): the
         // FACTS sheet lists them in it too.
         const sheets = this._bScreenRun(book, positions);
-        if (opts.cover) {
-            this._bOverviewPage(book);
-            this._bFactsPage(book, sheets);
-        }
+        if (opts.cover) this._bOverviewPage(book);
+        // The FACTS sheet prints with the screens' own sheets, the Overview
+        // ticked or not (a one-screen export starts with it off): wherever
+        // a power or a data side prints, right after the overview and its
+        // CONTENTS where they print, else first.
+        const sides = opts.sides || {};
+        if (sides.power || sides.data) this._bFactsPage(book, sheets);
         // grouped by system: a map, then the sheet that wires it - the
         // wall wired to its breakouts or its devices, that one side on a
         // page of its own (app-binder-wiring.js). No map, no wiring sheet:
@@ -2222,11 +2253,15 @@ class _Binder {
     // another member reading "Cat6 · also on WALL SL", wrapped under its
     // type. A cable nobody gave a length (a TAC, a home run) says "no
     // length" in LENGTH, as the pull sheet says it in Notes.
-    _bCableTable(book, s, side, emptyText = null) {
+    // `width`: the column it is measured in (COL_W by default) - a simple
+    // sheet's band builds it narrower to stand beside a wide table, its
+    // CABLE cells wrapping at their words (_bSimpleBand).
+    _bCableTable(book, s, side, emptyText = null, width = 0) {
         const rows = this._bSubjectRows(book, s, side);
         const crossing = rows.some(r => r.also);
         return this._bTableLines(book, {
             title: 'Cables this screen',
+            ...(width > 0 ? { width } : {}),
             cols: [{ title: 'cable', w: 1.7, ...(crossing ? { list: 2 } : { lend: true }) },
                    { title: 'length', w: 0.7, borrow: 'len' },
                    { title: 'qty', w: 0.6, align: 'right', lend: true }],
@@ -4675,7 +4710,7 @@ class _Binder {
         const rest = [];
         const queue = blocks.filter(b => b && (b.lines || []).length)
             .map(b => ({ lines: b.lines.slice(), contHeads: b.contHeads || b.lines.contHeads || null,
-                         minW: this._bBlockMinW(b) }));
+                         minW: this._bBlockMinW(b), whole: !!b.whole }));
         while (queue.length) {
             const block = queue[0];
             // the lines a continuation starts with: a table's own list
@@ -4685,7 +4720,9 @@ class _Binder {
             const total = block.lines.reduce((s, l) => s + l.h, 0);
             if (!col && !open()) break;
             let y = col.items.length ? col.h + BLOCK_GAP : 0;
-            if (block.lines.length <= wholeUnder && y + total > colH) {
+            // (`whole`: a block that stays in one column wherever a column
+            // can hold it - the simple sheet's multis)
+            if ((block.lines.length <= wholeUnder || (block.whole && total <= colH)) && y + total > colH) {
                 if (!open()) break;
                 continue;
             }
@@ -7528,18 +7565,33 @@ class _Binder {
                 cols: [{ title: 'note', w: 1, list: 6, words: true }],
                 rows: [{ cells: [cannot] }],
             }) });
-        } else blocks.push({ lines: this._bTableLines(book, {
-            title: 'Circuits',
-            bandsLead: true,
+        } else {
             // a crossing circuit's "· also on …" wraps under its name
-            cols: [{ title: 'circuit', w: 1.5, ...(crossing ? { list: 2 } : {}) }, { title: 'no.', w: 0.6, align: 'right' },
-                   { title: 'panels', w: 0.8, align: 'right' }, { title: 'amps', w: 0.8, align: 'right' },
-                   o.rows ? { title: 'rows', w: 0.9 } : { title: 'cable', w: 1.4 }],
-            rows,
-        }) });
+            const cols = [{ title: 'circuit', w: 1.5, ...(crossing ? { list: 2 } : {}) }, { title: 'no.', w: 0.6, align: 'right' },
+                          { title: 'panels', w: 0.8, align: 'right' }, { title: 'amps', w: 0.8, align: 'right' },
+                          o.rows ? { title: 'rows', w: 0.9 } : { title: 'cable', w: 1.4 }];
+            if (o.rows) {
+                // The simple sheet: a block per multi, each kept whole in a
+                // column of its sheet's band (`whole`, _bPack) - a multi is
+                // never split between two columns unless it is taller than
+                // one - the first under the CIRCUITS title.
+                const parts = [];
+                for (const r of rows) {
+                    if (r.band !== undefined || !parts.length) parts.push([]);
+                    parts[parts.length - 1].push(r);
+                }
+                parts.forEach((part, i) => blocks.push({ whole: true, lines: this._bTableLines(book, {
+                    title: i ? '' : 'Circuits', bandsLead: true, cols, rows: part,
+                }) }));
+            } else {
+                blocks.push({ lines: this._bTableLines(book, { title: 'Circuits', bandsLead: true, cols, rows }) });
+            }
+        }
         // Cables this screen (power side): nothing to list where it cannot
         // fit, and it says why rather than "no cables typed".
-        blocks.push({ lines: this._bCableTable(book, s, 'power', cannot ? 'no circuits, cannot fit' : null) });
+        blocks.push({ lines: this._bCableTable(book, s, 'power', cannot ? 'no circuits, cannot fit' : null),
+                      rebuild: (w) => ({ lines: this._bCableTable(book, s, 'power',
+                                                                  cannot ? 'no circuits, cannot fit' : null, w) }) });
         // (no FACTS here: the screen's figures and its warnings are a
         // row of the set's one FACTS sheet, _bFactsPage - owner, 2026-11-18:
         // "i dont think we need facts on all screens. maybe just an
@@ -8113,7 +8165,8 @@ class _Binder {
         // the sheet's columns widen to the table
         const portsW = Math.ceil(ports.naturalW);
         blocks.push(portsW > COL_W ? { minW: portsW, lines: ports } : { lines: ports });
-        blocks.push({ lines: this._bCableTable(book, subject, 'data') });
+        blocks.push({ lines: this._bCableTable(book, subject, 'data'),
+                      rebuild: (w) => ({ lines: this._bCableTable(book, subject, 'data', null, w) }) });
         // (no FACTS here: the screen's pixels and ports are its row on the
         // set's one FACTS sheet, _bFactsPage)
         return blocks;
@@ -8341,10 +8394,14 @@ class _Binder {
     // CONTENTS_MIN_W - and runs on to a second sheet only past those.
     _bContentsSheets(book, rows, wide, positions = null) {
         const da = book.geo.da;
-        const table = (w) => this._bTableLines(book, {
-            title: `${rows.length} sheets`,
-            cols: [{ title: 'sheet', w: 0.4 }, { title: 'title', w: 1.6 }], rows, width: w,
-        });
+        const table = (w) => {
+            const spec = { cols: [{ title: 'sheet', w: 0.4 }, { title: 'title', w: 1.6 }], rows, width: w };
+            const ls = this._bTableLines(book, { ...spec, title: `${rows.length} sheets` });
+            // a column it runs on into says so, "42 SHEETS (CONT.)"
+            ls.contHeads = this._bTableLines(book, { ...spec, title: `${rows.length} sheets (cont.)` })
+                .filter(l => l.head);
+            return ls;
+        };
         let lines = table(wide);
         if (!positions) {
             const fits = (w, ls) => {
@@ -8469,14 +8526,19 @@ class _Binder {
                                         String(total.circuits), String(total.ports)] });
         // The table as wide as it needs - every cell on one line where the
         // drawing area holds that - and never wider than the drawing area,
-        // where the names wrap at their words.
+        // where the names wrap at their words. A show on 3-phase distros
+        // only has no 1φ figure anywhere: no AMPS 1φ column at all.
         const da = book.geo.da;
+        let cols = [{ title: 'screen', w: 2.2 }, { title: 'size', w: 1 }, { title: 'panels', w: 0.8 },
+                    { title: 'resolution', w: 1.3 }, { title: 'watts', w: 1 }, { title: 'amps 1φ', w: 0.9 },
+                    { title: 'amps 3φ', w: 0.9 }, { title: 'circuits', w: 0.9 }, { title: 'ports', w: 0.8 }];
+        if (rows.every(r => r.cells[5] === '')) {
+            cols = cols.filter((_c, i) => i !== 5);
+            rows.forEach(r => { r.cells = r.cells.filter((_c, i) => i !== 5); });
+        }
         const spec = {
             title: this._bPlural(items.reduce((n, it) => n + it.layers.length, 0), 'screen'),
-            cols: [{ title: 'screen', w: 2.2 }, { title: 'size', w: 1 }, { title: 'panels', w: 0.8 },
-                   { title: 'resolution', w: 1.3 }, { title: 'watts', w: 1 }, { title: 'amps 1φ', w: 0.9 },
-                   { title: 'amps 3φ', w: 0.9 }, { title: 'circuits', w: 0.9 }, { title: 'ports', w: 0.8 }],
-            rows,
+            cols, rows,
         };
         const room = Math.floor(da.w);
         const probe = this._bTableLines(book, { ...spec, width: room });
@@ -8821,7 +8883,12 @@ class _Binder {
             const at = (cap) => this._bPack(blocks, cap, across, SIMPLE_WHOLE);
             pack = at(room);
             if (!pack.rest.length) {
-                let lo = 1, hi = room;
+                // (never under the tallest block that stays whole: a multi
+                // split only because the band was squeezed is no layout)
+                const sum = (b) => b.lines.reduce((a, l) => a + l.h, 0);
+                let lo = Math.max(1, ...blocks.filter(b => b.whole || b.lines.length <= SIMPLE_WHOLE)
+                    .map(sum).filter(h => h <= room)), hi = room;
+                lo = Math.min(lo, hi);
                 while (lo < hi) {
                     const mid = Math.floor((lo + hi) / 2);
                     if (at(mid).rest.length) lo = mid + 1; else hi = mid;
@@ -8833,13 +8900,28 @@ class _Binder {
             // sheet's wide PORTS with its narrow CABLES beside it, as the
             // owner's example lays them): the shorter band wins.
             const own = (b) => Math.ceil(Math.max(this._bBlockMinW(b) || 0, b.lines.naturalW || COL_W));
-            const widths = blocks.map(own);
-            const total = widths.reduce((a, w) => a + w, 0) + (blocks.length - 1) * COL_GAP;
-            if (blocks.length > 1 && total <= da.w) {
-                const side = this._bSpread(blocks, blocks.length);
+            let set = blocks.slice();
+            let widths = set.map(own);
+            let total = widths.reduce((a, w) => a + w, 0) + (set.length - 1) * COL_GAP;
+            // ...a table that can be built narrower (the CABLES, `rebuild`)
+            // built at the width the others leave it, its words wrapping,
+            // where that is no narrower than its widest word (the table
+            // does not grow past it, _bTableLines' minW)
+            const k = set.length > 1 && total > da.w ? set.findIndex(b => typeof b.rebuild === 'function') : -1;
+            if (k >= 0) {
+                const left = Math.floor(da.w - (total - widths[k]));
+                const nb = left > 0 ? set[k].rebuild(left) : null;
+                if (nb && !(nb.lines.minW > left)) {
+                    set = set.map((b, i) => (i === k ? nb : b));
+                    widths = widths.map((w, i) => (i === k ? left : w));
+                    total = widths.reduce((a, w) => a + w, 0) + (set.length - 1) * COL_GAP;
+                }
+            }
+            if (set.length > 1 && total <= da.w) {
+                const side = this._bSpread(set, set.length);
                 const sideH = side ? side.cols.reduce((m, c) => Math.max(m, c.h), 0) : Infinity;
                 const packH = pack.rest.length ? Infinity : pack.cols.reduce((m, c) => Math.max(m, c.h), 0);
-                if (side && side.cols.length === blocks.length && sideH <= room && sideH < packH) {
+                if (side && side.cols.length === set.length && sideH <= room && sideH < packH) {
                     let x = da.x;
                     side.cols.forEach((c, i) => { c.x = x; c.w = widths[i]; x += widths[i] + COL_GAP; });
                     pack = side;
@@ -8897,20 +8979,19 @@ class _Binder {
             .filter(({ p, l }) => p && (s.kind !== 'member' || l === s.member));
         let rows;
         if (s.kind === 'group') {
+            // the wall's rows as its rulers number them (_bRulersAcross):
+            // gathered by where each member's cabinets draw on the power
+            // view, its Show Look offset included - never by the Pixel Map
+            // places, where two walls side by side on stage can stand one
+            // over the other
             if (!this._simpleRowCache || this._simpleRowCache.s !== s) {
-                const all = s.layers.flatMap(l => (l.panels || []).filter(p => p && !p.hidden));
-                const tol = Math.max(1, Math.min(...all.map(p => p.height || 1)) / 2);
-                const centres = [...new Set(all.map(p => p.y + p.height / 2))].sort((a, b) => a - b);
-                const bands = [];
-                for (const c0 of centres) {
-                    if (bands.length && c0 - bands[bands.length - 1] <= tol) continue;
-                    bands.push(c0);
-                }
-                this._simpleRowCache = { s, bands, tol };
+                this._simpleRowCache = { s, ...this._bWallBands(s.layers, 'power', 'y') };
             }
-            const { bands, tol } = this._simpleRowCache;
-            rows = panels.map(({ p }) => bands.findIndex(b => Math.abs(p.y + p.height / 2 - b) <= tol) + 1)
-                .filter(n => n > 0);
+            const { bands, offs } = this._simpleRowCache;
+            rows = panels.map(({ p, l }) => {
+                const off = offs.get(l) || { dy: 0 };
+                return bands.findIndex(b => Math.abs(p.y + off.dy + p.height / 2 - b.c) <= b.tol) + 1;
+            }).filter(n => n > 0);
         } else {
             rows = panels.map(({ p }) => (Number(p.row) || 0) + 1);
         }
@@ -8925,28 +9006,76 @@ class _Binder {
         return out.join(', ');
     }
 
+    // A wall's columns ('x') or rows ('y') as its rulers number them
+    // (_bRulersAcross): its members' cabinets where they draw on `view` -
+    // each member's render offset on that view (its Show Look place)
+    // included - gathered by their centres, in the front's order.
+    // { bands: [{ c, a, b, tol }], offs: Map(layer -> { dx, dy }) }.
+    _bWallBands(layers, view, axis) {
+        const r = window.canvasRenderer;
+        const offs = new Map();
+        const was = r ? r.viewMode : null;
+        try {
+            if (r) r.viewMode = view;
+            for (const l of layers) {
+                offs.set(l, r && typeof r.getLayerRenderOffset === 'function' ? r.getLayerRenderOffset(l) : { dx: 0, dy: 0 });
+            }
+        } finally { if (r) r.viewMode = was; }
+        const spans = [];
+        for (const l of layers) {
+            const off = offs.get(l) || { dx: 0, dy: 0 };
+            for (const p of (l.panels || [])) {
+                if (!p || p.hidden) continue;
+                spans.push(axis === 'x' ? { a: p.x + off.dx, s: p.width || 0 } : { a: p.y + off.dy, s: p.height || 0 });
+            }
+        }
+        if (!spans.length) return { bands: [], offs };
+        const tol = Math.max(1, Math.min(...spans.map(x => x.s || 1)) / 2);
+        const bands = [];
+        for (const x of spans.slice().sort((u, v) => (u.a + u.s / 2) - (v.a + v.s / 2))) {
+            const c = x.a + x.s / 2, last = bands[bands.length - 1];
+            if (last && c - last.c <= tol) { last.a = Math.min(last.a, x.a); last.b = Math.max(last.b, x.a + x.s); }
+            else bands.push({ c, a: x.a, b: x.a + x.s, tol });
+        }
+        return { bands, offs };
+    }
+
     // Every bar where it hangs, header then footer: its size in the bar
-    // words the pull sheet uses, the columns it spans as the rulers number
-    // them, and on a curved row the angle at the joint after it.
+    // words the pull sheet uses, the columns it spans as the sheet's
+    // column ruler numbers them - a group's straight through its wall -
+    // and on a curved row the angle at the joint after it. A bar is never
+    // cut to the wall: one across a seam spans both walls' columns, and
+    // one hanging past the wall's edge (a bar over a half column is its
+    // full stock length, 2026-11-10) says so.
     _bSimpleBarList(book, target) {
         const s = this._bSubject(target);
         const rows = [];
         let curved = false;
+        const { bands, offs } = this._bWallBands(s.layers, 'rigging', 'x');
+        const first = bands[0], last = bands[bands.length - 1];
         for (const kind of ['header', 'footer']) {
+            const word = kind === 'footer' ? 'Footer' : 'Header';
             for (const l of s.layers) {
                 const placed = typeof this.riggingPlaced === 'function' ? this.riggingPlaced(l, kind) : [];
                 if (!placed.length) continue;
-                const cols = Number(l.columns) || 0;
                 const out = this.riggingCurveOn && this.riggingCurveOn(l) && typeof this.riggingCurveSolve === 'function'
                     ? this.riggingCurveSolve(l) : null;
                 const joints = out && Array.isArray(out.joints) ? out.joints : null;
                 if (joints) curved = true;
+                const colsOf = typeof this.riggingColumns === 'function' ? this.riggingColumns(l) : null;
+                const minX = Math.min(...(l.panels || []).filter(p => p && !p.hidden).map(p => Number(p.x) || 0));
+                const off = offs.get(l) || { dx: 0 };
                 for (const b of placed) {
-                    const from = b.start + 1, to = b.start + b.size;
-                    const span = `${Math.max(1, from)}-${Math.min(cols || to, to)}`;
+                    let span = `${b.start + 1}-${b.start + b.size}`;
+                    if (colsOf && typeof this.riggingBarSpan === 'function' && Number.isFinite(minX) && first) {
+                        const [x0, x1] = this.riggingBarSpan(colsOf, b.start, b.size).map(x => x + minX + off.dx);
+                        const on = bands.map((c, i) => [c, i + 1]).filter(([c]) => c.c > x0 && c.c < x1).map(([, n]) => n);
+                        const past = x0 < first.a - 1 || x1 > last.b + 1;
+                        span = on.length ? (on.length > 1 ? `${on[0]}-${on[on.length - 1]}` : String(on[0])) : '';
+                        if (past) span = span ? `${span} · past the edge` : 'past the edge';
+                    }
                     const j = joints ? joints[b.start + b.size - 1] : null;
-                    rows.push({ cells: [s.layers.length > 1 ? `${l.name} · ${kind === 'footer' ? 'Footer' : 'Header'}`
-                                                             : (kind === 'footer' ? 'Footer' : 'Header'),
+                    rows.push({ cells: [s.layers.length > 1 ? `${l.name} · ${word}` : word,
                                         RiggingMath.barName(b.size, kind), span,
                                         Number.isFinite(j) ? `${+j.toFixed(1)}°` : ''] });
                 }

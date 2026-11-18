@@ -604,7 +604,9 @@ ALSO NEW
   resolution, watts, amps 1φ and 3φ, circuits and ports, and a total at
   the bottom. Circuits over their limit, breakers and Soca two-fers over
   theirs, and screens with no power figure are listed under it, and the
-  room on the screen sheets goes to the drawings.
+  room on the screen sheets goes to the drawings. A binder of one screen,
+  or one with the Overview unticked, still gets its FACTS sheet, and a
+  show on 3-phase distros only has no amps 1φ column.
 
 FIXES
 
@@ -682,7 +684,7 @@ FIXES
   The rule under the FIBER heading stops at the drawing too.
 - FIX: On a wiring sheet, a run from a label in the middle of the wall
   leaves along the line between two rows or two columns of panels, not
-  along its own row on top of the signal cables. Where every such line
+  along its own row on top of the data cables. Where every such line
   would cross another label and the straight way would not, it keeps the
   straight way.
 - FIX: A binder with more sheets than fit beside the overview's drawing

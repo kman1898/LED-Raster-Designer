@@ -578,7 +578,9 @@ def test_the_sheets_come_in_series_by_subject(page):
     # power only, no extras, the Wiring tick off: just the maps, 2.1 - 2.3
     only = _plan(pg, SHOW.replace("data: true", "data: false")
                  .replace("cover: true, pull: true, hardware: true", "cover: false, pull: false, hardware: false, wiring: false"))
-    assert only == [['power', '2.1', 'CENTER - Power - Front View'], ['power', '2.2', 'WALL-A - Power - Front View'], ['power', '2.3', 'WALL-B - Power - Front View']]
+    # (the FACTS sheet prints with the screens' sheets, Overview or not)
+    assert only == [['facts', '1.1', 'Facts'], ['power', '2.1', 'CENTER - Power - Front View'],
+                    ['power', '2.2', 'WALL-A - Power - Front View'], ['power', '2.3', 'WALL-B - Power - Front View']]
 
 
 def test_the_power_sheet_carries_its_title_block_and_says_home_run_once_per_box(page):
@@ -678,12 +680,15 @@ def test_a_single_screen_scope_yields_only_that_screens_sheets(page):
     pg, ids = page
     one = _plan(pg, """{ sheet: 'tabloid', palette: 'colour', sides: {power: true, data: true},
                          scope: {kind: 'screen', layerId: '%s'}, cover: false, pull: false, hardware: false }""" % ids['b'])
-    assert one == [['power', '2.1', 'WALL-B - Power - Front View'], ['wiring', '2.2', 'WALL-B - Power Wiring'],
+    # (its FACTS sheet first: it prints with the screen's sheets, Overview or not)
+    assert one == [['facts', '1.1', 'Facts'],
+                   ['power', '2.1', 'WALL-B - Power - Front View'], ['wiring', '2.2', 'WALL-B - Power Wiring'],
                    ['data', '2.3', 'WALL-B - Data - Front View'], ['wiring', '2.4', 'WALL-B - Data Wiring']]
     # the power side alone: its Power Wiring sheet and no Data Wiring sheet
     ticked = _plan(pg, """{ sheet: 'tabloid', palette: 'colour', sides: {power: true, data: false},
                             scope: {kind: 'screen', layerId: '%s'}, cover: false, pull: true, hardware: false }""" % ids['b'])
-    assert ticked == [['power', '2.1', 'WALL-B - Power - Front View'], ['wiring', '2.2', 'WALL-B - Power Wiring'],
+    assert ticked == [['facts', '1.1', 'Facts'],
+                      ['power', '2.1', 'WALL-B - Power - Front View'], ['wiring', '2.2', 'WALL-B - Power Wiring'],
                       ['pull', '3.1', 'Pull - SR Beach'], ['totals', '4.1', 'Pull list - all positions']]
     # the dialog: the canvas's right-click presets the scope and unticks the extras
     out = pg.evaluate("""(id) => {
