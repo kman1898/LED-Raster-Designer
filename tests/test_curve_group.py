@@ -839,3 +839,85 @@ def test_a_13_13_4_group_lays_the_bars_one_30_column_screen_lays(page, settings)
     if settings['goal'] != 'tightest':
         assert any(n == 2 for s, n in row_bars(page, [ids[0]])), row_bars(page, [ids[0]])
     assert page.errors == []
+
+
+# ── Curve off hands the bars back to Auto ────────────────────────────────
+#
+# Owner's log (2026-11-18): on the 13, 13 and 4 column group, Curve On at
+# 15% laid the Curve's bars (Screen1 all singles then); Curve Off left them,
+# and the clicks after it (the Auto/Custom picker's Auto, Footer and Header,
+# a lit size off and on) never lay bars, so the Curve's stayed on a wall
+# that no longer curves. Curve off now lays the wall's Auto bars from its
+# lit sizes, in the same undo step; a wall whose bars were laid by hand
+# keeps them.
+
+def curved_group(page, value=15):
+    ids = reset(page, wide_and_group()[:3])
+    group(page, ids)
+    open_rigging(page)
+    select(page, [ids[0]])
+    page.evaluate("(v) => window.app.setRiggingCurveField('value', v)", value)
+    idle(page)
+    act(page, lambda: page.check('#rigging-curve-on'))
+    return ids
+
+
+AUTO_ROW = [[0, 2], [2, 2], [4, 2], [6, 2], [8, 2], [10, 2], [12, 2], [14, 2], [16, 2], [18, 2], [20, 2],
+            [22, 2], [24, 2], [26, 2], [28, 2]]
+
+
+def test_curve_off_lays_the_groups_auto_bars_in_the_same_step(page):
+    ids = curved_group(page)
+    curved = row_bars(page, ids)
+    assert curved != AUTO_ROW, curved
+    n = history_len(page)
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    lays = [layer(page, i) for i in ids]
+    assert not any(l['riggingCurve']['on'] for l in lays)
+    # the Curve's bars are gone: Auto's, fifteen doubles across the seams
+    assert row_bars(page, ids) == AUTO_ROW, row_bars(page, ids)
+    assert lays[0]['riggingBars'] == [2] * 7 and lays[1]['riggingBarStarts'] == [1, 3, 5, 7, 9, 11]
+    assert all(l.get('riggingCustom') is False for l in lays)
+    assert all(not any(own_joints(l)) for l in lays)
+    assert history_len(page) == n + 1
+    # one undo puts the curve back, bars and all; redo takes it off again
+    page.evaluate('window.app.undo()')
+    back = settled(page, lambda: layer(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('on'))
+    assert back['riggingCurve']['on'] and row_bars(page, ids) == curved
+    page.evaluate('window.app.redo()')
+    settled(page, lambda: layer(page, ids[0]), lambda l: not (l.get('riggingCurve') or {}).get('on'))
+    assert row_bars(page, ids) == AUTO_ROW
+    # what he clicked next changes none of it
+    page.click('#rigging-tool-picker [data-tool="auto"]')
+    page.click('#rigging-mode-picker [data-mode="footer"]')
+    page.click('#rigging-mode-picker [data-mode="header"]')
+    page.wait_for_timeout(300)
+    assert row_bars(page, ids) == AUTO_ROW
+    assert page.errors == []
+
+
+def test_curve_off_on_a_single_screen_lays_its_auto_bars(page):
+    ids = reset(page, wide_and_group()[3:])
+    open_rigging(page)
+    page.evaluate("(v) => window.app.setRiggingCurveField('value', v)", 15)
+    idle(page)
+    act(page, lambda: page.check('#rigging-curve-on'))
+    assert layer(page, ids[0])['riggingBars'] != [2] * 15
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    lay = layer(page, ids[0])
+    assert lay['riggingBars'] == [2] * 15 and not lay.get('riggingBarStarts')
+    assert not any(own_joints(lay))
+    assert page.errors == []
+
+
+def test_after_curve_off_the_auto_button_still_lays_from_the_lit_sizes(page):
+    """The Auto button (not the Auto/Custom picker) lays the lit sizes, the
+    Curve's bars or not: the doubles alone, then singles and doubles."""
+    ids = curved_group(page)
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    page.click('#rigging-size-picker .rigging-size-btn[data-size="1"]')
+    idle(page)
+    assert layer(page, ids[0])['riggingSizes'] == [2]
+    act(page, lambda: page.click('#rigging-auto-btn'))
+    assert row_bars(page, ids) == AUTO_ROW
+    assert page.errors == []

@@ -19,7 +19,10 @@
 // 0; the Curve is the only source of joint angles). Every change is one
 // undo step. While Curve is on, Custom does not lay bars on that screen
 // and Auto lays the curve again. Turned off, every joint goes flat and
-// the bars stay where they are. Lit sizes that
+// the wall takes the bars Auto lays from its lit sizes, in the same undo
+// step (owner, 2026-11-18: the Curve's bars stayed on a wall that no longer
+// curved, and nothing after laid them again); Clear turns it off with no
+// bars at all. Lit sizes that
 // cannot cover the wall exactly lay nothing (owner, 2026-11-09): the tab
 // names the gap and the screen's bars and joints stay as they are.
 //
@@ -1400,6 +1403,7 @@ class _Curve {
         const changed = [];
         const refused = [];
         const noLocks = [];
+        const misses = [];
         for (const row of rows) {
             const lead = row.layers[0];
             const s = row.kind === 'both' ? this.riggingCurveOf(lead) : this._curveRowSettings(row);
@@ -1414,6 +1418,12 @@ class _Curve {
             } else {
                 if (!this._curveAll(row).some(m => this.riggingCurveOf(m).on)) continue;
                 this.riggingCurveOff(this._curveAll(row));
+                // The Curve's bars give way to the ones Auto lays from the
+                // row's lit sizes (riggingFitRow, corners and all).
+                if (row.kind !== 'both' && !row.layers.some(m => m.riggingCustom === true)) {
+                    const plain = this.riggingRow(row.layers[0], row.kind);
+                    if (!this._riggingFitRow(plain, this._riggingSizesOf(row.layers[0]))) misses.push(this._riggingRowName(plain));
+                }
             }
             this._curveAll(row).forEach(m => { if (!changed.includes(m)) changed.push(m); });
         }
@@ -1431,7 +1441,7 @@ class _Curve {
                 this.updateLayers(changed, true, on ? 'Curve On' : 'Curve Off');
             }
         }
-        this.refreshRiggingPanel();
+        this.refreshRiggingPanel(misses.length ? misses : undefined);
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
