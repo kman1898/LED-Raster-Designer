@@ -2145,7 +2145,13 @@
                             <button type="button" id="s3d-curve-edit" class="s3d-link" data-tooltip="Curve settings, Opens the Header/Footer tab at this screen's Curve, where the angles come from.">Curve settings on the Header/Footer tab</button>
                             <div class="s3d-sub">Corners</div>
                             <div id="s3d-corner-info" class="s3d-read"></div>
-                            <div class="s3d-note s3d-hint-line">Click a seam, or the middle of a panel, on the selected screen to set a 90&deg; corner there.</div>
+                            <!-- Add corners (owner, 2026-11-18): off by default, so a click
+                                 in the view only selects and no corner marks show; on, a
+                                 click on a seam or a panel's middle offers a corner. -->
+                            <div class="s3d-buttons">
+                                <button type="button" id="s3d-corners" class="btn s3d-toggle" aria-pressed="false" data-tooltip="Add corners, Turn this on, then click a seam or the middle of a panel on the selected screen to set a 90&deg; corner there. Off, a click only selects the screen.">Add corners</button>
+                            </div>
+                            <div class="s3d-note s3d-hint-line">Turn on Add corners, then click a seam, or the middle of a panel, on the selected screen to set a 90&deg; corner there.</div>
                             <div class="s3d-buttons">
                                 <button type="button" id="s3d-reset" class="btn" data-tooltip="Reset to Show Look, Put this screen (and its group) back where its Show Look position stands it: upright, facing the audience.">Reset to Show Look</button>
                             </div>
@@ -3936,7 +3942,7 @@
                     <tr><td class="sc-key">Right-click a figure</td><td>Reset, copy or paste it or all three; Pitch, Yaw and Roll also +90 and -90</td></tr>
                     <tr><td class="sc-key">G / R</td><td>Move / turn the selection with the mouse; X, Y or Z locks an axis, type a figure, Enter or a click keeps it, Esc puts it back</td></tr>
                     <tr><td class="sc-key">Drag a square between two arrows</td><td>Move the selection on that plane</td></tr>
-                    <tr><td class="sc-key">Click a seam or the middle of a panel</td><td>On the selected screen: a 90&deg; corner there, None, Interior or Exterior</td></tr>
+                    <tr><td class="sc-key">Click a seam or the middle of a panel</td><td>With Add corners on, on the selected screen: a 90&deg; corner there, None, Interior or Exterior</td></tr>
                 </table>
             </section>
             <section class="sc-group">

@@ -155,10 +155,12 @@ other edit.
   screens on that plane. G moves the selected screens with the mouse and R
   turns them: X, Y or Z locks an axis, a typed figure sets it exactly, and
   Enter or a click keeps it while Esc or a right-click puts it back.
-- NEW: Click a seam, or the middle of a panel, on the selected screen in
-  3D to set a corner there: None, Interior 90 or Exterior 90. It is the
-  same corner the Header/Footer tab sets, with its corner bar, so both
-  tabs always show the same corners.
+- NEW: Turn on Add corners in the 3D panel, then click a seam, or the
+  middle of a panel, on the selected screen to set a corner there: None,
+  Interior 90 or Exterior 90. It is the same corner the Header/Footer tab
+  sets, with its corner bar, so both tabs always show the same corners.
+  Add corners starts off, so a click only selects a screen and no corner
+  marks show; the show remembers it once you turn it on.
 - NEW: The 3D panel shows the screen's curve as the Curve on the
   Header/Footer tab sets it, like 7.5 degrees per joint, and Curve
   settings takes you there. Gentle bends come only from the Curve, and

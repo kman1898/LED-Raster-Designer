@@ -50,7 +50,7 @@ from conftest import settled  # noqa: E402
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 from test_stage3d import (  # noqa: E402
-    FT, _context, dbg, history_len, open_3d, reset, screen, served, set_curve, stored, undo, view_from,
+    FT, _context, dbg, history_len, open_3d, open_tab, reset, screen, served, set_curve, stored, undo, view_from,
 )
 
 ONE = [{'name': 'Wall', 'columns': 6, 'rows': 2, 'offset_x': 0, 'offset_y': 0}]
@@ -717,10 +717,77 @@ def pop_open(page):
     return page.evaluate("!document.getElementById('s3d-corner-pop').hidden")
 
 
+def corners_on(page, on=True):
+    """Add corners switched on (or off) by its button in the panel."""
+    if bool(dbg(page).get('corners')) != on:
+        page.click('#s3d-corners')
+    settled(page, lambda: dbg(page)['corners'], lambda v: v is on)
+
+
+def spot_marked(page, layer_id):
+    return page.evaluate(f"!!window.app._s3dState().entries.get({layer_id}).seam")
+
+
+def test_add_corners_is_off_until_turned_on_and_kept_with_the_show(page):
+    """Add corners (the owner, 2026-11-18: "add a toggle that needs to be
+    enabled to allow for adding corners. That way the lines dont show up by
+    default"): off on a show that never turned it on, a click on a seam of
+    the selected screen only selects and marks nothing; on, the same click
+    marks the spot and opens the picker; off again closes both. It is view
+    state saved with the show, as Grid and Bars are."""
+    ids = reset(page, ONE)
+    wall = ids[0]
+    open_3d(page, 1)
+    view_from(page, 'front')
+    btn = '#s3d-corners'
+    assert page.inner_text(btn) == 'Add corners'
+    # in the panel's Corners section, beside the corners it sets
+    assert page.evaluate(f"!!document.querySelector('{btn}').closest('#s3d-fields')")
+    assert dbg(page)['corners'] is False
+    assert not page.evaluate(f"document.querySelector('{btn}').classList.contains('active')")
+    assert page.get_attribute(btn, 'aria-pressed') == 'false'
+    start = history_len(page)
+    # off: the click selects, and that is all
+    click_spot(page, wall, 3.5)
+    assert not pop_open(page) and dbg(page)['corner'] is None
+    assert not spot_marked(page, wall)
+    # the picker cannot be opened another way either
+    page.evaluate(f"window.app._s3dPickCorner({wall}, 3.5)")
+    assert not pop_open(page) and dbg(page)['corner'] is None
+    # on: the same click marks the seam and offers a corner
+    corners_on(page)
+    assert page.evaluate(f"document.querySelector('{btn}').classList.contains('active')")
+    assert page.get_attribute(btn, 'aria-pressed') == 'true'
+    assert settled(page, lambda: page.evaluate(
+        "async () => (await (await fetch('/api/project')).json()).stage3dCorners"), lambda v: v is True) is True
+    click_spot(page, wall, 3.5)
+    assert pop_open(page) and dbg(page)['corner'] == {'layerId': wall, 'at': 3.5}
+    assert spot_marked(page, wall)
+    # off with the picker up: the picker closes and the mark goes
+    corners_on(page, False)
+    assert not pop_open(page) and dbg(page)['corner'] is None
+    assert settled(page, lambda: spot_marked(page, wall), lambda v: not v) is False
+    # never an undo step, and no corner was set
+    assert history_len(page) == start and corners_of(page, wall) == []
+    # kept with the show: on, then the page opened again
+    corners_on(page)
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_function("() => window.app && window.app._initialLoadComplete === true", timeout=30000)
+    open_3d(page, 1)
+    assert dbg(page)['corners'] is True
+    # a show that never turned it on opens with it off
+    reset(page, ONE)
+    open_tab(page, 'pixel-map')
+    open_3d(page, 1)
+    assert settled(page, lambda: dbg(page)['corners'], lambda v: v is False) is False
+    assert page.errors == []
+
+
 def test_a_corner_picked_in_the_view_is_the_header_footer_tabs_corner(page):
     ids = reset(page, ONE)
     wall = ids[0]
     open_3d(page, 1)
+    corners_on(page)
     view_from(page, 'front')
     start = history_len(page)
     # the seam between panels 3 and 4
@@ -778,6 +845,7 @@ def test_a_spot_too_close_to_a_corner_offers_none_and_esc_closes(page):
     page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {wall});
         l.riggingCorners = [{{at: 3.5, angle: 90, side: 'interior'}}]; a.updateLayers([l], true, 'Test Corner'); }}""")
     open_3d(page, 1)
+    corners_on(page)
     view_from(page, 'front')
     start = history_len(page)
     # the middle of panel 4 sits under the 3.5 corner's bar
@@ -807,6 +875,7 @@ def test_a_seam_between_two_rows_picks_nothing_and_rows_never_bend(page):
     ids = reset(page, [{'name': 'Wall', 'columns': 6, 'rows': 3, 'offset_x': 0, 'offset_y': 0}])
     wall = ids[0]
     open_3d(page, 1)
+    corners_on(page)
     view_from(page, 'front')
     start = history_len(page)
     for index in (0, 1):
@@ -837,6 +906,7 @@ def test_a_locked_screen_refuses_a_corner(page):
     page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {wall});
         l.locked = true; a.updateLayers([l], true, 'Lock'); }}""")
     open_3d(page, 1)
+    corners_on(page)
     view_from(page, 'front')
     start = history_len(page)
     click_spot(page, wall, 2.5)
@@ -1025,3 +1095,4 @@ def test_a_figure_menu_opens_right_after_g_ends_by_enter(page):
     assert page.evaluate('!window.app._s3d.keyX')
     assert page.locator('#s3d-field-menu').count() == 0
     assert page.errors == []
+

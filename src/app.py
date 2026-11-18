@@ -829,8 +829,9 @@ def strip_copied_feeds(layer):
 # load unchanged. The project keeps the last camera (`stage3dCamera`), the
 # length units the panel shows (`stage3dUnits`; none saved = the show's
 # cable unit), the floor grid switch
-# (`stage3dGrid`) and the header and footer bars switch (`stage3dBars`);
-# those are view state and are written by their own
+# (`stage3dGrid`), the header and footer bars switch (`stage3dBars`) and
+# the Add corners switch (`stage3dCorners`, off unless saved on); those
+# are view state and are written by their own
 # route (routes_project.py), never by the layer PUT.
 STAGE3D_JOINT_LIMIT = 20.0
 STAGE3D_UNITS = ('ft', 'm')

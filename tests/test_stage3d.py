@@ -131,10 +131,14 @@ def test_add_route_and_restore_funnel_hold_the_shape(client):
 def test_view_state_route(client):
     resp = client.put('/api/project/stage3d', json={
         'camera': {'mode': 'perspective', 'position': [0, 1000, 9000], 'target': [0, 1000, 0]},
-        'units': 'm', 'grid': False, 'bars': False})
+        'units': 'm', 'grid': False, 'bars': False, 'corners': True})
     body = resp.get_json()
     assert body['stage3dUnits'] == 'm' and body['stage3dGrid'] is False
     assert body['stage3dBars'] is False
+    # the Add corners switch, saved with the show beside Grid and Bars
+    assert body['stage3dCorners'] is True
+    assert client.put('/api/project/stage3d', json={'corners': 1}).get_json()['stage3dCorners'] is True
+    assert client.put('/api/project/stage3d', json={'corners': False}).get_json()['stage3dCorners'] is False
     # only a true or false is taken for the bars
     assert client.put('/api/project/stage3d', json={'bars': 'yes'}).get_json()['stage3dBars'] is False
     assert body['stage3dCamera']['position'] == [0, 1000, 9000]
@@ -190,6 +194,7 @@ RESET_JS = """async (specs) => {
     delete project.stage3dUnits;
     delete project.stage3dGrid;
     delete project.stage3dBars;
+    delete project.stage3dCorners;
     // the bars switch as a fresh show has it (the route test turns it off
     // on the shared server project)
     if (app._s3d) app._s3d.bars = true;

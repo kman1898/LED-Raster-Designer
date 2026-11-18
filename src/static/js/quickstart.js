@@ -9130,18 +9130,27 @@
             }
         },
         // Corners on the 3D tab are 90 degrees, Interior or Exterior (owner,
-        // 2026-11-10), the Header/Footer tab's own riggingCorners: a click on
-        // the seam between panels 3 and 4 of DEMO WALL 2 sets an Interior
-        // corner, and None takes it off again, so the wall is as it was.
+        // 2026-11-10), the Header/Footer tab's own riggingCorners. Add
+        // corners is off until turned on (owner, 2026-11-18), so the step
+        // turns it on first; then a click on the seam between panels 3 and
+        // 4 of DEMO WALL 2 sets an Interior corner, and None takes it off
+        // again, so the wall is as it was.
         s3dCorner: {
             since: '1.7.0',
             target: '#s3d-view', place: 'left', title: '90&deg; corners',
-            avoid: ['#s3d-corner-pop', function () {
+            avoid: ['#s3d-corner-pop', '#s3d-corners', function () {
                 var w2 = wall2(), at = w2 && A()._s3dDebugSpot ? A()._s3dDebugSpot(w2.id, 3.5) : null;
                 return at ? { x: at[0], y: at[1] } : null;
             }],
-            body: 'Click a seam, or the middle of a panel, on the selected screen for a 90&deg; corner, Interior or Exterior. It is the same corner the Header/Footer tab sets.',
-            before: function () { return open3d().then(function () { only(wall2()); }); },
+            body: 'Turn on Add corners, then click a seam or the middle of a panel on the selected screen for a 90&deg; corner, Interior or Exterior. It is the same corner the Header/Footer tab sets.',
+            before: function () {
+                return open3d().then(function () {
+                    only(wall2());
+                    // off, so the step shows the switch being turned on
+                    var a = A();
+                    if (a._s3dState().corners) a._s3dSetCorners(false);
+                });
+            },
             act: function (t) {
                 var d = s3dDebug();
                 if (!d || !d.webgl) return t.pause(PACE.rest);
@@ -9152,7 +9161,14 @@
                     if (!at) throw new Error('the seam is not in the view');
                     return stagePress(t, { x: at[0], y: at[1] }).then(function () { return t.wait(popUp, 2000); });
                 };
-                return pick().then(function (pop) {
+                var turnOn = A()._s3dState().corners ? Promise.resolve()
+                    : t.click('#s3d-corners', { rest: PACE.acted });
+                return turnOn.then(function () {
+                    return t.wait(function () { return A()._s3dState().corners === true; }, 2000);
+                }).then(function (on) {
+                    t.mem.on = !!on;
+                    return pick();
+                }).then(function (pop) {
                     if (!pop) throw new Error('the corner picker did not open');
                     return t.click('#s3d-corner-pop [data-s3d-corner="interior"]');
                 }).then(function () {
@@ -9174,6 +9190,9 @@
                     return t.click('#s3d-corner-pop [data-s3d-corner="none"]');
                 }).then(function () {
                     return t.wait(function () { return corners().length === 0; }, 4000);
+                }).then(function () {
+                    // off again, so the guides after this one start with it off
+                    A()._s3dSetCorners(false);
                 });
             },
             check: function (mem) {
@@ -9181,8 +9200,8 @@
                 if (d && !d.webgl) return 'Without WebGL here, corners are set under Corners on the Header/Footer tab.';
                 var w2 = wall2();
                 var none = !w2 || !Array.isArray(w2.riggingCorners) || !w2.riggingCorners.length;
-                return mem.corner && none
-                    ? w2.name + ' took an Interior 90° corner between panels 3 and 4, and None took it off again.' : null;
+                return mem.on && mem.corner && none
+                    ? 'With Add corners on, ' + w2.name + ' took an Interior 90° corner between panels 3 and 4, and None took it off again.' : null;
             }
         },
         outputOpen: {
