@@ -1266,6 +1266,10 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
     padding: 0 6px; cursor: pointer; font-size: 13px; line-height: 1;
 }
 #preferences-modal .pm-key-remove:hover { color: #fff; background: #5a2b2b; }
+/* the x to take a key off stays quiet until the row is pointed at */
+#preferences-modal .pm-control-row .pm-key-remove { opacity: 0.35; }
+#preferences-modal .pm-control-row:hover .pm-key-remove,
+#preferences-modal .pm-control-row .pm-key-remove:focus-visible { opacity: 1; }
 #preferences-modal .pm-key-add {
     background: none; border: 1px dashed #555; color: #aaa; border-radius: 4px;
     width: 24px; height: 24px; padding: 0; cursor: pointer;
@@ -1276,6 +1280,7 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
 #preferences-modal .pm-control-reset { padding: 3px 10px !important; font-size: 11px; }
 #preferences-modal .pm-control-reset:disabled { opacity: 0.35; cursor: default; }
 #preferences-modal .pm-control-keys select {
+    width: auto; flex: 0 0 auto; min-width: 0;
     background: #121212; color: #fff; border: 1px solid #3a3a3a; border-radius: 4px; padding: 4px 6px; font-size: 12px;
 }
 #preferences-modal .pm-controls-hint, #preferences-modal .pm-controls-fine { font-size: 11px; color: #888; }
