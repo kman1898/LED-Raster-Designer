@@ -450,3 +450,71 @@ def test_an_l2130_wall_keeps_its_circuits_until_its_power_is_edited(page):
     }""")
     assert amps == pytest.approx(24 / 3 ** 0.5)
     assert errors == [], errors
+
+
+# The breaker checks as every surface says them: the checks themselves,
+# the red line under each screen's Amperage, the tray's strip and the
+# binder's "Breaker over" rows.
+OVER_JS = """() => {
+    const app = window.app;
+    app._circuitTailCache = null;
+    const checks = app.breakerOverChecks().map(g => g.text);
+    const shown = {};
+    for (const name of ['V240', 'G1', 'G2', 'EDISON30']) {
+        const l = app.project.layers.find(x => x.name === name);
+        app.selectLayer(l);
+        app.loadLayerToInputs && app.loadLayerToInputs();
+        app.updatePowerCapacityDisplay();
+        const c = app.circuitCapacity(l);
+        shown[name] = { over: document.getElementById('power-amperage-over').textContent,
+                        us: !!c.us, pct: c.pct };
+    }
+    app.renderHardwareDock();
+    const strip = (app._dockPowerWarnings || []).map(w => w.text);
+    const caught = [];
+    const orig = app._bKvLines;
+    app._bKvLines = function (book, title, pairs) {
+        caught.push(...pairs.filter(p => p[0] === 'Breaker over').map(p => p[1]));
+        return orig.apply(this, arguments);
+    };
+    try {
+        app.planBinder(Object.assign(app.readBinderOptions(),
+            { scope: { kind: 'show' }, hardware: true, pull: false, cover: false }));
+    } finally { app._bKvLines = orig; }
+    return { checks, shown, strip, binder: caught };
+}"""
+
+
+def test_a_kept_240v_screen_reads_us_connector_ratings(page):
+    """V240 and the G1/G2 wall are 240 V on no distro at 20 A, in a show
+    whose only distro is a US 120/208. Kept, they pack to the breaker as
+    the build that saved them did, but where they are is the US either
+    way: their TRUE1 panel input is rated 20 A, and a 20 A breaker on it
+    is no OVER, the same as the show saved by this build reads. Only
+    EDISON30's 30 A breaker on its 5-20 is past a rating."""
+    pg, errors, _ = page
+    for rules in (None, 2):
+        project = show(pg)
+        if rules:
+            project['powerRules'] = rules
+        open_file(pg, project, 'older-power-show.json' if rules is None else 'new-show.json')
+        got = read(pg)
+        if rules is None:
+            assert got['V240']['n'] == KEPT['V240'] and got['V240']['mark'], got['V240']
+            assert got['G1']['mark'] and got['G2']['mark']
+        out = pg.evaluate(OVER_JS)
+        for name in ('V240', 'G1', 'G2'):
+            assert out['shown'][name]['over'] == '', (rules, name, out['shown'][name])
+            assert out['shown'][name]['us'] is True, (rules, name, out['shown'][name])
+        # kept: the breaker; this build's: 80%
+        assert out['shown']['V240']['pct'] == (1 if rules is None else 0.8), out['shown']
+        edison = ('EDISON30 circuits 1-8: 30 A breaker on Edison 5-20 (20 A). '
+                  'Use a 20 A breaker or a connector rated for 30 A.')
+        if rules is not None:
+            edison = edison.replace('1-8', '1-12')
+        assert out['checks'] == [edison], (rules, out['checks'])
+        assert not [t for t in out['strip'] if 'TRUE1' in t], (rules, out['strip'])
+        assert edison in out['strip'], (rules, out['strip'])
+        assert not [t for t in out['binder'] if 'TRUE1' in t], (rules, out['binder'])
+        assert out['shown']['EDISON30']['over'] == 'OVER: 30 A breaker on Edison 5-20 (20 A)'
+    assert errors == [], errors

@@ -515,7 +515,7 @@ class _Power {
         const capped = !!cap && breakerA > 0 && cap.amps < amps - 1e-9;
         if (capped) amps = cap.amps;
         return { voltage, breakerA, pct, amps, watts: voltage * amps,
-                 us: rule.us, rated100: rule.us && pct >= 1, byDistro: !!rule.byDistro,
+                 us: rule.us, rated100: rule.us && pct >= 1 && !!rule.byDistro, byDistro: !!rule.byDistro,
                  onDistro: !!rule.onDistro, cap: capped ? cap : null,
                  oldRules: typeof this.oldPowerRulesHold === 'function' && this.oldPowerRulesHold(layer) };
     }
@@ -632,18 +632,43 @@ class _Power {
     // Edison outlet comes in (owner, 2026-11-12): 15 A (a 5-15) and 20 A
     // (a 5-20). Custom stays only while the screen holds another figure (an
     // old show's 30 A), so it reads what it is until somebody picks.
+    //
+    // A breakout whose box fixes its circuits' breaker (the L21-30 Edison
+    // box, 15 A a circuit: circuitCapacity) reads that figure and offers
+    // only it, whatever the screen's Amperage holds; nothing is written,
+    // so another breakout picked later reads the screen's own figure again.
     syncAmperageOptions(layer) {
         const sel = document.getElementById('power-amperage-select');
         if (!sel) return;
-        const edison = !!(layer && typeof this.screenEdisonType === 'function' && this.screenEdisonType(layer));
+        const bt = layer && (layer.type || 'screen') === 'screen' && typeof this.getPowerBreakout === 'function'
+            ? this.getPowerBreakout(layer) : null;
+        const fixedA = Number(bt && bt.circuitA) || 0;
+        const fixed = fixedA > 0 && [...sel.options].some(o => !o.dataset.mixed && o.value === String(fixedA))
+            ? String(fixedA) : null;
+        const edison = !fixed && !!(layer && typeof this.screenEdisonType === 'function' && this.screenEdisonType(layer));
         const amps = String(layer && layer.powerAmperage != null ? layer.powerAmperage : '');
         for (const opt of sel.options) {
             if (opt.dataset.mixed) continue;
-            const off = edison && (opt.value === '16' || (opt.value === 'custom' && ['15', '20'].includes(amps)));
+            const off = fixed ? opt.value !== fixed
+                : edison && (opt.value === '16' || (opt.value === 'custom' && ['15', '20'].includes(amps)));
             opt.hidden = off;
             opt.disabled = off;
         }
-        sel.title = edison ? 'An Edison breakout is a 5-15 at 15 A or a 5-20 at 20 A.' : '';
+        // (screens selected together that disagree keep their "-")
+        const mixed = !!sel.querySelector('option[data-mixed]');
+        const custom = document.getElementById('power-amperage-custom');
+        if (fixed && !mixed) {
+            sel.value = fixed;
+            if (custom) custom.style.display = 'none';
+        } else if (!fixed && !mixed && sel.dataset.fixedA) {
+            const own = ['15', '16', '20'].includes(amps) ? amps : 'custom';
+            sel.value = own;
+            if (custom) custom.style.display = own === 'custom' ? 'inline-block' : 'none';
+        }
+        if (fixed) sel.dataset.fixedA = fixed;
+        else delete sel.dataset.fixedA;
+        sel.title = fixed ? `The ${this._breakoutShortName(bt)} box puts every circuit on ${fixed} A.`
+            : (edison ? 'An Edison breakout is a 5-15 at 15 A or a 5-20 at 20 A.' : '');
     }
 
     // Why the screen's circuits pack at the % they do, in one sentence.
@@ -714,9 +739,13 @@ class _Power {
     _circuitPackRule(layer, voltage) {
         // US or not, for a screen no distro decides: one rule at every
         // voltage (_usByVoltage, owner 2026-11-12), 80% as 110 V and 208 V
-        // always have, but for the UK/EU-only figures.
-        const byVoltage = this._usByVoltage(voltage, layer);
-        const fallback = { pct: byVoltage ? 0.8 : 1, us: byVoltage };
+        // always have, but for the UK/EU-only figures. A screen an older
+        // show keeps packs to the % the build that saved it did
+        // (_noDistroPct), but is where it is all the same: the region,
+        // and with it every connector rating its circuits are checked at
+        // (breakerOverChecks), is the one a show this build saved reads.
+        const byVoltage = this._usByVoltage(voltage);
+        const fallback = { pct: this._noDistroPct(voltage, layer, byVoltage), us: byVoltage };
         if (this._capacityProbe) return { pct: this._capacityProbe.pct, us: byVoltage };
         if (!layer) return fallback;
         if (typeof this.getDistros !== 'function') return fallback;
@@ -776,17 +805,27 @@ class _Power {
     // figures no US system has, 220 and 230 V (380, 400 and 415 V), are
     // UK/EU and pack to the breaker, unless the show's distros and
     // services are US (showPowerRegion): then they are typed US figures.
-    // A screen an older show keeps (oldPowerRulesHold) reads the rule the
-    // build that saved it did: 208 V and under is US, above it the breaker.
-    _usByVoltage(voltage, layer = null) {
+    // It says the region only; the % a screen packs to is _noDistroPct's.
+    _usByVoltage(voltage) {
         const v = Number(voltage) || 0;
         if (!(v > 0)) return false;
-        if (layer && typeof this.oldPowerRulesHold === 'function' && this.oldPowerRulesHold(layer)) {
-            return v < 208.5;
-        }
         if (![220, 230, 380, 400, 415].some(x => Math.abs(v - x) < 0.5)) return true;
         const region = typeof this.showPowerRegion === 'function' ? this.showPowerRegion() : null;
         return region === 'us';
+    }
+
+    // The % a screen on no distro packs to: 80% where the region is US
+    // (_usByVoltage), else its breaker. A screen an older show keeps
+    // (oldPowerRulesHold) packs as the build that saved it did: 208 V and
+    // under to 80%, above it to the breaker. Its region stays the US one
+    // (_circuitPackRule), so a kept 240 V screen's TRUE1 is still rated
+    // 20 A.
+    _noDistroPct(voltage, layer, us) {
+        const v = Number(voltage) || 0;
+        if (v > 0 && layer && typeof this.oldPowerRulesHold === 'function' && this.oldPowerRulesHold(layer)) {
+            return v < 208.5 ? 0.8 : 1;
+        }
+        return us ? 0.8 : 1;
     }
 
     // How many multis `layer` has when its circuits are packed at `pct` of

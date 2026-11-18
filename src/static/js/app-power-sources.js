@@ -119,7 +119,7 @@ class _PowerSources {
     // that saved it did: on its Amperage, no Edison outlet held, an L21-30
     // breakout's circuits not held to its feed (80% of the breaker, not
     // 13.86 A), and a screen on no distro above 208 V to its breaker
-    // (_usByVoltage). The
+    // (_noDistroPct). The
     // checks keep telling the truth (OVER on a breaker or a two-fer pair
     // past its limit), and the sidebar says the circuits are kept
     // (oldPowerRulesText).

@@ -169,6 +169,48 @@ def test_an_old_show_maps_from_its_saved_amperage(seeded):
     assert not errors, errors
 
 
+def test_the_l2130_edison_box_reads_its_15a_on_the_amperage(seeded):
+    """The L21-30 Edison box plans every circuit at 15 A, whatever the
+    Amperage box holds: 80% of 15 A = 12 A, 110 x 12 = 1,320 W, 4 cabinets
+    of 300 W a circuit, 60 cabinets make 15 circuits. A screen typed 20 A
+    (or an old 30 A) reads 15A on the select, and 15A is all it offers;
+    nothing is written. Back on Multi -> TRUE1 its own 20 A reads again."""
+    pg, errors = seeded
+    box = {'columns': 10, 'rows': 6, 'powerVoltage': 110, 'panelWatts': 300,
+           'powerBreakoutType': 'l2130-edison'}
+    setup(pg, wall=dict(box, powerAmperage=20))
+    out = ev(pg, CAP)
+    assert out['breakerA'] == 15 and out['amps'] == pytest.approx(12), out
+    assert out['n'] == [4] * 15, out['n']
+    assert out['usable'] == '15 A breaker · 12 A usable', out
+    assert out['offered'] == ['15'] and out['value'] == '15', out
+    assert ev(pg, "return A.powerAmperage;") == 20, 'nothing written'
+    custom = ev(pg, "return document.getElementById('power-amperage-custom').style.display;")
+    assert custom == 'none'
+    # an old show's 30 A: still the box's 15 A, no Custom box
+    setup(pg, wall=dict(box, powerAmperage=30))
+    out = ev(pg, CAP)
+    assert out['offered'] == ['15'] and out['value'] == '15', out
+    assert ev(pg, "return document.getElementById('power-amperage-custom').style.display;") == 'none'
+    # Multi -> TRUE1 picked on the sidebar: the screen's own 20 A reads
+    # again, the four choices back
+    setup(pg, wall=dict(box, powerAmperage=20))
+    ev(pg, CAP)
+    back = ev(pg, """
+        const sel = document.getElementById('power-breakout-type');
+        sel.value = 'soca-true1';
+        sel.dispatchEvent(new Event('change'));
+        app._circuitTailCache = null;
+        app.updatePowerCapacityDisplay();
+        const amp = document.getElementById('power-amperage-select');
+        return { bt: app.getPowerBreakout(A).id, value: amp.value,
+                 offered: [...amp.options].filter(o => !o.hidden && !o.dataset.mixed).map(o => o.value),
+                 usable: document.getElementById('power-amperage-usable').textContent };""")
+    assert back == {'bt': 'soca-true1', 'value': '20', 'offered': ['15', '16', '20', 'custom'],
+                    'usable': '20 A breaker · 16 A usable'}, back
+    assert not errors, errors
+
+
 # ── 2. the breaker the circuits are plugged into ─────────────────────────
 
 def test_a_20a_screen_on_a_5_15_output_packs_to_12a_and_says_so(seeded):
