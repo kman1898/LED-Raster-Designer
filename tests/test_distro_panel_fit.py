@@ -281,6 +281,23 @@ def test_with_always_on_scrollbars_nothing_hides_under_the_bar(page):
 HEAD = '#hw-gear-popover .hw-pop-head'
 POP = '#hw-gear-popover'
 
+# A point on the toolbar's own background, no button under it: scanned
+# from the bar's right end along its middle.
+BARE_TOOLBAR_SPOT_JS = """() => {
+    const bar = document.getElementById('toolbar').getBoundingClientRect();
+    const y = Math.round(bar.top + bar.height / 2);
+    for (let x = Math.floor(bar.right) - 4; x > bar.left; x -= 4) {
+        const el = document.elementFromPoint(x, y);
+        if (el && el.id === 'toolbar') return {x, y};
+    }
+    return null;
+}"""
+
+# The app's dialogs on screen, by id: Escape goes to the top one first.
+OPEN_MODALS_JS = """() => [...document.querySelectorAll('.modal')]
+    .filter(m => m.style.display !== 'none' && getComputedStyle(m).display !== 'none')
+    .map(m => m.id)"""
+
 
 def test_the_header_drags_the_panel_inside_the_window(page):
     pg, errors = page
@@ -330,9 +347,17 @@ def test_the_header_drags_the_panel_inside_the_window(page):
         _assert_fits(pg.evaluate(FIT_JS), 'dragged, then the window shrank')
         pg.set_viewport_size({'width': 1200, 'height': HEIGHT})
         pg.wait_for_timeout(150)
-        # a click outside after the drag closes it, as ever
-        pg.mouse.click(600, 60)
+        # a click outside after the drag closes it, as ever. On a bare
+        # spot of the toolbar: a fixed point there is whatever button the
+        # toolbar's layout puts under it (at 1200 px (600, 60) was Save,
+        # then Preferences once the title gave way to the logo below
+        # 1280 px), and a Preferences left open under the next test's
+        # panel took that test's Escape.
+        spot = pg.evaluate(BARE_TOOLBAR_SPOT_JS)
+        assert spot, "no bare spot on the toolbar to click"
+        pg.mouse.click(spot['x'], spot['y'])
         assert not _is_open(pg), "a click outside after a drag did not close the panel"
+        assert not pg.evaluate(OPEN_MODALS_JS), "the click outside opened a dialog"
         # re-opened, it starts at its gear again
         _open(pg)
         again = _rect(pg, POP)
@@ -372,8 +397,10 @@ def test_the_close_button_closes_and_never_drags(page):
             pg.focus(close)
             pg.keyboard.press('Space' if key == ' ' else key)
             assert not _is_open(pg), f"{key!r} on a focused × did not close the panel"
-        # Escape still closes it from anywhere
+        # Escape still closes it from anywhere (an app dialog open under
+        # the panel would take the Escape first, so none is)
         _open(pg)
+        assert not pg.evaluate(OPEN_MODALS_JS), pg.evaluate(OPEN_MODALS_JS)
         pg.keyboard.press('Escape')
         assert not _is_open(pg)
     finally:
