@@ -322,12 +322,35 @@ class _CanvasUi {
     // in /api/canvas* and update this.project from the response.
     // -------------------------------------------------------------------
 
+    // A canvas whose size on the page differs from the copy the page is
+    // about to take in: one log line each, naming the canvas, both sizes
+    // and where the copy came from. Canvas sizes change only when the
+    // person sets them, so a line here that no setting explains is the
+    // trail to follow (2026-11-18: Canvas 1 went from 3840 x 2160 to
+    // 1920 x 1080 on + Add Canvas, and nothing in the log said so).
+    _logCanvasSizesTaken(before, after, source) {
+        const list = (p) => (p && Array.isArray(p.canvases) ? p.canvases : []);
+        const size = (c) => `${Number(c.raster_width) || 0}x${Number(c.raster_height) || 0}`;
+        const show = (c) => `${Number(c.show_raster_width) || Number(c.raster_width) || 0}x`
+            + `${Number(c.show_raster_height) || Number(c.raster_height) || 0}`;
+        const was = new Map(list(before).filter(c => c && c.id).map(c => [c.id, c]));
+        list(after).forEach(c => {
+            const old = c && c.id ? was.get(c.id) : null;
+            if (!old || (size(old) === size(c) && show(old) === show(c))) return;
+            sendClientLog('canvas_size_changed', {
+                id: c.id, from: size(old), to: size(c),
+                show_from: show(old), show_to: show(c), reason: source,
+            });
+        });
+    }
+
     _applyProjectUpdate(data) {
         // Undo audit: same shape guard _adoptRepairedProject applies. The
         // canvas/layer routes return {'error': ...} bodies on a stale id, and
         // callers reach here without checking r.ok - adopting one as
         // this.project let the very next saveState record an empty project.
         if (!data || !Array.isArray(data.layers)) return;
+        this._logCanvasSizesTaken(this.project, data, 'server_answer');
         // Preserve client-side properties that may be on existing layers
         // before we overwrite the project reference.
         const savedClientProps = {};

@@ -890,19 +890,13 @@ export class LEDRasterApp {
                 });
             }
             
-            // On reconnect, preserve the current raster size (it may have been
-            // set by preferences or user action). Only apply the server's raster
-            // on cold start when no preference override will follow.
-            // Capture BOTH the Pixel Map raster and the Show Look raster
-            // explicitly (not the view-dependent getter) so a stale connect-time
-            // echo can't revert the Show Look raster while leaving Pixel Map's
-            // intact, the asymmetry that left Show Look at 1080p.
-            const preserveRaster = this._initialLoadComplete;
-            const prevRasterW = preserveRaster ? window.canvasRenderer.pixelRasterWidth : null;
-            const prevRasterH = preserveRaster ? window.canvasRenderer.pixelRasterHeight : null;
-            const prevShowW = preserveRaster ? window.canvasRenderer.showRasterWidth : null;
-            const prevShowH = preserveRaster ? window.canvasRenderer.showRasterHeight : null;
-
+            // A reconnect takes the server's canvas sizes as they are: the
+            // server's word is the truth after a disconnect (2026-11-10).
+            // The page used to keep the size it had (a guard from when the
+            // launch's Canvas Size never reached the server), and wrote it
+            // onto whichever canvas the server's copy had active. A size
+            // that changes here says so in the log.
+            const beforeReconnect = this._initialLoadComplete ? this.project : null;
             this.project = data;
             this.dedupeProjectLayers('socket_project_data');
             // The keys the server's copy of each screen holds, before the
@@ -913,24 +907,8 @@ export class LEDRasterApp {
                 this.saveRasterSize();
             }
 
-            // On reconnect, restore the raster size we had before the server
-            // overwrote it with its default, both the Pixel Map raster and the
-            // Show Look raster, so neither reverts.
-            if (preserveRaster && prevRasterW && prevRasterH) {
-                this.project.raster_width = prevRasterW;
-                this.project.raster_height = prevRasterH;
-                window.canvasRenderer.pixelRasterWidth = prevRasterW;
-                window.canvasRenderer.pixelRasterHeight = prevRasterH;
-                if (prevShowW && prevShowH) {
-                    this.project.show_raster_width = prevShowW;
-                    this.project.show_raster_height = prevShowH;
-                    window.canvasRenderer.showRasterWidth = prevShowW;
-                    window.canvasRenderer.showRasterHeight = prevShowH;
-                }
-                const rw = document.getElementById('toolbar-raster-width');
-                const rh = document.getElementById('toolbar-raster-height');
-                if (rw) rw.value = window.canvasRenderer.rasterWidth;
-                if (rh) rh.value = window.canvasRenderer.rasterHeight;
+            if (beforeReconnect && typeof this._logCanvasSizesTaken === 'function') {
+                this._logCanvasSizesTaken(beforeReconnect, this.project, 'reconnect');
             }
 
             // Restore client-side properties and layer defaults.
@@ -1272,6 +1250,11 @@ export class LEDRasterApp {
 
     _takeReplacedProject(project, mark, { before, active, typed, sameShow }) {
         const reason = mark.reason || 'restore';
+        // the same show's canvases taking another size (an undo, another
+        // page's edit) say so in the log (app-canvas-ui _logCanvasSizesTaken)
+        if (sameShow && typeof this._logCanvasSizesTaken === 'function') {
+            this._logCanvasSizesTaken(before, project, `project_replaced_${reason}`);
+        }
         this.project = project;
         this.dedupeProjectLayers('socket_project_replaced');
         this.project.layers.forEach(layer => {
@@ -1832,6 +1815,12 @@ export class LEDRasterApp {
                 return res.json();
             })
             .then(data => {
+                // Only this load's own pass may owe the startup sync: one a
+                // socket copy left owing before the load answered was for a
+                // pristine show that may be gone (another page opened a file),
+                // and sent now it would put the Preferences' Canvas Size,
+                // cable unit and stock on the show this load brings.
+                this._owedStartupSync = null;
                 this.project = data;
                 // The page joins the show as the server holds it: what the
                 // load works out (defaults, the opening screen and its
@@ -1855,6 +1844,11 @@ export class LEDRasterApp {
                     // (the first on the active canvas, so a reload stays on it)
                     return this._selectOpeningScreen();
                 });
+                // The pristine startup show's Preferences (Canvas Size, cable
+                // unit, cable stock), held back by the follow pass above,
+                // go to the server now, where its copy differs
+                // (app-client-props _sendOwedStartupSync).
+                if (typeof this._sendOwedStartupSync === 'function') this._sendOwedStartupSync();
                 if (opened) {
                     // Never force-apply defaults to arbitrary loaded projects.
                     // Only apply to true startup default project when criteria
