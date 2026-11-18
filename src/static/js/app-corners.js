@@ -452,7 +452,7 @@ class _Corners {
             // A curved group's row folds from the Build from point along
             // the whole row (app-curve.js _curveRowAnchor).
             const row = curved && typeof this._curveRow === 'function' ? this._curveRow(primary) : null;
-            const multi = !!row && row.layers.length > 1;
+            const multi = !!row && this._curveMulti(row);
             const words = multi
                 ? `${cornerAnchorWords(s3dCornerAnchor({ riggingCurve: this.riggingCurveFor(primary) }, row.width), row.width)} of the group`
                 : cornerAnchorWords(s3dCornerAnchor(primary, cols), cols);

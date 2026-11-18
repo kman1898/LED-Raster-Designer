@@ -603,6 +603,14 @@ FIXES
 - FIX: Grouping screens straight after a change to one of them keeps every
   screen in the group. The change's save could land after the grouping
   and leave that screen out.
+- FIX: A group stacked in rows, one screen above another or a grid, curves
+  as one wall: every screen takes the angles of the columns it hangs
+  under, and the bars run along the top row only (the bottom row for a
+  footer). Build from works across the whole group too: Left, Center,
+  Right or the red dot dragged anywhere along the wall stays where it
+  stood in 3D and in Export OBJ, and the rest of the wall bends away from
+  it. A screen whose seams don't line up with the row the bars run along,
+  or that reaches past its ends, is named and the Curve says why.
 - FIX: 1:1 (Zoom to Selection) on a grouped screen frames the whole group,
   also when its screens sit on different canvases. A screen picked on its
   own in the Screens list is still framed alone, and several screens

@@ -6776,7 +6776,7 @@
         groupCurve: {
             since: '1.7.0',
             target: '#rigging-curve', place: 'right', title: 'Curve a group',
-            body: 'A group whose screens stand edge to edge curves as one wall. Tick Curve on any of its screens: one curve runs across them all, and the seams between screens bend like any other joint.',
+            body: 'A group whose screens stand together, side by side or stacked, curves as one wall. Tick Curve on any of its screens: one curve runs across them all, the seams bend like any joint, and Build from spans the wall.',
             before: function () { closePrefs(); hideMenus(); closePopover(); switchView('rigging'); },
             act: function (t) {
                 var a = A(), w = wall();

@@ -42,8 +42,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from conftest import settled  # noqa: E402
 from test_curve_obj import (  # noqa: E402
-    act, face_corners_xz, group_two, history_len, idle, layer, obj_files, open_rigging, read_obj, reset,
-    singles_only, toast_says,
+    act, face_corners_xz, group_two, history_len, idle, layer, obj_files, open_rigging, plan_spot, read_obj, reset,
+    served, singles_only, toast_says,
 )
 
 
@@ -463,18 +463,276 @@ def test_ungrouping_keeps_each_screen_as_it_stands(page):
     assert page.errors == []
 
 
-def test_a_stacked_group_takes_the_setting_on_each_screen(page):
+def test_a_two_row_stack_curves_as_one_wall(page):
+    """TOP is 8 panels wide; LOW, 4 wide, hangs under TOP's panels 3 to 6.
+    One curve across the wall: LOW takes the angles of the columns it
+    hangs under, carries no header bars, and stands under them in 3D."""
     ids = reset(page, [{'name': 'TOP', 'columns': 8, 'rows': 2, 'offset_x': 0, 'offset_y': 0},
-                       {'name': 'LOW', 'columns': 8, 'rows': 2, 'offset_x': 0, 'offset_y': 256}])
+                       {'name': 'LOW', 'columns': 4, 'rows': 2, 'offset_x': 256, 'offset_y': 256}])
+    group(page, ids)
+    open_rigging(page)
+    # ticked from the lower screen: it is the wall's Curve all the same
+    select(page, [ids[1]])
+    singles_only(page)
+    page.evaluate("window.app.setRiggingCurveField('value', 10)")
+    n = history_len(page)
+    act(page, lambda: page.check('#rigging-curve-on'))
+    top, low = layer(page, ids[0]), layer(page, ids[1])
+    assert top['riggingCurve']['on'] and low['riggingCurve']['on']
+    assert top['riggingCurve'] == low['riggingCurve']
+    assert history_len(page) == n + 1
+    want = solve(page, ids[0])
+    assert want['errors'] == [] and len(want['joints']) == 7 and any(want['joints']), want
+    assert solve(page, ids[1]) == want
+    # identical column angles: LOW's are the wall's over its columns
+    assert own_joints(top) == want['joints']
+    assert own_joints(low) == want['joints'][2:5]
+    # the bars run along the top row only
+    assert sum(top.get('riggingBars') or []) == 8
+    assert not (low.get('riggingBars') or [])
+    # 3D: LOW stands under TOP's columns 3 to 6, bent at the same seams
+    top_edge, low_edge = wall_edges(page, ids)
+    assert len(top_edge) == 9 and len(low_edge) == 5
+    for a, b in zip(low_edge, top_edge[2:7]):
+        assert math.dist(a, b) < 0.01, (a, b)
+    for a, b in zip(turns(low_edge), turns(top_edge)[2:5]):
+        assert abs(a - b) < 1e-3, (a, b)
+    assert 'Group 1\'s 2 screens' in page.inner_text('#rigging-curve-note')
+    assert 'not this curve' not in page.inner_text('#rigging-curve-note')
+    assert page.errors == []
+
+
+def grid():
+    """A 2 by 2 grid of 4 panel screens: TL, TR over BL, BR."""
+    return [{'name': n, 'columns': 4, 'rows': 2, 'offset_x': x, 'offset_y': y}
+            for n, x, y in (('TL', 0, 0), ('TR', 512, 0), ('BL', 0, 256), ('BR', 512, 256))]
+
+
+def test_a_grid_group_curves_as_one_wall(page):
+    ids = reset(page, grid())
+    group(page, ids)
+    open_rigging(page)
+    select(page, [ids[3]])
+    singles_only(page)
+    page.evaluate("window.app.setRiggingCurveField('value', 10)")
+    act(page, lambda: page.check('#rigging-curve-on'))
+    lays = [layer(page, i) for i in ids]
+    assert all(l['riggingCurve']['on'] for l in lays)
+    assert len({str(sorted(l['riggingCurve'].items())) for l in lays}) == 1
+    want = solve(page, ids[0])
+    assert want['errors'] == [] and len(want['joints']) == 7 and any(want['joints']), want
+    assert all(solve(page, i) == want for i in ids[1:])
+    # both rows: the same joints at the same seams
+    tl, tr, bl, br = lays
+    assert own_joints(tl) == own_joints(bl) == want['joints'][0:3]
+    assert own_joints(tr) == own_joints(br) == want['joints'][4:7]
+    # the bars run along the top row only
+    assert sum(sum(l.get('riggingBars') or []) for l in (tl, tr)) == 8
+    assert not (bl.get('riggingBars') or []) and not (br.get('riggingBars') or [])
+    # 3D: two rows, each one joined edge bent as the calculator says, the
+    # lower one right under the upper
+    upper = joined(wall_edges(page, ids[:2]))
+    lower = joined(wall_edges(page, ids[2:]))
+    for a, b in zip(upper, lower):
+        assert math.dist(a, b) < 0.01, (a, b)
+    for j, (a, b) in enumerate(zip(turns(lower), want['joints'])):
+        assert abs(a - b) < 1e-3, (j, a, b)
+    # Export OBJ: the lower row's faces bend at the same seams
+    files = obj_files(page)
+    name = [f for f in files if f.endswith('.obj')]
+    assert name == ['Test_Show_Group_1.obj'], sorted(files)
+    obj = read_obj(files[name[0]])
+    assert [o['name'] for o in obj['objects']] == ['TL', 'TR', 'BL', 'BR']
+    pts = []
+    for o in (2, 3):
+        edge = face_corners_xz(dict(obj, objects=[obj['objects'][o]]))
+        if pts:
+            assert math.dist(pts[-1], edge[0]) < 1e-5, (o, pts[-1], edge[0])
+            edge = edge[1:]
+        pts.extend(edge)
+    assert len(pts) == 9
+    for j, (a, b) in enumerate(zip(turns(pts), want['joints'])):
+        assert abs(a - b) < 1e-3, (j, a, b)
+    assert 'Group 1\'s 4 screens' in page.inner_text('#rigging-curve-note')
+    # the 3D panel reads the wall's joints from a lower screen too
+    text = page.evaluate(f"""() => {{ const app = window.app; const l = app.project.layers.find(x => x.id === {ids[2]});
+        return app._s3dCurveText(l, app._s3dPlacementOf(l)); }}""")
+    assert text.endswith('It runs across Group 1.'), text
+    # Curve off lays every row flat again, one under the other
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    upper = joined(wall_edges(page, ids[:2]))
+    lower = joined(wall_edges(page, ids[2:]))
+    assert all(abs(t) < 1e-6 for t in turns(upper) + turns(lower))
+    for a, b in zip(upper, lower):
+        assert math.dist(a, b) < 0.01, (a, b)
+    assert page.errors == []
+
+
+def test_a_stack_whose_seams_do_not_line_up_is_refused(page):
+    ids = reset(page, [{'name': 'TOP', 'columns': 8, 'rows': 2, 'offset_x': 0, 'offset_y': 0},
+                       {'name': 'LOW', 'columns': 8, 'rows': 2, 'offset_x': 64, 'offset_y': 256}])
+    group(page, ids)
+    open_rigging(page)
+    select(page, [ids[0]])
+    n = history_len(page)
+    page.click('#rigging-curve-on')
+    said = toast_says(page, 'cannot take a Curve')
+    assert 'TOP and LOW cannot take a Curve' in said, said
+    assert 'the panel seams of LOW do not line up with the top row' in said, said
+    assert not any((layer(page, i).get('riggingCurve') or {}).get('on') for i in ids)
+    assert history_len(page) == n
+    # the tab says so too
+    assert 'panel seams of LOW do not line up' in page.inner_text('#rigging-curve-note')
+    assert page.errors == []
+
+
+def test_a_stack_reaching_past_its_top_row_is_refused(page):
+    ids = reset(page, [{'name': 'TOP', 'columns': 4, 'rows': 2, 'offset_x': 256, 'offset_y': 0},
+                       {'name': 'WIDE', 'columns': 8, 'rows': 2, 'offset_x': 0, 'offset_y': 256}])
+    group(page, ids)
+    open_rigging(page)
+    select(page, [ids[1]])
+    n = history_len(page)
+    page.click('#rigging-curve-on')
+    said = toast_says(page, 'cannot take a Curve')
+    assert 'WIDE reaches past the ends of the top row' in said, said
+    assert not any((layer(page, i).get('riggingCurve') or {}).get('on') for i in ids)
+    assert history_len(page) == n
+    assert page.errors == []
+
+
+# ── where the group builds from ──────────────────────────────────────────
+
+def point_at(pts, at):
+    """The point of a plan polyline (one point per seam, 0 the left end)
+    at a build-from spot in half panels: a joint, or a panel's middle."""
+    if at != int(at):
+        return pts[int(at - 0.5)]
+    a, b = pts[int(at) - 1], pts[int(at)]
+    return ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+
+
+@pytest.mark.parametrize('pick,at', [('left', 0.5), ('right', 12.5), ('center', 6.5), (4.5, 4.5), (6, 6)])
+def test_the_group_builds_from_the_point_picked(page, pick, at):
+    """Left, Center, Right or a point on the plan: that point of the whole
+    wall keeps its place in 3D and the rest bends away from it."""
+    ids = reset(page, three())
+    group(page, ids)
+    open_rigging(page)
+    select(page, [ids[1]])
+    singles_only(page)
+    if isinstance(pick, str):
+        page.click(f'#rigging-curve-from [data-value="{pick}"]')
+    else:
+        page.evaluate(f"window.app.setRiggingCurveField('from', {pick})")
+    idle(page)
+    assert all(layer(page, i)['riggingCurve']['from'] == pick for i in ids)
+    flat = joined(wall_edges(page, ids))
+    act(page, lambda: page.check('#rigging-curve-on'))
+    curved = joined(wall_edges(page, ids))
+    assert math.dist(point_at(curved, at), point_at(flat, at)) < 0.01, (pick, point_at(curved, at), point_at(flat, at))
+    # the rest of the wall bends away from it
+    far = curved[0] if at > 6.5 else curved[-1]
+    near = flat[0] if at > 6.5 else flat[-1]
+    assert math.dist(far, near) > 10, (pick, far, near)
+    # the strip and the plan mark the same point
+    assert page.get_attribute('#rigging-curve-sheet path[data-datum]', 'data-datum') == (str(int(at)) if at == int(at) else str(at))
+    assert page.errors == []
+
+
+def test_a_dragged_build_from_point_stays_put_in_3d(page):
+    ids = reset(page, three())
     group(page, ids)
     open_rigging(page)
     select(page, [ids[0]])
     singles_only(page)
     act(page, lambda: page.check('#rigging-curve-on'))
-    top, low = layer(page, ids[0]), layer(page, ids[1])
-    assert top['riggingCurve']['on'] and low['riggingCurve']['on']
-    assert own_joints(top) == solve(page, ids[0])['joints'] == own_joints(low)
+    before = joined(wall_edges(page, ids))
+    # drag the red dot from the middle of the wall to the joint between
+    # panels 2 and 3, on the first screen
+    a, b = plan_spot(page, 6.5), plan_spot(page, 2.5)
+    page.mouse.move(a['x'], a['y'])
+    page.mouse.down()
+    page.mouse.move(b['x'], b['y'], steps=4)
+    act(page, lambda: page.mouse.up())
+    assert all(layer(page, i)['riggingCurve']['from'] == 2.5 for i in ids)
+    assert 'between panels 2 and 3' in page.inner_text('#rigging-curve-from-label')
+    after = joined(wall_edges(page, ids))
+    assert math.dist(after[2], before[2]) < 0.01, (after[2], before[2])
+    want = solve(page, ids[0])
+    for j, (x, y) in enumerate(zip(turns(after), want['joints'])):
+        assert abs(x - y) < 1e-3, (j, x, y)
     assert page.errors == []
+
+
+def test_a_grid_builds_from_its_right_end(page):
+    ids = reset(page, grid())
+    group(page, ids)
+    open_rigging(page)
+    select(page, [ids[0]])
+    singles_only(page)
+    page.evaluate("window.app.setRiggingCurveField('value', 10)")
+    page.click('#rigging-curve-from [data-value="right"]')
+    idle(page)
+    flat_up, flat_low = joined(wall_edges(page, ids[:2])), joined(wall_edges(page, ids[2:]))
+    act(page, lambda: page.check('#rigging-curve-on'))
+    up, low = joined(wall_edges(page, ids[:2])), joined(wall_edges(page, ids[2:]))
+    # the right end of both rows stands where it stood; the left end moved
+    assert math.dist(up[-1], flat_up[-1]) < 0.01 and math.dist(low[-1], flat_low[-1]) < 0.01
+    assert math.dist(up[0], flat_up[0]) > 10
+    assert page.errors == []
+
+
+def test_an_old_show_with_a_stacked_curve_opens_as_it_was(page):
+    """A show saved before a stack curved as one wall: each screen curved
+    on its own, bars on both. It opens and stands exactly as it was until
+    it is edited; Auto then lays the one wall."""
+    ids = reset(page, [{'name': 'TOP', 'columns': 8, 'rows': 2, 'offset_x': 0, 'offset_y': 0},
+                       {'name': 'LOW', 'columns': 6, 'rows': 2, 'offset_x': 0, 'offset_y': 256}])
+    open_rigging(page)
+    for i in ids:
+        select(page, [i])
+        singles_only(page)
+        page.evaluate("window.app.setRiggingCurveField('value', 10)")
+        act(page, lambda: page.check('#rigging-curve-on'))
+    group(page, ids)
+    mine = [layer(page, i) for i in ids]
+    assert all(m.get('riggingBars') for m in mine)
+    for m in mine:
+        assert settled(page, lambda: served(page, m['id']),
+                       lambda s: s.get('riggingCurve') == m['riggingCurve'] and s.get('stage3d') == m['stage3d']
+                       and s.get('riggingBars') == m['riggingBars'] and s.get('group_id') == m['group_id'])
+    corners = page.evaluate(CORNERS_JS, ids)
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_timeout(2000)
+    page.evaluate("(id) => { window.app.selectLayer(window.app.project.layers.find(l => l.id === id)); window.app.updateUI(); }", ids[0])
+    open_rigging(page)
+    select(page, [ids[1]])
+    page.wait_for_timeout(500)
+    for m in mine:
+        now = layer(page, m['id'])
+        for k in ('riggingCurve', 'riggingBars', 'stage3d', 'group_id'):
+            assert now.get(k) == m.get(k), (m['name'], k, now.get(k), m.get(k))
+    assert page.evaluate(CORNERS_JS, ids) == corners
+    assert 'not this curve' in page.inner_text('#rigging-curve-note')
+    # edited: Auto lays the one wall
+    act(page, lambda: page.click('#rigging-auto-btn'))
+    want = solve(page, ids[0])
+    assert own_joints(layer(page, ids[0])) == want['joints']
+    assert own_joints(layer(page, ids[1])) == want['joints'][:5]
+    assert not (layer(page, ids[1]).get('riggingBars') or [])
+    assert 'not this curve' not in page.inner_text('#rigging-curve-note')
+    assert page.errors == []
+
+
+CORNERS_JS = """async (ids) => {
+    const m = await import('/static/js/app-stage3d.js');
+    const app = window.app;
+    return ids.map(id => {
+        const l = app.project.layers.find(x => x.id === id);
+        return m.s3dWorldCorners(l, app._s3dPlacementOf(l)).map(q => q.corners.map(c => c.map(v => Math.round(v * 1000) / 1000)));
+    });
+}"""
 
 
 def test_members_of_different_heights_curve_as_one(page):
