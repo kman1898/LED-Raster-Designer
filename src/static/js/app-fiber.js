@@ -299,12 +299,16 @@ class _Fiber {
     }
 
     // The cable as a picker lists it: "TAC A · 12 · 1000' · ST", "MTP A ·
-    // 12 · 300'", "QUAD 1 · 50'" - and its mode where its boxes state one,
+    // 24 Type A · 300'" (an MTP's polarity with its count, owner
+    // 2026-11-18), "QUAD 1 · 50'" - and its mode where its boxes state one,
     // "TAC A · 12 · 1000' · ST · Single mode".
     fiberCableOptionText(cable) {
         if (!cable) return '';
         const parts = [cable.name || this.fiberKindWord(cable.kind)];
-        if (this.fiberCableIsStranded(cable)) parts.push(String(cable.strands));
+        if (this.fiberCableIsStranded(cable)) {
+            parts.push(String(cable.strands)
+                + (cable.kind === 'mtp' ? ` ${this.fiberMtpPolarityWord(cable)}` : ''));
+        }
         const ft = this.parseCableLength(cable.ft);
         if (ft !== null) parts.push(this.pullLengthText(ft, this.fiberStockKind(cable)));
         if (cable.kind === 'tac' && String(cable.connector || '').trim()) {
@@ -318,11 +322,14 @@ class _Fiber {
     // A cable's kind as the binder's short band brackets it after the
     // cable's name: "TAC 24", "opticalCON QUAD" - and its mode in short
     // where its boxes state one (owner, 2026-11-04: "(TAC 24 SM)" /
-    // "(TAC 24 MM)"), joined with a space as the band joins its words.
+    // "(TAC 24 MM)"), joined with a space as the band joins its words; an
+    // MTP's polarity by its letter alone after its count, so the band stays
+    // small (owner, 2026-11-18): "(MTP 24 A SM)".
     fiberCableShortKind(cable) {
         if (!cable) return '';
         const kind = this.fiberCableIsStranded(cable)
             ? `${this.fiberKindWord(cable.kind)} ${cable.strands}`
+              + (cable.kind === 'mtp' ? ` ${this.fiberMtpPolarity(cable)}` : '')
             : this.fiberKindWord(cable.kind);
         const mode = this.fiberCableMode(cable);
         return mode ? `${kind} ${FIBER_MODE_SHORT[mode]}` : kind;
