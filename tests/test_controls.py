@@ -309,7 +309,13 @@ def mod_word(pg):
 
 
 @pytest.fixture(autouse=True)
-def _shipped_controls(page):
+def _shipped_controls(request):
+    """Each browser test starts on the shipped keys with no dialog up; the
+    plain-function tests above need no page."""
+    if 'page' not in request.fixturenames:
+        yield
+        return
+    page = request.getfixturevalue('page')
     page.evaluate("""() => {
         document.querySelectorAll('.app-ask-modal').forEach(m => m.remove());
         const p = document.getElementById('preferences-modal');
