@@ -868,8 +868,9 @@ class _Stage3D {
             st.controls.screenSpacePanning = true;
             // The mouse, the wheel and the trackpad are the view's own
             // (app-stage3d-nav.js): standard 3D navigation with the middle
-            // button, and a left press that never moves the camera. The
-            // orbit controls keep touch: one finger orbits, two pinch and pan.
+            // button, a left drag on empty space orbits too, and a left
+            // click never moves the camera. The orbit controls keep touch:
+            // one finger orbits, two pinch and pan.
             st.controls.mouseButtons = { LEFT: -1, MIDDLE: -1, RIGHT: -1 };
             st.controls.addEventListener('change', () => this._s3dRequestRender());
             st.controls.addEventListener('end', () => this._s3dSaveCameraSoon());

@@ -123,9 +123,10 @@ other edit.
   the wheel zooms toward the cursor. On a trackpad, drag with two fingers
   to orbit, add Shift to pan, and pinch to zoom. With no middle button,
   Alt+drag orbits and Alt+Shift+drag pans.
-- NEW: A left click only selects: Shift or Ctrl adds a screen, a click on
-  empty space lets go, and a drag across empty space selects every screen
-  it touches. The camera never moves on a left click.
+- NEW: A left click only selects: Shift or Ctrl adds a screen, and a
+  click on empty space lets go. A drag across empty space orbits around
+  the middle of the view; hold Shift or Ctrl (Cmd on a Mac) and it
+  selects every screen it touches instead.
 - NEW: F frames the selected screens, a double-click focuses on one, keys
   1 to 6 pick the views and Home goes back to the starting view. The
   camera glides there.
@@ -794,6 +795,11 @@ FIXES
   the new name on the canvas straight away. It used to keep the old name
   there until you clicked somewhere else. Canvas, group and beach names
   also save the moment you press Enter.
+- FIX: Click and drag on empty space in the 3D view turns the camera
+  again, with a mouse or a trackpad. It had been drawing a selection box
+  instead, so a trackpad could only turn the view with two fingers or
+  Option+drag. Shift+drag or Ctrl+drag (Cmd+drag on a Mac) across empty
+  space now draws the box.
 
 v1.6.0 - November 6, 2026
 ----------------------------

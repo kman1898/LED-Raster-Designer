@@ -2683,7 +2683,7 @@
                         <!-- How to get around, one line in the view's corner: it never
                              takes a line of the camera bar, and a narrow view cuts it
                              short (the tooltip and Keyboard Shortcuts hold the rest). -->
-                        <span id="s3d-hint" class="s3d-bar-hint" data-tooltip="Getting around, Middle-drag orbits around the point under the cursor; Shift+middle-drag or right-drag pans; the wheel zooms toward the cursor. On a trackpad, drag with two fingers to orbit, add Shift to pan, and pinch to zoom. With no middle button, Alt+drag orbits and Alt+Shift+drag pans. Click a screen to select it, Shift+click or Ctrl+click (Cmd+click on a Mac) to add one, or drag across empty space to box-select. Right-click, or Control+click on a Mac, opens the screen menu. The arrow keys nudge the selection, Page Up and Page Down raise and lower it, and Shift makes the step bigger. Help > Keyboard Shortcuts lists every gesture.">Middle-drag orbits, Shift+middle-drag pans, wheel zooms. Trackpad: two fingers orbit, pinch zooms.</span>
+                        <span id="s3d-hint" class="s3d-bar-hint" data-tooltip="Getting around, Middle-drag orbits around the point under the cursor, and a drag across empty space orbits around the middle of the view; Shift+middle-drag or right-drag pans; the wheel zooms toward the cursor. On a trackpad, drag with two fingers to orbit, add Shift to pan, and pinch to zoom. With no middle button, Alt+drag orbits and Alt+Shift+drag pans. Click a screen to select it, Shift+click or Ctrl+click (Cmd+click on a Mac) to add one, or Shift+drag across empty space to box-select. Right-click, or Control+click on a Mac, opens the screen menu. The arrow keys nudge the selection, Page Up and Page Down raise and lower it, and Shift makes the step bigger. Help > Keyboard Shortcuts lists every gesture.">Middle-drag orbits, Shift+middle-drag pans, wheel zooms. Trackpad: two fingers orbit, pinch zooms.</span>
                     </div>
                     <!-- The corner picker a click on a seam or a panel's middle of the
                          selected screen opens beside the cursor (app-stage3d-panel.js):
@@ -3916,13 +3916,14 @@
                 <h3>3D</h3>
                 <table class="sc-table">
                     <tr><td class="sc-key">Middle-drag</td><td>Orbit around the point under the cursor</td></tr>
+                    <tr><td class="sc-key">Drag across empty space</td><td>Orbit around the middle of the view</td></tr>
                     <tr><td class="sc-key">Shift+middle-drag / right-drag</td><td>Pan the view</td></tr>
                     <tr><td class="sc-key">Scroll wheel</td><td>Zoom toward the cursor</td></tr>
                     <tr><td class="sc-key">Alt+drag / Alt+Shift+drag</td><td>Orbit / pan with a mouse that has no middle button</td></tr>
                     <tr><td class="sc-key">Two-finger drag / Shift+two-finger drag / pinch</td><td>Orbit / pan / zoom on a trackpad</td></tr>
                     <tr><td class="sc-key">Click a screen</td><td>Select it; Shift+click or <span data-sc-mod>Ctrl</span>+click adds it or takes it out</td></tr>
                     <tr><td class="sc-key">Right-click (Control+click on a Mac)</td><td>Open the screen menu</td></tr>
-                    <tr><td class="sc-key">Drag across empty space</td><td>Box-select the screens it touches; hold Shift or <span data-sc-mod>Ctrl</span> to add them</td></tr>
+                    <tr><td class="sc-key">Shift+drag or <span data-sc-mod>Ctrl</span>+drag across empty space</td><td>Box-select the screens it touches, adding them to the selection</td></tr>
                     <tr><td class="sc-key">Drag a selected screen</td><td>Move it across the floor; Shift+drag raises or lowers it</td></tr>
                     <tr><td class="sc-key">Double-click a screen</td><td>Focus the camera on it</td></tr>
                     <tr><td class="sc-key">F / Home</td><td>Frame the selected screens (every screen with none) / go back to the starting view</td></tr>

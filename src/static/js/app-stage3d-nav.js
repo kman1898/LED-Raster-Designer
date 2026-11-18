@@ -13,10 +13,14 @@
 //   trackpad             two-finger drag orbits, Shift pans, pinch zooms
 //                        toward the pointer
 //   left                 select (Shift or Ctrl / Cmd adds), drag on empty
-//                        space or an unselected screen to box-select, drag
-//                        a selected screen to move it (Shift: up and down),
-//                        double-click a screen to focus on it. A left press
-//                        never moves the camera.
+//                        space to orbit round the view's centre (the
+//                        owner, 2026-11-18: click and drag turns the
+//                        camera, the one orbit a trackpad's click has),
+//                        Shift or Ctrl / Cmd + drag on empty space or a
+//                        drag from an unselected screen to box-select,
+//                        drag a selected screen to move it (Shift: up and
+//                        down), double-click a screen to focus on it. A
+//                        left click never moves the camera.
 //   keys                 F frames the selection (every screen with none),
 //                        Home goes back to the starting view, 1 to 6 are
 //                        the view buttons, W and E pick the move or turn
@@ -146,9 +150,11 @@ class _Stage3DNav {
         } else if (hit && this._s3dSelectedIds().has(hit.layerId) && !n.mod) {
             this._s3dArmBodyMove(hit, ev.shiftKey);
         } else if (!touch) {
-            // A left press never moves the camera: a drag from here draws a
-            // selection box.
+            // A drag from empty space orbits once it travels; with Shift or
+            // Ctrl / Cmd held, or from an unselected screen, it draws a
+            // selection box. A click, either way, selects or lets go.
             st.controls.enabled = false;
+            n.orbit = !hit && !n.shift && !n.mod;
         }
         // Touch on empty space or an unselected screen is the orbit
         // controls' own (one finger orbits), as before.
@@ -219,6 +225,9 @@ class _Stage3DNav {
                 n.kind = 'move';
             } else if (n.touch) {
                 n.kind = 'touch';
+            } else if (n.orbit) {
+                this._s3dPressToOrbit(n, ev);
+                return;
             } else {
                 n.kind = 'box';
             }
@@ -226,6 +235,20 @@ class _Stage3DNav {
         if (n.kind === 'handle') this._s3dHandleMove(n, ev);
         else if (n.kind === 'move') this._s3dBodyMove(ev);
         else if (n.kind === 'box') this._s3dBoxMove(n, ev);
+    }
+
+    // A left press on empty space that travels turns into an orbit round
+    // the view's centre, as a middle drag from empty space does, and takes
+    // the travel so far along. Its release logs and saves the camera like
+    // any orbit (_s3dPointerUp).
+    _s3dPressToOrbit(n, ev) {
+        const st = this._s3dState();
+        n.kind = 'orbit';
+        n.button = 0;
+        n.pivot = st.controls.target.clone();
+        this._s3dPivotMark(n.pivot);
+        this._s3dViewClass('s3d-orbiting', true);
+        this._s3dOrbitBy(ev.clientX - n.x, ev.clientY - n.y, n.pivot);
     }
 
     _s3dBodyMove(ev) {

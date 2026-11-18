@@ -14,7 +14,10 @@ What this file pins, each with real mouse, wheel and key events:
   it. Ctrl+wheel and a trackpad pinch (a wheel event with ctrlKey) zoom the
   same way; a trackpad's two-finger drag orbits and Shift pans.
 * A left click selects and never moves the camera; Shift+click adds; a
-  click on empty space lets go; a left drag on empty space box-selects.
+  click on empty space lets go. A left drag on empty space orbits round the
+  view's centre (2026-11-18); with Shift or Ctrl / Cmd it box-selects. A
+  left drag from an unselected screen box-selects, from a selected one it
+  moves the screen.
 * F frames the selection, double-click focuses a screen, 1 to 6 and the
   view buttons glide to a view, Home goes back to the starting view; none of
   the keys fire while a field is being typed in.
@@ -326,7 +329,75 @@ def test_a_left_click_selects_and_never_moves_the_camera(page):
     assert camera(page) == cam, 'a left click moved the camera'
 
 
-def test_a_left_drag_on_empty_space_box_selects(page):
+def test_a_left_drag_on_empty_space_orbits_the_camera(page):
+    """Matt, 2026-11-18 ("click to rotate camera is broken"): a plain left
+    press and drag on empty stage orbits, round the view's centre, the way a
+    trackpad click-drag did before 1.7. It is view state: no undo step, no
+    screen moves, the selection stays as it was, and no box is drawn."""
+    ids = fresh(page)
+    view(page, 'iso')
+    page.evaluate(f"window.app.setSelectedLayersByIds([{ids[1]}], {ids[1]})")
+    page.wait_for_timeout(300)
+    rect = page.evaluate("document.getElementById('s3d-canvas').getBoundingClientRect().toJSON()")
+    corner = (rect['left'] + 30, rect['top'] + 30)
+    assert probe(page, *corner) is None
+    before = camera(page)
+    steps = history_len(page)
+    drag(page, corner, (corner[0] + 120, corner[1] + 40))
+    after = camera(page)
+    a0, a1 = angle_of(before), angle_of(after)
+    assert abs(a1[0] - a0[0]) > 10, (before, after)
+    assert abs(a1[1] - a0[1]) > 2, (before, after)
+    assert after['target'] == pytest.approx(before['target'], abs=0.5), 'the orbit did not turn round the view centre'
+    assert history_len(page) == steps, 'the camera is view state'
+    assert stored(page, ids[0]) is None and stored(page, ids[1]) is None
+    assert selected(page) == [ids[1]], 'an orbit changed the selection'
+    assert page.evaluate("(() => { const b = document.getElementById('s3d-box'); return !b || b.hidden; })()")
+    assert page.evaluate("(() => { const p = document.getElementById('s3d-pivot'); return !p || p.hidden; })()")
+    saved = settled(page, lambda: page.evaluate(
+        "async () => (await (await fetch('/api/project')).json()).stage3dCamera"),
+        lambda v: v and v['position'] == after['position'])
+    assert saved['position'] == after['position']
+    # a click on empty space still lets go of the selection, and moves nothing
+    page.mouse.click(*corner)
+    page.wait_for_timeout(300)
+    assert selected(page) == []
+    assert camera(page) == after
+    assert page.errors == []
+
+
+def test_a_left_drag_on_a_screen_keeps_its_own_gestures(page):
+    """A left drag that starts on a screen is the screen's, as ruled on
+    2026-11-08: on an unselected screen it draws the selection box, on a
+    selected one it moves the screen. Neither turns the camera."""
+    ids = fresh(page)
+    view(page, 'front')
+    cam = camera(page)
+    lower = screen(page, ids[1])['at']
+    upper = screen(page, ids[0])['at']
+    # from the unselected lower screen up across the upper one: a box
+    drag(page, lower, (upper[0] + 5, upper[1] - 5))
+    assert selected(page) == sorted(ids)
+    assert camera(page) == cam, 'a drag from a screen turned the camera'
+    assert stored(page, ids[0]) is None and stored(page, ids[1]) is None
+    # a selected screen moves, in one undo step
+    page.mouse.click(*lower)
+    page.wait_for_timeout(300)
+    assert selected(page) == [ids[1]]
+    steps = history_len(page)
+    w = screen(page, ids[1])['world']
+    grab = where(page, [w['min'][0] + (w['max'][0] - w['min'][0]) / 4,
+                        (w['min'][1] + w['max'][1]) / 2, w['max'][2]])
+    drag(page, grab, (grab[0] + 60, grab[1]))
+    assert stored(page, ids[1]) is not None and history_len(page) == steps + 1
+    assert camera(page) == cam, 'moving a screen turned the camera'
+    undo(page)
+
+
+def test_a_modified_left_drag_on_empty_space_box_selects(page):
+    """Box select from empty stage takes Shift, or Ctrl (Cmd on a Mac), the
+    keys that add on a click: the screens the box touches join the
+    selection. A plain click on empty space first starts afresh."""
     ids = fresh(page)
     view(page, 'front')
     cam = camera(page)
@@ -334,18 +405,19 @@ def test_a_left_drag_on_empty_space_box_selects(page):
     upper = screen(page, ids[0])['at']
     rect = page.evaluate("document.getElementById('s3d-canvas').getBoundingClientRect().toJSON()")
     corner = (rect['left'] + 20, rect['top'] + 20)
-    # across both
-    drag(page, corner, (upper[0] + 5, lower[1] + 5))
+    page.mouse.click(*corner)
+    page.wait_for_timeout(300)
+    assert selected(page) == []
+    # round the lower one only, from below it
+    bottom = (lower[0] - 10, rect['bottom'] - 10)
+    drag(page, bottom, (lower[0] + 10, lower[1] + 5), keys=('Shift',))
+    assert selected(page) == [ids[1]]
+    assert camera(page) == cam, 'a box select moved the camera'
+    # Ctrl adds the upper one
+    drag(page, corner, (upper[0], upper[1]), keys=('Control',))
     assert selected(page) == sorted(ids)
     assert camera(page) == cam, 'a box select moved the camera'
     assert stored(page, ids[0]) is None and stored(page, ids[1]) is None
-    # round the lower one only, from below it
-    bottom = (lower[0] - 10, rect['bottom'] - 10)
-    drag(page, bottom, (lower[0] + 10, lower[1] + 5))
-    assert selected(page) == [ids[1]]
-    # Shift adds
-    drag(page, corner, (upper[0], upper[1]), keys=('Shift',))
-    assert selected(page) == sorted(ids)
     assert page.evaluate("document.getElementById('s3d-box').hidden")
 
 
