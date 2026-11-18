@@ -275,3 +275,35 @@ def test_the_choice_is_saved_with_the_show(page):
     assert out == {'of': 'simple', 'back': 'simple', 'old': 'full', 'bad': 'full',
                    'picked': True, 'read': 'simple', 'after': 'full'}, out
     assert errors == []
+
+
+# A wide table and a narrow one, built as the binder builds its tables, in
+# a letter sheet's band: the columns the band lays them in.
+SIDE_JS = r"""() => {
+    const app = window.app;
+    const book = { measureCtx: document.createElement('canvas').getContext('2d'),
+                   geo: app._bGeo({ w: 2200, h: 1700 }, true) };
+    const rows = (n, w) => Array.from({ length: n }, (_, i) => ({ cells: ['x'.repeat(w) + i, 'y'] }));
+    const wide = app._bTableLines(book, { title: 'Wide', cols: [{ title: 'a', w: 3 }, { title: 'b', w: 1 }],
+                                          rows: rows(10, 40), width: 1000 });
+    const narrow = app._bTableLines(book, { title: 'Narrow', cols: [{ title: 'c', w: 1 }, { title: 'd', w: 1 }],
+                                            rows: rows(4, 4), width: 700 });
+    const band = app._bSimpleBand(book, [{ lines: wide, minW: 1000 }, { lines: narrow }]);
+    return { cols: band.cols.map(c => ({ x: c.x, w: c.w, n: c.items.length, h: c.h })), h: band.h,
+             da: book.geo.da };
+}"""
+
+
+def test_a_wide_table_and_a_narrow_one_stand_side_by_side(page):
+    """The data sheet's wide PORTS and its narrow CABLES THIS SCREEN, as the
+    owner's example lays them: side by side, each in a column of its own
+    width, where the drawing area's width holds both - one under the other
+    took the drawing's room."""
+    pg, errors = page
+    out = pg.evaluate(SIDE_JS)
+    cols, da = out['cols'], out['da']
+    assert len(cols) == 2 and cols[0]['x'] == da['x'], out
+    assert cols[1]['x'] >= cols[0]['x'] + cols[0]['w'] + 30 - 0.5, out
+    assert cols[1]['x'] + cols[1]['w'] <= da['x'] + da['w'] + 0.5, out
+    assert out['h'] == max(c['h'] for c in cols), out
+    assert errors == []
