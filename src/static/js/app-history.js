@@ -66,6 +66,9 @@ class _History {
         // the caller's own step in the same task has nothing to record
         // (app-port-assignment _canvasGuardEdit).
         if (this._canvasRefusedEdit) return;
+        // A number spinner held down (or a slider dragged) is one step,
+        // taken when it is let go (_wireNumberHold).
+        if (this._numberHoldTakes(action)) return;
         // v0.10.5: a debounced snapshot still waiting to fire must land BEFORE
         // this one, or history ends up out of order (and the pending timer
         // would later snapshot a state that already includes this action).
@@ -212,6 +215,90 @@ class _History {
         if (pending) this.saveState(pending);
     }
 
+    // ONE STEP PER HELD NUMBER (owner, 2026-11-18). Holding a number
+    // field's spinner, holding an arrow key in one, or dragging a slider
+    // changes the value on every tick, and every tick's handler takes a
+    // step: thirty steps for one hold. Like a canvas drag, the whole hold
+    // is one step now, from the value it started at to the one it ended
+    // on. The canvas and the saves still follow every tick; only the
+    // history waits. A separate click is its own hold, so its own step,
+    // and a typed value committed with Enter never starts one.
+    //
+    // A hold starts on a trusted press of the field (or an arrow key in
+    // it) and takes steps only once the field itself has changed, so
+    // another field's commit on the blur the press causes keeps its own
+    // step. It ends a task after the release, so a change the browser
+    // fires with the release is still in it.
+    _wireNumberHold() {
+        if (this._numberHoldWired) return;
+        this._numberHoldWired = true;
+        const held = (el) => el && el.tagName === 'INPUT'
+            && (el.type === 'number' || el.type === 'range') && !el.disabled && !el.readOnly;
+        const KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown']);
+        const start = (field, how, key) => {
+            if (this._numberHold) return;
+            // An edit still waiting to be recorded is its own step.
+            this._flushPendingSaveState();
+            this._numberHold = { field, how, key, live: false, action: null, ticks: 0 };
+        };
+        const release = () => {
+            const h = this._numberHold;
+            if (!h || h.releasing) return;
+            h.releasing = true;
+            setTimeout(() => {
+                if (this._numberHold === h) this._endNumberHold();
+            }, 0);
+        };
+        document.addEventListener('pointerdown', (e) => {
+            if (!e.isTrusted || e.button !== 0 || !held(e.target)) return;
+            start(e.target, 'pointer');
+        }, true);
+        window.addEventListener('pointerup', (e) => {
+            if (this._numberHold && this._numberHold.how === 'pointer') release();
+        }, true);
+        window.addEventListener('pointercancel', () => {
+            if (this._numberHold && this._numberHold.how === 'pointer') release();
+        }, true);
+        document.addEventListener('keydown', (e) => {
+            if (!e.isTrusted || !KEYS.has(e.key) || !held(e.target)) return;
+            start(e.target, 'key', e.key);
+        }, true);
+        window.addEventListener('keyup', (e) => {
+            const h = this._numberHold;
+            if (h && h.how === 'key' && e.key === h.key) release();
+        }, true);
+        window.addEventListener('blur', () => release());
+        const live = (e) => {
+            const h = this._numberHold;
+            if (h && e.target === h.field) h.live = true;
+        };
+        window.addEventListener('input', live, true);
+        window.addEventListener('change', live, true);
+    }
+
+    // saveState asks: is this step part of a hold? Then it is kept for
+    // the hold's end (the newest label wins) and not taken now.
+    _numberHoldTakes(action) {
+        const h = this._numberHold;
+        if (!h || !h.live) return false;
+        h.action = action;
+        h.ticks += 1;
+        return true;
+    }
+
+    // The hold is over: its one step, if anything changed. Undo and redo
+    // end a hold still on first, so they step over it whole.
+    _endNumberHold() {
+        const h = this._numberHold;
+        if (!h) return;
+        this._numberHold = null;
+        if (!h.action) return;
+        sendClientLog('number_hold_step', {
+            field: h.field.id || h.field.getAttribute('data-lrd-field') || '', action: h.action, ticks: h.ticks, how: h.how,
+        });
+        this.saveState(h.action);
+    }
+
     undo() {
         // A delete still landing has not taken its step yet: the screen is
         // gone from the page as soon as the server answers the DELETE, and
@@ -226,6 +313,8 @@ class _History {
         // Land any in-flight debounced snapshot first, so Ctrl+Z steps back
         // over the edit the user just made instead of skipping past it (and
         // so the timer can't overwrite the restored state a moment later).
+        // A held number still on ends first: Ctrl+Z steps over it whole.
+        this._endNumberHold();
         this._flushPendingSaveState();
 
         if (this.historyIndex > 0) {
@@ -513,6 +602,7 @@ class _History {
     redo() {
         if (this._holdHistoryKey('redo')) return;
         if (typeof this._refuseWhileGuideElsewhere === 'function' && this._refuseWhileGuideElsewhere('redo')) return;
+        this._endNumberHold();
         this._flushPendingSaveState();
 
         if (this.historyIndex < this.history.length - 1) {

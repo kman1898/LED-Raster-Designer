@@ -203,6 +203,9 @@ export class LEDRasterApp {
         // An echo of this page's own save waits out a gesture
         // (_holdForGesture).
         this._wireGestureHold();
+        // A held number spinner or a dragged slider is one undo step
+        // (app-history _wireNumberHold).
+        this._wireNumberHold();
         // The Signal and Power panels' markup ships hidden, which is right for
         // the pixel-map view the app opens on. Reconcile anyway so neither can
         // be left behind if the renderer ever boots on another view.
