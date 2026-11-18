@@ -599,8 +599,13 @@ def test_a_client_that_connects_later_shows_the_highlight_at_once(page, e2e_serv
         open_tab(late)
         assert late.inner_text('#idm-hl-readout') == 'IdmB · B2 · Module A2'
         assert not late.is_disabled('#idm-pad-mark')
-        # and it blinks there
-        late.wait_for_function("() => !!window.app._idmS.blinkTimer", timeout=3000)
+        # and it is drawn there: the renderer outlines that module
+        late.wait_for_function("""() => {
+            const c = document.createElement('canvas');
+            c.width = c.height = 1;
+            const d = window.canvasRenderer.renderIdmHighlight(c.getContext('2d'));
+            return !!(d && d.key === '1,1,0,1');
+        }""", timeout=3000)
         assert not late._errors, late._errors
     finally:
         context.close()

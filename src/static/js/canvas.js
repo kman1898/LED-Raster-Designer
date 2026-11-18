@@ -3029,7 +3029,7 @@ class CanvasRenderer {
 
             // IDM Locator: the live highlight, over every screen. The output
             // window's frame is drawn without it (_idmNoHighlight) and has
-            // it laid on by app-output-display.js, so a blink costs that
+            // it laid on by app-output-display.js, so a move costs that
             // window one copy, not a render.
             if (this._idmPass && !this._idmNoHighlight) this.renderIdmHighlight();
 

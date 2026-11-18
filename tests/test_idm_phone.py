@@ -296,13 +296,16 @@ def test_the_phone_page_fits_a_phone_and_drives_the_wall(page, e2e_server, pw_br
         assert settled(ph2, lambda: phone_hl(ph2), lambda v: v == ['IdmA', '0,1,1,0']) == ['IdmA', '0,1,1,0']
         assert ph2.inner_text('#ph-place') == 'Col 1, Row 2 · Top right module'
         assert ph2.inner_text('#ph-ids') == 'IdmA · Cabinet A2 · Module B1'
-        # the wall output blinks it: cabinet (0,1) module (1,0) is x 64..128, y 128..192
+        # the wall output outlines it, steadily: cabinet (0,1) module (1,0)
+        # is x 64..128, y 128..192, a black band at its left edge, on it
+        settled(out, lambda: pixel(out, 66, 160), lambda v: v == [0, 0, 0])
         seen = set()
-        for _ in range(30):
-            px = pixel(out, 96, 160)
-            seen.add(tuple(px) if px else None)
-            out.wait_for_timeout(60)
-        assert (255, 255, 255) in seen and (0, 0, 0) in seen, seen
+        for _ in range(12):
+            seen.add((tuple(pixel(out, 66, 160) or ()), tuple(pixel(out, 96, 160) or ())))
+            out.wait_for_timeout(80)
+        assert len(seen) == 1, seen
+        edge, middle = seen.pop()
+        assert edge == (0, 0, 0) and middle != (0, 0, 0), (edge, middle)
         # the tab moves it: the phones follow
         page.evaluate("""() => { const a = window.app.project.layers.find(x => x.name === 'IdmA');
             window.app._idmSetHighlight(a.id, '1,0,0,1'); }""")

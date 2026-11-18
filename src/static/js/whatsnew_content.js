@@ -32,7 +32,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'A canvas on a second display',
               d: 'Output to Display, the button next to Preferences, sends a canvas full screen to another display at 1:1, one canvas pixel per display pixel from the top-left corner, and follows every edit live. Open one for each display you need.' },
             { h: 'The IDM Locator',
-              d: 'The IDM Locator tab fills the wall with white, red, green, blue, black or your own color to find bad modules. Type a screen\'s modules across and down, then click or drag to mark a bad module with a color or an X. Hover, use the arrow keys or tap on a tablet, and the module blinks on the wall output. Use a phone shows a QR code: scan it to walk the wall with the phone, and tick each module off the swap list once it is replaced.' },
+              d: 'The IDM Locator tab fills the wall with white, red, green, blue, black or your own color to find bad modules. Type a screen\'s modules across and down, then click or drag to mark a bad module with a color or an X. Hover, use the arrow keys or tap on a tablet, and the module is outlined on the wall output. Use a phone shows a QR code: scan it to walk the wall with the phone, and tick each module off the swap list once it is replaced.' },
             { h: 'Processor IP addresses, and a checklist',
               d: 'Each processor and its backup take an IP address, a subnet mask, a gateway and a note under Network on its gear, and the binder prints them on a Network page. Under the notes, add a checklist, tick items off and drag to reorder.' },
             { h: 'A setup file for Windows, and one-click updates',

@@ -724,7 +724,7 @@ class _OutputDisplay {
     // canvas.js render() calls this on every main (non-export) render.
     _outputDisplayOnRender() {
         // A redraw for the IDM Locator's highlight alone (app-idm-locator.js
-        // _idmRepaint): the outputs get it through _outputDisplayBlink.
+        // _idmRepaint): the outputs get it through _outputDisplayOverlay.
         if (this._idmQuietRender) return;
         if (this._outputDisplayBusy || this._outputDisplayTimer) return;
         if (!Array.isArray(this._outputDisplayWindows) || !this._outputDisplayWindows.length) return;
@@ -738,7 +738,7 @@ class _OutputDisplay {
     // dropped, as history does), the preferences, the renderer's display
     // switches and which images have finished loading. Not the IDM
     // Locator's live highlight: an IDM output lays it over its last frame
-    // (_outputDisplayBlink), so a move never costs a render.
+    // (_outputDisplayOverlay), so a move never costs a render.
     _outputDisplaySignature() {
         const r = window.canvasRenderer;
         const flags = [];
@@ -816,8 +816,8 @@ class _OutputDisplay {
         }
         // The IDM Locator's frame is drawn WITHOUT its live highlight, into
         // a canvas of its own: _outputDisplayCompose lays the highlight over
-        // a copy of it, so the highlight's blink and moves never need a
-        // render (_outputDisplayBlink).
+        // a copy of it, so the highlight moving never needs a
+        // render (_outputDisplayOverlay).
         const idm = entry.view === 'idm';
         if (idm && !entry.base) {
             entry.base = document.createElement('canvas');
@@ -899,11 +899,12 @@ class _OutputDisplay {
         // Pixel Map positions, whatever tab the designer shows right now.
         const savedView = r.viewMode;
         const hasCanvases = this.project && Array.isArray(this.project.canvases) && this.project.canvases.length;
+        let drawn = null;
         try {
             r.viewMode = 'idm';
             ctx.save();
             ctx.translate(-ws.wx, -ws.wy);
-            r.renderIdmHighlight(ctx, { exportMode: true, canvasId: hasCanvases ? entry.canvasId : undefined });
+            drawn = r.renderIdmHighlight(ctx, { exportMode: true, canvasId: hasCanvases ? entry.canvasId : undefined }) || null;
             // The designer's mouse over this canvas, over everything
             // (app-idm-locator.js _idmPointerFor), sized to the raster so
             // it reads on the wall: 6% of its shorter side, 24 px at least.
@@ -915,6 +916,7 @@ class _OutputDisplay {
         } finally {
             r.viewMode = savedView;
         }
+        this._outputDisplayLogHighlight(entry, drawn, ws);
         try {
             page.present(off, { title: `${this._outputDisplayLabel(entry)} · Output` });
         } catch (err) {
@@ -924,13 +926,50 @@ class _OutputDisplay {
         return true;
     }
 
-    // The IDM Locator's highlight moved or blinked (app-idm-locator.js
+    // What an IDM output's wall shows of the highlight, in the log: one
+    // line when the output opens and one each time the highlight moves on
+    // it or leaves it - never one a frame. The canvas, the screen, the
+    // module, its place and size on the wall (raster pixels) and the two
+    // bands' widths (black at the edge, white inside it). A burst of moves
+    // (a mouse sweep) is held to a line every half second, the last place
+    // it settled on.
+    _outputDisplayLogHighlight(entry, drawn, ws) {
+        const near = v => Math.round(v * 100) / 100;
+        const what = drawn ? {
+            layerId: drawn.layerId, key: drawn.key,
+            x: near(drawn.x - ws.wx), y: near(drawn.y - ws.wy), w: near(drawn.w), h: near(drawn.h),
+            outerPx: near(drawn.outer), innerPx: near(drawn.inner),
+        } : null;
+        const sig = JSON.stringify(what);
+        if (sig === entry.hlLogSig) {
+            entry.hlLogNext = null;
+            return;
+        }
+        entry.hlLogNext = { sig, what };
+        if (entry.hlLogTimer) return;
+        const wait = Math.max(0, (entry.hlLogAt || 0) + 500 - Date.now());
+        entry.hlLogTimer = setTimeout(() => {
+            entry.hlLogTimer = null;
+            const next = entry.hlLogNext;
+            entry.hlLogNext = null;
+            if (!next || next.sig === entry.hlLogSig) return;
+            entry.hlLogSig = next.sig;
+            entry.hlLogAt = Date.now();
+            sendClientLog('idm_output_highlight', {
+                canvasId: entry.canvasId, native: !!entry.native,
+                highlight: next.what ? 'outline' : 'none',
+                ...(next.what || {}),
+            });
+        }, wait);
+    }
+
+    // The IDM Locator's highlight moved or went (app-idm-locator.js
     // _idmRepaint), or the designer's mouse moved on the wall
     // (_idmPointerAt, which names the canvases in `canvasIds`): every IDM
     // output with a frame (of those canvases) gets the highlight and the
     // mouse laid over that frame again - a copy, never a render. An output
     // without a frame yet gets one from the next refresh.
-    _outputDisplayBlink(canvasIds) {
+    _outputDisplayOverlay(canvasIds) {
         const all = Array.isArray(this._outputDisplayWindows) ? this._outputDisplayWindows : [];
         for (const e of all) {
             if (e.view !== 'idm' || !e.base || e.lastSig === null || !this._outputDisplayLive(e)) continue;

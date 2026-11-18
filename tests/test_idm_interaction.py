@@ -337,7 +337,7 @@ def test_the_cursor_is_the_plain_mouse(page):
 
 
 def test_off_the_panels_the_wall_shows_no_highlight(page):
-    """The module under the mouse blinks on the wall; off every panel (the
+    """The module under the mouse is outlined on the wall; off every panel (the
     gap between screens, or out of the view) the wall shows nothing. The
     Mark button and the arrows pick up from the module the mouse left; a
     highlight from the keys stays put when the mouse moves in the gap."""

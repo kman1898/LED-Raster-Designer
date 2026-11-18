@@ -9364,7 +9364,7 @@
             since: '1.7.0',
             target: '#idm-hl-readout', ring: ['#idm-hl-readout', '#idm-pad'], place: 'right', title: 'Point with the arrow keys',
             avoid: [function () { return modulePoint(wall2(), MARK_KEYS); }],
-            body: 'The arrow keys move a blinking highlight from module to module, in the view and on the wall. Tap Space to mark it; hold Space and drag to pan.',
+            body: 'The arrow keys move an outline from module to module, in the view and on the wall. Tap Space to mark it; hold Space and drag to pan.',
             before: function () {
                 openIdm();
                 var a = A();
@@ -9473,7 +9473,7 @@
             since: '1.7.0',
             target: '#idm-list', place: 'right', title: 'The marked modules',
             avoid: [function () { return idmRows()[0] || null; }],
-            body: 'Every mark is listed by screen and where it is: the cabinet\'s column and row, then the module\'s place, with its Cabinet ID and Module ID under it. Click one and that module blinks in the view.',
+            body: 'Every mark is listed by screen and where it is: the cabinet\'s column and row, then the module\'s place, with its Cabinet ID and Module ID under it. Click one and that module is outlined in the view.',
             before: openIdm,
             act: function (t) {
                 var row = idmRows()[0];
@@ -9483,7 +9483,7 @@
             },
             check: function (mem) {
                 var n = idmRows().length;
-                return n >= 3 && mem.text ? n + ' marks. ' + mem.text + ' blinks in the view.' : null;
+                return n >= 3 && mem.text ? n + ' marks. ' + mem.text + ' is outlined in the view.' : null;
             }
         },
         idmSwap: {

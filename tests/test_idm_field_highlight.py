@@ -26,9 +26,18 @@ at. What this file pins:
   cabinet; Space marks it (one undo step), Esc clears it; a text field
   keeps its arrows. From a tablet (a touch, mobile-sized page) a tap moves
   the highlight without marking, the pad's arrows and Mark drive it, and the
-  host's output window shows it blinking white / the field's inverse. A
-  deleted screen takes its highlight with it, and the panel never names a
-  module a delete, undo or redo took away, even before the view redraws.
+  host's output window shows it. The highlight is a steady outline round
+  the module (owner, 2026-11-18: no blink, no pulse), black at its edge
+  and white inside that, both on the module, in the view and on the wall:
+  the module's field and mark stay in view in its middle, two frames apart
+  are the same pixels, nothing redraws while it stands still, and it leaves
+  both when the mouse leaves the panels. It reads on a black field, all
+  four sides of a corner module show on a white one, the outline of a
+  module picked from the swap list stays off the wall, and the wall's log
+  says what it drew once a move, never once a frame. A deleted screen
+  takes its highlight with
+  it, and the panel never names a module a delete, undo or redo took away,
+  even before the view redraws.
 
 Run locally:
     python -m pytest tests/test_idm_field_highlight.py -v -p no:cacheprovider --browser chromium
@@ -637,7 +646,18 @@ def test_hover_arrows_shift_space_and_esc_drive_the_highlight(page):
     assert not page._errors, page._errors
 
 
-def test_a_tablet_drives_the_highlight_on_the_host_output_and_it_blinks(page, e2e_server, pw_browser):
+def steady(out, points, samples=12, gap=80):
+    """The output's pixels at `points`, read `samples` times `gap` ms apart:
+    every read the same (a blink would change them), that one read."""
+    seen = set()
+    for _ in range(samples):
+        seen.add(tuple(tuple(pixel(out, x, y) or ()) for x, y in points))
+        out.wait_for_timeout(gap)
+    assert len(seen) == 1, seen
+    return [list(px) for px in seen.pop()]
+
+
+def test_a_tablet_drives_the_highlight_on_the_host_output(page, e2e_server, pw_browser):
     cid = reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
     out = open_output(page, cid)
@@ -660,19 +680,20 @@ def test_a_tablet_drives_the_highlight_on_the_host_output_and_it_blinks(page, e2
         tab.wait_for_timeout(300)
         assert marks_of(tab, 'IdmA') == {}
         assert served_idm(page, 'IdmA')['marks'] == {}
-        # the host has it, and its output window shows it blinking: module
-        # (1,1) of cabinet (1,0) is x 192..256, y 64..128 - white, then the
-        # inverse of the white field (black)
+        # the host has it, and its output window outlines it, steadily:
+        # module (1,1) of cabinet (1,0) is x 192..256, y 64..128, a 5 px
+        # black band at its left edge (x 192..196) and a white one inside
+        # it (x 197..201), the same on the right (black x 251..255 over the
+        # cabinet's edge ring, white x 246..250), its middle the white field
         got = settled(page, lambda: hl(page), lambda v: v == ['IdmA', '1,0,1,1'])
         assert got == ['IdmA', '1,0,1,1'], got
-        seen = set()
-        for _ in range(30):
-            px = pixel(out, 224, 96)
-            seen.add(tuple(px) if px else None)
-            out.wait_for_timeout(60)
-        assert (255, 255, 255) in seen and (0, 0, 0) in seen, seen
-        # the module beside it is the field (the shade's 85% there)
-        assert pixel(out, 160, 96) in ([255, 255, 255], [217, 217, 217])
+        wait_pixel(out, 194, 96, (0, 0, 0))
+        assert steady(out, [(194, 96), (199, 96), (253, 96), (248, 96), (224, 96)]) \
+            == [[0, 0, 0], [255, 255, 255], [0, 0, 0], [255, 255, 255], [255, 255, 255]]
+        # the module beside it is the field (the shade's 85% there), up to
+        # its edge: the outline is all on the highlighted module
+        assert pixel(out, 160, 96) == [217, 217, 217]
+        assert pixel(out, 189, 96) == [217, 217, 217]
         # the pad: an arrow, the cabinet jump, Mark
         tab.tap('[data-idm-step="left"]')
         got = settled(page, lambda: hl(page), lambda v: v == ['IdmA', '1,0,0,1'])
@@ -688,23 +709,301 @@ def test_a_tablet_drives_the_highlight_on_the_host_output_and_it_blinks(page, e2
         assert '1,1,0,1' in got['marks'], got
         settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '1,1,0,1' in v)
         assert tab.inner_text('#idm-hl-readout') == 'IdmA · B2 · Module A2'
-        # the host's output shows the highlight on the new module: x 128..192,
-        # y 192..256, its mark (red) in the middle
-        seen = set()
-        for _ in range(30):
-            px = pixel(out, 140, 200)
-            seen.add(tuple(px) if px else None)
-            out.wait_for_timeout(60)
-        assert (255, 255, 255) in seen and (0, 0, 0) in seen, seen
+        # the host's output outlines the new module: x 128..192, y 192..256,
+        # its mark (red) in view inside the outline, left as it is
         wait_pixel(out, 160, 224, (255, 26, 26))
+        wait_pixel(out, 130, 224, (0, 0, 0))
+        assert steady(out, [(125, 224), (130, 224), (135, 224), (160, 224), (140, 210)]) \
+            == [[255, 255, 255], [0, 0, 0], [255, 255, 255], [255, 26, 26], [255, 26, 26]]
         # Clear highlight on the tablet: gone from the host and the wall
         tab.tap('#idm-pad-clear')
         got = settled(page, lambda: hl(page), lambda v: v is None)
         assert got is None, got
-        wait_pixel(out, 140, 200, (255, 26, 26))     # the marked module, whole again
+        wait_pixel(out, 130, 224, (255, 26, 26))     # the marked module, whole again
         assert not tab._errors, tab._errors
     finally:
         context.close()
+        out.close()
+
+
+# One module as the designer's view draws it: a hash of the frame round it,
+# and the pixels just outside its left edge, just inside it (`edge`, the
+# outline's black band), a little further in (`inner`, its white band) and
+# in its middle (the view's canvas pixels, at the view's own zoom).
+VIEW_LOOK_JS = """([name, col, row, mx, my]) => {
+    const app = window.app, r = window.canvasRenderer;
+    const l = app.project.layers.find(x => x.name === name);
+    const p = l.panels.find(q => q.col === col && q.row === row);
+    const n = r.idmCounts(l);
+    const c = r.idmModuleCells(l, p, n.x, n.y, r._idmVisibleLookup(l)).find(q => q.mx === mx && q.my === my);
+    const {wx, wy} = r._layerCanvasOffset(l);
+    const z = r.zoom, left = Math.round(r.panX) + (c.x + wx) * z, top = Math.round(r.panY) + (c.y + wy) * z;
+    const w = c.w * z, h = c.h * z;
+    const at = (X, Y) => Array.from(r.ctx.getImageData(Math.round(X), Math.round(Y), 1, 1).data.slice(0, 3));
+    const d = r.ctx.getImageData(Math.floor(left) - 10, Math.floor(top) - 10,
+                                 Math.ceil(w) + 20, Math.ceil(h) + 20).data;
+    let hash = 0;
+    for (let i = 0; i < d.length; i++) hash = (Math.imul(hash, 31) + d[i]) | 0;
+    return {hash, outside: at(left - 1.5, top + h / 2), edge: at(left + 1.5, top + h / 2),
+            inner: at(left + 4.5, top + h / 2), middle: at(left + w / 2, top + h / 2)};
+}"""
+
+
+def view_look(pg, *where):
+    return pg.evaluate(VIEW_LOOK_JS, list(where))
+
+
+def test_the_highlight_is_a_steady_outline_in_the_view_and_on_the_wall(page):
+    """Owner, 2026-11-18: no blink and no pulse - the highlighted module is
+    outlined, steadily, in the view and on the wall. A black band at the
+    module's edge and a white one inside it, so it reads on any field; the
+    module's field and its mark (an X here) are left as
+    they are in its middle. Two frames apart are the same pixels, nothing
+    redraws while it stands still, and it leaves the view and the wall the
+    moment the mouse leaves the panels."""
+    cid = reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    click_field(page, '#ff0000', 'shade')
+    page.evaluate("""() => {
+        const app = window.app, a = app.project.layers.find(x => x.name === 'IdmA');
+        a.idm.marks = {'1,0,1,1': {style: 'x', color: '#ffff00'}};
+        app.updateLayers([a], true, 'Mark');
+        window.canvasRenderer.render();
+    }""")
+    settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '1,0,1,1' in v)
+    # the mouse's arrow on the wall would sit on the module: off for this
+    page.evaluate("() => window.app._idmSetPointerOn(false)")
+    out = open_output(page, cid)
+    try:
+        # module (1,1) of cabinet (1,0): x 192..256, y 64..128 on the wall,
+        # the X's crossing in its middle; beside it the red field's shade
+        wait_pixel(out, 224, 96, (255, 255, 0))
+        wall = [(189, 96), (194, 96), (199, 96), (224, 96)]
+        bare_wall = [pixel(out, x, y) for x, y in wall]
+        assert bare_wall == [[217, 0, 0], [255, 0, 0], [255, 0, 0], [255, 255, 0]], bare_wall
+        bare_view = view_look(page, 'IdmA', 1, 0, 1, 1)
+        pt = point(page, 'IdmA', 1, 0, 1, 1)
+        page.mouse.move(pt['x'], pt['y'])
+        assert settled(page, lambda: hl(page), lambda v: v == ['IdmA', '1,0,1,1']) == ['IdmA', '1,0,1,1']
+        # the wall: black at the edge, white inside it, the module beside
+        # it and the mark untouched - and the same at every look
+        wait_pixel(out, 194, 96, (0, 0, 0))
+        assert steady(out, wall) == [[217, 0, 0], [0, 0, 0], [255, 255, 255], [255, 255, 0]]
+        # the view: the same outline, outside and middle as they were
+        lit = view_look(page, 'IdmA', 1, 0, 1, 1)
+        assert lit['edge'] == [0, 0, 0], lit
+        assert lit['inner'] == [255, 255, 255], lit
+        assert lit['outside'] == bare_view['outside'], (lit, bare_view)
+        assert lit['middle'] == bare_view['middle'], (lit, bare_view)
+        assert lit['hash'] != bare_view['hash']
+        # two frames apart: the same pixels, waited for and redrawn
+        page.wait_for_timeout(600)
+        assert view_look(page, 'IdmA', 1, 0, 1, 1) == lit
+        page.evaluate("() => window.canvasRenderer.render()")
+        assert view_look(page, 'IdmA', 1, 0, 1, 1) == lit
+        # nothing runs while it stands still: no redraw of the view, no new
+        # frame on the wall, no blink state
+        idle = page.evaluate("""async () => {
+            const app = window.app, r = window.canvasRenderer;
+            const real = r.render, realLay = app._outputDisplayOverlay;
+            let renders = 0, lays = 0;
+            r.render = function (...a) { renders += 1; return real.apply(this, a); };
+            app._outputDisplayOverlay = function (...a) { lays += 1; return realLay.apply(this, a); };
+            try {
+                await new Promise(res => setTimeout(res, 1200));
+            } finally {
+                r.render = real;
+                app._outputDisplayOverlay = realLay;
+            }
+            return {renders, lays, blink: Object.keys(app._idmS).filter(k => /blink|pulse/i.test(k))};
+        }""")
+        assert idle == {'renders': 0, 'lays': 0, 'blink': []}, idle
+        frames = out.evaluate("() => Number(document.body.dataset.frames || 0)")
+        out.wait_for_timeout(800)
+        assert out.evaluate("() => Number(document.body.dataset.frames || 0)") == frames
+        # the mouse off the panels: gone from the view and from the wall
+        gap = page.evaluate("""() => {
+            const r = window.canvasRenderer, rect = r.canvas.getBoundingClientRect();
+            return {x: rect.left + Math.round(r.panX) + 480 * r.zoom,
+                    y: rect.top + Math.round(r.panY) + 100 * r.zoom};
+        }""")
+        page.mouse.move(gap['x'], gap['y'])                # between the screens
+        assert settled(page, lambda: hl(page), lambda v: v is None) is None
+        wait_pixel(out, 194, 96, (255, 0, 0))
+        assert [pixel(out, x, y) for x, y in wall] == bare_wall
+        assert view_look(page, 'IdmA', 1, 0, 1, 1) == bare_view
+        assert not page._errors, page._errors
+    finally:
+        page.evaluate("() => window.app._idmSetPointerOn(true)")
+        out.close()
+
+
+def set_hl(pg, name, key):
+    pg.evaluate("""([name, key]) => {
+        const app = window.app, l = app.project.layers.find(x => x.name === name);
+        app._idmSetHighlight(l.id, key);
+    }""", [name, key])
+    assert settled(pg, lambda: hl(pg), lambda v: v == [name, key]) == [name, key]
+
+
+def test_the_outline_reads_on_a_black_field_on_the_wall(page):
+    """On a black field the black band is lost in the field; the white band
+    inside it shows on all four sides of the module, and the module's
+    middle stays the field."""
+    cid = reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    click_field(page, '#000000', 'shade')
+    page.evaluate("() => window.app._idmSetPointerOn(false)")
+    out = open_output(page, cid)
+    try:
+        # module (1,1) of cabinet (1,0): x 192..256, y 64..128, black
+        wait_pixel(out, 224, 96, (0, 0, 0))
+        set_hl(page, 'IdmA', '1,0,1,1')
+        # white 5 px in from each edge (left, right, top, bottom), black at
+        # each edge, the middle the field
+        wait_pixel(out, 199, 96, (255, 255, 255))
+        white = [(199, 96), (248, 96), (224, 71), (224, 120)]
+        black = [(194, 96), (253, 96), (224, 66), (224, 125)]
+        assert steady(out, white + black + [(224, 96)]) \
+            == [[255, 255, 255]] * 4 + [[0, 0, 0]] * 4 + [[0, 0, 0]]
+        assert not page._errors, page._errors
+    finally:
+        page.evaluate("() => { window.app._idmSetPointerOn(true); window.app._idmClearHighlight(); }")
+        out.close()
+
+
+# Every idm_output_highlight line the page sends to the log, from now on.
+LOG_SPY_JS = """() => {
+    window.__hlLogs = [];
+    if (window.__hlLogReal) return;
+    const real = navigator.sendBeacon.bind(navigator);
+    window.__hlLogReal = real;
+    navigator.sendBeacon = (url, blob) => {
+        try {
+            blob.text().then(t => {
+                try {
+                    const p = JSON.parse(t);
+                    if (p.action === 'idm_output_highlight') window.__hlLogs.push(p.details);
+                } catch (_) { /* not JSON */ }
+            });
+        } catch (_) { /* not a blob */ }
+        return real(url, blob);
+    };
+}"""
+
+LOG_SPY_OFF_JS = """() => {
+    if (window.__hlLogReal) navigator.sendBeacon = window.__hlLogReal;
+    delete window.__hlLogReal;
+}"""
+
+
+def hl_logs(pg):
+    return pg.evaluate("() => JSON.parse(JSON.stringify(window.__hlLogs || []))")
+
+
+def test_a_corner_module_keeps_all_four_sides_on_a_white_field(page):
+    """A module in the canvas's corner on a plain white field: the white
+    band is lost in the field and the black band sits on the module, so
+    none of it falls past the canvas's edge - all four sides show, on the
+    wall and in the view. The wall's log says what it drew: one line when
+    the output opens, one when the highlight lands, none while it stands
+    still."""
+    cid = reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    click_field(page, '#ffffff', 'none')
+    page.evaluate("() => window.app._idmSetPointerOn(false)")
+    page.evaluate(LOG_SPY_JS)
+    out = open_output(page, cid)
+    try:
+        # module (0,0) of cabinet (0,0): x 0..64, y 0..64, the canvas's
+        # top-left corner
+        wait_pixel(out, 32, 32, (255, 255, 255), tol=0)
+        page.wait_for_function("() => window.__hlLogs.length >= 1", timeout=4000)
+        set_hl(page, 'IdmA', '0,0,0,0')
+        wait_pixel(out, 2, 32, (0, 0, 0))
+        # black 5 px on each side (left, right, top, bottom, two corners),
+        # white inside it and in the middle, the next module white
+        black = [(2, 32), (61, 32), (32, 2), (32, 61), (0, 0), (63, 63)]
+        assert steady(out, black + [(7, 32), (32, 32), (66, 32)]) \
+            == [[0, 0, 0]] * 6 + [[255, 255, 255]] * 3
+        lit = view_look(page, 'IdmA', 0, 0, 0, 0)
+        assert lit['edge'] == [0, 0, 0], lit
+        assert lit['inner'] == [255, 255, 255], lit
+        # the log: the open (no highlight), then the module as drawn ...
+        page.wait_for_function("() => window.__hlLogs.length >= 2", timeout=4000)
+        # ... and standing still, laid over again: no more lines
+        page.evaluate("() => { window.app._outputDisplayOverlay(null); window.app._outputDisplayOverlay(null); }")
+        page.wait_for_timeout(1200)
+        logs = hl_logs(page)
+        assert len(logs) == 2, logs
+        assert logs[0]['highlight'] == 'none' and logs[0]['canvasId'] == cid, logs
+        a_id = page.evaluate("() => window.app.project.layers.find(x => x.name === 'IdmA').id")
+        keys = ('highlight', 'canvasId', 'layerId', 'key', 'x', 'y', 'w', 'h', 'outerPx', 'innerPx')
+        got = {k: logs[1].get(k) for k in keys}
+        assert got == {'highlight': 'outline', 'canvasId': cid, 'layerId': a_id, 'key': '0,0,0,0',
+                       'x': 0, 'y': 0, 'w': 64, 'h': 64, 'outerPx': 5, 'innerPx': 5}, logs
+        assert not page._errors, page._errors
+    finally:
+        page.evaluate(LOG_SPY_OFF_JS)
+        page.evaluate("() => { window.app._idmSetPointerOn(true); window.app._idmClearHighlight(); }")
+        out.close()
+
+
+FLASHING_JS = """() => !!window.app._idmFlashFor(
+    window.app.project.layers.find(x => x.name === 'IdmA'))"""
+
+
+def test_the_swap_list_outline_stays_off_the_wall(page):
+    """A module picked from the swap list is outlined in the accent in the
+    view for a moment; the wall output never shows it, even on a frame
+    drawn from scratch while it is up."""
+    cid = reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    click_field(page, '#ffffff', 'none')
+    page.evaluate("""() => {
+        const app = window.app, a = app.project.layers.find(x => x.name === 'IdmA');
+        a.idm.marks = {'1,0,1,1': {style: 'x', color: '#ffff00'}};
+        app.updateLayers([a], true, 'Mark');
+        window.canvasRenderer.render();
+    }""")
+    settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '1,0,1,1' in v)
+    page.evaluate("() => window.app._idmSetPointerOn(false)")
+    out = open_output(page, cid)
+    try:
+        # module (1,1) of cabinet (1,0): x 192..256, y 64..128, the X's
+        # crossing in its middle
+        wait_pixel(out, 224, 96, (255, 255, 0))
+        wall = [(194, 96), (199, 96), (224, 96), (224, 66)]
+        bare_wall = [pixel(out, x, y) for x, y in wall]
+        bare_view = view_look(page, 'IdmA', 1, 0, 1, 1)
+        accent = page.evaluate("""() => {
+            const c = document.createElement('canvas').getContext('2d');
+            c.fillStyle = getComputedStyle(document.documentElement)
+                .getPropertyValue('--ps-accent').trim() || '#e22330';
+            c.fillRect(0, 0, 1, 1);
+            return Array.from(c.getImageData(0, 0, 1, 1).data.slice(0, 3));
+        }""")
+        frames = out.evaluate("() => Number(document.body.dataset.frames || 0)")
+        # the pick, and a wall frame drawn from scratch while it is up
+        page.evaluate("""() => {
+            const app = window.app, a = app.project.layers.find(x => x.name === 'IdmA');
+            app._idmFlashModule(a.id, '1,0,1,1');
+            app._outputDisplayRefresh(true);
+        }""")
+        assert page.evaluate(FLASHING_JS)
+        settled(out, lambda: out.evaluate("() => Number(document.body.dataset.frames || 0)"),
+                lambda n: n > frames)
+        # the view outlines it in the accent ...
+        lit = view_look(page, 'IdmA', 1, 0, 1, 1)
+        assert lit['edge'] == [0, 0, 0], lit
+        assert all(abs(a - b) <= 3 for a, b in zip(lit['inner'], accent)), (lit, accent)
+        assert lit['middle'] == bare_view['middle'], (lit, bare_view)
+        # ... the wall shows the module as it was
+        assert page.evaluate(FLASHING_JS)
+        assert [pixel(out, x, y) for x, y in wall] == bare_wall
+        assert not page._errors, page._errors
+    finally:
+        page.evaluate("() => window.app._idmSetPointerOn(true)")
         out.close()
 
 
@@ -743,10 +1042,10 @@ def test_the_panel_follows_the_highlight_as_the_delete_reply_lands(page):
     screen gone with it) and the delete's own redraw waits for the next
     request. The panel follows the reply at once: it never names a module
     of the screen that is gone. (1.7.0 CI: the readout still read
-    'IdmB · B2 · Module A1' with no highlight left, until the next blink.)
+    'IdmB · B2 · Module A1' with no highlight left, until the next redraw.)
     The page's request for the project after the DELETE is held, and the
-    panel read in the same task as the reply, so neither the blink nor the
-    redraw can come in between."""
+    panel read in the same task as the reply, so the redraw cannot come in
+    between."""
     reset_project(page)
     page.evaluate("""() => {
         const app = window.app, b = app.project.layers.find(x => x.name === 'IdmB');
@@ -811,8 +1110,9 @@ NOTHING_NAMED = {'readout': 'No module highlighted', 'where': 'Point at a module
 def _panel_after(pg, call):
     """window.app[call]() and the panel read in the same task: the restore
     is on its way to the server and nothing has redrawn yet. The highlight
-    itself stays until the blink drops it (a highlight is view state, never
-    an undo step), so the pad's Mark and Clear go with the blink."""
+    itself stays until the next look at it drops it, a moment later (a
+    highlight is view state, never an undo step), and the pad's Mark and
+    Clear go with it."""
     got = pg.evaluate("([PANEL, call]) => { window.app[call](); return eval(PANEL)(); }", [PANEL_JS, call])
     pg.wait_for_function("() => !window.app._restorePutPending", timeout=10000)
     assert got['hl'] is not None, got
@@ -872,7 +1172,6 @@ def test_screenshots(page, e2e_server, pw_browser):
     pt = point(page, 'IdmB', 0, 1, 2, 1)
     page.mouse.move(pt['x'], pt['y'])
     page.wait_for_timeout(450)
-    page.evaluate("() => { window.app._idmS.blinkOn = true; window.canvasRenderer.render(); }")
     page.screenshot(path=os.path.join(SHOTS, 'idm-field-red-shade-highlight.png'))
     click_field(page, '#ffffff', 'shade')
     with page.expect_popup() as info:

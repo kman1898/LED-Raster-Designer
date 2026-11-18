@@ -598,7 +598,7 @@ def test_the_app_lists_its_displays_and_opens_full_screen_there(e2e_server, pw_b
 
 
 def test_a_native_idm_output_gets_the_highlight_without_a_render(e2e_server, pw_browser, page, native_host):
-    """The IDM Locator's blink and mouse are laid over the last frame and
+    """The IDM Locator's highlight and mouse are laid over the last frame and
     sent as a new frame; the designer never renders for them."""
     ids = reset_project(page)
     context, pg = _new_page(pw_browser, e2e_server)
@@ -620,8 +620,8 @@ def test_a_native_idm_output_gets_the_highlight_without_a_render(e2e_server, pw_
             const r = window.canvasRenderer; window.__renders = 0;
             const real = r.render.bind(r);
             r.render = (...a) => { window.__renders += 1; return real(...a); };
-            window.app._outputDisplayBlink(null);
-            window.app._outputDisplayBlink(null);
+            window.app._outputDisplayOverlay(null);
+            window.app._outputDisplayOverlay(null);
             return window.__renders;
         }""")
         assert renders == 0
