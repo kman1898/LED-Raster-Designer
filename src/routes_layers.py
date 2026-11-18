@@ -96,6 +96,7 @@ def add_layer():
         # app-stage3d.js s3dCleanCorners.
         'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
         'riggingBarStarts', 'riggingFooterBarStarts', 'riggingSide', 'riggingCustom', 'riggingCurve',
+        'riggingCustomSaved',
         'riggingCorners',
         'showLabelNameRigging', 'screenNameSizeRigging',
         'screenNameOffsetXRigging', 'screenNameOffsetYRigging',
@@ -462,7 +463,9 @@ def update_layer(layer_id):
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
                 'riggingBarStarts', 'riggingFooterBarStarts', 'riggingSide', 'riggingCustom',
                 # The Header/Footer tab's Curve: on, and its settings, and its Corners.
-                'riggingCurve',
+                # riggingCustomSaved: the bars a wall had laid by hand when
+                # its Curve went on, put back at Curve off (app-curve.js).
+                'riggingCurve', 'riggingCustomSaved',
                 'riggingCorners',
                 'showLabelNameRigging', 'screenNameSizeRigging',
                 'screenNameOffsetXRigging', 'screenNameOffsetYRigging', 'powerLabelSize', 'powerLabelBgColor', 'powerLabelTextColor',

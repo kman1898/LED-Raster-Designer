@@ -37,7 +37,8 @@ each wall. Each screen takes one or the other: pick Header or Footer, and
 switching later moves the bars across as they are. Light the bar sizes you
 stock, single, double, triple or quad, and Auto fits the fewest bars across
 the wall, again each time you light a size or pick Auto. Turn a Curve off
-and the wall takes Auto's bars. The bars go on the pull sheet and print on a Header/Footer binder
+and the wall gets back the bars you laid by hand before it went on, or
+takes Auto's. The bars go on the pull sheet and print on a Header/Footer binder
 sheet, and the PNG, SVG, PSD and PDF exports have a Header/Footer view.
 On the tab, the bars and their sizes stay readable however far out you
 zoom; the binder, the exports and 3D draw them at their real size.

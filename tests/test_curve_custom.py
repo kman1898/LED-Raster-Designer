@@ -312,3 +312,188 @@ def test_a_group_takes_custom_as_one_wall(page):
         window.app.project.layers.find(l => l.id === id)))""")
     assert sum(r['qty'] for r in rows) == sum(len(placed(l)) for l in lays)
     assert page.errors == []
+
+
+# ── Curve off gives back the bars laid by hand ───────────────────────────
+#
+# Owner's ruling (2026-11-18): Curve on over a wall laid by hand lays the
+# Curve's own bars, as ever; Curve off puts the wall back to the bars it had
+# laid by hand before the Curve went on. They save with the show, survive a
+# reload and follow undo and redo; Auto or a lit size while curved keeps
+# them; Clear forgets them. A wall on Auto before still gets Auto's bars.
+
+def tool_mode_auto(page):
+    """Back to Auto as a way of working only: picked with nothing selected,
+    so nothing is laid; then the selection as it was."""
+    page.evaluate("""() => { const a = window.app; window.__sel = [...a.selectedLayerIds];
+        a.setSelectedLayersByIds([], null); a.refreshRiggingPanel(); }""")
+    page.click('#rigging-tool-picker [data-tool="auto"]')
+    page.evaluate("""() => { const a = window.app; a.setSelectedLayersByIds(window.__sel, window.__sel[0]);
+        a.refreshRiggingPanel(); }""")
+
+
+def hand_laid(page, specs=None):
+    """A wall with bars laid by hand on its plain header, Curve off: a run
+    of doubles over panels 1 to 4, the rest Auto's singles."""
+    ids = reset(page) if specs is None else reset(page, specs)
+    open_rigging(page)
+    singles_only(page)
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
+    tool(page, 'custom')
+    assert lay_bars(page, ids[0], 2, 0, 3) is True
+    tool_mode_auto(page)
+    return ids
+
+
+def laid_as_solved(page, layer_id):
+    """The screen carries exactly the Curve's own answer, not one laid by hand."""
+    return page.evaluate("""(id) => { const a = window.app; const l = a.project.layers.find(x => x.id === id);
+        const out = a.riggingCurveSolve(l); return !out.hand && !out.errors.length && a._curveLaidMatches(l, out); }""", layer_id)
+
+
+def test_curve_off_gives_back_the_bars_laid_by_hand_one_step_each_way(page):
+    ids = hand_laid(page)
+    wid = ids[0]
+    mine = layer(page, wid)
+    hand = placed(mine)
+    assert mine['riggingCustom'] is True and hand[:2] == [[0, 2], [2, 2]]
+    n = history_len(page)
+    act(page, lambda: page.check('#rigging-curve-on'))
+    on = layer(page, wid)
+    assert on['riggingCurve']['on'] and on['riggingCustom'] is False
+    assert placed(on) != hand and laid_as_solved(page, wid)
+    assert on['riggingCustomSaved']['bars'] == [b for _, b in hand]
+    assert history_len(page) == n + 1
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    off = layer(page, wid)
+    assert placed(off) == hand and off['riggingCustom'] is True
+    assert not off.get('riggingCustomSaved')
+    assert not any(joints_of(off))
+    assert history_len(page) == n + 2
+    # undo: curved again, its bars and the kept ones; undo again: as laid
+    page.evaluate('window.app.undo()')
+    back = settled(page, lambda: layer(page, wid), lambda l: (l.get('riggingCurve') or {}).get('on'))
+    assert placed(back) == placed(on) and back['riggingCustomSaved'] == on['riggingCustomSaved']
+    page.evaluate('window.app.undo()')
+    first = settled(page, lambda: layer(page, wid), lambda l: not (l.get('riggingCurve') or {}).get('on'))
+    assert placed(first) == hand and first['riggingCustom'] is True
+    page.evaluate('window.app.redo()')
+    settled(page, lambda: layer(page, wid), lambda l: (l.get('riggingCurve') or {}).get('on'))
+    page.evaluate('window.app.redo()')
+    again = settled(page, lambda: layer(page, wid), lambda l: not (l.get('riggingCurve') or {}).get('on'))
+    assert placed(again) == hand and not again.get('riggingCustomSaved')
+    assert page.errors == []
+
+
+def test_the_kept_bars_survive_a_reload_auto_and_a_lit_size(page):
+    ids = hand_laid(page)
+    wid = ids[0]
+    hand = placed(layer(page, wid))
+    act(page, lambda: page.check('#rigging-curve-on'))
+    kept = layer(page, wid)['riggingCustomSaved']
+    settled(page, lambda: served(page, wid), lambda l: l.get('riggingCustomSaved') == kept)
+    page.reload(wait_until='domcontentloaded')
+    page.wait_for_timeout(2000)
+    page.evaluate("(id) => { window.app.selectLayer(window.app.project.layers.find(l => l.id === id)); window.app.updateUI(); }", wid)
+    open_rigging(page)
+    idle(page)
+    assert layer(page, wid)['riggingCustomSaved'] == kept
+    # Auto, and a lit size, lay the Curve again and keep them
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
+    page.click('#rigging-size-picker .rigging-size-btn[data-size="2"]')
+    idle(page)
+    assert layer(page, wid)['riggingCustomSaved'] == kept
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    assert placed(layer(page, wid)) == hand
+    assert page.errors == []
+
+
+def test_clear_forgets_the_kept_bars_and_a_later_curve_off_lays_auto(page):
+    ids = hand_laid(page)
+    wid = ids[0]
+    act(page, lambda: page.check('#rigging-curve-on'))
+    assert layer(page, wid)['riggingCustomSaved']
+    page.click('#rigging-clear-btn')
+    cleared = settled(page, lambda: layer(page, wid), lambda l: not l.get('riggingBars'))
+    assert not cleared.get('riggingCustomSaved') and not cleared['riggingCurve']['on']
+    act(page, lambda: page.check('#rigging-curve-on'))
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    assert layer(page, wid)['riggingBars'] == [1] * 16
+    assert page.errors == []
+
+
+def test_a_wall_on_auto_keeps_nothing_and_gets_auto_bars_back(page):
+    ids = reset(page)
+    wid = ids[0]
+    open_rigging(page)
+    light(page, [1, 2])
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
+    auto = placed(layer(page, wid))
+    act(page, lambda: page.check('#rigging-curve-on'))
+    assert not layer(page, wid).get('riggingCustomSaved')
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    off = layer(page, wid)
+    assert placed(off) == auto and off['riggingCustom'] is False
+    assert page.errors == []
+
+
+def test_edits_after_curve_off_are_what_the_next_curve_keeps(page):
+    ids = hand_laid(page)
+    wid = ids[0]
+    act(page, lambda: page.check('#rigging-curve-on'))
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    tool(page, 'custom')
+    assert lay_bars(page, wid, 2, 6, 9) is True
+    tool_mode_auto(page)
+    edited = placed(layer(page, wid))
+    assert [6, 2] in edited and [8, 2] in edited
+    act(page, lambda: page.check('#rigging-curve-on'))
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    assert placed(layer(page, wid)) == edited
+    assert page.errors == []
+
+
+def test_a_group_laid_by_hand_gets_each_screens_bars_back(page):
+    ids = reset(page, three())
+    group_two(page, ids)
+    open_rigging(page)
+    select(page, [ids[1]])
+    singles_only(page)
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
+    tool(page, 'custom')
+    # a double across the seam between the first two screens
+    assert lay_bars(page, ids[0], 2, 3, 3) is True
+    tool_mode_auto(page)
+    hand = [placed(layer(page, i)) for i in ids]
+    assert [3, 2] in hand[0]
+    act(page, lambda: page.check('#rigging-curve-on'))
+    assert all(layer(page, i)['riggingCustomSaved'] for i in ids)
+    act(page, lambda: page.uncheck('#rigging-curve-on'))
+    assert [placed(layer(page, i)) for i in ids] == hand
+    assert all(layer(page, i)['riggingCustom'] is True for i in ids)
+    assert page.errors == []
+
+
+def test_a_corner_on_a_curve_laid_by_hand_lays_the_full_curve_again(page):
+    """Owner's ruling (2026-11-18): adding or taking off a corner on a
+    curved wall laid by hand makes it a full Curve again."""
+    ids = curved_singles(page)
+    wid = ids[0]
+    tool(page, 'custom')
+    assert lay_bars(page, wid, 2, 0, 1) is True
+    act(page, lambda: page.evaluate("() => window.app.setRiggingCurveJoint(4, 5)"))
+    lay = layer(page, wid)
+    assert lay['riggingCustom'] is True and lay['riggingCurve']['handJoints'] == {'4': 5}
+    act(page, lambda: page.click('#rigging-corner-add'))
+    added = layer(page, wid)
+    assert len(added.get('riggingCorners') or []) == 1
+    assert added['riggingCustom'] is False and 'handJoints' not in added['riggingCurve']
+    assert laid_as_solved(page, wid)
+    # laid by hand again, then the corner taken off: the full Curve again too
+    assert lay_bars(page, wid, 2, 0, 1) is True
+    assert layer(page, wid)['riggingCustom'] is True
+    act(page, lambda: page.click('#rigging-corner-list [data-corner-remove]'))
+    gone = layer(page, wid)
+    assert not (gone.get('riggingCorners') or [])
+    assert gone['riggingCustom'] is False and laid_as_solved(page, wid)
+    assert page.errors == []
