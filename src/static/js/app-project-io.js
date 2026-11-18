@@ -84,6 +84,7 @@ class _ProjectIo {
     }
     
     async saveProjectToFile() {
+        if (typeof this._standInHoldsFiles === 'function' && this._standInHoldsFiles('save')) return;
         // An edit still waiting on its debounced history entry lands first:
         // that entry is where the multi numbers it held are written onto
         // the distros (app-naming _commitMultiNumbers), and the file must

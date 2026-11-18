@@ -826,6 +826,7 @@ class _Binder {
     // The canvas's right-click: "Export this screen..." opens the same
     // dialog preset to the binder with only that screen's sheets ticked.
     openScreenBinderExport(layer) {
+        if (typeof this._standInHoldsFiles === 'function' && this._standInHoldsFiles('export-screen-binder')) return;
         if (!layer || (layer.type || 'screen') !== 'screen') return;
         this._binderPresetScope = layer.id;
         this.openExportModal('binder');

@@ -1382,6 +1382,12 @@ class _Presets {
     // startup screen the start page's X takes out again. A reload of the
     // tab takes that startup screen out by itself and shows no start page
     // (app-start-page.js resumeOrLaunch).
+    //
+    // `startup=1`: only one page's take can find the stand-in (owner,
+    // 2026-11-17). Two pages answering at the same moment: the server's
+    // second take finds the project moved on and refuses it (409,
+    // `startupTaken`), and this rejects with `startupTaken` set, nothing
+    // changed here; _startupTakenElsewhere shows the first answer's project.
     _dropStartupScreen(id) {
         const settled = typeof this._layerSavesSettled === 'function'
             ? this._layerSavesSettled() : Promise.resolve();
@@ -1390,7 +1396,14 @@ class _Presets {
         // (app.index adds no startup screen after that).
         const answered = typeof this._settleLaunch === 'function'
             ? this._settleLaunch('startup_screen_replaced') : Promise.resolve();
-        return Promise.all([settled, answered]).then(() => fetch(`/api/layer/${id}?keep_pristine=1`, { method: 'DELETE' })).then(res => {
+        return Promise.all([settled, answered]).then(() => fetch(`/api/layer/${id}?keep_pristine=1&startup=1`, { method: 'DELETE' })).then(res => {
+            if (res.status === 409) {
+                return res.json().catch(() => null).then((body) => {
+                    const err = new Error(`DELETE /api/layer/${id} answered 409`);
+                    err.startupTaken = !!(body && body.startupTaken === true);
+                    throw err;
+                });
+            }
             if (!res.ok) throw new Error(`DELETE /api/layer/${id} answered ${res.status}`);
             return res.json();
         }).then((answer) => {
@@ -1424,6 +1437,7 @@ class _Presets {
             });
             return true;
         }).catch(error => {
+            if (error && error.startupTaken) return this._startupTakenElsewhere('pick');
             sendClientLog('startup_panel_pick_failed', { error: String(error && error.message || error) });
             if (typeof this._toast === 'function') {
                 this._toast('The first screen was not made. Use Add Screen to make it.', true);
@@ -1451,7 +1465,45 @@ class _Presets {
             sendClientLog('startup_picker_cancelled', { layerId: id });
             return true;
         }).catch(error => {
+            if (error && error.startupTaken) return this._startupTakenElsewhere('cancel');
             sendClientLog('startup_picker_cancel_failed', { error: String(error && error.message || error) });
+            return false;
+        });
+    }
+
+    // Another page answered the start page at the same moment as this one,
+    // and its answer reached the server first (_dropStartupScreen): this
+    // page's pick (or X, or Cancel) is let go, nothing of it was written,
+    // and the page shows the project as the server holds it, the project
+    // the first answer made (owner, 2026-11-17). Never a second screen of
+    // this page's pick beside it. Resolves false.
+    _startupTakenElsewhere(action) {
+        sendClientLog('startup_answered_elsewhere_refused', { action: action || null });
+        this._startupPickerToken = (this._startupPickerToken || 0) + 1;
+        this._startupWaiting = null;
+        this._startupTargetId = null;
+        if (typeof this.closeStartPage === 'function') this.closeStartPage();
+        if (this._pickerMode === 'startup') {
+            this._pickerFromStartPage = false;
+            this.closePresetPicker();
+        }
+        if (typeof this._toast === 'function') {
+            this._toast('The project was just started on another device.', false, 5000);
+        }
+        return fetch('/api/project').then(res => {
+            const rev = Number(res.headers.get('X-Project-Rev'));
+            const unsaved = res.headers.get('X-Project-Unsaved') === '1';
+            return res.json().then(p => ({ p, rev, unsaved }));
+        }).then(({ p, rev, unsaved }) => {
+            // Taken in as another page's replace of the show (a show of its
+            // own, its own history); one this page already holds, the first
+            // answer's own news having landed meanwhile, is let go there.
+            const mark = { reason: 'startup_taken', client: '', token: null, unsaved };
+            if (Number.isFinite(rev)) mark.rev = rev;
+            this._onProjectReplaced(p, mark);
+            return false;
+        }).catch((err) => {
+            sendClientLog('startup_answered_elsewhere_reread_failed', { error: String(err && err.message || err) });
             return false;
         });
     }

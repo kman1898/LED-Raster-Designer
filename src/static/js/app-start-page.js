@@ -242,6 +242,18 @@ class _StartPage {
         return !!(picker && picker.style.display === 'block' && this._pickerMode === 'startup');
     }
 
+    // Save and every Export do nothing while this page asks how the project
+    // starts over the stand-in screen (owner, 2026-11-17): the stand-in is
+    // never written to a show file or an export. Only over the stand-in: a
+    // start page over a project a launch brought back still saves it
+    // ("Save changes?" behind New or Open file). Open stays, as opening a
+    // show answers the question. True when it held one.
+    _standInHoldsFiles(what) {
+        if (!this.startupQuestionOpen() || this._startupTargetId == null) return false;
+        sendClientLog('stand_in_holds_files', { what: what || null });
+        return true;
+    }
+
     // ── The stand-in screen on every page (owner, 2026-11-17) ──
     //
     // A launch or a File > New puts a stand-in screen under the start page

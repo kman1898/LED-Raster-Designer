@@ -4,6 +4,7 @@ and per-panel blank/hidden/half-tile toggles. Thin controllers over the
 layer model in app (create_layer, _build_panels, geometry helpers stay there).
 """
 import json
+import threading
 
 from flask import Blueprint, request, jsonify
 
@@ -759,8 +760,41 @@ def update_layer(layer_id):
         socketio.emit('layer_updated', mirror)
     return jsonify(layer)
 
+# Two pages answering the start page at the same moment (owner,
+# 2026-11-17: "refuse the second only if exact same timing"). The page that
+# answers takes the stand-in screen out first (app-presets.js
+# _dropStartupScreen, `startup=1`), and only one take can find it: the check
+# and the delete run under one lock, so the second take finds the project
+# moved on (the stand-in gone, a screen picked, a show opened) and is
+# refused with a 409 that says so (`startupTaken`). That page drops its pick
+# and shows the project the first answer made; nothing of it is written.
+_startup_take_lock = threading.Lock()
+
+
+def _startup_screen_stands(layer_id):
+    project = app.current_project
+    layers = project.get('layers') or []
+    return (project.get('is_pristine') is True and len(layers) == 1
+            and isinstance(layers[0], dict) and layers[0].get('id') == layer_id
+            and (layers[0].get('type') or 'screen') == 'screen')
+
+
 @layers_bp.route('/api/layer/<int:layer_id>', methods=['DELETE'])
 def delete_layer(layer_id):
+    if str(request.args.get('startup', '')).lower() not in ('1', 'true', 'yes'):
+        return _delete_layer(layer_id)
+    with _startup_take_lock:
+        if not _startup_screen_stands(layer_id):
+            layers = app.current_project.get('layers') or []
+            log_event('startup_screen_take_refused', {
+                'id': layer_id, 'layers': len(layers),
+                'pristine': app.current_project.get('is_pristine') is True})
+            return jsonify({'error': 'The project was just started on another device.',
+                            'startupTaken': True}), 409
+        return _delete_layer(layer_id)
+
+
+def _delete_layer(layer_id):
     deleted_name = None
     for l in app.current_project['layers']:
         if l['id'] == layer_id:

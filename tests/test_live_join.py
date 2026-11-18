@@ -650,6 +650,199 @@ def test_no_shortcut_reaches_the_stand_in_from_behind_the_start_page(e2e_server,
         context.close()
 
 
+def test_save_and_every_export_do_nothing_behind_the_start_page(e2e_server, pw_browser):
+    """Owner, 2026-11-17: while the start page or the startup picker stands
+    over the stand-in, Save and every Export (the shortcuts, the File menu's
+    items, the Export button) do nothing; Open (Ctrl+O) still opens, as
+    opening a show answers the question."""
+    _fresh_launch(e2e_server)
+    context = _context(pw_browser, BOTH)
+    try:
+        pg, problems = _open(context, e2e_server)
+        _wait_start(pg)
+        # counted on the page: a save's file write and an open's dialog
+        pg.evaluate("""() => { const app = window.app; window.__files = {save: 0, open: 0};
+            app.saveBlobWithPicker = () => { window.__files.save += 1; return Promise.resolve({saved: false}); };
+            app.loadProjectFromFile = () => { window.__files.open += 1; return Promise.resolve(false); }; }""")
+        nothing_opened = """() => ['export-modal', 'pull-sheet-modal'].every(id => {
+            const m = document.getElementById(id); return !m || m.style.display === 'none' || m.style.display === ''; })"""
+
+        def held(where):
+            for key in ('Control+s', 'Alt+s', 'Control+Alt+s'):
+                pg.keyboard.press(key)
+            pg.evaluate("""() => { const app = window.app;
+                ['save', 'export-png', 'export-psd', 'export-svg', 'export-pdf', 'export-resolume-xml',
+                 'export-obj', 'pull-sheet', 'export-pull-sheet', 'export-binder']
+                    .forEach(a => app.handleMenuAction(a));
+                app.openScreenBinderExport(app.project.layers[0]);
+                document.getElementById('btn-export').click(); }""")
+            pg.wait_for_timeout(600)
+            assert pg.evaluate(nothing_opened), where
+            assert pg.evaluate("() => window.__files.save") == 0, where
+            srv = _server_project(e2e_server)
+            assert srv['is_pristine'] is True and [l['name'] for l in srv['layers']] == ['Screen1'], where
+
+        held('start page')
+        assert _start_up(pg)
+        pg.locator('#start-page-new').click()
+        pg.wait_for_function("() => document.getElementById('preset-picker-modal').style.display === 'block'")
+        pg.locator('#preset-picker-title').click()
+        held('startup picker')
+        assert _picker_up(pg)
+        # Open still opens
+        pg.keyboard.press('Control+o')
+        pg.wait_for_function("() => window.__files.open === 1", timeout=5000)
+        # and with the question answered, Save and Export work again
+        pg.wait_for_selector('#panel-catalog-list .panel-catalog-row', timeout=15000)
+        pg.locator('#panel-catalog-list .panel-catalog-row').first.click()
+        pg.locator('#preset-picker-add').click()
+        pg.wait_for_function("() => !window.app.startupQuestionOpen() && window.app.project.layers.length === 1"
+                             " && !!window.app.project.layers[0].panelModelName", timeout=15000)
+        pg.keyboard.press('Control+s')
+        pg.wait_for_function("() => window.__files.save === 1", timeout=5000)
+        pg.evaluate("() => window.app.handleMenuAction('export-png')")
+        pg.wait_for_function("() => document.getElementById('export-modal').style.display === 'block'")
+        assert problems == [], problems
+    finally:
+        context.close()
+
+
+def _choose_on_start_page(pg, row):
+    """New project, then the panel library's row `row` (not yet used)."""
+    pg.locator('#start-page-new').click()
+    pg.wait_for_function("() => document.getElementById('preset-picker-modal').style.display === 'block'")
+    pg.wait_for_selector('#panel-catalog-list .panel-catalog-row', timeout=15000)
+    pg.locator('#panel-catalog-list .panel-catalog-row').nth(row).click()
+
+
+def _wait_held(pg, held):
+    for _ in range(100):
+        if held:
+            return
+        pg.wait_for_timeout(100)
+    assert held, 'the request never went'
+
+
+@pytest.mark.parametrize('first_answer', ['pick', 'close'])
+def test_two_pages_answering_at_the_same_moment_the_second_is_let_go(e2e_server, pw_browser, first_answer):
+    """Owner, 2026-11-17: two pages answer the start page at the same
+    moment. The second page's take of the stand-in is held in its browser
+    until the first page's answer has taken the stand-in on the server (the
+    first page's own new screen is held in turn), so it reaches the server
+    after the first was taken and before the page heard of it. It is
+    refused: the page drops its pick, writes nothing more, says so in a
+    short toast and shows the project the first answer made. One project,
+    one answer."""
+    _fresh_launch(e2e_server)
+    first_ctx = _context(pw_browser, BOTH)
+    second_ctx = _context(pw_browser, BOTH)
+    try:
+        first, problems = _open(first_ctx, e2e_server)
+        _wait_start(first)
+        second, more = _open(second_ctx, e2e_server)
+        _wait_start(second)
+        stand_in = _server_project(e2e_server)['layers'][0]['id']
+        held_delete, held_add, second_writes, answers = [], [], [], []
+
+        def hold_take(route):
+            if route.request.method == 'DELETE':
+                held_delete.append(route)
+            else:
+                route.continue_()
+
+        second.route('**/api/layer/**', hold_take)
+        second.on('request', lambda r: second_writes.append(r.method + ' ' + r.url)
+                  if r.method in ('POST', 'PUT', 'DELETE') and '/api/layer' in r.url else None)
+        second.on('response', lambda r: answers.append(r.status)
+                  if r.request.method == 'DELETE' and '/api/layer/' in r.url else None)
+        # the second page answers with a pick of its own, held on its way
+        _choose_on_start_page(second, 1)
+        second.locator('#preset-picker-add').click()
+        _wait_held(second, held_delete)
+        # the first page answers too, and its answer takes the stand-in;
+        # its new screen waits until the second page has had its answer
+        first.route('**/api/layer/add', lambda route: held_add.append(route))
+        if first_answer == 'pick':
+            _choose_on_start_page(first, 0)
+            first.locator('#preset-picker-add').click()
+            _wait_held(first, held_add)
+        else:
+            first.locator('#start-page-close').click()
+        first.wait_for_function("() => window.app.project.layers.length === 0", timeout=10000)
+        assert _server_project(e2e_server)['layers'] == []
+        # now the second page's take reaches the server: refused
+        held_delete[0].continue_()
+        second.wait_for_function("() => [...document.querySelectorAll('#app-toast-host *')].some(e =>"
+                                 " e.textContent.trim() === 'The project was just started on another device.')",
+                                 timeout=10000)
+        assert answers == [409], answers
+        if first_answer == 'pick':
+            held_add[0].continue_()
+            first.wait_for_function("() => window.app.project.layers.length === 1"
+                                    " && !!window.app.project.layers[0].panelModelName", timeout=15000)
+        second.wait_for_timeout(1500)
+        srv = _server_project(e2e_server)
+        want = 1 if first_answer == 'pick' else 0
+        assert len(srv['layers']) == want, [l['name'] for l in srv['layers']]
+        assert all(l['id'] != stand_in for l in srv['layers'])
+        for pg in (first, second):
+            pg.wait_for_function("(n) => window.app.project.layers.length === n", arg=want, timeout=10000)
+            assert not _start_up(pg) and not _picker_up(pg)
+        if first_answer == 'pick':
+            names = [pg.evaluate("() => window.app.project.layers[0].panelModelName") for pg in (first, second)]
+            assert names[0] and names[0] == names[1] == srv['layers'][0].get('panelModelName'), names
+        # the second page wrote nothing but its refused take
+        assert [w.split(' ')[0] for w in second_writes] == ['DELETE'], second_writes
+        # the refusal is the one 4xx, and only on the second page
+        assert problems == [], problems
+        assert [m for m in more if not m.startswith('409 ')] == [], more
+        assert len([m for m in more if m.startswith('409 ')]) == 1, more
+    finally:
+        first_ctx.close()
+        second_ctx.close()
+
+
+def test_the_server_lets_only_one_take_of_the_stand_in_through(client):
+    """The take is one step under a lock: of many pages taking the same
+    stand-in at once, one gets it and the rest are told it is gone."""
+    import app as app_module
+    for _ in range(5):
+        new_server_run()
+        client.post('/api/project/new')
+        stand_in = client.get('/api/project').get_json()['layers'][0]['id']
+        codes = []
+        gate = threading.Barrier(8)
+
+        def take():
+            with app_module.app.test_client() as c:
+                gate.wait()
+                codes.append(c.delete(f'/api/layer/{stand_in}?keep_pristine=1&startup=1').status_code)
+
+        threads = [threading.Thread(target=take) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(20)
+        assert sorted(codes) == [200] + [409] * 7, codes
+        srv = client.get('/api/project').get_json()
+        assert srv['layers'] == [] and srv['is_pristine'] is True
+    # a project that moved on is no stand-in: a screen beside it, or a
+    # project worked on (not pristine), refuses the take and keeps it all
+    client.post('/api/project/new')
+    stand_in = client.get('/api/project').get_json()['layers'][0]['id']
+    client.post('/api/layer/add', json={'name': 'Picked', 'columns': 2, 'rows': 2,
+                                        'cabinet_width': 128, 'cabinet_height': 128})
+    res = client.delete(f'/api/layer/{stand_in}?keep_pristine=1&startup=1')
+    assert res.status_code == 409 and res.get_json()['startupTaken'] is True
+    assert len(client.get('/api/project').get_json()['layers']) == 2
+    client.post('/api/project/new')
+    proj = client.get('/api/project').get_json()
+    client.post('/api/project', json={'name': 'Worked On'})
+    res = client.delete(f"/api/layer/{proj['layers'][0]['id']}?keep_pristine=1&startup=1")
+    assert res.status_code == 409
+    assert len(client.get('/api/project').get_json()['layers']) == 1
+
+
 # ── a guide in one tab, the show joined in another ────────────────────────
 
 STASH_KEY = 'lrd_tour_saved_world'

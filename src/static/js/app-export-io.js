@@ -305,6 +305,7 @@ class _ExportIo {
      * File menu cannot drift apart as modal options evolve.
      */
     openExportModal(format = null) {
+        if (typeof this._standInHoldsFiles === 'function' && this._standInHoldsFiles('export')) return;
         const modal = document.getElementById('export-modal');
         if (!modal) return;
 

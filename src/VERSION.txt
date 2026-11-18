@@ -742,6 +742,15 @@ FIXES
 - FIX: A bad IP, subnet or gateway typed in a processor's gear and entered
   stays in its box, red with the reason, instead of the box going back to
   what it held before, unmarked, while the bad entry was saved.
+- FIX: While the start page or the panel picker is up, Save and every
+  Export do nothing, from the File menu, the Export button or a shortcut.
+  The placeholder screen behind it never ends up in a show file or an
+  export. Open still works, since opening a show is an answer too.
+- FIX: When two tabs, browsers or tablets answer the start page at the
+  very same moment, the first answer wins everywhere. The other one drops
+  its pick, says "The project was just started on another device." and
+  shows the project the first answer made. Before, both could land, and
+  the project ended up with two first screens.
 
 v1.6.0 - November 6, 2026
 ----------------------------

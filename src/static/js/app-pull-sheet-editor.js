@@ -90,6 +90,7 @@ class _PullSheetEditor {
     }
 
     async openPullSheetEditor(opts) {
+        if (typeof this._standInHoldsFiles === 'function' && this._standInHoldsFiles('pull-sheet')) return;
         const modal = document.getElementById('pull-sheet-modal');
         if (!modal || !this.project) return;
         this._pullSheetReturnToExport = !!(opts && opts.fromExport);
