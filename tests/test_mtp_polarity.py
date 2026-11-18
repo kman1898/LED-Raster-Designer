@@ -307,7 +307,7 @@ def test_an_undocumented_mtp_says_see_cable_map(page, count, polarity):
     m = out['map']
     assert m['title'] == f"Strand map · MTP A · MTP {count} · Type {polarity} · 300'", m
     assert m['cols'] == ['strand', 'link', 'box ports'], m
-    assert m['note'] == 'At the breakout: see cable map', m
+    assert m['note'] == 'At the breakout box: see cable map', m
     assert [r[0] for r in m['rows']] == ['1', '2', '3', '4'], m
     assert out['page'] == [{'box': 'XD A', 'p': ['1', '2'], 'b': ['see cable map']},
                            {'box': 'XD B', 'p': ['3', '4'], 'b': ['see cable map']}], out['page']

@@ -9962,7 +9962,7 @@ class _Binder {
                 rows.push({ swatch: piece.swatch, cells, parts: { 1: [{ text: leg.text, swatch: leg.swatch }] } });
             }
             const note = [also.length ? `Also on ${also.join(', ')}` : '',
-                          isMtp && !mapped ? `At the breakout: ${MTP_SEE_MAP}` : '']
+                          isMtp && !mapped ? `At the breakout box: ${MTP_SEE_MAP}` : '']
                 .filter(Boolean).join(' · ');
             const cols = mapped
                 ? [{ title: 'strand', w: 1.1, swatch: true }, { title: 'at the breakout', w: 1.1, parts: true },
