@@ -7798,12 +7798,15 @@
             after: function () { hideMenus(); closeExport(); }
         },
         preferences: {
+            // Preferences stays up into the next step, Controls.
+            window: 'prefs',
             target: '#btn-preferences', place: 'bottom', title: 'Preferences',
             avoid: ['#btn-preferences', '#preferences-modal .pm-tabstrip'],
-            body: 'App-wide defaults in nine tabs. The Binder tab holds the sheet size, the screen order, the sheets a new show prints and the title block default.',
+            body: 'App-wide defaults in ten tabs. The Binder tab holds the sheet size, the screen order, the sheets a new show prints and the title block default.',
             before: function () { closeExport(); },
             act: function (t) {
-                return t.click('#btn-preferences').then(function () {
+                // Up already when this step is jumped back to from Controls.
+                return (prefsOpen() ? Promise.resolve() : t.click('#btn-preferences')).then(function () {
                     return t.wait(function () { var m = $('#preferences-modal'); return m && m.style.display === 'block' ? m : null; });
                 }).then(function (m) {
                     if (!m) throw new Error('Preferences did not open');
@@ -7819,6 +7822,49 @@
                 return tab && tab.classList.contains('active') ? 'The Binder tab: a default applies to what you create next.' : null;
             },
             after: function () { closePrefs(); }
+        },
+        // Preferences > Controls (owner, 2026-11-18): every key by area,
+        // the 3D mouse presets, a search box. The guide only finds an
+        // action: it runs on the shipped keys and records none.
+        controls: {
+            since: '1.7.0',
+            window: 'prefs',
+            target: '#pref-controls-list', place: 'left', title: 'Controls',
+            avoid: ['#preferences-modal .pm-tabstrip', '#pref-controls-search', '#pref-controls-list'],
+            body: 'Preferences, Controls lists every key by area and the 3D mouse presets. Click a key and press a new one; the search box finds an action.',
+            before: function () {
+                closeExport();
+                var a = A();
+                if (!prefsOpen()) a.openPreferencesModal();
+            },
+            act: function (t) {
+                return t.click('#preferences-modal .pm-tabstrip .view-tab[data-key="controls"]').then(function () {
+                    return t.wait(function () { var l = $('#pref-controls-list'); return l && l.offsetParent ? l : null; });
+                }).then(function (l) {
+                    if (!l) throw new Error('the Controls tab did not open');
+                    return t.type('#pref-controls-search', 'duplicate');
+                }).then(function () {
+                    return t.wait(function () {
+                        var row = $('#pref-controls-list .pm-control-row[data-control="duplicate"]');
+                        return row && !row.hidden ? row : null;
+                    });
+                }).then(function (row) {
+                    if (!row) throw new Error('the search did not find Duplicate');
+                    return t.spot(row).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var row = $('#pref-controls-list .pm-control-row[data-control="duplicate"]');
+                var chip = row && row.querySelector('.pm-key-chip');
+                var tab = $('#preferences-modal .pm-tabstrip .view-tab[data-key="controls"]');
+                return tab && tab.classList.contains('active') && row && !row.hidden && chip
+                    ? 'Duplicate is ' + chip.textContent + '. Click it and press another key to change it.' : null;
+            },
+            after: function () {
+                var box = $('#pref-controls-search');
+                if (box && box.value) { box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); }
+                closePrefs();
+            }
         },
         // Mirror a screen by dragging its copy box (owner, 2026-11-01:
         // "Mirroring is driven by the card's existing Copy setting plus
@@ -9702,7 +9748,7 @@
         pixelGroups: ['groupScreens', 'groupNames', 'groupDrag', 'groupMove'],
         // Binder and Exports
         binder: ['exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock',
-                 'fileExports', 'objExport', 'preferences']
+                 'fileExports', 'objExport', 'preferences', 'controls']
     };
     // Steps that put in practice hardware or screens of their own: they
     // close their guide, after its runs, so nothing they add reaches a

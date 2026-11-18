@@ -46,6 +46,8 @@ GROUP_HEADINGS = [
     'Pixel Map',
     'Show Look',
     '3D',
+    'Header/Footer',
+    'IDM Locator',
     'Data view & the tray',
     'Power view & the tray',
     'Screens & Beaches panels',
@@ -104,6 +106,12 @@ GESTURE_PHRASES = [
     'Move / turn the selection with the mouse',
     'Drag a square between two arrows',
     'Click a seam or the middle of a panel',
+    # Header/Footer
+    "Take off the clicked bar, or with none clicked the selected screens' bars",
+    # IDM Locator
+    'Move the highlight a module / a cabinet',
+    'Mark the highlighted module, or clear its mark',
+    "Clear the highlighted module's mark",
     # Data view & the tray
     'Hold Alt',
     'Alt+click a run',
@@ -195,13 +203,19 @@ HANDLER_MARKERS = [
     ('zoomActual', 'canvas-input.js', 'Zoom to selection (1:1)'),
     ('magneticSnap', 'canvas-input.js', 'Toggle snap'),
     ('openPreferencesModal', 'canvas-input.js', 'Open Preferences'),
-    # The File menu's accelerators: handleMenuShortcut's case labels.
-    ('mod+KeyO', 'app-menubar.js', 'Open a project file'),
-    ('mod+KeyS', 'app-menubar.js', 'Save the project to a file'),
-    ('alt+KeyS', 'app-menubar.js', 'Export PNG / Export PSD'),
-    ('mod+alt+KeyS', 'app-menubar.js', 'Export PNG / Export PSD'),
+    # The File menu's accelerators: their shipped keys in the Controls
+    # registry (controls.js), which handleMenuShortcut matches.
+    ("'mod+KeyO'", 'controls.js', 'Open a project file'),
+    ("'mod+KeyS'", 'controls.js', 'Save the project to a file'),
+    ("'alt+KeyS'", 'controls.js', 'Export PNG / Export PSD'),
+    ("'mod+alt+KeyS'", 'controls.js', 'Export PNG / Export PSD'),
     # Select All rides the same dispatcher but is not a File menu item.
-    ('mod+KeyA', 'app-menubar.js', 'Select every screen on the canvas'),
+    ("'mod+KeyA'", 'controls.js', 'Select every screen on the canvas'),
+    # The IDM Locator's keys and the Header/Footer delete.
+    ('_idmDeleteMark', 'app-idm-locator.js', "Clear the highlighted module's mark"),
+    ('_idmSpaceUp', 'app-idm-locator.js', 'Mark the highlighted module, or clear its mark'),
+    ('riggingDeleteKey', 'canvas-input.js',
+     "Take off the clicked bar, or with none clicked the selected screens' bars"),
     ('deleteCurrentLayer', 'canvas-input.js', 'Delete / Backspace'),
     ('duplicateSelection', 'canvas-input.js', 'Duplicate the selected screens'),
     ('_toggleLayerSelectionFromCanvas', 'canvas-input.js',
@@ -407,19 +421,37 @@ def _file_menu_labels():
     return out
 
 
+CONTROLS_JS = os.path.join(JS_DIR, 'controls.js')
+
+
+def _shipped_keys():
+    """{Controls action id: its shipped chords} from controls.js ACTIONS."""
+    src = _read(CONTROLS_JS)
+    return {m.group(1): re.findall(r"'([\w+]+)'", m.group(2))
+            for m in re.finditer(r"\{ id: '(\w+)', area: '[^']+', label: '[^']*', keys: \[([^\]]*)\]", src)}
+
+
 def _dispatcher_cases():
-    """{chord: action} from handleMenuShortcut's switch."""
+    """{shipped chord: menu action} for every File menu item
+    handleMenuShortcut dispatches: its MENU_SHORTCUT_ACTIONS table names the
+    Controls action and the menu action it runs; the chord is that
+    action's shipped key in controls.js."""
     src = _read(MENUBAR_JS)
-    body = src[src.index('handleMenuShortcut(e) {'):]
-    body = body[:body.index('\n    }\n')]
-    return dict(re.findall(r"case '([\w+]+)': action = '([\w-]+)';", body))
+    table = src[src.index('const MENU_SHORTCUT_ACTIONS = {'):]
+    table = table[:table.index('};')]
+    keys = _shipped_keys()
+    out = {}
+    for cid, action in re.findall(r"(\w+): '([\w-]+)',", table):
+        assert len(keys[cid]) == 1, (cid, keys[cid])
+        out[keys[cid][0]] = action
+    return out
 
 
 # File-menu accelerators honoured by canvas-input's handleKeyDown instead
 # (it owns the Cmd+Z/C/V/J/, family): chord -> (action, the source text
 # that handles it there).
 CANVAS_INPUT_FILE_CHORDS = {
-    'mod+Comma': ('preferences', "e.code === 'Comma'"),
+    'mod+Comma': ('preferences', "ctl('preferences')"),
 }
 
 
@@ -445,6 +477,7 @@ def test_file_menu_labels_and_dispatcher_agree():
     for chord, (action, marker) in CANVAS_INPUT_FILE_CHORDS.items():
         assert printed.pop(chord) == action, (chord, action)
         assert marker in canvas_src, (chord, marker)
+        assert _shipped_keys()[action] == [chord], (action, chord)
     assert printed == cases, (printed, cases)
 
 

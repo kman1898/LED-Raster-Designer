@@ -1,4 +1,4 @@
-"""The Preferences dialog: nine tabs, every field once, Save / Cancel /
+"""The Preferences dialog: ten tabs, every field once, Save / Cancel /
 Reset Defaults at the foot - and every new default honoured only where the
 app CREATES something (a distro, a binder block on a project with no
 values of its own, a snake, a loose port cable, a power cable).
@@ -18,7 +18,7 @@ def _guard(server_project_guard):
     module found them."""
 
 
-# The nine tabs, in the order the strip shows them, with the field ids
+# The ten tabs, in the order the strip shows them, with the field ids
 # each holds. Every id today's dialog had keeps its id; the new ones are
 # the mock's (mocks/preferences-mock.html?layout=tabs).
 TABS = {
@@ -78,14 +78,18 @@ TABS = {
               'pref-cable-stock-circuit-ft', 'pref-cable-stock-circuit-m',
               'pref-cable-stock-preset', 'pref-cable-stock-load', 'pref-cable-stock-save-preset',
               'pref-cable-stock-delete', 'pref-cable-stock-default'],
+    # the keys and the 3D mouse (2026-11-18, app-controls.js): a search
+    # box, Reset all, and the list the tab draws (tests/test_controls.py)
+    'controls': ['pref-controls-search', 'pref-controls-reset-all', 'pref-controls-list'],
 }
 ALL_IDS = [i for ids in TABS.values() for i in ids]
 # 1.5 audit: the distro voltage + phase pair became one system picker.
 # Quick palettes: the source and sixteen pickers (105 + 17), and the
 # binder's Header/Footer default. The logo row went in 1.7.0: each show
 # keeps its own logo (test_binder_remembers.py). The binder's Network
-# default came with processor IPs (2026-11-09).
-assert len(ALL_IDS) == 123
+# default came with processor IPs (2026-11-09). Controls brought three
+# (2026-11-18).
+assert len(ALL_IDS) == 126
 
 # Issue 28: the colour defaults a NEW screen starts with, id -> (the colour
 # the dialog is given, the preference key, the layer property it lands on).
@@ -198,8 +202,11 @@ DIALOG_JS = """() => {
     const clipped = [];
     modal.querySelectorAll('.pm-section').forEach(sec => {
         if (getComputedStyle(sec).display === 'none') return;
-        sec.querySelectorAll('input, select, button, .prefs-flow-grid').forEach(el => {
+        sec.querySelectorAll('input, select, button, .prefs-flow-grid, .pm-scroll').forEach(el => {
             if (el.offsetParent === null) return;   // display:none (custom V/A, file input)
+            // a list that scrolls inside itself (Controls) is one field:
+            // its box must sit in the body, its rows scroll inside it
+            if (el.closest('.pm-scroll') && !el.classList.contains('pm-scroll')) return;
             const r = el.getBoundingClientRect();
             if (r.top < b.top - 0.5 || r.bottom > b.bottom + 0.5
                 || r.left < b.left - 0.5 || r.right > b.right + 0.5) {
@@ -361,7 +368,8 @@ def test_every_field_is_there_once_and_one_tab_shows_at_a_time(page):
         '#preferences-modal .pm-tabstrip .view-tab')].map(t => [t.dataset.key, t.textContent.trim()])""")
     assert strip == [['wall', 'Wall'], ['look', 'Look'], ['palettes', 'Palettes'], ['data', 'Data'], ['power', 'Power'],
                      ['distros', 'Distros & multis'], ['binder', 'Binder'],
-                     ['pull', 'Pull sheet & cables'], ['stock', 'Cable stock']], strip
+                     ['pull', 'Pull sheet & cables'], ['stock', 'Cable stock'],
+                     ['controls', 'Controls']], strip
     for key, fields in TABS.items():
         _tab(pg, key)
         d = pg.evaluate(DIALOG_JS)

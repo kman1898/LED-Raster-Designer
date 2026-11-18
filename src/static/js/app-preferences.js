@@ -183,7 +183,11 @@ class _Preferences {
             // of the saved preset a NEW show takes its cable stock from;
             // '' is none, and a new show writes lengths as typed. The
             // stock itself is the show's (project.cableStock).
-            cableStockDefault: ''
+            cableStockDefault: '',
+            // ---- Controls (2026-11-18, app-controls.js / controls.js): the
+            // keys and the 3D mouse the person changed; nothing changed is
+            // the shipped set. Per person, never with the show.
+            controls: { keys: {}, mouse3d: { preset: 'standard', actions: {} } }
         };
     }
 
@@ -353,10 +357,10 @@ class _Preferences {
         });
     }
 
-    // The nine tabs, in strip order. The strip remembers the last tab
+    // The ten tabs, in strip order. The strip remembers the last tab
     // opened within the session (not across reloads).
     _prefsTabKeys() {
-        return ['wall', 'look', 'palettes', 'data', 'power', 'distros', 'binder', 'pull', 'stock'];
+        return ['wall', 'look', 'palettes', 'data', 'power', 'distros', 'binder', 'pull', 'stock', 'controls'];
     }
 
     showPreferencesTab(key) {
@@ -596,6 +600,9 @@ class _Preferences {
                     this.applyCableStockPreferences();
                 }
                 this.saveClientSideProperties();
+                // The keys and the 3D mouse: the menus, the tooltips and
+                // the 3D hint say the new ones at once.
+                if (typeof this.refreshControlLabels === 'function') this.refreshControlLabels();
                 // v0.8.8.x: font change is project-wide and affects every
                 // on-canvas label, repaint so the new font shows immediately.
                 if (window.canvasRenderer) window.canvasRenderer.render();
@@ -670,6 +677,7 @@ class _Preferences {
             });
         });
         if (typeof this.setupCableStockPreferences === 'function') this.setupCableStockPreferences();
+        if (typeof this.setupControlsTab === 'function') this.setupControlsTab();
         syncVoltageCustom();
         syncAmperageCustom();
     }
@@ -844,6 +852,8 @@ class _Preferences {
         // Cable stock: the preset a new show starts with ('' none). The
         // show's own lists are not preferences: Reset leaves them.
         setVal('pref-cable-stock-default', prefs.cableStockDefault || '');
+        // Controls: the tab edits a copy until Save.
+        if (typeof this.fillControlsTab === 'function') this.fillControlsTab(prefs.controls);
     }
 
     readPreferencesFromUI() {
@@ -1042,6 +1052,11 @@ class _Preferences {
                 if (!el || !dialogOpen) return stored.cableStockDefault || '';
                 return String(el.value || '');
             })(),
+            // The Controls tab's copy while the dialog is open, else the
+            // stored set, made safe to read (controls.js clone).
+            controls: dialogOpen && this._controlsDraft && typeof this.readControlsTab === 'function'
+                ? this.readControlsTab()
+                : (window.Controls ? window.Controls.clone(stored.controls) : stored.controls),
         };
     }
 

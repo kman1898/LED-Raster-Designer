@@ -368,7 +368,7 @@
                 <button id="btn-open" class="btn" data-tooltip="Open a saved project">Open</button>
                 <button id="btn-save" class="btn" data-tooltip="Save current project">Save</button>
                 <button id="btn-export" class="btn" data-tooltip="Export PNG, PSD, SVG, PDF, Resolume XML, the pull sheet or the binder">Export</button>
-                <button id="btn-preferences" class="btn" data-tooltip="Open Preferences (Cmd/Ctrl+,)">Preferences</button>
+                <button id="btn-preferences" class="btn" data-tooltip="Open Preferences (Ctrl+,)" data-control-tip="Open Preferences ({key:preferences})">Preferences</button>
                 <!-- View > Output to Display, one click away (Matt,
                      2026-11-17); shown and enabled as that item is. -->
                 <button id="btn-output-display" class="btn" data-tooltip="Send a canvas full screen to another display, live">Output to Display</button>
@@ -2634,8 +2634,8 @@
                     <button id="btn-zoom-out" data-tooltip="Zoom out">-</button>
                     <input type="text" id="zoom-level" value="100%" style="width: 60px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; padding: 2px 4px;" data-tooltip="Zoom Level, Current zoom percentage. Type a value or use +/- buttons. Scroll wheel to zoom on canvas.">
                     <button id="btn-zoom-in" data-tooltip="Zoom in">+</button>
-                    <button id="btn-fit" data-tooltip="Fit canvas to view (Ctrl/Cmd+Shift+1)">Fit</button>
-                    <button id="btn-zoom-actual" data-tooltip="Zoom to Selection, Zoom to fit the selected screen at actual size (Ctrl/Cmd+Shift+2)">1:1</button>
+                    <button id="btn-fit" data-tooltip="Fit canvas to view (Ctrl/Cmd+Shift+1)" data-control-tip="Fit canvas to view ({key:fitToView})">Fit</button>
+                    <button id="btn-zoom-actual" data-tooltip="Zoom to Selection, Zoom to fit the selected screen at actual size (Ctrl/Cmd+Shift+2)" data-control-tip="Zoom to Selection, Zoom to fit the selected screen at actual size ({key:zoomToSelection})">1:1</button>
                     <!-- The custom-run readout: the active port (Data) or
                          circuit (Power) while a custom flow is being drawn,
                          its count against the cap, and any pending marquee
@@ -2645,20 +2645,20 @@
                     <!-- The 3D view's camera bar: shown in place of the raster
                          and zoom controls while the 3D tab is open. -->
                     <span id="s3d-toolbar" hidden>
-                        <button type="button" id="s3d-tool-move" class="s3d-toggle" data-tooltip="Move handles (W), Arrows on the selected screens slide them along one axis: X red, Y green, Z blue; the squares between two arrows move them on that plane, and G moves them from the keyboard. Hold Ctrl (Cmd on a Mac) while dragging to snap to 6 in steps, or 0.1 m in meters.">Move</button>
-                        <button type="button" id="s3d-tool-rotate" class="s3d-toggle" data-tooltip="Rotate handles (E), Rings on the selected screens turn them: Pitch red, Yaw green, Roll blue, and R turns them from the keyboard. Hold Ctrl (Cmd on a Mac) while dragging to snap to 15&deg; steps.">Rotate</button>
+                        <button type="button" id="s3d-tool-move" class="s3d-toggle" data-tooltip="Move handles (W), Arrows on the selected screens slide them along one axis: X red, Y green, Z blue; the squares between two arrows move them on that plane, and G moves them from the keyboard. Hold Ctrl (Cmd on a Mac) while dragging to snap to 6 in steps, or 0.1 m in meters." data-control-tip="Move handles ({key:moveHandles}), Arrows on the selected screens slide them along one axis: X red, Y green, Z blue; the squares between two arrows move them on that plane, and {key:grab3d} moves them from the keyboard. Hold Ctrl (Cmd on a Mac) while dragging to snap to 6 in steps, or 0.1 m in meters.">Move</button>
+                        <button type="button" id="s3d-tool-rotate" class="s3d-toggle" data-tooltip="Rotate handles (E), Rings on the selected screens turn them: Pitch red, Yaw green, Roll blue, and R turns them from the keyboard. Hold Ctrl (Cmd on a Mac) while dragging to snap to 15&deg; steps." data-control-tip="Rotate handles ({key:rotateHandles}), Rings on the selected screens turn them: Pitch red, Yaw green, Roll blue, and {key:turn3d} turns them from the keyboard. Hold Ctrl (Cmd on a Mac) while dragging to snap to 15&deg; steps.">Rotate</button>
                         <span class="s3d-bar-gap"></span>
                         <button type="button" id="s3d-mode-persp" class="s3d-toggle" data-tooltip="Perspective, Draw the stage the way a camera sees it.">Perspective</button>
                         <button type="button" id="s3d-mode-ortho" class="s3d-toggle" data-tooltip="Orthographic, Draw the stage without perspective, so sizes read true across the view.">Orthographic</button>
                         <span class="s3d-bar-gap"></span>
-                        <button type="button" data-s3d-view="front" data-tooltip="Front (1), Look at the stage from the audience.">Front</button>
-                        <button type="button" data-s3d-view="back" data-tooltip="Back (2), Look at the stage from behind the screens.">Back</button>
-                        <button type="button" data-s3d-view="left" data-tooltip="Left (3), Look at the stage from the left side.">Left</button>
-                        <button type="button" data-s3d-view="right" data-tooltip="Right (4), Look at the stage from the right side.">Right</button>
-                        <button type="button" data-s3d-view="top" data-tooltip="Top (5), Look straight down on the stage.">Top</button>
-                        <button type="button" data-s3d-view="iso" data-tooltip="Iso (6), Look at the stage from above and to one side.">Iso</button>
-                        <button type="button" id="s3d-fit" data-tooltip="Fit, Frame every screen in the view (Ctrl/Cmd+Shift+1). Press F to frame the selected screens, or double-click a screen to focus on it.">Fit</button>
-                        <button type="button" id="s3d-home" data-tooltip="Home (Home key), Go back to the starting view: in perspective, from the front and a little to one side, every screen in frame.">Home</button>
+                        <button type="button" data-s3d-view="front" data-tooltip="Front (1), Look at the stage from the audience." data-control-tip="Front ({key:viewFront}), Look at the stage from the audience.">Front</button>
+                        <button type="button" data-s3d-view="back" data-tooltip="Back (2), Look at the stage from behind the screens." data-control-tip="Back ({key:viewBack}), Look at the stage from behind the screens.">Back</button>
+                        <button type="button" data-s3d-view="left" data-tooltip="Left (3), Look at the stage from the left side." data-control-tip="Left ({key:viewLeft}), Look at the stage from the left side.">Left</button>
+                        <button type="button" data-s3d-view="right" data-tooltip="Right (4), Look at the stage from the right side." data-control-tip="Right ({key:viewRight}), Look at the stage from the right side.">Right</button>
+                        <button type="button" data-s3d-view="top" data-tooltip="Top (5), Look straight down on the stage." data-control-tip="Top ({key:viewTop}), Look straight down on the stage.">Top</button>
+                        <button type="button" data-s3d-view="iso" data-tooltip="Iso (6), Look at the stage from above and to one side." data-control-tip="Iso ({key:viewIso}), Look at the stage from above and to one side.">Iso</button>
+                        <button type="button" id="s3d-fit" data-tooltip="Fit, Frame every screen in the view (Ctrl+Shift+1). Press F to frame the selected screens, or double-click a screen to focus on it." data-control-tip="Fit, Frame every screen in the view ({key:fitToView}). Press {key:frame3d} to frame the selected screens, or double-click a screen to focus on it.">Fit</button>
+                        <button type="button" id="s3d-home" data-control-tip="Home ({key:home3d}), Go back to the starting view: in perspective, from the front and a little to one side, every screen in frame." data-tooltip="Home (Home key), Go back to the starting view: in perspective, from the front and a little to one side, every screen in frame.">Home</button>
                         <span class="s3d-bar-gap"></span>
                         <button type="button" id="s3d-grid" class="s3d-toggle" data-tooltip="Floor grid, Show or hide the floor grid and the origin mark.">Grid</button>
                         <button type="button" id="s3d-bars" class="s3d-toggle" data-tooltip="Header and footer bars, Show or hide the bars the Header/Footer tab builds above and below each screen.">Bars</button>
@@ -2680,7 +2680,7 @@
                         <button type="button" id="idm-clear-all" data-tooltip="Clear all marks, Clear every mark on every screen.">Clear all marks</button>
                         <span class="idm-bar-hint">Click a module to mark or clear it, drag to paint, right-click a mark to clear it.</span>
                     </span>
-                    <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap screens to grid when dragging (Ctrl/Cmd+Shift+')">
+                    <label class="magnet-toggle" style="margin-left: 15px;" data-tooltip="Snap screens to grid when dragging (Ctrl+Shift+')" data-control-tip="Snap screens to grid when dragging ({key:toggleSnap})">
                         <input type="checkbox" id="magnetic-snap" checked>
                         <span>🧲 Snap</span>
                     </label>
@@ -3220,6 +3220,7 @@
                 <button type="button" class="view-tab" data-key="binder">Binder</button>
                 <button type="button" class="view-tab" data-key="pull">Pull sheet &amp; cables</button>
                 <button type="button" class="view-tab" data-key="stock">Cable stock</button>
+                <button type="button" class="view-tab" data-key="controls">Controls</button>
             </div>
             <div class="pm-body">
                 <section class="pm-section active" id="pm-sec-wall" data-key="wall">
@@ -3851,6 +3852,22 @@
                         </div>
                     </div>
                 </section>
+                <!-- Controls (the owner's rulings, 2026-11-18; app-controls.js):
+                     every rebindable action by area with its keys, the 3D
+                     mouse presets and per action buttons, the fixed keys.
+                     Saved per person with the rest of Preferences, never
+                     with the show. The list scrolls inside itself. -->
+                <section class="pm-section" id="pm-sec-controls" data-key="controls">
+                    <div class="prefs-group pm-controls">
+                        <div class="pm-controls-top">
+                            <input type="search" id="pref-controls-search" placeholder="Search actions or keys" aria-label="Search the controls" data-tooltip="Search, Type part of an action or a key, like copy or Ctrl, to show only those rows.">
+                            <button type="button" id="pref-controls-reset-all" class="btn" data-tooltip="Reset all to defaults, Put every key and the 3D mouse back the way the app ships. Asks first; Save keeps it.">Reset all to defaults</button>
+                        </div>
+                        <div class="pm-controls-intro">Click a key to set a new one; Esc cancels. Save keeps your changes.</div>
+                        <div class="pm-controls-note" id="pref-controls-note" role="status" hidden></div>
+                        <div class="pm-scroll" id="pref-controls-list"></div>
+                    </div>
+                </section>
             </div>
             <div class="pm-foot">
                 <button id="preferences-reset" class="btn">Reset Defaults</button>
@@ -3870,21 +3887,22 @@
         <div class="modal-content sc-modal">
             <h2 style="margin-top: 0; color: #fff; margin-bottom: 14px; font-size: 20px; text-align: center;">Keyboard Shortcuts &amp; Controls</h2>
             <div class="sc-body">
+            <p class="sc-note">Set any key in Preferences &gt; Controls; this list shows yours.</p>
             <section class="sc-group">
                 <h3>Everywhere</h3>
                 <table class="sc-table">
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Z / <span data-sc-mod>Ctrl</span>+Shift+Z</td><td>Undo / redo</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+C / <span data-sc-mod>Ctrl</span>+V</td><td>Copy / paste the selected screen</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+J</td><td>Duplicate the selected screens</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+A</td><td>Select every screen on the canvas (every cabinet of the screen when a cabinet selection is open)</td></tr>
-                    <tr><td class="sc-key">Delete / Backspace</td><td>Delete the selected screen on the Pixel Map tab; on Header/Footer, take off the clicked bar or the selected screens' bars; on the IDM Locator, clear the mark. Other tabs: nothing (right-click the screen in the Screens list to delete it)</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+,</td><td>Open Preferences</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+O</td><td>Open a project file</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+S</td><td>Save the project to a file</td></tr>
-                    <tr><td class="sc-key">Alt+S / <span data-sc-mod>Ctrl</span>+Alt+S</td><td>Export PNG / Export PSD</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Shift+1</td><td>Fit to view</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Shift+2</td><td>Zoom to selection (1:1)</td></tr>
-                    <tr><td class="sc-key"><span data-sc-mod>Ctrl</span>+Shift+'</td><td>Toggle snap</td></tr>
+                    <tr><td class="sc-key" data-sc-control="undo redo"><span data-sc-mod>Ctrl</span>+Z / <span data-sc-mod>Ctrl</span>+Shift+Z</td><td>Undo / redo</td></tr>
+                    <tr><td class="sc-key" data-sc-control="copy paste"><span data-sc-mod>Ctrl</span>+C / <span data-sc-mod>Ctrl</span>+V</td><td>Copy / paste the selected screen</td></tr>
+                    <tr><td class="sc-key" data-sc-control="duplicate"><span data-sc-mod>Ctrl</span>+J</td><td>Duplicate the selected screens</td></tr>
+                    <tr><td class="sc-key" data-sc-control="selectAll"><span data-sc-mod>Ctrl</span>+A</td><td>Select every screen on the canvas (every cabinet of the screen when a cabinet selection is open)</td></tr>
+                    <tr><td class="sc-key" data-sc-control="deleteScreen">Delete / Backspace</td><td>Delete the selected screen on the Pixel Map tab; Header/Footer and the IDM Locator have their own (below). Other tabs: nothing (right-click the screen in the Screens list to delete it)</td></tr>
+                    <tr><td class="sc-key" data-sc-control="preferences"><span data-sc-mod>Ctrl</span>+,</td><td>Open Preferences</td></tr>
+                    <tr><td class="sc-key" data-sc-control="open"><span data-sc-mod>Ctrl</span>+O</td><td>Open a project file</td></tr>
+                    <tr><td class="sc-key" data-sc-control="save"><span data-sc-mod>Ctrl</span>+S</td><td>Save the project to a file</td></tr>
+                    <tr><td class="sc-key" data-sc-control="exportPng exportPsd">Alt+S / <span data-sc-mod>Ctrl</span>+Alt+S</td><td>Export PNG / Export PSD</td></tr>
+                    <tr><td class="sc-key" data-sc-control="fitToView"><span data-sc-mod>Ctrl</span>+Shift+1</td><td>Fit to view</td></tr>
+                    <tr><td class="sc-key" data-sc-control="zoomToSelection"><span data-sc-mod>Ctrl</span>+Shift+2</td><td>Zoom to selection (1:1)</td></tr>
+                    <tr><td class="sc-key" data-sc-control="toggleSnap"><span data-sc-mod>Ctrl</span>+Shift+'</td><td>Toggle snap</td></tr>
                     <tr><td class="sc-key">Scroll wheel</td><td>Zoom at the cursor; a sideways trackpad swipe pans</td></tr>
                     <tr><td class="sc-key">Space+drag / middle-button drag</td><td>Pan the canvas</td></tr>
                     <tr><td class="sc-key">Enter in the zoom % field</td><td>Apply the typed zoom</td></tr>
@@ -3926,6 +3944,7 @@
             <section class="sc-group">
                 <h3>3D</h3>
                 <table class="sc-table">
+                    <tbody data-sc-mouse-rows>
                     <tr><td class="sc-key">Middle-drag</td><td>Orbit around the point under the cursor</td></tr>
                     <tr><td class="sc-key">Shift+middle-drag / right-drag</td><td>Pan the view</td></tr>
                     <tr><td class="sc-key">Scroll wheel</td><td>Zoom toward the cursor</td></tr>
@@ -3935,19 +3954,35 @@
                     <tr><td class="sc-key">Right-click (Control+click on a Mac)</td><td>Open the screen menu</td></tr>
                     <tr><td class="sc-key">Drag across empty space</td><td>Box-select the screens it touches; hold Shift or <span data-sc-mod>Ctrl</span> to add them</td></tr>
                     <tr><td class="sc-key">Drag a selected screen</td><td>Move it across the floor; Shift+drag raises or lowers it</td></tr>
+                    </tbody>
                     <tr><td class="sc-key">Double-click a screen</td><td>Focus the camera on it</td></tr>
-                    <tr><td class="sc-key">F / Home</td><td>Frame the selected screens (every screen with none) / go back to the starting view</td></tr>
-                    <tr><td class="sc-key">1 to 6</td><td>Front, Back, Left, Right, Top, Iso views</td></tr>
-                    <tr><td class="sc-key">W / E</td><td>Move arrows / Rotate rings on the selected screens</td></tr>
+                    <tr><td class="sc-key" data-sc-control="frame3d home3d">F / Home</td><td>Frame the selected screens (every screen with none) / go back to the starting view</td></tr>
+                    <tr><td class="sc-key" data-sc-control="viewFront viewBack viewLeft viewRight viewTop viewIso">1 to 6</td><td>Front, Back, Left, Right, Top, Iso views</td></tr>
+                    <tr><td class="sc-key" data-sc-control="moveHandles rotateHandles">W / E</td><td>Move arrows / Rotate rings on the selected screens</td></tr>
                     <tr><td class="sc-key"><span data-sc-mod>Ctrl</span> while dragging</td><td>Snap moves to 6 in (0.1 m) and turns to 15&deg;</td></tr>
                     <tr><td class="sc-key">Arrow keys / Page Up, Page Down</td><td>Nudge the selection across the floor / up and down; Shift for bigger steps</td></tr>
                     <tr><td class="sc-key">Esc while dragging</td><td>Put the screens back where the drag started</td></tr>
                     <tr><td class="sc-key">Drag a figure in the 3D panel</td><td>Change it as you drag; Shift for fine steps, <span data-sc-mod>Ctrl</span> snaps to 1 in (1 cm) or 15&deg;. Drag down first to take the next figures along</td></tr>
                     <tr><td class="sc-key">Click / double-click a figure</td><td>Type at that spot / select the whole figure; Tab and Shift+Tab go X, Y, Z, Pitch, Yaw, Roll; Up and Down nudge; the &lsaquo; &rsaquo; arrows step</td></tr>
                     <tr><td class="sc-key">Right-click a figure</td><td>Reset, copy or paste it or all three; Pitch, Yaw and Roll also +90 and -90</td></tr>
-                    <tr><td class="sc-key">G / R</td><td>Move / turn the selection with the mouse; X, Y or Z locks an axis, type a figure, Enter or a click keeps it, Esc puts it back</td></tr>
+                    <tr><td class="sc-key" data-sc-control="grab3d turn3d">G / R</td><td>Move / turn the selection with the mouse; X, Y or Z locks an axis, type a figure, Enter or a click keeps it, Esc puts it back</td></tr>
                     <tr><td class="sc-key">Drag a square between two arrows</td><td>Move the selection on that plane</td></tr>
                     <tr><td class="sc-key">Click a seam or the middle of a panel</td><td>With Add corners on, on the selected screen: a 90&deg; corner there, None, Interior or Exterior</td></tr>
+                </table>
+            </section>
+            <section class="sc-group">
+                <h3>Header/Footer</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key" data-sc-control="removeBars">Delete / Backspace</td><td>Take off the clicked bar, or with none clicked the selected screens' bars</td></tr>
+                </table>
+            </section>
+            <section class="sc-group">
+                <h3>IDM Locator</h3>
+                <table class="sc-table">
+                    <tr><td class="sc-key">Arrow keys / Shift+arrow keys</td><td>Move the highlight a module / a cabinet</td></tr>
+                    <tr><td class="sc-key">Space (a tap)</td><td>Mark the highlighted module, or clear its mark</td></tr>
+                    <tr><td class="sc-key" data-sc-control="clearMark">Delete / Backspace</td><td>Clear the highlighted module's mark; a screen is never deleted here</td></tr>
+                    <tr><td class="sc-key">Esc</td><td>Clear the highlight, or put back a drag of marks</td></tr>
                 </table>
             </section>
             <section class="sc-group">
@@ -3958,7 +3993,7 @@
                     <tr><td class="sc-key">Click cabinets / arrow keys</td><td>Extend the port's path while redrawing or in custom mode</td></tr>
                     <tr><td class="sc-key">Drag across cabinets (custom mode)</td><td>Select cabinets for a pattern button</td></tr>
                     <tr><td class="sc-key">Esc</td><td>End the redraw (the drawing stays) or drop the cabinet selection</td></tr>
-                    <tr><td class="sc-key">Tab / Shift+Tab, ] / [</td><td>Next / previous port in custom mode</td></tr>
+                    <tr><td class="sc-key" data-sc-control="nextPort prevPort">Tab / Shift+Tab, ] / [</td><td>Next / previous port in custom mode</td></tr>
                     <tr><td class="sc-key">Right-click a run</td><td>Redraw port N, Port N back to auto, Clear port N</td></tr>
                     <tr><td class="sc-key">Shift+click a run</td><td>Pick that port (Shift+click again to drop it)</td></tr>
                     <tr><td class="sc-key">Shift+drag a box from a run</td><td>Pick every port the box touches</td></tr>
@@ -3973,7 +4008,7 @@
                     <tr><td class="sc-key">Esc mid-drag</td><td>Cancel the drag</td></tr>
                     <tr><td class="sc-key">Alt+press a port chip, sweep across chips</td><td>Light a run of ports, across cards and boxes</td></tr>
                     <tr><td class="sc-key">Right-click the lit ports</td><td>Snake these N, Set home run…, Unsnake</td></tr>
-                    <tr><td class="sc-key">Alt+Enter</td><td>Snake the lit ports</td></tr>
+                    <tr><td class="sc-key" data-sc-control="snakePorts">Alt+Enter</td><td>Snake the lit ports</td></tr>
                     <tr><td class="sc-key">Esc / click away</td><td>Drop the lit ports</td></tr>
                     <tr><td class="sc-key">Right-click a snake's tag</td><td>Rename, Set home run of…, Unsnake</td></tr>
                     <tr><td class="sc-key">≡ on a card or box header</td><td>Flip its chips into the cable sheet: snakes and home runs per port</td></tr>
@@ -3995,7 +4030,7 @@
                     <tr><td class="sc-key">Click cabinets / arrow keys</td><td>Extend the circuit's path while redrawing or in custom mode</td></tr>
                     <tr><td class="sc-key">Drag across cabinets (custom mode)</td><td>Select cabinets for a pattern button</td></tr>
                     <tr><td class="sc-key">Esc</td><td>End the redraw, or drop the sweep or the cabinet selection</td></tr>
-                    <tr><td class="sc-key">Tab / Shift+Tab, ] / [</td><td>Next / previous circuit in custom mode</td></tr>
+                    <tr><td class="sc-key" data-sc-control="nextCircuit prevCircuit">Tab / Shift+Tab, ] / [</td><td>Next / previous circuit in custom mode</td></tr>
                     <tr><td class="sc-key">Drag a multi slot, circuit chip or distro onto a screen</td><td>Assign it: a slot lands on a circuit, a distro feeds the screen's unassigned multis</td></tr>
                     <tr><td class="sc-key">Drag an assigned slot or circuit chip back onto the tray</td><td>Clear it</td></tr>
                     <tr><td class="sc-key">Click a box's type chip</td><td>Cycle its connector type</td></tr>
@@ -4325,6 +4360,13 @@
             column-count: 2;
             column-gap: 28px;
         }
+        #shortcuts-modal .sc-note {
+            column-span: all;
+            margin: 0 0 12px 0;
+            font-size: 11.5px;
+            color: #888;
+            text-align: center;
+        }
         #shortcuts-modal .sc-group {
             break-inside: avoid;
             margin-bottom: 14px;
@@ -4372,6 +4414,8 @@
          first use, so nothing loads until the 3D tab opens. -->
     <script type="importmap">{"imports": {"three": "/static/vendor/three/three.module.min.js"}}</script>
     <script src="/static/js/socket.io.min.js"></script>
+    <!-- the keys and the 3D mouse as set in Preferences > Controls -->
+    <script src="/static/js/controls.js"></script>
     <script src="/static/js/canvas.js"></script>
     <!-- CanvasRenderer mixins: classic scripts that Object.assign onto
          CanvasRenderer.prototype. They must follow canvas.js and precede

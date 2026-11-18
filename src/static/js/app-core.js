@@ -836,6 +836,8 @@ export class LEDRasterApp {
         } catch (e) {
             console.error('Error fetching server preferences:', e);
         }
+        // The printed keys and the 3D hint follow the person's Controls.
+        if (typeof this.refreshControlLabels === 'function') this.refreshControlLabels();
         // The saved cable stock presets, before the project loads: the
         // pristine startup show takes the default one's stock in the same
         // pass that takes the cable unit (app-cable-stock.js).
@@ -974,6 +976,8 @@ export class LEDRasterApp {
             this._serverPreferences = prefs;
             // the Quick Palettes may now come from the user's own eight
             if (typeof this.renderQuickPalettes === 'function') this.renderQuickPalettes();
+            // and the printed keys from the person's Controls
+            if (typeof this.refreshControlLabels === 'function') this.refreshControlLabels();
         });
         // The app quit or went away: the page dims and waits for it
         // (app-server-link.js). After the handlers above, so a connect

@@ -1,7 +1,8 @@
 // app-stage3d-nav: getting around the 3D tab, and picking screens in it.
 //
 // Standard 3D navigation (the owner's ruling, 2026-11-08), for ease of
-// interaction:
+// interaction - the Standard preset of Preferences > Controls, the one a
+// new person has:
 //
 //   middle-drag          orbit, round the point under the cursor when the
 //                        press lands on a screen (else the view's centre),
@@ -23,6 +24,13 @@
 //                        handles, G and R move or turn from the keyboard,
 //                        the arrows and Page Up / Down nudge
 //                        (app-stage3d-handles.js), Esc cancels a drag.
+//
+// Preferences > Controls (2026-11-18) sets the mouse per person: the
+// Standard preset above, Orbit first (a left drag on empty space orbits
+// round the view's centre, Shift or Cmd / Ctrl + drag draws the box, a drag
+// on a selected screen still moves it), then any action on its own button
+// and modifier. controls.js resolvePress reads a press against that map;
+// touch is never the map's.
 //
 // The orbit controls (static/vendor/three) keep touch only; the mouse and
 // the wheel never reach them. Every camera move is view state: saved with
@@ -47,6 +55,17 @@ const PAD_GAP_MS = 250;          // trackpad events closer than this are one ges
 const VIEW_KEYS = ['front', 'back', 'left', 'right', 'top', 'iso'];
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// The view's keys: each Controls action (controls.js) and what it does.
+const KEY_ACTIONS = [
+    ['frame3d', function () { this._s3dFrameSelection(); }],
+    ['home3d', function () { this._s3dHome(); }],
+    ['moveHandles', function () { this._s3dSetTool('move'); }],
+    ['rotateHandles', function () { this._s3dSetTool('rotate'); }],
+    ['grab3d', function () { this._s3dKeyTransformStart('move'); }],
+    ['turn3d', function () { this._s3dKeyTransformStart('rotate'); }],
+].concat(['viewFront', 'viewBack', 'viewLeft', 'viewRight', 'viewTop', 'viewIso'].map((id, i) =>
+    [id, function () { this._s3dPreset(VIEW_KEYS[i]); }]));
 
 class _Stage3DNav {
     // ── wiring ────────────────────────────────────────────────────────────
@@ -124,31 +143,48 @@ class _Stage3DNav {
             try { st.renderer.domElement.setPointerCapture(ev.pointerId); } catch (e) { /* a dispatched press */ }
             return;
         }
-        const camera = !touch && (ev.button === 1 || ev.button === 2 || (ev.button === 0 && ev.altKey));
-        if (camera) {
+        // What the press is, by the person's mouse map (controls.js
+        // resolvePress): a camera move at once, a press that waits to see
+        // whether it is a click or a drag, or nothing. Touch keeps its own
+        // way (a left press here, the orbit controls on empty space).
+        const mods = { shift: ev.shiftKey, alt: ev.altKey, mod: ev.ctrlKey || ev.metaKey };
+        const plan = touch
+            ? (ev.button === 0 ? { pick: true, select: true, move: true, moveMod: 'none', box: false, defer: null } : null)
+            : window.Controls.resolvePress(this.controlMouseMap(), Object.assign({ button: ev.button }, mods));
+        if (!plan) return;
+        if (plan.camera) {
             ev.preventDefault();
             this._s3dReleaseField();
-            this._s3dStartCamera(ev, (ev.button === 2 || ev.shiftKey) ? 'pan' : 'orbit');
+            this._s3dStartCamera(ev, plan.camera);
             return;
         }
-        if (ev.button !== 0) return;
+        if (ev.button !== 0) {
+            // The middle or right button's own browser habits stay out of
+            // a press the map gives to selecting.
+            ev.preventDefault();
+            this._s3dReleaseField();
+        }
         const handle = this._s3dHandlePick(ev.clientX, ev.clientY);
         const hit = this._s3dPick(ev.clientX, ev.clientY);
         const n = {
             kind: 'press', id: ev.pointerId, x: ev.clientX, y: ev.clientY, lastX: ev.clientX, lastY: ev.clientY,
             moved: false, hit, handle, touch, shift: ev.shiftKey, mod: ev.ctrlKey || ev.metaKey,
+            button: ev.button, plan,
         };
         st.nav = n;
+        const moveOk = plan.move && (plan.moveMod === 'mod' || !n.mod);
         if (handle) {
             // A press on a handle drags it; a click on one (no travel) is a
             // click on what lies under it.
             st.controls.enabled = false;
-        } else if (hit && this._s3dSelectedIds().has(hit.layerId) && !n.mod) {
-            this._s3dArmBodyMove(hit, ev.shiftKey);
+        } else if (hit && this._s3dSelectedIds().has(hit.layerId) && moveOk) {
+            this._s3dArmBodyMove(hit, ev.shiftKey && plan.moveMod !== 'shift');
         } else if (!touch) {
-            // A left press never moves the camera: a drag from here draws a
-            // selection box.
+            // A drag from here draws the box, or from empty space is the
+            // camera move the map gives that drag (Orbit first: a left drag
+            // orbits); a click selects or lets go either way.
             st.controls.enabled = false;
+            n.orbit = !hit && plan.defer ? plan.defer : null;
         }
         // Touch on empty space or an unselected screen is the orbit
         // controls' own (one finger orbits), as before.
@@ -210,6 +246,12 @@ class _Stage3DNav {
             this._s3dPanBy(dx, dy, n.depth);
             return;
         }
+        if (n.kind === 'zoom') {
+            // A drag that zooms (the mouse map's Zoom on a button): down
+            // nears, up backs off, toward where the press came down.
+            this._s3dZoomAt(n.x, n.y, Math.exp(clamp(dy * 0.005, -1, 1)));
+            return;
+        }
         if (n.kind === 'press') {
             if (!n.moved) return;
             if (n.handle) {
@@ -219,13 +261,39 @@ class _Stage3DNav {
                 n.kind = 'move';
             } else if (n.touch) {
                 n.kind = 'touch';
-            } else {
+            } else if (n.orbit) {
+                this._s3dPressToCamera(n, ev);
+                return;
+            } else if (!n.plan || n.plan.box) {
                 n.kind = 'box';
+            } else {
+                n.kind = 'idle';
             }
         }
         if (n.kind === 'handle') this._s3dHandleMove(n, ev);
         else if (n.kind === 'move') this._s3dBodyMove(ev);
         else if (n.kind === 'box') this._s3dBoxMove(n, ev);
+    }
+
+    // A press on empty space that travels turns into the camera move the
+    // mouse map gives that drag (Orbit first: an orbit round the view's
+    // centre), and takes the travel so far along. Its release logs and
+    // saves the camera like any camera move (_s3dPointerUp).
+    _s3dPressToCamera(n, ev) {
+        const st = this._s3dState();
+        n.kind = n.orbit;
+        if (n.kind === 'orbit') {
+            n.pivot = st.controls.target.clone();
+            this._s3dPivotMark(n.pivot);
+            this._s3dViewClass('s3d-orbiting', true);
+            this._s3dOrbitBy(ev.clientX - n.x, ev.clientY - n.y, n.pivot);
+        } else if (n.kind === 'pan') {
+            n.depth = st.controls.target.clone();
+            this._s3dViewClass('s3d-panning', true);
+            this._s3dPanBy(ev.clientX - n.x, ev.clientY - n.y, n.depth);
+        } else if (n.kind === 'zoom') {
+            this._s3dZoomAt(n.x, n.y, Math.exp(clamp((ev.clientY - n.y) * 0.005, -1, 1)));
+        }
     }
 
     _s3dBodyMove(ev) {
@@ -266,7 +334,7 @@ class _Stage3DNav {
         this._s3dViewClass('s3d-panning', false);
         this._s3dViewClass('s3d-grab', false);
         this._s3dPivotMark(null);
-        if (n.kind === 'orbit' || n.kind === 'pan') {
+        if (n.kind === 'orbit' || n.kind === 'pan' || n.kind === 'zoom') {
             if (n.moved) {
                 this._s3dSaveCameraSoon();
                 sendClientLog('stage3d_camera', { gesture: n.kind, button: n.button });
@@ -303,7 +371,11 @@ class _Stage3DNav {
             this._s3dBoxEnd(n, cancelled);
             return;
         }
-        if (n.kind === 'press' && !cancelled) this._s3dClick(n.hit, ev);
+        if (n.kind === 'press' && !cancelled) {
+            if (!n.plan || n.plan.select) this._s3dClick(n.hit, ev);
+            // A right click the map gives to selecting still opens the menu.
+            if (n.button === 2 && typeof this.showContextMenu === 'function') this.showContextMenu(ev.clientX, ev.clientY);
+        }
     }
 
     // Puts the screens a preview moved back where they stand.
@@ -360,7 +432,7 @@ class _Stage3DNav {
             n.depth = hit ? hit.point.clone() : st.controls.target.clone();
         }
         st.nav = n;
-        this._s3dViewClass(kind === 'orbit' ? 's3d-orbiting' : 's3d-panning', true);
+        if (kind !== 'zoom') this._s3dViewClass(kind === 'orbit' ? 's3d-orbiting' : 's3d-panning', true);
         try { st.renderer.domElement.setPointerCapture(ev.pointerId); } catch (e) { /* a dispatched press */ }
     }
 
@@ -762,22 +834,16 @@ class _Stage3DNav {
         const nudgeKey =/^(Arrow(Up|Down|Left|Right)|PageUp|PageDown)$/.test(ev.key || '');
         if (!nudgeKey) this._s3dNudgeCommit();
         if (isTypingTarget(document.activeElement) || this._s3dDialogOpen()) return;
-        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
         if (st.nav) return;
-        const key = ev.key || '';
-        const letter = key.length === 1 ? key.toLowerCase() : '';
-        const code = ev.code || '';
-        const digit = /^(Digit|Numpad)[1-6]$/.test(code) ? Number(code.slice(-1))
-            : (/^[1-6]$/.test(key) && !ev.shiftKey ? Number(key) : 0);
+        // The view's keys are the person's (Preferences > Controls), each
+        // with exactly its own modifiers; shipped: F frame, Home, 1 to 6 the
+        // views, W and E the handles, G and R move and turn from the
+        // keyboard. The nudge keys are fixed, and never with Ctrl, Cmd or
+        // Alt (Shift makes the step bigger).
         let act = null;
-        if (nudgeKey) act = () => this._s3dNudgeKey(ev);
-        else if (letter === 'f') act = () => this._s3dFrameSelection();
-        else if (key === 'Home') act = () => this._s3dHome();
-        else if (letter === 'w') act = () => this._s3dSetTool('move');
-        else if (letter === 'e') act = () => this._s3dSetTool('rotate');
-        else if (letter === 'g') act = () => this._s3dKeyTransformStart('move');
-        else if (letter === 'r') act = () => this._s3dKeyTransformStart('rotate');
-        else if (digit && !ev.shiftKey) act = () => this._s3dPreset(VIEW_KEYS[digit - 1]);
+        const own = KEY_ACTIONS.find(([id]) => this.controlMatches(ev, id));
+        if (own) act = () => own[1].call(this);
+        else if (nudgeKey && !(ev.ctrlKey || ev.metaKey || ev.altKey)) act = () => this._s3dNudgeKey(ev);
         if (!act) return;
         ev.preventDefault();
         ev.stopPropagation();

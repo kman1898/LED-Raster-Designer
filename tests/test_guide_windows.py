@@ -91,7 +91,8 @@ GUIDE_RUNS = {
     'threeD': [['outputOpen', 'outputChoices']],                     # output
     'idm': [],
     'binder': [['exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet',
-                'fiberPage', 'titleBlock']],                         # export:binder
+                'fiberPage', 'titleBlock'],                          # export:binder
+               ['preferences', 'controls']],                         # prefs
 }
 # The guides whose steps share a window somewhere.
 RUN_GUIDES = [g for g, runs in GUIDE_RUNS.items() if runs]
