@@ -53,6 +53,10 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 @media (max-width: 1279px) {
     #toolbar h1 .lrd-app-title { display: none; }
     #toolbar h1 .lrd-logo-mark { margin-right: 0 !important; }
+    /* Match Screens beside Canvas Size (2026-11-18) made the canvas strip
+       about 10 px too wide for one row at 1120: below 1280 the strip may
+       wrap too, which it only does where its controls don't fit. */
+    #canvas-controls { flex-wrap: wrap; row-gap: 6px; }
 }
 #project-name { color: #e0e0e0; font-size: 13px; background: transparent; border: 1px solid transparent; padding: 4px 8px; border-radius: 4px; min-width: 200px; }
 #project-name:hover { background: #1a1a1a; border-color: #3a3a3a; }

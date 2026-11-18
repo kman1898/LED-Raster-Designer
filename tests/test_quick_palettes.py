@@ -1051,7 +1051,7 @@ def test_a_real_palette_source_pick_passes_the_field_guard(page):
 # Guides order, each guide's steps in its own.
 NEW_IN_1_7 = [
     # Pixel Map
-    'quickPalettes', 'groupDrag', 'groupMove', 'checkUpdates',
+    'quickPalettes', 'groupDrag', 'groupMove', 'matchScreens', 'checkUpdates',
     # Data
     'processorIp',
     # Power

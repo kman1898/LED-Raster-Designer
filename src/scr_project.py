@@ -799,7 +799,7 @@ def calculate_port_assignments(layer, canvas_height=0, warnings=None, stats=None
         if ll_geometry.get('yDerate') and not height > 0 and warnings is not None:
             warnings.warn(
                 'll-no-height-%s' % layer.get('id'),
-                'layer %s ("%s"): Low Latency is on but its canvas has no raster '
+                'layer %s ("%s"): Low Latency is on but its canvas has no '
                 'height, so the (1 - Y/H) derate was NOT applied. Port count may be '
                 'optimistic.' % (layer.get('id'), layer.get('name')))
 

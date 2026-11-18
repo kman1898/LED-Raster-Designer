@@ -4076,7 +4076,7 @@
         },
         fit: {
             target: '#btn-fit', place: 'bottom', title: 'Fit',
-            body: 'Fit frames the whole raster in the window. Scroll to zoom and Space+drag to pan from there.',
+            body: 'Fit frames the whole canvas in the window. Scroll to zoom and Space+drag to pan from there.',
             before: function () { switchView('pixel-map'); },
             act: function (t) { return t.click('#btn-fit').then(function () { return t.pause(300); }); },
             check: function () {
@@ -8699,6 +8699,43 @@
                 return 'One Alt+drag down LEFTOVERS picked ports 1-3; the menu offered ' + mem.label + '.';
             }
         },
+        // Match Screens (1.7.0, app-canvas-ui.js matchCanvasToScreens; the
+        // owner, 2026-11-18): the toolbar button beside Canvas Size. The
+        // scratch show's 5K canvas comes in to the demo walls' right and
+        // bottom edges, and the walls stay where they are. It plays in the
+        // Pixel Map guide only, after the groups and outside every BUILD
+        // run, so no other guide's demo show is built on the smaller canvas.
+        matchScreens: {
+            since: '1.7.0',
+            target: '#btn-match-screens', place: 'bottom', title: 'Match Screens',
+            ring: ['#toolbar-raster-width', '#toolbar-raster-height', '#btn-match-screens'],
+            body: 'Match Screens sizes the canvas so every visible screen on it fits, from 0,0: the width reaches the furthest right edge and the height the lowest bottom edge. The screens stay where they are.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('pixel-map'); frameWalls(); },
+            act: function (t) {
+                var r = R();
+                t.mem.before = [r.rasterWidth, r.rasterHeight];
+                t.mem.at = screens().map(function (l) { return [l.id, l.offset_x, l.offset_y]; });
+                return t.click('#btn-match-screens').then(function () {
+                    return t.wait(function () {
+                        var r2 = R();
+                        return r2.rasterWidth !== t.mem.before[0] || r2.rasterHeight !== t.mem.before[1];
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the canvas did not change size');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var a = A(), r = R();
+                var want = a._matchScreensSize ? a._matchScreensSize() : null;
+                if (!want || r.rasterWidth !== want.width || r.rasterHeight !== want.height) return null;
+                if ($('#toolbar-raster-width').value !== String(want.width)
+                    || $('#toolbar-raster-height').value !== String(want.height)) return null;
+                var still = screens().map(function (l) { return [l.id, l.offset_x, l.offset_y]; });
+                if (JSON.stringify(still) !== JSON.stringify(mem.at || [])) return null;
+                return 'The canvas is now ' + want.width + ' × ' + want.height + ', and no screen moved.';
+            }
+        },
         // Help > Guides (owner, 2026-11-11): every guide is on the one
         // submenu. It opens on the item's CSS :hover, which the ghost hand
         // cannot raise, so the act opens it while the hand rests on the
@@ -9679,7 +9716,7 @@
     // its steps between its intro and its outro.
     var GUIDE_DEFS = [
         { name: 'pixelMap', title: 'Pixel Map', prep: [],
-          own: BUILD.pixelWall.concat(BUILD.pixelScreens, BUILD.pixelGroups, ['helpMenu', 'checkUpdates']),
+          own: BUILD.pixelWall.concat(BUILD.pixelScreens, BUILD.pixelGroups, ['matchScreens', 'helpMenu', 'checkUpdates']),
           intro: 'This guide builds a wall on a scratch show: its cabinets, blanking and colors, Show Look, a second screen, beaches and groups. Your own project is put back when you leave.' },
         { name: 'data', title: 'Data', prep: BUILD.pixelWall,
           own: BUILD.data.concat(DATA_PRACTICE),

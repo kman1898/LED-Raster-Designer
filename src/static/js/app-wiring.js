@@ -2413,7 +2413,8 @@ class _Wiring {
         
     }
 
-    // The toolbar Raster: W x H fields, written to the active canvas.
+    // The toolbar Canvas Size: W x H fields, written to the active canvas,
+    // and the Match Screens button beside them.
     _wireToolbarRaster() {
         const rasterWidthInput = document.getElementById('toolbar-raster-width');
         const rasterHeightInput = document.getElementById('toolbar-raster-height');
@@ -2449,8 +2450,15 @@ class _Wiring {
             });
         }
         
+        // Match Screens: the canvas takes its visible screens' right and
+        // bottom edges, written through the same path as the fields.
+        const matchBtn = document.getElementById('btn-match-screens');
+        if (matchBtn) {
+            matchBtn.addEventListener('click', () => { this.matchCanvasToScreens(); });
+        }
+
         // Note: loadRasterSize() is called in init() before setupEventListeners
-        
+
     }
 
     // New / Open / Save / Preferences / Export buttons and the whole

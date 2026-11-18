@@ -800,10 +800,10 @@
                             </div>
                         </div>
                         <div style="margin-top: 12px;">
-                            <button id="show-look-reset" class="btn" style="width:100%;" data-tooltip="Reset this screen's Show Look position to match its Pixel Map position. Also re-links its canvas's Show Look raster to its Pixel Map raster.">Reset to Pixel Map Position</button>
+                            <button id="show-look-reset" class="btn" style="width:100%;" data-tooltip="Reset this screen's Show Look position to match its Pixel Map position. Also re-links its canvas's Show Look canvas size to its Pixel Map canvas size.">Reset to Pixel Map Position</button>
                         </div>
                         <div style="margin-top: 6px;">
-                            <button id="show-look-reset-all" class="btn" style="width:100%;" data-tooltip="Reset the ENTIRE Show Look across every canvas: all screen positions, show-canvas overrides, and show-raster sizes snap back to mirror Pixel Map. Undoable.">Reset Entire Show Look</button>
+                            <button id="show-look-reset-all" class="btn" style="width:100%;" data-tooltip="Reset the ENTIRE Show Look across every canvas: all screen positions, show-canvas overrides, and Show Look canvas sizes snap back to mirror Pixel Map. Undoable.">Reset Entire Show Look</button>
                         </div>
                     </div>
                 </div>
@@ -2554,7 +2554,7 @@
                         <div class="info-row" style="margin-top:12px; border-top:1px solid #3a3a3a; padding-top:10px;">
                             <label style="text-transform:uppercase; font-size:10px; color:#888; margin-bottom:6px; display:block;">Dynamic Info</label>
                             <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
-                                <input type="checkbox" id="text-layer-show-raster-size"> Raster Size
+                                <input type="checkbox" id="text-layer-show-raster-size"> Canvas Size
                             </label>
                             <label style="display:flex; align-items:center; gap:6px; cursor:pointer; margin-bottom:4px;">
                                 <input type="checkbox" id="text-layer-show-project-name"> Project Name
@@ -2622,14 +2622,19 @@
 
             <div id="canvas-container">
                 <div id="canvas-controls">
-                    <span class="toolbar-label">Raster:</span>
-                    <input type="text" id="toolbar-raster-width" value="1920" class="canvas-raster-input" data-tooltip="Raster Width, Total canvas width in pixels. This is the output resolution width.">
+                    <span class="toolbar-label">Canvas Size:</span>
+                    <input type="text" id="toolbar-raster-width" value="1920" class="canvas-raster-input" data-tooltip="Canvas Width, Total canvas width in pixels. This is the output resolution width.">
                     <span class="toolbar-label">×</span>
-                    <input type="text" id="toolbar-raster-height" value="1080" class="canvas-raster-input" data-tooltip="Raster Height, Total canvas height in pixels. This is the output resolution height.">
+                    <input type="text" id="toolbar-raster-height" value="1080" class="canvas-raster-input" data-tooltip="Canvas Height, Total canvas height in pixels. This is the output resolution height.">
+                    <!-- Match Screens (owner, 2026-11-18): the active canvas
+                         takes the furthest right and bottom edges of its
+                         visible screens, from 0,0 (app-canvas-ui.js
+                         matchCanvasToScreens). Hidden with the fields. -->
+                    <button type="button" id="btn-match-screens" data-tooltip="Match Screens, Size the canvas so every visible screen on it fits, from 0,0. The screens stay where they are.">Match Screens</button>
                     <button id="btn-zoom-out" data-tooltip="Zoom out">-</button>
                     <input type="text" id="zoom-level" value="100%" style="width: 60px; text-align: center; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px; padding: 2px 4px;" data-tooltip="Zoom Level, Current zoom percentage. Type a value or use +/- buttons. Scroll wheel to zoom on canvas.">
                     <button id="btn-zoom-in" data-tooltip="Zoom in">+</button>
-                    <button id="btn-fit" data-tooltip="Fit raster to view (Ctrl/Cmd+Shift+1)">Fit</button>
+                    <button id="btn-fit" data-tooltip="Fit canvas to view (Ctrl/Cmd+Shift+1)">Fit</button>
                     <button id="btn-zoom-actual" data-tooltip="Zoom to Selection, Zoom to fit the selected screen at actual size (Ctrl/Cmd+Shift+2)">1:1</button>
                     <!-- The custom-run readout: the active port (Data) or
                          circuit (Power) while a custom flow is being drawn,
@@ -2768,7 +2773,7 @@
                     </div>
                     <div id="layers-list"></div>
                     <div id="beaches-panel" data-tooltip="Beaches, The positions the show is pulled to, in pull-sheet and binder order. Drag to reorder, double-click a name to rename, x to remove."></div>
-                    <button id="btn-add-canvas" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a new canvas (a separate raster / processor) to this project">+ Add Canvas</button>
+                    <button id="btn-add-canvas" class="btn btn-secondary full-width" style="margin-top: 8px;" data-tooltip="Add a new canvas (its own canvas size and processors) to this project">+ Add Canvas</button>
                     <button id="btn-save-preset" class="btn btn-secondary full-width" style="margin-top: 6px;" data-tooltip="Save the currently selected screen's settings as a reusable preset">Save as Preset</button>
                 </div>
             </div>
@@ -3136,7 +3141,7 @@
             <div style="margin-bottom: 18px;" id="export-scale-row">
                 <label style="display: block; margin-bottom: 6px; color: #ccc; font-size: 13px;">Resolution Scale:</label>
                 <select id="export-scale" style="width: 100%; padding: 10px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 4px;">
-                    <option value="1">1x (native raster)</option>
+                    <option value="1">1x (native canvas size)</option>
                     <option value="2">2x</option>
                     <option value="4">4x</option>
                     <option value="8">8x</option>

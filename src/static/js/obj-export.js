@@ -52,7 +52,7 @@ export function buildObj(unit, opts = {}) {
     lines.push('# Units: meters. +Y is up, +Z is toward the audience, X runs to the right.');
     lines.push(`# ${unit.kind === 'group' ? 'Group' : 'Screen'}: ${unit.name}, ${members.length} screen${members.length === 1 ? '' : 's'}, ${faces} face${faces === 1 ? '' : 's'}.`);
     lines.push('# Each face is one flat piece of LED, split at every bend. Texture coordinates');
-    lines.push('# place every corner where it sits in its canvas raster (u across, v up).');
+    lines.push('# place every corner where it sits in its canvas (u across, v up).');
     if (unit.mtl) lines.push(`mtllib ${unit.mtl}`);
     let v = 0, vt = 0, vn = 0;
     for (const m of members) {
