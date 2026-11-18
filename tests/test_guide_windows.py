@@ -201,7 +201,7 @@ SHARED_JS = """([a, b]) => {
 WATCH_JS = """(keys) => {
     const a = window.app;
     const id = k => k.startsWith('export:') ? 'export-modal'
-        : k.startsWith('prefs:') ? 'preferences-modal'
+        : (k === 'prefs' || k.startsWith('prefs:')) ? 'preferences-modal'
         : k === 'pull-sheet' ? 'pull-sheet-modal'
         : k.startsWith('gear:') ? 'hw-gear-popover'
         : k.startsWith('picker:') ? 'preset-picker-modal'

@@ -555,6 +555,7 @@
     // keys, or a function returning either (read live, so a key can carry
     // the id of the hardware the guide put in). 'export:<format>' is the
     // Export dialog on that format, 'prefs:<tab>' Preferences on that tab,
+    // 'prefs' Preferences on whatever tab the steps take it to,
     // 'pull-sheet' the pull sheet editor, 'gear:<id>' the ⚙ popover of the
     // header whose data-hwpop is <id>, 'picker:<mode>' the panel library,
     // 'output' the Output to Display dialog.
