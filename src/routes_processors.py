@@ -1647,9 +1647,9 @@ def _fiber_link_strands(boxes, cables, box_id, key, cable_id, strands):
     if why:
         return None, why
     if strands is None:
-        need = catalog.fiber_link_need(boxes[box_id]['raw'])
-        taken = catalog.fiber_strands_taken(boxes, (box_id, key))
         cable = cables[cable_id]
+        need = catalog.fiber_link_need(boxes[box_id]['raw'], cable)
+        taken = catalog.fiber_strands_taken(boxes, (box_id, key))
         strands = catalog.fiber_next_free(cable, taken, need)
         if strands is None:
             # Said plainly (beta.4 QA: "TAC A has no 2 free strands left."
@@ -1659,7 +1659,9 @@ def _fiber_link_strands(boxes, cables, box_id, key, cable_id, strands):
             free = sum(1 for s in catalog.fiber_cable_positions(cable)
                        if (cable_id, s) not in taken)
             if not free:
-                return None, f'{name} is full: every strand is in use.'
+                unit = 'channel' if cable.get('kind') == catalog.CAT_SNAKE \
+                    else 'strand'
+                return None, f'{name} is full: every {unit} is in use.'
             return None, (f'{name} has {free} free strand'
                           f'{"" if free == 1 else "s"} and this link needs '
                           f'{need}.')
@@ -1703,6 +1705,10 @@ def _set_fiber_extension(entry, key, data):
             f'{title} {port} has no TAC or MTP to extend. Pick its cable '
             f'first.')}), 400
     cable = _find_fiber_cable(link['cable']) or {}
+    if cable.get('kind') == catalog.CAT_SNAKE:
+        return jsonify({'error': (
+            f'{title} {port} is on a Cat snake. An extension is added to a '
+            f'TAC or an MTP.')}), 400
     if cable.get('kind') not in catalog.FIBER_STRANDED_KINDS:
         return jsonify({'error': (
             f'{title} {port} is on an opticalCON. An extension is added to '
@@ -1720,8 +1726,10 @@ def _set_fiber_extension(entry, key, data):
 
 @processors_bp.route('/api/fiber-cables', methods=['POST'])
 def add_fiber_cable():
-    """Make one cable - a TAC or an MTP of any strand count, or an
-    opticalCON DUO / QUAD (shared the same way) - and, where the body
+    """Make one cable - a TAC or an MTP of any strand count, an
+    opticalCON DUO / QUAD (shared the same way), or a Cat snake of any
+    channel count ({kind: 'cat-snake', copper: 'Cat6A', strands}) - and,
+    where the body
     carries `link`
     ({boxId, key, strands?}), put that link on it in the same request (the
     Fiber section's "New TAC…" is one gesture, one undo step)."""
@@ -1753,8 +1761,13 @@ def add_fiber_cable():
             return jsonify({'error': why}), 400
         _set_fiber_link(boxes[link['boxId']]['raw'], link['key'],
                         cable['id'], strands)
-    log_event('fiber_cable_add', {'id': cable['id'], 'kind': kind,
-                                  'link': link})
+    event = {'id': cable['id'], 'kind': kind, 'link': link}
+    if kind == catalog.CAT_SNAKE:
+        # a Cat snake's Cat kind, channels and length, as made
+        event.update({'copper': cable.get('copper'),
+                      'channels': cable.get('strands'),
+                      'ft': cable.get('ft')})
+    log_event('fiber_cable_add', event)
     return _state(201)
 
 
@@ -1774,7 +1787,13 @@ def update_fiber_cable(cable_id):
     if why:
         return jsonify({'error': why}), 400
     catalog.store_fiber_cable(app.current_project, data, _next_seq, cable)
-    log_event('fiber_cable_update', {'id': cable_id, 'changed': list(data)})
+    # the values now stored for each field the edit changed (a snake's
+    # count logged as its channels)
+    channels = cable.get('kind') == catalog.CAT_SNAKE
+    log_event('fiber_cable_update', {
+        'id': cable_id, 'changed': list(data),
+        'values': {('channels' if k == 'strands' and channels else k):
+                   cable.get(k) for k in data if k in cable}})
     return _state()
 
 
@@ -1869,7 +1888,7 @@ def _set_copper_link(entry, key, data):
     if not res.get('copperLinks'):
         return jsonify({'error': (
             f'{res.get("deviceName") or title} takes fiber only on its links. '
-            f'Copper is offered on an XD.')}), 400
+            f'A Cat cable is offered on an XD.')}), 400
     kind = data.get('copper')
     if catalog.copper_link_max_ft(kind) is None:
         kinds = ', '.join(k for k, _ft in catalog.COPPER_LINK_KINDS)

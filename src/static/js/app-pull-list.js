@@ -1600,8 +1600,9 @@ class _PullList {
                         const ft = this.parseCableLength(l.cable.ft);
                         const has = Number.isFinite(ft) && ft > 0;
                         const len = this._pullFiberCableLength(l.cable, ft);
-                        r = { type: this.fiberCableTypeText(l.cable), length: len.text,
-                              qty: 1, label: l.cable.name || '', notes: has ? '' : 'no length', side: 'data' };
+                        r = { type: this.fiberCableTypeText(l.cable), length: len.text, qty: 1,
+                              label: l.cable.name || '', notes: has ? this.fiberCableOverText(l.cable) : 'no length',
+                              side: 'data' };
                         if (len.pieces) r._pieces = len.pieces.slice();
                     }
                     place(r);
@@ -2143,8 +2144,10 @@ class _PullList {
                     const r = l.copper ? row(...this._pullCopperCells(l), at) : (() => {
                         const ft = this.parseCableLength(l.cable.ft);
                         const has = Number.isFinite(ft) && ft > 0;
+                        // a Cat snake past its 10G length warns in Notes,
+                        // as a single Cat link does
                         return row(this.fiberCableTypeText(l.cable), this._pullFiberCableLength(l.cable, ft), 1,
-                                   l.cable.name || '', has ? '' : 'no length', at);
+                                   l.cable.name || '', has ? this.fiberCableOverText(l.cable) : 'no length', at);
                     })();
                     saidOnce.set(key, r);
                     push(r);

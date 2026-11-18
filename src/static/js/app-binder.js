@@ -7681,8 +7681,10 @@ class _Binder {
     // then don't use colors as they won't have colors in real life" (owner,
     // 2026-10-17) - no swatch, and no tint in the strand map, anywhere.
     _bStrandPiece(n, cable) {
+        // a Cat snake's channel has no color either ("Ch 3")
+        const plain = cable && (cable.labels === 'numbers' || cable.kind === 'cat-snake');
         return { text: this.fiberStrandName(n, cable),
-                 swatch: cable && cable.labels === 'numbers' ? null : this.fiberStrandSwatch(n, cable) };
+                 swatch: plain ? null : this.fiberStrandSwatch(n, cable) };
     }
 
     // A box's fiber, one input at a time (fiberLinkInputs), or null where
@@ -7699,7 +7701,7 @@ class _Binder {
     // its kind where it has no name.
     _bBoxCableWords(cable, typed) {
         let what = cable.name || this.fiberCableTypeText(cable);
-        if (cable.name && !typed.has(cable.id)) what += ` (${this.fiberCableShortKind(cable)})`;
+        if (cable.name && !typed.has(cable.id)) what += ` (${this.fiberCableShortKind(cable, cable.name)})`;
         typed.add(cable.id);
         return what;
     }
@@ -9947,9 +9949,12 @@ class _Binder {
             // the cable's own map.
             const isMtp = cable.kind === 'mtp';
             const mapped = isMtp && this.fiberFarStrand(1, cable) !== null;
+            // a Cat snake's channel is its bare number here, under the
+            // column headed channel ("Ch 3" elsewhere)
+            const snake = cable.kind === 'cat-snake';
             for (const n of this.fiberStrandPositions(cable)) {
                 const who = m.get(n);
-                const piece = this._bStrandPiece(n, cable);
+                const piece = snake ? { text: String(n), swatch: null } : this._bStrandPiece(n, cable);
                 const cells = [piece.text,
                                who ? linkText(who) : 'spare',
                                who ? this._bLinkPortsText(who.box, who.card, who.key) : ''];
@@ -9964,10 +9969,12 @@ class _Binder {
             const note = [also.length ? `Also on ${also.join(', ')}` : '',
                           isMtp && !mapped ? `At the breakout box: ${MTP_SEE_MAP}` : '']
                 .filter(Boolean).join(' · ');
+            // a Cat snake's map is by CHANNEL (owner, 2026-11-18)
+            const unit = snake ? 'channel' : 'strand';
             const cols = mapped
-                ? [{ title: 'strand', w: 1.1, swatch: true }, { title: 'at the breakout', w: 1.1, parts: true },
+                ? [{ title: unit, w: 1.1, swatch: true }, { title: 'at the breakout', w: 1.1, parts: true },
                    { title: 'link', w: 2 }, { title: 'box ports', w: 0.8 }]
-                : [{ title: 'strand', w: 1.1, swatch: true }, { title: 'link', w: 2 },
+                : [{ title: unit, w: 1.1, swatch: true }, { title: 'link', w: 2 },
                    { title: 'box ports', w: 0.8 }];
             out.push({ title, note, cols, rows });
         }
@@ -9980,9 +9987,15 @@ class _Binder {
     // far-end legs follow it: "Strand map · MTP A · MTP 24 Type A · 300'".
     _bStrandMapTitle(cable) {
         const ft = this.parseCableLength(cable.ft);
-        return [`Strand map · ${cable.name || this.fiberKindWord(cable.kind)}`,
-                this.fiberCableTypeText(cable),
-                Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft, this.fiberStockKind(cable)) : 'no length']
+        // a Cat snake's is its CHANNEL map, its kind and size after its name
+        // and its 10G warning last: "Channel map · Cat5e snake A · 4
+        // channel · 120' · Cat5e runs 98.4 ft max at 10G"
+        const snake = cable.kind === 'cat-snake';
+        const name = cable.name || this.fiberKindWord(cable.kind);
+        return [`${snake ? 'Channel' : 'Strand'} map · ${name}`,
+                snake ? this.catSnakeKindText(cable, name) : this.fiberCableTypeText(cable),
+                Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft, this.fiberStockKind(cable)) : 'no length',
+                snake ? this.fiberCableOverText(cable) : '']
             .filter(Boolean).join(' · ');
     }
 
@@ -10154,10 +10167,18 @@ class _Binder {
             const cable = l.cable;
             if (!cable) return { cells: [output, 'no fiber picked', '', input, ''], link: l, fiber: null };
             let name = cable.name || this.fiberCableTypeText(cable);
-            if (cable.name && !typed.has(cable.id)) name += ` (${this.fiberCableTypeText(cable)})`;
+            // a Cat snake's kind and size after its name, never snake
+            // twice: "Cat6A snake A (4 channel)"
+            if (cable.name && !typed.has(cable.id)) {
+                name += ` (${this.fiberCableIsSnake(cable) ? this.catSnakeKindText(cable, cable.name)
+                    : this.fiberCableTypeText(cable)})`;
+            }
             // a cable nobody gave a length is flagged here as everywhere
             const cableFt = this.parseCableLength(cable.ft);
             if (!(Number.isFinite(cableFt) && cableFt > 0)) name += ' · no length';
+            // a Cat snake past its 10G length says so, as a Cat link does
+            const over = this.fiberCableOverText(cable);
+            if (over) name += ` (${over})`;
             typed.add(cable.id);
             const set = strands(l.link);
             const atProcessor = swatched(set, cable);

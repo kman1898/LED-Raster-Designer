@@ -2132,9 +2132,23 @@ def resolved_show_snakes(project):
 # The typed fiberType / fiberFt of 1.3 stay on the box as a NOTE, printed
 # as before until any link on that box has a cable; nothing migrates.
 
-FIBER_KINDS = ('tac', 'mtp', 'opticalcon-duo', 'opticalcon-quad')
+FIBER_KINDS = ('tac', 'mtp', 'opticalcon-duo', 'opticalcon-quad', 'cat-snake')
 # The kinds whose strand count is the user's: any positive whole number.
 FIBER_STRANDED_KINDS = ('tac', 'mtp')
+# A CAT SNAKE (owner, 2026-11-18: "We need to be able to use a Cat snake
+# for XD boxes. Since those accept cat cables. Mind you CVT and new XD boxes
+# dont accept cat cables"): a multi-channel Cat6A, Cat6 or Cat5e snake kept
+# in the same list and shared the same way as a TAC - made once from a
+# box's link, picked again on other boxes, each link taking ONE channel
+# (stored as its one "strand") - {id, kind: 'cat-snake', copper: 'Cat6A',
+# strands: <channels>, ft?, name}. Only a box whose catalog entry says
+# copperLinks (the XD) takes one; any other box is refused. A run past the
+# kind's 10G length (COPPER_LINK_KINDS) is warned about, never refused. It
+# has no polarity, no ends, no colors, no swap and no extension. Its
+# default name is the kind, "snake" and the next letter: "Cat6A snake A".
+CAT_SNAKE = 'cat-snake'
+# The kinds whose count of strands (a snake's channels) is the user's.
+FIBER_COUNTED_KINDS = FIBER_STRANDED_KINDS + (CAT_SNAKE,)
 # The kinds whose fiber count is the connector's.
 FIBER_KIND_FIBERS = {'opticalcon-duo': 2, 'opticalcon-quad': 4}
 # (A TAC's ends are free text - app-fiber.js offers ST and LC duplex - and
@@ -2374,6 +2388,9 @@ def fiber_strand_name(n, cable=None):
         n = int(n)
     except (TypeError, ValueError):
         return str(n)
+    if cable.get('kind') == CAT_SNAKE:
+        # a Cat snake's channel, by its number: "Ch 3"
+        return f'Ch {n}'
     typed = ((cable.get('strandNames') or {}).get(str(n)) or '')
     if isinstance(typed, str) and typed.strip():
         return typed.strip()
@@ -2496,6 +2513,8 @@ def fiber_cable_type_text(cable, mode=None):
     mode of the fiber where the boxes on it state one (fiber_cable_mode):
     "TAC 12 · ST · Single mode"."""
     kind = (cable or {}).get('kind')
+    if kind == CAT_SNAKE:
+        return cat_snake_type_text(cable)
     word = fiber_mode_word(mode)
     tail = f' · {word}' if word else ''
     if kind == 'opticalcon-duo':
@@ -2510,6 +2529,37 @@ def fiber_cable_type_text(cable, mode=None):
     conn = ((cable or {}).get('connector') or '').strip() \
         if kind == 'tac' else ''
     return (f'{text} · {conn}' if conn else text) + tail
+
+
+def cat_snake_word(kind):
+    """'Cat6A snake' - a Cat snake by its kind; 'Cat snake' with none."""
+    return f'{kind} snake' if kind else 'Cat snake'
+
+
+def cat_snake_type_text(cable):
+    """The pull sheet's words for a Cat snake: "Cat6A snake · 4 channel",
+    its size worded as every snake's is ("call it 4 channel snake if it is
+    4 channel", and the word snake once; the JS twins are app-fiber.js
+    catSnakeKindText and app-processors.js snakeSizeText)."""
+    n = fiber_cable_strand_count(cable)
+    return f'{cat_snake_word((cable or {}).get("copper"))} · {n} channel'
+
+
+def cat_snake_name_is_default(name, kind):
+    """Whether `name` is a default name of a `kind` Cat snake ("Cat6A
+    snake B")."""
+    return bool(isinstance(name, str) and kind and re.fullmatch(
+        rf'{re.escape(kind)} snake [A-Z]+', name.strip()))
+
+
+def cat_snake_default_name(project, kind, skip=None):
+    """The first free default name for a Cat snake of `kind`, show-wide,
+    lettered the way TACs are: "Cat6A snake A", "Cat6A snake B" ... each
+    kind on its own letters. `skip` is a cable left out (the one being
+    renamed)."""
+    taken = {(c.get('name') or '').strip() for c in show_fiber_cables(project)
+             if isinstance(c, dict) and c is not skip}
+    return _snake_letter_name(taken, f'{cat_snake_word(kind)} ')
 
 
 # A FIBER EXTENSION (owner, 2026-11-02: "MTP cant run direct to X1 for
@@ -2648,8 +2698,11 @@ def resolved_fiber_links(cvt):
     return out
 
 
-def fiber_link_need(cvt):
-    """Strands per link on this box: 1 with BiDi, else 2."""
+def fiber_link_need(cvt, cable=None):
+    """Strands per link on this box: 1 with BiDi, else 2 - and one channel
+    of a Cat snake (`cable`), whatever the box."""
+    if (cable or {}).get('kind') == CAT_SNAKE:
+        return 1
     return 1 if (cvt or {}).get('bidi') else 2
 
 
@@ -2926,6 +2979,13 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
     if cable is None:
         return 'That fiber cable is not in this project.'
     name = cable.get('name') or 'That cable'
+    snake = cable.get('kind') == CAT_SNAKE
+    # A Cat snake runs to a box that takes Cat cable on its links (the
+    # XD's etherCON beside each opticalCON DUO) and to no other: an XD-S,
+    # an XD-T and every CVT are fiber only.
+    if snake and not res.get('copperLinks'):
+        return (f'{res.get("deviceName") or title} takes fiber only on its '
+                f'links. A Cat snake is offered on an XD.')
     # SINGLE MODE AND MULTIMODE NEVER SHARE ONE CABLE: a multimode box (a
     # CVT10-M) and a single mode box (a CVT10-S) cannot both take strands
     # of one TAC, MTP or opticalCON, whichever is the backup. Refused, the
@@ -2940,10 +3000,13 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
     if strands is None:
         return None
     if need is None:
-        need = fiber_link_need(raw)
+        need = fiber_link_need(raw, cable)
     if not isinstance(strands, list) or any(
             isinstance(s, bool) or not isinstance(s, int) for s in strands):
         return 'strands must be a list of strand numbers.'
+    if snake:
+        return _check_snake_channel(boxes, cable_id, cable, box_id, key,
+                                    strands, title, device, taken)
     if len(strands) != need:
         why = 'a BiDi link takes 1' if need == 1 else 'a link takes 2'
         return (f'{title} {fiber_link_title(key, device)} needs {need} '
@@ -2967,6 +3030,33 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
                     f'used by {fiber_box_title(other)} '
                     f'{fiber_link_title(held[1], other_device)} - a strand '
                     f'carries one link.')
+    return None
+
+
+def _check_snake_channel(boxes, cable_id, cable, box_id, key, channels,
+                         title, device, taken=None):
+    """Why a link cannot take these channels of a Cat snake, or None: one
+    channel, within the snake, not held by another link."""
+    name = cable.get('name') or 'That snake'
+    port = fiber_link_title(key, device)
+    if len(channels) != 1:
+        return f'{title} {port} takes 1 channel of a Cat snake.'
+    total = fiber_cable_strand_count(cable)
+    ch = channels[0]
+    if ch < 1 or ch > total:
+        return (f'{name} has channels 1-{total}. There is no channel '
+                f'{ch}.')
+    if taken is None:
+        taken = fiber_strands_taken(boxes, (box_id, key))
+    held = taken.get((cable_id, ch))
+    if held:
+        other = boxes.get(held[0])
+        other_device = get_device(((other or {}).get('res') or {})
+                                  .get('deviceId'))
+        return (f'{name} channel {ch} is already used by '
+                f'{fiber_box_title(other)} '
+                f'{fiber_link_title(held[1], other_device)}. A channel '
+                f'carries one link.')
     return None
 
 
@@ -3030,7 +3120,6 @@ def settle_fiber(project, used_before=None):
         if 'fiberLinks' not in raw:
             continue
         keys = res.get('fiberLinkKeys') or []
-        need = fiber_link_need(raw)
         kept = {}
         links = raw.get('fiberLinks') if isinstance(raw.get('fiberLinks'),
                                                     dict) else {}
@@ -3045,9 +3134,13 @@ def settle_fiber(project, used_before=None):
             cable = cables.get(link['cable'])
             if cable is None:
                 continue
+            # a Cat snake rides only a box that takes Cat cable (the XD)
+            if cable.get('kind') == CAT_SNAKE and not res.get('copperLinks'):
+                continue
             positions = fiber_cable_positions(cable)
             strands = link['strands']
-            if len(strands) != need or len(set(strands)) != len(strands) \
+            if len(strands) != fiber_link_need(raw, cable) \
+                    or len(set(strands)) != len(strands) \
                     or any(s not in positions for s in strands) \
                     or any((link['cable'], s) in taken for s in strands):
                 continue
@@ -3111,16 +3204,39 @@ def check_fiber_cable(rec, cable=None, used_strands=0, unit='ft'):
         return 'The body must be a JSON object.'
     kind = rec.get('kind') if cable is None else cable.get('kind')
     if cable is None and kind not in FIBER_KINDS:
-        return ('kind must be one of tac, mtp, opticalcon-duo or '
-                'opticalcon-quad.')
+        return ('kind must be one of tac, mtp, opticalcon-duo, '
+                'opticalcon-quad or cat-snake.')
     if cable is not None and 'kind' in rec and rec['kind'] != kind:
         return 'A cable’s kind cannot change - make a new cable instead.'
-    if 'strands' in rec or (cable is None and kind in FIBER_STRANDED_KINDS):
+    snake = kind == CAT_SNAKE
+    if snake and ('copper' in rec or cable is None) \
+            and copper_link_max_ft(rec.get('copper')) is None:
+        kinds = ', '.join(k for k, _ft in COPPER_LINK_KINDS)
+        return f'A Cat snake is one of {kinds}.'
+    if not snake and 'copper' in rec:
+        return 'Only a Cat snake is Cat6A, Cat6 or Cat5e.'
+    if snake:
+        for key in ('labels', 'subunits', 'strandName'):
+            if key in rec:
+                return 'A Cat snake’s channels are numbered, never colored or renamed.'
+    if 'strands' in rec or (cable is None and kind in FIBER_COUNTED_KINDS):
         value = rec.get('strands')
         if kind in FIBER_KIND_FIBERS:
             if value not in (None, FIBER_KIND_FIBERS[kind]):
                 return (f'An opticalCON {"DUO" if kind.endswith("duo") else "QUAD"}'
                         f' has {FIBER_KIND_FIBERS[kind]} fibers.')
+        elif snake:
+            if isinstance(value, bool) or not isinstance(value, int) \
+                    or value < 1:
+                return 'The channel count must be a whole number, 1 or more.'
+            # the highest channel a link holds (a set from
+            # update_fiber_cable, else a number)
+            top = max(used_strands) \
+                if isinstance(used_strands, (set, list, tuple)) \
+                and used_strands else (used_strands or 0)
+            if value < top:
+                return (f'Channel {top} is in use, so the count '
+                        f'cannot go below it. Move that link first.')
         else:
             if isinstance(value, bool) or not isinstance(value, int) \
                     or value < 1:
@@ -3186,15 +3302,23 @@ def store_fiber_cable(project, rec, next_seq, cable=None):
     fresh = cable is None
     if fresh:
         kind = rec.get('kind')
-        cable = {'id': f'fib{next_seq()}', 'kind': kind,
-                 'labels': 'colors', 'subunits': False, 'strandNames': {}}
+        cable = {'id': f'fib{next_seq()}', 'kind': kind}
+        if kind == CAT_SNAKE:
+            cable['copper'] = rec['copper']
+        else:
+            cable.update({'labels': 'colors', 'subunits': False,
+                          'strandNames': {}})
         if kind in FIBER_KIND_FIBERS:
             cable['strands'] = FIBER_KIND_FIBERS[kind]
     kind = cable['kind']
-    if 'name' in rec or fresh:
+    if kind == CAT_SNAKE:
+        _store_snake_kind(project, rec, cable)
+    elif 'name' in rec or fresh:
         name = (rec.get('name') or '').strip()
         cable['name'] = name or cable.get('name') \
             or fiber_default_name(project, kind)
+    if kind == CAT_SNAKE and 'strands' in rec:
+        cable['strands'] = rec['strands']
     if kind in FIBER_STRANDED_KINDS and 'strands' in rec:
         cable['strands'] = rec['strands']
         names = cable.get('strandNames') or {}
@@ -3232,6 +3356,32 @@ def store_fiber_cable(project, rec, next_seq, cable=None):
     return cable
 
 
+def _store_snake_kind(project, rec, cable):
+    '''A Cat snake's kind and name. A name typed is kept; a blank one
+    hands the snake its default back; a default follows the kind ("Cat6A
+    snake A" made Cat6 reads "Cat6 snake A" where that letter is free), the
+    way a single Cat link's default name does.'''
+    old_kind = cable.get('copper')
+    old_name = (cable.get('name') or '').strip()
+    if 'copper' in rec:
+        cable['copper'] = rec['copper']
+    kind = cable['copper']
+    typed = (rec.get('name') or '').strip() if 'name' in rec else None
+    was_default = cat_snake_name_is_default(old_name, old_kind)
+    if typed:
+        cable['name'] = typed
+        return
+    if typed is None and old_name and not (kind != old_kind and was_default):
+        cable['name'] = old_name
+        return
+    taken = {(c.get('name') or '').strip() for c in show_fiber_cables(project)
+             if isinstance(c, dict) and c is not cable}
+    same = f'{cat_snake_word(kind)} {old_name.rsplit(" ", 1)[-1]}' \
+        if was_default else ''
+    cable['name'] = same if same and same not in taken \
+        else cat_snake_default_name(project, kind, skip=cable)
+
+
 def refit_fiber_bidi(boxes, cables, box_id, on):
     """Re-fit one box's links to its BiDi switch, in place.
 
@@ -3254,6 +3404,9 @@ def refit_fiber_bidi(boxes, cables, box_id, on):
             if 'copper' in link:
                 continue
             cable = cables.get(link['cable'])
+            # a Cat snake's link keeps its one channel
+            if (cable or {}).get('kind') == CAT_SNAKE:
+                continue
             first = link['strands'][0] if link['strands'] else None
             # the strand after it on the cable (an 8 fiber MTP's 4 is
             # followed by its 9)
@@ -3292,6 +3445,8 @@ def resolved_fiber_cables(project):
         }
         if cable.get('kind') == 'tac' and cable.get('connector'):
             rec['connector'] = cable['connector']
+        if cable.get('kind') == CAT_SNAKE:
+            rec['copper'] = cable.get('copper')
         if cable.get('kind') == 'mtp':
             # none stored (an older show) reads Type A
             rec['polarity'] = cable.get('polarity') \
