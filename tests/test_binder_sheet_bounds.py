@@ -363,6 +363,78 @@ WALLS_JS = """async () => {
             ports: app.project.layers.map(l => !!app._screenPortPin(l, 1))};
 }"""
 
+# A real show's shape on a letter binder (owner, 2026-11-18): nine loose
+# screens - nine positions - with long names, each with power, data and
+# header bars, two distros, an H9: about sixty sheets, a CONTENTS too long
+# to stand beside the map on letter, POSITIONS names that wrapped three
+# lines tall in a one-column table.
+NINE_JS = """async () => {
+    const app = window.app;
+    await app._layerSavesSettled();
+    const j = (method, url, body) => fetch(url, {method,
+        headers: {'Content-Type': 'application/json'},
+        body: body === undefined ? undefined : JSON.stringify(body)}).then(r => r.json());
+    const proj = await j('GET', '/api/project');
+    proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
+    delete proj.port_assignments; delete proj.pullSheet; delete proj.pullSheetEdits;
+    delete proj.services; delete proj.cableStock; delete proj.fiberCables; delete proj.binder;
+    proj.raster_width = proj.show_raster_width = 7680; proj.raster_height = proj.show_raster_height = 4320;
+    for (const c of proj.canvases || []) {
+        c.raster_width = c.show_raster_width = 7680; c.raster_height = c.show_raster_height = 4320;
+    }
+    await j('PUT', '/api/project', proj);
+    const names = ['Screen A - HL IMAG - SWITCH', 'Screen B - HR IMAG - SWITCH', 'Screen C - LEFT PILLAR TALL',
+                   'Screen D - RIGHT PILLAR TALL', 'Screen E - UPSTAGE WIDE BACKDROP', 'Screen F - DOWNSTAGE LIP FASCIA',
+                   'Screen G - CENTER HANG MAIN', 'Screen H - SIDE FILL LEFT DELAY', 'Screen I - SIDE FILL RIGHT DELAY'];
+    const sizes = [[16, 9], [16, 9], [5, 10], [5, 10], [30, 4], [30, 4], [20, 6], [9, 5], [9, 5]];
+    for (const [i, name] of names.entries()) {
+        await j('POST', '/api/layer/add', {name, columns: sizes[i][0], rows: sizes[i][1],
+            cabinet_width: 128, cabinet_height: 128, offset_x: (i % 3) * 4200, offset_y: Math.floor(i / 3) * 1400,
+            powerVoltage: 208, powerAmperage: 20, panelWatts: 120, powerOrganized: true,
+            powerFlowPattern: 'tl-h', flowPattern: 'tl-h', processorType: 'novastar-armor'});
+    }
+    let p = await j('GET', '/api/project');
+    for (const l of p.layers) l.riggingBars = Array(Math.floor(l.columns / 2)).fill(2);
+    await j('PUT', '/api/project', p);
+    let st = await j('POST', '/api/processors', {deviceId: 'novastar-h9', name: 'VIDEO WORLD H9 MAIN'});
+    const pid = st.processors[st.processors.length - 1].id;
+    const cards = [];
+    for (const i of [0, 1]) {
+        st = await j('PUT', `/api/processors/${pid}/slots/${i}`, {deviceId: 'novastar-card-h-16xrj45-2xfiber'});
+        cards.push(st.processors.find(x => x.id === pid).slots.find(x => x.index === i).card.id);
+    }
+    p = await j('GET', '/api/project');
+    app.project = p;
+    app.dedupeProjectLayers('bounds_nine');
+    const d1 = app.addDistro({name: 'STAGE LEFT DISTRO'});
+    const d2 = app.addDistro({name: 'STAGE RIGHT DISTRO'});
+    let n = 0;
+    for (const [i, l] of app.project.layers.entries()) {
+        const multis = Math.ceil(app.screenCircuits(l).length / 6);
+        for (let m = 1; m <= multis; m++) {
+            const d = i % 2 ? d2 : d1;
+            app.setSocaDistro(l, m, d.id); app.setSocaNumber(l, m, ++n); app.setSocaLength(l, m, '100');
+        }
+    }
+    await Promise.all([...(app._inflightLayerPuts || [])]);
+    await app.refreshProcessors();
+    for (const [i, l] of app.project.layers.entries()) {
+        await app._assignmentRequest('/api/port-assignments/place-overflow', 'POST',
+                                     {layerId: String(l.id), cardId: cards[i % 2]});
+        await app.refreshPortAssignment();
+    }
+    await app.refreshProcessors();
+    app.selectLayer(app.project.layers[0]);
+    app.renderLayers();
+    app.renderHardwareDock();
+    window.canvasRenderer.render();
+    app.resetHistory('Sheet Bounds Nine');
+    return {layers: app.project.layers.length,
+            circuits: app.project.layers.map(l => app.screenCircuits(l).length),
+            ports: app.project.layers.map(l => !!app._screenPortPin(l, 1))};
+}"""
+
+
 @pytest.fixture(scope="module")
 def page(e2e_server, pw_browser):
     context = pw_browser.new_context(viewport={'width': 1700, 'height': 950})
@@ -405,7 +477,12 @@ def _walls(pg):
     assert all(out['ports']), out
 
 
-SHOWS = {'seeded': _seeded, 'fiber': _fiber, 'many': _many, 'walls': _walls}
+def _nine(pg):
+    out = pg.evaluate(NINE_JS)
+    assert out['layers'] == 9 and all(out['circuits']) and all(out['ports']), out
+
+
+SHOWS = {'seeded': _seeded, 'fiber': _fiber, 'many': _many, 'walls': _walls, 'nine': _nine}
 
 
 def _sweep(pg, sheets=SMALL):
@@ -488,11 +565,11 @@ def _listed_right(listed, plan):
 def test_a_long_set_lists_its_sheets_on_contents_sheets_after_the_overview(page):
     """Sixteen processors: some ninety sheets, a CONTENTS taller than a
     letter sheet (it ran off the overview's foot). The overview keeps its
-    totals and drawing, and its positions where they fit; the CONTENTS
-    goes whole onto sheets of its own right after it, 1.2 on - the
-    POSITIONS ahead of it where they do not fit either - every sheet of the
-    set listed in order by the number it prints under, the CONTENTS sheets
-    too, at the overview's own size. Every other sheet keeps its number."""
+    positions, totals and drawing (owner, 2026-11-18); the CONTENTS goes
+    whole onto sheets of its own right after it, 1.2 on - every sheet of
+    the set listed in order by the number it prints under, the CONTENTS
+    sheets too, at the overview's own size. Every sheet past the overview's
+    series keeps its number."""
     pg, errors = page
     _many(pg)
     for sheet in SMALL + ('tabloid',):
@@ -503,14 +580,9 @@ def test_a_long_set_lists_its_sheets_on_contents_sheets_after_the_overview(page)
         n = kinds.count('contents')
         assert kinds[1:1 + n] == ['contents'] * n, (sheet, kinds[:n + 2])
         assert [p[0] for p in plan[:1 + n]] == ['1.%d' % i for i in range(1, n + 2)], (sheet, plan[:n + 2])
-        assert all(set(p[2].replace(' (CONT.)', '').split(', ')) <= {'POSITIONS', 'CONTENTS'}
-                   for p in plan[1:1 + n]), plan[:n + 2]
-        assert 'CONTENTS' in plan[1 + n - 1][2], plan[:n + 2]
-        # the POSITIONS table: on the overview, or first on the CONTENTS
-        # sheets, from 1.2 on as far as it runs
-        on = out['positions']
-        assert on == ['1.1'] or on == ['1.%d' % i for i in range(2, 2 + len(on))], (sheet, on)
-        assert (on[0] == '1.2') == plan[1][2].startswith('POSITIONS'), (sheet, on, plan[1])
+        assert [p[2] for p in plan[1:1 + n]] == ['CONTENTS'] + ['CONTENTS (CONT.)'] * (n - 1), plan[:n + 2]
+        # the POSITIONS table: on the overview, always
+        assert out['positions'] == ['1.1'], (sheet, out['positions'])
         assert all(p[3] == 1 for p in plan[1:1 + n]), plan[:n + 2]
         assert plan[1 + n][0] == '2.1', plan[n:n + 3]
         assert _listed_right(out['listed'], plan), (sheet, out['listed'][:5], len(out['listed']), len(plan))
@@ -534,6 +606,56 @@ def test_a_set_whose_contents_fit_keeps_them_on_the_overview(page):
         assert [k for _n, k, _t, _s in out['plan']].count('contents') == 0, out['plan']
         assert out['overview']['contents'] is True, out['overview']
         assert _listed_right(out['listed'], out['plan']), out['listed']
+    assert errors == []
+
+
+# ── the owner's letter overview (2026-11-18) ─────────────────────────────
+
+# The overview's POSITIONS table as painted: each row's height (from the
+# table's text ops: a row is as tall as its lines) and the band's log.
+POSITIONS_JS = r"""(opts) => {
+    const app = window.app;
+    const r = app.renderBinderPage(opts, 0);
+    const texts = r.textInfo || [];
+    return {band: r.map && r.map.band, tables: r.map && r.map.tables, posW: r.map && r.map.positionsW,
+            texts: r.texts};
+}"""
+
+
+def test_a_long_set_on_letter_moves_the_whole_contents_and_keeps_positions_wide(page):
+    """The owner's letter binder (nine positions with long names, about sixty
+    sheets): the CONTENTS ran past the sheet's frame, and POSITIONS stood
+    its names three lines tall in one narrow column. Now the CONTENTS is
+    whole on its own sheet, 1.2 - not one row of it left on the overview -
+    the screens from 2.1; the overview keeps
+    POSITIONS, SHOW TOTALS and the map, POSITIONS wider than one of the
+    band's columns. On every paper size, title block on and off, nothing
+    runs past the drawing area. (The owner's export: no pull or hardware
+    sheets.)"""
+    pg, errors = page
+    _nine(pg)
+    out = pg.evaluate(CONTENTS_JS, _opts(sheet='letter', pull=False, hardware=False))
+    plan = out['plan']
+    assert 45 <= len(plan) <= 65, len(plan)
+    assert [p[:3] for p in plan[:2]] == [['1.1', 'overview', 'OVERVIEW'], ['1.2', 'contents', 'CONTENTS']], plan[:3]
+    assert plan[2][0] == '2.1', plan[:4]
+    assert out['overview'] == {'contents': False, 'bubble': 'OVERVIEW', 'map': True}, out['overview']
+    assert out['positions'] == ['1.1'], out['positions']
+    assert _listed_right(out['listed'], plan), (out['listed'][:5], len(out['listed']), len(plan))
+    pos = pg.evaluate(POSITIONS_JS, _opts(sheet='letter', pull=False, hardware=False))
+    da_w = 2200 - 2 * 50 - 480 - 2 * 10
+    wide = (da_w - 30) / 2
+    assert pos['posW'] > wide + 1, pos
+    # every name on one line: no wrapped half of "Screen A - HL IMAG - SWITCH"
+    assert 'Screen A - HL IMAG - SWITCH' in pos['texts'], [t for t in pos['texts'] if 'Screen A' in t]
+    bad = []
+    for sheet in ('letter', 'tabloid', 'archc', 'archd', 'a4', 'a3'):
+        for tb in (True, False):
+            report = _bounds(pg, sheet=sheet, titleBlock=tb)
+            bad += ['%s %s: %s' % (sheet, 'block' if tb else 'no block', line) for line in _offenders(report)]
+            kinds = [s['kind'] for s in report]
+            assert kinds.count('overview') == 1, (sheet, tb, kinds[:5])
+    assert not bad, '\n' + '\n'.join(bad)
     assert errors == []
 
 
