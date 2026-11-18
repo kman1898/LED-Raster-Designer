@@ -157,6 +157,34 @@ def binder_pairs(pg, key):
     return [v for _, pairs in pg.evaluate(BINDER_JS) for k, v in pairs if k == key]
 
 
+# The FACTS sheet's table as the binder builds it - its columns and rows -
+# and its NOTES rows (the screens' warnings, 2026-11-18).
+FACTS_JS = """() => {
+    const app = window.app;
+    let facts = null, notes = [];
+    const orig = app._bTableLines;
+    app._bTableLines = function (book, spec) {
+        if (/^\\d+ screens?$/.test(spec.title)) {
+            facts = { cols: spec.cols.map(c => c.title), rows: spec.rows.filter(r => r.cells).map(r => r.cells.slice()) };
+        }
+        if (spec.title === 'Notes') notes = spec.rows.filter(r => r.cells).map(r => r.cells.slice());
+        return orig.apply(this, arguments);
+    };
+    try {
+        app.planBinder(Object.assign(app.readBinderOptions(),
+            { scope: { kind: 'show' }, hardware: true, pull: false, cover: false }));
+    } finally { app._bTableLines = orig; }
+    return { facts, notes };
+}"""
+
+
+def binder_facts(pg):
+    """The FACTS sheet's rows, each a dict by column, and its NOTES rows."""
+    out = pg.evaluate(FACTS_JS)
+    f = out['facts']
+    return [dict(zip(f['cols'], r)) for r in f['rows']], out['notes']
+
+
 def distro(i, name, rating, system='120/208', **kw):
     return dict(id=i, name=name, ratingA=rating, system=system, **kw)
 
@@ -299,7 +327,10 @@ def test_30a_breaker_on_socapex_is_over(page):
     })""")
     assert out == {'chips': 4, 'flag': True, 'flagText': 'OVER'}
     assert [w for w in strip(pg) if w['text'] == text] == [{'text': text, 'mild': False, 'offer': None}]
-    assert binder_pairs(pg, 'Breaker over').count(text) >= 2   # the distro's sheet and the screen's
+    # the distro's sheet says it, and the screen's warning is a NOTES row on
+    # the FACTS sheet (it was the screen's own FACTS until 2026-11-18)
+    assert binder_pairs(pg, 'Breaker over').count(text) >= 1
+    assert ['WALL A', 'Breaker over: ' + text] in binder_facts(pg)[1]
     # the row at 20 A clears it
     setup(pg, distros=[dict(SOCA30, outputRows=[dict(SOCA30['outputRows'][0], breakerA=20)])],
           walls=[{'powerBreakoutType': 'soca-true1'}], assign=[{'distro': 'd1', 'pins': True}])
@@ -514,21 +545,22 @@ ONE_PH_JS = """() => {
 
 def test_one_phase_figure_hidden_on_3_phase(page):
     """On a 120/208 distro the 1φ line is hidden in the sidebar and the
-    binder's Load prints 3φ only: 18,000 / (208 x 1.73) = 50.0 A 3φ."""
+    binder's FACTS sheet prints 3φ only - no AMPS 1φ column at all:
+    18,000 / (208 x 1.73) = 50.0 A 3φ."""
     pg, errors = page
     seed(pg, [['WALL A', 10, 12]])
     setup(pg, distros=[distro('d1', 'D1', 400, input='cam400')], assign=[{'distro': 'd1'}])
     assert pg.evaluate(ONE_PH_JS) == {'hidden': True, 'three': True}
-    loads = binder_pairs(pg, 'Load')
-    facts = [v for v in loads if v.endswith('kW') and '3φ' in v]
-    assert facts and all('1φ' not in v for v in facts), loads
-    assert any(v.startswith('50.0 A 3φ') for v in facts), facts   # 18000/(208*1.73) = 50.02
+    rows, _notes = binder_facts(pg)
+    wall = next(r for r in rows if r['screen'] == 'WALL A')
+    assert 'amps 1φ' not in wall and wall['amps 3φ'] == '50.0', rows   # 18000/(208*1.73) = 50.02
     # on no distro the line is there, and the sheet prints both
     setup(pg)
     assert pg.evaluate(ONE_PH_JS) == {'hidden': False, 'three': False}
-    loads = binder_pairs(pg, 'Load')
+    rows, _notes = binder_facts(pg)
+    wall = next(r for r in rows if r['screen'] == 'WALL A')
     # 18,000 / 208 = 86.5 A 1φ
-    assert any(v.startswith('86.5 A 1φ · 50.0 A 3φ') for v in loads), loads
+    assert wall['amps 1φ'] == '86.5' and wall['amps 3φ'] == '50.0', rows
     assert errors == []
 
 

@@ -593,7 +593,7 @@ def test_a_long_set_lists_its_sheets_on_contents_sheets_after_the_overview(page)
     without = pg.evaluate("(o) => window.app.planBinder(o).map(p => [p.number, p.sheetTitle])",
                           _opts(sheet='letter', cover=False))
     withit = pg.evaluate(CONTENTS_JS, _opts(sheet='letter'))['plan']
-    assert [[p[0], p[2]] for p in withit if not p[0].startswith('1.')] == without
+    assert [[p[0], p[2]] for p in withit if not p[0].startswith('1.')] == [p for p in without if not p[0].startswith('1.')]
     assert errors == []
 
 
@@ -641,7 +641,8 @@ FACTS_JS = r"""(opts) => {
             cols: spied.cols || [], sheets, screens};
 }"""
 
-FACTS_COLS = ['screen', 'size', 'panels', 'resolution', 'watts', 'amps 1φ', 'amps 3φ', 'circuits', 'ports']
+# (no AMPS 1φ column on a show on 3-phase distros only, as these shows are)
+FACTS_COLS = ['screen', 'size', 'panels', 'resolution', 'watts', 'amps 3φ', 'circuits', 'ports']
 
 
 def _num(s):
@@ -670,11 +671,11 @@ def test_the_facts_sheet_lists_every_screen_with_its_totals(page):
     tall = next(r for r in body if r[0] == 'STAGE LEFT VERTICAL IMAG TOWER')
     assert tall[1] == '6 × 24' and tall[2] == '144' and tall[3] == '768 × 3072', tall
     assert _num(tall[4]) == 144 * 180, tall
-    # (on 3-phase distros: no 1φ figure, as the screens' sheets never printed one)
-    assert tall[5] == '' and abs(_num(tall[6]) - 144 * 180 / (208 * 1.73)) < 0.06, tall
-    for col in (2, 4, 7, 8):
+    # (on 3-phase distros: no 1φ figure anywhere, so no AMPS 1φ column)
+    assert abs(_num(tall[5]) - 144 * 180 / (208 * 1.73)) < 0.06, tall
+    for col in (2, 4, 6, 7):
         assert abs(sum(_num(r[col]) for r in body) - _num(total[col])) < 1, (col, body, total)
-    assert all(int(r[7]) > 0 and int(r[8]) > 0 for r in body), body
+    assert all(int(r[6]) > 0 and int(r[7]) > 0 for r in body), body
     assert out['notes'] == [], out['notes']
     # no FACTS block on any screen sheet; the FACTS sheet prints the table
     for n, s in out['sheets'].items():
@@ -705,11 +706,29 @@ def test_the_facts_sheet_lists_every_screen_with_its_totals(page):
     names = [r[0] for r in rows[:-1]]
     assert 'DOWNSTAGE RIGHT SIDE FILL' not in names and len(names) == 3, names
     wide = next(r for r in rows if r[0] == 'UPSTAGE CENTER WIDE BACKDROP WALL')
-    assert wide[4] == '' and wide[5] == '' and wide[6] == '', wide
+    assert wide[4] == '' and wide[5] == '', wide
     assert abs(sum(_num(r[4]) for r in rows[:-1]) - _num(rows[-1][4])) < 1, rows
     notes = [r['cells'] for r in out['notes']]
     assert ['UPSTAGE CENTER WIDE BACKDROP WALL',
             'No power figure: watts left out of the totals. Type them in Power Settings.'] in notes, notes
+    assert errors == []
+
+
+def test_a_one_screen_export_prints_its_facts_without_the_overview(page):
+    """A one-screen export starts with the Overview unticked: its FACTS
+    sheet prints all the same, 1.1, the screen's own row and the Total,
+    ahead of the screen's sheets; with neither map side, no FACTS sheet."""
+    pg, errors = page
+    _walls(pg)
+    lid = pg.evaluate("() => String(window.app.project.layers.find(l => l.name === "
+                      "'STAGE LEFT VERTICAL IMAG TOWER').id)")
+    opts = _opts(sheet='letter', cover=False, pull=False, hardware=False, scope={'kind': 'screen', 'layerId': lid})
+    out = pg.evaluate(FACTS_JS, opts)
+    assert out['plan'][0][:2] == ['1.1', 'facts'] and out['plan'][1][0] == '2.1', out['plan'][:3]
+    assert [r['cells'][0] for r in out['rows']] == ['STAGE LEFT VERTICAL IMAG TOWER', 'Total'], out['rows']
+    none = pg.evaluate("(o) => window.app.planBinder(o).map(p => p.kind)",
+                       dict(opts, sides={'power': False, 'data': False}))
+    assert 'facts' not in none, none
     assert errors == []
 
 
