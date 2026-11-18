@@ -50,10 +50,11 @@
 // over Socket.IO (`idm_highlight`, throttled, the last mover wins) and the
 // server keeps it, so the machine driving the wall shows a highlight moved
 // from a tablet, a client that connects or reloads later shows it at once,
-// and a saved show opens with it. It blinks white / the field's inverse on the wall
-// (canvas-idm.js renderIdmHighlight); the blink refreshes the output window by
-// laying the highlight over its last frame (app-output-display.js), not by
-// rendering it again. A highlight the mouse put there goes when the mouse
+// and a saved show opens with it. It is a steady outline round the module,
+// in the view and on the wall, never a blink (canvas-idm.js
+// renderIdmHighlight); a move refreshes the output window by laying the
+// highlight over its last frame (app-output-display.js), not by rendering
+// it again, and nothing redraws while it stands still. A highlight the mouse put there goes when the mouse
 // leaves the modules (off every module, or out of the view), so the wall
 // shows nothing while the mouse is not on a panel; the next arrow key, pad
 // step or Mark button picks up from the module it left. A highlight from
@@ -78,7 +79,6 @@ import {
 export { idmColor, idmFieldSanitize };
 
 const FLASH_MS = 1800;
-const BLINK_MS = 250;
 const STYLE_KEY = 'lrdIdmMarkStyle';
 const COLOR_KEY = 'lrdIdmMarkColor';
 // Show the mouse on the wall (per viewer, on unless turned off).
@@ -91,9 +91,8 @@ const SPACE_TAP_MS = 500;
 const FIELD_PUT_MS = 150;
 // The saved mark colours a show starts with.
 const PRESETS_DEFAULT = ['#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000'];
-// The live highlight: half a blink (2.5 blinks a second) and the least time
-// between two sends to the other clients (25 a second).
-const BLINK_HALF_MS = 200;
+// The live highlight: the least time between two sends to the other
+// clients (25 a second).
 const SEND_MS = 40;
 // The tablet layout: the IDM Locator tab on a narrow window or a touch
 // screen (style.css carries the same query).
@@ -163,9 +162,9 @@ class _IdmLocator {
                 fieldsKey: '', listKey: '', fieldUiKey: '', readoutKey: '', presetsKey: '',
                 // the field's PUT, held back while a colour is dragged
                 fieldTimer: null, fieldPending: null,
-                // the live highlight's blink (the highlight itself is
-                // project.idmHighlight - _idmHl)
-                blinkOn: true, blinkStart: 0, blinkTimer: null,
+                // the one-off look that drops a highlight whose module has
+                // gone (the highlight itself is project.idmHighlight - _idmHl)
+                dropTimer: null,
                 sendTimer: null, lastSend: 0, cabinetJump: false,
                 // the last pointer's kind ('mouse', 'touch', 'pen') and when
                 lastPointer: '', lastPointerAt: 0,
@@ -684,45 +683,43 @@ class _IdmLocator {
         });
     }
 
-    // The blink runs while there is a highlight - whichever way it came
-    // (this client, another one, a project or file load, a reconnect).
-    _idmEnsureBlink() {
-        const st = this._idmState();
-        const has = !!this._idmHl();
-        if (has && !st.blinkTimer) {
-            st.blinkOn = true;
-            st.blinkStart = Date.now();
-            st.blinkTimer = setInterval(() => this._idmBlinkTick(), BLINK_HALF_MS);
-        } else if (!has && st.blinkTimer) {
-            clearInterval(st.blinkTimer);
-            st.blinkTimer = null;
-        }
+    // The highlighted module as the canvas draws it: {layer, panel, cell,
+    // key}, or null. A highlight on a screen or module that is gone answers
+    // null, and is dropped once the caller is done (_idmDropGone).
+    _idmHighlightTarget() {
+        const hl = this._idmHl();
+        const t = idmTargetOf(window.canvasRenderer, this.project, hl);
+        if (hl && !t) this._idmDropGone();
+        return t;
     }
 
-    // The highlighted module as the canvas draws it: {layer, panel, cell,
-    // key, on} (on: the white half of the blink), or null. A highlight on a
-    // screen or module that is gone answers null.
-    _idmHighlightTarget() {
+    // A highlight whose screen or module has gone, found by whatever looked
+    // for it (a redraw, the readout, an output's frame), is dropped once
+    // that is done - on every client alike; the server clears its own copy
+    // when the screen changes. One look, then nothing: no timer runs while
+    // a highlight stands still.
+    _idmDropGone() {
         const st = this._idmState();
-        const hl = this._idmHl();
-        if (hl && !st.blinkTimer) this._idmEnsureBlink();
-        const t = idmTargetOf(window.canvasRenderer, this.project, hl);
-        return t ? { ...t, on: st.blinkOn !== false } : null;
+        if (st.dropTimer) return;
+        st.dropTimer = setTimeout(() => {
+            st.dropTimer = null;
+            const hl = this._idmHl();
+            if (!hl || idmTargetOf(window.canvasRenderer, this.project, hl)) return;
+            this._idmPutHighlight(null);
+            this._idmRefreshReadout();
+            this._idmRepaint();
+        }, 0);
     }
 
     // Move the highlight (null clears it). `send`: tell the other clients
     // (false for a move that came from one of them).
     _idmSetHighlight(layerId, key, { send = true } = {}) {
-        const st = this._idmState();
         const next = idmHighlightOf({ layerId, key });
         const cur = this._idmHl();
         const same = (!next && !cur)
             || (next && cur && cur.layerId === next.layerId && cur.key === next.key);
         if (same) return;
         this._idmPutHighlight(next);
-        st.blinkOn = true;
-        st.blinkStart = Date.now();
-        this._idmEnsureBlink();
         if (send) this._idmSendHighlight();
         this._idmRefreshReadout();
         this._idmRepaint();
@@ -753,25 +750,6 @@ class _IdmLocator {
         else st.sendTimer = setTimeout(flush, wait);
     }
 
-    // Half a blink: the highlight changes colour. A highlight whose screen
-    // or module has gone is dropped here (on every client alike; the server
-    // clears its own copy when the screen changes), and one a project load
-    // took away stops the blink and leaves the wall.
-    _idmBlinkTick() {
-        const st = this._idmState();
-        const gone = !this._idmHl() || !this._idmHighlightTarget();
-        if (gone) {
-            if (this._idmHl()) this._idmPutHighlight(null);
-            clearInterval(st.blinkTimer);
-            st.blinkTimer = null;
-            this._idmRefreshReadout();
-            this._idmRepaint();
-            return;
-        }
-        st.blinkOn = Math.floor((Date.now() - st.blinkStart) / BLINK_HALF_MS) % 2 === 0;
-        this._idmRepaint();
-    }
-
     // The highlight changed and nothing else: the designer redraws (when it
     // shows this tab) without asking the outputs to compare the whole
     // project, and each IDM output lays the highlight over its last frame.
@@ -781,7 +759,7 @@ class _IdmLocator {
             this._idmQuietRender = true;
             try { r.render(); } finally { this._idmQuietRender = false; }
         }
-        if (typeof this._outputDisplayBlink === 'function') this._outputDisplayBlink();
+        if (typeof this._outputDisplayOverlay === 'function') this._outputDisplayOverlay();
     }
 
     // The mouse over the view: the module under it is highlighted. Off every
@@ -1043,7 +1021,7 @@ class _IdmLocator {
     // mouse in workspace coordinates; null, or a point off every canvas,
     // takes it off the wall. Every IDM output of the canvas it is on, and
     // of the one it left, lays it over its last frame on the next animation
-    // frame (_outputDisplayBlink): a copy, never a render.
+    // frame (_outputDisplayOverlay): a copy, never a render.
     _idmPointerAt(worldX, worldY) {
         const st = this._idmState();
         const r = window.canvasRenderer;
@@ -1071,7 +1049,7 @@ class _IdmLocator {
             st.pointerFrame = 0;
             const ids = st.pointerCanvases;
             st.pointerCanvases = null;
-            if (ids && typeof this._outputDisplayBlink === 'function') this._outputDisplayBlink(ids);
+            if (ids && typeof this._outputDisplayOverlay === 'function') this._outputDisplayOverlay(ids);
         };
         // A hidden designer gets no animation frames: a timer then.
         st.pointerFrame = (document.visibilityState !== 'hidden' && typeof requestAnimationFrame === 'function')
@@ -1123,9 +1101,8 @@ class _IdmLocator {
     // reply, with the rest of the delete still to land; an undo or redo
     // before its restore lands): the readout, the status bar, the pad and
     // the mark list say what the project holds now. Without it they named
-    // the deleted screen's module, with no highlight left, until the next
-    // blink or the redraw (1.7.0 CI). The blink and the canvas are left to
-    // their own timing.
+    // the deleted screen's module, with no highlight left, until the
+    // redraw (1.7.0 CI). The canvas is left to its own timing.
     _idmFollowProject() {
         this._idmRefreshReadout();
         if (this._idmState().active) this._idmRenderList();
@@ -1138,7 +1115,7 @@ class _IdmLocator {
         const d = t ? this._idmDescribe(t.layer, t.key) : null;
         const marked = !!(t && t.layer.idm && t.layer.idm.marks && t.layer.idm.marks[t.key]);
         // The pad's Mark and Clear too: a highlight on a module that is gone
-        // reads as none, and the blink dropping it later changes only them.
+        // reads as none, and dropping it a moment later changes only them.
         const padOn = !!this._idmHl() || !!st.hoverLast;
         const key = JSON.stringify([st.active, d && d.text, d && d.row, d && d.col, marked, padOn]);
         if (key === st.readoutKey) return;
@@ -1538,8 +1515,8 @@ class _IdmLocator {
         if (!host) return;
         const groups = this._idmMarkGroups();
         const flash = st.flash && Date.now() < st.flash.until ? `${st.flash.layerId}:${st.flash.key}` : '';
-        // The blinking row is a class on the rows as they stand: a blink
-        // starting or ending never rebuilds the list, so a tick box being
+        // The picked row is a class on the rows as they stand: its outline
+        // coming or going never rebuilds the list, so a tick box being
         // reached for is never swapped out from under the pointer.
         const key = JSON.stringify([st.side, groups.map(g => [g.layer.id, g.layer.name,
             g.rows.map(x => [x.key, x.place, x.ids, x.style, x.color])])]);
@@ -1657,8 +1634,9 @@ class _IdmLocator {
         });
     }
 
-    // A row of the list: select its screen and make the module blink in
-    // the view for a moment.
+    // A row of the list: select its screen and outline the module in the
+    // view, steadily, for a moment. One timer takes the outline away; it
+    // never blinks.
     _idmFlashModule(layerId, key) {
         const st = this._idmState();
         const layer = ((this.project && this.project.layers) || []).find(l => l.id === layerId);
@@ -1667,23 +1645,19 @@ class _IdmLocator {
                 || (this.selectedLayerIds && this.selectedLayerIds.size > 1)) {
             this.selectLayer(layer);
         }
-        const now = Date.now();
-        st.flash = { layerId, key, start: now, until: now + FLASH_MS };
-        clearInterval(st.flashTimer);
-        st.flashTimer = setInterval(() => {
-            if (!st.flash || Date.now() >= st.flash.until) {
-                clearInterval(st.flashTimer);
-                st.flashTimer = null;
-                st.flash = null;
-            }
+        st.flash = { layerId, key, until: Date.now() + FLASH_MS };
+        clearTimeout(st.flashTimer);
+        st.flashTimer = setTimeout(() => {
+            st.flashTimer = null;
+            st.flash = null;
             if (window.canvasRenderer) window.canvasRenderer.render();
-        }, BLINK_MS / 2);
+        }, FLASH_MS);
         sendClientLog('idm_locate', { id: layerId, key });
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
-    // canvas-idm.js asks, per screen, whether a module of it is blinking:
-    // {key, colour} while it is, the colour alternating accent and white.
+    // canvas-idm.js asks, per screen, whether a module of it was picked
+    // from the list: {key, colour} while it is outlined, in the accent.
     _idmFlashFor(layer) {
         const st = this._idmS;
         const f = st && st.flash;
@@ -1694,8 +1668,7 @@ class _IdmLocator {
         try {
             accent = getComputedStyle(document.documentElement).getPropertyValue('--ps-accent').trim() || accent;
         } catch (_) { /* the default accent */ }
-        const on = Math.floor((now - f.start) / BLINK_MS) % 2 === 0;
-        return { key: f.key, colour: on ? accent : '#ffffff' };
+        return { key: f.key, colour: accent };
     }
 }
 

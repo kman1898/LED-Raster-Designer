@@ -824,14 +824,29 @@ def test_the_locator_list_names_the_cabinet_ids_and_finds_the_module(page):
     }""")
     assert labels == ['1,2', '2,1'], labels
     assert rows == ['Cabinet 1,2 · Module 1,2', 'Cabinet 2,1 · Module 2,1'], rows
-    # a row selects its screen and makes the module blink
+    # a row selects its screen and outlines the module in the accent,
+    # steadily: the same colour every look, never a blink
     page.evaluate("() => window.app.selectLayer(window.app.project.layers.find(x => x.name === 'IdmB'))")
     page.click('#idm-list .idm-row >> nth=1')
     assert page.evaluate("() => window.app.currentLayer.name") == 'IdmA'
-    flash = page.evaluate("""() => window.app._idmFlashFor(
-        window.app.project.layers.find(x => x.name === 'IdmA'))""")
-    assert flash and flash['key'] == '0,1,0,1', flash
+    looks = page.evaluate("""async () => {
+        const a = window.app.project.layers.find(x => x.name === 'IdmA');
+        const out = [];
+        for (let i = 0; i < 6; i++) {
+            out.push(window.app._idmFlashFor(a));
+            await new Promise(r => setTimeout(r, 100));
+        }
+        return out;
+    }""")
+    assert all(f == looks[0] for f in looks), looks
+    assert looks[0]['key'] == '0,1,0,1', looks
+    accent = page.evaluate("() => getComputedStyle(document.documentElement)"
+                           ".getPropertyValue('--ps-accent').trim() || '#e22330'")
+    assert looks[0]['colour'] == accent, looks
     page.wait_for_selector('#idm-list .idm-row.active')
+    # and it goes after a moment
+    page.wait_for_function("""() => !window.app._idmFlashFor(
+        window.app.project.layers.find(x => x.name === 'IdmA'))""", timeout=4000)
 
 
 def test_the_output_window_shows_a_mark_as_it_is_made(page, e2e_server):

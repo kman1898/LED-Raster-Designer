@@ -310,14 +310,6 @@ Object.assign(CanvasRenderer.prototype, {
         return (gx0 + cell.mx + gy0 + cell.my) % 2 === 1;
     },
 
-    // The live highlight blinks between full white and this: the field's
-    // inverse, or black when the inverse is itself near white (a black or
-    // near-black field), so it blinks on any field.
-    idmHighlightOffRgb(fieldRgb) {
-        const inv = fieldRgb.map(v => 255 - v);
-        return this._idmDistance(inv, [255, 255, 255]) < IDM_MARK_MIN_DISTANCE ? [0, 0, 0] : inv;
-    },
-
     // A ring `t` px thick inside a rectangle (fills, so it sits on whole
     // pixels).
     _idmRing(ctx, x, y, w, h, t) {
@@ -334,6 +326,34 @@ Object.assign(CanvasRenderer.prototype, {
     _idmTick(ctx, cx, cy, sx, sy, len, t) {
         ctx.fillRect(sx > 0 ? cx : cx - len, sy > 0 ? cy : cy - t, len, t);
         ctx.fillRect(sx > 0 ? cx : cx - t, sy > 0 ? cy : cy - len, t, len);
+    },
+
+    // A steady outline, all of it inside the rectangle: a black ring
+    // `outer` thick at its edge and a `bright` one `inner` thick inside
+    // that. The black reads on a light field or module, the bright one on a
+    // dark one, so it shows on any of them - and both sit on the module, so
+    // a module at a screen's or canvas's edge, beside black or past the
+    // canvas's boundary, keeps all four sides.
+    _idmOutline(ctx, x, y, w, h, outer, inner, bright) {
+        ctx.fillStyle = '#000000';
+        this._idmRing(ctx, x, y, w, h, outer);
+        ctx.fillStyle = bright;
+        this._idmRing(ctx, x + outer, y + outer, w - 2 * outer, h - 2 * outer, inner);
+    },
+
+    // The outline's two bands for a module whose shorter side is `side`
+    // (in the drawing's own units): {outer, inner}. On screen the black
+    // band is 3 screen pixels at any zoom and the bright one 3 too, but no
+    // more than a quarter of the module. On the wall the black band is a
+    // twelfth of the module, 2 to 8 LED pixels, and the bright one the
+    // same, no more than a quarter of the module, both on whole pixels.
+    _idmOutlineBands(side, onScreen) {
+        if (onScreen) {
+            const outer = 3 / (this.zoom || 1);
+            return { outer, inner: Math.min(outer, side / 4) };
+        }
+        const outer = Math.max(2, Math.min(8, Math.round(side / 12)));
+        return { outer, inner: Math.max(1, Math.min(outer, Math.floor(side / 4))) };
     },
 
     _idmTicks(ctx, x, y, w, h, len, t) {
@@ -647,14 +667,13 @@ Object.assign(CanvasRenderer.prototype, {
                 ctx.strokeStyle = cabinetCore;
                 ctx.lineWidth = 1.5 * unit;
                 ctx.strokeRect(...rect);
-                // A module picked from the locator list blinks in the accent.
+                // A module picked from the locator list: a steady outline in
+                // the accent, inside the module, as the live highlight's.
                 if (flash) {
                     for (const c of cells) {
                         if (this.idmCellKey(panel, c) !== flash.key) continue;
-                        ctx.strokeStyle = flash.colour;
-                        ctx.lineWidth = 4 * unit;
-                        ctx.strokeRect(c.x + 2 * unit, c.y + 2 * unit,
-                                       Math.max(0, c.w - 4 * unit), Math.max(0, c.h - 4 * unit));
+                        const b = this._idmOutlineBands(Math.min(c.w, c.h), true);
+                        this._idmOutline(ctx, c.x, c.y, c.w, c.h, b.outer, b.inner, flash.colour);
                     }
                 }
             }
@@ -724,55 +743,42 @@ Object.assign(CanvasRenderer.prototype, {
 
     // Drawn after every screen, in workspace coordinates on `ctx` (the
     // designer's, or the output's own frame - app-output-display.js lays it
-    // over a frame drawn without it): the highlighted module filled white or
-    // the blink's other colour, its mark in the middle so a marked module
-    // still shows it, and on screen an accent outline. opts.canvasId keeps
-    // it to one canvas's output; opts.exportMode says it is for the wall.
+    // over a frame drawn without it): a steady outline round the highlighted
+    // module, never a fill and never a blink (owner, 2026-11-18). A black
+    // band at the module's edge and a white one inside it, both on the
+    // module, so it reads on any field and any module colour, at a screen's
+    // or the canvas's edge too, and the module's own field and mark (colour
+    // or X) stay in view in its middle. The bands: _idmOutlineBands.
+    // opts.canvasId keeps it to one canvas's output; opts.exportMode says
+    // it is for the wall. Answers what it drew - {layerId, key, x, y, w, h,
+    // outer, inner}, in workspace units - or null.
     renderIdmHighlight(ctx = this.ctx, opts = {}) {
         const app = window.app;
         const t = (app && typeof app._idmHighlightTarget === 'function') ? app._idmHighlightTarget() : null;
-        if (!t || !t.layer.visible) return;
+        if (!t || !t.layer.visible) return null;
         const canvases = (app.project && Array.isArray(app.project.canvases)) ? app.project.canvases : [];
         if (canvases.length) {
             const cid = this._effectiveLayerCanvasId(t.layer);
             if (opts.canvasId !== undefined) {
-                if (opts.canvasId !== cid) return;
+                if (opts.canvasId !== cid) return null;
             } else {
                 const canvas = canvases.find(c => c && c.id === cid);
-                if (canvas && canvas.visible === false) return;
+                if (canvas && canvas.visible === false) return null;
             }
         }
         const onScreen = opts.exportMode === undefined ? !this.exportMode : !opts.exportMode;
-        const field = this.idmFieldSpec();
         const r = this.idmModuleWorldRect(t.layer, t.panel, t.cell);
-        const unit = onScreen ? Math.max(1, 1 / (this.zoom || 1)) : 1;
+        const b = this._idmOutlineBands(Math.min(r.w, r.h), onScreen);
         ctx.save();
-        ctx.fillStyle = this._idmCss(t.on ? [255, 255, 255] : this.idmHighlightOffRgb(field.rgb));
-        ctx.fillRect(r.x, r.y, r.w, r.h);
-        const marks = (t.layer.idm && t.layer.idm.marks) || {};
-        const m = marks[t.key];
-        if (m) this._idmDrawMark(ctx, r, m, this.idmMarkInk(m.color, field.rgb), unit, 0.25);
-        if (onScreen) {
-            let accent = '#e22330';
-            try {
-                accent = getComputedStyle(document.documentElement).getPropertyValue('--ps-accent').trim() || accent;
-            } catch (_) { /* the default accent */ }
-            // A dark band under the accent, so it reads on a field of the
-            // accent's own colour.
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-            ctx.lineWidth = 5 * unit;
-            ctx.strokeRect(r.x - 2.5 * unit, r.y - 2.5 * unit, r.w + 5 * unit, r.h + 5 * unit);
-            ctx.strokeStyle = accent;
-            ctx.lineWidth = 3 * unit;
-            ctx.strokeRect(r.x - 2.5 * unit, r.y - 2.5 * unit, r.w + 5 * unit, r.h + 5 * unit);
-        }
+        this._idmOutline(ctx, r.x, r.y, r.w, r.h, b.outer, b.inner, '#ffffff');
         ctx.restore();
+        return { layerId: t.layer.id, key: t.key, ...r, outer: b.outer, inner: b.inner };
     },
 
     // The designer's mouse on the wall (Show mouse on wall): an arrow with
     // its tip at (x, y) in `ctx`'s coordinates, `size` pixels tall. Black
     // edged in white on a light field, white edged in black on a dark one,
-    // so it reads on the field, on a mark and on either half of the blink.
+    // so it reads on the field, on a mark and on the highlight's outline.
     renderIdmPointer(ctx, x, y, size) {
         const rgb = this.idmFieldSpec().rgb || [255, 255, 255];
         const light = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] > 140;

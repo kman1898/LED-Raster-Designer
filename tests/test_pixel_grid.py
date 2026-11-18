@@ -71,7 +71,9 @@ ZOOM = 12
 # (a grouped wall's own, 'name') or the label disc nearest `at` ('disc').
 # `writing` names the renderer method that draws the writing (or the error
 # box, the badge, the IDM highlight) under test. `find` 'idm' lights the
-# first module of the first cabinet in the IDM Locator and centres on it;
+# first module of the cabinet in column 2, row 2 in the IDM Locator and
+# centres on its top-left corner, where its outline's two bands straddle
+# a pixel edge on the screen's own pixels;
 # `idmField` is the IDM Locator's field.
 #
 # Frames: A as drawn; G without the grid; N without the grid and the
@@ -118,15 +120,17 @@ GRID_JS = """([mode, spec]) => {
             if (!disc) return { error: 'no disc' };
             frame([(disc.x + disc.w / 2 - r.panX) / z, (disc.y + disc.h / 2 - r.panY) / z]);
         } else if (spec.find === 'idm') {
-            // the IDM Locator's live highlight on one module, lit steadily
-            const layer = layers[0], panel = layer.panels[0];
+            // the IDM Locator's live highlight on one module, outlined
+            // steadily, a cabinet in from the screen's edges
+            const layer = layers[0];
+            const panel = layer.panels.find(p => p.col === 1 && p.row === 1) || layer.panels[0];
             const counts = r.idmCounts(layer);
             const cell = r.idmModuleCells(layer, panel, counts.x, counts.y,
                                           r._idmVisibleLookup(layer))[0];
             if (!cell) return { error: 'no module' };
-            app._idmHighlightTarget = () => ({ layer, panel, cell, key: '0,0,0,0', on: true });
+            app._idmHighlightTarget = () => ({ layer, panel, cell, key: '0,0,0,0' });
             const m = r.idmModuleWorldRect(layer, panel, cell);
-            frame([m.x + m.w / 2, m.y + m.h / 2]);
+            frame([m.x, m.y]);
         }
         const grab = () => r.ctx.getImageData(0, 0, W, H).data;
         const draw = (names) => {
@@ -341,8 +345,8 @@ def test_grid_over_the_back_badge(page, mode, key):
 
 
 def test_grid_over_the_idm_highlight(page):
-    """The IDM Locator's lit module (white, with its accent outline) on a
-    black field."""
+    """The IDM Locator's highlighted module (its steady black and white
+    outline) on a black field."""
     spec = {'at': [1256, 728], 'find': 'idm', 'writing': 'renderIdmHighlight',
             'idmField': {'color': '#000000', 'border': 'lines', 'moduleIds': False}}
     assert_grid_everywhere(grid(page, 'idm', spec), 'IDM highlight', under=200)
