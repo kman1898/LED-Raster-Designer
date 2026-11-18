@@ -9402,7 +9402,7 @@
             since: '1.7.0',
             target: '#idm-list', place: 'right', title: 'The marked modules',
             avoid: [function () { return idmRows()[0] || null; }],
-            body: 'Every mark is listed by screen, cabinet ID and module. Click one and that module blinks in the view.',
+            body: 'Every mark is listed by screen and where it is: the cabinet\'s column and row, then the module\'s place, with its Cabinet ID and Module ID under it. Click one and that module blinks in the view.',
             before: openIdm,
             act: function (t) {
                 var row = idmRows()[0];
@@ -9419,7 +9419,7 @@
             since: '1.7.0',
             target: '#idm-list', ring: ['#idm-list', '.idm-side-bar'], place: 'right', title: 'Tick off the swaps',
             avoid: [function () { return idmRows()[0] || null; }, '[data-idm-side="back"]'],
-            body: 'Tick Swapped once a module is replaced: the row stays, dimmed, and the tick is saved with the show. Back names each module as it reads from behind the wall.',
+            body: 'Back counts each row from behind the wall, where left and right swap. Tick Swapped once a module is replaced: its mark clears, the row leaves the list and the count goes down.',
             before: function () {
                 openIdm();
                 var a = A();
@@ -9430,35 +9430,36 @@
                 if (!row) throw new Error('no marks in the list');
                 var layerId = Number(row.dataset.idmLayer), key = row.dataset.idmKey;
                 t.mem.key = key;
-                var ticked = function () {
+                t.mem.layerId = layerId;
+                t.mem.before = idmRows().length;
+                var marked = function () {
                     var l = screens().find(function (x) { return x.id === layerId; });
-                    var m = idmMarks(l)[key];
-                    return !!(m && m.swapped);
+                    return !!idmMarks(l)[key];
                 };
-                // by its id: found again if the list is rebuilt on the way
-                var box = row.querySelector('input[data-idm-swap]');
-                var tick = ticked() ? Promise.resolve() : t.click('#' + CSS.escape(box.id)).then(function () {
-                    return t.wait(ticked);
-                });
-                return tick.then(function () { return t.pause(PACE.acted); }).then(function () {
-                    return t.click('[data-idm-side="back"]');
-                }).then(function () {
+                // the box by its id: found again if the list is rebuilt on the way
+                var boxId = row.querySelector('input[data-idm-swap]').id;
+                return t.click('[data-idm-side="back"]').then(function () {
                     return t.wait(function () { return idmSide() === 'back'; });
                 }).then(function () {
-                    var back = $('#idm-list .idm-row[data-idm-key="' + key + '"]');
-                    t.mem.back = back ? back.title : '';
+                    var back = $('#idm-list .idm-row[data-idm-key="' + key + '"] .idm-row-text');
+                    t.mem.back = back ? back.textContent : '';
                     return t.pause(PACE.acted);
                 }).then(function () {
                     return t.click('[data-idm-side="front"]');
                 }).then(function () {
                     return t.wait(function () { return idmSide() === 'front'; });
-                });
+                }).then(function () {
+                    if (!marked()) return null;
+                    return t.click('#' + CSS.escape(boxId)).then(function () {
+                        return t.wait(function () { return !marked(); });
+                    });
+                }).then(function () { return t.pause(PACE.acted); });
             },
             check: function (mem) {
-                var row = $('#idm-list .idm-row[data-idm-key="' + mem.key + '"]');
-                if (!row || !row.classList.contains('idm-row-swapped') || idmSide() !== 'front' || !mem.back) return null;
-                var name = / Module ([^ ]+) /.exec(mem.back);
-                return 'Swapped and dimmed. From behind the wall it reads Module ' + (name ? name[1] : '') + '.';
+                var l = screens().find(function (x) { return x.id === mem.layerId; });
+                if (!l || idmMarks(l)[mem.key] || $('#idm-list .idm-row[data-idm-key="' + mem.key + '"]')) return null;
+                if (idmSide() !== 'front' || !mem.back || idmRows().length !== mem.before - 1) return null;
+                return 'Swapped: ' + idmRows().length + ' marks left. From behind the wall it was ' + mem.back + '.';
             }
         },
         notesChecklist: {

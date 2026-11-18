@@ -126,14 +126,10 @@ Object.assign(CanvasRenderer.prototype, {
     // cabinet's `cells`, the position is the module's among them; without
     // them, its place in a whole cabinet. The mark keys stay the module's
     // place in the whole cabinet's grid (idmCellKey), so no mark moves.
-    // opts.back names the module as it reads from BEHIND the wall (the swap
-    // list's Back switch, idm-core.js): the cabinet's columns counted from
-    // the other side, so on a module grid two wide the front's A1 is B1.
     // Returns (cell, cells) -> text.
-    idmModuleLabeler(layer, opts = {}) {
+    idmModuleLabeler(layer) {
         const style = (layer && layer.cabinetIdStyle) || 'column-row';
         const counts = this.idmCounts(layer);
-        const back = !!(opts && opts.back);
         return (cell, cells) => {
             let col = cell.mx, row = cell.my, across = counts.x;
             if (Array.isArray(cells) && cells.length) {
@@ -145,7 +141,6 @@ Object.assign(CanvasRenderer.prototype, {
                     across = xs.length;
                 }
             }
-            if (back) col = across - 1 - col;
             return this.cabinetIdFormat(style, row, col, row * across + col + 1);
         };
     },

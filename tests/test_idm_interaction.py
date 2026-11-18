@@ -683,8 +683,13 @@ def test_a_half_cabinet_reads_1_1_at_its_own_first_module(page, which):
     page.mouse.click(pt['x'], pt['y'])
     got_served = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and first in v['marks'])
     assert list(got_served['marks']) == [first], got_served
-    row_text = ' '.join(page.inner_text('#idm-list .idm-row-text').split())
-    assert 'Module A1 (row 1, col 1)' in row_text, row_text
+    # the swap list: where it is (the half's own first module), then the IDs
+    c, r = (int(v) for v in cab.split(','))
+    place = page.inner_text('#idm-list .idm-row-text')
+    spot = 'Left module' if which in ('firstRow', 'lastRow') else 'Top module'
+    assert place == f'Col {c + 1}, Row {r + 1} · {spot}', place
+    ids = page.inner_text('#idm-list .idm-row-id')
+    assert ids.endswith('Module A1'), ids
     page.evaluate("() => window.app.loadProject()")
     settled(page, lambda: marks_of(page, 'IdmA'), lambda v: first in v, 8000)
     page.wait_for_timeout(400)
@@ -717,7 +722,8 @@ def test_a_mark_saved_before_the_fix_stays_on_its_module(page, e2e_server):
     settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '0,0,0,1' in v, 8000)
     page.wait_for_timeout(300)
     assert marks_of(page, 'IdmA') == {'0,0,0,1': {'style': 'color', 'color': '#00ff00'}}
-    assert 'Module A1 (row 1, col 1)' in ' '.join(page.inner_text('#idm-list .idm-row-text').split())
+    assert page.inner_text('#idm-list .idm-row-text') == 'Col 1, Row 1 · Left module'
+    assert page.inner_text('#idm-list .idm-row-id').endswith('Module A1')
     # on the wall it is still the half cabinet's left module: the half row
     # is 64 px tall at y 0..64, its left module x 0..64
     page.mouse.move(3, 3)

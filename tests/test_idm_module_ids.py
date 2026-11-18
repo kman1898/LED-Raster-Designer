@@ -513,10 +513,11 @@ def test_a_half_cabinet_numbers_its_own_modules_from_its_first(page):
         app.updateLayers([l], true, 'Mark');
         window.canvasRenderer.render();
     }""")
-    row = page.inner_text('#idm-list .idm-row-text')
+    row = page.inner_text('#idm-list .idm-row-id')
     assert half['0,0,3,1'] == 'B2'
     assert re.search(r'Module B2(?!\d)', row), row
-    assert '(row 2, col 2)' in row, row
+    place = page.inner_text('#idm-list .idm-row-text')
+    assert place == 'Col 1, Row 1 · Module row 2, col 2', place
 
 
 def test_the_labels_turn_with_a_turned_screen(page):

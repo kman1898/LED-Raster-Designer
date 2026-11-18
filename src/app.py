@@ -1073,9 +1073,10 @@ def sanitize_idm(value, layer):
     """The `idm` block held to its shape against `layer`'s cabinets: module
     counts as integers 1..64, every mark on a module that exists (inside the
     cabinet grid, inside the module grid, not on a blanked cabinet), style
-    'color' or 'x', colour '#rrggbb', and swapped: True (the swap list's
-    tick, kept only when ticked). None when `value` is not a dict or the
-    layer is not a screen (the key is then removed). Idempotent."""
+    'color' or 'x', colour '#rrggbb' (a module ticked off the swap list has
+    its mark cleared, so nothing else is kept). None when `value` is not a
+    dict or the layer is not a screen (the key is then removed).
+    Idempotent."""
     if not isinstance(value, dict) or not isinstance(layer, dict):
         return None
     if (layer.get('type') or 'screen') != 'screen':
@@ -1094,8 +1095,6 @@ def sanitize_idm(value, layer):
                 'style': 'x' if mark.get('style') == 'x' else 'color',
                 'color': idm_color(mark.get('color')) or IDM_DEFAULT_COLOR,
             }
-            if mark.get('swapped') is True:
-                marks[k]['swapped'] = True
     return {'modulesX': modules_x, 'modulesY': modules_y, 'marks': marks}
 
 

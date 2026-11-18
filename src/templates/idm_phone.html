@@ -71,11 +71,11 @@
 
         .ph-controls { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
         .ph-readout { flex: 0 0 auto; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
-        .ph-readout-top { display: flex; align-items: baseline; gap: 8px; }
-        .ph-screen { flex: 1 1 auto; min-width: 0; font-size: 20px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ph-place { font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ph-readout-sub { display: flex; align-items: baseline; gap: 8px; }
         .ph-state { flex: 0 0 auto; font-size: 15px; color: var(--dim); }
         .ph-state.marked { color: var(--accent); font-weight: 700; }
-        .ph-module { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .ph-ids { flex: 1 1 auto; min-width: 0; font-size: 15px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .ph-seg { flex: 0 0 auto; display: flex; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
         .ph-seg button { flex: 1 1 0; min-width: 0; min-height: 48px; border: 0; background: var(--btn); font-size: 17px; cursor: pointer; }
         .ph-seg button + button { border-left: 1px solid var(--line); }
@@ -133,8 +133,6 @@
         .ph-swap { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 0 4px 0 10px; min-height: 60px;
             font-size: 16px; color: var(--dim); cursor: pointer; }
         .ph-swap input { width: 32px; height: 32px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-        .ph-row.swapped .ph-row-go { opacity: 0.5; }
-        .ph-row.swapped .ph-row-text { text-decoration: line-through; }
         .ph-row.here .ph-row-go { font-weight: 700; }
         .ph-empty { color: var(--faint); font-size: 17px; padding: 8px 0; }
         .ph-help dl { margin: 6px 0 0; font-size: 17px; }
@@ -163,11 +161,13 @@
         <div id="ph-message" class="ph-message" role="status" hidden></div>
         <section id="ph-controls" class="ph-controls" hidden>
             <div class="ph-readout" id="ph-readout">
-                <div class="ph-readout-top">
-                    <div id="ph-screen" class="ph-screen">No module highlighted</div>
+                <!-- where it is gets the whole first line; the IDs and the
+                     mark's state share the second -->
+                <div id="ph-place" class="ph-place">No module highlighted</div>
+                <div class="ph-readout-sub">
+                    <div id="ph-ids" class="ph-ids">Tap an arrow to start.</div>
                     <span id="ph-state" class="ph-state"></span>
                 </div>
-                <div id="ph-module" class="ph-module">Tap an arrow to start.</div>
             </div>
             <div class="ph-seg" role="group" aria-label="Each arrow moves">
                 <button type="button" data-ph-step="module" aria-pressed="true">One module</button>
@@ -208,11 +208,11 @@
                 <button type="button" id="ph-swap-close" class="ph-btn ph-back">&#8249; Back</button>
                 <h2 id="ph-swap-title">Swap list <span id="ph-count" class="ph-count"></span></h2>
             </div>
-            <div class="ph-seg ph-side" role="group" aria-label="Module names from the">
+            <div class="ph-seg ph-side" role="group" aria-label="Count from the">
                 <button type="button" data-ph-side="front" aria-pressed="true">Front</button>
                 <button type="button" data-ph-side="back" aria-pressed="false">Back</button>
             </div>
-            <p id="ph-side-label" class="ph-side-label">Module names as they read from the front.</p>
+            <p id="ph-side-label" class="ph-side-label">Counted from the top left as you face the front of the wall.</p>
             <div class="ph-scroll"><div id="ph-list"></div></div>
         </div>
     </section>

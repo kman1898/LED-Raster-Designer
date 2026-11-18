@@ -356,13 +356,17 @@ change. A controller paired with the phone works there with the same
 buttons. If the app is set to this computer only, the dialog says what
 to change.
 
-The list of marks is a swap list: tick Swapped once a module has been
-replaced. The row stays where it is, dimmed, and the tick is saved with
-the show, shows on every computer and phone and undoes like any other
-change. Front and Back above the list name every module as it reads from
-in front of the wall or from behind it, so on a cabinet two modules wide
-A1 from the front is B1 from the back. Cabinet IDs stay as they are. The
-swap list does not print in the binder.
+The list of marks is a swap list that counts down: tick Swapped once a
+module has been replaced and its mark clears from the wall, the row leaves
+the list on every computer and phone, and the count goes down. Undo brings
+the mark and the row back. Each row says where the module is first: the
+cabinet's column and row in its screen, then the module's place in plain
+words, like "Col 1, Row 2 · Top left module", with its Cabinet ID and
+Module ID underneath. Front and Back above the list count from the top
+left of the side you stand on: from behind the wall, column 1 is the one
+on the far right from the front, and left and right swap. The phone names
+the highlighted module the same way. The swap list does not print in the
+binder.
 
 A SETUP FILE FOR WINDOWS
 

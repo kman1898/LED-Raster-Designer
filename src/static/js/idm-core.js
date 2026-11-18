@@ -52,15 +52,13 @@ export function idmKey(value) {
     return out.join(',');
 }
 
-// One mark held to its shape (app.sanitize_idm): style 'color' or 'x', a
-// colour, and swapped: true only once the module has been replaced.
+// One mark held to its shape (app.sanitize_idm): style 'color' or 'x' and
+// a colour.
 export function idmMarkOf(mark) {
-    const out = {
+    return {
         style: mark && mark.style === 'x' ? 'x' : 'color',
         color: idmColor(mark && mark.color) || DEFAULT_COLOR,
     };
-    if (mark && mark.swapped === true) out.swapped = true;
-    return out;
 }
 
 // The shade setting: '#rrggbb', a whole percent 0..100 (half up), or null
@@ -299,12 +297,57 @@ export function idmNextCanvasFrom(r, project, canvasId) {
 }
 
 // ── names ─────────────────────────────────────────────────────────────────
+//
+// The swap list names a module by where it is (owner, 2026-11-17): the
+// cabinet's column and row within its screen, then the module's place in
+// the cabinet in plain words, both counted from the top-left of the side
+// the crew stands on. From the back the wall's left and right swap, so
+// column 1 is the front's rightmost and a module on the front's left is
+// on the right. The Cabinet ID and Module ID follow as a hint, as the
+// cabinet is called whichever side it is read from.
 
-// Screen · Cabinet ID · Module for one module, as the list and the
-// readouts print it. `back`: the module named as it reads from behind the
-// wall (canvas-idm idmModuleLabeler), its column counted from the other
-// side; the Cabinet ID stays the cabinet's own, as the binder's Rear view
-// prints it. Null when the module is not there.
+const ACROSS = { 2: ['left', 'right'], 3: ['left', 'middle', 'right'] };
+const DOWN = { 2: ['top', 'bottom'], 3: ['top', 'middle', 'bottom'] };
+
+// A module's place in a cabinet `across` x `down` modules, at column `ci`
+// and row `ri` (0 = the top-left as the viewer sees it): "Top left module",
+// "Right module", "Center module", "Whole cabinet" for a cabinet of one;
+// past 3 either way, "Module row 2, col 3".
+export function idmModuleSpot(ci, ri, across, down) {
+    if (across > 3 || down > 3) return `Module row ${ri + 1}, col ${ci + 1}`;
+    const h = across > 1 ? ACROSS[across][ci] : '';
+    const v = down > 1 ? DOWN[down][ri] : '';
+    if (!h && !v) return 'Whole cabinet';
+    const words = (h === 'middle' && v === 'middle') ? 'center' : [v, h].filter(Boolean).join(' ');
+    return words.charAt(0).toUpperCase() + words.slice(1) + ' module';
+}
+
+// How many cabinet columns a screen has (its cabinets' own grid).
+function columnsOf(layer) {
+    let n = 0;
+    (layer.panels || []).forEach(p => { if (p) n = Math.max(n, (p.col || 0) + 1); });
+    return Math.max(n, 1);
+}
+
+// Where a module is, read from the front or (back) from behind the wall:
+// {col, row (the cabinet's, from 1), spot, place: "Col 1, Row 2 · Top
+// left module"}.
+function placeOf(layer, panel, cell, cells, back) {
+    const xs = [...new Set(cells.map(c => c.mx))].sort((a, b) => a - b);
+    const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
+    let ci = xs.indexOf(cell.mx);
+    if (back) ci = xs.length - 1 - ci;
+    const spot = idmModuleSpot(ci, ys.indexOf(cell.my), xs.length, ys.length);
+    const col = back ? columnsOf(layer) - (panel.col || 0) : (panel.col || 0) + 1;
+    const row = (panel.row || 0) + 1;
+    return { col, row, spot, place: `Col ${col}, Row ${row} · ${spot}` };
+}
+
+// One module, as the readouts print it: its screen, Cabinet ID and Module
+// ID (the Cabinet ID view's naming, canvas-idm idmModuleLabeler), the
+// module's row and column inside its cabinet (from the front), and where
+// it is (placeOf, from the front or `back`). `ids` is "Cabinet A1 · Module
+// B1", `text` "Screen · A1 · Module B1". Null when the module is not there.
 export function idmDescribe(r, layer, key, { back = false } = {}) {
     if (!r || !layer) return null;
     const parts = String(key).split(',').map(n => parseInt(n, 10));
@@ -318,26 +361,28 @@ export function idmDescribe(r, layer, key, { back = false } = {}) {
     const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
     const screen = layer.name || 'Screen';
     const cabinet = r.cabinetIdLabeler(layer)(panel);
-    const module = r.idmModuleLabeler(layer, { back })(cell, cells);
-    const col = xs.indexOf(parts[2]) + 1;
+    const module = r.idmModuleLabeler(layer)(cell, cells);
     return {
         screen, cabinet, module,
-        row: ys.indexOf(parts[3]) + 1, col: back ? xs.length - col + 1 : col,
+        row: ys.indexOf(parts[3]) + 1, col: xs.indexOf(parts[2]) + 1,
+        place: placeOf(layer, panel, cell, cells, back).place,
+        ids: `Cabinet ${cabinet} · Module ${module}`,
         text: `${screen} · ${cabinet} · Module ${module}`,
     };
 }
 
 // Every mark, screen by screen: [{layer, rows}], each row {key, panel,
-// index, cabinet, module, row, col, style, color, swapped}. Rows run in
-// reading order, cabinet by cabinet (from the front, whichever side the
-// names read from, so a row never moves when the side changes).
+// index, cabinet, module, place, ids, style, color}: `place` where the
+// module is from the front or (back) from behind the wall, `ids` its
+// Cabinet ID and Module ID. Rows run in reading order from the front,
+// cabinet by cabinet, so a row never moves when the side changes.
 export function idmMarkGroups(r, project, { back = false } = {}) {
     const groups = [];
     if (!r || !project) return groups;
     for (const layer of layersOf(project)) {
         if (!isScreen(layer) || idmMarkCount(layer) === 0) continue;
         const labelOf = r.cabinetIdLabeler(layer);
-        const moduleOf = r.idmModuleLabeler(layer, { back });
+        const moduleOf = r.idmModuleLabeler(layer);
         const counts = r.idmCounts(layer);
         const seen = r._idmVisibleLookup(layer);
         const byCell = new Map();
@@ -350,18 +395,14 @@ export function idmMarkGroups(r, project, { back = false } = {}) {
             const cells = r.idmModuleCells(layer, panel, counts.x, counts.y, seen);
             const cell = cells.find(c => c.mx === parts[2] && c.my === parts[3]);
             if (!cell) return;
-            const index = cells.indexOf(cell);
-            const xs = [...new Set(cells.map(c => c.mx))].sort((a, b) => a - b);
-            const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
             const mark = idmMarkOf(layer.idm.marks[key]);
-            const col = xs.indexOf(parts[2]) + 1;
+            const cabinet = labelOf(panel);
+            const module = moduleOf(cell, cells);
             rows.push({
-                key, panel, index,
-                cabinet: labelOf(panel),
-                module: moduleOf(cell, cells),
-                row: ys.indexOf(parts[3]) + 1,
-                col: back ? xs.length - col + 1 : col,
-                style: mark.style, color: mark.color, swapped: !!mark.swapped,
+                key, panel, index: cells.indexOf(cell), cabinet, module,
+                place: placeOf(layer, panel, cell, cells, back).place,
+                ids: `Cabinet ${cabinet} · Module ${module}`,
+                style: mark.style, color: mark.color,
             });
         });
         rows.sort((a, b) => (a.panel.row - b.panel.row) || (a.panel.col - b.panel.col) || (a.index - b.index));
@@ -434,25 +475,21 @@ export function idmBlockOf(r, layer) {
 }
 
 // One module of a stroke: marked in `style` and `color` ('mark') or
-// cleared ('clear'). A module already marked keeps its Swapped tick when
-// it is marked again.
+// cleared ('clear').
 export function idmApplyMark(block, key, mode, style, color) {
     if (mode === 'clear') {
         delete block.marks[key];
         return;
     }
-    const was = block.marks[key];
-    const next = { style: style === 'x' ? 'x' : 'color', color: idmColor(color) || DEFAULT_COLOR };
-    if (was && was.swapped === true) next.swapped = true;
-    block.marks[key] = next;
+    block.marks[key] = { style: style === 'x' ? 'x' : 'color', color: idmColor(color) || DEFAULT_COLOR };
 }
 
-// The Swapped tick of the mark on `key`: true when the block changed.
-export function idmApplySwapped(block, key, on) {
-    const mark = block.marks[key];
-    if (!mark) return false;
-    if (!!mark.swapped === !!on) return false;
-    if (on) mark.swapped = true;
-    else delete mark.swapped;
+// A module ticked Swapped on the swap list (owner, 2026-11-17: "count
+// down as they are checked off and remove"): its mark is cleared, so the
+// row leaves the list and the module leaves the wall. True when the
+// block changed.
+export function idmApplySwapped(block, key) {
+    if (!block.marks[key]) return false;
+    delete block.marks[key];
     return true;
 }

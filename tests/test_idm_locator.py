@@ -797,12 +797,13 @@ def test_the_locator_list_names_the_cabinet_ids_and_finds_the_module(page):
     wait_served_marks(page, 'IdmA', ['1,0,1,0', '0,1,0,1'])
     page.wait_for_timeout(200)
     rows = page.eval_on_selector_all('#idm-list .idm-row .idm-row-text', 'els => els.map(e => e.textContent.trim())')
-    # Cabinet ID view's default numbering: column letter + row number,
-    # reading order top row first.
-    # The module is named in the same style, over the cabinet's own module
-    # grid (canvas-idm idmModuleLabeler).
-    assert rows == ['IdmA · B1 · Module B1 (row 1, col 2)',
-                    'IdmA · A2 · Module A2 (row 2, col 1)'], rows
+    ids = page.eval_on_selector_all('#idm-list .idm-row .idm-row-id', 'els => els.map(e => e.textContent.trim())')
+    # Each row leads with where the module is (owner, 2026-11-17), reading
+    # order top row first; then the Cabinet ID view's default numbering,
+    # column letter + row number, and the module named in the same style
+    # over the cabinet's own module grid (canvas-idm idmModuleLabeler).
+    assert rows == ['Col 2, Row 1 · Top right module', 'Col 1, Row 2 · Bottom left module'], rows
+    assert ids == ['Cabinet B1 · Module B1', 'Cabinet A2 · Module A2'], ids
     assert page.inner_text('#idm-count') == '(2)'
     assert 'IdmA · 2 marks' in page.inner_text('#idm-list')
     # the Cabinet ID view's own label for the same cabinet, whatever style
@@ -814,7 +815,7 @@ def test_the_locator_list_names_the_cabinet_ids_and_finds_the_module(page):
         window.canvasRenderer.render();
     }""")
     page.wait_for_timeout(400)
-    rows = page.eval_on_selector_all('#idm-list .idm-row .idm-row-text', 'els => els.map(e => e.textContent.trim())')
+    rows = page.eval_on_selector_all('#idm-list .idm-row .idm-row-id', 'els => els.map(e => e.textContent.trim())')
     labels = page.evaluate("""() => {
         const r = window.canvasRenderer;
         const l = window.app.project.layers.find(x => x.name === 'IdmA');
@@ -822,8 +823,7 @@ def test_the_locator_list_names_the_cabinet_ids_and_finds_the_module(page):
         return [of(l.panels.find(p => p.col === 1 && p.row === 0)), of(l.panels.find(p => p.col === 0 && p.row === 1))];
     }""")
     assert labels == ['1,2', '2,1'], labels
-    assert rows == ['IdmA · 1,2 · Module 1,2 (row 1, col 2)',
-                    'IdmA · 2,1 · Module 2,1 (row 2, col 1)'], rows
+    assert rows == ['Cabinet 1,2 · Module 1,2', 'Cabinet 2,1 · Module 2,1'], rows
     # a row selects its screen and makes the module blink
     page.evaluate("() => window.app.selectLayer(window.app.project.layers.find(x => x.name === 'IdmB'))")
     page.click('#idm-list .idm-row >> nth=1')

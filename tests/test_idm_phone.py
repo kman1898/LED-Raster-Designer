@@ -4,8 +4,9 @@ qr-code.js, app-idm-phone.js, app-idm-locator.js, app-idm-gamepad.js).
 
 What this file pins:
 
-* The server: a mark's Swapped tick is kept (True only) through the layer
-  route and both project funnels; the phone page is served with the
+* The server: a mark is its style and colour alone (a module ticked off
+  the swap list has its mark cleared, so nothing else is kept, through the
+  layer route and both project funnels); the phone page is served with the
   renderer's geometry and none of the designer; the address route names
   this computer's LAN addresses with the port it was reached on, the one
   a launcher bound to alone, or none (and why) for a server set to this
@@ -27,12 +28,17 @@ What this file pins:
   change is one undo step on the computer, its own Undo takes back its
   own change); it follows the show live and says so plainly when there is
   no show or no screen.
-* The swap list: a tick is saved with the show, live on every device,
-  one undo step, kept through a reload and a save and load; a ticked row
-  stays in place, dimmed; clearing a mark takes its row away. Front / Back
-  names every module as it reads from behind the wall on 2 x 2 and 4 x 4
-  modules and on a half cabinet; Cabinet IDs stay. Nothing of it prints in
-  the binder or any export.
+* The swap list (owner, 2026-11-17: "count down as they are checked off
+  and remove"): a Swapped tick, on the tab or on a phone, clears that
+  module's mark live everywhere (the server, the tab, a second device, the
+  wall output), its row leaves every list and the count goes down; it is
+  one undo step on the computer, and Undo (or the phone's own Undo) brings
+  the mark and the row back; a reload keeps it. A row leads with where the
+  module is (the cabinet's Col and Row in its screen, then the module's
+  place in words), counted from the top-left of the side Front / Back
+  picks, on 1 x 1 to 3 x 3, 4 x 4 and half cabinets; the Cabinet ID and
+  Module ID follow, the same from either side. The phone's readout reads
+  the same way. Nothing of it prints in the binder or any export.
 * The canvas: a game controller (on the computer and on the phone) and
   the phone's buttons step and go to the next screen only on the canvas
   the highlight is on; View / Share (the phone's Next canvas) goes to the
@@ -65,37 +71,30 @@ def _layer(client, **extra):
     return client.post('/api/layer/add', json=body).get_json()
 
 
-def test_the_swapped_tick_is_kept_true_only():
+def test_a_mark_is_its_style_and_colour_alone(client):
+    """A tick clears the mark, so no mark carries anything but its style
+    and colour; a key left by an earlier build is dropped."""
     layer = {'type': 'screen', 'columns': 2, 'rows': 1, 'cabinet_width': 128, 'cabinet_height': 128,
              'panels': [{'id': 1, 'row': 0, 'col': 0, 'x': 0, 'y': 0, 'width': 128, 'height': 128},
                         {'id': 2, 'row': 0, 'col': 1, 'x': 128, 'y': 0, 'width': 128, 'height': 128}]}
     got = app_module.sanitize_idm({'modulesX': 2, 'modulesY': 2, 'marks': {
         '0,0,0,0': {'style': 'color', 'color': '#ff0000', 'swapped': True},
-        '0,0,1,0': {'style': 'x', 'color': '#00ff00', 'swapped': False},
-        '1,0,0,0': {'style': 'x', 'color': '#00ff00', 'swapped': 'yes'},
-        '1,0,1,1': {'style': 'x', 'color': '#00ff00', 'swapped': 1},
+        '1,0,1,1': {'style': 'x', 'color': '#00ff00', 'swapped': False},
     }}, layer)
-    assert got['marks'] == {
-        '0,0,0,0': {'style': 'color', 'color': '#ff0000', 'swapped': True},
-        '0,0,1,0': {'style': 'x', 'color': '#00ff00'},
-        '1,0,0,0': {'style': 'x', 'color': '#00ff00'},
-        '1,0,1,1': {'style': 'x', 'color': '#00ff00'},
-    }, got
+    assert got['marks'] == {'0,0,0,0': {'style': 'color', 'color': '#ff0000'},
+                            '1,0,1,1': {'style': 'x', 'color': '#00ff00'}}, got
     assert app_module.sanitize_idm(got, layer) == got      # idempotent
-
-
-def test_the_tick_rides_the_layer_route_and_both_funnels(client):
     lay = _layer(client)
-    idm = {'modulesX': 2, 'modulesY': 2, 'marks': {'1,0,1,1': {'style': 'color', 'color': '#ff1a1a', 'swapped': True},
-                                                   '0,0,0,0': {'style': 'x', 'color': '#ff1a1a'}}}
+    idm = {'modulesX': 2, 'modulesY': 2, 'marks': {'1,0,1,1': {'style': 'color', 'color': '#ff1a1a', 'swapped': True}}}
     saved = client.put(f"/api/layer/{lay['id']}", json={'idm': idm}).get_json()
-    assert saved['idm']['marks']['1,0,1,1'].get('swapped') is True
-    assert 'swapped' not in saved['idm']['marks']['0,0,0,0']
+    assert saved['idm']['marks'] == {'1,0,1,1': {'style': 'color', 'color': '#ff1a1a'}}
     project = client.get('/api/project').get_json()
+    mine = next(x for x in project['layers'] if x['id'] == lay['id'])
+    mine['idm'] = idm
     assert client.post('/api/project', json=project).status_code == 200
     restored = client.put('/api/project', json=project).get_json()
     mine = next(x for x in restored['layers'] if x['id'] == lay['id'])
-    assert mine['idm']['marks']['1,0,1,1'] == {'style': 'color', 'color': '#ff1a1a', 'swapped': True}
+    assert mine['idm']['marks'] == {'1,0,1,1': {'style': 'color', 'color': '#ff1a1a'}}
 
 
 def test_the_phone_page_is_served_without_the_designer(client):
@@ -242,13 +241,14 @@ def phone_rows(ph):
     return ph.evaluate("""() => Array.from(document.querySelectorAll('#ph-list .ph-row')).map(r => ({
         key: r.dataset.phKey, text: r.querySelector('.ph-row-text').firstChild.textContent,
         where: r.querySelector('.ph-row-where').textContent,
-        swapped: r.querySelector('input').checked, dim: r.classList.contains('swapped')}))""")
+        ticked: r.querySelector('input').checked}))""")
 
 
 def tab_rows(pg):
     return pg.evaluate("""() => Array.from(document.querySelectorAll('#idm-list .idm-row')).map(r => ({
         key: r.dataset.idmKey, text: r.querySelector('.idm-row-text').textContent,
-        swapped: r.querySelector('input[data-idm-swap]').checked, dim: r.classList.contains('idm-row-swapped')}))""")
+        ids: r.querySelector('.idm-row-id').textContent,
+        ticked: r.querySelector('input[data-idm-swap]').checked}))""")
 
 
 def history_index(pg):
@@ -278,14 +278,15 @@ def test_the_phone_page_fits_a_phone_and_drives_the_wall(page, e2e_server, pw_br
     c2, ph2 = open_phone(pw_browser, e2e_server)
     try:
         assert ph.is_visible('#ph-controls') and not ph.is_visible('#ph-message')
-        assert ph.inner_text('#ph-screen') == 'No module highlighted'
+        assert ph.inner_text('#ph-place') == 'No module highlighted'
         # the first arrow starts on the first module, the next steps one module
         ph.tap('[data-ph-move="down"]')
         assert settled(page, lambda: hl(page), lambda v: v == ['IdmA', '0,0,0,0']) == ['IdmA', '0,0,0,0']
         ph.tap('[data-ph-move="right"]')
         assert settled(page, lambda: hl(page), lambda v: v == ['IdmA', '0,0,1,0']) == ['IdmA', '0,0,1,0']
-        assert ph.inner_text('#ph-screen') == 'IdmA'
-        assert ph.inner_text('#ph-module') == 'Cabinet A1 · Module B1'
+        # where it is first, then the screen and the IDs
+        assert ph.inner_text('#ph-place') == 'Col 1, Row 1 · Top right module'
+        assert ph.inner_text('#ph-ids') == 'IdmA · Cabinet A1 · Module B1'
         # one cabinet a step
         ph.tap('[data-ph-step="cabinet"]')
         ph.tap('[data-ph-move="down"]')
@@ -293,7 +294,8 @@ def test_the_phone_page_fits_a_phone_and_drives_the_wall(page, e2e_server, pw_br
         ph.tap('[data-ph-step="module"]')
         # the second phone follows
         assert settled(ph2, lambda: phone_hl(ph2), lambda v: v == ['IdmA', '0,1,1,0']) == ['IdmA', '0,1,1,0']
-        assert ph2.inner_text('#ph-module') == 'Cabinet A2 · Module B1'
+        assert ph2.inner_text('#ph-place') == 'Col 1, Row 2 · Top right module'
+        assert ph2.inner_text('#ph-ids') == 'IdmA · Cabinet A2 · Module B1'
         # the wall output blinks it: cabinet (0,1) module (1,0) is x 64..128, y 128..192
         seen = set()
         for _ in range(30):
@@ -463,7 +465,7 @@ def test_a_locked_screen_refuses_the_phone(page, e2e_server, pw_browser):
         ph.tap('#ph-list .ph-swap input')
         ph.wait_for_timeout(300)
         assert served_idm(page, 'IdmA')['marks'] == {'0,0,0,0': {'style': 'color', 'color': '#ff1a1a'}}
-        assert phone_rows(ph)[0]['swapped'] is False
+        assert phone_rows(ph)[0]['ticked'] is False
     finally:
         page.evaluate("""() => { const app = window.app, a = app.project.layers.find(x => x.name === 'IdmA');
             a.locked = false; app.updateLayers([a], true, 'Unlock'); }""")
@@ -492,7 +494,7 @@ def test_the_phone_follows_the_show_and_says_when_there_is_none(page, e2e_server
         # a new show replaces it: the phone follows
         reset_project(page)
         settled(ph, lambda: ph.is_visible('#ph-controls'), lambda v: v)
-        assert ph.inner_text('#ph-screen') == 'No module highlighted'
+        assert ph.inner_text('#ph-place') == 'No module highlighted'
         # the computer gone: said plainly; back, it carries on
         ph.evaluate("() => window.idmPhone.socket().disconnect()")
         msg = settled(ph, lambda: ph.inner_text('#ph-message') if ph.is_visible('#ph-message') else '',
@@ -506,86 +508,99 @@ def test_the_phone_follows_the_show_and_says_when_there_is_none(page, e2e_server
         ctx.close()
 
 
-def test_swap_ticks_are_saved_live_and_undoable(page, e2e_server, pw_browser):
-    reset_project(page)
+def test_a_swapped_tick_clears_the_mark_live_and_undoes(page, e2e_server, pw_browser):
+    cid = reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
     page.evaluate("""() => { const app = window.app, a = app.project.layers.find(x => x.name === 'IdmA');
         a.idm = {modulesX: 2, modulesY: 2, marks: {'0,0,0,0': {style: 'color', color: '#ff1a1a'},
-                                                  '1,0,1,1': {style: 'x', color: '#00ffff'},
-                                                  '2,1,0,0': {style: 'color', color: '#ffff00'}}};
+                                                  '1,0,1,1': {style: 'color', color: '#ff1a1a'},
+                                                  '2,1,0,0': {style: 'color', color: '#ff1a1a'}}};
         app.updateLayers([a], true, 'Marks'); window.canvasRenderer.render(); }""")
     settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and len(v['marks']) == 3)
+    out = open_output(page, cid)
     ctx, ph = open_phone(pw_browser, e2e_server)
+    ctx2, ph2 = open_phone(pw_browser, e2e_server)
+    red = lambda v: v and v[0] > 200 and v[1] < 60 and v[2] < 60  # noqa: E731
     try:
         rows = tab_rows(page)
         assert [r['key'] for r in rows] == ['0,0,0,0', '1,0,1,1', '2,1,0,0'], rows
-        assert not any(r['swapped'] for r in rows)
-        # tick the middle row on the tab: saved, one undo step, on the phone
+        assert not any(r['ticked'] for r in rows)
+        assert page.inner_text('#idm-count') == '(3)'
+        # module (1,0,1,1) is x 192..256, y 64..128 on the wall: red, marked
+        settled(out, lambda: pixel(out, 224, 96), red)
+        # tick on the tab: the mark is gone on the server, the tab, both
+        # phones and the wall; the row leaves; one undo step
         h0 = history_index(page)
         page.click('#idm-list .idm-row[data-idm-key="1,0,1,1"] input[data-idm-swap]')
-        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v['marks']['1,0,1,1'].get('swapped'))
-        assert got['marks']['1,0,1,1'] == {'style': 'x', 'color': '#00ffff', 'swapped': True}
+        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' not in v['marks'])
+        assert sorted(got['marks']) == ['0,0,0,0', '2,1,0,0'], got
+        assert settled(page, lambda: [r['key'] for r in tab_rows(page)], lambda v: len(v) == 2) == ['0,0,0,0', '2,1,0,0']
+        assert page.inner_text('#idm-count') == '(2)'
         assert history_index(page) == h0 + 1
-        # in place, dimmed
-        rows = tab_rows(page)
-        assert [r['key'] for r in rows] == ['0,0,0,0', '1,0,1,1', '2,1,0,0']
-        assert [r['dim'] for r in rows] == [False, True, False]
-        assert page.inner_text('#idm-count') == '(1 of 3 swapped)'
-        prow = settled(ph, lambda: phone_rows(ph), lambda v: [r['swapped'] for r in v] == [False, True, False])
-        assert [r['dim'] for r in prow] == [False, True, False]
-        # the header's button counts the marks; the list is its own screen
-        assert ph.inner_text('#ph-swap-open') == 'Swap list (3)'
-        assert not ph.is_visible('#ph-list')
-        open_swap(ph)
-        assert ph.inner_text('#ph-count') == '(1 of 3 swapped)'
-        # tick the last row on the phone: on the server and the tab, one step
-        ph.tap('#ph-list .ph-row[data-ph-key="2,1,0,0"] input')
-        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v['marks']['2,1,0,0'].get('swapped'))
-        assert got['marks']['2,1,0,0']['swapped'] is True
-        rows = settled(page, lambda: tab_rows(page), lambda v: [r['swapped'] for r in v] == [False, True, True])
-        assert settled(page, lambda: history_index(page), lambda v: v == h0 + 2) == h0 + 2
-        # undo on the computer takes the phone's tick back, then the tab's own
+        assert settled(ph, lambda: ph.inner_text('#ph-swap-open'), lambda v: v == 'Swap list (2)') == 'Swap list (2)'
+        assert settled(ph2, lambda: [r['key'] for r in phone_rows(ph2)], lambda v: len(v) == 2) == ['0,0,0,0', '2,1,0,0']
+        assert not red(settled(out, lambda: pixel(out, 224, 96), lambda v: v and not red(v)))
+        # Undo on the computer: the mark and its row come back everywhere
         page.evaluate("() => window.app.undo()")
-        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: not v['marks']['2,1,0,0'].get('swapped'))
-        assert 'swapped' not in got['marks']['2,1,0,0']
-        settled(ph, lambda: phone_rows(ph), lambda v: [r['swapped'] for r in v] == [False, True, False])
+        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' in v['marks'])
+        assert got['marks']['1,0,1,1'] == {'style': 'color', 'color': '#ff1a1a'}
+        assert settled(page, lambda: [r['key'] for r in tab_rows(page)], lambda v: len(v) == 3) == ['0,0,0,0', '1,0,1,1', '2,1,0,0']
+        assert page.inner_text('#idm-count') == '(3)'
+        assert settled(ph2, lambda: len(phone_rows(ph2)), lambda v: v == 3) == 3
+        settled(out, lambda: pixel(out, 224, 96), red)
         page.evaluate("() => window.app.redo()")
-        settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v['marks']['2,1,0,0'].get('swapped'))
-        # a reload keeps the ticks
+        settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' not in v['marks'])
+        # tick on the phone: gone on the server, the tab and the other phone,
+        # the count goes down on both; one undo step on the computer
+        assert settled(ph, lambda: ph.inner_text('#ph-swap-open'), lambda v: v == 'Swap list (2)') == 'Swap list (2)'
+        open_swap(ph)
+        assert ph.inner_text('#ph-count') == '(2)'
+        h1 = history_index(page)
+        ph.tap('#ph-list .ph-row[data-ph-key="2,1,0,0"] input')
+        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '2,1,0,0' not in v['marks'])
+        assert sorted(got['marks']) == ['0,0,0,0'], got
+        assert settled(ph, lambda: [r['key'] for r in phone_rows(ph)], lambda v: len(v) == 1) == ['0,0,0,0']
+        assert ph.inner_text('#ph-count') == '(1)'
+        assert settled(ph2, lambda: ph2.inner_text('#ph-swap-open'), lambda v: v == 'Swap list (1)') == 'Swap list (1)'
+        assert settled(page, lambda: [r['key'] for r in tab_rows(page)], lambda v: len(v) == 1) == ['0,0,0,0']
+        assert page.inner_text('#idm-count') == '(1)'
+        assert settled(page, lambda: history_index(page), lambda v: v == h1 + 1) == h1 + 1
+        # the phone's own Undo brings it back
+        close_swap(ph)
+        ph.tap('#ph-undo')
+        assert 'Undone: Module Swapped' in toast_text(ph)
+        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '2,1,0,0' in v['marks'])
+        assert got['marks']['2,1,0,0'] == {'style': 'color', 'color': '#ff1a1a'}
+        assert settled(ph2, lambda: [r['key'] for r in phone_rows(ph2)], lambda v: len(v) == 2) == ['0,0,0,0', '2,1,0,0']
+        # the last tick empties the list
+        open_swap(ph)
+        ph.tap('#ph-list .ph-row[data-ph-key="0,0,0,0"] input')
+        ph.tap('#ph-list .ph-row[data-ph-key="2,1,0,0"] input')
+        settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and v['marks'] == {})
+        assert settled(ph, lambda: ph.inner_text('#ph-list'), lambda v: 'No marks yet' in v)
+        assert ph.inner_text('#ph-count') == ''
+        assert settled(ph2, lambda: ph2.inner_text('#ph-swap-open'), lambda v: v == 'Swap list') == 'Swap list'
+        assert settled(page, lambda: page.inner_text('#idm-count'), lambda v: v == '') == ''
+        # a reload keeps it
         page.reload(wait_until='domcontentloaded')
         page.wait_for_function("() => window.app && window.app.project && window.app.history"
                                " && window.app.socket && window.app.socket.connected", timeout=15000)
         page.wait_for_timeout(600)
         open_tab(page)
-        rows = settled(page, lambda: tab_rows(page), lambda v: len(v) == 3)
-        assert [r['swapped'] for r in rows] == [False, True, True], rows
-        # a save and load keeps them
-        page.evaluate("""async () => {
-            const p = await (await fetch('/api/project')).json();
-            await fetch('/api/project', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(p)});
-            await fetch('/api/project', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(p)});
-        }""")
-        got = served_idm(page, 'IdmA')
-        assert [bool(got['marks'][k].get('swapped')) for k in ('0,0,0,0', '1,0,1,1', '2,1,0,0')] == [False, True, True]
-        # clearing a mark takes its row away, on both
-        page.evaluate("""() => { const a = window.app.project.layers.find(x => x.name === 'IdmA');
-            window.app._idmSetHighlight(a.id, '1,0,1,1'); window.app._idmDeleteMark(); }""")
-        rows = settled(page, lambda: tab_rows(page), lambda v: len(v) == 2)
-        assert [r['key'] for r in rows] == ['0,0,0,0', '2,1,0,0']
-        assert settled(ph, lambda: [r['key'] for r in phone_rows(ph)], lambda v: len(v) == 2) == ['0,0,0,0', '2,1,0,0']
-        # a tapped row takes the highlight there
-        ph.tap('#ph-list .ph-row[data-ph-key="2,1,0,0"] .ph-row-go')
-        assert settled(page, lambda: hl(page), lambda v: v == ['IdmA', '2,1,0,0']) == ['IdmA', '2,1,0,0']
-        assert not ph._errors, ph._errors
+        assert tab_rows(page) == []
+        assert served_idm(page, 'IdmA')['marks'] == {}
+        assert not ph._errors and not ph2._errors, (ph._errors, ph2._errors)
     finally:
         ctx.close()
+        ctx2.close()
+        out.close()
 
 
 NAMES_JS = """async ([name, back]) => {
     const core = await import('/static/js/idm-core.js');
     const groups = core.idmMarkGroups(window.canvasRenderer, window.app.project, {back});
     const g = groups.find(x => x.layer.name === name);
-    return g ? Object.fromEntries(g.rows.map(r => [r.key, [r.cabinet, r.module, r.row, r.col]])) : {};
+    return g ? Object.fromEntries(g.rows.map(r => [r.key, [r.place, r.ids]])) : {};
 }"""
 
 
@@ -596,22 +611,51 @@ def put_marks(pg, name, mx, my, keys):
     settled(pg, lambda: served_idm(pg, name), lambda v: v and len(v['marks']) == len(keys))
 
 
-def test_front_and_back_names_on_2x2_4x4_and_half_cabinets(page, e2e_server, pw_browser):
+def names(pg, name):
+    return pg.evaluate(NAMES_JS, [name, False]), pg.evaluate(NAMES_JS, [name, True])
+
+
+def test_front_and_back_name_the_place_then_the_ids(page, e2e_server, pw_browser):
+    """Owner, 2026-11-17: a row leads with the cabinet's column and row in
+    its screen, then the module's place in plain words, both from the
+    viewer's top-left (from the back, column 1 is the front's rightmost and
+    left and right swap); the Cabinet ID and Module ID follow as a hint,
+    the same from either side. IdmA is 3 x 2 cabinets, IdmB 2 x 2."""
     reset_project(page)
     page.click('[data-idm-side="front"]')
+    # the words for every layout up to 3 x 3, and past it
+    spots = page.evaluate("""async () => {
+        const {idmModuleSpot: s} = await import('/static/js/idm-core.js');
+        return [s(0, 0, 1, 1), s(0, 0, 2, 1), s(1, 0, 2, 1), s(0, 0, 1, 2), s(0, 1, 1, 2),
+                s(0, 0, 2, 2), s(1, 0, 2, 2), s(0, 1, 2, 2), s(1, 1, 2, 2),
+                s(1, 1, 3, 3), s(2, 1, 3, 3), s(1, 0, 3, 3), s(0, 2, 3, 3), s(1, 0, 3, 1), s(0, 1, 1, 3),
+                s(1, 0, 3, 2), s(2, 1, 4, 4), s(0, 3, 2, 4)];
+    }""")
+    assert spots == ['Whole cabinet', 'Left module', 'Right module', 'Top module', 'Bottom module',
+                     'Top left module', 'Top right module', 'Bottom left module', 'Bottom right module',
+                     'Center module', 'Middle right module', 'Top middle module', 'Bottom left module',
+                     'Middle module', 'Middle module', 'Top middle module', 'Module row 2, col 3',
+                     'Module row 4, col 1'], spots
+    # 2 x 2 modules on IdmA (3 cabinets wide)
     set_layout(page, 'IdmA', 2, 2)
-    set_layout(page, 'IdmB', 4, 4)
     put_marks(page, 'IdmA', 2, 2, ['0,0,0,0', '0,0,1,1', '2,1,1,0'])
+    front, back = names(page, 'IdmA')
+    assert front == {'0,0,0,0': ['Col 1, Row 1 · Top left module', 'Cabinet A1 · Module A1'],
+                     '0,0,1,1': ['Col 1, Row 1 · Bottom right module', 'Cabinet A1 · Module B2'],
+                     '2,1,1,0': ['Col 3, Row 2 · Top right module', 'Cabinet C2 · Module B1']}, front
+    assert back == {'0,0,0,0': ['Col 3, Row 1 · Top right module', 'Cabinet A1 · Module A1'],
+                    '0,0,1,1': ['Col 3, Row 1 · Bottom left module', 'Cabinet A1 · Module B2'],
+                    '2,1,1,0': ['Col 1, Row 2 · Top left module', 'Cabinet C2 · Module B1']}, back
+    # 4 x 4 modules on IdmB (2 cabinets wide): past 3, row and col
+    set_layout(page, 'IdmB', 4, 4)
     put_marks(page, 'IdmB', 4, 4, ['0,0,0,0', '0,0,2,1', '1,1,3,3'])
-    front = page.evaluate(NAMES_JS, ['IdmA', False])
-    back = page.evaluate(NAMES_JS, ['IdmA', True])
-    # 2 x 2: A1 B1 / A2 B2 from the front; from behind, left and right swap
-    assert front == {'0,0,0,0': ['A1', 'A1', 1, 1], '0,0,1,1': ['A1', 'B2', 2, 2], '2,1,1,0': ['C2', 'B1', 1, 2]}
-    assert back == {'0,0,0,0': ['A1', 'B1', 1, 2], '0,0,1,1': ['A1', 'A2', 2, 1], '2,1,1,0': ['C2', 'A1', 1, 1]}
-    front = page.evaluate(NAMES_JS, ['IdmB', False])
-    back = page.evaluate(NAMES_JS, ['IdmB', True])
-    assert front == {'0,0,0,0': ['A1', 'A1', 1, 1], '0,0,2,1': ['A1', 'C2', 2, 3], '1,1,3,3': ['B2', 'D4', 4, 4]}
-    assert back == {'0,0,0,0': ['A1', 'D1', 1, 4], '0,0,2,1': ['A1', 'B2', 2, 2], '1,1,3,3': ['B2', 'A4', 4, 1]}
+    front, back = names(page, 'IdmB')
+    assert front == {'0,0,0,0': ['Col 1, Row 1 · Module row 1, col 1', 'Cabinet A1 · Module A1'],
+                     '0,0,2,1': ['Col 1, Row 1 · Module row 2, col 3', 'Cabinet A1 · Module C2'],
+                     '1,1,3,3': ['Col 2, Row 2 · Module row 4, col 4', 'Cabinet B2 · Module D4']}, front
+    assert back == {'0,0,0,0': ['Col 2, Row 1 · Module row 1, col 4', 'Cabinet A1 · Module A1'],
+                    '0,0,2,1': ['Col 2, Row 1 · Module row 2, col 2', 'Cabinet A1 · Module C2'],
+                    '1,1,3,3': ['Col 1, Row 2 · Module row 4, col 1', 'Cabinet B2 · Module D4']}, back
     # the switch and the ticks sit inside the panel, the tick's word as written
     fit = page.evaluate("""() => {
         const panel = document.getElementById('idm-list').parentElement.getBoundingClientRect();
@@ -623,30 +667,88 @@ def test_front_and_back_names_on_2x2_4x4_and_half_cabinets(page, e2e_server, pw_
                 case: getComputedStyle(swap).textTransform};
     }""")
     assert fit['right'] <= fit['panel'] + 0.5 and fit['overflow'] <= 0 and fit['case'] == 'none', fit
-    # the switch on the tab names the list rows that way, per viewer
+    # the switch on the tab names the list rows that way, per viewer: the
+    # place first, the IDs under it
     page.click('[data-idm-side="back"]')
-    texts = [r['text'] for r in tab_rows(page)]
-    assert texts[0].startswith('IdmA · A1 · Module B1 (row 1, col 2)'), texts
+    rows = tab_rows(page)
+    assert [r['text'] for r in rows[:3]] == ['Col 3, Row 1 · Top right module', 'Col 3, Row 1 · Bottom left module',
+                                            'Col 1, Row 2 · Top left module'], rows
+    assert [r['ids'] for r in rows[:3]] == ['Cabinet A1 · Module A1', 'Cabinet A1 · Module B2',
+                                           'Cabinet C2 · Module B1'], rows
     assert page.get_attribute('[data-idm-side="back"]', 'aria-pressed') == 'true'
     assert page.evaluate("() => localStorage.getItem('lrdIdmListSide')") == 'back'
-    # the highlight readout stays the front name
+    # the tab's highlight readout stays as it was
     page.evaluate("""() => { const a = window.app.project.layers.find(x => x.name === 'IdmA');
         window.app._idmSetHighlight(a.id, '0,0,0,0'); }""")
     assert page.inner_text('#idm-hl-readout') == 'IdmA · A1 · Module A1'
     page.click('[data-idm-side="front"]')
-    texts = [r['text'] for r in tab_rows(page)]
-    assert texts[0].startswith('IdmA · A1 · Module A1 (row 1, col 1)'), texts
-    # the phone has its own switch
+    rows = tab_rows(page)
+    assert rows[0]['text'] == 'Col 1, Row 1 · Top left module' and rows[0]['ids'] == 'Cabinet A1 · Module A1', rows
+    # the phone has its own switch; its readout follows it
     ctx, ph = open_phone(pw_browser, e2e_server)
     try:
+        assert settled(ph, lambda: ph.inner_text('#ph-place'), lambda v: v.startswith('Col 1'))\
+            == 'Col 1, Row 1 · Top left module'
+        assert ph.inner_text('#ph-ids') == 'IdmA · Cabinet A1 · Module A1'
         open_swap(ph)
         ph.tap('[data-ph-side="back"]')
         rows = phone_rows(ph)
-        assert rows[0]['text'] == 'A1 · Module B1' and rows[0]['where'] == 'Row 1, col 2', rows
+        assert rows[0]['text'] == 'Col 3, Row 1 · Top right module' and rows[0]['where'] == 'Cabinet A1 · Module A1', rows
         assert page.get_attribute('[data-idm-side="front"]', 'aria-pressed') == 'true'
+        close_swap(ph)
+        assert ph.inner_text('#ph-place') == 'Col 3, Row 1 · Top right module'
+        assert ph.inner_text('#ph-ids') == 'From the back · IdmA · Cabinet A1 · Module A1'
+        # the readout still fits its line on a small phone
+        assert ph.evaluate("() => document.documentElement.scrollHeight <= window.innerHeight")
     finally:
         ctx.close()
-    # a half cabinet numbers its own modules, and mirrors within them
+    # on the smallest phone a long place still reads whole on its own line,
+    # with Marked beside the IDs under it
+    page.evaluate("""() => { const a = window.app.project.layers.find(x => x.name === 'IdmA');
+        window.app._idmSetHighlight(a.id, '0,0,1,1'); }""")
+    ctx, ph = open_phone(pw_browser, e2e_server, size=(375, 667))
+    try:
+        assert settled(ph, lambda: ph.inner_text('#ph-place'), lambda v: 'Bottom' in v)\
+            == 'Col 1, Row 1 · Bottom right module'
+        fit = ph.evaluate("""() => {
+            const place = document.getElementById('ph-place'), ids = document.getElementById('ph-ids');
+            const state = document.getElementById('ph-state');
+            return {whole: place.scrollWidth <= place.clientWidth, state: state.textContent,
+                    below: state.getBoundingClientRect().top >= place.getBoundingClientRect().bottom - 1,
+                    sameLine: Math.abs(state.getBoundingClientRect().bottom - ids.getBoundingClientRect().bottom) < 4,
+                    fits: document.documentElement.scrollHeight <= window.innerHeight};
+        }""")
+        assert fit == {'whole': True, 'state': 'Marked', 'below': True, 'sameLine': True, 'fits': True}, fit
+    finally:
+        ctx.close()
+    # 3 x 3 modules on IdmB
+    set_layout(page, 'IdmB', 3, 3)
+    put_marks(page, 'IdmB', 3, 3, ['0,0,1,1', '0,0,0,1', '1,0,2,0', '1,1,1,2'])
+    front, back = names(page, 'IdmB')
+    assert front == {'0,0,1,1': ['Col 1, Row 1 · Center module', 'Cabinet A1 · Module B2'],
+                     '0,0,0,1': ['Col 1, Row 1 · Middle left module', 'Cabinet A1 · Module A2'],
+                     '1,0,2,0': ['Col 2, Row 1 · Top right module', 'Cabinet B1 · Module C1'],
+                     '1,1,1,2': ['Col 2, Row 2 · Bottom middle module', 'Cabinet B2 · Module B3']}, front
+    assert back == {'0,0,1,1': ['Col 2, Row 1 · Center module', 'Cabinet A1 · Module B2'],
+                    '0,0,0,1': ['Col 2, Row 1 · Middle right module', 'Cabinet A1 · Module A2'],
+                    '1,0,2,0': ['Col 1, Row 1 · Top left module', 'Cabinet B1 · Module C1'],
+                    '1,1,1,2': ['Col 1, Row 2 · Bottom middle module', 'Cabinet B2 · Module B3']}, back
+    # 1 x 2 (one across, two down) and 2 x 1 on IdmA
+    set_layout(page, 'IdmA', 1, 2)
+    put_marks(page, 'IdmA', 1, 2, ['0,0,0,1', '1,0,0,0'])
+    front, back = names(page, 'IdmA')
+    assert front == {'0,0,0,1': ['Col 1, Row 1 · Bottom module', 'Cabinet A1 · Module A2'],
+                     '1,0,0,0': ['Col 2, Row 1 · Top module', 'Cabinet B1 · Module A1']}, front
+    assert back == {'0,0,0,1': ['Col 3, Row 1 · Bottom module', 'Cabinet A1 · Module A2'],
+                    '1,0,0,0': ['Col 2, Row 1 · Top module', 'Cabinet B1 · Module A1']}, back
+    set_layout(page, 'IdmA', 2, 1)
+    put_marks(page, 'IdmA', 2, 1, ['0,0,0,0', '2,1,1,0'])
+    front, back = names(page, 'IdmA')
+    assert front == {'0,0,0,0': ['Col 1, Row 1 · Left module', 'Cabinet A1 · Module A1'],
+                     '2,1,1,0': ['Col 3, Row 2 · Right module', 'Cabinet C2 · Module B1']}, front
+    assert back == {'0,0,0,0': ['Col 3, Row 1 · Right module', 'Cabinet A1 · Module A1'],
+                    '2,1,1,0': ['Col 1, Row 2 · Left module', 'Cabinet C2 · Module B1']}, back
+    # a half cabinet counts its own modules, and mirrors within them
     page.evaluate("""async () => {
         const app = window.app;
         const a = app.project.layers.find(x => x.name === 'IdmA');
@@ -658,10 +760,20 @@ def test_front_and_back_names_on_2x2_4x4_and_half_cabinets(page, e2e_server, pw_
     page.wait_for_timeout(1000)
     open_tab(page)
     put_marks(page, 'IdmA', 4, 4, ['0,0,3,1', '0,0,2,0', '1,0,0,0'])
-    front = page.evaluate(NAMES_JS, ['IdmA', False])
-    back = page.evaluate(NAMES_JS, ['IdmA', True])
-    assert front == {'0,0,3,1': ['A1', 'B2', 2, 2], '0,0,2,0': ['A1', 'A1', 1, 1], '1,0,0,0': ['B1', 'A1', 1, 1]}, front
-    assert back == {'0,0,3,1': ['A1', 'A2', 2, 1], '0,0,2,0': ['A1', 'B1', 1, 2], '1,0,0,0': ['B1', 'D1', 1, 4]}, back
+    front, back = names(page, 'IdmA')
+    assert front == {'0,0,3,1': ['Col 1, Row 1 · Module row 2, col 2', 'Cabinet A1 · Module B2'],
+                     '0,0,2,0': ['Col 1, Row 1 · Module row 1, col 1', 'Cabinet A1 · Module A1'],
+                     '1,0,0,0': ['Col 2, Row 1 · Module row 1, col 1', 'Cabinet B1 · Module A1']}, front
+    assert back == {'0,0,3,1': ['Col 3, Row 1 · Module row 2, col 1', 'Cabinet A1 · Module B2'],
+                    '0,0,2,0': ['Col 3, Row 1 · Module row 1, col 2', 'Cabinet A1 · Module A1'],
+                    '1,0,0,0': ['Col 2, Row 1 · Module row 1, col 4', 'Cabinet B1 · Module A1']}, back
+    # a half cabinet of a 2 x 2 layout is one module across: top or bottom
+    put_marks(page, 'IdmA', 2, 2, ['0,0,1,1', '1,0,0,1'])
+    front, back = names(page, 'IdmA')
+    assert front == {'0,0,1,1': ['Col 1, Row 1 · Bottom module', 'Cabinet A1 · Module A2'],
+                     '1,0,0,1': ['Col 2, Row 1 · Bottom left module', 'Cabinet B1 · Module A2']}, front
+    assert back == {'0,0,1,1': ['Col 3, Row 1 · Bottom module', 'Cabinet A1 · Module A2'],
+                    '1,0,0,1': ['Col 2, Row 1 · Bottom right module', 'Cabinet B1 · Module A2']}, back
 
 
 # ── the controls kept to one canvas ───────────────────────────────────────
@@ -945,8 +1057,7 @@ def test_screenshots(page, e2e_server, pw_browser):
     set_layout(page, 'IdmA', 2, 2)
     put_marks(page, 'IdmA', 2, 2, ['0,0,0,0', '1,0,1,1', '2,1,0,0'])
     page.evaluate("""() => { const a = window.app.project.layers.find(x => x.name === 'IdmA');
-        window.app._idmSetSwapped(a.id, '0,0,0,0', true); window.app._idmSetHighlight(a.id, '1,0,1,1'); }""")
-    settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v['marks']['0,0,0,0'].get('swapped'))
+        window.app._idmSetHighlight(a.id, '1,0,1,1'); }""")
     for size in ((390, 844), (375, 667)):
         ctx, ph = open_phone(pw_browser, e2e_server, size=size)
         tag = f'{size[0]}x{size[1]}'
