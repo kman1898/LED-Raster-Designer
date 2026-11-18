@@ -2183,6 +2183,11 @@ Object.assign(CanvasRenderer.prototype, {
         // Cmd+J after a tick of #power-custom-toggle (end-to-end pass,
         // 2026-09-23). The finding and the rule live on the predicate.
         let isTyping = window.isTypingTarget(document.activeElement);
+        // Is this press the action's key? Every key below is the person's,
+        // set in Preferences > Controls (app-controls.js controlMatches);
+        // shipped, each is the key named in its comment.
+        const ctl = (id) => !!(window.app && typeof window.app.controlMatches === 'function'
+            && window.app.controlMatches(e, id));
 
         // The start page or the startup picker is up over the stand-in
         // screen: no shortcut reaches the show behind it (a paste, a
@@ -2325,25 +2330,31 @@ Object.assign(CanvasRenderer.prototype, {
         // reached (app-idm-locator.js _idmKeyDown); every other tab, 3D
         // included, does nothing. The Screens list's right-click Delete
         // Screen works on every tab. A focused field is never reached here,
-        // so it keeps its own keys.
+        // so it keeps its own keys. The keys are the person's: Delete
+        // Screen (Pixel Map) and Take Off Bars (Header/Footer), shipped as
+        // Delete and Backspace.
         //
         // On Pixel Map a delete clears the selection the moment it starts,
         // so a press while one is landing goes through too:
         // deleteCurrentLayer holds it for when it lands.
-        if ((e.code === 'Delete' || e.code === 'Backspace') && !isTyping) {
+        if (!isTyping) {
+            const deleteKey = e.code === 'Delete' || e.code === 'Backspace';
             if (this.viewMode === 'pixel-map') {
-                if (window.app && (window.app.currentLayer || window.app.deletionInProgress)) {
+                if (ctl('deleteScreen') && window.app
+                        && (window.app.currentLayer || window.app.deletionInProgress)) {
                     e.preventDefault();
                     window.app.deleteCurrentLayer();
                 }
-            } else {
+            } else if (this.viewMode === 'rigging' && ctl('removeBars')) {
                 e.preventDefault();
-                if (this.viewMode === 'rigging' && window.app && !e.repeat) window.app.riggingDeleteKey();
+                if (window.app && !e.repeat) window.app.riggingDeleteKey();
+            } else if (deleteKey) {
+                e.preventDefault();
             }
         }
         
         // Cmd/Ctrl+Z - Undo (works everywhere)
-        if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ' && !e.shiftKey) {
+        if (ctl('undo')) {
             if (e.repeat) return;
             e.preventDefault();
             // Undo audit: an undo fired mid-gesture was silently reverted -
@@ -2358,7 +2369,7 @@ Object.assign(CanvasRenderer.prototype, {
         }
 
         // Cmd/Ctrl+Shift+Z - Redo (works everywhere)
-        if ((e.metaKey || e.ctrlKey) && e.code === 'KeyZ' && e.shiftKey) {
+        if (ctl('redo')) {
             if (e.repeat) return;
             e.preventDefault();
             // Same mid-gesture commit as undo above.
@@ -2367,19 +2378,19 @@ Object.assign(CanvasRenderer.prototype, {
         }
         
         // Cmd/Ctrl+C - Copy (only if NOT typing in a text field)
-        if ((e.metaKey || e.ctrlKey) && e.code === 'KeyC' && !isTyping) {
+        if (ctl('copy') && !isTyping) {
             e.preventDefault();
             if (window.app) window.app.copyLayer();
         }
         
         // Cmd/Ctrl+V - Paste (only if NOT typing in a text field)
-        if ((e.metaKey || e.ctrlKey) && e.code === 'KeyV' && !isTyping) {
+        if (ctl('paste') && !isTyping) {
             e.preventDefault();
             if (window.app) window.app.pasteLayer();
         }
         
         // Cmd/Ctrl+J - Duplicate (standard)
-        if ((e.metaKey || e.ctrlKey) && e.code === 'KeyJ' && !isTyping) {
+        if (ctl('duplicate') && !isTyping) {
             e.preventDefault();
             // every selected screen, not just the current one
             if (window.app && window.app.currentLayer) {
@@ -2388,7 +2399,7 @@ Object.assign(CanvasRenderer.prototype, {
         }
 
         // Cmd/Ctrl+, - Preferences
-        if ((e.metaKey || e.ctrlKey) && e.code === 'Comma' && !isTyping) {
+        if (ctl('preferences') && !isTyping) {
             e.preventDefault();
             if (window.app) {
                 window.app.openPreferencesModal();
@@ -2425,28 +2436,18 @@ Object.assign(CanvasRenderer.prototype, {
         // drawing after a Next click.)
         const onControl = document.activeElement
             && document.activeElement.tagName === 'BUTTON';
-        if (e.code === 'Tab' && !e.metaKey && !e.ctrlKey && !isTyping
-                && !onControl && window.app && window.app.currentLayer) {
-            const layer = window.app.currentLayer;
-            const handled =
-                (this.viewMode === 'data-flow' && window.app.isCustomFlowEditing(layer))
-                || (this.viewMode === 'power' && window.app.isCustomPowerEditing(layer));
-            if (handled) {
-                e.preventDefault();
-                window.app.stepCustomPort(e.shiftKey ? -1 : 1);
-            }
-        }
-
-        // [ prev / ] next - the same step as Tab, and now the same one call.
-        //
-        // These two blocks were correctly view-guarded, so they never stepped
-        // the wrong thing. They did mutate the index inline without either
-        // updateLayers() or saveClientSideProperties(), and customPortIndex /
-        // powerCustomIndex are persisted fields - so stepping to port 7 with
-        // "]" and reloading, or letting any other edit PUT first, snapped the
-        // index back to whatever a button had last written. stepCustomPort
-        // does the step, the save, the localStorage write and the PUT.
-        if (!isTyping && (e.code === 'BracketLeft' || e.code === 'BracketRight')
+        // The person's keys for the step (Preferences > Controls): Next /
+        // Previous Port on Data, Next / Previous Circuit on Power, shipped
+        // as Tab / Shift+Tab and ] / [. A focused button keeps Tab whatever
+        // it is bound to. ] and [ once had a block of their own that moved
+        // the index inline with no save, so a reload or any other edit's
+        // PUT snapped it back; they ride this one call now, and
+        // stepCustomPort does the step, the save, the localStorage write
+        // and the PUT.
+        const stepIds = this.viewMode === 'data-flow' ? ['nextPort', 'prevPort']
+            : (this.viewMode === 'power' ? ['nextCircuit', 'prevCircuit'] : null);
+        const stepBy = !stepIds ? 0 : (ctl(stepIds[0]) ? 1 : (ctl(stepIds[1]) ? -1 : 0));
+        if (stepBy && !isTyping && !(e.code === 'Tab' && onControl)
                 && window.app && window.app.currentLayer) {
             const layer = window.app.currentLayer;
             const handled =
@@ -2454,24 +2455,24 @@ Object.assign(CanvasRenderer.prototype, {
                 || (this.viewMode === 'power' && window.app.isCustomPowerEditing(layer));
             if (handled) {
                 e.preventDefault();
-                window.app.stepCustomPort(e.code === 'BracketLeft' ? -1 : 1);
+                window.app.stepCustomPort(stepBy);
             }
         }
 
         // Cmd/Ctrl+Shift+1 - Fit to view
-        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Digit1' && !isTyping) {
+        if (ctl('fitToView') && !isTyping) {
             e.preventDefault();
             this.fitToView(true);
         }
 
         // Cmd/Ctrl+Shift+2 - Zoom to selection (actual size 1:1)
-        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Digit2' && !isTyping) {
+        if (ctl('zoomToSelection') && !isTyping) {
             e.preventDefault();
             this.zoomActual();
         }
 
         // Cmd/Ctrl+Shift+' - Toggle snap (standard: Snap to Grid)
-        if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === 'Quote' && !isTyping) {
+        if (ctl('toggleSnap') && !isTyping) {
             e.preventDefault();
             this.magneticSnap = !this.magneticSnap;
             const snapCheckbox = document.getElementById('magnetic-snap');

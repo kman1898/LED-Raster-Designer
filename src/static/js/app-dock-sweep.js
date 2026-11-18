@@ -270,7 +270,9 @@ class _DockSweep {
                 this._traySweepClear();
                 return;
             }
-            if (e.key === 'Enter' && e.altKey && !typing) {
+            // Snake The Lit Ports: the person's key (Preferences >
+            // Controls), shipped as Alt+Enter.
+            if (!typing && typeof this.controlMatches === 'function' && this.controlMatches(e, 'snakePorts')) {
                 e.preventDefault();
                 e.stopPropagation();
                 this._traySweepSnake();

@@ -5,6 +5,9 @@ import { LEDRasterApp } from './app-core.js';
 // First of the mixins: its input guard has to see every key and click
 // before any handler the app adds (app-server-link.js).
 import './app-server-link.js';
+// Next: a key being recorded in Preferences > Controls is taken ahead of
+// every other key handler (app-controls.js).
+import './app-controls.js';
 import './app-wiring.js';
 import './app-dialogs.js';
 import './app-client-props.js';
@@ -94,7 +97,10 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('mouseover', (e) => {
             const tip = e.target.closest('[data-tooltip]');
             if (tip) {
-                helpBody.textContent = tip.dataset.tooltip;
+                // A tooltip that names a key says the person's key
+                // (Preferences > Controls, app-controls.js).
+                helpBody.textContent = tip.hasAttribute('data-control-tip') && window.app.controlTipText
+                    ? window.app.controlTipText(tip) : tip.dataset.tooltip;
             }
         });
         document.addEventListener('mouseout', (e) => {

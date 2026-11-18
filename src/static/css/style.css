@@ -1188,7 +1188,7 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
 #preferences-modal .pm-modal {
     display: flex;
     flex-direction: column;
-    width: 780px;
+    width: 860px;
     max-width: calc(100vw - 40px);
     max-height: calc(100vh - 80px);
     margin: 40px auto 0;
@@ -1209,9 +1209,9 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
 }
 #preferences-modal .pm-tabstrip .view-tab,
 #license-modal .pm-tabstrip .view-tab { font-size: 12px; }
-/* nine tabs since the Palettes tab: a little less side padding keeps the
-   strip on one line in the 780px dialog */
-#preferences-modal .pm-tabstrip .view-tab { padding-left: 13px !important; padding-right: 13px !important; white-space: nowrap; }
+/* ten tabs since Controls: a little less side padding and a wider dialog
+   keep the strip on one line */
+#preferences-modal .pm-tabstrip .view-tab { padding-left: 12px !important; padding-right: 12px !important; white-space: nowrap; }
 /* one body height - the tallest tab's (Look, since issue 28 gave it the
    colour defaults; Binder before) - so the dialog never resizes as the
    tabs change */
@@ -1224,6 +1224,64 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
 #preferences-modal .pm-section { display: none; }
 #preferences-modal .pm-section.active { display: block; }
 #preferences-modal .pm-section > .prefs-group { padding: 10px 14px 8px; }
+/* Controls (app-controls.js): a search row, a note, then one list that
+   scrolls inside itself, so the tab keeps the body's one height. */
+#preferences-modal .pm-controls { display: flex; flex-direction: column; gap: 6px; padding-top: 2px; }
+#preferences-modal .pm-controls-top { display: flex; gap: 8px; align-items: center; }
+#preferences-modal #pref-controls-search {
+    flex: 1 1 auto; padding: 7px 9px; background: #121212; border: 1px solid #3a3a3a;
+    color: #fff; border-radius: 4px; font-size: 12px;
+}
+#preferences-modal .pm-controls-intro { font-size: 11px; color: #888; }
+#preferences-modal .pm-controls-note {
+    font-size: 12px; color: #f0c674; background: #2c2a22; border: 1px solid #4a4430;
+    border-radius: 4px; padding: 5px 8px;
+}
+#preferences-modal .pm-controls-note[hidden] { display: none; }
+#preferences-modal .pm-scroll {
+    height: 372px; overflow-y: auto; border: 1px solid #333; border-radius: 4px;
+    background: #1c1c1c; padding: 2px 10px 8px;
+}
+#preferences-modal .pm-controls-area h4 {
+    margin: 10px 0 4px; font-size: 11px; color: #9ab; text-transform: uppercase;
+    letter-spacing: 0.6px; border-bottom: 1px solid #333; padding-bottom: 3px;
+}
+#preferences-modal .pm-control-row {
+    display: grid; grid-template-columns: 230px 1fr auto; column-gap: 10px;
+    align-items: center; padding: 3px 0; font-size: 12px; color: #ddd;
+}
+#preferences-modal .pm-control-row[hidden], #preferences-modal .pm-controls-area[hidden] { display: none; }
+#preferences-modal .pm-control-keys { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; min-width: 0; }
+#preferences-modal .pm-key { display: inline-flex; align-items: stretch; }
+#preferences-modal .pm-key-chip {
+    font: 12px/1 ui-monospace, Menlo, Consolas, monospace; color: #fff; background: #333;
+    border: 1px solid #555; border-right: none; border-radius: 4px 0 0 4px; padding: 5px 8px; cursor: pointer;
+}
+#preferences-modal .pm-key-chip:hover { background: #3d4b5c; border-color: #6a8bb0; }
+#preferences-modal .pm-key-chip.recording {
+    background: #4a3d12; border-color: #d4a72c; color: #ffe08a; font-family: inherit;
+}
+#preferences-modal .pm-key-remove {
+    background: #2a2a2a; color: #999; border: 1px solid #555; border-radius: 0 4px 4px 0;
+    padding: 0 6px; cursor: pointer; font-size: 13px; line-height: 1;
+}
+#preferences-modal .pm-key-remove:hover { color: #fff; background: #5a2b2b; }
+#preferences-modal .pm-key-add {
+    background: none; border: 1px dashed #555; color: #aaa; border-radius: 4px;
+    width: 24px; height: 24px; padding: 0; cursor: pointer;
+}
+#preferences-modal .pm-key-add:hover { color: #fff; border-color: #888; }
+#preferences-modal .pm-key-none { color: #888; font-style: italic; }
+#preferences-modal .pm-key-fixed { font: 12px ui-monospace, Menlo, Consolas, monospace; color: #aaa; }
+#preferences-modal .pm-control-reset { padding: 3px 10px !important; font-size: 11px; }
+#preferences-modal .pm-control-reset:disabled { opacity: 0.35; cursor: default; }
+#preferences-modal .pm-control-keys select {
+    background: #121212; color: #fff; border: 1px solid #3a3a3a; border-radius: 4px; padding: 4px 6px; font-size: 12px;
+}
+#preferences-modal .pm-controls-hint, #preferences-modal .pm-controls-fine { font-size: 11px; color: #888; }
+#preferences-modal .pm-controls-fine { margin: 4px 0 2px; }
+#preferences-modal .pm-control-fixed .pm-control-label { color: #aaa; }
+#preferences-modal .pm-controls-empty { color: #888; font-size: 12px; padding: 16px 4px; }
 #preferences-modal .pm-foot {
     display: flex;
     gap: 10px;

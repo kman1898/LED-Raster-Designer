@@ -904,11 +904,15 @@ class _IdmLocator {
         if (isTypingTarget(document.activeElement)) return false;
         // Delete and Backspace clear the mark under the highlight (the
         // owner's ruling, 2026-11-08) and never delete a screen on this tab,
-        // with or without a modifier; other tabs keep their Delete.
+        // with or without a modifier; other tabs keep their Delete. The
+        // keys are the person's Clear The Mark (Preferences > Controls),
+        // shipped as Delete and Backspace; either of those two is taken
+        // here whatever it is set to, so it never reaches a screen.
         const modalOpen = Array.from(document.querySelectorAll('.modal'))
             .some(m => getComputedStyle(m).display !== 'none');
-        if (e.code === 'Delete' || e.code === 'Backspace') {
-            if (!modalOpen && !e.repeat && !st.stroke) this._idmDeleteMark();
+        const clearKey = typeof this.controlMatches === 'function' && this.controlMatches(e, 'clearMark');
+        if (clearKey || e.code === 'Delete' || e.code === 'Backspace') {
+            if (clearKey && !modalOpen && !e.repeat && !st.stroke) this._idmDeleteMark();
             return true;
         }
         if (e.metaKey || e.ctrlKey || e.altKey) return false;

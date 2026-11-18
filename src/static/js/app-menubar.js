@@ -16,6 +16,16 @@ const GUIDE_MENU = {
     'guide-binder': 'binder',
 };
 
+
+// The Controls actions this dispatcher answers, and the menu action each
+// runs (selectAll runs selectAllInView instead).
+const MENU_SHORTCUT_ACTIONS = {
+    selectAll: null,
+    open: 'open',
+    save: 'save',
+    exportPng: 'export-png',
+    exportPsd: 'export-psd',
+};
 class _MenuBar {
     setupMenuBar() {
         const menuItems = document.querySelectorAll('#menu-bar .menu-item');
@@ -174,46 +184,38 @@ class _MenuBar {
         sendClientLog('dialog_escape', { dialog: top.id });
     }
 
-    // The keyboard route into the File menu. One chord string is built from
-    // the event and matched against the labels index.html prints (Cmd on a
-    // Mac, Ctrl elsewhere - the read _isMacPlatform makes, so the printed
-    // modifier and the honoured one never disagree): 'mod+KeyO' is Open,
-    // 'mod+KeyS' Save, 'alt+KeyS' Export PNG, 'mod+alt+KeyS' Export PSD.
-    // e.code rather than e.key because Option+S types 'ß' on a Mac.
+    // The keyboard route into the File menu, and Select All. Each item's
+    // key is the person's (Preferences > Controls, controls.js): shipped,
+    // Open is Cmd/Ctrl+O, Save Cmd/Ctrl+S, Export PNG Alt/Option+S and
+    // Export PSD Cmd/Ctrl+Alt/Option+S, matched on the physical key (e.code,
+    // because Option+S types 'ss' on a Mac) with exactly the modifiers set:
+    // Shift added, or the other platform's command key, is no match.
     //
     // No Cmd/Ctrl+N: the app runs in the user's browser, and Chrome, Edge
     // and Firefox all reserve New Window at the browser level - the page
-    // never sees that keydown, so File > New carries no accelerator.
+    // never sees that keydown, so File > New carries no accelerator (and
+    // Controls refuses it).
     //
     // Same typing guard as canvas-input's handleKeyDown (Cmd+C/V/J/,):
     // never while focus is in a field, and - matching those - no check for
     // an open modal or tour. Ctrl+S in a browser would save the page, so
-    // the default is prevented on every chord that lands.
+    // the default is prevented on every key that lands.
     //
-    // 'mod+KeyA' rides the same dispatcher but is not a File menu item: it
-    // is Select All (app-selection's selectAllInView - every screen on the
-    // active canvas, or every cabinet of the screen when a cabinet
-    // selection is open on Pixel Map). Out of a field the browser's own
-    // select-all would turn every label in the app into a text selection
-    // that the next canvas drag then DRAGS instead of marquee-selecting
-    // (Windows/Firefox, 2026-09-16), so the default is prevented here. In
-    // a field the typing guard above leaves the browser's select-all to it.
+    // Select All is not a File menu item: it is app-selection's
+    // selectAllInView - every screen on the active canvas, or every cabinet
+    // of the screen when a cabinet selection is open on Pixel Map. Out of a
+    // field the browser's own select-all would turn every label in the app
+    // into a text selection that the next canvas drag then DRAGS instead
+    // of marquee-selecting (Windows/Firefox, 2026-09-16), so the default
+    // is prevented here. In a field the typing guard above leaves the
+    // browser's select-all to it.
     handleMenuShortcut(e) {
         if (e.repeat) return;
-        // Match on the physical key, falling back to the letter when the
-        // event carries no code (an injected or assistive key event does).
-        const code = e.code || (/^[a-z]$/i.test(e.key || '') ? 'Key' + e.key.toUpperCase() : '');
-        if (code !== 'KeyO' && code !== 'KeyS' && code !== 'KeyA') return;
-        if (e.shiftKey) return;
-        const isMac = this._isMacPlatform();
-        const mod = isMac ? e.metaKey : e.ctrlKey;
-        const otherMod = isMac ? e.ctrlKey : e.metaKey;
-        if (otherMod) return;
-        if (!mod && !e.altKey) return;
+        const id = Object.keys(MENU_SHORTCUT_ACTIONS).find(a => this.controlMatches(e, a));
+        if (!id) return;
         if (isTypingTarget(document.activeElement)) return;
-        const chord = (mod ? 'mod+' : '') + (e.altKey ? 'alt+' : '') + code;
-        if (chord === 'mod+KeyA') {
-            e.preventDefault();
+        e.preventDefault();
+        if (id === 'selectAll') {
             const picked = this.selectAllInView();
             if (typeof sendClientLog === 'function') {
                 sendClientLog('select_all_shortcut', {
@@ -223,16 +225,7 @@ class _MenuBar {
             }
             return;
         }
-        let action = null;
-        switch (chord) {
-            case 'mod+KeyO': action = 'open'; break;
-            case 'mod+KeyS': action = 'save'; break;
-            case 'alt+KeyS': action = 'export-png'; break;
-            case 'mod+alt+KeyS': action = 'export-psd'; break;
-            default: return;
-        }
-        e.preventDefault();
-        this.handleMenuAction(action);
+        this.handleMenuAction(MENU_SHORTCUT_ACTIONS[id]);
     }
 
     // The typing guard above is helpers.js isTypingTarget - the one copy
@@ -248,13 +241,17 @@ class _MenuBar {
         return /Mac|iPhone|iPad|iPod/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
     }
 
+    // The printed key is the person's (app-controls controlMenuShortcut):
+    // the template's own words while the action keeps its shipped keys.
     updateShortcutLabels() {
         const isMac = this._isMacPlatform();
         document.querySelectorAll('.menu-option[data-label]').forEach(option => {
             // Skip options with submenus, they manage their own content
             if (option.classList.contains('menu-has-submenu')) return;
             const label = option.getAttribute('data-label') || '';
-            const shortcut = isMac ? option.getAttribute('data-shortcut-mac') : option.getAttribute('data-shortcut-win');
+            const shortcut = typeof this.controlMenuShortcut === 'function'
+                ? this.controlMenuShortcut(option, isMac)
+                : (isMac ? option.getAttribute('data-shortcut-mac') : option.getAttribute('data-shortcut-win'));
             if (shortcut) {
                 option.textContent = `${label} (${shortcut})`;
             } else {
@@ -692,6 +689,8 @@ class _MenuBar {
         // The modifier reads the way the menus print it (updateShortcutLabels):
         // every [data-sc-mod] span in the modal is Cmd on a Mac, Ctrl elsewhere.
         var mod = this._isMacPlatform() ? 'Cmd' : 'Ctrl';
+        // The keys named are the person's (Preferences > Controls).
+        if (typeof this.fillShortcutsHelp === 'function') this.fillShortcutsHelp(modal);
         modal.querySelectorAll('[data-sc-mod]').forEach(function(el) {
             el.textContent = mod;
         });
