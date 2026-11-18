@@ -559,7 +559,7 @@ def test_the_pull_sheet_groups_identical_extensions(page):
     pat = [r for r in out['totals'] if r[0].startswith('Duplex patch')]
     assert [r[:3] for r in pat] == [['Duplex patch · MTP / MPO to LC duplex', "10'", 2]], out['totals']
     assert 'ext · MTP A' in pat[0][4], pat
-    assert [r[:3] for r in out['totals'] if r[0].startswith('MTP')] == [['MTP 12', "300'", 1]], out['totals']
+    assert [r[:3] for r in out['totals'] if r[0].startswith('MTP')] == [['MTP 12 Type A', "300'", 1]], out['totals']
     fan = [r for r in out['totals'] if r[0].startswith('Fan-out')]
     assert fan == [['Fan-out · ST to LC duplex · Single mode', "10'", 1, 'CVT10-S A (OPT 1)',
                     'ext · TAC A']], out['totals']
@@ -595,7 +595,7 @@ def test_the_binder_fiber_connections_shows_it_at_the_breakout(page):
         const proc = app._processorsResolved.find(p => p.id === pid);
         return app._bFiberConnectionRows(proc).map(r => r.cells);
     }""", ids['sx'])
-    assert rows[0] == ['trunk A', 'MTP A (MTP 12)', '1 Blue · 2 Orange', 'X1 on XD A',
+    assert rows[0] == ['trunk A', 'MTP A (MTP 12 Type A)', '1 Blue · 2 Orange', 'X1 on XD A',
                        "2 Orange · 1 Blue · ext Duplex patch 10' · MTP / MPO to LC duplex"], rows
     assert rows[1] == ['trunk B', 'MTP A', '3 Green · 4 Brown', 'X1 on XD B',
                        '4 Brown · 3 Green'], rows

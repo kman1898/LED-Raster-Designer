@@ -9,6 +9,9 @@ import {
   mtpFarPosition,
   mtpMapDocumented,
   mtpLegsAtBreakout,
+  MTP_BASE8_POSITIONS,
+  fiberPositionsFor,
+  fiberStrandPositions,
 } from '../../src/static/js/mtp-polarity.js';
 
 const range = (n) => Array.from({ length: n }, (_, i) => i + 1);
@@ -87,7 +90,7 @@ describe('16 and 32 fiber', () => {
 
 describe('nothing undocumented is guessed', () => {
   it('48, 72 and other counts have no map in any type', () => {
-    for (const count of [2, 4, 6, 8, 10, 36, 48, 72, 96, 144]) {
+    for (const count of [2, 4, 6, 10, 36, 48, 72, 96, 144]) {
       for (const p of MTP_POLARITIES) {
         expect(mtpFarPosition(1, count, p)).toBe(null);
         expect(mtpMapDocumented(count, p)).toBe(false);
@@ -103,13 +106,48 @@ describe('nothing undocumented is guessed', () => {
     }
   });
 
-  it('8 fiber is left to the cable map in every type, numbering untouched', () => {
-    for (const p of MTP_POLARITIES) expect(mtpLegsAtBreakout([1, 2], 8, p)).toBe(null);
+  it('8 fiber in Type C is left to the cable map', () => {
+    expect(mtpLegsAtBreakout([1, 2], 8, 'C')).toBe(null);
+    expect(mtpMapDocumented(8, 'C')).toBe(false);
   });
 
   it('a strand off the cable has no leg', () => {
     expect(mtpFarPosition(13, 12, 'A')).toBe(null);
     expect(mtpFarPosition(0, 12, 'A')).toBe(null);
+  });
+});
+
+describe('an 8 fiber MTP is Base-8 (owner, 2026-11-18)', () => {
+  it('numbers its strands by plug position: 1-4 and 9-12, 5-8 empty', () => {
+    expect(MTP_BASE8_POSITIONS).toEqual([1, 2, 3, 4, 9, 10, 11, 12]);
+    expect(fiberStrandPositions({ kind: 'mtp', strands: 8 })).toEqual([1, 2, 3, 4, 9, 10, 11, 12]);
+  });
+
+  it('only an MTP: a TAC or opticalCON of 8 keeps 1-8, other counts 1..n', () => {
+    expect(fiberStrandPositions({ kind: 'tac', strands: 8 })).toEqual(range(8));
+    expect(fiberPositionsFor('opticalcon-quad', 4)).toEqual([1, 2, 3, 4]);
+    expect(fiberStrandPositions({ kind: 'mtp', strands: 12 })).toEqual(range(12));
+    expect(fiberStrandPositions({ kind: 'mtp', strands: 0 })).toEqual([]);
+  });
+
+  it('Type A is straight, n -> n', () => {
+    expect(MTP_BASE8_POSITIONS.map(n => mtpFarPosition(n, 8, 'A'))).toEqual(MTP_BASE8_POSITIONS);
+  });
+
+  it('Type B reverses, n -> 13 - n: 1 -> 12, 4 -> 9', () => {
+    expect(MTP_BASE8_POSITIONS.map(n => mtpFarPosition(n, 8, 'B'))).toEqual([12, 11, 10, 9, 4, 3, 2, 1]);
+  });
+
+  it('5-8 are no strands of it', () => {
+    for (const n of [5, 6, 7, 8, 13]) expect(mtpFarPosition(n, 8, 'A')).toBe(null);
+  });
+
+  it('the legs at the breakout, the swap on top as for any MTP', () => {
+    expect(mtpLegsAtBreakout([1, 2], 8, 'A')).toEqual([2, 1]);
+    expect(mtpLegsAtBreakout([9, 10], 8, 'A')).toEqual([10, 9]);
+    // Type B already crosses the pair: 1, 2 arrive on 12, 11
+    expect(mtpLegsAtBreakout([1, 2], 8, 'B')).toEqual([11, 12]);
+    expect(mtpLegsAtBreakout([3, 4], 8, 'B')).toEqual([9, 10]);
   });
 });
 

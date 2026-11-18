@@ -579,6 +579,15 @@ ALSO NEW
 - NEW: A new extension off an MTP starts as a duplex patch to LC duplex,
   the way a TAC's starts as a fan-out to LC duplex. An extension you
   already have keeps its ends as they are.
+- NEW: An 8 fiber MTP numbers its strands the standard way, by where they
+  sit in the plug: 1 to 4 and 9 to 12, named and colored by those
+  positions, 9 Yellow to 12 Aqua. Its legs at the box follow its
+  polarity: straight on a Type A, 1 to 12 and 4 to 9 on a Type B. A show
+  saved before reads the strands it had on 5 to 8 as 9 to 12, the same
+  fibers. A TAC or opticalCON of 8 keeps 1 to 8.
+- NEW: The pull sheet says each MTP's polarity, "MTP 24 Type A", and a
+  Type A and a Type B of the same length are separate rows with their own
+  counts.
 
 FIXES
 

@@ -30,8 +30,8 @@
 // refuses with the reason; this side reads the resolved boxes and the
 // show's list, names the strands, and writes one request per gesture.
 import { LEDRasterApp } from './app-core.js';
-import { MTP_POLARITIES, mtpPolarity, mtpPolarityWord, mtpFarPosition, mtpLegsAtBreakout }
-    from './mtp-polarity.js';
+import { MTP_POLARITIES, mtpPolarity, mtpPolarityWord, mtpFarPosition, mtpLegsAtBreakout,
+         fiberStrandPositions } from './mtp-polarity.js';
 
 // TIA-598-D, in order, with the swatch the app paints for each. The
 // server's twin is processor_catalog.FIBER_COLORS.
@@ -130,6 +130,13 @@ class _Fiber {
 
     fiberStrandSwatch(n, cable) {
         return fiberStrandSwatch(n, cable);
+    }
+
+    // The strand numbers a cable has, in order: 1..count, except an 8
+    // fiber MTP's 1-4 and 9-12 (owner, 2026-11-18: Base-8, mtp-polarity.js).
+    // Every picker, strand map and spare list walks these.
+    fiberStrandPositions(cable) {
+        return fiberStrandPositions(cable);
     }
 
     // ---- an MTP's polarity (owner, 2026-11-18; mtp-polarity.js) ----------
@@ -275,17 +282,20 @@ class _Fiber {
         return cable ? this.fiberLinkModeRefusal(box, cable) : '';
     }
 
-    // The pull sheet's words, and the binder's: "TAC 12 · ST", "MTP 24",
-    // "opticalCON QUAD" - the kind and its strand count, a TAC's ends - and
-    // the mode of its fiber where its boxes state one: "TAC 12 · ST ·
-    // Single mode" (processor_catalog fiber_cable_type_text).
+    // The pull sheet's words, and the binder's: "TAC 12 · ST", "MTP 24
+    // Type A", "opticalCON QUAD" - the kind and its strand count, an MTP's
+    // polarity (owner, 2026-11-18: a Type A and a Type B of one length are
+    // two rows to pull), a TAC's ends - and the mode of its fiber where its
+    // boxes state one: "TAC 12 · ST · Single mode" (processor_catalog
+    // fiber_cable_type_text).
     fiberCableTypeText(cable) {
         if (!cable) return '';
         const word = this.fiberModeWord(this.fiberCableMode(cable));
         const tail = word ? ` · ${word}` : '';
         if (!this.fiberCableIsStranded(cable)) return this.fiberKindWord(cable.kind) + tail;
         const conn = cable.kind === 'tac' ? String(cable.connector || '').trim() : '';
-        return `${this.fiberKindWord(cable.kind)} ${cable.strands}` + (conn ? ` · ${conn}` : '') + tail;
+        const polarity = cable.kind === 'mtp' ? ` ${this.fiberMtpPolarityWord(cable)}` : '';
+        return `${this.fiberKindWord(cable.kind)} ${cable.strands}${polarity}` + (conn ? ` · ${conn}` : '') + tail;
     }
 
     // The cable as a picker lists it: "TAC A · 12 · 1000' · ST", "MTP A ·

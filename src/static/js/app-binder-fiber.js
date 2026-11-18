@@ -204,7 +204,9 @@ class _BinderFiber {
         }
         const cable = l.cable;
         if (!cable) return { text: 'no fiber picked', warn: false, none: true };
-        const kind = this.fiberCableIsStranded(cable) ? `${this.fiberKindWord(cable.kind)} ${cable.strands}`
+        const kind = this.fiberCableIsStranded(cable)
+            ? `${this.fiberKindWord(cable.kind)} ${cable.strands}`
+              + (cable.kind === 'mtp' ? ` ${this.fiberMtpPolarityWord(cable)}` : '')
             : this.fiberKindWord(cable.kind);
         const ft = this.parseCableLength(cable.ft);
         const has = Number.isFinite(ft) && ft > 0;
@@ -311,7 +313,7 @@ class _BinderFiber {
                 }
             }
             const spare = [];
-            for (let n = 1; n <= (cable.strands || 0); n++) if (!used.has(n)) spare.push(n);
+            for (const n of this.fiberStrandPositions(cable)) if (!used.has(n)) spare.push(n);
             out.push({ cable, title: this._bStrandMapTitle(cable), rows, spare: this._bfSpareText(spare, cable) });
         }
         const order = procs.flatMap(p => p.rows).map(r => r.link.cable && r.link.cable.id);

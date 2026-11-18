@@ -20,20 +20,43 @@
 //             B: n -> 25 - n           (L-com MPMM24OM4BR)
 //             C: Type A's row swap, then the pair swap, so 1 -> 14 and
 //                2 -> 13 (one maker's sheet only)
+//   8 fiber (Base-8, positions 1-4 and 9-12, 5-8 empty; Panduit
+//             00078EFL-DC): A: n -> n, B: n -> 13 - n, so 1 -> 12, 4 -> 9
 //   16 fiber  B: n -> 17 - n
 //   32 fiber (2 x 16) B: each row reverses on its own, 1-16 -> 16..1 and
 //             17-32 -> 32..17
 //
 // ANYTHING ELSE IS NOT GUESSED: 48, 72 and every other count, 16 or 32 in
-// Type A or C, and 8 fiber in any type. The far end then reads
-// MTP_SEE_MAP and the binder prints no number for it.
+// Type A or C, and 8 fiber in Type C. The far end then reads MTP_SEE_MAP
+// and the binder prints no number for it.
 //
-// 8 FIBER: the app numbers an 8-strand MTP 1-8, as it numbers every cable.
-// A Base-8 MTP uses ferrule positions 1-4 and 9-12 with 5-8 empty (Panduit:
-// 8 fiber A n -> n, B n -> 13 - n on those positions), so its legs are not
-// the app's 1-8. It reads MTP_SEE_MAP until the owner rules on it.
+// 8 FIBER USES THE STANDARD (owner, 2026-11-18): an 8 fiber MTP numbers its
+// strands by plug position, 1, 2, 3, 4, 9, 10, 11, 12, with 5-8 empty, and
+// names and colours them by those positions (9 Yellow to 12 Aqua) -
+// fiberStrandPositions. Only an MTP: a TAC or an opticalCON of 8 keeps
+// 1-8. The server's twin is processor_catalog.fiber_cable_positions, and
+// a show saved before reads its old 5-8 as 9-12 (migrate_mtp_base8).
 
 export const MTP_POLARITIES = ['A', 'B', 'C'];
+
+// An 8 fiber MTP's positions (Base-8).
+export const MTP_BASE8_POSITIONS = [1, 2, 3, 4, 9, 10, 11, 12];
+
+// The strand numbers of a cable of `kind` with `count` strands, in order:
+// 1..count, except an 8 fiber MTP's 1-4 and 9-12.
+export function fiberPositionsFor(kind, count) {
+    const total = Number(count);
+    if (!Number.isInteger(total) || total < 1) return [];
+    if (kind === 'mtp' && total === 8) return MTP_BASE8_POSITIONS.slice();
+    return Array.from({ length: total }, (_, i) => i + 1);
+}
+
+// The strand numbers a cable has (every picker, map and spare list walks
+// these, never 1..count).
+export function fiberStrandPositions(cable) {
+    const c = cable || {};
+    return fiberPositionsFor(c.kind, c.strands);
+}
 
 // What the far end reads where no map is documented.
 export const MTP_SEE_MAP = 'see cable map';
@@ -60,8 +83,13 @@ const rowSwap = (n) => (n <= 12 ? n + 12 : n - 12);
 export function mtpFarPosition(n, count, polarity) {
     const num = Number(n);
     const total = Number(count);
-    if (!Number.isInteger(num) || !Number.isInteger(total) || num < 1 || num > total) return null;
+    if (!Number.isInteger(num) || !fiberPositionsFor('mtp', total).includes(num)) return null;
     const p = MTP_POLARITIES.includes(polarity) ? polarity : 'A';
+    if (total === 8) {
+        if (p === 'A') return num;
+        if (p === 'B') return 13 - num;
+        return null;
+    }
     if (total === 12) {
         if (p === 'A') return num;
         if (p === 'B') return 13 - num;

@@ -9947,7 +9947,7 @@ class _Binder {
             // the cable's own map.
             const isMtp = cable.kind === 'mtp';
             const mapped = isMtp && this.fiberFarStrand(1, cable) !== null;
-            for (let n = 1; n <= (cable.strands || 0); n++) {
+            for (const n of this.fiberStrandPositions(cable)) {
                 const who = m.get(n);
                 const piece = this._bStrandPiece(n, cable);
                 const cells = [piece.text,
@@ -9976,13 +9976,12 @@ class _Binder {
 
     // A strand map's title, on a processor's page and on the Fiber page
     // alike: "Strand map · TAC A · TAC 24 · LC duplex · 500'", "no length"
-    // where the cable has none; an MTP's polarity after its kind, since its
-    // far-end legs follow it: "Strand map · MTP A · MTP 24 · Type A · 300'".
+    // where the cable has none; an MTP's polarity with its kind, since its
+    // far-end legs follow it: "Strand map · MTP A · MTP 24 Type A · 300'".
     _bStrandMapTitle(cable) {
         const ft = this.parseCableLength(cable.ft);
-        const polarity = typeof this.fiberMtpPolarityWord === 'function' ? this.fiberMtpPolarityWord(cable) : '';
         return [`Strand map · ${cable.name || this.fiberKindWord(cable.kind)}`,
-                this.fiberCableTypeText(cable), polarity,
+                this.fiberCableTypeText(cable),
                 Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft, this.fiberStockKind(cable)) : 'no length']
             .filter(Boolean).join(' · ');
     }

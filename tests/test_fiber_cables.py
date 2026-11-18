@@ -229,7 +229,8 @@ def test_an_mtp_is_its_own_kind_and_assigns_strands_across_two_boxes_like_a_tac(
     assert _links(client, a) == {'p1': {'cable': mtp['id'], 'strands': [1, 2]}}
     assert _links(client, b) == {'p1': {'cable': mtp['id'], 'strands': [7, 8]}}
     assert 'already used' in _refused(_link(client, pid, b, 'p1', {'cable': mtp['id'], 'strands': [2, 3]}))
-    assert catalog.fiber_cable_type_text(mtp) == 'MTP 12'
+    # an MTP says its polarity with its count (owner, 2026-11-18)
+    assert catalog.fiber_cable_type_text(mtp) == 'MTP 12 Type A'
     st = _ok(client.post('/api/fiber-cables', json={'kind': 'mtp', 'strands': 24}), 201)
     assert st['fiberCables'][-1]['name'] == 'MTP B'
 
@@ -851,7 +852,8 @@ def test_the_pull_sheet_counts_a_shared_tac_once_and_the_loops_far_box_as_a_box(
     and the loop's far box - six: a loop's far box is its own box (a backup
     processor's bound box is not; tests/test_backup_processor.py). A typed 1.3
     note does not print on a box with a link, and prints as before once the
-    box has none. An MTP 12 shared by two boxes is one "MTP 12" row."""
+    box has none. An MTP 12 shared by two boxes is one "MTP 12 Type A"
+    row."""
     pg, ids = page
     a, b, c, d = ids['boxes']
     pid = ids['procId']
@@ -889,7 +891,7 @@ def test_the_pull_sheet_counts_a_shared_tac_once_and_the_loops_far_box_as_a_box(
     assert _box_links(st, b)['p1'] == {'cable': mtp['id'], 'strands': [1, 2]}
     assert _box_links(st, c)['p1'] == {'cable': mtp['id'], 'strands': [5, 6]}
     out = pg.evaluate(LIST_JS)
-    assert [r for r in out['totals'] if r[0].startswith('MTP')] == [['MTP 12 · Single mode', "300'", 1, 'MTP A', '']], out['totals']
+    assert [r for r in out['totals'] if r[0].startswith('MTP')] == [['MTP 12 Type A · Single mode', "300'", 1, 'MTP A', '']], out['totals']
     assert [r for r in out['totals'] if r[0].startswith('TAC 24')] == [['TAC 24 · ST · Single mode', "1000'", 1, 'TAC A', '']]
     assert ids['errors'] == []
 

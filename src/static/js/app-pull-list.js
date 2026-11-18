@@ -226,6 +226,13 @@ const PULL_LEGACY_FEEDER = /^(?:Feed(?:er)?|(.+) feed(?:er)?)$/;
 // state no mode still prints the old way, and the key is that row.
 const PULL_LEGACY_EXTENSION = /^(?:Fan-out|Duplex patch)(?! ·.* · (?:Single mode|Multimode)$)(?: · .*)?$/;
 
+// An MTP printed by its count alone until 2026-11-18 ("MTP 24", "MTP 24 ·
+// Single mode"); it says its polarity now ("MTP 24 Type A"), so an edit
+// keyed on the old row answers to the one MTP row of that count, mode and
+// length, whatever its polarity - and to none where the position has two
+// polarities of it, as any old row that is two rows now (_pullEditHits).
+const PULL_LEGACY_MTP = /^MTP (\d+)((?: · (?:Single mode|Multimode))?)$/;
+
 // Brompton models as the pull sheet printed them until 2026-10-17 -
 // "Tessera XD", "Tessera SX40" - and as older files key their edits. The
 // catalog dropped the word (owner, 2026-10-17: "tessera is not needed"),
@@ -2534,6 +2541,7 @@ class _PullList {
         const parts = text.slice(cut + 1).split('|');
         if (PULL_LEGACY_DATA_TYPES.has(type)) return true;
         if (PULL_LEGACY_EXTENSION.test(type)) return true;
+        if (PULL_LEGACY_MTP.test(type)) return true;
         if (/ Snake$/.test(type) && parts.length === 1) return true;
         if (PULL_LEGACY_EDISON.test(this._pullEditType(key))) return true;
         if (this._pullLegacyJumpNames().includes(type)) return true;
@@ -2621,6 +2629,8 @@ class _PullList {
             return [];
         }
         if (types) return all(types.map(t => t + rest));
+        const mtp = PULL_LEGACY_MTP.exec(type);
+        if (mtp) return all(['A', 'B', 'C'].map(p => `MTP ${mtp[1]} Type ${p}${mtp[2]}${rest}`));
         if (PULL_LEGACY_EXTENSION.test(type)) {
             return all([plain, ...['single', 'multi']
                 .map(mode => `${type} · ${this.fiberModeWord(mode)}${rest}`)]);

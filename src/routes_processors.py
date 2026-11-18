@@ -1656,9 +1656,8 @@ def _fiber_link_strands(boxes, cables, box_id, key, cable_id, strands):
             # read oddly): a cable with nothing left is full; one with a
             # strand left but not the two this link needs says both.
             name = cable.get('name') or 'That cable'
-            free = sum(1 for s in range(
-                1, catalog.fiber_cable_strand_count(cable) + 1)
-                if (cable_id, s) not in taken)
+            free = sum(1 for s in catalog.fiber_cable_positions(cable)
+                       if (cable_id, s) not in taken)
             if not free:
                 return None, f'{name} is full: every strand is in use.'
             return None, (f'{name} has {free} free strand'
@@ -1769,8 +1768,8 @@ def update_fiber_cable(cable_id):
         return jsonify({'error': 'Fiber cable not found'}), 404
     data = request.json or {}
     boxes = _fiber_boxes()
-    used = max([s for (cid, s) in catalog.fiber_strands_taken(boxes)
-                if cid == cable_id] or [0])
+    used = {s for (cid, s) in catalog.fiber_strands_taken(boxes)
+            if cid == cable_id}
     why = catalog.check_fiber_cable(data, cable, used, unit=app.cable_unit())
     if why:
         return jsonify({'error': why}), 400

@@ -2408,10 +2408,93 @@ def fiber_cable_strand_count(cable):
         else 0
 
 
+# AN 8 FIBER MTP IS BASE-8 (owner, 2026-11-18: "8-fiber MTP uses the
+# standard"): its eight fibers sit in ferrule positions 1-4 and 9-12, with
+# 5-8 empty (Panduit 00078EFL-DC), and its strands are numbered by those
+# positions - named and coloured by them too, 9 Yellow to 12 Aqua. Only an
+# MTP: a TAC or an opticalCON of 8 keeps 1-8. The client's twin is
+# static/js/mtp-polarity.js fiberStrandPositions.
+MTP_BASE8_POSITIONS = (1, 2, 3, 4, 9, 10, 11, 12)
+
+
+def fiber_cable_positions(cable):
+    """The strand numbers a cable has, in order: 1..count, except an 8
+    fiber MTP's 1-4 and 9-12."""
+    total = fiber_cable_strand_count(cable)
+    return fiber_positions_for((cable or {}).get('kind'), total)
+
+
+def fiber_positions_for(kind, total):
+    """The strand numbers a cable of `kind` and `total` strands has."""
+    if kind == 'mtp' and total == 8:
+        return list(MTP_BASE8_POSITIONS)
+    return list(range(1, total + 1)) if total > 0 else []
+
+
+def fiber_positions_text(positions):
+    """"1-12", "1-4 and 9-12": the strands a cable has, as runs."""
+    runs = []
+    for n in positions:
+        if runs and runs[-1][1] == n - 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    words = [f'{a}-{b}' if a != b else str(a) for a, b in runs]
+    return ' and '.join(words) if len(words) <= 2 \
+        else ', '.join(words[:-1]) + ' and ' + words[-1]
+
+
+def migrate_mtp_base8(project):
+    """An 8 fiber MTP saved before it was Base-8 (2026-11-18) numbered its
+    strands 1-8: a link holding 5-8 moves to 9-12, the same fibers by
+    position (5 is the fifth fiber, now in position 9), and a strand name
+    typed on 5-8 moves with it. Idempotent - an 8 fiber MTP can never hold
+    5-8 now, so a second pass finds nothing - and run by settle_fiber, so
+    every load, every undo or redo snapshot PUT back, and every request
+    holds it. A TAC or opticalCON is never touched. Returns True where
+    anything moved."""
+    if not isinstance(project, dict):
+        return False
+    base8 = {c.get('id'): c for c in show_fiber_cables(project)
+             if isinstance(c, dict) and c.get('kind') == 'mtp'
+             and fiber_cable_strand_count(c) == 8}
+    if not base8:
+        return False
+    shift = {5: 9, 6: 10, 7: 11, 8: 12}
+    changed = False
+    for rec in _link_records(project.get('processors') or []):
+        links = rec.get('fiberLinks')
+        if not isinstance(links, dict):
+            continue
+        for link in links.values():
+            if not isinstance(link, dict) or link.get('cable') not in base8:
+                continue
+            strands = link.get('strands')
+            if not isinstance(strands, list):
+                continue
+            moved = [shift.get(s, s) if isinstance(s, int)
+                     and not isinstance(s, bool) else s for s in strands]
+            if moved != strands:
+                link['strands'] = moved
+                changed = True
+    for cable in base8.values():
+        names = cable.get('strandNames')
+        if not isinstance(names, dict):
+            continue
+        for old, new in shift.items():
+            if str(old) in names:
+                text = names.pop(str(old))
+                names.setdefault(str(new), text)
+                changed = True
+    return changed
+
+
 def fiber_cable_type_text(cable, mode=None):
-    """The pull sheet's words for a cable: "TAC 12 · ST", "MTP 24",
-    "opticalCON QUAD" - and the mode of the fiber where the boxes on it
-    state one (fiber_cable_mode): "TAC 12 · ST · Single mode"."""
+    """The pull sheet's words for a cable: "TAC 12 · ST", "MTP 24 Type A"
+    (an MTP's polarity with its count, owner 2026-11-18, so a Type A and a
+    Type B of one length are two rows to pull), "opticalCON QUAD" - and the
+    mode of the fiber where the boxes on it state one (fiber_cable_mode):
+    "TAC 12 · ST · Single mode"."""
     kind = (cable or {}).get('kind')
     word = fiber_mode_word(mode)
     tail = f' · {word}' if word else ''
@@ -2421,6 +2504,9 @@ def fiber_cable_type_text(cable, mode=None):
         return 'opticalCON QUAD' + tail
     word = 'MTP' if kind == 'mtp' else 'TAC'
     text = f'{word} {fiber_cable_strand_count(cable)}'
+    if kind == 'mtp':
+        polarity = (cable or {}).get('polarity')
+        text += f' Type {polarity if polarity in MTP_POLARITIES else "A"}'
     conn = ((cable or {}).get('connector') or '').strip() \
         if kind == 'tac' else ''
     return (f'{text} · {conn}' if conn else text) + tail
@@ -2810,8 +2896,7 @@ def fiber_strands_taken(boxes, skip=None):
 
 def fiber_next_free(cable, taken, need):
     """The lowest `need` strands of `cable` no link holds, else None."""
-    total = fiber_cable_strand_count(cable)
-    out = [s for s in range(1, total + 1)
+    out = [s for s in fiber_cable_positions(cable)
            if (cable.get('id'), s) not in taken][:need]
     return out if len(out) == need else None
 
@@ -2865,11 +2950,11 @@ def check_fiber_link(boxes, cables, box_id, key, cable_id, strands,
                 f'strand{"" if need == 1 else "s"} - {why}.')
     if len(set(strands)) != len(strands):
         return 'A strand is named twice.'
-    total = fiber_cable_strand_count(cable)
+    positions = fiber_cable_positions(cable)
     for s in strands:
-        if s < 1 or s > total:
-            return (f'{name} has strands 1-{total} - there is no strand '
-                    f'{s}.')
+        if s not in positions:
+            return (f'{name} has strands {fiber_positions_text(positions)} - '
+                    f'there is no strand {s}.')
     if taken is None:
         taken = fiber_strands_taken(boxes, (box_id, key))
     for s in strands:
@@ -2919,8 +3004,10 @@ def settle_fiber(project, used_before=None):
             project.pop('fiberCables', None)
             return True
         return False
+    # an 8 fiber MTP's old 5-8 are its 9-12 now (migrate_mtp_base8),
+    # before the check below would drop them as strands it does not have
+    changed = migrate_mtp_base8(project)
     boxes = fiber_box_index(processors)
-    changed = False
     for entry in boxes.values():
         raw = entry['raw']
         for key in ('boundTo', 'unbound'):
@@ -2958,10 +3045,10 @@ def settle_fiber(project, used_before=None):
             cable = cables.get(link['cable'])
             if cable is None:
                 continue
-            total = fiber_cable_strand_count(cable)
+            positions = fiber_cable_positions(cable)
             strands = link['strands']
             if len(strands) != need or len(set(strands)) != len(strands) \
-                    or any(s < 1 or s > total for s in strands) \
+                    or any(s not in positions for s in strands) \
                     or any((link['cable'], s) in taken for s in strands):
                 continue
             taken.update((link['cable'], s) for s in strands)
@@ -3016,8 +3103,9 @@ def settle_fiber(project, used_before=None):
 def check_fiber_cable(rec, cable=None, used_strands=0, unit='ft'):
     """Why this body cannot make (cable None) or edit `cable`, or None.
 
-    `used_strands` is the highest strand a link holds on the cable, which
-    a smaller strand count may not cut under.
+    `used_strands` is the strands links hold on the cable (or the highest
+    of them), which a new count must still have: never cut under, and on
+    an 8 fiber MTP never one of the 5-8 it has no more.
     """
     if not isinstance(rec, dict):
         return 'The body must be a JSON object.'
@@ -3037,9 +3125,18 @@ def check_fiber_cable(rec, cable=None, used_strands=0, unit='ft'):
             if isinstance(value, bool) or not isinstance(value, int) \
                     or value < 1:
                 return 'The strand count must be a whole number, 1 or more.'
-            if value < used_strands:
-                return (f'Strand {used_strands} is in use - the count cannot '
+            used = set(used_strands) \
+                if isinstance(used_strands, (set, list, tuple)) \
+                else ({used_strands} if used_strands else set())
+            have = fiber_positions_for(kind, value)
+            lost = sorted(s for s in used if s not in have)
+            if lost and lost[-1] > value:
+                return (f'Strand {lost[-1]} is in use - the count cannot '
                         f'go below it. Move that link first.')
+            if lost:
+                return (f'Strand {lost[0]} is in use, and an 8 fiber MTP '
+                        f'has no strand {lost[0]}: its strands are 1-4 and '
+                        f'9-12. Move that link first.')
     if 'ft' in rec and rec['ft'] not in (None, ''):
         words = cable_unit_words(unit)
         if isinstance(rec['ft'], bool):
@@ -3072,10 +3169,11 @@ def check_fiber_cable(rec, cable=None, used_strands=0, unit='ft'):
         if not isinstance(spec, dict):
             return 'strandName must be {strand, name}.'
         n = spec.get('strand')
-        total = rec.get('strands') if isinstance(rec.get('strands'), int) \
-            else fiber_cable_strand_count(cable or rec)
-        if isinstance(n, bool) or not isinstance(n, int) or n < 1 \
-                or n > total:
+        positions = fiber_positions_for(kind, rec['strands']) \
+            if isinstance(rec.get('strands'), int) \
+            else fiber_cable_positions(cable or rec)
+        if isinstance(n, bool) or not isinstance(n, int) \
+                or n not in positions:
             return f'There is no strand {n} on this cable.'
         if spec.get('name') is not None \
                 and not isinstance(spec.get('name'), str):
@@ -3100,8 +3198,9 @@ def store_fiber_cable(project, rec, next_seq, cable=None):
     if kind in FIBER_STRANDED_KINDS and 'strands' in rec:
         cable['strands'] = rec['strands']
         names = cable.get('strandNames') or {}
+        keep = fiber_positions_for(kind, rec['strands'])
         cable['strandNames'] = {k: v for k, v in names.items()
-                                if k.isdigit() and int(k) <= rec['strands']}
+                                if k.isdigit() and int(k) in keep}
     if 'ft' in rec or fresh:
         ft = _cable_ft(rec.get('ft'))
         if ft is None:
@@ -3156,9 +3255,12 @@ def refit_fiber_bidi(boxes, cables, box_id, on):
                 continue
             cable = cables.get(link['cable'])
             first = link['strands'][0] if link['strands'] else None
-            nxt = first + 1 if first else None
+            # the strand after it on the cable (an 8 fiber MTP's 4 is
+            # followed by its 9)
+            later = [s for s in fiber_cable_positions(cable)
+                     if first and s > first] if cable else []
+            nxt = later[0] if later else None
             if cable is None or nxt is None \
-                    or nxt > fiber_cable_strand_count(cable) \
                     or (link['cable'], nxt) in taken:
                 links.pop(key)
                 cleared.append(key)
