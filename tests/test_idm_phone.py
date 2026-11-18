@@ -721,6 +721,17 @@ def test_front_and_back_name_the_place_then_the_ids(page, e2e_server, pw_browser
         assert fit == {'whole': True, 'state': 'Marked', 'below': True, 'sameLine': True, 'fits': True}, fit
     finally:
         ctx.close()
+    # narrower still (or a wider system font): the type steps down so the
+    # place still reads whole, never cut short
+    ctx, ph = open_phone(pw_browser, e2e_server, size=(300, 640))
+    try:
+        assert settled(ph, lambda: ph.inner_text('#ph-place'), lambda v: 'Bottom' in v)\
+            == 'Col 1, Row 1 · Bottom right module'
+        fit = ph.evaluate("""() => { const p = document.getElementById('ph-place');
+            return {whole: p.scrollWidth <= p.clientWidth, px: parseFloat(getComputedStyle(p).fontSize)}; }""")
+        assert fit['whole'] and 11 <= fit['px'] < 18, fit
+    finally:
+        ctx.close()
     # 3 x 3 modules on IdmB
     set_layout(page, 'IdmB', 3, 3)
     put_marks(page, 'IdmB', 3, 3, ['0,0,1,1', '0,0,0,1', '1,0,2,0', '1,1,1,2'])

@@ -475,6 +475,20 @@ function closeSheet() {
     }
 }
 
+// The place reads whole on its one line: on a narrow phone, or a wider
+// system font, the type steps down until it fits rather than being cut
+// short ("Col 1, Row 1 · Bottom right mod…").
+const PLACE_PX = 18, PLACE_MIN_PX = 11;
+function fitPlace() {
+    const el = $('ph-place');
+    if (!el) return;
+    el.style.fontSize = '';
+    for (let px = PLACE_PX; px > PLACE_MIN_PX && el.scrollWidth > el.clientWidth; px--) {
+        el.style.fontSize = `${px - 1}px`;
+    }
+}
+window.addEventListener('resize', fitPlace);
+
 function renderReadout() {
     const t = target();
     // Where it is first, read from the side the swap list is set to, then
@@ -483,6 +497,7 @@ function renderReadout() {
     const d = t ? idmDescribe(r, t.layer, t.key, { back }) : null;
     const mark = t && t.layer.idm && t.layer.idm.marks ? t.layer.idm.marks[t.key] : null;
     $('ph-place').textContent = d ? d.place : 'No module highlighted';
+    fitPlace();
     $('ph-ids').textContent = d ? `${back ? 'From the back · ' : ''}${d.screen} · ${d.ids}` : 'Tap an arrow to start.';
     const state = $('ph-state');
     state.textContent = mark ? 'Marked' : '';
