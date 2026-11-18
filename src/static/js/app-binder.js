@@ -8830,6 +8830,23 @@ class _Binder {
                 }
                 pack = at(lo);
             }
+            // ...or each block whole in a column of its own width, side by
+            // side, where the drawing area's width holds them (the data
+            // sheet's wide PORTS with its narrow CABLES beside it, as the
+            // owner's example lays them): the shorter band wins.
+            const own = (b) => Math.ceil(Math.max(this._bBlockMinW(b) || 0, b.lines.naturalW || COL_W));
+            const widths = blocks.map(own);
+            const total = widths.reduce((a, w) => a + w, 0) + (blocks.length - 1) * COL_GAP;
+            if (blocks.length > 1 && total <= da.w) {
+                const side = this._bSpread(blocks, blocks.length);
+                const sideH = side ? side.cols.reduce((m, c) => Math.max(m, c.h), 0) : Infinity;
+                const packH = pack.rest.length ? Infinity : pack.cols.reduce((m, c) => Math.max(m, c.h), 0);
+                if (side && side.cols.length === blocks.length && sideH <= room && sideH < packH) {
+                    let x = da.x;
+                    side.cols.forEach((c, i) => { c.x = x; c.w = widths[i]; x += widths[i] + COL_GAP; });
+                    pack = side;
+                }
+            }
         }
         const cols = pack ? pack.cols.filter(c => c.items.length) : [];
         const h = cols.reduce((m, c) => Math.max(m, c.h), 0);
@@ -8841,8 +8858,10 @@ class _Binder {
     _bSimpleTables(book, band) {
         const da = book.geo.da;
         band.cols.forEach((col, i) => {
-            const x = da.x + i * (band.colW + COL_GAP);
-            for (const it of col.items) it.line.draw(book.ctx, x, band.y + it.y, band.colW);
+            // (a column of its own width where the blocks stand side by side)
+            const x = col.x != null ? col.x : da.x + i * (band.colW + COL_GAP);
+            const w = col.w != null ? col.w : band.colW;
+            for (const it of col.items) it.line.draw(book.ctx, x, band.y + it.y, w);
         });
     }
 
