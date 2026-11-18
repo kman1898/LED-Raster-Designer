@@ -814,6 +814,10 @@ def _delete_layer(layer_id):
     app._enforce_group_integrity(app.current_project)
     # The IDM Locator's stored highlight goes with its screen.
     app.normalize_idm_highlight(app.current_project)
+    # ...and a breakout box powered from its circuits loses that feed.
+    dropped = app.drop_box_power_off_gone_screens(app.current_project)
+    if dropped:
+        log_event('box_power_dropped', {'why': 'screen deleted', 'layerId': layer_id, 'boxIds': dropped})
     # ...and the sockets those pins held forget their port cables, exactly
     # as a released port does (owner, 2026-10-17): a socket another screen
     # still claims keeps its cable, the snakes stay. The response carries

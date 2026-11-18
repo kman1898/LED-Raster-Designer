@@ -896,7 +896,9 @@ class _Power {
         // weight label.
         const activePanels = layer.panels ? layer.panels.filter(p => !p.blank && !p.hidden) : [];
         const equivalentPanels = activePanels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
-        const totalWatts = panelWatts * equivalentPanels;
+        // the breakout boxes riding its circuits too (app-box-power.js), so
+        // the screen's load reads what its circuits and its wall's do
+        const totalWatts = panelWatts * equivalentPanels + this.boxPowerScreenWatts(layer);
         const totalAmps1 = voltage > 0 ? totalWatts / voltage : 0;
         // The balanced 3φ figure divides by the SERVICE's line-to-line
         // voltage (1.5, bug fix 3) - a 120V screen on 120/208 is
@@ -1088,7 +1090,8 @@ class _Power {
             const v = parseFloat(layer.powerVoltage) || 0;
             const panels = (layer.panels || []).filter(p => !p.blank && !p.hidden);
             const watts = (parseFloat(layer.panelWatts) || 0)
-                * panels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
+                * panels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0)
+                + this.boxPowerScreenWatts(layer);
             const lineV = this.threePhaseLineVoltage(layer);
             amps1 = v > 0 ? watts / v : 0;
             amps3 = lineV > 0 ? watts / (lineV * 1.73) : 0;
@@ -2074,7 +2077,8 @@ class _Power {
                 const l = src[i];
                 if (l && l !== layer && l.id !== layer.id && !peers.has(String(l.id))) peers.set(String(l.id), l);
             });
-            out.watts += this._circuitWatts(layer, panels, from);
+            out.watts += this._circuitWatts(layer, panels, from)
+                + this.boxPowerCircuitWatts(layer, c.num, voltage);
         }
         out.peers = [...peers.values()];
         out.peerIds = out.peers.map(l => l.id);
@@ -2116,7 +2120,10 @@ class _Power {
             // carries no `layers`) keep the owner's figure, byte-identical to
             // before. Voltage stays the OWNER's: the circuit is the owner's
             // cable on the owner's distro, whatever it feeds.
-            const watts = this._circuitWatts(layer, c.panels, c.layers);
+            // A breakout box riding the circuit (app-box-power.js: its start,
+            // its end, its fan-out) adds its watts at the circuit's voltage.
+            const boxWatts = this.boxPowerCircuitWatts(layer, c.num, v);
+            const watts = this._circuitWatts(layer, c.panels, c.layers) + boxWatts;
             const info = nm.socas.get(n);
             const s = socas.get(n) || {
                 soca: n,
@@ -2141,6 +2148,7 @@ class _Power {
                 label: this.getPowerCircuitLabel(layer, c.num),
                 // a blank cabinet on a drawn path is fed by nothing
                 tiles: c.panels.filter(p => p && !p.blank).length, watts,
+                ...(boxWatts ? { boxWatts } : {}),
                 amps: v ? watts / v : 0,
                 x1: Number.isFinite(lx1) ? lx1 : null,
                 x2: Number.isFinite(lx2) ? lx2 : null
@@ -3163,6 +3171,8 @@ class _Power {
                 }
             }
         }
+        // Breakout boxes fed straight off a distro output (app-box-power.js).
+        this._boxPowerBookDistros(buckets);
         const shape = (b) => {
             const d = b.distro;
             const v = d ? d.voltage : 0;
@@ -3239,7 +3249,8 @@ class _Power {
                 legs, imbalancePct, neutral,
                 // the raw per-leg phasors, for the thru totals below
                 legPhasor: d && names.length ? b.legPhasor : null,
-                socas: b.socas
+                socas: b.socas,
+                boxes: b.boxes || []
             };
         };
         const out = distros.map(d => shape(buckets.get(d.id)));

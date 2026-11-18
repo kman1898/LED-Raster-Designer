@@ -150,8 +150,13 @@ class _ContextMenu {
         // (app-rigging.js _prepareRiggingBarMenu, which picks the bar).
         const rigBar = !inDock && typeof this._prepareRiggingBarMenu === 'function'
             ? this._prepareRiggingBarMenu(x, y) : null;
+        // Powering a breakout box (app-box-power.js): its slots and items,
+        // armed here like the outputs submenu.
+        const boxPower = (typeof this._prepareBoxPowerMenu === 'function')
+            ? this._prepareBoxPowerMenu(x, y) : null;
+        this._boxPowerMenuActions = boxPower;
         if (inDock && !clear && !merge && !sharing.share
-                && !sharing.unshare && !outs && !snake && !twofer) {
+                && !sharing.unshare && !outs && !snake && !twofer && !boxPower) {
             this.hideContextMenu();
             return;
         }
@@ -160,9 +165,9 @@ class _ContextMenu {
         menu.querySelectorAll(
             '.menu-option:not(.hw-clear-only):not(.hw-merge-only):not(.hw-twofer-only)'
             + ':not(.hw-share-only):not(.hw-unshare-only):not(.hw-nfer-it-only)'
-            + ':not(.hw-batch-only):not(.hw-out-only):not(.hw-snake-only), '
+            + ':not(.hw-batch-only):not(.hw-out-only):not(.hw-snake-only):not(.hw-bp-only), '
             + '.menu-divider:not(.hw-clear-only):not(.hw-batch-only)'
-            + ':not(.hw-out-only):not(.hw-snake-only)')
+            + ':not(.hw-out-only):not(.hw-snake-only):not(.hw-bp-only)')
             .forEach(el => {
                 el.style.display = inDock ? 'none' : '';
             });
@@ -347,6 +352,7 @@ class _ContextMenu {
                 });
             }
         }
+        this._fillBoxPowerMenu(menu, boxPower, inDock && !clear && !merge && !outs && !snake && !twofer);
         [['hw-twofer-only', 'hw-twofer', twofer],
          ['hw-share-only', 'hw-share', sharing.share],
          ['hw-unshare-only', 'hw-unshare', sharing.unshare],
@@ -415,6 +421,51 @@ class _ContextMenu {
         menu.style.left = `${clampedX}px`;
         menu.style.top = `${clampedY}px`;
         menu.style.visibility = 'visible';
+    }
+
+    // The box-power slots and items (app-box-power.js _prepareBoxPowerMenu),
+    // made at open time right after their divider - as many as apply, so a
+    // circuit's start, end and fan-out and every box on it are all on the
+    // menu - each slot a submenu of entries. `alone`: nothing above them on
+    // a tray menu, so no divider.
+    _fillBoxPowerMenu(menu, bp, alone) {
+        menu.querySelectorAll('.hw-bp-gen').forEach(el => el.remove());
+        menu.querySelectorAll('.hw-bp-only').forEach(el => { el.style.display = 'none'; });
+        if (!bp) return;
+        const div = menu.querySelector('.menu-divider.hw-bp-only');
+        if (!div) return;
+        if (!alone) div.style.display = '';
+        let at = div;
+        const put = (el) => { at.after(el); at = el; };
+        (bp.slots || []).forEach((slot, k) => {
+            const el = document.createElement('div');
+            el.className = 'menu-option menu-has-submenu hw-bp-only hw-bp-slot hw-bp-gen';
+            el.dataset.action = `hw-bp-s${k}`;
+            const lbl = document.createElement('span');
+            lbl.className = 'menu-label-text';
+            lbl.textContent = slot.label;
+            el.appendChild(lbl);
+            const sub = document.createElement('div');
+            sub.className = 'menu-submenu';
+            (slot.entries || []).forEach((en, i) => {
+                const item = document.createElement('div');
+                item.className = 'menu-option' + (en.disabled ? ' menu-disabled' : '');
+                item.dataset.action = `hw-bp-s${k}-${i}`;
+                item.textContent = en.label;
+                item.title = en.title || '';
+                sub.appendChild(item);
+            });
+            el.appendChild(sub);
+            put(el);
+        });
+        (bp.items || []).forEach((en, i) => {
+            const el = document.createElement('div');
+            el.className = 'menu-option hw-bp-only hw-bp-item hw-bp-gen' + (en.disabled ? ' menu-disabled' : '');
+            el.dataset.action = `hw-bp-i${i}`;
+            el.textContent = en.label;
+            el.title = en.title || '';
+            put(el);
+        });
     }
 
     hideContextMenu() {

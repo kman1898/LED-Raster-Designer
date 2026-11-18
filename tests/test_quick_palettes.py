@@ -1057,6 +1057,7 @@ NEW_IN_1_7 = [
     # Power
     'breakerOver', 'edisonType', 'distroNeutral', 'mixedSources', 'resetHole', 'redrawCircuits',
     'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun',
+    'boxPower', 'boxChain',
     # Header/Footer and Curves
     'riggingTab', 'riggingSizes', 'riggingAuto', 'riggingDrag', 'riggingCustom', 'riggingSide',
     'riggingTotals', 'riggingCurveLocks', 'riggingCurve', 'riggingCorner', 'riggingCornerBars',

@@ -215,6 +215,11 @@ class _Processors {
                 }
                 this._applyProcessorState(data);
                 if (applied && pullBefore) this._dropPullEditsGoneWith(pullBefore);
+                // A box removed or moved to another card takes its power
+                // feed with it (app-box-power.js), in this same undo step.
+                if (applied && action && typeof this._boxPowerAfterTreeEdit === 'function') {
+                    this._boxPowerAfterTreeEdit();
+                }
                 if (applied && action) this.saveState(action);
                 // What the edit had to say - "Removed box XD B: 3
                 // ports of LEFT are unplaced again" - read where a refusal
@@ -1753,6 +1758,11 @@ class _Processors {
             cell.style.flex = '1 1 90px';   // a basis, so the line can wrap
         });
         wrap.appendChild(names);
+
+        // Its Power in, once a right-click on the Power tab powered it
+        // (app-box-power.js): where from, the cable and its length.
+        const powerIn = typeof this.boxPowerGearBlock === 'function' ? this.boxPowerGearBlock(cvt) : null;
+        if (powerIn) wrap.appendChild(powerIn);
 
         // The box's fiber - its links onto the show's TAC, MTP and
         // opticalCON cables - is set on the box's ≡ cable sheet, the Fiber

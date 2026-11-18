@@ -1929,7 +1929,12 @@ class _Binder {
             return `${one ? 'This screen has' : 'These screens have'} no ${what} figure: ${names.join(', ')}. `
                 + `Type ${one ? 'its' : 'their'} ${typed} in ${where}.`;
         };
-        return say(m.power, 'power', 'watts', 'Power Settings');
+        const boxes = typeof this.boxPowerUnfigured === 'function' && m.power !== undefined
+            ? this.boxPowerUnfigured() : [];
+        const boxText = boxes.length
+            ? `${boxes.length === 1 ? 'This breakout box has' : 'These breakout boxes have'} no power figure: `
+                + `${boxes.join(', ')}. ${boxes.length === 1 ? 'It adds' : 'They add'} nothing to the circuit.` : '';
+        return [say(m.power, 'power', 'watts', 'Power Settings'), boxText].filter(Boolean).join(' ');
     }
 
     // The cannot-fit part of the warning: each such screen and why.
@@ -7472,7 +7477,11 @@ class _Binder {
             ? this.getPanelLoadFactor(layer, p) : 1), 0);
         const bounds = window.canvasRenderer ? window.canvasRenderer.getLayerBounds(layer)
             : { width: 0, height: 0 };
-        const watts = (parseFloat(layer.panelWatts) || 0) * equivalent;
+        // the breakout boxes its circuits power too (app-box-power.js), so
+        // the sheet's Load, the wall's and the show's agree
+        const watts = (parseFloat(layer.panelWatts) || 0) * equivalent
+            + (typeof this.boxPowerScreenWatts === 'function' && layer.visible !== false
+                ? this.boxPowerScreenWatts(layer) : 0);
         const voltage = parseFloat(layer.powerVoltage) || 0;
         // the service's line-to-line voltage (1.5, bug fix 3)
         const lineV = this.threePhaseLineVoltage(layer);
@@ -7551,7 +7560,12 @@ class _Binder {
                 // the map's tag does (_bAmpsCell)
                 const amps = twOverKeys.has(`${carrier.id}:${c.num}`) && !this._bCircuitOver(carrier, c.amps)
                     ? `${this._bNum(c.amps, 1)} · OVER` : this._bAmpsCell(carrier, c.amps);
-                rows.push({ cells: [where ? `${c.label} · ${where}` : c.label, String(c.tail), this._bNum(c.tiles, 0),
+                // a breakout box riding it (app-box-power.js) is named in
+                // full beside it
+                const bx = this._bBoxPowerOnText(carrier, c.num);
+                if (bx) crossing = true;
+                const named = [c.label, where, bx].filter(Boolean).join(' · ');
+                rows.push({ cells: [named, String(c.tail), this._bNum(c.tiles, 0),
                                     amps, o.rows ? this._bCircuitRows(s, carrier, c.num) : (c.cable || '')] });
             }
         }
@@ -7587,6 +7601,18 @@ class _Binder {
                 blocks.push({ lines: this._bTableLines(book, { title: 'Circuits', bandsLead: true, cols, rows }) });
             }
         }
+        // The breakout boxes its circuits power (app-box-power.js): each
+        // box, where it is fed, its watts and its cable; a chain link says
+        // the box before it.
+        const bpRows = this._bBoxPowerRows([...new Set(units.map(u => u.carrier))]);
+        if (bpRows.length) {
+            blocks.push({ lines: this._bTableLines(book, {
+                title: 'Breakout box power',
+                cols: [{ title: 'breakout box', w: 1.2, words: true }, { title: 'powered from', w: 1.6, list: 2, words: true },
+                       { title: 'watts', w: 0.6, align: 'right' }, { title: 'cable', w: 1.2 }],
+                rows: bpRows,
+            }) });
+        }
         // Cables this screen (power side): nothing to list where it cannot
         // fit, and it says why rather than "no cables typed".
         blocks.push({ lines: this._bCableTable(book, s, 'power', cannot ? 'no circuits, cannot fit' : null),
@@ -7621,6 +7647,40 @@ class _Binder {
             }) });
         }
         return blocks;
+    }
+
+    // "breakout box XD SR A at the start" - the boxes riding circuit `num`
+    // of `layer`, for its row in the circuit list; '' with none.
+    _bBoxPowerOnText(layer, num) {
+        if (typeof this.boxPowerOnCircuit !== 'function') return '';
+        const list = this.boxPowerOnCircuit(layer, num);
+        if (!list.length) return '';
+        const words = list.map(p => {
+            const names = p.chain.map(e => this.boxPowerTitle(e.box)).join(' + ');
+            const at = p.at.kind === 'fanout' ? 'on the fan-out' : `at the ${p.at.kind}`;
+            return `${names} ${at}`;
+        });
+        const n = list.reduce((t, p) => t + p.chain.length, 0);
+        return `${n === 1 ? 'breakout box' : 'breakout boxes'} ${words.join(', ')}`;
+    }
+
+    // The Breakout box power table's rows for the boxes riding any circuit
+    // of `carriers`: [{ cells: [box, powered from, watts, cable] }].
+    _bBoxPowerRows(carriers) {
+        if (typeof this.boxPowerPlacements !== 'function') return [];
+        const ids = new Set((carriers || []).map(l => String(l.id)));
+        const rows = [];
+        for (const p of this.boxPowerPlacements()) {
+            if (!p.layer || !ids.has(String(p.layer.id)) || !this.boxPowerShown(p)) continue;
+            for (const e of p.chain) {
+                const w = this.boxPowerWattsAt(this.boxPowerSpec(e.box), p.volts);
+                const cable = this.boxPowerCable(e.box.id);
+                rows.push({ cells: [this.boxPowerTitle(e.box), this.boxPowerWhereText(e),
+                                    w == null ? 'no figure' : this._bNum(w, 0),
+                                    this.boxPowerCableText(cable)] });
+            }
+        }
+        return rows;
     }
 
     // The return end's parts: its label, the unit it lands on and that
@@ -8290,6 +8350,20 @@ class _Binder {
             bucket.amps3 += w / (this.threePhaseLineVoltage(l) * 1.73);
             byVoltage.set(f.voltage, bucket);
         }
+        // The breakout boxes fed straight off a distro (app-box-power.js):
+        // on no screen, so the show's Load takes them at their circuits'
+        // voltage, the way getPowerCounts does.
+        if (typeof this.boxPowerDistroFedLoads === 'function') {
+            for (const b of this.boxPowerDistroFedLoads()) {
+                if (!(b.watts > 0) || !(b.volts > 0)) continue;
+                watts += b.watts;
+                const bucket = byVoltage.get(b.volts) || { voltage: b.volts, watts: 0, amps1: 0, amps3: 0 };
+                bucket.watts += b.watts;
+                bucket.amps1 += b.watts / b.volts;
+                bucket.amps3 += b.watts / (this.threePhaseLineVoltage(b.volts) * 1.73);
+                byVoltage.set(b.volts, bucket);
+            }
+        }
         // no 1φ figure where every screen with circuits is on 3-phase
         // distros (owner, 2026-11-11, as on each screen's sheet)
         const placed = screens.filter(l => Object.values(l.powerSocaDistro || {}).some(Boolean));
@@ -8321,7 +8395,9 @@ class _Binder {
             ['Circuits', String(circuits)],
             ['Ports', String(ports)],
             ...loads,
-            ...(noPower.length ? [['No power figure', noPower.join(', ')]] : []),
+            ...(noPower.length || (typeof this.boxPowerUnfigured === 'function' && this.boxPowerUnfigured().length)
+                ? [['No power figure', [...noPower, ...(typeof this.boxPowerUnfigured === 'function'
+                    ? this.boxPowerUnfigured().map(n => `breakout box ${n}`) : [])].join(', ')]] : []),
             ['Distros', String(distros.length)],
             ['Processors', String(procs.length)],
         ]) });
@@ -8512,6 +8588,33 @@ class _Binder {
             if (book.opts.sides && book.opts.sides.power) {
                 for (const [k, text] of this._bPowerNotes(book, it.subject)) note(`${k}: ${text}`);
             }
+        }
+        // The breakout boxes fed straight off a distro (app-box-power.js):
+        // on no screen, so a row of their own, in the totals at their
+        // circuits' voltage; a powered box with no figure is a note.
+        const fed = typeof this.boxPowerDistroFedLoads === 'function'
+            ? this.boxPowerDistroFedLoads().filter(b => b.watts > 0 && b.volts > 0) : [];
+        if (fed.length) {
+            const w = fed.reduce((t, b) => t + b.watts, 0);
+            const a1 = fed.reduce((t, b) => t + b.watts / b.volts, 0);
+            const a3 = fed.reduce((t, b) => t + b.watts / (this.threePhaseLineVoltage(b.volts) * 1.73), 0);
+            const vs = [...new Set(fed.map(b => b.volts))];
+            rows.push({ cells: [`${this._bPlural(fed.length, 'breakout box')} on distros`, '', '', '',
+                                this._bNum(w, 0), vs.length === 1 ? this._bNum(a1, 1) : '',
+                                vs.length === 1 ? this._bNum(a3, 1) : '', '', ''] });
+            total.watts += w;
+            for (const b of fed) {
+                const v = total.volts.get(b.volts) || { watts: 0, amps1: 0, amps3: 0, threeOnly: false };
+                v.watts += b.watts;
+                v.amps1 += b.watts / b.volts;
+                v.amps3 += b.watts / (this.threePhaseLineVoltage(b.volts) * 1.73);
+                total.volts.set(b.volts, v);
+            }
+        }
+        const unfigured = typeof this.boxPowerUnfigured === 'function' ? this.boxPowerUnfigured() : [];
+        if (unfigured.length) {
+            notes.push({ cells: ['Breakout boxes', `No power figure for ${unfigured.join(', ')}: `
+                + `${unfigured.length === 1 ? 'it adds' : 'they add'} nothing to the totals.`] });
         }
         const volts = [...total.volts.entries()].sort((a, b) => b[0] - a[0]);
         const one = volts.length === 1 && !total.unvolted ? volts[0][1] : null;
@@ -9830,6 +9933,23 @@ class _Binder {
                                  homeRun ? this.pullLengthText(homeRun,
                                      this.pullHomeRunKind(fbox || (typed ? { typeId: typed.id } : null))) : 'no length',
                                  names.join(' + '), String(circuits), this._bNum(amps, 1)] });
+        }
+        // A breakout box fed straight off an output (app-box-power.js): its
+        // own row, the box named in full where a screen would be.
+        if (typeof this.boxPowerOnDistros === 'function') {
+            for (const p of this.boxPowerOnDistros().filter(x => String(x.d.id) === String(d.id))) {
+                // its output (and circuit), as the box's own words say it
+                const name = this.boxPowerWhereText(p.head);
+                const cable = this.boxPowerCable(p.head.box.id);
+                const watts = this._boxPowerChainWatts(p.chain, p.volts);
+                boxes.push({ cells: [name, cable ? cable.name : '',
+                                     cable && cable.ft != null ? this.pullLengthText(cable.ft, 'circuit')
+                                         : (cable && cable.bad ? 'length unreadable' : 'no length'),
+                                     `breakout box ${p.chain.map(e => this.boxPowerTitle(e.box)).join(' + ')}`, '1',
+                                     this._bNum(p.volts > 0 ? watts / p.volts : 0, 1)] });
+                allCircuits += 1;
+                byType.set('breakout box', (byType.get('breakout box') || 0) + 1);
+            }
         }
         // The table is named by what it lists - "4 Multi 208 · 1 L21-30" -
         // the units by their types, no generic noun (2026-09-07, "no need

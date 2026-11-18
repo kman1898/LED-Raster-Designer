@@ -1137,6 +1137,44 @@ class _PullList {
         return this._pullHiddenOnlySockets(card.id, (box.ports || []).map(p => p.number));
     }
 
+    // The pull rows of the powered breakout boxes (app-box-power.js): one
+    // per box's cable, chain links included - the cable as its type ("TRUE1
+    // Power Jump", "powerCON Power Jump", "TRUE1 → IEC cable"), its length
+    // from the show's cable stock, the box's label, and what it is. Each
+    // carries `_box` ({ box, proc, card }) for the caller to place.
+    pullBoxPowerRows(settings = null) {
+        if (typeof this.boxPowerPlacements !== 'function' || !this.project || !this.project.boxPower) return [];
+        const s = settings || this.getPullSheetSettings();
+        const out = [];
+        for (const p of this.boxPowerPlacements()) {
+            if (!this.boxPowerShown(p)) continue;
+            for (const e of p.chain) {
+                if (this._pullHiddenOnlyBox(e.box, e.card) || this._pullProcOffPaper(e.proc)) continue;
+                const cable = this.boxPowerCable(e.box.id);
+                if (!cable || !cable.id) continue;
+                const type = cable.id === 'true1' || cable.id === 'powercon'
+                    ? this.pullPowerJumpName(s, cable.id) : `${cable.name} cable`;
+                const len = cable.ft != null ? this.pullCableLength(cable.ft, 'circuit') : null;
+                const chained = e.at.kind === 'chain';
+                const r = { type, length: len ? len.text : '', qty: 1, label: this.pullBoxLabel(e.box),
+                            notes: [chained ? 'daisy chain' : 'breakout box power',
+                                    cable.ft != null ? '' : (cable.bad ? 'length unreadable' : 'no length')]
+                                .filter(Boolean).join(' · '),
+                            side: 'power' };
+                if (len && len.pieces) r._pieces = len.pieces.slice();
+                // a powerCON cable of several stock pieces is joined by a
+                // powerCON Coupler at each join, as every powerCON cable is
+                // (_pullPowerJoin, _pullExpandPieces)
+                if (cable.id === 'powercon' && r._pieces && r._pieces.length > 1) {
+                    r._join = { type: 'powerCON Coupler', per: 1 };
+                }
+                Object.defineProperty(r, '_box', { value: e, enumerable: false, configurable: true, writable: true });
+                out.push(r);
+            }
+        }
+        return out;
+    }
+
     // A processor off paper: no socket of any card of it carries a screen
     // that prints. Before the assignment is read nothing says so, and it
     // stays on.
@@ -1155,6 +1193,9 @@ class _PullList {
         seen.add(String(d.id));
         const numbers = typeof this._distroMultiNumbers === 'function' ? this._distroMultiNumbers(d.id) : new Map();
         if ([...numbers.values()].flat().some(m => this._pullShownLayerId(m.layerId))) return false;
+        // a breakout box fed straight off it (app-box-power.js) puts it on
+        if (typeof this.boxPowerOnDistros === 'function'
+                && this.boxPowerOnDistros().some(p => String(p.d.id) === String(d.id))) return false;
         const all = typeof this.getDistros === 'function' ? this.getDistros() : [];
         return all.filter(x => x && x.feeder && typeof x.feeder === 'object' && x.feeder.from != null
                 && String(x.feeder.from) === String(d.id) && String(x.id) !== String(d.id))
@@ -1483,6 +1524,23 @@ class _PullList {
             const r = { type, length: 'EA', qty: 1, label: this.pullBoxLabel(box),
                         notes: '', side: 'data' };
             if (!gearAt(r, this.pullLocationOf(box), boxFirstLayer.get(box.id))) continue;
+            hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
+        }
+        // BREAKOUT BOX POWER (owner, 2026-11-18, app-box-power.js): each
+        // powered box's cable and each daisy chain link, with its length,
+        // where the box is - a box riding a hidden screen's circuit, or
+        // one only hidden screens use, is off the list with them.
+        for (const r of this.pullBoxPowerRows(settings)) {
+            const { box, proc } = r._box;
+            delete r._box;
+            // where the box's own gear row goes: its location, else the
+            // first screen its ports feed, else where its processor's ports
+            // first land, else the first position
+            if (!gearAt(r, this.pullLocationOf(box), boxFirstLayer.get(box.id))
+                    && !gearAt(r, null, procFirstLayer.get(proc.id))) {
+                if (!bases.length) continue;
+                land(bases[0].key, r, null);
+            }
             hw('processor', proc.id, proc.name || proc.deviceName || proc.id).rows.push({ ...r });
         }
         // EVERY PROCESSOR, EA (owner, 2026-09-25: "List mains and

@@ -900,7 +900,9 @@ class _DistroSystems {
     faceRowFreeBoxes(d, info) {
         const numbers = this._distroMultiNumbers(d.id);
         const direct = info.conn.kind === 'direct';
-        return info.boxes.filter(b => !(numbers.get(b.number) || []).length
+        // an output a breakout box is fed straight off is held (app-box-power.js)
+        const held = typeof this.boxPowerHeldNumbers === 'function' ? this.boxPowerHeldNumbers(d) : new Set();
+        return info.boxes.filter(b => !(numbers.get(b.number) || []).length && !held.has(b.number)
             && !this._facePairedHolders(d, b.number, direct ? 1 : null).length
             // a Soca two-fer's legs are dragged on their own
             && !(typeof this._twoferRecord === 'function' && this._twoferRecord(d, b.number)));
@@ -974,7 +976,10 @@ class _DistroSystems {
     // fits, so the overflow is visible rather than silent. `issued` is the
     // naming pass's per-distro set of autos dealt so far.
     _faceAutoNumber(d, face, layer, pinned, issued) {
-        const busy = new Set([...(pinned || []), ...(issued || [])]);
+        // an output a breakout box is fed straight off is held too
+        // (app-box-power.js): no multi is dealt onto it
+        const held = typeof this.boxPowerHeldNumbers === 'function' ? this.boxPowerHeldNumbers(d) : [];
+        const busy = new Set([...(pinned || []), ...(issued || []), ...held]);
         for (const n of [...busy]) {
             for (const m of this._facePairedNumbers(face, n)) busy.add(m);
         }
@@ -1535,6 +1540,11 @@ class _DistroSystems {
         // A Soca two-fer's pair past its breaker's limit (app-soca-twofer.js).
         if (typeof this.twoferOverChecks === 'function') {
             for (const r of this.twoferOverChecks(d)) say(`tw:${r.output}:${r.tail}`, r.text);
+        }
+        // A screen's circuit dragged onto the circuit a breakout box is fed
+        // straight off (app-box-power.js): red, the two named.
+        if (typeof this.boxPowerDistroClashes === 'function') {
+            for (const c of this.boxPowerDistroClashes(d)) say(c.key, c.text);
         }
         return out;
     }

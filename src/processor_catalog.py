@@ -67,6 +67,47 @@ def get_device(device_id):
     return None
 
 
+# ── Powering a breakout box (owner, 2026-11-18) ──
+#
+# A CVT or XD box's `power` block says its inlet, its thru (if any), the
+# cables its one feed may take and what it draws: `watts` (the maker's
+# max / rated figure), or `ampsAt` where the maker publishes amps only.
+# The original XD publishes 0.4 A at 100 V and 0.2 A at 240 V; the owner
+# ruled "use whatever the voltage works it out to be": amps on the straight
+# line between the two points at the circuit's voltage, held to the end
+# figure outside 100-240 V, and watts = volts x amps:
+#   110 V 0.3857 A 42.4 W · 120 V 0.3714 A 44.6 W · 208 V 0.2457 A 51.1 W
+#   230 V 0.2143 A 49.3 W · 240 V 0.2000 A 48.0 W
+# A box with no figure adds nothing (None), and is named where a figure is
+# missing. app-box-power.js boxPowerWattsAt is the page's twin of this.
+def box_power_block(device):
+    """The `power` block of a catalog box, or None."""
+    block = (device or {}).get('power')
+    return block if isinstance(block, dict) else None
+
+
+def box_power_watts(device, volts):
+    """What box `device` draws on a circuit at `volts`, in watts, or None
+    where the catalog has no figure for it."""
+    block = box_power_block(device)
+    if not block:
+        return None
+    watts = block.get('watts')
+    if isinstance(watts, (int, float)) and watts > 0:
+        return float(watts)
+    points = block.get('ampsAt')
+    try:
+        v = float(volts)
+    except (TypeError, ValueError):
+        return None
+    if not points or len(points) != 2 or not v > 0:
+        return None
+    (v1, a1), (v2, a2) = sorted((float(p[0]), float(p[1])) for p in points)
+    at = min(max(v, v1), v2)
+    amps = a1 + (a2 - a1) * (at - v1) / (v2 - v1)
+    return v * amps
+
+
 def is_chassis(device):
     """Whether a catalog device is a card chassis - a unit whose outputs are
     the cards in its slots - as opposed to a one-box unit whose face IS its

@@ -1872,6 +1872,179 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.restore();
     },
 
+    // POWERED BREAKOUT BOXES (owner, 2026-11-18): each box a pill with its
+    // name just OUTSIDE the screen's edge nearest the cabinet it is fed at
+    // - the circuit's first cabinet for the start or a fan-out, its last
+    // for the end - with a line in the circuit's colour from that cabinet;
+    // its daisy chain runs on along the edge, box to box, a dashed TRUE1
+    // line between each (gold where the chain is past the thru's rating).
+    // A box fed straight off a distro sits over the top left of the first
+    // screen its ports feed, its outlet in the pill. Outside the screen,
+    // so it never covers a cabinet, a disc or a tag. Each pill drawn on the
+    // working canvas is noted with its frame for the right-click.
+    renderBoxPower(layer) {
+        const app = window.app;
+        if (!app || typeof app.boxPowerPlacements !== 'function' || !app.project || !app.project.boxPower) return;
+        if ((layer.type || 'screen') !== 'screen' || layer.visible === false) return;
+        if (!this.exportMode && this._boxPowerHitsSeq !== (this._renderSeq || 0)) {
+            this._boxPowerHits = [];
+            this._boxPowerHitsSeq = this._renderSeq || 0;
+        }
+        // Each box is drawn in the pass of the screen its anchor cabinet is
+        // on: the circuit's first cabinet (start, fan-out) or its last
+        // (end) across the whole wall - on a grouped wall that can be a
+        // member other than the one carrying the circuit, and the cabinet
+        // is in that member's frame.
+        const circuitsOf = new Map();
+        const anchorOf = (p) => {
+            if (!circuitsOf.has(p.layer.id)) {
+                circuitsOf.set(p.layer.id, new Map((app.screenCircuits(p.layer) || []).map(c => [Number(c.num), c])));
+            }
+            const c = circuitsOf.get(p.layer.id).get(Number(p.at.circuit));
+            if (!c || !(c.panels || []).length) return null;
+            const i = p.at.kind === 'end' ? c.panels.length - 1 : 0;
+            const on = (c.layers && c.layers[i]) || p.layer;
+            return { panel: c.panels[i], layerId: on.id };
+        };
+        const mine = [];
+        for (const p of app.boxPowerPlacements()) {
+            if (p.layer) {
+                const a = anchorOf(p);
+                if (a && a.panel && String(a.layerId) === String(layer.id)) mine.push({ p, anchorPanel: a.panel });
+            } else if (p.d && String(app.boxPowerHomeLayerId(p.head.box)) === String(layer.id)) {
+                mine.push({ p, anchorPanel: null });
+            }
+        }
+        if (!mine.length) return;
+        const over = new Set((app.boxPowerChainChecks() || []).map(w => w.head.box.id));
+        const b = this.getLayerBounds(layer);
+        const size = Math.max(12, layer.powerLabelSize || 14);
+        const font = `bold ${size}px ${projectFontFamily()}`;
+        const padX = size * 0.55, h = size * 2, gap = size * 0.9, step = size * 1.2;
+        const placed = [];
+        const drawn = [];
+        const hits = (r) => placed.some(q => r.x < q.x + q.w + 2 && q.x < r.x + r.w + 2
+            && r.y < q.y + q.h + 2 && q.y < r.y + r.h + 2);
+        const rimColor = '#2fb3a3';
+        this.ctx.save();
+        this.ctx.font = font;
+        this.ctx.setLineDash([]);
+        const pill = (text, x, y, boxId) => {
+            const w = this.ctx.measureText(text).width + padX * 2;
+            this.ctx.beginPath();
+            if (this.ctx.roundRect) this.ctx.roundRect(x, y, w, h, h * 0.25);
+            else this.ctx.rect(x, y, w, h);
+            this.ctx.fillStyle = this.printerMode ? '#ffffff' : '#10202a';
+            this.ctx.fill();
+            this.ctx.lineWidth = Math.max(1.5, size * 0.14);
+            this.ctx.strokeStyle = this.printerMode ? PRINTER_INK : rimColor;
+            this.ctx.stroke();
+            this.ctx.fillStyle = this.printerMode ? PRINTER_INK : '#ffffff';
+            this.ctx.textAlign = 'left';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(text, x + padX, y + h / 2);
+            if (typeof this._noteLabelBox === 'function') this._noteLabelBox('box', text, x, y, w, h);
+            if (!this.exportMode && boxId) {
+                let inv = null;
+                try { inv = this.ctx.getTransform().inverse(); } catch (_) { inv = null; }
+                if (inv) this._boxPowerHits.push({ boxId, x, y, w, h, inv });
+            }
+            return { x, y, w, h };
+        };
+        for (const { p, anchorPanel } of mine) {
+            const texts = p.chain.map((e, i) => app.boxPowerTitle(e.box)
+                + (i === 0 && p.d ? ` · ${app.boxPowerWhereText(e)}` : ''));
+            this.ctx.font = font;
+            const widths = texts.map(n => this.ctx.measureText(n).width + padX * 2);
+            let anchor = null, edge = 'top';
+            if (anchorPanel) {
+                const pick = anchorPanel;
+                anchor = { x: pick.x + pick.width / 2, y: pick.y + pick.height / 2 };
+                const dist = { left: anchor.x - b.x, right: b.x + b.width - anchor.x,
+                               top: anchor.y - b.y, bottom: b.y + b.height - anchor.y };
+                edge = Object.keys(dist).sort((u, v) => dist[u] - dist[v])[0];
+            }
+            // the chain laid along the edge, outside it
+            const horiz = !anchor || edge === 'top' || edge === 'bottom';
+            const total = horiz ? widths.reduce((t, w) => t + w, 0) + step * (widths.length - 1)
+                : h * widths.length + step * (widths.length - 1);
+            const widest = Math.max(...widths);
+            let x0, y0;
+            if (!anchor) {
+                x0 = b.x;
+                y0 = b.y - gap - h;
+            } else if (horiz) {
+                x0 = anchor.x - widths[0] / 2;
+                y0 = edge === 'top' ? b.y - gap - h : b.y + b.height + gap;
+            } else {
+                x0 = edge === 'left' ? b.x - gap - widest : b.x + b.width + gap;
+                y0 = anchor.y - h / 2;
+            }
+            // off any pill already down beside this screen
+            for (let k = 0; k < 60; k++) {
+                const r = horiz ? { x: x0, y: y0, w: total, h } : { x: x0, y: y0, w: widest, h: total };
+                if (!hits(r)) break;
+                if (horiz) x0 += size; else y0 += size;
+            }
+            const rects = [];
+            let cx = x0, cy = y0;
+            const lineW = Math.max(1.5, (layer.powerLineWidth || 8) * 0.35);
+            p.chain.forEach((e, i) => {
+                const r = pill(texts[i], cx, cy, e.box.id);
+                rects.push(r);
+                placed.push(r);
+                if (horiz) cx += r.w + step; else cy += h + step;
+            });
+            drawn.push({ boxes: p.chain.map(e => e.box.id), at: p.at.kind,
+                         circuit: p.layer ? p.at.circuit : null, edge: anchor ? edge : 'top' });
+            // the feed: the cabinet to the first pill
+            if (anchor) {
+                const r = rects[0];
+                let tx, ty;
+                if (horiz) {
+                    tx = Math.min(Math.max(anchor.x, r.x + h * 0.3), r.x + r.w - h * 0.3);
+                    ty = edge === 'top' ? r.y + r.h : r.y;
+                } else {
+                    tx = edge === 'left' ? r.x + r.w : r.x;
+                    ty = r.y + r.h / 2;
+                }
+                this.ctx.beginPath();
+                this.ctx.lineWidth = lineW;
+                this.ctx.strokeStyle = this.printerMode ? PRINTER_INK
+                    : this._ink(this.getPowerCircuitColor(layer, Number(p.at.circuit)) || rimColor);
+                this.ctx.moveTo(anchor.x, anchor.y);
+                if (horiz) this.ctx.lineTo(tx, anchor.y);
+                else this.ctx.lineTo(anchor.x, ty);
+                this.ctx.lineTo(tx, ty);
+                this.ctx.stroke();
+            }
+            // the chain's TRUE1 links
+            if (rects.length > 1) {
+                this.ctx.save();
+                this.ctx.setLineDash([size * 0.4, size * 0.3]);
+                this.ctx.lineWidth = lineW;
+                this.ctx.strokeStyle = this.printerMode ? PRINTER_INK
+                    : (over.has(p.head.box.id) ? '#c8963a' : rimColor);
+                for (let i = 1; i < rects.length; i++) {
+                    const a = rects[i - 1], z = rects[i];
+                    this.ctx.beginPath();
+                    if (horiz) {
+                        this.ctx.moveTo(a.x + a.w, a.y + a.h / 2);
+                        this.ctx.lineTo(z.x, z.y + z.h / 2);
+                    } else {
+                        this.ctx.moveTo(a.x + a.w / 2, a.y + a.h);
+                        this.ctx.lineTo(z.x + z.w / 2, z.y);
+                    }
+                    this.ctx.stroke();
+                }
+                this.ctx.restore();
+            }
+        }
+        this.ctx.restore();
+        // what this redraw drew, logged when it changes (never per frame)
+        if (!this.exportMode && typeof app._boxPowerLogDrawn === 'function') app._boxPowerLogDrawn(layer.id, drawn);
+    },
+
     renderPowerErrorOverlay(layer) {
         if (!layer._powerError) return;
         const err = layer._powerError;

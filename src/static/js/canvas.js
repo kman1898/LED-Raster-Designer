@@ -715,6 +715,10 @@ class CanvasRenderer {
             // BELOW the screen, the soca brackets above, so
             // the two never fight.
             this.renderNferBrackets(layer);
+            // A breakout box powered from a circuit (or off a distro
+            // beside the screen it feeds), and its daisy chain
+            // (app-box-power.js) - in exports too.
+            this.renderBoxPower(layer);
             // Brackets draw only when explicitly ticked (=== true,
             // matching the soca panel's checkbox): the user asked
             // for them off by default.

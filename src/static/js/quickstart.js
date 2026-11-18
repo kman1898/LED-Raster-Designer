@@ -133,6 +133,33 @@
     function mixedDistro() {
         return ((A() && A().getDistros && A().getDistros()) || []).find(function (d) { return d.name === 'VX'; }) || null;
     }
+    // Pick box `boxId` off the open menu's first box-power submenu
+    // (app-box-power.js). The submenu opens on its item's CSS :hover, which
+    // the ghost hand cannot raise, so the act holds it open while the hand
+    // rests on the item, as Put on beach does, then moves onto the box's
+    // row, clicks it and lets the submenu go.
+    function pickBoxPowerEntry(t, boxId) {
+        var a = A();
+        var item = $('#context-menu [data-action="hw-bp-s0"]');
+        var sub = item ? item.querySelector('.menu-submenu') : null;
+        var letGo = function () { if (sub) sub.style.display = ''; };
+        if (!item || item.style.display === 'none' || !sub) throw new Error('the box-power item is not on the menu');
+        var hit = a.boxPowerBoxes().find(function (b) { return b.box.id === boxId; });
+        var slot = a._boxPowerMenuActions && a._boxPowerMenuActions.slots[0];
+        var i = hit && slot ? slot.entries.findIndex(function (e) { return e.label === a.boxPowerTitle(hit.box); }) : -1;
+        if (i < 0) throw new Error('the box is not on the submenu');
+        return t.hover(item, { speed: PACE.menuTravel, hover: 600 }).then(function () {
+            sub.style.display = 'block';
+            var row = sub.querySelector('[data-action="hw-bp-s0-' + i + '"]');
+            if (!row) throw new Error('the box is not on the submenu');
+            return t.hover(row, { speed: PACE.menuTravel, hover: PACE.menuHover }).then(function (p) {
+                ripple(p.x, p.y);
+                row.click();
+                return t.pause(PACE.rest);
+            });
+        }).then(letGo, function (e) { letGo(); throw e; });
+    }
+
     // A practice wall of the Power guide's own, under every screen there
     // is, set by `setup` (voltage, breaker, breakout...), selected with the
     // Power tab's fields showing it and framed. Resolves the live layer.
@@ -8503,6 +8530,88 @@
                     + (mem.value === '30' ? ' m' : ' ft') + '.';
             }
         },
+        // Powering a breakout box (1.7.0, app-box-power.js; the owner,
+        // 2026-11-18): right-click a circuit's first panel on the Power tab
+        // and pick a box from the submenu. A practice SX40 brings its four
+        // XDs, so the next step has boxes to daisy chain.
+        boxPower: {
+            since: '1.7.0',
+            target: '#main-canvas', place: 'top', title: 'Power a breakout box',
+            body: 'Power a breakout box: right-click the first or last panel of a circuit, or a free circuit in the Power tray, and pick the box. Its watts count on that circuit.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A(), w = wall();
+                if (!w) throw new Error('DEMO WALL is missing');
+                t.mem.layer = w.id;
+                return j('POST', '/api/processors', { deviceId: 'brompton-sx40' }).then(function (st) {
+                    var p = st.resolved[st.resolved.length - 1];
+                    t.mem.boxes = p.slots[0].card.cvts.map(function (b) { return b.id; });
+                    return a.refreshProcessors();
+                }).then(function () {
+                    a.saveState('Add Processor');
+                    frameLayers([w]);
+                    return t.rightClick(t.cabinetPoint(w, { circuit: 0 }));
+                }).then(function () {
+                    return pickBoxPowerEntry(t, t.mem.boxes[0]);
+                }).then(function () {
+                    return t.wait(function () { return a.boxPowerOf(t.mem.boxes[0]); });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the box did not take its power');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var e = mem.boxes && a.boxPowerOf(mem.boxes[0]);
+                if (!e || e.at.kind !== 'start') return null;
+                return a.boxPowerTitle(e.box) + ' is powered from ' + a.boxPowerWhereText(e) + '.';
+            },
+            after: function () { $$('#context-menu .hw-bp-slot .menu-submenu').forEach(function (s) { s.style.display = ''; }); }
+        },
+        // The daisy chain: right-click the powered XD's pill, Daisy chain to.
+        boxChain: {
+            since: '1.7.0',
+            target: '#main-canvas', place: 'top', title: 'Daisy chain boxes',
+            body: 'An XD or XD-T passes power on through its TRUE1 thru: right-click the powered box and pick Daisy chain to. Past 5 boxes or 2 A on one thru reads in gold.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
+            act: function (t) {
+                var a = A();
+                var ids = (a.boxPowerBoxes() || []).filter(function (b) { return b.box.deviceId === 'brompton-xd'; })
+                    .map(function (b) { return b.box.id; });
+                var head = ids.find(function (id) { return a.boxPowerOf(id) && !a.boxPowerChild(id); });
+                var next = ids.find(function (id) { return !a.boxPowerOf(id); });
+                if (!head || !next) throw new Error('no powered XD and free XD to chain');
+                t.mem.head = head; t.mem.next = next;
+                var point = function () {
+                    var r = R();
+                    r.render();
+                    var h = (r._boxPowerHits || []).find(function (x) { return x.boxId === head; });
+                    if (!h) return null;
+                    var p = h.inv.inverse().transformPoint(new DOMPoint(h.x + h.w / 2, h.y + h.h / 2));
+                    var rect = r.canvas.getBoundingClientRect();
+                    return { x: rect.left + p.x * rect.width / r.canvas.width,
+                             y: rect.top + p.y * rect.height / r.canvas.height };
+                };
+                var pt = point();
+                if (!pt) throw new Error('the powered box is not drawn');
+                return t.rightClick(pt).then(function () {
+                    return pickBoxPowerEntry(t, next);
+                }).then(function () {
+                    return t.wait(function () { var e = a.boxPowerOf(next); return e && e.at.kind === 'chain'; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the chain did not take');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var e = mem.next && a.boxPowerOf(mem.next);
+                if (!e || e.at.kind !== 'chain' || e.at.from !== mem.head) return null;
+                var up = a.boxPowerOf(mem.head);
+                return a.boxPowerTitle(e.box) + ' is daisy chained from ' + a.boxPowerTitle(up.box) + ' on a TRUE1 jumper.';
+            },
+            after: function () { $$('#context-menu .hw-bp-slot .menu-submenu').forEach(function (s) { s.style.display = ''; }); }
+        },
         // Redraw several circuits as one (1.7.0, app-merge-circuits.js; the
         // owner, 2026-11-12: "Redraw should work just like data"). CUT
         // COLUMNS is 4 x 5 of the wall's cabinets at 800 W on 208V / 20A,
@@ -9863,7 +9972,8 @@
                          'catSnake'];
     var HEADER_PRACTICE = ['groupCurve', 'curveCustom'];
     var POWER_PRACTICE = ['powerZPattern', 'circuitNumbers', 'mixedSources', 'resetHole', 'redrawCircuits',
-                          'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun'];
+                          'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun',
+                          'boxPower', 'boxChain'];
     var GUIDE_SEED = { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } };
     // Help > Guides, in this order. `prep` is the guide's demo show, `own`
     // its steps between its intro and its outro.
