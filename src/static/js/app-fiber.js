@@ -2,7 +2,7 @@
 //
 // "tac is just for stranded fiber" (owner, 2026-09-25). The fiber that
 // feeds a box is a CABLE the show owns - project.fiberCables = [{ id, name,
-// kind, strands, ft, connector, labels, subunits, strandNames }] - and
+// kind, strands, ft, connector, polarity, labels, subunits, strandNames }] - and
 // each of the box's trunk links takes strands of one:
 // box.fiberLinks = { p1: { cable, strands: [1, 2] }, b1: {…} }.
 //   * a TAC or an MTP (its own kind: "if i choose mtp 12 choose that") has
@@ -11,6 +11,9 @@
 //   * an opticalCON DUO (2 fibers) or QUAD (4) is shared the same way
 //     (owner, 2026-10-08): a QUAD feeds two XD inputs or four BiDi links,
 //     a DUO one XD input or two BiDi links;
+//   * an MTP carries a POLARITY, Type A, B or C (owner, 2026-11-18;
+//     cable.polarity, none read as Type A): mtp-polarity.js maps where
+//     each strand lands at the breakout box's end;
 //   * a link takes 2 strands, 1 on a box switched to BiDi;
 //   * a link on an XD may be COPPER instead - { copper: 'Cat6A',
 //     ft, name } - with no cable and no strands (owner: "anything that
@@ -27,6 +30,8 @@
 // refuses with the reason; this side reads the resolved boxes and the
 // show's list, names the strands, and writes one request per gesture.
 import { LEDRasterApp } from './app-core.js';
+import { MTP_POLARITIES, mtpPolarity, mtpPolarityWord, mtpFarPosition, mtpLegsAtBreakout }
+    from './mtp-polarity.js';
 
 // TIA-598-D, in order, with the swatch the app paints for each. The
 // server's twin is processor_catalog.FIBER_COLORS.
@@ -125,6 +130,47 @@ class _Fiber {
 
     fiberStrandSwatch(n, cable) {
         return fiberStrandSwatch(n, cable);
+    }
+
+    // ---- an MTP's polarity (owner, 2026-11-18; mtp-polarity.js) ----------
+
+    // The polarities an MTP is offered in, Type A first.
+    fiberMtpPolarities() {
+        return MTP_POLARITIES.slice();
+    }
+
+    // An MTP's polarity: its own, Type A where it has none. null for any
+    // other kind.
+    fiberMtpPolarity(cable) {
+        return cable && cable.kind === 'mtp' ? mtpPolarity(cable) : null;
+    }
+
+    // "Type A" for an MTP, '' for any other kind.
+    fiberMtpPolarityWord(cable) {
+        const p = this.fiberMtpPolarity(cable);
+        return p ? mtpPolarityWord(p) : '';
+    }
+
+    // Where strand `n` arrives at the breakout box's end: an MTP's far-end
+    // leg by its polarity, or null where its count and polarity have no
+    // documented map (never a guess); any other cable carries it straight.
+    fiberFarStrand(n, cable) {
+        if (cable && cable.kind === 'mtp') return mtpFarPosition(n, cable.strands, mtpPolarity(cable));
+        return Number(n);
+    }
+
+    // A link's strands (stored in the processor order) in the order they
+    // plug in AT THE BREAKOUT BOX: a TAC's pair flipped (the send/receive
+    // swap; the box's own Fiber section reads 2 Orange · 1 Blue); an MTP's
+    // far-end legs with that swap on top, never twice (mtpLegsAtBreakout
+    // says why), or null where its map is not documented; an opticalCON as
+    // stored, crossing inside its plug.
+    fiberStrandsAtBox(strands, cable) {
+        const list = (strands || []).map(Number);
+        if (!cable) return list;
+        if (cable.kind === 'tac') return list.reverse();
+        if (cable.kind === 'mtp') return mtpLegsAtBreakout(list, cable.strands, mtpPolarity(cable));
+        return list;
     }
 
     // Whether a cable takes a strand count of the user's (TAC, MTP) or has

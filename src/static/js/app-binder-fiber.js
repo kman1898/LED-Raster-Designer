@@ -20,8 +20,9 @@
 //                  length; an extension at the box end is the dashed line
 //                  after the dot, its kind and length over it; the strands
 //                  stand in a plug at each end, swatched, in the order they
-//                  plug in there (a TAC pair flipped, an MTP or an
-//                  opticalCON the same order, crossing inside). A loop's
+//                  plug in there (a TAC pair flipped, an MTP's real legs
+//                  at the breakout by its polarity, an opticalCON the same
+//                  order, crossing inside). A loop's
 //                  two boxes are outlined together. Where the processors do
 //                  not fit one column the drawing splits into TWO columns
 //                  side by side ("two drawings of columns if have that much
@@ -226,13 +227,16 @@ class _BinderFiber {
                  warn: /no length$/.test(text) };
     }
 
-    // A plug's lines: the strands as they plug in there, swatched; MTP and
-    // opticalCON add "crosses inside" at the breakout; copper reads its
-    // kind, "Cat6A"; a link with nothing picked has no plug.
+    // A plug's lines: the strands as they plug in there, swatched - an
+    // MTP's real legs at the breakout, or "see cable map" (muted) where its
+    // map is not documented; an opticalCON adds "crosses inside" at the
+    // breakout; copper reads its kind, "Cat6A"; a link with nothing picked
+    // has no plug.
     _bfPlug(row, end) {
         const f = row.fiber;
         if (!f) return row.link.copper ? [{ text: row.link.copper.copper, swatch: null, muted: true }] : [];
-        const list = (end === 'p' ? f.atProcessor : f.atBreakout).map(p => ({ text: p.text, swatch: p.swatch || null }));
+        const list = (end === 'p' ? f.atProcessor : f.atBreakout)
+            .map(p => ({ text: p.text, swatch: p.swatch || null, ...(p.muted ? { muted: true } : {}) }));
         if (end === 'b' && f.crosses) list.push({ text: 'crosses inside', swatch: null, muted: true });
         return list;
     }
@@ -280,7 +284,8 @@ class _BinderFiber {
     _bfStrandMapSpecs(procs) {
         const out = [];
         // a pair on one line, as the compact page was picked ("i like the
-        // compactness of 5"); "crosses inside" under it
+        // compactness of 5"); an opticalCON's "crosses inside" under it, an
+        // MTP's real legs at the breakout (_bStrandPiecesAtBox)
         const pair = (list) => list.map(x => ({ text: x.text, swatch: x.swatch || null }));
         for (const cable of this.getFiberCables()) {
             const rows = [];

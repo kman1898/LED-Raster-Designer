@@ -5150,7 +5150,7 @@
         // X1 for example it would need an extension beyond that ... same
         // goes for Tac cable"): + Extension on the box's OPT 1 link, which
         // starts as a fan-out from the TAC's ST to LC duplex (a TAC's first
-        // pick; an MTP's is a duplex patch), then 10 ft typed. The length
+        // pick; an MTP's is a duplex patch to LC duplex), then 10 ft typed. The length
         // is the guide's pick, not a fact about the box.
         fiberExtension: {
             fiberStep: true,
@@ -5158,7 +5158,7 @@
             // the link's row: there before + Extension and after it
             target: function () { var b = box(); return b ? '[data-lrd-fiber-link="' + b.id + ':p1"]' : '#hardware-dock-body .hw-dock-cable-fiber'; },
             place: 'top', title: 'Extend a TAC or MTP',
-            body: 'A TAC or MTP doesn&rsquo;t always plug straight into the box. On a link, + Extension adds a fan-out to LC duplex off a TAC or a duplex patch off an MTP; then give its length for the pull sheet and the binder.',
+            body: 'A TAC or MTP doesn&rsquo;t always plug straight into the box. On a link, + Extension adds a fan-out to LC duplex off a TAC or a duplex patch to LC duplex off an MTP; then give its length for the pull sheet and the binder.',
             before: function () { switchView('data-flow'); closePopover(); openBoxSheet(); },
             act: function (t) {
                 var b = box();

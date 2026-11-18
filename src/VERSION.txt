@@ -565,6 +565,19 @@ ALSO NEW
 - NEW: The binder export's warning names the screens with no power
   figure, along with the screens that cannot fit a circuit, so you can
   type the missing watts first.
+- NEW: An MTP has a polarity, Type A, B or C, picked with its length in
+  New MTP and changed in its Edit. Type A is what most touring MTP ships
+  as, and an MTP in an older show reads Type A. The binder and the box's
+  Fiber section now print the legs the MTP really delivers at the
+  breakout box, flipped there the way a TAC's pair is: on an MTP 24 Type
+  A, 1 and 2 at the processor read 14 and 13 at the box. A Type B or C
+  already crosses the pair, so it is never flipped twice. A strand count
+  with no published map for its polarity, like an MTP 48, says "see cable
+  map" at the box end instead of guessing. The binder used to print the
+  same numbers at both ends with "crosses inside".
+- NEW: A new extension off an MTP starts as a duplex patch to LC duplex,
+  the way a TAC's starts as a fan-out to LC duplex. An extension you
+  already have keeps its ends as they are.
 
 FIXES
 

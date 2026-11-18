@@ -28,7 +28,7 @@ def test_the_js_tests_are_found():
                  'curve_footers.test.mjs', 'curve_solve.test.mjs', 'curve_invariants.test.mjs',
                  'curve_units.test.mjs', 'curve_pinned.test.mjs', 'curve_screen.test.mjs', 'curve_locks.test.mjs',
                  'curve_hand.test.mjs',
-                 'obj_export.test.mjs'):
+                 'obj_export.test.mjs', 'mtp_polarity.test.mjs'):
         assert want in names, f'{want} is missing from tests/js'
 
 
