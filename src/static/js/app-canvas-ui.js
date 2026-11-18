@@ -1502,15 +1502,25 @@ class _CanvasUi {
      * raster never rewrites the Pixel Map raster.
      */
     _writeToolbarRasterToActiveCanvas(axis, value, isShow) {
-        if (!this.project || !Array.isArray(this.project.canvases)) return;
+        return this._writeToolbarRasterSize({ [axis]: value }, isShow);
+    }
+
+    // The same write for both axes at once ({width, height}, either may be
+    // left out): one PUT, so one undo step. Match Screens writes through
+    // here; a typed W or H comes in through the one-axis call above.
+    _writeToolbarRasterSize(size, isShow) {
+        if (!this.project || !Array.isArray(this.project.canvases)) return Promise.resolve(null);
         const canvasId = this.project.active_canvas_id;
         const c = this.project.canvases.find(x => x.id === canvasId);
-        if (!c) return;
+        if (!c) return Promise.resolve(null);
         const patch = {};
-        if (isShow) {
-            if (axis === 'width')  patch.show_raster_width  = value;
-            if (axis === 'height') patch.show_raster_height = value;
-        } else {
+        ['width', 'height'].forEach(axis => {
+            const value = size ? size[axis] : undefined;
+            if (value === undefined || value === null) return;
+            if (isShow) {
+                patch[axis === 'width' ? 'show_raster_width' : 'show_raster_height'] = value;
+                return;
+            }
             const key = axis === 'width' ? 'raster_width' : 'raster_height';
             const showKey = axis === 'width' ? 'show_raster_width' : 'show_raster_height';
             const pixelBefore = Number(c[key]) || 0;
@@ -1519,7 +1529,8 @@ class _CanvasUi {
             const linked = showBefore === 0 || showBefore === pixelBefore;
             patch[key] = value;
             if (linked) patch[showKey] = value;
-        }
+        });
+        if (!Object.keys(patch).length) return Promise.resolve(null);
         // Optimistic local update so the renderer (which reads from the
         // canvas object via getters) repaints immediately, before the PUT
         // round-trip. The server response will overwrite this with the
@@ -1527,15 +1538,87 @@ class _CanvasUi {
         Object.assign(c, patch);
         this.saveRasterSize();
         if (typeof sendClientLog === 'function') {
-            sendClientLog('raster_change', {
-                axis, value, isShow,
-                view: window.canvasRenderer && window.canvasRenderer.viewMode,
-                canvas_id: canvasId,
+            ['width', 'height'].forEach(axis => {
+                if (!size || size[axis] === undefined || size[axis] === null) return;
+                sendClientLog('raster_change', {
+                    axis, value: size[axis], isShow,
+                    view: window.canvasRenderer && window.canvasRenderer.viewMode,
+                    canvas_id: canvasId,
+                });
             });
         }
         if (typeof this.updateCanvas === 'function') {
-            this.updateCanvas(canvasId, patch);
+            return this.updateCanvas(canvasId, patch);
         }
+        return Promise.resolve(null);
+    }
+
+    // Match Screens (owner, 2026-11-18): the toolbar button right of the
+    // Canvas Size fields. The active canvas takes the furthest right edge
+    // and the furthest bottom edge of its VISIBLE screens as its width and
+    // height; its origin stays 0,0 and no screen moves. A hidden screen does
+    // not count, nor do text and image layers. "On the canvas" and "where
+    // it is" are the view's own, as the toolbar fields are: Pixel Map and
+    // Cabinet ID size the Pixel Map canvas from each screen's canvas_id and
+    // position, Show Look, Data and Power the Show Look canvas from its
+    // show canvas and show position (the renderer's _effectiveLayerCanvasId
+    // and getLayerFootprintInActiveView). The footprint is the screen as
+    // drawn: its cabinets' own rectangles (half columns and rows at their
+    // real size), turned for a 90 or 270 rotation.
+    //
+    // Returns {width, height, screens} or null with no visible screen.
+    _matchScreensSize() {
+        const p = this.project;
+        const r = window.canvasRenderer;
+        if (!p || !r || typeof r.getLayerFootprintInActiveView !== 'function') return null;
+        const activeId = p.active_canvas_id || null;
+        const onCanvas = (l) => (typeof r._effectiveLayerCanvasId === 'function'
+            ? r._effectiveLayerCanvasId(l) : (l.canvas_id || null)) === activeId;
+        const screens = (p.layers || []).filter(l => l && (l.type || 'screen') === 'screen'
+            && l.visible !== false && onCanvas(l));
+        if (!screens.length) return null;
+        let right = 0;
+        let bottom = 0;
+        screens.forEach(l => {
+            const b = r.getLayerFootprintInActiveView(l);
+            if (!b) return;
+            right = Math.max(right, b.x + b.width);
+            bottom = Math.max(bottom, b.y + b.height);
+        });
+        // Whole pixels, the way the canvas check rounds a span (canvasExtent).
+        const whole = (v) => (typeof this.canvasExtent === 'function'
+            ? this.canvasExtent(v) : Math.ceil((Number(v) || 0) - 1e-6));
+        return { width: whole(right), height: whole(bottom), screens: screens.length };
+    }
+
+    matchCanvasToScreens() {
+        const r = window.canvasRenderer;
+        if (!this.project || !r) return Promise.resolve(false);
+        const size = this._matchScreensSize();
+        const say = (msg) => { if (typeof this._toast === 'function') this._toast(msg, false); };
+        if (!size) {
+            say('Match Screens: there are no visible screens on this canvas.');
+            return Promise.resolve(false);
+        }
+        if (size.width < 1 || size.height < 1) {
+            say('Match Screens: the visible screens all sit above or left of 0,0.');
+            return Promise.resolve(false);
+        }
+        const isShow = r.isShowLookView();
+        if (size.width === Number(r.rasterWidth) && size.height === Number(r.rasterHeight)) {
+            say(`The canvas already fits its screens: ${size.width} × ${size.height}.`);
+            return Promise.resolve(false);
+        }
+        if (typeof sendClientLog === 'function') {
+            sendClientLog('match_screens', {
+                from: [r.rasterWidth, r.rasterHeight], to: [size.width, size.height],
+                screens: size.screens, isShow, canvas_id: this.project.active_canvas_id,
+            });
+        }
+        const done = this._writeToolbarRasterSize({ width: size.width, height: size.height }, isShow);
+        if (typeof this.syncRasterFromProject === 'function') this.syncRasterFromProject();
+        r.render();
+        return Promise.resolve(done).then(() => true);
     }
 
     renameLayer(layer, nameElement) {
