@@ -1558,7 +1558,7 @@ class _DockCableSheets {
             if (l.link && l.link.cable === c.id) return true;
             const users = this.fiberStrandUsers(c.id);
             let free = 0;
-            for (let n = 1; n <= (c.strands || 0); n++) {
+            for (const n of this.fiberStrandPositions(c)) {
                 const who = users.get(n);
                 if (!who || (who.box.id === box.id && who.key === l.key)) free++;
             }
@@ -1669,7 +1669,7 @@ class _DockCableSheets {
             const sel = document.createElement('select');
             sel.className = 'hw-dock-cable-connector hw-dock-fiber-select';
             sel.dataset.lrdField = pickKey;
-            for (let n = 1; n <= (cable.strands || 0); n++) {
+            for (const n of this.fiberStrandPositions(cable)) {
                 const o = document.createElement('option');
                 o.value = String(n);
                 const who = users.get(n);
@@ -1948,7 +1948,7 @@ class _DockCableSheets {
         const names = document.createElement('div');
         names.className = 'hw-dock-fiber-names';
         const plain = { ...cable, strandNames: {} };
-        for (let n = 1; n <= (cable.strands || 0); n++) {
+        for (const n of this.fiberStrandPositions(cable)) {
             const cell = document.createElement('label');
             cell.className = 'hw-dock-fiber-name';
             cell.appendChild(this._fiberSwatch(n, cable));

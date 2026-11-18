@@ -253,7 +253,7 @@ def test_the_refusal_and_the_labels_on_the_server_name_the_mode():
     tac = {'kind': 'tac', 'strands': 12, 'connector': 'ST'}
     assert catalog.fiber_cable_type_text(tac) == 'TAC 12 · ST'
     assert catalog.fiber_cable_type_text(tac, 'single') == 'TAC 12 · ST · Single mode'
-    assert catalog.fiber_cable_type_text({'kind': 'mtp', 'strands': 24}, 'multi') == 'MTP 24 · Multimode'
+    assert catalog.fiber_cable_type_text({'kind': 'mtp', 'strands': 24}, 'multi') == 'MTP 24 Type A · Multimode'
     assert catalog.fiber_cable_type_text({'kind': 'opticalcon-duo'}, 'multi') == 'opticalCON DUO · Multimode'
 
 

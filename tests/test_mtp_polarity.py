@@ -119,6 +119,130 @@ def test_a_polarity_is_a_b_or_c_and_only_on_an_mtp(client):
         assert _refused(client.post('/api/fiber-cables', json=body)) == 'Only an MTP has a polarity.', kind
 
 
+# ── an 8 fiber MTP is Base-8; the pull sheet says the polarity ──────────
+
+def _h9_boxes(client, n):
+    """An H9 with a 4x fiber card and `n` CVT10s: (processor id, box ids)."""
+    st = _ok(client.post('/api/processors', json={'deviceId': 'novastar-h9'}), 201)
+    pid = st['processors'][-1]['id']
+    st = _ok(client.put(f'/api/processors/{pid}/slots/0', json={'deviceId': 'novastar-card-h-4xfiber'}))
+    cid = next(p for p in st['processors'] if p['id'] == pid)['slots'][0]['card']['id']
+    for _ in range(n):
+        st = _ok(client.post(f'/api/processors/{pid}/cards/{cid}/cvts', json={'deviceId': 'novastar-cvt10'}), 201)
+    card = next(p for p in st['processors'] if p['id'] == pid)['slots'][0]['card']
+    return pid, [b['id'] for b in card['cvts']]
+
+
+def _links_of(client, box_id):
+    for proc in client.get('/api/processors').get_json()['processors']:
+        for slot in proc['slots']:
+            for box in (slot.get('card') or {}).get('cvts') or []:
+                if box['id'] == box_id:
+                    return box.get('fiberLinks')
+    return None
+
+
+def test_an_8_fiber_mtp_takes_1_to_4_then_9_to_12(client):
+    """Owner, 2026-11-18: "8-fiber MTP uses the standard" - its strands are
+    the plug positions 1-4 and 9-12, so four links take 1-2, 3-4, 9-10 and
+    11-12, then it is full; 5-8 are no strands of it. A TAC of 8 keeps
+    1-8."""
+    pid, boxes = _h9_boxes(client, 4)
+    mtp = _ok(client.post('/api/fiber-cables', json={'kind': 'mtp', 'strands': 8,
+                                                     'link': {'boxId': boxes[0], 'key': 'p1'}}), 201)['fiberCables'][-1]
+    for b in boxes[1:]:
+        _ok(client.put(f'/api/processors/{pid}/cvts/{b}/fiber-links/p1', json={'cable': mtp['id']}))
+    assert [_links_of(client, b)['p1']['strands'] for b in boxes] == [[1, 2], [3, 4], [9, 10], [11, 12]]
+    why = _refused(client.put(f'/api/processors/{pid}/cvts/{boxes[0]}/fiber-links/p1',
+                              json={'cable': mtp['id'], 'strands': [5, 6]}))
+    assert why == 'MTP A has strands 1-4 and 9-12 - there is no strand 5.', why
+    other, more = _h9_boxes(client, 1)
+    why = _refused(client.put(f'/api/processors/{other}/cvts/{more[0]}/fiber-links/p1', json={'cable': mtp['id']}))
+    assert why == 'MTP A is full: every strand is in use.', why
+    # a strand name is by position too
+    why = _refused(client.put(f"/api/fiber-cables/{mtp['id']}", json={'strandName': {'strand': 5, 'name': 'X'}}))
+    assert why == 'There is no strand 5 on this cable.', why
+    _ok(client.put(f"/api/fiber-cables/{mtp['id']}", json={'strandName': {'strand': 9, 'name': 'SR'}}))
+    # a TAC of 8 is 1-8
+    tac = _ok(client.post('/api/fiber-cables', json={'kind': 'tac', 'strands': 8,
+                                                     'link': {'boxId': more[0], 'key': 'p1'}}), 201)['fiberCables'][-1]
+    _ok(client.put(f'/api/processors/{other}/cvts/{more[0]}/fiber-links/p1',
+                   json={'cable': tac['id'], 'strands': [5, 6]}))
+    assert _links_of(client, more[0])['p1']['strands'] == [5, 6]
+
+
+def test_a_count_change_keeps_the_strands_in_use(client):
+    """An MTP 12 with a link on 5-6 cannot become an 8 (it has no 5-8),
+    one on 9-10 can, and keeps them; an 8 grows back to 12 as it is."""
+    pid, boxes = _h9_boxes(client, 2)
+    mtp = _ok(client.post('/api/fiber-cables', json={'kind': 'mtp', 'strands': 12,
+                                                     'link': {'boxId': boxes[0], 'key': 'p1'}}), 201)['fiberCables'][-1]
+    url = f"/api/fiber-cables/{mtp['id']}"
+    _ok(client.put(f'/api/processors/{pid}/cvts/{boxes[1]}/fiber-links/p1',
+                   json={'cable': mtp['id'], 'strands': [5, 6]}))
+    why = _refused(client.put(url, json={'strands': 8}))
+    assert why == ('Strand 5 is in use, and an 8 fiber MTP has no strand 5: its strands are 1-4 '
+                   'and 9-12. Move that link first.'), why
+    _ok(client.put(f'/api/processors/{pid}/cvts/{boxes[1]}/fiber-links/p1',
+                   json={'cable': mtp['id'], 'strands': [9, 10]}))
+    _ok(client.put(url, json={'strands': 8}))
+    assert _links_of(client, boxes[1])['p1']['strands'] == [9, 10]
+    _ok(client.put(url, json={'strands': 12}))
+    assert _links_of(client, boxes[1])['p1']['strands'] == [9, 10]
+    # past the count still says it the old way
+    assert _refused(client.put(url, json={'strands': 6})).startswith('Strand 10 is in use - the count cannot')
+
+
+def test_an_old_8_fiber_mtp_reads_its_5_to_8_as_9_to_12(client):
+    """A show saved when an 8 fiber MTP was numbered 1-8: a link on 5-6 is
+    the same fibers on 9-10 once loaded, a name typed on 5 moves to 9, and
+    a TAC of 8 is left alone. Loading it again - an undo snapshot from
+    before, or the file twice - reads the same: the pass is idempotent."""
+    import copy
+    pid, boxes = _h9_boxes(client, 2)
+    mtp = _ok(client.post('/api/fiber-cables', json={'kind': 'mtp', 'strands': 8,
+                                                     'link': {'boxId': boxes[0], 'key': 'p1'}}), 201)['fiberCables'][-1]
+    tac = _ok(client.post('/api/fiber-cables', json={'kind': 'tac', 'strands': 8,
+                                                     'link': {'boxId': boxes[1], 'key': 'p1'}}), 201)['fiberCables'][-1]
+    old = client.get('/api/project').get_json()
+    card = next(p for p in old['processors'] if p['id'] == pid)['slots'][0]['card']
+    by = {b['id']: b for b in card['cvts']}
+    by[boxes[0]]['fiberLinks']['p1']['strands'] = [5, 6]
+    by[boxes[1]]['fiberLinks']['p1']['strands'] = [5, 6]
+    for c in old['fiberCables']:
+        if c['id'] == mtp['id']:
+            c['strandNames'] = {'5': 'SR main', '2': 'kept'}
+        if c['id'] == tac['id']:
+            c['strandNames'] = {'5': 'tac five'}
+    for _ in range(2):
+        _ok(client.put('/api/project', json=copy.deepcopy(old)))
+        assert _links_of(client, boxes[0])['p1']['strands'] == [9, 10]
+        assert _links_of(client, boxes[1])['p1']['strands'] == [5, 6]
+        cables = {c['id']: c for c in client.get('/api/processors').get_json()['fiberCables']}
+        assert cables[mtp['id']]['strandNames'] == {'9': 'SR main', '2': 'kept'}, cables[mtp['id']]
+        assert cables[tac['id']]['strandNames'] == {'5': 'tac five'}, cables[tac['id']]
+    # the migrated show PUT back (an undo after the load) is unchanged
+    now = client.get('/api/project').get_json()
+    _ok(client.put('/api/project', json=copy.deepcopy(now)))
+    assert _links_of(client, boxes[0])['p1']['strands'] == [9, 10]
+    # the file load funnel the same
+    _ok(client.post('/api/project', json=copy.deepcopy(old)))
+    assert _links_of(client, boxes[0])['p1']['strands'] == [9, 10]
+
+
+def test_the_pull_words_say_the_polarity():
+    import processor_catalog as catalog
+    assert catalog.fiber_cable_type_text({'kind': 'mtp', 'strands': 24}) == 'MTP 24 Type A'
+    assert catalog.fiber_cable_type_text({'kind': 'mtp', 'strands': 24, 'polarity': 'B'}) == 'MTP 24 Type B'
+    assert catalog.fiber_cable_type_text({'kind': 'mtp', 'strands': 12, 'polarity': 'C'},
+                                         'single') == 'MTP 12 Type C · Single mode'
+    assert catalog.fiber_cable_type_text({'kind': 'tac', 'strands': 12, 'connector': 'ST'}) == 'TAC 12 · ST'
+    assert catalog.fiber_cable_positions({'kind': 'mtp', 'strands': 8}) == [1, 2, 3, 4, 9, 10, 11, 12]
+    assert catalog.fiber_cable_positions({'kind': 'tac', 'strands': 8}) == list(range(1, 9))
+    assert catalog.fiber_positions_text([1, 2, 3, 4, 9, 10, 11, 12]) == '1-4 and 9-12'
+    assert catalog.fiber_positions_text(list(range(1, 13))) == '1-12'
+
+
 # ── the browser: the binder, the Fiber page, the box's Fiber section ─────
 
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
@@ -256,6 +380,9 @@ DOCUMENTED = [
     (24, 'C', ['13', '14'], ['15', '16'], ['14', '13', '16', '15']),
     (16, 'B', ['15', '16'], ['13', '14'], ['16', '15', '14', '13']),
     (32, 'B', ['15', '16'], ['13', '14'], ['16', '15', '14', '13']),
+    # Base-8 (owner, 2026-11-18): strands 1-4 and 9-12
+    (8, 'A', ['2', '1'], ['4', '3'], ['1', '2', '3', '4']),
+    (8, 'B', ['11', '12'], ['9', '10'], ['12', '11', '10', '9']),
 ]
 
 
@@ -275,7 +402,7 @@ def test_the_binder_prints_the_legs_the_mtp_delivers(page, count, polarity, leg_
     # a cable labelled by number has no swatches, at either end
     assert [x['swatch'] for x in out['a']['bParts']] == [False, False], out['a']
     m = out['map']
-    assert m['title'] == f"Strand map · MTP A · MTP {count} · Type {polarity} · 300'", m
+    assert m['title'] == f"Strand map · MTP A · MTP {count} Type {polarity} · 300'", m
     assert m['cols'] == ['strand', 'at the breakout', 'link', 'box ports'], m
     assert [r[0] for r in m['rows']] == ['1', '2', '3', '4'], m
     assert [r[1] for r in m['rows']] == legs, m
@@ -290,22 +417,22 @@ def test_the_binder_prints_the_legs_the_mtp_delivers(page, count, polarity, leg_
     assert ids['errors'] == []
 
 
-UNDOCUMENTED = [(48, 'A'), (72, 'B'), (16, 'A'), (32, 'C'), (8, 'A'), (8, 'B'), (8, 'C')]
+UNDOCUMENTED = [(48, 'A'), (72, 'B'), (16, 'A'), (32, 'C'), (8, 'C')]
 
 
 @pytest.mark.parametrize('count,polarity', UNDOCUMENTED, ids=[f'{c}{p}' for c, p in UNDOCUMENTED])
 def test_an_undocumented_mtp_says_see_cable_map(page, count, polarity):
     """No maker's sheet maps it: the processor end prints its legs and the
     breakout end "see cable map" - no number is made up. The strand map
-    keeps its strands and says it under its title. An 8 fiber MTP keeps
-    the app's own 1-8 numbering."""
+    keeps its strands and says it under its title. An 8 fiber MTP in
+    Type C is one of them."""
     pg, ids = page
     _set(pg, ids, strands=count, polarity=polarity)
     out = _read(pg, ids)
     assert (out['a']['p'], out['a']['b']) == ('1 · 2', 'see cable map'), out['a']
     assert (out['b']['p'], out['b']['b']) == ('3 · 4', 'see cable map'), out['b']
     m = out['map']
-    assert m['title'] == f"Strand map · MTP A · MTP {count} · Type {polarity} · 300'", m
+    assert m['title'] == f"Strand map · MTP A · MTP {count} Type {polarity} · 300'", m
     assert m['cols'] == ['strand', 'link', 'box ports'], m
     assert m['note'] == 'At the breakout: see cable map', m
     assert [r[0] for r in m['rows']] == ['1', '2', '3', '4'], m
@@ -452,7 +579,7 @@ def test_the_painted_sheets_carry_the_legs(page):
     pages = pg.evaluate(PAINT_JS, opts)
     kinds = [p['kind'] for p in pages]
     assert 'fiber' in kinds and 'processor' in kinds, kinds
-    title = "STRAND MAP · MTP A · MTP 24 · TYPE A · 300'"
+    title = "STRAND MAP · MTP A · MTP 24 TYPE A · 300'"
     for p in pages:
         texts = p['texts']
         assert not [t for t in texts if 'crosses inside' in t.lower()], p['title']
@@ -464,4 +591,109 @@ def test_the_painted_sheets_carry_the_legs(page):
     assert 'AT THE BREAKOUT' in proc['texts'], proc['texts']
     # Fiber connections' AT THE BREAKOUT: a strand to a line, logged whole
     assert '14 13' in proc['texts'] and '16 15' in proc['texts'], proc['texts']
+    assert ids['errors'] == []
+
+
+def test_an_8_fiber_mtp_shows_its_strands_by_position(page):
+    """Owner, 2026-11-18: an 8 fiber MTP is Base-8 everywhere it is shown.
+    Its strand map and the Fiber page's spares walk 1-4 and 9-12, named
+    and coloured by position (9 Yellow to 12 Aqua); a strand chip's pick
+    offers those eight; the cable's editor names those eight."""
+    pg, ids = page
+    a, mtp = ids['xds'][0], ids['mtp']
+    _set(pg, ids, strands=8, polarity='A', labels='colors')
+    try:
+        out = pg.evaluate("""([sx, id]) => {
+            const app = window.app;
+            const proc = app._processorsResolved.find(p => p.id === sx);
+            const map = app._bStrandMaps(proc).find(m => m.title.startsWith('Strand map · MTP A'));
+            const page = app.binderFiberPage();
+            return {rows: map.rows.map(r => r.cells.slice(0, 2)), title: map.title,
+                    spare: page.cables.find(c => c.id === id).spare,
+                    positions: app.fiberStrandPositions(app.getFiberCable(id))};
+        }""", [ids['sx'], mtp])
+        assert out['title'] == "Strand map · MTP A · MTP 8 Type A · 300'", out
+        names = ['1 Blue', '2 Orange', '3 Green', '4 Brown', '9 Yellow', '10 Violet', '11 Rose', '12 Aqua']
+        assert [r[0] for r in out['rows']] == names, out
+        assert [r[1] for r in out['rows']] == names, out
+        assert out['spare'] == '9 Yellow to 12 Aqua · spare (4)', out
+        assert out['positions'] == [1, 2, 3, 4, 9, 10, 11, 12], out
+        _section(pg, a)
+        pg.locator(f'[data-lrd-field="fiber-strand-{a}-p1-0"]').click()
+        pick = pg.locator(f'[data-lrd-field="fiber-strand-pick-{a}-p1-0"]')
+        pick.wait_for()
+        assert pick.evaluate("s => [...s.options].map(o => o.value)") == \
+            ['1', '2', '3', '4', '9', '10', '11', '12']
+        pg.evaluate("() => { document.activeElement && document.activeElement.blur(); }")
+        pg.evaluate("() => window.app.renderHardwareDock()")
+        pg.locator(f'[data-lrd-field="fiber-edit-{a}-p1"]').click()
+        pg.locator(f'[data-lrd-field="fiber-strand-name-{mtp}-12"]').wait_for()
+        fields = pg.evaluate("""(id) => [...document.querySelectorAll(
+            `[data-lrd-field^="fiber-strand-name-${id}-"]`)].map(f => f.dataset.lrdField.split('-').pop())""", mtp)
+        assert fields == ['1', '2', '3', '4', '9', '10', '11', '12'], fields
+        pg.evaluate("() => { window.app._fiberEdit = null; window.app.renderHardwareDock(); }")
+    finally:
+        _set(pg, ids, strands=24, labels='numbers')
+    assert ids['errors'] == []
+
+
+def test_a_full_8_fiber_mtp_is_marked_full(page):
+    """With every one of its eight strands taken - XD A 1-2, XD B 3-4, XD
+    C 9-10, XD D 11-12 - another link's cable list shows the MTP as full
+    and cannot pick it. Before Base-8 it counted 5-8 as free."""
+    pg, ids = page
+    sx, xds, mtp = ids['sx'], ids['xds'], ids['mtp']
+    _set(pg, ids, strands=8, polarity='A')
+    put = """async ([url, body]) => { const r = await fetch(url, {method: 'PUT',
+        headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+        await window.app.refreshProcessors(); window.app.renderHardwareDock(); return r.status; }"""
+    try:
+        for box in xds[2:]:
+            assert pg.evaluate(put, [f'/api/processors/{sx}/cvts/{box}/fiber-links/p1', {'cable': mtp}]) == 200
+        assert pg.evaluate(put, [f'/api/processors/{sx}', {'backupUnit': {'name': 'WALL SR BU'}}]) == 200
+        _section(pg, xds[0])
+        sel = pg.locator(f'[data-lrd-field="fiber-link-cable-{xds[0]}-b1"]')
+        sel.wait_for()
+        opt = sel.evaluate("""(s, id) => { const o = [...s.options].find(x => x.value === id);
+                                            return o ? [o.textContent, o.disabled] : null; }""", mtp)
+        assert opt and opt[0].endswith('· full') and opt[1] is True, opt
+    finally:
+        pg.evaluate(put, [f'/api/processors/{sx}', {'backupUnit': None}])
+        for box in xds[2:]:
+            pg.evaluate(put, [f'/api/processors/{sx}/cvts/{box}/fiber-links/p1', {'cable': None}])
+        _set(pg, ids, strands=24)
+    assert ids['errors'] == []
+
+
+def test_the_pull_sheet_says_the_polarity_and_splits_by_it(page):
+    """Owner, 2026-11-18: an MTP's pull row reads "MTP 24 Type A" with its
+    length, and a Type A and a Type B of the same length are two rows with
+    their own counts; two of one polarity are one row of 2. An edit saved
+    on the old "MTP 24" row answers to the one MTP row of that length, and
+    to neither where there are two."""
+    pg, ids = page
+    sx, xds, mtp = ids['sx'], ids['xds'], ids['mtp']
+    _set(pg, ids, strands=24, polarity='A')
+    made = pg.evaluate("""async ([box]) => {
+        const r = await fetch('/api/fiber-cables', {method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({kind: 'mtp', strands: 24, ft: 300, polarity: 'B', link: {boxId: box, key: 'p1'}})});
+        const st = await r.json();
+        await window.app.refreshProcessors();
+        return st.fiberCables[st.fiberCables.length - 1].id;
+    }""", [xds[2]])
+    rows = """() => window.app.buildPullSheet().totals.filter(r => r.type.startsWith('MTP'))
+        .map(r => [r.type, r.length, r.qty])"""
+    try:
+        assert sorted(pg.evaluate(rows)) == [['MTP 24 Type A', "300'", 1], ['MTP 24 Type B', "300'", 1]]
+        resolve = """(live) => window.app._pullResolveEditKey("MTP 24|300'", new Set(live))"""
+        assert pg.evaluate(resolve, ["MTP 24 Type A|300'"]) == "MTP 24 Type A|300'"
+        assert pg.evaluate(resolve, ["MTP 24 Type A|300'", "MTP 24 Type B|300'"]) == "MTP 24|300'"
+        pg.evaluate(SET_JS, [made, {'polarity': 'A'}])
+        assert pg.evaluate(rows) == [['MTP 24 Type A', "300'", 2]]
+    finally:
+        pg.evaluate("""async ([sx, box]) => {
+            await fetch(`/api/processors/${sx}/cvts/${box}/fiber-links/p1`, {method: 'PUT',
+                headers: {'Content-Type': 'application/json'}, body: JSON.stringify({cable: null})});
+            await window.app.refreshProcessors();
+        }""", [sx, xds[2]])
     assert ids['errors'] == []

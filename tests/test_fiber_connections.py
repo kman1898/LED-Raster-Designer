@@ -298,7 +298,7 @@ def test_a_bidi_box_keeps_its_one_strand_and_an_mtp_reads_its_legs(page):
     box = pg.evaluate("(id) => window.app._bBoxTitle(window.app._dockFindCvt(id).cvt)", ids['cvt4k'])
     assert cells == [
         ['OPT 1', 'TAC C (TAC 12 · Single mode)', '1', 'OPT 1 on CVT10-S A', '1'],
-        ['OPT 2', 'MTP A (MTP 12 · Single mode)', '1 Blue · Rack A', f'OPT1 on {box}', 'Rack A · 1 Blue'],
+        ['OPT 2', 'MTP A (MTP 12 Type A · Single mode)', '1 Blue · Rack A', f'OPT1 on {box}', 'Rack A · 1 Blue'],
         ['OPT 3', 'MTP A', '3 Green · 4 Brown', f'OPT2 on {box}', '4 Brown · 3 Green'],
         ['OPT 4', 'not used', '', '', ''],
     ], cells
