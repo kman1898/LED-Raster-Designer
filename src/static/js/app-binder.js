@@ -201,6 +201,9 @@ const COL_GAP = 30;
 const BUBBLE_H = 96;
 // The map keeps at least this share of the drawing area whatever the
 // tables' scale - of the width beside them, of the height over them.
+// The CONTENTS sheet's narrowest column: a title wraps onto a second line
+// before the list leaves its one sheet, and no further (_bContentsSheets).
+const CONTENTS_MIN_W = 480;
 const MAP_MIN_FRAC = 0.45;
 // The map's gutters: the rulers' and the brackets' room around the wall.
 // TWO rulers live above the wall, not one: the map draws its own leg ruler
@@ -6176,9 +6179,18 @@ class _Binder {
         // Beside the map's own lettering, never through it: a label disc on
         // the first column overhangs the wall's left edge, and the row ticks
         // were being drawn straight across it.
-        const left = Math.min(geo.wall.x,
-                              typeof geo.mapInkLeft === 'number' ? geo.mapInkLeft - 4
-                                                                 : geo.wall.x);
+        let left = Math.min(geo.wall.x,
+                            typeof geo.mapInkLeft === 'number' ? geo.mapInkLeft - 4
+                                                               : geo.wall.x);
+        // ...and never left of the map's own room: a label box the render
+        // reported past the bitmap's edge (a letter sheet's data map, its
+        // tables gone under it) put the numbers off the sheet. Where the
+        // room has no space left of the wall, they stand on its edge.
+        if (geo.mapArea && typeof geo.mapArea.x === 'number' && rowKeys.length) {
+            book.measureCtx.font = this._bFont(SZ.ruler, 700);
+            const need = 20 + book.measureCtx.measureText(String(Math.max(...rowKeys) + 1)).width + 2;
+            left = Math.max(left, Math.min(geo.wall.x, geo.mapArea.x + need));
+        }
         rowKeys.forEach(k => {
             const rr = rows.get(k);
             const cy = (rr.y1 + rr.y2) / 2;
@@ -8237,12 +8249,27 @@ class _Binder {
                              members.length ? String(ports) : ''] };
         });
         const blocks = [];
-        blocks.push({ lines: this._bTableLines(book, {
+        // POSITIONS AS WIDE AS ITS NAMES NEED (owner, 2026-11-18, on a
+        // letter overview whose screen names stood three lines tall in a
+        // narrow cell): the table may span more than one of the band's
+        // columns - up to the width at which every name stands on one line
+        // - and _bOverviewBand takes the widest that draws the map as
+        // large, so the names wrap only where the map would pay for it.
+        const posSpec = {
             title: 'Positions',
             cols: [{ title: 'position', w: 1 }, { title: 'screens', w: 1.6 },
                    { title: 'circuits', w: 0.6, align: 'right' }, { title: 'ports', w: 0.5, align: 'right' }],
-            rows, width: wide,
-        }) });
+            rows,
+        };
+        const posNatural = this._bTableLines(book, { ...posSpec, width: Math.floor(da.w) }).naturalW || da.w;
+        const posOpts = [];
+        for (let s = 1; s <= across; s++) {
+            const room = s * wide + (s - 1) * COL_GAP;
+            const w = s === 1 ? wide : Math.min(room, Math.max(wide, Math.ceil(posNatural)));
+            posOpts.push({ slots: s, w, lines: this._bTableLines(book, { ...posSpec, width: w }) });
+            if (room >= posNatural) break;
+        }
+        blocks.push({ lines: posOpts[0].lines, opts: posOpts });
         // The show's totals. The Load reads the way a screen sheet's own
         // does - amps 1φ · amps 3φ · kW, each screen's amps the ones
         // _bScreenFacts prints on its sheet, summed. Amps never blend
@@ -8273,12 +8300,31 @@ class _Binder {
         const riding = new Set();
         if (typeof this.getCarriedPowerLoad === 'function') {
             for (const l of screens) {
+    // ONE sheet where it can (owner, 2026-11-18: "the WHOLE CONTENTS moves
+    // to its own sheet (1.2)"): where the overview's columns cannot hold
+    // every row, it takes more, narrower columns - never under
+    // CONTENTS_MIN_W - and runs on to a second sheet only past those.
                 const c = this.getCarriedPowerLoad(l);
                 carried.set(String(l.id), c);
                 c.peerIds.forEach(id => riding.add(String(id)));
             }
         }
         let panels = 0, watts = 0, circuits = 0, ports = 0;
+        let lines = table(wide);
+        if (!positions) {
+            const fits = (w, ls) => {
+                const k = Math.max(1, Math.floor((da.w + COL_GAP) / (Math.floor(w) + COL_GAP)));
+                return !this._bPack([{ lines: ls }], da.h - GROUP_H, k).rest.length;
+            };
+            if (!fits(wide, lines)) {
+                for (let k = Math.round((da.w + COL_GAP) / (wide + COL_GAP)) + 1; ; k++) {
+                    const w = (da.w - (k - 1) * COL_GAP) / k;
+                    if (w < CONTENTS_MIN_W) break;
+                    const ls = table(w);
+                    if (fits(w, ls)) { lines = ls; wide = w; break; }
+                }
+            }
+        }
         const byVoltage = new Map();
         // screens whose panel has no power figure (owner, 2026-11-16): left
         // out of the Load and named under it, never counted as 0
@@ -8341,22 +8387,31 @@ class _Binder {
         ]) });
         // The contents: every sheet of the set, from the plan the dry pass
         // made (a dry pass has none yet and lists nothing). A list too long
-        // for this sheet with the drawing under it goes, whole, onto the
-        // CONTENTS sheets that follow (_bContentsSheets), and this sheet
-        // keeps the positions, the totals and the drawing - the positions
-        // too where they alone leave the drawing no room (a show of many
-        // positions on a letter sheet): they go ahead of the contents.
+        // for this sheet beside the drawing goes, WHOLE, onto a CONTENTS
+        // sheet of its own right after it (_bContentsSheets; owner,
+        // 2026-11-18: never split between the two), and this sheet keeps
+        // the positions, the totals and the drawing. Only a show whose
+        // positions alone leave the drawing no room at all sends them
+        // ahead of the contents.
+        // ...and, beside SHOW TOTALS at the totals' own width, POSITIONS
+        // taking the rest of the band's width (`fit`): the names on one
+        // line without the band growing a table taller
+        const totW = Math.ceil(blocks[1].lines.naturalW || COL_W);
+        const fitW = Math.min(Math.ceil(posNatural), Math.floor(da.w - totW - COL_GAP));
+        if (fitW > wide + 1) {
+            posOpts.push({ slots: 1, fit: true, w: fitW, lines: this._bTableLines(book, { ...posSpec, width: fitW }) });
+        }
         const contents = this._bContentsRows(book.plan);
-        const probe = { positions: blocks[0].lines, totals: blocks[1].lines, across, wide };
+        const probe = { positions: posOpts, totals: blocks[1].lines, across, wide };
         if (book.dry && !book.plan) book.overviewProbe = probe;
         const moved = this._bContentsMove(book, probe, contents);
-        const posMoved = moved && !(this._bOverviewBand(book, blocks[0].lines, blocks[1].lines, null,
+        const posMoved = moved && !(this._bOverviewBand(book, posOpts, blocks[1].lines, null,
                                                         across, wide).area.h > 0);
-        const band = this._bOverviewBand(book, posMoved ? null : blocks[0].lines, blocks[1].lines,
+        const band = this._bOverviewBand(book, posMoved ? null : posOpts, blocks[1].lines,
                                          moved ? null : contents.length ? contents : [{ cells: ['', ''] }], across, wide);
         const pack = { cols: band.cols, rest: [] };
         const L = { kind: 'overview', cols: across, colW: wide, top: da.y, pack,
-                    colX: (i) => da.x + i * (wide + COL_GAP) };
+                    colX: band.colX, colWOf: band.colW };
         const mapArea = band.area;
         const view = ++book.views;
         this._bPage(book, { kind: 'overview', title: 'Overview', sheetTitle: 'OVERVIEW', viewName: 'OVERVIEW',
@@ -8369,7 +8424,8 @@ class _Binder {
             // height and how the contents split
             if (book.log && book.log.map) {
                 book.log.map.band = { h: band.h, contentsCols: band.contentsCols, layout: band.layout };
-                book.log.map.tables = pack.cols.map((c, i) => ({ x: L.colX(i), y: da.y, w: wide, h: c.h }));
+                book.log.map.tables = pack.cols.map((c, i) => ({ x: L.colX(i), y: da.y, w: L.colWOf(i), h: c.h }));
+                book.log.map.positionsW = band.posW;
             }
         });
         if (moved) this._bContentsSheets(book, contents, wide, posMoved ? blocks[0].lines : null);
@@ -8395,9 +8451,10 @@ class _Binder {
     // the first, at the overview's own size.
     // `positions`: the overview's POSITIONS table where it went too, first.
     _bContentsSheets(book, rows, wide, positions = null) {
-        const lines = this._bTableLines(book, {
+        const da = book.geo.da;
+        const table = (w) => this._bTableLines(book, {
             title: `${rows.length} sheets`,
-            cols: [{ title: 'sheet', w: 0.4 }, { title: 'title', w: 1.6 }], rows, width: wide,
+            cols: [{ title: 'sheet', w: 0.4 }, { title: 'title', w: 1.6 }], rows, width: w,
         });
         const groups = [{ kind: 'contents', name: 'Contents', blocks: [{ lines }] }];
         if (positions) groups.unshift({ kind: 'contents', name: 'Positions', blocks: [{ lines: positions }] });
@@ -8429,13 +8486,19 @@ class _Binder {
     //     column).
     // The way that draws the map largest wins. Where several draw it the
     // same - a map stopped by the sheet's width - the one with the fewest
-    // contents columns does, the tables side by side before one over the
+    // contents columns does, then the one whose POSITIONS wrap least (the
+    // table spanning more than one column where its names need it, owner
+    // 2026-11-18), then the tables side by side before one over the
     // other. Every table is measured in the column it is painted in:
     // measured in the narrower COL_W, a contents title that prints on one
     // line took a second line's height.
-    // Returns { cols, h, area, contentsCols, layout }: the band's columns
-    // as _bDrawLayout takes them, its height, the map's room under it, how
-    // many columns the contents took and which way won.
+    // `positions`: the POSITIONS table's ways - [{ slots, w, lines }], one
+    // per span of the band's columns it may take (_bOverviewPage) - or null.
+    // Returns { cols, h, area, contentsCols, layout, colX, colW, posW }: the
+    // band's columns as _bDrawLayout takes them, its height, the map's room
+    // under it, how many columns the contents took, which way won, each
+    // column's left edge and width (the first wider where POSITIONS spans
+    // more than one), and the width POSITIONS took.
     _bOverviewBand(book, positions, totals, contents, across, wide) {
         const da = book.geo.da;
         const sum = (lines) => lines.reduce((s, l) => s + l.h, 0);
@@ -8447,7 +8510,8 @@ class _Binder {
         const whole = contentsTable('Contents', contents || [{ cells: ['', ''] }]);
         const headH = sum(whole.filter(l => l.head));
         const rowH = whole.filter(l => !l.head).map(l => l.h);
-        const posH = positions ? sum(positions) : 0, totH = sum(totals);
+        const pos1 = positions ? positions[0] : null;
+        const posH = pos1 ? sum(pos1.lines) : 0, totH = sum(totals);
         // the smallest height under which `fill(cap)` takes no more than
         // `n` columns, and what it fills
         const shortest = (fill, n, lo, hi) => {
@@ -8472,22 +8536,29 @@ class _Binder {
         const tallestRow = Math.max(...rowH);
         const allRows = rowH.reduce((s, r) => s + r, 0);
         // Every candidate: a list of columns, each a list of items - 'P',
-        // 'T' or a contents part (its rows' indexes).
+        // 'T' or a contents part (its rows' indexes) - and the POSITIONS way
+        // its first column takes (`pos`, spanning `pos.slots` columns).
         const tries = [];
         if (!contents) {
-            // (the contents on sheets of their own: the two tables alone,
+            // (the contents on a sheet of its own: the two tables alone,
             // or the totals alone where the positions went with them)
-            if (!positions) tries.push({ layout: 'stacked', cols: [['T']] });
+            if (!positions) tries.push({ layout: 'stacked', cols: [['T']], pos: null });
             else {
-                if (across >= 2) tries.push({ layout: 'side', cols: [['P'], ['T']] });
-                tries.push({ layout: 'stacked', cols: [['P', 'T']] });
+                for (const pos of posWays(across - 1)) tries.push({ layout: 'side', cols: [['P'], ['T']], pos });
+                // POSITIONS as wide as SHOW TOTALS beside it leaves (`fit`)
+                for (const pos of positions.filter(p => p.fit)) tries.push({ layout: 'side', cols: [['P'], ['T']], pos });
+                for (const pos of posWays(across)) tries.push({ layout: 'stacked', cols: [['P', 'T']], pos });
             }
         }
         for (let k = 1; contents && k <= Math.max(1, Math.min(contents.length, across)); k++) {
             const parts = shortest(rowsIn, k, headH + tallestRow, headH + allRows);
             if (parts.length !== k) continue;
-            if (2 + k <= across) tries.push({ layout: 'side', cols: [['P'], ['T'], ...parts.map(p => [p])] });
-            if (1 + k <= across) tries.push({ layout: 'stacked', cols: [['P', 'T'], ...parts.map(p => [p])] });
+            for (const pos of posWays(across - 1 - k)) {
+                tries.push({ layout: 'side', cols: [['P'], ['T'], ...parts.map(p => [p])], pos });
+            }
+            for (const pos of posWays(across - k)) {
+                tries.push({ layout: 'stacked', cols: [['P', 'T'], ...parts.map(p => [p])], pos });
+            }
         }
         // all three in order down the columns, each column as short as
         // the band allows
@@ -8506,14 +8577,15 @@ class _Binder {
                 if (part && cur.h + r <= cap) { part.push(i); cur.h += r; return; }
                 if (cur.items.length && start() + headH + r > cap) open();
                 cur.h = start() + headH + r;
+        const posWays = (free) => (positions || []).filter(p => !p.fit && p.slots <= free);
                 part = [i];
                 cur.items.push(part);
             });
             return cols.map(c => c.items);
         };
         if (contents) {
-            tries.push({ layout: 'run', cols: shortest(runIn, across, Math.max(posH, totH, headH + tallestRow),
-                                                       posH + totH + headH + allRows + 2 * BLOCK_GAP) });
+            tries.push({ layout: 'run', pos: pos1, cols: shortest(runIn, across, Math.max(posH, totH, headH + tallestRow),
+                                                                  posH + totH + headH + allRows + 2 * BLOCK_GAP) });
         }
         // a column of blocks, one under the next
         const column = (blocks) => {
@@ -8528,18 +8600,27 @@ class _Binder {
         const ext = this._bShowMapExtent();
         let best = null;
         for (const t of tries) {
-            if (!t.cols.length || t.cols.length > across) continue;
+            const slots = t.pos ? t.pos.slots : 1;
+            if (!t.cols.length || (!(t.pos && t.pos.fit) && t.cols.length - 1 + slots > across)) continue;
             const parts = t.cols.flat().filter(it => Array.isArray(it));
             const tables = new Map(parts.map((p, i) => [p, contentsTable(
                 parts.length > 1 ? `Contents ${i + 1}` : 'Contents', p.map(r => contents[r]))]));
-            const cols = t.cols.map(items => column(items.map(it => (it === 'P' ? positions
+            const cols = t.cols.map(items => column(items.map(it => (it === 'P' ? t.pos.lines
                 : it === 'T' ? totals : tables.get(it)))));
             const h = cols.reduce((m, c) => Math.max(m, c.h), 0);
             const y = da.y + h + COL_GAP;
             const area = { x: da.x, y, w: da.w, h: Math.max(0, da.y + da.h - BUBBLE_H - y) };
             const zoom = area.h > 0 ? Math.min(area.w / ext.w, area.h / ext.h, MAP_ZOOM_CAP) : 0;
-            if (!best || zoom > best.zoom * (1 + 1e-9)) {
-                best = { cols, h, area, zoom, contentsCols: parts.length, layout: t.layout };
+            const pH = t.pos ? sum(t.pos.lines) : 0;
+            const better = !best || zoom > best.zoom * (1 + 1e-9)
+                || (zoom >= best.zoom * (1 - 1e-9) && parts.length === best.contentsCols && pH < best.pH - 0.5);
+            if (better) {
+                const first = t.pos && t.cols[0].includes('P') ? t.pos.w : wide;
+                const fit = !!(t.pos && t.pos.fit);
+                best = { cols, h, area, zoom, pH, contentsCols: parts.length, layout: t.layout,
+                         posW: t.pos ? t.pos.w : 0,
+                         colW: (i) => (i === 0 ? first : fit ? da.w - first - COL_GAP : wide),
+                         colX: (i) => (i === 0 ? da.x : da.x + first + COL_GAP + (i - 1) * (wide + COL_GAP)) };
             }
         }
         return best;
