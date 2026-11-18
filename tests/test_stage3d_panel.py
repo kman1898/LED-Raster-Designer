@@ -867,6 +867,199 @@ def test_a_spot_too_close_to_a_corner_offers_none_and_esc_closes(page):
     assert page.errors == []
 
 
+# The picked spot's strip measured against the screen's own cabinets: for
+# every strip vertex, its distance off the nearest face and where along the
+# screen (mm from its left end) it lies.
+STRIP_JS = """(id) => {
+    const e = window.app._s3dState().entries.get(id);
+    if (!e || !e.seam) return null;
+    const v = e.seam.geometry.getAttribute('position').array;
+    const b = e.built, cum = [0];
+    b.colLen.forEach(len => cum.push(cum[cum.length - 1] + len));
+    const sub = (p, q) => [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+    const dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+    const cross = (p, q) => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]];
+    let off = 0, lo = Infinity, hi = -Infinity;
+    for (let k = 0; k < v.length; k += 3) {
+        const p = [v[k], v[k + 1], v[k + 2]];
+        let best = null;
+        for (const q of b.quads) {
+            const ax = sub(q.tr, q.tl), dn = sub(q.bl, q.tl);
+            const W = Math.hypot(...ax), H = Math.hypot(...dn);
+            const u = dot(sub(p, q.tl), ax) / W, w = dot(sub(p, q.tl), dn) / H;
+            if (u < -0.5 || u > W + 0.5 || w < -0.5 || w > H + 0.5) continue;
+            const n = cross(dn, ax), d = Math.abs(dot(sub(p, q.tl), n)) / Math.hypot(...n);
+            if (!best || d < best.d) best = { d, g: cum[q.ci] + q.u0 + u };
+        }
+        if (!best) return { off: Infinity };
+        off = Math.max(off, best.d);
+        lo = Math.min(lo, best.g);
+        hi = Math.max(hi, best.g);
+    }
+    return { off, lo, hi };
+}"""
+
+
+def test_the_picked_spot_strip_is_centered_on_a_corner_and_lies_on_both_sides(page):
+    """The owner, 2026-11-18: "the lines for adding corners show up not
+    centered again". The strip marking a picked spot was one straight bar
+    along the column right of the spot, so on a seam that already holds a
+    90 degree corner half of it stood in the air past the fold, and on a
+    corner down a panel's middle it cut across the fold. It now runs along
+    the cabinets themselves: every vertex 4 mm off a face, and as far along
+    the screen on one side of the spot as on the other."""
+    ids = reset(page, ONE)
+    wall = ids[0]
+    page.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {wall});
+        l.riggingCorners = [{{at: 2.5, angle: 90, side: 'interior'}}, {{at: 5, angle: 90, side: 'exterior'}}];
+        a.updateLayers([l], true, 'Test Corners'); }}""")
+    open_3d(page, 1)
+    corners_on(page)
+    settled(page, lambda: screen(page, wall), lambda v: v['world']['max'][2] - v['world']['min'][2] > 400)
+    half = 50   # a tenth of a 500 mm cabinet
+    # 2.5 and 5 fold 90 degrees; 1.5 and 4 are flat
+    for at, mid in ((2.5, 1000), (5, 2250), (1.5, 500), (4, 1750)):
+        page.evaluate(f"window.app._s3dPickCorner({wall}, {at})")
+        got = settled(page, lambda: page.evaluate(STRIP_JS, wall), lambda v: v is not None)
+        assert got['off'] == pytest.approx(4, abs=0.05), (at, got)
+        assert got['lo'] == pytest.approx(mid - half, abs=0.5), (at, got)
+        assert got['hi'] == pytest.approx(mid + half, abs=0.5), (at, got)
+    page.evaluate("window.app._s3dPickCorner(null)")
+    # at the screen's end the strip stops at the edge
+    page.evaluate(f"window.app._s3dPickCorner({wall}, 1)")
+    got = settled(page, lambda: page.evaluate(STRIP_JS, wall), lambda v: v is not None)
+    assert got['off'] == pytest.approx(4, abs=0.05) and got['lo'] == pytest.approx(250 - half, abs=0.5)
+    page.keyboard.press('Escape')
+    assert page.errors == []
+
+
+# What the view shows across the front of a screen: the WebGL picture read
+# back right after a frame, at points spread over the screen's face.
+FRONT_PIXELS_JS = """(id) => {
+    const st = window.app._s3dState(), e = st.entries.get(id);
+    st.renderer.render(st.scene, st.camera);
+    const gl = st.renderer.getContext();
+    const box = new st.T.Box3().setFromObject(e.front);
+    const out = [];
+    for (const fy of [0.15, 0.5, 0.85]) for (const fx of [0.07, 0.31, 0.44, 0.69, 0.93]) {
+        const p = new st.T.Vector3(box.min.x + (box.max.x - box.min.x) * fx,
+            box.min.y + (box.max.y - box.min.y) * fy, box.max.z).project(st.camera);
+        const px = new Uint8Array(4);
+        gl.readPixels(Math.round((p.x + 1) / 2 * gl.drawingBufferWidth), Math.round((p.y + 1) / 2 * gl.drawingBufferHeight),
+            1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        out.push([px[0], px[1], px[2]]);
+    }
+    return out;
+}"""
+
+
+def red_green(pg, wall):
+    """The wall in red and green with no writing on its face."""
+    pg.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {wall});
+        l.color1 = {{r: 230, g: 30, b: 30}}; l.color2 = {{r: 30, g: 200, b: 30}};
+        l.showLabelName = false; l.showLabelSizePx = false;
+        a.updateLayers([l], true, 'Test Colours'); }}""")
+
+
+def front_face(pg, wall):
+    """The face as the view draws it from the front, nothing selected (no
+    seams in the accent colour, no handles over it)."""
+    pg.evaluate("window.app.setSelectedLayersByIds([], null)")
+    view_from(pg, 'front')
+    pg.wait_for_timeout(300)
+    return pg.evaluate(FRONT_PIXELS_JS, wall)
+
+
+def is_red_green(p):
+    return p[0] > 150 or p[1] > 150
+
+
+def is_blue_white(p):
+    return (p[2] > 150 and p[0] < 120) or min(p) > 180
+
+
+@pytest.mark.parametrize('start, end, tex', [
+    ((6, 2), (8, 3), [1024, 384]),     # grows: a bigger picture than its storage
+    ((10, 3), (8, 2), [1024, 256]),    # shrinks: a smaller one
+], ids=['grows', 'shrinks'])
+def test_a_screen_that_changes_size_in_3d_wears_its_new_picture(page, start, end, tex):
+    """The owner, 2026-11-18: a 21 x 3 wall in 3D wore a 20 x 5 picture (a
+    screen with the same id in the show open before), so the seams it
+    showed were not the cabinets' and the corner lines and folds landed
+    between them. A texture that changes size needs new storage on the
+    graphics card; the size check compared the canvas with itself, so the
+    card kept the old storage and the old picture. Here a red and green
+    wall grows or shrinks and turns blue and white while 3D is open: every
+    point across its face reads blue or white."""
+    ids = reset(page, [{'name': 'Wall', 'columns': start[0], 'rows': start[1], 'offset_x': 0, 'offset_y': 0}])
+    wall = ids[0]
+    red_green(page, wall)
+    open_3d(page, 1)
+    before = front_face(page, wall)
+    assert [p for p in before if not is_red_green(p)] == [], before
+    page.evaluate(f"""async () => {{ const a = window.app;
+        await fetch('/api/layer/{wall}', {{method: 'PUT', headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{columns: {end[0]}, rows: {end[1]},
+                color1: {{r: 30, g: 30, b: 230}}, color2: {{r: 240, g: 240, b: 240}}}})}});
+        a.project = await (await fetch('/api/project')).json();
+        a.dedupeProjectLayers('test');
+        a.updateUI(); window.canvasRenderer.render(); }}""")
+    settled(page, lambda: screen(page, wall), lambda v: v and v['quads'] == end[0] * end[1] and v['tex'] == tex, 6000)
+    after = front_face(page, wall)
+    assert [p for p in after if not is_blue_white(p)] == [], after
+    assert page.errors == []
+
+
+def test_a_show_opened_over_one_with_the_same_ids_wears_its_own_pictures(e2e_server, pw_browser, tmp_path):
+    """The owner's way into it: a show with a screen open in 3D, then
+    another show opened from a file, through the real open path, whose
+    screen has the same id at another size. The new show's screen wears
+    its own picture. That show was saved before Add corners existed, so it
+    opens with Add corners off, whatever the show before had."""
+    import json
+    context = _context(pw_browser)
+    pg = context.new_page()
+    errors = []
+    pg.on('pageerror', lambda err: errors.append(str(err)))
+    try:
+        pg.goto(e2e_server, wait_until='domcontentloaded')
+        pg.wait_for_timeout(2000)
+        wall = reset(pg, [{'name': 'Wall', 'columns': 6, 'rows': 2, 'offset_x': 0, 'offset_y': 0}])[0]
+        red_green(pg, wall)
+        open_3d(pg, 1)
+        corners_on(pg)
+        before = front_face(pg, wall)
+        assert [p for p in before if not is_red_green(p)] == [], before
+        # the file: the same screen id, 8 x 3, blue and white, no Add corners key
+        proj = pg.evaluate("async () => (await fetch('/api/project')).json()")
+        layer = next(l for l in proj['layers'] if l['id'] == wall)
+        cols, rows, cab = 8, 3, layer['cabinet_width']
+        tmpl = dict(layer['panels'][0])
+        layer['panels'] = [dict(tmpl, id=r * cols + c + 1, number=r * cols + c + 1, col=c, row=r,
+                                x=c * cab, y=r * cab, width=cab, height=cab, is_color1=(r + c) % 2 == 0)
+                           for r in range(rows) for c in range(cols)]
+        layer.update(columns=cols, rows=rows, color1={'r': 30, 'g': 30, 'b': 230}, color2={'r': 240, 'g': 240, 'b': 240})
+        proj['name'] = 'Opened Show'
+        for k in ('stage3dCorners', 'is_pristine'):
+            proj.pop(k, None)
+        path = str(tmp_path / 'Opened Show.json')
+        with open(path, 'w', encoding='utf-8') as fh:
+            json.dump(proj, fh)
+        assert pg.evaluate("async (p) => await window.app.openProjectFromPath(p)", path) is True
+        pg.wait_for_function("() => window.app.project.name === 'Opened Show'", timeout=10000)
+        open_tab(pg, 'pixel-map')
+        open_3d(pg, 1)
+        settled(pg, lambda: screen(pg, wall), lambda v: v and v['quads'] == 24 and v['tex'] == [1024, 384], 6000)
+        after = front_face(pg, wall)
+        assert [p for p in after if not is_blue_white(p)] == [], after
+        # an older show: Add corners off
+        assert dbg(pg)['corners'] is False
+        assert pg.evaluate("document.getElementById('s3d-corners').getAttribute('aria-pressed')") == 'false'
+        assert errors == []
+    finally:
+        context.close()
+
+
 def test_a_seam_between_two_rows_picks_nothing_and_rows_never_bend(page):
     """Joints, curves and corners are between columns only (the owner,
     2026-11-10: "it is allowing me to make horizontal joints which is not
