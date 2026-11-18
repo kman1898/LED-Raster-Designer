@@ -822,6 +822,12 @@ FIXES
   line is held to 16 KB, and another device to 50 lines a second, so
   nothing on the network can flood the log. Lines turned away are
   counted in one warning, never written.
+- FIX: Holding a number field's spinner, or an arrow key in it, is one
+  undo step from the value it started at to the one it ended on, like a
+  drag on the canvas. It used to be a step for every tick, so one hold
+  of the Data tab's Label Size took 30 presses of Undo. Dragging a slider
+  is one step too. A separate click is still its own step, and so is a
+  typed value.
 
 v1.6.0 - November 6, 2026
 ----------------------------
