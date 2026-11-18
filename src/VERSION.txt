@@ -590,6 +590,14 @@ ALSO NEW
   counts. The cable list on a box's Fiber section says it too, "MTP A ·
   24 Type A · 300'", and so does a box's fiber in the binder, "(MTP 24 A
   SM)".
+- NEW: XD boxes can share a Cat snake, the way boxes share a TAC. Pick New
+  Cat snake in an XD link's list, choose Cat6A, Cat6 or Cat5e, 2, 4 or 6
+  channels or your own count, and a length. Other XDs pick the same snake
+  and take the next free channel, which you can change, and a full snake
+  says so. The snake is pulled once, the binder maps each channel to its
+  box and link, and a snake longer than its kind's 10G run gets the same
+  warning a single Cat cable does. Only the XD takes one: the XD-S, the
+  XD-T and the CVTs run on fiber.
 
 FIXES
 

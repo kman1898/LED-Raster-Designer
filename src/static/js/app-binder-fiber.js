@@ -204,17 +204,21 @@ class _BinderFiber {
         }
         const cable = l.cable;
         if (!cable) return { text: 'no fiber picked', warn: false, none: true };
-        const kind = this.fiberCableIsStranded(cable)
-            ? `${this.fiberKindWord(cable.kind)} ${cable.strands}`
-              + (cable.kind === 'mtp' ? ` ${this.fiberMtpPolarityWord(cable)}` : '')
-            : this.fiberKindWord(cable.kind);
+        // a Cat snake by its kind and size after its name, "Cat6A snake A ·
+        // 4 channel" (catSnakeKindText)
+        const kind = this.fiberCableIsSnake(cable) ? this.catSnakeKindText(cable, cable.name || '')
+            : this.fiberCableIsStranded(cable)
+                ? `${this.fiberKindWord(cable.kind)} ${cable.strands}`
+                  + (cable.kind === 'mtp' ? ` ${this.fiberMtpPolarityWord(cable)}` : '')
+                : this.fiberKindWord(cable.kind);
         const ft = this.parseCableLength(cable.ft);
         const has = Number.isFinite(ft) && ft > 0;
         const parts = [cable.name || '', kind,
                        has ? this.pullLengthText(ft, this.fiberStockKind(cable)) : 'no length',
                        this.fiberModeWord(this.fiberCableMode(cable))]
             .filter((t, i, a) => t && a.indexOf(t) === i);
-        return { text: parts.join(' · '), warn: !has };
+        // red past a Cat snake's 10G length, as a Cat link's pill is
+        return { text: parts.join(' · '), warn: !has || !!this.fiberCableOverText(cable) };
     }
 
     // The extension's label over its dashed line, "Fan-out 30'", "Fan-out

@@ -6,7 +6,7 @@
 import { LEDRasterApp } from './app-core.js';
 import { escapeCovered } from './helpers.js';
 import { fiberStrandName, FIBER_STRAND_SUGGESTIONS, TAC_CONNECTORS, COPPER_LINK_KINDS,
-         FIBER_EXTENSION_KINDS, FIBER_EXTENSION_CONNECTORS } from './app-fiber.js';
+         FIBER_EXTENSION_KINDS, FIBER_EXTENSION_CONNECTORS, CAT_SNAKE_CHANNELS } from './app-fiber.js';
 import { MTP_SEE_MAP, mtpPolarityWord } from './mtp-polarity.js';
 
 class _DockCableSheets {
@@ -1108,6 +1108,24 @@ class _DockCableSheets {
                     row.appendChild(this._dockBuildCopperLength(m, l));
                     const over = this.copperOverText(l.copper);
                     if (over) row.appendChild(text('hw-dock-fiber-warn', over));
+                } else if (this.fiberCableIsSnake(l.cable)) {
+                    // A CAT SNAKE (owner, 2026-11-18): the link's one
+                    // channel as a chip (click it to change it), Edit for
+                    // the snake's own fields, and the plain warning past
+                    // its kind's 10G length. No colors, no swap, no
+                    // extension.
+                    (l.link.strands || []).forEach((st, i) => row.appendChild(
+                        this._dockBuildFiberStrandChip(m, l, st, i)));
+                    button('Edit', `fiber-edit-${m.id}-${l.key}`,
+                        `${l.cable.name}’s name, kind, channels and length.`,
+                        () => {
+                            const open = this._fiberEdit && this._fiberEdit.boxId === m.id
+                                && this._fiberEdit.key === l.key;
+                            this._fiberEdit = open ? null : { boxId: m.id, key: l.key };
+                            this.renderHardwareDock();
+                        }, row);
+                    const over = this.fiberCableOverText(l.cable);
+                    if (over) row.appendChild(text('hw-dock-fiber-warn', over));
                 } else if (l.cable) {
                     // This is the box's sheet, so a TAC's pair reads the way
                     // it plugs in here: the pair crosses between its ends, so
@@ -1535,7 +1553,7 @@ class _DockCableSheets {
         sel.dataset.lrdField = `fiber-link-cable-${box.id}-${l.key}`;
         sel.title = 'The cable this link takes. Picking one takes its next '
             + 'free strands; click a strand to change it.'
-            + (box.copperLinks ? ' Or run it on copper, Cat6A and under.' : '');
+            + (box.copperLinks ? ' Or run it on Cat6A, Cat6 or Cat5e, alone or on a shared Cat snake.' : '');
         const opt = (value, label) => {
             const o = document.createElement('option');
             o.value = value;
@@ -1553,8 +1571,9 @@ class _DockCableSheets {
         // An opticalCON is listed while it has the strands this link needs
         // (1 on a BiDi box, else 2) free of other links - or when this link
         // already takes it.
-        const need = box.bidi ? 1 : 2;
         const fits = (c) => {
+            // a Cat snake's link takes one channel
+            const need = this.fiberCableIsSnake(c) ? 1 : (box.bidi ? 1 : 2);
             if (l.link && l.link.cable === c.id) return true;
             const users = this.fiberStrandUsers(c.id);
             let free = 0;
@@ -1564,8 +1583,12 @@ class _DockCableSheets {
             }
             return free >= need;
         };
-        const connectors = this.getFiberCables().filter(c => !this.fiberCableIsStranded(c) && fits(c));
+        const connectors = this.getFiberCables().filter(c => !this.fiberCableIsStranded(c)
+            && !this.fiberCableIsSnake(c) && fits(c));
         const stranded = this.getFiberCables().filter(c => this.fiberCableIsStranded(c));
+        // the show's Cat snakes, offered only where the box takes Cat
+        // cable (an XD), a full one listed and marked "full" as a TAC is
+        const snakes = box.copperLinks ? this.getFiberCables().filter(c => this.fiberCableIsSnake(c)) : [];
         // A TAC or MTP with too few strands left for this link is listed
         // but cannot be picked, and says so ("· full"): a pick the server
         // would only refuse is never sent (beta.4 QA: a full TAC drew a
@@ -1582,7 +1605,7 @@ class _DockCableSheets {
             const pKey = `p${l.key.slice(1)}`;
             const primary = ((box.fiberLinks || {})[pKey] || {}).cable;
             const same = primary && (stranded.find(c => c.id === primary)
-                || connectors.find(c => c.id === primary));
+                || connectors.find(c => c.id === primary) || snakes.find(c => c.id === primary));
             if (same) {
                 const port = (box.linkTitles || {})[pKey] || 'the primary';
                 strandedOpt(same, `${this.fiberCableOptionText(same)} · same as ${port}`);
@@ -1603,6 +1626,10 @@ class _DockCableSheets {
             // each by its kind alone (owner, 2026-11-07: "don't need to
             // add copper")
             COPPER_LINK_KINDS.forEach(([kind]) => opt(`cu:${kind}`, kind));
+            // then the Cat snakes, shared by the channel like a TAC
+            // (owner, 2026-11-18), and the step that makes one
+            snakes.forEach(c => strandedOpt(c, this.fiberCableOptionText(c)));
+            opt('new:cat-snake', 'New Cat snake…');
         }
         gap();
         opt('', 'None');
@@ -1617,7 +1644,10 @@ class _DockCableSheets {
             }
             if (v.startsWith('new:')) {
                 this._fiberWizard = { boxId: box.id, key: l.key, kind: v.slice(4),
-                                      step: v === 'new:tac' || v === 'new:mtp' ? 'strands' : 'ft',
+                                      step: v === 'new:tac' || v === 'new:mtp' || v === 'new:cat-snake'
+                                          ? 'strands' : 'ft',
+                                      // a Cat snake starts as the link's own Cat kind, else Cat6A
+                                      copper: l.copper ? l.copper.copper : 'Cat6A',
                                       focus: true };
                 this.renderHardwareDock();
                 return;
@@ -1657,11 +1687,13 @@ class _DockCableSheets {
         chip.className = 'hw-dock-fiber-strand';
         chip.dataset.lrdField = `fiber-strand-${box.id}-${l.key}-${i}`;
         const shown = leg != null ? leg : strand;
+        const snake = this.fiberCableIsSnake(cable);
         chip.title = leg != null
             ? `Leg ${leg} at this box: strand ${strand} of ${cable.name} at the processor, `
               + `${mtpPolarityWord(this.fiberMtpPolarity(cable))}. Click to change it.`
-            : `Strand ${strand} of ${cable.name}. Click to change it.`;
-        chip.appendChild(this._fiberSwatch(shown, cable));
+            : `${snake ? 'Channel' : 'Strand'} ${strand} of ${cable.name}. Click to change it.`;
+        // a Cat snake's channel has no color
+        if (!snake) chip.appendChild(this._fiberSwatch(shown, cable));
         chip.appendChild(document.createTextNode(this.fiberStrandName(shown, cable)));
         const pickKey = `fiber-strand-pick-${box.id}-${l.key}-${i}`;
         const buildPick = () => {
@@ -1687,7 +1719,8 @@ class _DockCableSheets {
                 sel.dataset.lrdPicked = '1';
                 const strands = (l.link.strands || []).slice();
                 strands[i] = parseInt(sel.value, 10);
-                this.setFiberLink(box, l.key, { cable: cable.id, strands }, 'Set Fiber Strands');
+                this.setFiberLink(box, l.key, { cable: cable.id, strands },
+                    snake ? 'Set Snake Channel' : 'Set Fiber Strands');
             });
             sel.addEventListener('blur', () => { if (!changed) sel.replaceWith(chip); });
             return sel;
@@ -1768,9 +1801,11 @@ class _DockCableSheets {
             Object.assign(wz, next, { focus: true });
             this.renderHardwareDock();
         };
+        const snake = wz.kind === 'cat-snake';
         const create = () => {
             const body = { kind: wz.kind, link: { boxId: box.id, key: l.key } };
-            if (wz.kind === 'tac' || wz.kind === 'mtp') body.strands = wz.strands;
+            if (wz.kind === 'tac' || wz.kind === 'mtp' || snake) body.strands = wz.strands;
+            if (snake) body.copper = wz.copper || 'Cat6A';
             if (wz.kind === 'mtp' && wz.polarity) body.polarity = wz.polarity;
             if (wz.ft) body.ft = wz.ft;
             if (wz.connector) body.connector = wz.connector;
@@ -1778,7 +1813,39 @@ class _DockCableSheets {
             this.createFiberCable(body, `New ${word}`);
         };
         const base = `fiber-new-${box.id}-${l.key}`;
-        if (wz.step === 'strands') {
+        if (snake && wz.step === 'strands') {
+            // A CAT SNAKE (owner, 2026-11-18): its kind and its channels -
+            // 2, 4, 6 or any count typed - then its length.
+            cap.textContent = 'New Cat snake ·';
+            const kind = document.createElement('select');
+            kind.className = 'hw-dock-cable-connector hw-dock-fiber-select';
+            kind.dataset.lrdField = `${base}-copper`;
+            kind.title = 'The snake’s Cat kind. Each has its own 10G length.';
+            COPPER_LINK_KINDS.forEach(([k]) => {
+                const o = document.createElement('option');
+                o.value = k;
+                o.textContent = k;
+                kind.appendChild(o);
+            });
+            kind.value = wz.copper || 'Cat6A';
+            kind.addEventListener('change', () => { wz.copper = kind.value; });
+            div.appendChild(kind);
+            div.appendChild(document.createTextNode(' channels: '));
+            const take = (n) => {
+                const v = parseInt(n, 10);
+                if (!(Number.isFinite(v) && v >= 1 && String(v) === String(n).trim())) {
+                    this._dockSay('Type a whole number of channels, 1 or more.');
+                    return;
+                }
+                step({ strands: v, step: 'ft' });
+            };
+            CAT_SNAKE_CHANNELS.forEach(n => button(String(n), `${base}-strands-${n}`,
+                `A ${this.snakeSizeText('', n)}.`, () => take(n)));
+            const f = field('number', `${base}-strands`, wz.strands, 'n', () => take(f.value));
+            f.step = '1';
+            f.min = '1';
+            button('Next', `${base}-strands-next`, 'On to the length.', () => take(f.value));
+        } else if (wz.step === 'strands') {
             cap.textContent = `New ${word} · strands:`;
             const take = (n) => {
                 const v = parseInt(n, 10);
@@ -1795,7 +1862,7 @@ class _DockCableSheets {
             f.min = '1';
             button('Next', `${base}-strands-next`, 'On to the length.', () => take(f.value));
         } else if (wz.step === 'ft') {
-            cap.textContent = `New ${word} · length:`;
+            cap.textContent = snake ? `New ${this.catSnakeWord(wz)} · length:` : `New ${word} · length:`;
             const go = () => {
                 const read = this.readTypedLength(f.value.trim(), word);
                 if (!read.ok) return;
@@ -1814,7 +1881,7 @@ class _DockCableSheets {
             if (wz.kind === 'mtp') div.appendChild(this._dockBuildMtpPolarity(
                 `${base}-polarity`, wz.polarity || 'A', (v) => { wz.polarity = v; }));
             button(wz.kind === 'tac' ? 'Next' : 'Create', `${base}-ft-next`,
-                wz.kind === 'tac' ? 'On to the ends.' : `Make the ${word} on this link.`, go);
+                wz.kind === 'tac' ? 'On to the ends.' : `Make the ${snake ? 'snake' : word} on this link.`, go);
         } else {
             cap.textContent = `New ${word} · ends:`;
             TAC_CONNECTORS.forEach(c => button(c, `${base}-conn-${c.replace(/\s+/g, '-')}`,
@@ -1891,7 +1958,13 @@ class _DockCableSheets {
             return f;
         };
         const name = field('name', input('text', `fiber-cable-name-${cable.id}`, cable.name));
-        name.addEventListener('change', () => put({ name: name.value }, 'Rename Fiber Cable'));
+        const snake = this.fiberCableIsSnake(cable);
+        name.addEventListener('change', () => put({ name: name.value },
+            snake ? 'Rename Cat Snake' : 'Rename Fiber Cable'));
+        if (snake) {
+            this._dockBuildSnakeEditor(cable, ed, field, input, put);
+            return ed;
+        }
         if (this.fiberCableIsStranded(cable)) {
             const n = field('strands', input('number', `fiber-cable-strands-${cable.id}`, cable.strands));
             n.min = '1';
@@ -1974,6 +2047,58 @@ class _DockCableSheets {
         });
         ed.appendChild(done);
         return ed;
+    }
+
+    // A Cat snake's own fields, after its name in the editor (owner,
+    // 2026-11-18): its kind, its channel count and its length - each one
+    // request and one history entry - then Done. No colors, ends,
+    // polarity or channel names.
+    _dockBuildSnakeEditor(cable, ed, field, input, put) {
+        const kind = document.createElement('select');
+        kind.className = 'hw-dock-cable-connector hw-dock-fiber-select';
+        kind.dataset.lrdField = `fiber-cable-copper-${cable.id}`;
+        COPPER_LINK_KINDS.forEach(([k]) => {
+            const o = document.createElement('option');
+            o.value = k;
+            o.textContent = k;
+            kind.appendChild(o);
+        });
+        kind.value = cable.copper || 'Cat6A';
+        field('kind', kind).addEventListener('change', () => put({ copper: kind.value }, 'Set Cat Snake Kind'));
+        const n = field('channels', input('number', `fiber-cable-strands-${cable.id}`, cable.strands));
+        n.min = '1';
+        n.step = '1';
+        n.addEventListener('change', () => {
+            const v = parseInt(n.value, 10);
+            if (!(Number.isFinite(v) && v >= 1)) {
+                n.value = String(cable.strands);
+                this._dockSay('Type a whole number of channels, 1 or more.');
+                return;
+            }
+            put({ strands: v }, 'Set Cat Snake Channels');
+        });
+        const ft = field(this.cableUnitAbbr(), input('text', `fiber-cable-ft-${cable.id}`,
+            Number(cable.ft) > 0 ? cable.ft : '', 'hw-dock-cable-ft'));
+        ft.inputMode = 'decimal';
+        const max = this.copperLinkMax(cable.copper);
+        ft.title = `The snake's length in ${this.cableUnitWord()}`
+            + (max ? `. ${this.copperLinkMaxWords(max)} is its 10G maximum.` : '.');
+        ft.addEventListener('change', () => {
+            const read = this.readTypedLength(ft.value.trim(), 'snake');
+            if (!read.ok) return;
+            put({ ft: read.n }, 'Set Cat Snake Length');
+        });
+        const done = document.createElement('button');
+        done.type = 'button';
+        done.className = 'btn hw-dock-btn';
+        done.textContent = 'Done';
+        done.dataset.lrdField = `fiber-edit-done-${cable.id}`;
+        done.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._fiberEdit = null;
+            this.renderHardwareDock();
+        });
+        ed.appendChild(done);
     }
 
     // "With ticked: Fill" - the typed length into ONLY the ticked rows of

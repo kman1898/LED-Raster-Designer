@@ -19,6 +19,13 @@
 //     ft, name } - with no cable and no strands (owner: "anything that
 //     does 10Gbps max length is allowed. Cat 6A and under"), named like
 //     a cable, "Cat6A 1" by default (copperLinkName);
+//   * a CAT SNAKE (owner, 2026-11-18: "We need to be able to use a Cat
+//     snake for XD boxes") is one more cable of the list, kind
+//     'cat-snake' - { copper: 'Cat6A', strands: <channels>, ft, name } -
+//     shared the way a TAC is, offered only on a box whose catalog entry
+//     takes Cat cable (copperLinks, the XD), each link taking ONE channel,
+//     "Ch 1" (stored as its one strand); no colors, polarity, swap or
+//     extension; past its kind's 10G length it warns as a Cat link does;
 //   * a link is named by the box's own port (X1 / X2, OPT 1-4, else Link
 //     1..) - the resolved box's linkTitles;
 //   * a processor's BACKUP UNIT (an option on the processor) feeds the
@@ -54,6 +61,9 @@ export const FIBER_MODE_SHORT = { single: 'SM', multi: 'MM' };
 
 // What the New TAC / New MTP step offers; any count may be typed.
 export const FIBER_STRAND_SUGGESTIONS = [4, 6, 8, 12, 24, 48];
+// What the New Cat snake step offers (owner, 2026-11-18: 2, 4, 6 and any
+// count typed).
+export const CAT_SNAKE_CHANNELS = [2, 4, 6];
 // A TAC's ends, offered; free text is taken too. An MTP names none.
 export const TAC_CONNECTORS = ['ST', 'LC duplex'];
 
@@ -88,6 +98,8 @@ export const COPPER_LINK_KINDS_M = [['Cat6A', 60], ['Cat6', 30.48], ['Cat5e', 30
 export function fiberStrandName(n, cable) {
     const c = cable || {};
     const num = parseInt(n, 10);
+    // a Cat snake's channel, by its number (processor_catalog's twin)
+    if (c.kind === 'cat-snake') return Number.isFinite(num) ? `Ch ${num}` : String(n);
     const typed = ((c.strandNames || {})[String(num)] || '');
     if (typeof typed === 'string' && typed.trim()) return typed.trim();
     if (!Number.isFinite(num) || num < 1) return String(n);
@@ -188,7 +200,50 @@ class _Fiber {
 
     fiberKindWord(kind) {
         return { tac: 'TAC', mtp: 'MTP', 'opticalcon-duo': 'opticalCON DUO',
-                 'opticalcon-quad': 'opticalCON QUAD' }[kind] || 'Fiber';
+                 'opticalcon-quad': 'opticalCON QUAD', 'cat-snake': 'Cat snake' }[kind] || 'Fiber';
+    }
+
+    // ---- a Cat snake (owner, 2026-11-18) ------------------------------------
+
+    fiberCableIsSnake(cable) {
+        return !!cable && cable.kind === 'cat-snake';
+    }
+
+    // "Cat6A snake" - a Cat snake by its kind (processor_catalog
+    // cat_snake_word).
+    catSnakeWord(cable) {
+        const kind = cable && cable.copper;
+        return kind ? `${kind} snake` : 'Cat snake';
+    }
+
+    // A Cat snake's kind and size as printed after `beside` (the words the
+    // reading already prints before it, its name mostly), its size worded
+    // the one way every snake's is (snakeSizeText: "call it 4 channel
+    // snake if it is 4 channel", and snake is never written twice):
+    //   * beside nothing of a snake: "Cat6A snake · 4 channel";
+    //   * after a name saying the snake and its kind, "Cat6A snake A":
+    //     "4 channel";
+    //   * after one saying snake but not its kind, "Snake 2": "Cat6A · 4
+    //     channel", so the kind is never lost.
+    catSnakeKindText(cable, beside = '') {
+        const n = Number((cable && cable.strands) || 0);
+        const size = this.snakeSizeText(beside, n);
+        // beside says snake where its size reads as it does after "snake"
+        if (size !== this.snakeSizeText('snake', n)) {
+            const word = this.catSnakeWord(cable);
+            return `${word} · ${this.snakeSizeText(word, n)}`;
+        }
+        // the kind as a whole word: "Cat6 snake A" does not say Cat6A
+        const kind = String((cable && cable.copper) || '').replace(/[^a-z0-9]/gi, '');
+        const said = kind && new RegExp(`(^|[^a-z0-9])${kind}(?![a-z0-9])`, 'i').test(String(beside));
+        return said || !kind ? size : `${kind} · ${size}`;
+    }
+
+    // The plain warning a Cat snake past its kind's 10G length wears, the
+    // words a single Cat link's do ("Cat5e runs 98.4 ft max at 10G"); ''
+    // within it, with no length, and for every fiber cable.
+    fiberCableOverText(cable) {
+        return this.fiberCableIsSnake(cable) ? this.copperOverText(cable) : '';
     }
 
     // ---- single mode and multimode ------------------------------------------
@@ -290,6 +345,8 @@ class _Fiber {
     // fiber_cable_type_text).
     fiberCableTypeText(cable) {
         if (!cable) return '';
+        // "Cat6A snake · 4 channel" (processor_catalog cat_snake_type_text)
+        if (this.fiberCableIsSnake(cable)) return this.catSnakeKindText(cable);
         const word = this.fiberModeWord(this.fiberCableMode(cable));
         const tail = word ? ` · ${word}` : '';
         if (!this.fiberCableIsStranded(cable)) return this.fiberKindWord(cable.kind) + tail;
@@ -304,11 +361,14 @@ class _Fiber {
     // "TAC A · 12 · 1000' · ST · Single mode".
     fiberCableOptionText(cable) {
         if (!cable) return '';
-        const parts = [cable.name || this.fiberKindWord(cable.kind)];
+        const parts = [cable.name
+            || (this.fiberCableIsSnake(cable) ? this.catSnakeWord(cable) : this.fiberKindWord(cable.kind))];
         if (this.fiberCableIsStranded(cable)) {
             parts.push(String(cable.strands)
                 + (cable.kind === 'mtp' ? ` ${this.fiberMtpPolarityWord(cable)}` : ''));
         }
+        // a Cat snake: "Cat6A snake A · 4 channel · 150'"
+        if (this.fiberCableIsSnake(cable)) parts.push(this.catSnakeKindText(cable, parts[0]));
         const ft = this.parseCableLength(cable.ft);
         if (ft !== null) parts.push(this.pullLengthText(ft, this.fiberStockKind(cable)));
         if (cable.kind === 'tac' && String(cable.connector || '').trim()) {
@@ -324,9 +384,12 @@ class _Fiber {
     // where its boxes state one (owner, 2026-11-04: "(TAC 24 SM)" /
     // "(TAC 24 MM)"), joined with a space as the band joins its words; an
     // MTP's polarity by its letter alone after its count, so the band stays
-    // small (owner, 2026-11-18): "(MTP 24 A SM)".
-    fiberCableShortKind(cable) {
+    // small (owner, 2026-11-18): "(MTP 24 A SM)". A Cat snake's is its kind
+    // and size after `beside` (the name the band prints first), so "Cat6A
+    // snake A (4 channel)" never says snake twice (catSnakeKindText).
+    fiberCableShortKind(cable, beside = '') {
         if (!cable) return '';
+        if (this.fiberCableIsSnake(cable)) return this.catSnakeKindText(cable, beside);
         const kind = this.fiberCableIsStranded(cable)
             ? `${this.fiberKindWord(cable.kind)} ${cable.strands}`
               + (cable.kind === 'mtp' ? ` ${this.fiberMtpPolarity(cable)}` : '')
@@ -768,11 +831,15 @@ class _Fiber {
                     .filter(Boolean).join(' ') + (over ? ` (${over})` : '') };
             }
             let what = cable.name || this.fiberCableTypeText(cable);
-            if (cable.name && !typed.has(cable.id)) what += ` (${this.fiberCableShortKind(cable)})`;
+            if (cable.name && !typed.has(cable.id)) what += ` (${this.fiberCableShortKind(cable, cable.name)})`;
             typed.add(cable.id);
             const head = `${this.fiberPortRunText(titles)} ${what}`;
             const list = [...new Set(strands.map(Number))].filter(Number.isFinite).sort((a, b) => a - b);
-            return { text: `${head} ${this.fiberStrandRangeText(strands)}`, head, cable, strands: list };
+            // a Cat snake's channels read "Ch 1", its warning after them
+            const snake = this.fiberCableIsSnake(cable);
+            const over = this.fiberCableOverText(cable);
+            const run = (snake ? 'Ch ' : '') + this.fiberStrandRangeText(strands) + (over ? ` (${over})` : '');
+            return { text: `${head} ${run}`, head, cable, strands: list };
         });
         return [...say(sides.p), ...say(sides.b)];
     }

@@ -515,6 +515,12 @@
         A()._setDataCableSheetOpen(o, true);
         A().renderHardwareDock();
     }
+    // The XD A of the SX40 the Cat snake step puts in, or null.
+    function catSnakeXd() {
+        var p = ((A() && A()._processorsResolved) || []).find(function (x) { return x.deviceId === 'brompton-sx40'; });
+        var c = p && p.slots && p.slots[0] && p.slots[0].card;
+        return (c && c.cvts && c.cvts[0]) || null;
+    }
     function closeBoxSheet() {
         var o = boxOwner();
         if (!o) return;
@@ -8699,6 +8705,71 @@
                 return 'One Alt+drag down LEFTOVERS picked ports 1-3; the menu offered ' + mem.label + '.';
             }
         },
+        // A Cat snake to the XDs (1.7.0; owner, 2026-11-18: "We need to be
+        // able to use a Cat snake for XD boxes. Since those accept cat
+        // cables"): an SX40 of its own goes in beside the guide's unit, and
+        // its XD A's X1 makes a 4 channel Cat6A snake, 150 ft, through New
+        // Cat snake in its list. The kind, the count and the length are
+        // the guide's picks, not facts about the box.
+        catSnake: {
+            since: '1.7.0',
+            target: function () {
+                var xd = catSnakeXd();
+                return xd ? '[data-lrd-fiber-link="' + xd.id + ':p1"]' : '#hardware-dock-body';
+            },
+            place: 'top', title: 'A Cat snake to the XDs',
+            body: 'An XD can run on a shared Cat snake: pick New Cat snake in its X1 list, then the kind, channels and length. Each XD that picks the snake takes its next free channel.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); switchView('data-flow'); },
+            act: function (t) {
+                var a = A(), xd = null;
+                return j('POST', '/api/processors', { deviceId: 'brompton-sx40' }).then(function (st) {
+                    var sx = st.resolved[st.resolved.length - 1];
+                    xd = sx.slots[0].card.cvts[0].id;
+                    t.mem.xd = xd;
+                    return a.refreshProcessors();
+                }).then(function () {
+                    a.saveState('Add Processor');
+                    a._setDataCableSheetOpen({ kind: 'cvt', id: xd }, true);
+                    a.renderHardwareDock();
+                    return t.wait(function () { return $('[data-lrd-field="fiber-link-cable-' + xd + '-p1"]'); }, 6000);
+                }).then(function (sel) {
+                    if (!sel) throw new Error('the XD\'s sheet did not open');
+                    return t.select('[data-lrd-field="fiber-link-cable-' + xd + '-p1"]', 'new:cat-snake');
+                }).then(function () {
+                    return t.wait(function () { return $('[data-lrd-field="fiber-new-' + xd + '-p1-strands-4"]'); });
+                }).then(function () {
+                    return t.click('[data-lrd-field="fiber-new-' + xd + '-p1-strands-4"]');
+                }).then(function () {
+                    return t.wait(function () { return $('[data-lrd-field="fiber-new-' + xd + '-p1-ft"]'); });
+                }).then(function () {
+                    return t.type('[data-lrd-field="fiber-new-' + xd + '-p1-ft"]', '150', { enter: true });
+                }).then(function () {
+                    return t.wait(function () {
+                        var b = a.fiberBoxById(xd);
+                        var l = b && b.fiberLinks && b.fiberLinks.p1;
+                        return l && a.fiberCableIsSnake(a.getFiberCable(l.cable)) ? l : null;
+                    }, 6000);
+                }).then(function (l) {
+                    if (!l) throw new Error('the Cat snake did not take');
+                    return t.spot($('[data-lrd-fiber-link="' + xd + ':p1"]'));
+                }).then(function () { return t.pause(PACE.rest); });
+            },
+            check: function (mem) {
+                var a = A(), b = mem.xd ? a.fiberBoxById(mem.xd) : null;
+                var l = b && b.fiberLinks && b.fiberLinks.p1;
+                var c = l ? a.getFiberCable(l.cable) : null;
+                if (!a.fiberCableIsSnake(c) || c.copper !== 'Cat6A' || c.strands !== 4) return null;
+                return (b.displayTitle || b.deviceName) + ' ' + a.fiberLinkTitle('p1', b) + ' rides '
+                    + c.name + ' (' + a.fiberCableShortKind(c, c.name) + ') on ' + a.fiberStrandName(l.strands[0], c) + '.';
+            },
+            after: function () {
+                var xd = catSnakeXd();
+                if (xd && A()._setDataCableSheetOpen) {
+                    A()._setDataCableSheetOpen({ kind: 'cvt', id: xd.id }, false);
+                    if (mode() === 'data-flow') A().renderHardwareDock();
+                }
+            }
+        },
         // Help > Guides (owner, 2026-11-11): every guide is on the one
         // submenu. It opens on the item's CSS :hover, which the ghost hand
         // cannot raise, so the act opens it while the hand rests on the
@@ -9651,7 +9722,8 @@
     // Steps that put in practice hardware or screens of their own: they
     // close their guide, after its runs, so nothing they add reaches a
     // later run or another guide's demo show.
-    var DATA_PRACTICE = ['mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'redrawAsOne', 'sweepPorts'];
+    var DATA_PRACTICE = ['mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'redrawAsOne', 'sweepPorts',
+                         'catSnake'];
     var HEADER_PRACTICE = ['groupCurve', 'curveCustom'];
     var POWER_PRACTICE = ['powerZPattern', 'circuitNumbers', 'mixedSources', 'resetHole', 'redrawCircuits',
                           'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun'];
