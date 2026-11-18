@@ -161,6 +161,9 @@ other edit.
   sets, with its corner bar, so both tabs always show the same corners.
   Add corners starts off, so a click only selects a screen and no corner
   marks show; the show remembers it once you turn it on.
+  The spot you pick is marked down the screen centered on the seam or the
+  panel's middle, and on a corner that is already there the mark bends
+  with the panels, half on each side of the fold.
 - NEW: The 3D panel shows the screen's curve as the Curve on the
   Header/Footer tab sets it, like 7.5 degrees per joint, and Curve
   settings takes you there. Gentle bends come only from the Curve, and

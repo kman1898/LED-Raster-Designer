@@ -1323,6 +1323,10 @@ class _Stage3D {
             // Applied by the next stage sync, once the library is in.
             st.needsCam = !!st.cam;
             st.needsFit = !st.cam;
+            // Another show: its screens may carry the ids of this one's, so
+            // nothing drawn for the old show is kept - every mesh and
+            // picture is built again from the new one.
+            for (const e of st.entries.values()) { e.texKey = ''; e.geoKey = ''; e.barsKey = ''; }
             return;
         }
         if (st.cam && JSON.stringify(p.stage3dCamera) !== JSON.stringify(st.cam)) {
@@ -1996,7 +2000,19 @@ class _Stage3D {
             e.tex.magFilter = T.NearestFilter;
             e.frontMat.map = e.tex;
             e.frontMat.needsUpdate = true;
-        } else if (e.tex.image !== e.canvas || e.tex.image.width !== w || e.tex.image.height !== h) {
+        } else if (e.tex.image !== e.canvas || !e.texSize || e.texSize[0] !== w || e.texSize[1] !== h
+                || e.texDetail !== !!e.detail) {
+            // A new size needs new storage on the card. The canvas itself
+            // already has the new size by now (it was set above), so the
+            // size is compared with the one the texture was last drawn at:
+            // compared with the canvas, it never differed, the card kept
+            // the old storage, refused the bigger picture and went on
+            // showing the old one - another show's screen with the same
+            // id, or this screen before it gained columns or rows (owner,
+            // 2026-11-18: a 21 x 3 wall wearing a 20 x 5 picture, so the
+            // corner lines and folds missed the seams it showed). Mipmaps
+            // going on or off (up close and back) change the storage's
+            // levels, so they get new storage too.
             e.tex.dispose();
             e.tex.image = e.canvas;
         }
@@ -2004,6 +2020,7 @@ class _Stage3D {
         e.tex.minFilter = e.detail ? T.LinearFilter : T.LinearMipmapLinearFilter;
         e.tex.needsUpdate = true;
         e.texSize = [w, h];
+        e.texDetail = !!e.detail;
         e.texScale = scale;
         if (!e.labelTex) {
             e.labelTex = new T.CanvasTexture(e.labelCanvas);
@@ -2011,12 +2028,14 @@ class _Stage3D {
             if (st.renderer) e.labelTex.anisotropy = st.renderer.capabilities.getMaxAnisotropy();
             e.labelMat.map = e.labelTex;
             e.labelMat.needsUpdate = true;
-        } else if (!e.labelTexSize || e.labelTexSize[0] !== w || e.labelTexSize[1] !== h) {
-            // a new size needs new storage on the card
+        } else if (!e.labelTexSize || e.labelTexSize[0] !== w || e.labelTexSize[1] !== h
+                || e.labelTexDetail !== !!e.detail) {
+            // a new size, or mipmaps on or off, needs new storage on the card
             e.labelTex.dispose();
             e.labelTex.image = e.labelCanvas;
         }
         e.labelTexSize = [w, h];
+        e.labelTexDetail = !!e.detail;
         e.labelTex.generateMipmaps = !e.detail;
         e.labelTex.minFilter = e.detail ? T.LinearFilter : T.LinearMipmapLinearFilter;
         e.labelTex.needsUpdate = true;
@@ -2147,32 +2166,62 @@ class _Stage3D {
         return { i, u: 0 };
     }
 
-    // Triangles down one corner spot, a little proud of both faces.
+    // Triangles down one corner spot, a little proud of both faces, a
+    // tenth of a cabinet each side of it measured ALONG the screen: across
+    // a seam or a fold the strip turns with the panels, so it lies on both
+    // sides of a 90 degree corner, centered on the fold (owner, 2026-11-18:
+    // "the lines for adding corners show up not centered again"). A strip
+    // drawn as one straight bar left half of itself in the air past a
+    // corner's fold.
     _s3dSpotStrip(built, at) {
         const where = this._s3dSpotColumn(built, at);
         if (!where) return null;
-        const { i, u } = where;
+        const n = built.colLen.length;
         const nRows = built.rowLen.length;
-        // a tenth of a cabinet each side of the line, so it reads at a glance
         const cab = Math.min(...built.colLen, ...built.rowLen) || 500;
         const halfW = Math.max(30, cab * 0.1);
-        const len = built.colLen[i];
+        // where each column starts along the screen, and every place the
+        // screen can turn: the seams between columns and any column's fold
+        const cum = [0];
+        built.colLen.forEach(len => cum.push(cum[cum.length - 1] + len));
+        const total = cum[n];
+        const bends = cum.slice(1, n);
+        for (let j = 0; j < n; j++) {
+            const f = built.foldAt ? built.foldAt(j) : null;
+            if (f !== null && f !== undefined) bends.push(cum[j] + f);
+        }
+        const mid = cum[where.i] + where.u;
+        const from = Math.max(0, mid - halfW), to = Math.min(total, mid + halfW);
+        const stops = [from, ...bends.filter(g => g > from + 1e-6 && g < to - 1e-6), to].sort((a, b) => a - b);
+        // the point `g` mm along the screen, `w` mm down row k; a stop on a
+        // bend is read on the side of the piece being drawn (`side` -1 the
+        // piece before it, +1 the piece after), so each piece stays flat
+        const at3 = (g, k, w, side) => {
+            let i = 0;
+            while (i < n - 1 && (g > cum[i + 1] + 1e-6 || (side > 0 && Math.abs(g - cum[i + 1]) <= 1e-6))) i += 1;
+            const u = Math.max(0, Math.min(built.colLen[i], g - cum[i]));
+            const f = built.foldAt ? built.foldAt(i) : null;
+            // a fold: just inside the half being drawn
+            const nudge = (f !== null && f !== undefined && Math.abs(u - f) <= 1e-6) ? side * 1e-6 : 0;
+            return built.point(i, u + nudge, k, w);
+        };
         const out = [];
         for (let k = 0; k < nRows; k++) {
-            const a = built.point(i, u, k, 0), b = built.point(i, u, k, built.rowLen[k]);
-            // across the screen here: halfway between the two sides of a fold
-            const across = norm(sub(built.point(i, Math.min(len, u + 1), k, 0), built.point(i, Math.max(0, u - 1), k, 0)));
-            const along = sub(b, a);
-            const nrm = norm(cross(along, across));
-            for (const lift of [4, -4]) {
-                const m = (p, s) => [p[0] + across[0] * halfW * s + nrm[0] * lift,
-                    p[1] + across[1] * halfW * s + nrm[1] * lift,
-                    p[2] + across[2] * halfW * s + nrm[2] * lift];
-                const p1 = m(a, -1), p2 = m(a, 1), p3 = m(b, 1), p4 = m(b, -1);
-                out.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4);
+            for (let s = 0; s < stops.length - 1; s++) {
+                const g0 = stops[s], g1 = stops[s + 1];
+                if (g1 - g0 < 1e-6) continue;
+                const a0 = at3(g0, k, 0, 1), a1 = at3(g1, k, 0, -1);
+                const b0 = at3(g0, k, built.rowLen[k], 1), b1 = at3(g1, k, built.rowLen[k], -1);
+                const across = norm(sub(a1, a0));
+                const nrm = norm(cross(sub(b0, a0), across));
+                for (const lift of [4, -4]) {
+                    const m = (p) => [p[0] + nrm[0] * lift, p[1] + nrm[1] * lift, p[2] + nrm[2] * lift];
+                    const p1 = m(a0), p2 = m(a1), p3 = m(b1), p4 = m(b0);
+                    out.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4);
+                }
             }
         }
-        return new Float32Array(out);
+        return out.length ? new Float32Array(out) : null;
     }
 
     // The floor grid in the panel's units (1 ft with a line every 10, or

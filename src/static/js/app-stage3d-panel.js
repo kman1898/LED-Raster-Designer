@@ -42,8 +42,8 @@
 //
 // THE CURVE is the Header/Footer tab's (the owner's calculator): shown here
 // as it stands, read-only, with a link to its settings. CORNERS are 90
-// degrees only, Interior or Exterior: with Add corners on (the camera bar's
-// switch, off by default), a click on a seam, or on a panel's
+// degrees only, Interior or Exterior: with Add corners on (the switch in
+// this panel's Corners, off by default), a click on a seam, or on a panel's
 // middle, of the selected screen opens a small picker beside the cursor,
 // None / Interior 90 / Exterior 90, written through app-corners.js
 // setRiggingCornerAt, the same riggingCorners the Header/Footer tab
@@ -51,7 +51,7 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog, escapeCovered } from './helpers.js';
 import {
-    DEG, round, wrap180, s3dCornersOn, s3dCornerSeams, s3dCurveOn, s3dParseLength, s3dStoredFrom,
+    DEG, round, wrap180, s3dBuild, s3dCornersOn, s3dCornerSeams, s3dCurveOn, s3dParseLength, s3dStoredFrom,
 } from './app-stage3d.js';
 import { cornerSpotLabel } from './app-corners.js';
 
@@ -809,7 +809,7 @@ class _Stage3DPanel {
                 this._s3dPlaceCornerPop(pop, clientX, clientY);
             }
             this._s3dCornerPopListen(true);
-            sendClientLog('stage3d_corner_pick', { id: layerId, at });
+            sendClientLog('stage3d_corner_pick', { id: layerId, at, drawnMm: this._s3dSpotMm(layerId, at) });
         }
         if ((was || st.corner) && st.T && st.renderer) {
             this._s3dHighlight(this._s3dTokens());
@@ -886,9 +886,55 @@ class _Stage3DPanel {
         const layer = ((this.project && this.project.layers) || []).find(l => l.id === c.layerId);
         this._s3dPickCorner(null);
         if (!layer || typeof this.setRiggingCornerAt !== 'function') return;
-        this.setRiggingCornerAt(layer, c.at, side === 'none' ? null : side);
+        const drawnMm = this._s3dSpotMm(layer.id, c.at);
+        const set = this.setRiggingCornerAt(layer, c.at, side === 'none' ? null : side);
+        if (set && side !== 'none') {
+            // where the fold now stands, read off the screen as built, beside
+            // where the mark was drawn: the two must be the same spot
+            const foldMm = this._s3dFoldMm(layer, drawnMm);
+            const off = drawnMm !== null && foldMm !== null && Math.abs(foldMm - drawnMm) > 1;
+            sendClientLog('stage3d_corner_set', { id: layer.id, at: c.at, side, drawnMm, foldMm,
+                ...(off ? { level: 'warning', note: 'the fold is not where the mark was drawn' } : {}) });
+        }
         this._s3dSchedule();
         this._s3dRefreshPanel();
+    }
+
+    // Where corner spot `at` of a screen is marked, in mm along the screen
+    // from its left end (as built now), or null.
+    _s3dSpotMm(layerId, at) {
+        const e = this._s3dState().entries.get(layerId);
+        if (!e || !e.built || typeof this._s3dSpotColumn !== 'function') return null;
+        const where = this._s3dSpotColumn(e.built, at);
+        if (!where) return null;
+        let g = where.u;
+        for (let k = 0; k < where.i; k++) g += e.built.colLen[k];
+        return round(g, 1);
+    }
+
+    // Where `layer` turns 90 degrees nearest `nearMm` along its width, in mm
+    // from its left end, read off the cabinets of the top row as built with
+    // its corners: the edge where one cabinet's heading meets another's
+    // a quarter turn away. Null when there is no such turn.
+    _s3dFoldMm(layer, nearMm) {
+        const placement = this._s3dPlacementOf(layer);
+        const built = s3dBuild(layer, placement);
+        const top = built.quads.filter(q => q.ri === 0)
+            .sort((a, b) => a.ci - b.ci || (a.fold || 0) - (b.fold || 0));
+        let g = 0, best = null;
+        for (let k = 0; k < top.length; k++) {
+            const q = top[k];
+            const w = Math.hypot(q.tr[0] - q.tl[0], q.tr[1] - q.tl[1], q.tr[2] - q.tl[2]);
+            if (k > 0) {
+                const p = top[k - 1];
+                const h0 = Math.atan2(p.tr[2] - p.tl[2], p.tr[0] - p.tl[0]);
+                const h1 = Math.atan2(q.tr[2] - q.tl[2], q.tr[0] - q.tl[0]);
+                const turn = Math.abs(wrap180((h1 - h0) / DEG));
+                if (turn > 45 && (best === null || nearMm === null || Math.abs(g - nearMm) < Math.abs(best - nearMm))) best = g;
+            }
+            g += w;
+        }
+        return best === null ? null : round(best, 1);
     }
 
     // Where on the page a corner spot is drawn (client px): a point on the
