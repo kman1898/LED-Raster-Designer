@@ -805,6 +805,16 @@ FIXES
   the new name on the canvas straight away. It used to keep the old name
   there until you clicked somewhere else. Canvas, group and beach names
   also save the moment you press Enter.
+- FIX: The app's log can be read only on the computer running the app,
+  the same as Clear Log and Open Folder. With the app open to the network
+  for the IDM phone page, any computer on it could read the whole log,
+  contacts and file paths included. Help > Show Logs on a joined tablet
+  now says the log is on the computer running the app.
+- FIX: Only the app's own pages can write to its log: the app itself, a
+  joined tablet or phone, the IDM phone page and the output window. Each
+  line is held to 16 KB, and another device to 50 lines a second, so
+  nothing on the network can flood the log. Lines turned away are
+  counted in one warning, never written.
 
 v1.6.0 - November 6, 2026
 ----------------------------

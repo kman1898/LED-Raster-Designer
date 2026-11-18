@@ -3,12 +3,16 @@ Log routes: in-app log viewer, clear, reveal-in-file-manager, and the client
 log ingest endpoint. Log paths + log_event come from app; the logging
 infrastructure itself (rotation, startup setup) stays in app.
 """
+import json
 import os
 import re
 import sys
 import subprocess
+import threading
+import time
 from collections import deque
 from datetime import datetime
+from urllib.parse import urlsplit
 
 from flask import Blueprint, request, jsonify
 
@@ -83,6 +87,13 @@ def get_logs():
     both ends) filter by each line's outer timestamp across the WHOLE file, not
     just the tail; `lines` then caps the result to the most recent N matches.
     """
+    # Host only, like Clear and Open Folder. The log holds the show's
+    # contacts (phone, email), file paths and addresses, and the app listens
+    # on the network for the IDM phone page: any machine on the LAN could
+    # read the whole of it.
+    denied = _reject_if_not_host()
+    if denied:
+        return denied
     try:
         lines_arg = int(request.args.get('lines', '500'))
     except ValueError:
@@ -232,10 +243,135 @@ def browser_name(ua):
     return 'Unknown browser'
 
 
+# A page's log line is a few hundred bytes; the largest seen in real logs
+# is under 1 KB.
+_MAX_EVENT_BYTES = 16 * 1024
+# Per client, a token bucket: 50 events a second sustained, with room for a
+# page's opening burst. The machine running the app is not held to it (its
+# own windows burst past 100 a second while a show opens, and its lines are
+# the ones a report is read from).
+_EVENTS_PER_SECOND = 50.0
+_EVENT_BURST = 150.0
+_flood_lock = threading.Lock()
+_clients = {}   # remote address -> its bucket and its uncounted refusals
+
+
+def _netloc(url):
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme not in ('http', 'https'):
+        return None
+    return (parts.netloc or '').lower()
+
+
+def _origin_is_ours():
+    """Did a page this app served send the request?
+
+    A browser names the page's origin on every POST (Origin, and Referer
+    under the default referrer policy), so a page from anywhere else, open
+    in a browser on the LAN, cannot pass for one of ours. With neither it
+    is not a browser page at all, and is taken only from this machine.
+    """
+    host = (request.host or '').lower()
+    origin = request.headers.get('Origin')
+    if origin is not None:
+        return _netloc(origin) == host
+    referer = request.headers.get('Referer')
+    if referer is not None:
+        return _netloc(referer) == host
+    from routes_dialog import _is_same_machine
+    return _is_same_machine(request.remote_addr or '')
+
+
+def _client_state(addr, now):
+    st = _clients.get(addr)
+    if st is None:
+        st = _clients[addr] = {'tokens': _EVENT_BURST, 'at': now,
+                               'dropped': 0, 'refused': 0, 'since': None}
+    return st
+
+
+def _report_dropped(now):
+    """One warning line per client per burst: how many of its events were
+    dropped or refused, never what they said. Written on the next event
+    from any client once the burst's first second is over."""
+    lines = []
+    with _flood_lock:
+        for addr, st in list(_clients.items()):
+            if st['since'] is not None and now - st['since'] >= 1.0:
+                lines.append({'level': 'warn', 'remote_addr': addr,
+                              'dropped': st['dropped'], 'refused': st['refused'],
+                              'seconds': round(now - st['since'], 1)})
+                st['dropped'] = st['refused'] = 0
+                st['since'] = None
+            elif st['since'] is None and now - st['at'] > 60:
+                del _clients[addr]   # quiet for a minute: forgotten
+    for details in lines:
+        log_event('client_log_dropped', details)
+
+
+def _count(addr, now, kind):
+    with _flood_lock:
+        st = _client_state(addr, now)
+        st[kind] += 1
+        if st['since'] is None:
+            st['since'] = now
+
+
+def _take_token(addr, now):
+    with _flood_lock:
+        st = _client_state(addr, now)
+        st['tokens'] = min(_EVENT_BURST, st['tokens'] + (now - st['at']) * _EVENTS_PER_SECOND)
+        st['at'] = now
+        if st['tokens'] < 1.0:
+            return False
+        st['tokens'] -= 1.0
+        return True
+
+
+def _read_event():
+    """The event's JSON, or None when it is over the size cap. The body is
+    never read past the cap, whatever Content-Length says."""
+    declared = request.content_length
+    if declared is not None and declared > _MAX_EVENT_BYTES:
+        return None
+    raw = request.stream.read(_MAX_EVENT_BYTES + 1)
+    if len(raw) > _MAX_EVENT_BYTES:
+        return None
+    if not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw.decode('utf-8', errors='replace'))
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 @logs_bp.route('/api/log', methods=['POST'])
 def client_log():
-    data = request.json or {}
+    """A page's log line. Taken only from the app's own pages (the main
+    app on this machine or a joined tablet, the IDM phone page, the output
+    window), at most 16 KB each and 50 a second per other machine. A
+    refused or dropped event is counted, never written."""
+    from routes_dialog import _is_same_machine
+    now = time.monotonic()
+    addr = request.remote_addr or ''
+    _report_dropped(now)
+    if not _origin_is_ours():
+        _count(addr, now, 'refused')
+        return jsonify({'error': "Only the app's own pages can write to its log."}), 403
+    data = _read_event()
+    if data is None:
+        _count(addr, now, 'refused')
+        return jsonify({'error': 'Log event too large.'}), 413
+    if not _is_same_machine(addr) and not _take_token(addr, now):
+        _count(addr, now, 'dropped')
+        return jsonify({'error': 'Too many log events.'}), 429
     action = data.get('action', 'client_log')
+    if not isinstance(action, str) or not action:
+        action = 'client_log'
     details = data.get('details', {})
     # Every page line says which browser sent it.
     if isinstance(details, dict) and 'browser' not in details:
