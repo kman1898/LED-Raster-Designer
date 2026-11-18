@@ -362,7 +362,15 @@ class _LogsRecent {
             if (untilMs !== null) url += `&until=${Math.floor(untilMs)}`;
         }
         fetch(url)
-            .then(r => r.json())
+            .then(r => {
+                // The log is read only on the computer running the app; a
+                // joined tablet says so once instead of asking every 2 s.
+                if (r.status === 403) {
+                    this._stopLogsAutoRefresh();
+                    return Promise.reject(new Error('the log can be viewed only on the computer running the app.'));
+                }
+                return r.json();
+            })
             .then(data => this._renderLogs(data, force))
             .catch(err => this._renderLogsError(err));
     }
