@@ -744,6 +744,17 @@ FIXES
 - FIX: A power sheet's column numbers over the wall print only where
   they fit inside the drawing area. On letter and A4 they could stand
   against the border at the top of the sheet.
+- FIX: On the binder's wiring sheets, no line runs through a box any more.
+  When a screen had more breakout boxes than fit in one row, the second
+  row's box stood right over a box of the first, and its lines ran across
+  that box's name, its inputs and its sockets, each on top of the other
+  box's line to the same socket, so neither box could be read. That box
+  now stands over the gap between the boxes in front of it, and its lines
+  come through the gap and turn to their sockets between the two rows.
+  Where the gaps are too narrow for its lines, a box moves out a row so
+  every line still stays clear. Lines leaving the wall also keep clear of
+  the lines coming down to the boxes, so two of them no longer print as
+  one.
 - FIX: Two edits landing at the same moment, from one computer or from a
   tablet beside it, no longer make the app refuse one of them. The second
   could fail with a server error while the screens were sent out.
