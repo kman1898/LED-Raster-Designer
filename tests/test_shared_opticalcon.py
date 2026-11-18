@@ -14,7 +14,7 @@ link needs 1, so a DUO feeds two and a QUAD four; a CVT4K-S on one OPT
 needs 2, so a QUAD feeds two of them. A 1.4.0 file keeps every link it
 had. The box's Fiber select offers every opticalCON with the strands the
 link needs; the binder prints each link's strands on one (crossing inside
-at the breakout, as an MTP's do); the pull sheet counts it once.
+at the breakout); the pull sheet counts it once.
 
 Run locally (each session takes its own free port):
     python3 -m pytest tests/test_shared_opticalcon.py -v --browser chromium
@@ -690,7 +690,7 @@ def test_the_select_offers_another_boxs_opticalcon_while_it_has_free_strands(pag
 def test_the_binder_prints_each_links_strands_on_a_shared_quad(page):
     """Fiber connections: every link on a shared opticalCON prints its own
     strands, AT THE BREAKOUT in the same order with "crosses inside" (it
-    crosses inside the cable, as an MTP does - no flip); the kind is said
+    crosses inside the cable - no flip); the kind is said
     once. The strand map lists every box and input on the QUAD."""
     pg, ids = page
     _shared(pg, ids)

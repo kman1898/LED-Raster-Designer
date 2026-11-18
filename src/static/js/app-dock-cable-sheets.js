@@ -7,6 +7,7 @@ import { LEDRasterApp } from './app-core.js';
 import { escapeCovered } from './helpers.js';
 import { fiberStrandName, FIBER_STRAND_SUGGESTIONS, TAC_CONNECTORS, COPPER_LINK_KINDS,
          FIBER_EXTENSION_KINDS, FIBER_EXTENSION_CONNECTORS } from './app-fiber.js';
+import { MTP_SEE_MAP, mtpPolarityWord } from './mtp-polarity.js';
 
 class _DockCableSheets {
     // ── the box's cable sheet ─────────────────────────────────────────────
@@ -1112,16 +1113,39 @@ class _DockCableSheets {
                     // it plugs in here: the pair crosses between its ends, so
                     // the 1 Blue · 2 Orange stored (the processor's order) is
                     // 2 Orange · 1 Blue at the box - the binder's Fiber
-                    // connections AT THE INPUT. An MTP or opticalCON crosses
-                    // inside the cable and reads as stored. Each chip keeps
-                    // its own index, so a pick still edits its own strand.
-                    const order = (l.link.strands || []).map((st, i) => [st, i]);
-                    if (l.cable.kind === 'tac') order.reverse();
-                    order.forEach(([st, i]) =>
-                        row.appendChild(this._dockBuildFiberStrandChip(m, l, st, i)));
+                    // connections AT THE INPUT. An MTP (owner, 2026-11-18)
+                    // reads the legs it really delivers here, by its
+                    // polarity, flipped the same way unless the trunk
+                    // already crossed the pair (fiberStrandsAtBox): MTP-24
+                    // Type A's 1 · 2 read 14 · 13 here. Where its count and
+                    // polarity have no documented map the chips stay the
+                    // processor's strands and say so. An opticalCON
+                    // crosses inside the cable and reads as stored. Each
+                    // chip keeps its own index, so a pick still edits its
+                    // own strand.
+                    const stored = l.link.strands || [];
+                    const order = stored.map((st, i) => [st, i]);
+                    const isMtp = l.cable.kind === 'mtp';
+                    const legs = isMtp ? this.fiberStrandsAtBox(stored, l.cable) : null;
+                    if (l.cable.kind === 'tac' || legs) order.reverse();
+                    order.forEach(([st, i]) => row.appendChild(this._dockBuildFiberStrandChip(m, l, st, i,
+                        legs ? this.fiberFarStrand(st, l.cable) : null)));
+                    if (isMtp) {
+                        const word = this.fiberMtpPolarityWord(l.cable);
+                        const tag = text('hw-dock-fiber-dim hw-dock-fiber-polarity',
+                            legs || !stored.length ? word : `${word} · processor legs · ${MTP_SEE_MAP}`);
+                        tag.dataset.lrdField = `fiber-polarity-${m.id}-${l.key}`;
+                        tag.title = legs || !stored.length
+                            ? `${l.cable.name}’s polarity. The legs shown are the ones at this box, `
+                              + 'in the order they plug in here. Edit changes it.'
+                            : `${l.cable.name} has no documented map for ${l.cable.strands} fibers in `
+                              + `${word}, so the legs at this box are not printed: these are the `
+                              + 'strands at the processor. Read the legs here off the cable’s own map.';
+                        row.appendChild(tag);
+                    }
                     button('Edit', `fiber-edit-${m.id}-${l.key}`,
-                        `${l.cable.name}’s name, strand count, length, ends and `
-                        + 'strand names.',
+                        `${l.cable.name}’s name, strand count, `
+                        + (isMtp ? 'polarity, length' : 'length, ends') + ' and strand names.',
                         () => {
                             const open = this._fiberEdit && this._fiberEdit.boxId === m.id
                                 && this._fiberEdit.key === l.key;
@@ -1620,18 +1644,25 @@ class _DockCableSheets {
             && !a.dataset.lrdPicked ? key : null;
     }
 
-    // A strand as a chip: its swatch (the tracer as a stripe) and its name.
-    // A click turns it into a pick of the cable's strands - the ones other
-    // links hold are listed, disabled, with who holds them.
-    _dockBuildFiberStrandChip(box, l, strand, i) {
+    // A strand as a chip: its swatch (the tracer as a stripe) and its name -
+    // or, on an MTP with a documented map, the LEG it arrives on at this
+    // box (`leg`, owner 2026-11-18), the strand it is at the processor in
+    // its tip. A click turns it into a pick of the cable's strands, by
+    // their processor end (each with its leg here on such an MTP) - the
+    // ones other links hold are listed, disabled, with who holds them.
+    _dockBuildFiberStrandChip(box, l, strand, i, leg = null) {
         const cable = l.cable;
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'hw-dock-fiber-strand';
         chip.dataset.lrdField = `fiber-strand-${box.id}-${l.key}-${i}`;
-        chip.title = `Strand ${strand} of ${cable.name}. Click to change it.`;
-        chip.appendChild(this._fiberSwatch(strand, cable));
-        chip.appendChild(document.createTextNode(this.fiberStrandName(strand, cable)));
+        const shown = leg != null ? leg : strand;
+        chip.title = leg != null
+            ? `Leg ${leg} at this box: strand ${strand} of ${cable.name} at the processor, `
+              + `${mtpPolarityWord(this.fiberMtpPolarity(cable))}. Click to change it.`
+            : `Strand ${strand} of ${cable.name}. Click to change it.`;
+        chip.appendChild(this._fiberSwatch(shown, cable));
+        chip.appendChild(document.createTextNode(this.fiberStrandName(shown, cable)));
         const pickKey = `fiber-strand-pick-${box.id}-${l.key}-${i}`;
         const buildPick = () => {
             const users = this.fiberStrandUsers(cable.id);
@@ -1643,7 +1674,8 @@ class _DockCableSheets {
                 o.value = String(n);
                 const who = users.get(n);
                 const mine = who && who.box.id === box.id && who.key === l.key;
-                o.textContent = this.fiberStrandName(n, cable) + (who && !mine
+                const here = leg != null ? this.fiberFarStrand(n, cable) : null;
+                o.textContent = this.fiberStrandName(n, cable) + (here != null ? `, leg ${here} here` : '') + (who && !mine
                     ? ` · ${who.box.displayTitle || who.box.deviceName} · ${this.fiberLinkTitle(who.key, who.box)}` : '');
                 o.disabled = !!who && !mine;
                 sel.appendChild(o);
@@ -1739,6 +1771,7 @@ class _DockCableSheets {
         const create = () => {
             const body = { kind: wz.kind, link: { boxId: box.id, key: l.key } };
             if (wz.kind === 'tac' || wz.kind === 'mtp') body.strands = wz.strands;
+            if (wz.kind === 'mtp' && wz.polarity) body.polarity = wz.polarity;
             if (wz.ft) body.ft = wz.ft;
             if (wz.connector) body.connector = wz.connector;
             this._fiberWizard = null;
@@ -1775,6 +1808,11 @@ class _DockCableSheets {
             f.className = 'hw-dock-cable-ft';
             f.inputMode = 'decimal';
             div.appendChild(document.createTextNode(` ${this.cableUnitAbbr()} `));
+            // An MTP's polarity, on the same step as its length (owner,
+            // 2026-11-18): Type A unless another is picked, so Create or
+            // Enter makes a Type A as it always did.
+            if (wz.kind === 'mtp') div.appendChild(this._dockBuildMtpPolarity(
+                `${base}-polarity`, wz.polarity || 'A', (v) => { wz.polarity = v; }));
             button(wz.kind === 'tac' ? 'Next' : 'Create', `${base}-ft-next`,
                 wz.kind === 'tac' ? 'On to the ends.' : `Make the ${word} on this link.`, go);
         } else {
@@ -1795,6 +1833,34 @@ class _DockCableSheets {
             this.renderHardwareDock();
         });
         return div;
+    }
+
+    // An MTP's POLARITY picker (owner, 2026-11-18), "Polarity  Type A", on
+    // the New MTP step and in the cable's editor: Type A, B or C, Type A
+    // first - what Neutrik and touring stock ship as. `onPick` gets the
+    // letter.
+    _dockBuildMtpPolarity(key, value, onPick) {
+        const lab = document.createElement('label');
+        lab.className = 'hw-dock-fiber-field';
+        const s = document.createElement('span');
+        s.className = 'hw-dock-fiber-dim';
+        s.textContent = 'polarity';
+        lab.appendChild(s);
+        const sel = document.createElement('select');
+        sel.className = 'hw-dock-cable-connector hw-dock-fiber-select';
+        sel.dataset.lrdField = key;
+        sel.title = 'The MTP trunk’s polarity, off its label. The legs printed at the '
+            + 'breakout box follow it. Most touring MTP is Type A.';
+        this.fiberMtpPolarities().forEach(p => {
+            const o = document.createElement('option');
+            o.value = p;
+            o.textContent = mtpPolarityWord(p);
+            sel.appendChild(o);
+        });
+        sel.value = value || 'A';
+        sel.addEventListener('change', () => onPick(sel.value));
+        lab.appendChild(sel);
+        return lab;
     }
 
     // One cable's own fields, under the link it was opened from. Each
@@ -1850,6 +1916,13 @@ class _DockCableSheets {
             if (!read.ok) return;
             put({ ft: read.n }, 'Set Fiber Length');
         });
+        if (cable.kind === 'mtp') {
+            // its polarity (owner, 2026-11-18): the legs the box end and
+            // the binder print follow it. One request, one undo step.
+            ed.appendChild(this._dockBuildMtpPolarity(`fiber-cable-polarity-${cable.id}`,
+                this.fiberMtpPolarity(cable),
+                (v) => put({ polarity: v }, 'Set MTP Polarity')));
+        }
         if (cable.kind === 'tac') {
             const conn = field('ends', input('text', `fiber-cable-connector-${cable.id}`, cable.connector));
             conn.placeholder = 'ST, LC duplex …';

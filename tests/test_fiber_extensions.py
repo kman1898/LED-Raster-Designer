@@ -100,7 +100,7 @@ def _links(client, box_id):
 def _shared_mtp(client):
     """The SX40 show: MTP A (12, 300') on XD A's X1 (1-2) and XD B's X1
     (3-4); only XD A's X1 has an extension - a fan-out to LC duplex, 10'
-    (picked: an MTP's own first pick is a duplex patch)."""
+    (picked: an MTP's own first pick is a duplex patch to LC duplex)."""
     pid, xds = _sx40(client)
     mtp = _new_cable(client, 'mtp', strands=12, ft=300, link={'boxId': xds[0], 'key': 'p1'})
     _ok(_link(client, pid, xds[1], 'p1', {'cable': mtp['id']}))
@@ -113,16 +113,17 @@ def _shared_mtp(client):
 # ── the store, through the Flask client ──────────────────────────────────
 
 def test_an_extension_is_per_link_off_a_shared_mtp(client):
-    """+ Extension on XD A's X1 starts as a duplex patch (an MTP's first
-    pick, owner 2026-11-02: "for mtp patch should default") with no box end
-    and its trunk end left to follow the MTP; the keys sent change it.
-    XD B's X1, on the same MTP, stores nothing new at all."""
+    """+ Extension on XD A's X1 starts as a duplex patch to LC duplex (an
+    MTP's first pick, owner 2026-11-02: "for mtp patch should default";
+    2026-11-18: "lets make LC duplex the default for MTP extensions") with
+    its trunk end left to follow the MTP; the keys sent change it. XD B's
+    X1, on the same MTP, stores nothing new at all."""
     pid, xds = _sx40(client)
     mtp = _new_cable(client, 'mtp', strands=12, ft=300, link={'boxId': xds[0], 'key': 'p1'})
     _ok(_link(client, pid, xds[1], 'p1', {'cable': mtp['id']}))
     _ok(_link(client, pid, xds[0], 'p1', {'extension': {}}))
     assert _links(client, xds[0]) == {'p1': {'cable': mtp['id'], 'strands': [1, 2],
-                                             'extension': {'kind': 'patch'}}}
+                                             'extension': {'kind': 'patch', 'boxEnd': 'LC duplex'}}}
     _ok(_link(client, pid, xds[0], 'p1', {'extension': {'boxEnd': ' LC duplex ', 'ft': 10}}))
     _ok(_link(client, pid, xds[0], 'p1', {'extension': {'trunkEnd': 'MTP / MPO'}}))
     assert _links(client, xds[0])['p1']['extension'] == {
@@ -167,7 +168,8 @@ def test_a_tac_starts_as_a_fan_out_to_lc_duplex_and_a_backup_link_has_its_own(cl
     assert 'extension' not in _links(client, xds[0])['b1']
     _ok(_link(client, sx, xds[0], 'b1', {'extension': {'kind': 'patch', 'ft': 6}}))
     links = _links(client, xds[0])
-    assert links['b1']['extension'] == {'kind': 'patch', 'ft': 6}
+    # a new one off the MTP: a duplex patch to LC duplex (owner, 2026-11-18)
+    assert links['b1']['extension'] == {'kind': 'patch', 'boxEnd': 'LC duplex', 'ft': 6}
     assert links['p1']['extension'] == {'kind': 'fanout', 'boxEnd': 'LC duplex', 'ft': 10}
 
 
@@ -299,8 +301,14 @@ def test_the_shape_reader():
     assert catalog._fiber_extension({'kind': 'patch', 'ft': '25'}) == {'kind': 'patch', 'ft': 25}
     assert catalog._fiber_extension({'ft': 10}) is None
     assert catalog._fiber_extension('fanout') is None
-    # a new one: a duplex patch off an MTP, a fan-out to LC duplex off a TAC
-    assert catalog.merge_fiber_extension(None, {}, {'kind': 'mtp'}) == {'kind': 'patch'}
+    # a new one: a duplex patch to LC duplex off an MTP (owner, 2026-11-18),
+    # a fan-out to LC duplex off a TAC
+    assert catalog.merge_fiber_extension(None, {}, {'kind': 'mtp'}) == {
+        'kind': 'patch', 'boxEnd': 'LC duplex'}
+    # one already stored keeps what it has: an old blank box end stays
+    # blank for the user to pick
+    assert catalog.merge_fiber_extension({'kind': 'patch'}, {'ft': 5}, {'kind': 'mtp'}) == {
+        'kind': 'patch', 'ft': 5}
     assert catalog.merge_fiber_extension(None, {}, {'kind': 'tac'}) == {
         'kind': 'fanout', 'boxEnd': 'LC duplex'}
     assert catalog.merge_fiber_extension(None, {}, {'kind': 'tac', 'connector': 'ST'}) == {
@@ -495,8 +503,8 @@ def test_the_box_sheet_shows_the_extension_under_its_link(page):
 
 def test_plus_extension_edits_and_remove_are_one_step_each(page):
     """XD B's X1 shares MTP A with no extension: + Extension adds one -
-    a duplex patch, an MTP's first pick - in ONE history entry; its box end
-    and length are typed; Remove takes it
+    a duplex patch to LC duplex, an MTP's first pick, reading "MTP / MPO to
+    LC duplex" - in ONE history entry; its length is typed; Remove takes it
     off in one click and one entry; undo brings it back. It is left as XD
     A's twin for the pull sheet test."""
     pg, ids = page
@@ -507,19 +515,24 @@ def test_plus_extension_edits_and_remove_are_one_step_each(page):
     index, _ = _history(pg)
     pg.locator(f'[data-lrd-field="fiber-ext-add-{b}-p1"]').click()
     links = _wait_links(pg, b, lambda v: v and 'extension' in v['p1'])
-    assert links['p1'] == {'cable': ids['mtp']['id'], 'strands': [3, 4], 'extension': {'kind': 'patch'}}
+    assert links['p1'] == {'cable': ids['mtp']['id'], 'strands': [3, 4],
+                           'extension': {'kind': 'patch', 'boxEnd': 'LC duplex'}}
     assert settled(pg, lambda: _history(pg), lambda h: h[0] == index + 1) == [index + 1, 'Add Fiber Extension']
     box_end = pg.locator(f'[data-lrd-field="fiber-ext-box-{b}-p1"]')
     box_end.wait_for()
-    box_end.fill('LC duplex')
-    box_end.press('Enter')
-    _wait_links(pg, b, lambda v: v and v['p1'].get('extension', {}).get('boxEnd') == 'LC duplex')
+    assert box_end.input_value() == 'LC duplex'
+    path = pg.evaluate("""(box) => {
+        const app = window.app;
+        const l = app.fiberBoxLinks(app._dockFindCvt(box).cvt).find(x => x.key === 'p1');
+        return app.fiberExtensionText(l.link.extension, l.cable);
+    }""", b)
+    assert path == 'Duplex patch · MTP / MPO to LC duplex · no length', path
     ft = pg.locator(f'[data-lrd-field="fiber-ext-ft-{b}-p1"]')
     ft.fill('10')
     ft.press('Enter')
     links = _wait_links(pg, b, lambda v: v and v['p1'].get('extension', {}).get('ft') == 10)
     assert links['p1']['extension'] == {'kind': 'patch', 'boxEnd': 'LC duplex', 'ft': 10}
-    assert settled(pg, lambda: _history(pg), lambda h: h[0] == index + 3) == [index + 3, 'Set Fiber Extension']
+    assert settled(pg, lambda: _history(pg), lambda h: h[0] == index + 2) == [index + 2, 'Set Fiber Extension']
     # typing the trunk's own connector stores nothing: it follows the MTP
     trunk = pg.locator(f'[data-lrd-field="fiber-ext-trunk-{b}-p1"]')
     assert trunk.input_value() == 'MTP / MPO'
@@ -527,7 +540,7 @@ def test_plus_extension_edits_and_remove_are_one_step_each(page):
     pg.locator(f'[data-lrd-field="fiber-ext-remove-{b}-p1"]').click()
     links = _wait_links(pg, b, lambda v: v and 'extension' not in v['p1'])
     assert links['p1'] == {'cable': ids['mtp']['id'], 'strands': [3, 4]}
-    assert settled(pg, lambda: _history(pg), lambda h: h[0] == index + 4) == [index + 4, 'Remove Fiber Extension']
+    assert settled(pg, lambda: _history(pg), lambda h: h[0] == index + 3) == [index + 3, 'Remove Fiber Extension']
     pg.evaluate('() => window.app.undo()')
     links = _wait_links(pg, b, lambda v: v and 'extension' in v['p1'])
     assert links['p1']['extension'] == {'kind': 'patch', 'boxEnd': 'LC duplex', 'ft': 10}
@@ -571,9 +584,11 @@ def test_the_pull_sheet_groups_identical_extensions(page):
 
 def test_the_binder_fiber_connections_shows_it_at_the_breakout(page):
     """SX: trunk A's row ends AT THE BREAKOUT with "ext Duplex patch 10'" and
-    "MTP / MPO to LC duplex" after the MTP's "crosses inside"; trunk B's
-    row, on the same MTP with no extension, is exactly as before. NOVA's
-    OPT 1 ends the same way after the TAC's flipped pair."""
+    "MTP / MPO to LC duplex" after the MTP's legs at the breakout (an MTP
+    12 Type A: legs as the strands, the pair flipped there, owner
+    2026-11-18); trunk B's row, on the same MTP with no extension, reads
+    its legs alone. NOVA's OPT 1 ends the same way after the TAC's flipped
+    pair."""
     pg, ids = page
     rows = pg.evaluate("""(pid) => {
         const app = window.app;
@@ -581,9 +596,9 @@ def test_the_binder_fiber_connections_shows_it_at_the_breakout(page):
         return app._bFiberConnectionRows(proc).map(r => r.cells);
     }""", ids['sx'])
     assert rows[0] == ['trunk A', 'MTP A (MTP 12)', '1 Blue · 2 Orange', 'X1 on XD A',
-                       "1 Blue · 2 Orange · crosses inside · ext Duplex patch 10' · MTP / MPO to LC duplex"], rows
+                       "2 Orange · 1 Blue · ext Duplex patch 10' · MTP / MPO to LC duplex"], rows
     assert rows[1] == ['trunk B', 'MTP A', '3 Green · 4 Brown', 'X1 on XD B',
-                       '3 Green · 4 Brown · crosses inside'], rows
+                       '4 Brown · 3 Green'], rows
     rows = pg.evaluate("""(pid) => {
         const app = window.app;
         const proc = app._processorsResolved.find(p => p.id === pid);
@@ -602,7 +617,10 @@ def test_the_strand_map_notes_it_beside_the_link(page):
         return app._bStrandMaps(proc).map(m => ({title: m.title, rows: m.rows.map(r => r.cells)}));
     }""", ids['sx'])
     mtp = next(m for m in maps if m['title'].startswith('Strand map · MTP A'))
-    assert [r[1] for r in mtp['rows'][:5]] == [
+    # an MTP's map has its legs AT THE BREAKOUT beside the strand (an MTP
+    # 12 Type A: leg n for strand n), then the link
+    assert [r[1] for r in mtp['rows'][:5]] == ['1 Blue', '2 Orange', '3 Green', '4 Brown', '5 Slate'], mtp
+    assert [r[2] for r in mtp['rows'][:5]] == [
         "XD A · X1 · ext Duplex patch 10'", "XD A · X1 · ext Duplex patch 10'", 'XD B · X1', 'XD B · X1',
         'spare'], mtp
     maps = pg.evaluate("""(pid) => {
@@ -618,14 +636,15 @@ def test_the_text_helpers(page):
     """No length reads "no length"; an end left blank on a TAC with no ends
     names only the other; the one-line text the guide's note uses. A new
     extension's first pick reads LC duplex at both ends off an LC duplex
-    TAC, ST to LC duplex off an ST one, and the MTP's own end off an MTP."""
+    TAC, ST to LC duplex off an ST one, and MTP / MPO to LC duplex off an
+    MTP."""
     pg, _ids = page
     out = pg.evaluate("""() => {
         const app = window.app;
         const tac = {kind: 'tac', strands: 12}, st = {kind: 'tac', strands: 12, connector: 'ST'};
         const mtp = {kind: 'mtp', strands: 12};
         const lc = {kind: 'tac', strands: 12, connector: 'LC duplex'};
-        const tacFirst = {kind: 'fanout', boxEnd: 'LC duplex'}, mtpFirst = {kind: 'patch'};
+        const tacFirst = {kind: 'fanout', boxEnd: 'LC duplex'}, mtpFirst = {kind: 'patch', boxEnd: 'LC duplex'};
         return [
             app.fiberExtensionText({kind: 'patch'}, tac),
             app.fiberExtensionText({kind: 'patch', boxEnd: 'LC duplex', ft: 10}, tac),
@@ -642,7 +661,7 @@ def test_the_text_helpers(page):
                    'Fan-out · MTP / MPO to LC duplex',
                    'Fan-out · LC duplex to LC duplex · no length',
                    'Fan-out · ST to LC duplex · no length',
-                   'Duplex patch · from MTP / MPO · no length']
+                   'Duplex patch · MTP / MPO to LC duplex · no length']
 
 
 # ── the ends read as dropdowns (owner, 2026-11-18) ───────────────────────

@@ -299,10 +299,12 @@ COMPARE_JS = """() => {
                         b: ((r.parts || {})[4] || []).map(x => x.text)}))};
     }).filter(p => p.rows.length);
     // the processor pages' strand maps: strand -> "box · link", and spares
+    // (by the LINK column: an MTP's map has its legs at the breakout first)
     const maps = {};
     for (const proc of app._processorsResolved || []) {
         for (const m of app._bStrandMaps(proc)) {
-            maps[m.title] = m.rows.map(r => r.cells[1]);
+            const at = m.cols.findIndex(c => c.title === 'link');
+            maps[m.title] = m.rows.map(r => r.cells[at]);
         }
     }
     const list = app.buildPullSheet();

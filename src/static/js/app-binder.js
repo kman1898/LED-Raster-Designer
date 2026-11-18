@@ -101,6 +101,7 @@
 // Engineer and stands in for a blank Drafter).
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
+import { MTP_SEE_MAP } from './mtp-polarity.js';
 
 // Page units: 200 px per inch. A sheet's pixel size is its inches x 200,
 // its PDF page its inches x 72 points; every constant below is in page
@@ -4423,7 +4424,7 @@ class _Binder {
 
     // A `parts` cell onto lines no wider than maxWidth: as many strands per
     // line as fit, a strand never split, a `brk` part on a new line. Every
-    // strand is kept - a strand list is a link's two (an MTP's two and
+    // strand is kept - a strand list is a link's two (an opticalCON's two and
     // "crosses inside").
     _bPartLines(book, parts, weight, maxWidth) {
         const ctxM = book.measureCtx;
@@ -9938,29 +9939,50 @@ class _Binder {
                 const ext = this._bFiberExtensionParts({ link: (who.box.fiberLinks || {})[who.key], cable });
                 return ext.length ? `${at} · ${ext[0].text}` : at;
             };
+            // AN MTP'S FAR END (owner, 2026-11-18): the leg each strand
+            // really arrives on at the breakout box, by the cable's
+            // polarity, beside the strand - "1 Blue | 13 Blue/Black" on an
+            // MTP-24 Type A. A count and polarity with no documented map
+            // print no leg: the line under the title says to read them off
+            // the cable's own map.
+            const isMtp = cable.kind === 'mtp';
+            const mapped = isMtp && this.fiberFarStrand(1, cable) !== null;
             for (let n = 1; n <= (cable.strands || 0); n++) {
                 const who = m.get(n);
                 const piece = this._bStrandPiece(n, cable);
-                rows.push({ swatch: piece.swatch,
-                            cells: [piece.text,
-                                    who ? linkText(who) : 'spare',
-                                    who ? this._bLinkPortsText(who.box, who.card, who.key) : ''] });
+                const cells = [piece.text,
+                               who ? linkText(who) : 'spare',
+                               who ? this._bLinkPortsText(who.box, who.card, who.key) : ''];
+                if (!mapped) {
+                    rows.push({ swatch: piece.swatch, cells });
+                    continue;
+                }
+                const leg = this._bStrandPiece(this.fiberFarStrand(n, cable), cable);
+                cells.splice(1, 0, leg.text);
+                rows.push({ swatch: piece.swatch, cells, parts: { 1: [{ text: leg.text, swatch: leg.swatch }] } });
             }
-            out.push({ title, note: also.length ? `Also on ${also.join(', ')}` : '',
-                       cols: [{ title: 'strand', w: 1.1, swatch: true }, { title: 'link', w: 2 },
-                              { title: 'box ports', w: 0.8 }],
-                       rows });
+            const note = [also.length ? `Also on ${also.join(', ')}` : '',
+                          isMtp && !mapped ? `At the breakout: ${MTP_SEE_MAP}` : '']
+                .filter(Boolean).join(' · ');
+            const cols = mapped
+                ? [{ title: 'strand', w: 1.1, swatch: true }, { title: 'at the breakout', w: 1.1, parts: true },
+                   { title: 'link', w: 2 }, { title: 'box ports', w: 0.8 }]
+                : [{ title: 'strand', w: 1.1, swatch: true }, { title: 'link', w: 2 },
+                   { title: 'box ports', w: 0.8 }];
+            out.push({ title, note, cols, rows });
         }
         return out;
     }
 
     // A strand map's title, on a processor's page and on the Fiber page
     // alike: "Strand map · TAC A · TAC 24 · LC duplex · 500'", "no length"
-    // where the cable has none.
+    // where the cable has none; an MTP's polarity after its kind, since its
+    // far-end legs follow it: "Strand map · MTP A · MTP 24 · Type A · 300'".
     _bStrandMapTitle(cable) {
         const ft = this.parseCableLength(cable.ft);
+        const polarity = typeof this.fiberMtpPolarityWord === 'function' ? this.fiberMtpPolarityWord(cable) : '';
         return [`Strand map · ${cable.name || this.fiberKindWord(cable.kind)}`,
-                this.fiberCableTypeText(cable),
+                this.fiberCableTypeText(cable), polarity,
                 Number.isFinite(ft) && ft > 0 ? this.pullLengthText(ft, this.fiberStockKind(cable)) : 'no length']
             .filter(Boolean).join(' · ');
     }
@@ -9983,15 +10005,29 @@ class _Binder {
         return out;
     }
 
-    // A link's strands in the order they plug in AT THE BOX: a TAC's duplex
-    // pair flips between its ends (the box's own Fiber section reads Orange
-    // · Blue); an MTP or an opticalCON crosses inside the cable, so its box
-    // end reads the stored order; anything else as stored. The numbers,
-    // deduplicated; FIBER CONNECTIONS' AT THE BREAKOUT and the wiring
-    // sheet's box both read it.
+    // A link's strands in the order they plug in AT THE BOX
+    // (fiberStrandsAtBox): a TAC's duplex pair flips between its ends (the
+    // box's own Fiber section reads Orange · Blue); an MTP reads the legs
+    // it really delivers at its far end, by its polarity, with the same
+    // flip on top unless the trunk already crossed the pair (owner,
+    // 2026-11-18; mtp-polarity.js), or null where its map is not
+    // documented; an opticalCON crosses inside the cable, so its box end
+    // reads the stored order. The numbers, deduplicated; FIBER
+    // CONNECTIONS' AT THE BREAKOUT and the wiring sheet's box both read it.
     _bStrandsAtBox(link, cable) {
         const set = [...new Set(((link && link.strands) || []).map(Number))].filter(Number.isFinite);
-        return cable && cable.kind === 'tac' ? set.reverse() : set;
+        return typeof this.fiberStrandsAtBox === 'function' ? this.fiberStrandsAtBox(set, cable)
+            : (cable && cable.kind === 'tac' ? set.reverse() : set);
+    }
+
+    // The same as the binder prints it, each leg named and swatched
+    // (_bStrandPiece, by the leg's own number at that end); an MTP with no
+    // documented map for its count and polarity reads "see cable map",
+    // muted, with no number made up.
+    _bStrandPiecesAtBox(link, cable) {
+        const legs = this._bStrandsAtBox(link, cable);
+        if (legs) return legs.map(n => this._bStrandPiece(n, cable));
+        return [{ text: MTP_SEE_MAP, swatch: null, muted: true }];
     }
 
     // THE BOX'S OWN OUTPUT PORTS A LINK CARRIES (owner, 2026-10-17: the
@@ -10055,11 +10091,16 @@ class _Binder {
     //     (Matt, 2026-10-06: the XD shows Orange · Blue); a pair rearranged
     //     on the box flips the processor side with it. A BiDi link's one
     //     strand is the same at both;
-    //   * an MTP crosses inside the cable: both ends read the stored order,
-    //     and the breakout end says so; an opticalCON the same - it is
-    //     shared by the strand like a TAC (owner, 2026-10-08), so each
-    //     link's channels are printed, then "crosses inside" at the
-    //     breakout;
+    //   * an MTP (owner, 2026-11-18) reads the legs it really delivers AT
+    //     THE BREAKOUT, by its polarity - MTP-24 Type A's 1 · 2 arrive on
+    //     13 and 14, and the pair is flipped there as a TAC's is, 14 · 13;
+    //     a Type B or C trunk already crosses the pair, so its legs read as
+    //     delivered (mtp-polarity.js). A count and polarity with no
+    //     documented map read "see cable map" there, never a made-up leg;
+    //   * an opticalCON crosses inside the cable: both ends read the stored
+    //     order - it is shared by the strand like a TAC (owner,
+    //     2026-10-08), so each link's channels are printed, then "crosses
+    //     inside" at the breakout;
     //   * copper reads its run by its name (fiberLinkSummary's words,
     //     "Cat6A 1 150'"), and its kind at either end, no strands;
     //   * a box input with no cable: "no fiber picked";
@@ -10121,9 +10162,11 @@ class _Binder {
             typed.add(cable.id);
             const set = strands(l.link);
             const atProcessor = swatched(set, cable);
-            const crosses = cable.kind === 'mtp' || cable.kind === 'opticalcon-duo'
-                || cable.kind === 'opticalcon-quad';
-            const atBox = crosses ? swatched(set, cable) : swatched(this._bStrandsAtBox(l.link, cable), cable);
+            // only an opticalCON still says it crosses inside: an MTP
+            // prints the legs it delivers (_bStrandPiecesAtBox)
+            const crosses = cable.kind === 'opticalcon-duo' || cable.kind === 'opticalcon-quad';
+            const atBox = crosses ? swatched(set, cable)
+                : this._bStrandPiecesAtBox(l.link, cable).map((p, j) => ({ ...p, brk: j > 0 }));
             const atInput = crosses ? atBox.concat([{ text: 'crosses inside', brk: true }]) : atBox.slice();
             // the link's extension sits between the trunk's end and the
             // box's port (owner, 2026-11-02), so the path says it last, at

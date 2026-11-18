@@ -1662,8 +1662,9 @@ class _BinderWiring {
     // A box's inputs as the wiring sheet draws them - [{ head: 'X1',
     // strands: [{ text, swatch }] }] in the order its links run (primaries,
     // then the backup inputs), each input's strands in the order they plug
-    // in AT THE BOX (_bStrandsAtBox: a TAC's pair flipped, as FIBER
-    // CONNECTIONS' AT THE BREAKOUT reads), named and swatched as the strand
+    // in AT THE BOX (_bStrandPiecesAtBox: a TAC's pair flipped, an MTP's
+    // real legs by its polarity, as FIBER CONNECTIONS' AT THE BREAKOUT
+    // reads), named and swatched as the strand
     // map has them (_bStrandPiece - numbers with no swatch on a cable
     // labelled by number, sub-unit names as it prints them), after the
     // cable they are on (`sub`, _bBoxCableWords: "TAC A (TAC 12 SM)", the
@@ -1680,9 +1681,9 @@ class _BinderWiring {
         return on.map(l => {
             if (l.copper) return { head: l.title, strands: [{ text: this.copperLinkWords(l.copper), swatch: null }] };
             const what = this._bBoxCableWords(l.cable, typed);
-            const set = this._bStrandsAtBox(l.link, l.cable);
-            return set.length
-                ? { head: l.title, sub: what, strands: set.map(n => this._bStrandPiece(n, l.cable)) }
+            const pieces = this._bStrandPiecesAtBox(l.link, l.cable);
+            return pieces.length
+                ? { head: l.title, sub: what, strands: pieces }
                 : { head: l.title, strands: [{ text: what, swatch: null }] };
         });
     }

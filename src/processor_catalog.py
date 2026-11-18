@@ -2097,7 +2097,8 @@ def resolved_show_snakes(project):
 # each take strands of one:
 #
 #   project['fiberCables'] = [{id: 'fib<N>', name, kind, strands, ft?,
-#                              connector?, labels, subunits, strandNames}]
+#                              connector?, polarity?, labels, subunits,
+#                              strandNames}]
 #   cvt['fiberLinks'] = {'p1': {cable, strands: [1, 2]}, 'b1': {...}}
 #
 # - A TAC or an MTP ("mtp is basically a packaged tac"; its OWN kind by
@@ -2139,6 +2140,12 @@ FIBER_KIND_FIBERS = {'opticalcon-duo': 2, 'opticalcon-quad': 4}
 # (A TAC's ends are free text - app-fiber.js offers ST and LC duplex - and
 # an MTP names none. The New TAC step's suggested counts live there too.)
 FIBER_LABELS = ('colors', 'numbers')
+# An MTP's polarity (owner, 2026-11-18): Type A, B or C. Type A is what
+# Neutrik and touring stock ship as, and an MTP with none stored - every
+# show before this - reads Type A; nothing is written to say so. Only an
+# MTP takes one. Where each strand lands at the far end by its polarity is
+# the paperwork's to print (static/js/mtp-polarity.js).
+MTP_POLARITIES = ('A', 'B', 'C')
 # TIA-598-D, in order, with the swatch the app paints for each.
 FIBER_COLORS = (
     ('Blue', '#1F5FA8'), ('Orange', '#F28020'), ('Green', '#1A9A48'),
@@ -2480,15 +2487,18 @@ def check_fiber_extension(body, unit='ft'):
 def merge_fiber_extension(old, body, cable):
     """The extension a checked body leaves: the keys it sends over `old`.
     A new one starts as a fan-out to LC duplex off a TAC and a duplex
-    patch off an MTP (owner, 2026-11-02: "For tac fan out should be
-    default and for mtp patch should default"; a TAC's fan-out lands on LC
-    duplex, "two LC duplex" off an LC TAC and "ST to LC ... at minimum"
-    off an ST one) - a first pick the user changes freely - with its trunk
-    end left to read the trunk's own connector."""
+    patch to LC duplex off an MTP (owner, 2026-11-02: "For tac fan out
+    should be default and for mtp patch should default"; a TAC's fan-out
+    lands on LC duplex, "two LC duplex" off an LC TAC and "ST to LC ... at
+    minimum" off an ST one; 2026-11-18: "lets make LC duplex the default
+    for MTP extensions") - a first pick the user changes freely - with its
+    trunk end left to read the trunk's own connector. Only a NEW extension
+    takes it: one already stored keeps what it has, a blank box end
+    included, for the user to pick."""
     if isinstance(old, dict):
         ext = dict(old)
     elif (cable or {}).get('kind') == 'mtp':
-        ext = {'kind': 'patch'}
+        ext = {'kind': 'patch', 'boxEnd': 'LC duplex'}
     else:
         ext = {'kind': 'fanout', 'boxEnd': 'LC duplex'}
     for key, value in body.items():
@@ -3045,6 +3055,11 @@ def check_fiber_cable(rec, cable=None, used_strands=0, unit='ft'):
             return 'Only a TAC names a connector.'
         if not isinstance(rec['connector'], str):
             return 'connector must be text.'
+    if 'polarity' in rec:
+        if kind != 'mtp':
+            return 'Only an MTP has a polarity.'
+        if rec['polarity'] not in MTP_POLARITIES:
+            return 'An MTP’s polarity is Type A, B or C.'
     if 'name' in rec and rec['name'] is not None \
             and not isinstance(rec['name'], str):
         return 'name must be text.'
@@ -3099,6 +3114,8 @@ def store_fiber_cable(project, rec, next_seq, cable=None):
             cable['connector'] = conn
         else:
             cable.pop('connector', None)
+    if kind == 'mtp' and 'polarity' in rec:
+        cable['polarity'] = rec['polarity']
     if 'labels' in rec:
         cable['labels'] = rec['labels']
     if 'subunits' in rec:
@@ -3173,6 +3190,10 @@ def resolved_fiber_cables(project):
         }
         if cable.get('kind') == 'tac' and cable.get('connector'):
             rec['connector'] = cable['connector']
+        if cable.get('kind') == 'mtp':
+            # none stored (an older show) reads Type A
+            rec['polarity'] = cable.get('polarity') \
+                if cable.get('polarity') in MTP_POLARITIES else 'A'
         out.append(rec)
     return out
 

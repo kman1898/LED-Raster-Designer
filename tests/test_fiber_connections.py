@@ -12,9 +12,13 @@ processor:
   - a TAC's duplex pair FLIPS between its ends, so the 1 Blue · 2 Orange
     stored reads 2 Orange · 1 Blue AT THE BREAKOUT, as the box's own Fiber
     section shows it; a BiDi link's one strand is the same at both;
-  - an MTP crosses inside the cable (both ends read the stored order, and
-    the breakout end says so), and so does an opticalCON - shared by the
-    strand like a TAC since 2026-10-08, so its link's strands print too;
+  - an MTP (owner, 2026-11-18) reads the legs it really delivers AT THE
+    BREAKOUT by its polarity, flipped there as a TAC's pair is (an MTP 12
+    Type A: the same numbers, 2 · 1); tests/test_mtp_polarity.py has the
+    other counts and polarities;
+  - an opticalCON crosses inside the cable (both ends read the stored
+    order, and the breakout end says so) - shared by the strand like a
+    TAC since 2026-10-08, so its link's strands print too;
   - an output with no box reads "not used", an input with no cable "no
     fiber picked", a copper run its copper and length;
   - a backup processor is listed with its main, output by output: the
@@ -281,24 +285,26 @@ def test_the_table_is_on_the_mains_page_and_names_both(page):
     assert nova == 'Fiber connections · NOVA · H9', nova
 
 
-def test_a_bidi_box_keeps_its_one_strand_and_an_mtp_is_not_flipped(page):
+def test_a_bidi_box_keeps_its_one_strand_and_an_mtp_reads_its_legs(page):
     """NOVA: the BiDi CVT10's one strand (TAC C reads strands by number) is
     the same at both ends; the CVT4K-S takes OPT 2 and OPT 3 - a row each -
-    on MTP A, the box end in the same order, crossing inside, with strand 2
-    by the name it was given; OPT 4 is not used."""
+    on MTP A, an MTP 12 Type A: the box end reads the legs it delivers,
+    the same numbers, the pair flipped as it plugs in there (owner,
+    2026-11-18), with strand 2 by the name it was given; OPT 4 is not
+    used."""
     pg, ids = page
     rows = _rows(pg, ids['nova'])
     cells = [r['cells'] for r in rows]
     box = pg.evaluate("(id) => window.app._bBoxTitle(window.app._dockFindCvt(id).cvt)", ids['cvt4k'])
     assert cells == [
         ['OPT 1', 'TAC C (TAC 12 · Single mode)', '1', 'OPT 1 on CVT10-S A', '1'],
-        ['OPT 2', 'MTP A (MTP 12 · Single mode)', '1 Blue · Rack A', f'OPT1 on {box}', '1 Blue · Rack A · crosses inside'],
-        ['OPT 3', 'MTP A', '3 Green · 4 Brown', f'OPT2 on {box}', '3 Green · 4 Brown · crosses inside'],
+        ['OPT 2', 'MTP A (MTP 12 · Single mode)', '1 Blue · Rack A', f'OPT1 on {box}', 'Rack A · 1 Blue'],
+        ['OPT 3', 'MTP A', '3 Green · 4 Brown', f'OPT2 on {box}', '4 Brown · 3 Green'],
         ['OPT 4', 'not used', '', '', ''],
     ], cells
-    # the words "crosses inside" carry no swatch; every strand does
+    # every leg carries its swatch, and no "crosses inside" follows them
     far = rows[1]['parts']['4']
-    assert [bool(p.get('swatch')) for p in far] == [True, True, False], far
+    assert [bool(p.get('swatch')) for p in far] == [True, True], far
     assert ids['errors'] == []
 
 
@@ -323,7 +329,7 @@ def test_strand_names_come_through_the_one_namer(page):
     names = out['names']
     assert names == ['Blue unit · 1 Blue', 'Rack A', 'Blue unit · 3 Green', 'Blue unit · 4 Brown'], names
     assert out['rows'][1][2] == f'{names[0]} · {names[1]}', out['rows']
-    assert out['rows'][2][4] == f'{names[2]} · {names[3]} · crosses inside', out['rows']
+    assert out['rows'][2][4] == f'{names[3]} · {names[2]}', out['rows']
     assert [out['rows'][0][2], out['rows'][0][4]] == ['1', '1'], out['rows']
 
 
@@ -420,7 +426,7 @@ def test_the_painted_table_is_titled_headed_and_never_cut(page):
             parts = row['parts'] or {}
             cells.update(' '.join(p['text'] for p in parts[str(i)]) if str(i) in parts else c
                          for i, c in enumerate(row['cells']) if c)
-    assert "Cat6 1 150' (Cat6 runs 100 ft max at 10G)" in cells and '1 Blue Rack A crosses inside' in cells
+    assert "Cat6 1 150' (Cat6 runs 100 ft max at 10G)" in cells and 'Rack A 1 Blue' in cells
     for cell in sorted(cells):
         assert size.get(cell) == 24, (cell, size.get(cell))
     # nothing of the table is cut anywhere it is painted
