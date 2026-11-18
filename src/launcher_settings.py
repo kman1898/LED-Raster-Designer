@@ -9,6 +9,7 @@ import sys
 import socket
 import platform
 import subprocess
+import threading
 
 DEFAULTS = {
     'port': 8050,
@@ -59,14 +60,39 @@ def load_settings():
     return settings
 
 
+# One save at a time: the launcher saves from its window or tray, and the
+# game controller reader's thread (native_pad.input_monitoring_ask) saves
+# the same dict. Two writers at once could interleave in the file, or catch
+# the dict mid-change.
+_SAVE_LOCK = threading.Lock()
+
+
 def save_settings(settings):
-    """Save settings to disk."""
+    """Save settings to disk. Safe from any thread: the dict is copied and
+    written whole under one lock, through a temporary file swapped in, so
+    a reader never meets half a file."""
     path = _settings_path()
-    try:
-        with open(path, 'w') as f:
-            json.dump(settings, f, indent=2)
-    except IOError:
-        pass
+    with _SAVE_LOCK:
+        try:
+            text = json.dumps(dict(settings), indent=2)
+        except (TypeError, ValueError, RuntimeError):
+            return
+        tmp = path + '.tmp'
+        try:
+            with open(tmp, 'w') as f:
+                f.write(text)
+            os.replace(tmp, path)
+        except OSError:
+            # The swap refused (a file held open elsewhere): write in place.
+            try:
+                with open(path, 'w') as f:
+                    f.write(text)
+            except OSError:
+                pass
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 # ── SSL Certificate Management ──────────────────────────────────────────────

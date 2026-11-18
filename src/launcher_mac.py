@@ -307,6 +307,11 @@ def run_menubar(settings):
             set_run_at_login(enabled)
 
         def _quit_app(self, _):
+            try:
+                import native_pad
+                native_pad.stop_reader()
+            except Exception:
+                pass
             rumps.quit_application()
             os._exit(0)
 
@@ -323,6 +328,13 @@ def main():
 
     # Give the server a moment to start
     time.sleep(1.0)
+    # The game controller reader (native_pad.py), in a process of its own.
+    try:
+        import native_pad
+        from app import log_event
+        native_pad.start_reader(log=log_event, settings=settings, save=save_settings)
+    except Exception:
+        pass
 
     # Auto-open the GUI in the chosen browser, unless the user turned that off
     if settings.get('open_browser_on_launch', False):

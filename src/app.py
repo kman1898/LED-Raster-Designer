@@ -2653,6 +2653,7 @@ def handle_disconnect():
     print('Client disconnected')
     import routes_project
     routes_project.launch_socket_gone(getattr(request, 'sid', None))
+    _native_pad.BRIDGE.forget(getattr(request, 'sid', None))
 
 
 @socketio.on('idm_highlight')
@@ -2668,6 +2669,26 @@ def handle_idm_highlight(data):
         return
     current_project['idmHighlight'] = idm_highlight_stored(clean, current_project)
     emit('idm_highlight', clean, broadcast=True, include_self=False)
+
+
+# The computer's own game controller, read natively (native_pad.py): its
+# states go to ONE designer page on this computer, the one with the IDM
+# Locator tab open; a tablet or phone never hears of it.
+import native_pad as _native_pad  # noqa: E402
+_native_pad.BRIDGE.emit = lambda event, data, to=None: socketio.emit(event, data, to=to)
+_native_pad.BRIDGE.log = lambda action, details=None: log_event(action, details)
+
+
+@socketio.on('native_pad_watch')
+def handle_native_pad_watch(data):
+    """A page says its IDM Locator tab opened or closed, or its window
+    took the focus with the tab open. Heard from a page on this computer
+    only; the page gets the controller's status back."""
+    from routes_dialog import _is_same_machine
+    if not _is_same_machine(request.remote_addr or ''):
+        return
+    idm = bool(data.get('idm')) if isinstance(data, dict) else False
+    emit('native_pad_status', _native_pad.BRIDGE.watch(getattr(request, 'sid', None), idm))
 
 
 # ── Modularized route blueprints ──────────────────────────────────────────

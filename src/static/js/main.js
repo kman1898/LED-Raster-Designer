@@ -72,6 +72,7 @@ import './app-obj-export.js';
 import './app-idm-locator.js';
 import './app-idm-gamepad.js';
 import './app-idm-phone.js';
+import './app-idm-native-pad.js';
 import './app-output-display.js';
 import './app-notes-checklist.js';
 import './app-network.js';

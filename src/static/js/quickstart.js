@@ -9423,7 +9423,7 @@
         idmController: {
             since: '1.7.0',
             target: '#idm-pad-help', place: 'right', title: 'Walk the wall with a controller',
-            body: 'Pair a PlayStation or Xbox controller with this computer: the D-pad steps one module at a time on the canvas you are on, and A or Cross marks. This list of its buttons shows while one is connected.',
+            body: 'Pair a PlayStation or Xbox controller with this computer: the D-pad steps one module at a time on the canvas you are on, A or Cross marks and a PlayStation touchpad glides the highlight. This list of its buttons shows while one is connected.',
             // No controller in a guide: the list is shown as it shows with one.
             before: function () {
                 openIdm();
@@ -9437,7 +9437,7 @@
             },
             check: function () {
                 var c = $('#idm-pad-help');
-                return c && !c.hidden ? 'B or Circle undoes, Y or Triangle goes to the next screen on this canvas and View or Share to the next canvas; keep this window in front.' : null;
+                return c && !c.hidden ? 'B or Circle undoes, Y or Triangle goes to the next screen on this canvas and View or Share to the next canvas; the touchpad speed is set here.' : null;
             },
             after: function () {
                 var a = A();

@@ -73,6 +73,25 @@ def restart_flask_server(settings):
     server_thread.start()
 
 
+def start_pad_reader(settings=None):
+    """The computer's game controller, read natively for the IDM Locator
+    (native_pad.py), in a process of its own. Never stops the app."""
+    try:
+        import native_pad
+        from app import log_event
+        native_pad.start_reader(log=log_event, settings=settings, save=save_settings)
+    except Exception:
+        pass
+
+
+def stop_pad_reader():
+    try:
+        import native_pad
+        native_pad.stop_reader()
+    except Exception:
+        pass
+
+
 def get_display_url(settings):
     """Build the display URL from settings."""
     host = settings.get('interface', '127.0.0.1')
@@ -135,6 +154,7 @@ def run_tray(settings):
 
     def quit_app(icon, item):
         icon.stop()
+        stop_pad_reader()
         os._exit(0)
 
     # Network interface submenu
@@ -275,6 +295,7 @@ def main():
 
     # Give the server a moment to start
     time.sleep(1.5)
+    start_pad_reader(settings)
 
     # Auto-open the GUI in the chosen browser, unless the user turned that
     # off, or the page from before an update is waiting to reload.
