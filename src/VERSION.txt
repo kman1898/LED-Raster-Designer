@@ -590,6 +590,12 @@ ALSO NEW
   counts. The cable list on a box's Fiber section says it too, "MTP A ·
   24 Type A · 300'", and so does a box's fiber in the binder, "(MTP 24 A
   SM)".
+- NEW: Match Screens, right of the canvas size on the toolbar, sizes the
+  canvas to fit its screens. The width goes out to the furthest right edge
+  of the visible screens on the canvas and the height down to their lowest
+  bottom edge, counted from 0,0, so one screen at 960,540 that is
+  960 × 540 makes the canvas 1920 × 1080. No screen moves, hidden screens
+  don't count, and one undo puts the old size back.
 
 FIXES
 
@@ -805,6 +811,9 @@ FIXES
   the new name on the canvas straight away. It used to keep the old name
   there until you clicked somewhere else. Canvas, group and beach names
   also save the moment you press Enter.
+- FIX: Raster now reads Canvas Size wherever the app shows it: the
+  toolbar's width and height, their tips, the line a text layer can add,
+  Fit's tip and the export scale.
 
 v1.6.0 - November 6, 2026
 ----------------------------

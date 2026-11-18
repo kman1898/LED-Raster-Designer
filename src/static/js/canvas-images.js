@@ -448,7 +448,7 @@ Object.assign(CanvasRenderer.prototype, {
         if (layer.showRasterSize && window.canvasRenderer) {
             const rw = window.canvasRenderer.rasterWidth || 1920;
             const rh = window.canvasRenderer.rasterHeight || 1080;
-            dynamicLines.push(`Raster: ${rw} × ${rh}`);
+            dynamicLines.push(`Canvas Size: ${rw} × ${rh}`);
         }
         if (layer.showProjectName && window.app && window.app.project) {
             dynamicLines.push(window.app.project.name || 'Untitled Project');
