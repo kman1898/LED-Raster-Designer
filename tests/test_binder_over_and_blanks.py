@@ -2,8 +2,9 @@
 
   * A circuit over its limit (the app's own test: its amps past
     circuitCapacity, the one that turns it red) prints OVER beside its amps
-    in CIRCUITS and SHARED CIRCUITS, as the map's tag does; FACTS gains an
-    Over row; the export warns, naming the screens and circuits, and still
+    in CIRCUITS and SHARED CIRCUITS, as the map's tag does; the FACTS
+    sheet's NOTES name it (an Over row on the screen's own FACTS until
+    2026-11-18); the export warns, naming the screens and circuits, and still
     exports. A custom wall drawn at 19.2 A on a 20 A breaker printed clean.
   * No em dash on the paper (owner, 2026-11-03: "get rid of the em
     dashes"): an empty cell is blank, a range a plain hyphen ("6-12").
@@ -86,15 +87,18 @@ def test_a_circuit_over_its_limit_prints_over_and_the_export_warns(page):
     # the app's own reading turns it red: the tray's chip and the binder
     # agree on the one test (circuitCapacity)
     assert ev(pg, "return app.circuitCapacity(A).amps;") == 16
-    b = pg.evaluate(BINDER_JS, {'kinds': ['power']})
+    b = pg.evaluate(BINDER_JS, {'kinds': ['power', 'facts'], 'cover': True})
     circuits = [t for t in b['tables'] if t['title'] == 'Circuits']
     cells = {r[0]: r for t in circuits for r in t['rows']}
     assert cells[amps[0][0]][3] == '9.6', cells
     assert cells[over_label][3] == '19.2 · OVER', cells
-    facts = [k for k in b['kv'] if k['title'] == 'Facts']
-    over = [p for k in facts for p in k['pairs'] if p[0] == 'Over']
+    # no FACTS block on the screen's sheet: the FACTS sheet's NOTES say it
+    assert not [k for k in b['kv'] if k['title'] == 'Facts'], b['kv']
+    notes = [r for t in b['tables'] if t['title'] == 'Notes' for r in t['rows'] if r[1].startswith('Over:')]
     # (the sheet is laid out more than once: each pass the same row)
-    assert over and all(p == ['Over', '1 circuit over 16 A (80% of 20 A)'] for p in over), facts
+    assert notes and all(r == ['WALL A', 'Over: 1 circuit over 16 A (80% of 20 A)'] for r in notes), notes
+    facts = next(p for p in b['pages'] if p['kind'] == 'facts')
+    assert 'Over: 1 circuit over 16 A (80% of 20 A)' in ' '.join(facts['logged']), facts['logged']
     sheet = _power_sheet(b, 'WALL A')
     assert '19.2 · OVER' in sheet['logged'], sheet['logged']
     # the export's warning: one message, the screen and its circuit, the
@@ -109,9 +113,9 @@ def test_a_circuit_over_its_limit_prints_over_and_the_export_warns(page):
     assert data_only == '', data_only
     # under the limit: no mark, no Over row, no warning
     setup(pg, distros=[DIST], walls={'a': dict(OVER, powerAmperage=30)})
-    b = pg.evaluate(BINDER_JS, {'kinds': ['power']})
+    b = pg.evaluate(BINDER_JS, {'kinds': ['power'], 'cover': True})
     assert not [r for t in b['tables'] if t['title'] == 'Circuits' for r in t['rows'] if 'OVER' in r[3]], b['tables']
-    assert not [p for k in b['kv'] for p in k['pairs'] if p[0] == 'Over'], b['kv']
+    assert not [r for t in b['tables'] if t['title'] == 'Notes' for r in t['rows'] if 'Over' in r[1]], b['tables']
     assert ev(pg, f"return app.binderOverWarning({OPTS_JS});") == ''
     assert errors == [], errors
 
@@ -129,17 +133,20 @@ def test_an_amps_cell_reads_over_by_the_screens_own_limit(page):
 def test_the_paper_has_no_em_dash_and_ranges_use_a_hyphen(page):
     """Every power sheet, the pull pages and the hardware pages: no em dash
     and no en dash anywhere they print - an empty CABLE cell is blank, and
-    the FACTS panels range reads "10-20 panels each"."""
+    so is an empty cell on the FACTS sheet."""
     pg, errors = page
     setup(pg, distros=[DIST], walls={'a': OVER})
-    b = pg.evaluate(BINDER_JS, {})
+    b = pg.evaluate(BINDER_JS, {'cover': True})
     for p in b['pages']:
         bad = [t for t in p['logged'] + p['texts'] if '—' in t or '–' in t]
         assert not bad, (p['title'], bad)
     circuits = [r for t in b['tables'] if t['title'] == 'Circuits' for r in t['rows']]
     assert circuits and all(r[4] == '' for r in circuits), circuits
-    facts = [p for k in b['kv'] if k['title'] == 'Facts' for p in k['pairs'] if p[0] == 'Circuits']
-    assert ['Circuits', '2 at 208 V / 20 A · 10-20 panels each'] in facts, facts
+    assert any(p['kind'] == 'facts' for p in b['pages']), b['plan']
+    facts = [t for t in b['tables'] if t['title'].endswith(' screens') or t['title'].endswith(' screen')]
+    assert facts and all(c == '' or ('—' not in c and '–' not in c) for t in facts for r in t['rows'] for c in r), facts
+    wall = next(r for t in facts for r in t['rows'] if r[0] == 'WALL A')
+    assert wall[7] == '2', wall
     assert errors == [], errors
 
 

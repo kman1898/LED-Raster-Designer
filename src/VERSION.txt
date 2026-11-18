@@ -623,6 +623,13 @@ ALSO NEW
   box and link, and a snake longer than its kind's 10G run gets the same
   warning a single Cat cable does. Only the XD takes one: the XD-S, the
   XD-T and the CVTs run on fiber.
+- NEW: The binder has one FACTS sheet right after the overview instead of
+  a FACTS box on every screen's power and data sheet. It is a table with a
+  row for each screen, or each group printed as one: its size, panels,
+  resolution, watts, amps 1φ and 3φ, circuits and ports, and a total at
+  the bottom. Circuits over their limit, breakers and Soca two-fers over
+  theirs, and screens with no power figure are listed under it, and the
+  room on the screen sheets goes to the drawings.
 
 FIXES
 

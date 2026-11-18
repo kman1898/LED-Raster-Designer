@@ -867,22 +867,23 @@ def test_a_long_table_reads_the_same_on_its_cont_sheet(variants):
 # under it to the height it left. The wrap layout runs the tables down the
 # columns beside the map, as tall as the map and its bubble, then across the
 # full width under it - taken only where it makes the wall 10% larger - and
-# a short block (the Facts, the Cables) is never split to get there.
+# a short block (the Cables) is never split to get there.
 
 def test_the_tables_wrap_around_the_map(seeded):
     """MAIN's power sheet on Tabloid: the 28 x 11 wall over the tables, its
     circuit table - too long for one column under the wall at a size
-    worth having - running on from one column to the next, the Cables and
-    the Facts whole in the third, each once, everything under the view."""
+    worth having - running on from one column to the next, the Cables
+    whole in the next, once, everything under the view; no FACTS block
+    (owner, 2026-11-18: the set's one FACTS sheet carries it)."""
     page = seeded['MAIN - Power - Front View']
     assert page['layout'] == 'wrap', (page['layout'], page['extent'])
     t = [o['t'] for o in page['texts']]
-    assert t.count('FACTS') == 1 and t.count('CABLES THIS SCREEN') == 1, t
+    assert t.count('FACTS') == 0 and t.count('CABLES THIS SCREEN') == 1, t
     view = next(o for o in page['texts'] if o['t'] == 'MAIN · POWER · FRONT VIEW' and o['x'] < 1000)
     at = lambda name: [(o['x'], o['y']) for o in page['texts'] if o['t'] == name]
-    circuits, cables, facts = at('CIRCUITS'), at('CABLES THIS SCREEN'), at('FACTS')
+    circuits, cables = at('CIRCUITS'), at('CABLES THIS SCREEN')
     # the circuits table in two columns, side by side, its heading repeated
     assert len(circuits) == 2 and circuits[0][1] == circuits[1][1] and circuits[0][0] < circuits[1][0], circuits
-    # the short blocks whole, together, in the next column
-    assert cables[0][0] == facts[0][0] > circuits[1][0] and cables[0][1] < facts[0][1], (cables, facts)
-    assert all(y > view['y'] for _x, y in circuits + cables + facts), view
+    # the short block whole, in the next column
+    assert len(cables) == 1 and cables[0][0] > circuits[1][0], (cables, circuits)
+    assert all(y > view['y'] for _x, y in circuits + cables), view

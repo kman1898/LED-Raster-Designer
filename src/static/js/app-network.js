@@ -21,8 +21,8 @@
 // the binder prints whatever was typed.
 //
 // The binder (app-binder.js): each processor's hardware sheet carries a
-// NETWORK table (its unit, its backup unit), each Data sheet's FACTS its
-// processor's IP, and the NETWORK page lists every unit - all of it only
+// NETWORK table (its unit, its backup unit), and the NETWORK page lists
+// every unit - all of it only
 // once some unit has an IP, so a show without them prints as it always
 // did. The plain functions (which units, what each reads, which entries
 // are bad, which IPs are shared) are network-ip.js's, a classic script
@@ -266,16 +266,6 @@ class _Network {
     }
 
     // ---- the binder ----------------------------------------------------------
-
-    // A Data sheet's FACTS lines for one processor: its IP, and its backup
-    // unit's - only once some unit in the show has an IP; a unit with none
-    // prints a blank value.
-    _bNetworkFacts(proc) {
-        const units = this._bNetworkUnits();
-        if (!NET() || !NET().anyIp(units)) return [];
-        return units.filter(u => u.procId === proc.id)
-            .map(u => [u.slot === 'bu' ? 'Backup IP' : 'IP', u.ip]);
-    }
 
     // The units the binder lists: every unit but those of a processor
     // with no screen that prints (owner, 2026-11-17) - it is off the

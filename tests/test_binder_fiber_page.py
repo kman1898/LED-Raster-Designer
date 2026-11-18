@@ -193,6 +193,8 @@ def test_the_page_prints_only_with_fiber_once_after_the_screens(page):
 def _subject(kind):
     if kind in SCREEN_KINDS:
         return 'screens'
+    if kind in ('overview', 'contents', 'facts'):
+        return 'overview'
     return 'hardware' if kind in HARDWARE_KINDS else kind
 
 

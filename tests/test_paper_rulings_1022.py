@@ -281,10 +281,11 @@ def test_feeder_said_once_and_kv_separators_end_their_line(page):
     assert errors == [], errors
 
 
-def test_a_thru_fed_distros_screens_read_the_service_in_facts(page):
-    """SR fed thru SL, SL on HOUSE: WALL B's FACTS (on SR) read "Service:
-    HOUSE · ..." then a Distro row "SR · 400 A · thru SL · ..." (its
-    rating beside its name, 2026-10-23)."""
+def test_a_thru_fed_distro_is_counted_on_the_service_it_reads(page):
+    """SR fed thru SL, SL on HOUSE: HOUSE's service sheet lists SR "thru SL"
+    beside SL (its rating beside its name, 2026-10-23). WALL B's sheet used
+    to say it in its FACTS; the screens' sheets carry none since 2026-11-18
+    (owner: one FACTS sheet for the set)."""
     pg, errors = page
     sl = {'id': 'd1', 'name': 'SL', 'ratingA': 400, 'system': '120/208', 'serviceId': 's1'}
     sr = {'id': 'd2', 'name': 'SR', 'ratingA': 400, 'system': '120/208', 'feeder': {'from': 'd1'}}
@@ -296,12 +297,12 @@ def test_a_thru_fed_distros_screens_read_the_service_in_facts(page):
                " voltage: 208, phase: 3 }]; app._distroFaceMemo = null; app._circuitTailCache = null;"
                " return null;")
         b = pg.evaluate(BINDER_JS, {})
-        facts = [k['pairs'] for k in b['kv'] if k['title'] == 'Facts']
-        b_facts = next(p for p in facts if any(k == 'Distro' and v.startswith('SR') for k, v in p))
-        keys = [k for k, _ in b_facts]
-        assert 'Service' in keys and keys.index('Service') < keys.index('Distro'), b_facts
-        assert dict(b_facts)['Service'].startswith('HOUSE · 600 A'), b_facts
-        assert dict(b_facts)['Distro'].startswith('SR · 400 A · thru SL'), b_facts
+        assert not [k for k in b['kv'] if k['title'] == 'Facts'], b['kv']
+        assert any(p['kind'] == 'service' and 'HOUSE' in p['title'] for p in b['pages']), [p['title'] for p in b['pages']]
+        rows = [r[:2] for t in b['tables'] if t['cols'][:2] == ['distro', 'rating'] for r in t['rows']]
+        assert ['SR · thru SL', '400 A'] in rows and ['SL', '400 A'] in rows, rows
+        rating = [p for k in b['kv'] for p in k['pairs'] if p[0] == 'Rating' and p[1].startswith('600 A')]
+        assert rating, b['kv']
     finally:
         ev(pg, "delete app.project.services; app._distroFaceMemo = null; return null;")
     assert errors == [], errors
