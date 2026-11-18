@@ -64,7 +64,7 @@ PREFS = {'binderPalette': 'colour', 'binderMaps': 'both', 'binderCover': True, '
          'binderHardware': True, 'binderWiring': True, 'binderFiber': True, 'binderRigging': True,
          'binderNetwork': True, 'binderLogo': ''}
 PREF_CHOICES = {'palette': 'colour', 'maps': 'both', 'cover': True, 'pull': True, 'hardware': True,
-                'wiring': True, 'fiber': True, 'rigging': True, 'network': True}
+                'wiring': True, 'fiber': True, 'rigging': True, 'network': True, 'mode': 'full'}
 
 SET_PREFS_JS = """async (patch) => {
     const app = window.app;
@@ -102,6 +102,7 @@ DIALOG_JS = """() => {
              hardware: on('export-binder-hardware'), wiring: on('export-binder-wiring'),
              fiber: on('export-binder-fiber'), rigging: on('export-binder-rigging'),
              network: on('export-binder-network'),
+             mode: on('export-binder-mode-simple') ? 'simple' : 'full',
              scope: document.getElementById('export-binder-scope').value };
 }"""
 

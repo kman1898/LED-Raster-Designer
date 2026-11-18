@@ -7650,6 +7650,40 @@
             },
             after: closeExport
         },
+        // Full or Simple (1.7.0, app-binder.js _bSimplePage): Simple gives
+        // each screen one Power Wiring and one Data Wiring sheet to hand a
+        // stagehand. Simple is picked, the set planned until its simple
+        // sheets are in it, and Full picked back; nothing is saved until an
+        // export.
+        binderMode: {
+            since: '1.7.0',
+            window: 'export:binder',
+            target: '#export-binder-mode-simple-label', place: 'left', title: 'Full or Simple',
+            body: 'Simple gives each screen one Power Wiring and one Data Wiring sheet, its drawing with rulers over its tables, to hand a stagehand. Full keeps every sheet.',
+            before: openExport,
+            act: function (t) {
+                return t.click('#export-binder-mode-simple').then(function () {
+                    return t.wait(function () {
+                        var a = A();
+                        if (!$('#export-binder-mode-simple').checked) return null;
+                        var n = a.planBinder(a.readBinderOptions()).filter(function (p) { return p.layout === 'simple'; }).length;
+                        if (n) t.mem.simple = n;
+                        return n || null;
+                    }, 4000);
+                }).then(function (n) {
+                    if (!n) throw new Error('the binder planned no simple sheet');
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return t.click('#export-binder-mode-full');
+                }).then(function () { return t.pause(200); });
+            },
+            check: function (mem) {
+                var full = $('#export-binder-mode-full');
+                return full && full.checked && mem.simple
+                    ? 'Simple planned ' + mem.simple + ' sheets for the screens; Full is picked again.' : null;
+            },
+            after: closeExport
+        },
         // The Fiber page (1.6.0, app-binder-fiber.js): one sheet right after
         // the screens, before the pull sheets, for a show that uses fiber -
         // the guide's breakout box took a TAC in Fiber to the box - every
@@ -9819,7 +9853,7 @@
         // Pixel Map: groups
         pixelGroups: ['groupScreens', 'groupNames', 'groupDrag', 'groupMove'],
         // Binder and Exports
-        binder: ['exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet', 'fiberPage', 'titleBlock',
+        binder: ['exportBinder', 'screenOrder', 'wiringTick', 'binderMode', 'riggingSheet', 'fiberPage', 'titleBlock',
                  'fileExports', 'objExport', 'preferences', 'controls']
     };
     // Steps that put in practice hardware or screens of their own: they

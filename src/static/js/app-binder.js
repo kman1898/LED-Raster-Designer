@@ -204,6 +204,12 @@ const COL_GAP = 30;
 // The CONTENTS sheet's narrowest column: a title wraps onto a second line
 // before the list leaves its one sheet, and no further (_bContentsSheets).
 const CONTENTS_MIN_W = 480;
+// A simple sheet's drawing keeps this room at its head and its left for
+// the column and row rulers (_bSimpleRulers, _bRulersDraw's COL_RULER_H).
+const SIMPLE_RULER = { top: 52, left: 64 };
+// A simple sheet's tables of this many lines or fewer stay whole in one
+// column of its band (_bSimpleBand); longer ones run on across it.
+const SIMPLE_WHOLE = 12;
 const BUBBLE_H = 96;
 // The map keeps at least this share of the drawing area whatever the
 // tables' scale - of the width beside them, of the height over them.
@@ -335,6 +341,9 @@ const BINDER_TICKS = ['cover', 'pull', 'hardware', 'wiring', 'fiber', 'rigging',
 // the ticks a single screen's export starts unticked: the show's own sheets
 const SHOW_TICKS = ['cover', 'pull', 'hardware', 'fiber', 'network'];
 const BINDER_MAPS = ['power', 'data', 'both'];
+// Full or Simple (owner, 2026-11-18): Simple swaps each screen's sheets for
+// a sheet per job a stagehand can carry (_bSimplePage).
+const BINDER_MODES = ['full', 'simple'];
 // Each sheet kind's SUBJECT, the series it numbers in. The overview and
 // the screens hold series 1 and 2 (SERIES) whatever prints; every subject
 // after them takes the next number as its first sheet prints - the Fiber
@@ -577,6 +586,7 @@ class _Binder {
         const tick = (id, on) => { const el = document.getElementById(id); if (el) el.checked = !!on; };
         tick('export-binder-printer', c.palette === 'printer');
         tick('export-binder-colour', c.palette !== 'printer');
+        for (const m of BINDER_MODES) tick(`export-binder-mode-${m}`, c.mode === m);
         for (const m of BINDER_MAPS) tick(`export-binder-side-${m}`, c.maps === m);
         for (const k of BINDER_TICKS) tick(`export-binder-${k}`, c[k]);
         return c;
@@ -609,6 +619,7 @@ class _Binder {
         const out = {
             palette: prefs.binderPalette === 'printer' ? 'printer' : 'colour',
             maps: prefs.binderMaps === 'power' || prefs.binderMaps === 'data' ? prefs.binderMaps : 'both',
+            mode: 'full',
         };
         const pref = { cover: 'binderCover', pull: 'binderPull', hardware: 'binderHardware',
                        wiring: 'binderWiring', fiber: 'binderFiber', rigging: 'binderRigging',
@@ -630,6 +641,7 @@ class _Binder {
         const out = {
             palette: raw.palette === 'printer' ? 'printer' : 'colour',
             maps: BINDER_MAPS.includes(raw.maps) ? raw.maps : 'both',
+            mode: BINDER_MODES.includes(raw.mode) ? raw.mode : 'full',
         };
         for (const k of BINDER_TICKS) out[k] = raw[k] !== false;
         return out;
@@ -641,6 +653,7 @@ class _Binder {
         const out = {
             palette: opts.palette === 'printer' ? 'printer' : 'colour',
             maps: sides.power === false ? 'data' : sides.data === false ? 'power' : 'both',
+            mode: opts.mode === 'simple' ? 'simple' : 'full',
         };
         for (const k of BINDER_TICKS) out[k] = opts[k] !== false;
         return out;
@@ -737,6 +750,8 @@ class _Binder {
             // saves the choice at once (setBinderSheet)
             sheet: this.getBinderSheet(),
             palette: printer ? 'printer' : 'colour',
+            // Full, or Simple: a sheet per job for each screen (_bSimplePage)
+            mode: on('export-binder-mode-simple', false) ? 'simple' : 'full',
             sides: { power: side !== 'data', data: side !== 'power' },
             scope,
             cover: on('export-binder-cover', scope.kind === 'show'),
@@ -1547,7 +1562,21 @@ class _Binder {
         const wiring = opts.wiring !== false;
         // (a screen that cannot fit a circuit prints its power sheet with
         // the note saying why, and no wiring sheet: nothing is wired)
+        const simple = opts.mode === 'simple';
         const emit = (subject, pos, side) => {
+            // SIMPLE: one sheet per side, the wiring drawing with its rulers
+            // over its tables (_bSimplePage); a power side with nothing to
+            // wire (a screen that cannot fit a circuit) keeps its map sheet
+            // and the note saying why
+            if (simple) {
+                const ss = subject && this._bSubject(subject);
+                const wall = !ss ? [] : ss.kind === 'layer' ? [ss.layers[0]] : (ss.carriers || ss.layers);
+                const none = side === 'power' && !!wall.length
+                    && !wall.some(l => this._bHasPower(l, (book.list.byScreen || {})[l.id] || {}));
+                if (none) this._bScreenPage(book, subject, pos, side);
+                else this._bSimplePage(book, subject, pos, side);
+                return;
+            }
             this._bScreenPage(book, subject, pos, side);
             // a group's or a member's sheet is wired where any screen of
             // the wall carries circuits (the carrier holds them all)
@@ -1587,11 +1616,12 @@ class _Binder {
         const rig = (screen, pos) => {
             if (opts.rigging === false) return;
             const rp = screen && screen.group_id != null ? rigPlans.get(String(screen.group_id)) : null;
+            const page = (s) => (simple ? this._bSimpleRiggingPage(book, s, pos) : this._bRiggingPage(book, s, pos));
             if (rp && rp.mode === 'group') {
-                if (rigLast.get(screen) === rp) this._bRiggingPage(book, this._bRigGroupSubject(rp), pos);
+                if (rigLast.get(screen) === rp) page(this._bRigGroupSubject(rp));
                 return;
             }
-            if (this._bHasRigging(screen)) this._bRiggingPage(book, screen, pos);
+            if (this._bHasRigging(screen)) page(screen);
         };
         for (const { layer, pos } of sheets) {
             const gp = this._bGroupPlanOf(book, layer);
@@ -7297,7 +7327,9 @@ class _Binder {
         }, this._bRiggingBlocks(book, s));
     }
 
-    _bRiggingBlocks(book, target) {
+    // `o.notesOnly` (the simple sheet, which counts the bars its own way,
+    // _bSimpleBarTotals): the notes alone.
+    _bRiggingBlocks(book, target, o = {}) {
         const layers = this._bSubject(target).layers;
         const list = (l, field) => (Array.isArray(l[field]) ? l[field] : []);
         // The corner pieces on each side, by the panels each covers (one
@@ -7332,6 +7364,7 @@ class _Binder {
                 rows: shared.map(s => ({ cells: [`A ${RiggingMath.sizeWord(s.size).toLowerCase()} ${s.kind} bar runs from ${name(s.from)} onto ${name(s.to)}. It is counted on ${name(s.owner)}.`] })),
             }) });
         }
+        if (o.notesOnly) return notes;
         const blocks = rows.map(([word, lists]) => {
             const { total, bySize } = RiggingMath.tally(lists.filter(bars => bars.length));
             const kind = word === 'Footer' ? 'footer' : 'header';
@@ -7454,7 +7487,9 @@ class _Binder {
     // lists every member's multis and reads the group's figures; a member's
     // lists the circuits on its cabinets, each crossing one saying where the
     // rest of it is, and reads its own.
-    _bPowerBlocks(book, target, scr) {
+    // `o.rows` (the simple sheet): a ROWS column - the rows each circuit
+    // feeds (_bCircuitRows) - in place of CABLE.
+    _bPowerBlocks(book, target, scr, o = {}) {
         const s = this._bSubject(target);
         const layer = s.layers[0];
         const grouped = s.kind !== 'layer';
@@ -7480,7 +7515,7 @@ class _Binder {
                 const amps = twOverKeys.has(`${carrier.id}:${c.num}`) && !this._bCircuitOver(carrier, c.amps)
                     ? `${this._bNum(c.amps, 1)} · OVER` : this._bAmpsCell(carrier, c.amps);
                 rows.push({ cells: [where ? `${c.label} · ${where}` : c.label, String(c.tail), this._bNum(c.tiles, 0),
-                                    amps, c.cable || ''] });
+                                    amps, o.rows ? this._bCircuitRows(s, carrier, c.num) : (c.cable || '')] });
             }
         }
         // a screen that cannot fit a circuit - or a group routed as one
@@ -7499,7 +7534,7 @@ class _Binder {
             // a crossing circuit's "· also on …" wraps under its name
             cols: [{ title: 'circuit', w: 1.5, ...(crossing ? { list: 2 } : {}) }, { title: 'no.', w: 0.6, align: 'right' },
                    { title: 'panels', w: 0.8, align: 'right' }, { title: 'amps', w: 0.8, align: 'right' },
-                   { title: 'cable', w: 1.4 }],
+                   o.rows ? { title: 'rows', w: 0.9 } : { title: 'cable', w: 1.4 }],
             rows,
         }) });
         // Cables this screen (power side): nothing to list where it cannot
@@ -8658,6 +8693,285 @@ class _Binder {
             }
         }
         return best;
+    }
+
+    // ---- simple mode --------------------------------------------------------
+
+    // SIMPLE MODE (owner, 2026-11-18: a sheet per job to hand a stagehand).
+    // The export's Full | Simple choice (project.binder.sheets.mode). Simple
+    // keeps every sheet the set prints but the screens' own: each screen's
+    // (or group's) Power, Power Wiring, Data and Data Wiring sheets become
+    // ONE POWER WIRING sheet and ONE DATA WIRING sheet, and its Header/Footer
+    // sheet its simple one:
+    //   - the drawing - the wiring sheet's on power and data, the bars'
+    //     map on the Header/Footer one - with the row and column rulers the
+    //     map sheets carry, on all the room its tables leave ("always
+    //     prefer a bigger drawing");
+    //   - under it, power: CIRCUITS per multi, a ROWS column (the rows each
+    //     circuit feeds) in place of CABLE, and CABLES THIS SCREEN; data:
+    //     PORTS, PRIMARY | BACKUP, and CABLES THIS SCREEN; header/footer:
+    //     every bar where it hangs, the bars by size and the totals.
+    // No FACTS on any of them. Tables the drawing cannot spare the room for
+    // (it keeps MAP_MIN_FRAC of the area) run on to the next sheet,
+    // "(cont.)". The sheets are named as the wiring sheets are, "SCREEN A ·
+    // POWER WIRING · REAR VIEW" - the word is DATA, never SIGNAL.
+    _bSimplePage(book, target, pos, side) {
+        const s = this._bSubject(target);
+        const layer = s.layers[0];
+        const scr = book.list.byScreen[layer.id] || {};
+        const power = side === 'power';
+        const view = this._bViewName(book);
+        const title = `${s.name} - ${power ? 'Power' : 'Data'} Wiring`;
+        const sheetTitle = `${s.name} · ${power ? 'POWER' : 'DATA'} WIRING · ${view.toUpperCase()}`;
+        const blocks = (power ? this._bPowerBlocks(book, s, scr, { rows: true }) : this._bDataBlocks(book, s, scr))
+            .filter(b => b && (b.lines || []).length);
+        const band = this._bSimpleBand(book, blocks);
+        const da = book.geo.da;
+        const drawH = band.drawH;
+        // the wiring drawing on what is left, the rulers' room kept at its
+        // head and its left
+        const A = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
+                    w: da.w - SIMPLE_RULER.left, h: drawH - SIMPLE_RULER.top };
+        const plan = this._bwPlanHalf(book, s, scr, power ? 'power' : 'signal', A);
+        const viewNo = ++book.views;
+        this._bPage(book, {
+            kind: 'wiring', title, sheetTitle, viewName: sheetTitle, view: viewNo,
+            layerId: s.id, subject: s.name, position: pos ? pos.name : null,
+            ...(s.groupId != null ? { groupId: s.groupId, layerIds: s.layers.map(l => l.id) } : {}),
+            layout: 'simple', cols: band.cols.length, scale: plan.K, sides: { power, data: !power },
+        }, () => {
+            if (book.log) book.log.wiring = { halves: [] };
+            const geo = this._bwDrawHalf(book, s, plan);
+            const rulers = geo ? this._bSimpleRulers(book, s, geo, { x: da.x, y: da.y, w: da.w, h: drawH }) : false;
+            this._bViewBubble(book, viewNo, sheetTitle, da.x + 20, da.y + drawH + 4, null, da.w - 20);
+            this._bSimpleTables(book, band);
+            if (book.log) {
+                book.log.simple = { drawH, rulers, tablesY: band.y, colW: band.colW, cols: band.cols.length,
+                                    wall: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h } : null };
+            }
+        });
+        this._bSimpleRest(book, band, title, sheetTitle, s, pos);
+    }
+
+    // The simple Header/Footer sheet: the bars' map with the rulers, then
+    // the full sheet's notes (bars that no longer fit, bars across screens:
+    // _bRiggingBlocks), every bar where it hangs (_bSimpleBarList) and the
+    // header and footer totals by size (_bSimpleBarTotals). Its name is the
+    // full set's.
+    _bSimpleRiggingPage(book, target, pos) {
+        const s = this._bSubject(target);
+        const view = this._bViewName(book);
+        const title = `${s.name} - Header/Footer - ${view}`;
+        const sheetTitle = `${s.name} · HEADER/FOOTER · ${view.toUpperCase()}`;
+        const layer = s.kind === 'layer' ? s.layers[0] : s;
+        const blocks = [...this._bRiggingBlocks(book, s, { notesOnly: true }), ...this._bSimpleBarList(book, s),
+                        ...this._bSimpleBarTotals(book, s)].filter(b => b && (b.lines || []).length);
+        const band = this._bSimpleBand(book, blocks);
+        const da = book.geo.da;
+        const drawH = band.drawH;
+        // (the bars' room over and under the wall only: the rulers' room is
+        // kept at the drawing's head and left, SIMPLE_RULER, and nothing
+        // stands beside the wall here)
+        const full = this._bRiggingGutter(s);
+        const gutter = { left: 0, right: 0, top: full.top > MAP_GUTTER.bottom ? full.top : 0,
+                         bottom: full.bottom > MAP_GUTTER.bottom ? full.bottom : 0 };
+        const area = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
+                       w: da.w - SIMPLE_RULER.left, h: drawH - SIMPLE_RULER.top };
+        const viewNo = ++book.views;
+        this._bPage(book, {
+            kind: 'rigging', title, sheetTitle, viewName: sheetTitle, view: viewNo,
+            layerId: s.id, subject: s.name, position: pos ? pos.name : null,
+            ...(s.groupId != null ? { groupId: s.groupId, layerIds: s.layers.map(l => l.id) } : {}),
+            layout: 'simple', cols: band.cols.length, scale: 1,
+        }, () => {
+            const geo = this._bMap(book, layer, 'rigging', area, gutter);
+            // (the column ruler over the bars drawn above the wall, never
+            // through them: the map's own ink starts at its area's head)
+            const inked = geo && geo.area && geo.area.y < geo.wall.y
+                ? { ...geo, mapInkTop: Math.min(typeof geo.mapInkTop === 'number' ? geo.mapInkTop : geo.wall.y, geo.area.y) }
+                : geo;
+            const rulers = inked ? this._bSimpleRulers(book, s, inked, { x: da.x, y: da.y, w: da.w, h: drawH }) : false;
+            const used = geo ? geo.area : area;
+            this._bViewBubble(book, viewNo, sheetTitle, da.x + 20, Math.min(used.y + used.h, da.y + drawH) + 4,
+                              null, da.w - 20);
+            this._bSimpleTables(book, band);
+            if (book.log) {
+                book.log.simple = { drawH, rulers, tablesY: band.y, colW: band.colW, cols: band.cols.length,
+                                    wall: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h } : null };
+            }
+        });
+        this._bSimpleRest(book, band, title, sheetTitle, s, pos);
+    }
+
+    // The tables' band under a simple sheet's drawing: the blocks across
+    // the drawing area's width, as short as the columns will take them -
+    // a long table (a bar list, a wall's circuits) running on from one
+    // column to the next, its heads repeated, a short one (SIMPLE_WHOLE
+    // lines or fewer: the cables, the totals) kept whole - so the drawing
+    // gets every line the tables can give back. Where even the drawing's
+    // least (MAP_MIN_FRAC of the area) leaves too little, what the band
+    // cannot hold is carried on (_bPack's rest). { cols, rest, colW, h,
+    // drawH, y }: drawH the drawing's height (its bubble under it), y
+    // where the tables start.
+    _bSimpleBand(book, blocks) {
+        const da = book.geo.da;
+        const colW = Math.max(COL_W, ...blocks.map(b => this._bBlockMinW(b)));
+        const across = Math.max(1, Math.floor((da.w + COL_GAP) / (colW + COL_GAP)));
+        const room = Math.floor(da.h * (1 - MAP_MIN_FRAC)) - BUBBLE_H - COL_GAP;
+        let pack = null;
+        if (blocks.length) {
+            const at = (cap) => this._bPack(blocks, cap, across, SIMPLE_WHOLE);
+            pack = at(room);
+            if (!pack.rest.length) {
+                let lo = 1, hi = room;
+                while (lo < hi) {
+                    const mid = Math.floor((lo + hi) / 2);
+                    if (at(mid).rest.length) lo = mid + 1; else hi = mid;
+                }
+                pack = at(lo);
+            }
+        }
+        const cols = pack ? pack.cols.filter(c => c.items.length) : [];
+        const h = cols.reduce((m, c) => Math.max(m, c.h), 0);
+        const drawH = da.h - BUBBLE_H - (h ? h + COL_GAP : 0);
+        return { cols, rest: (pack && pack.rest) || [], colW: Math.min(colW, da.w), h, drawH,
+                 y: da.y + drawH + BUBBLE_H + (h ? COL_GAP : 0) };
+    }
+
+    _bSimpleTables(book, band) {
+        const da = book.geo.da;
+        band.cols.forEach((col, i) => {
+            const x = da.x + i * (band.colW + COL_GAP);
+            for (const it of col.items) it.line.draw(book.ctx, x, band.y + it.y, band.colW);
+        });
+    }
+
+    // What a simple sheet's band could not hold, on the sheets after it.
+    _bSimpleRest(book, band, title, sheetTitle, s, pos) {
+        if (!band.rest.length) return;
+        this._bColumnSheets(book, {
+            colW: band.colW,
+            page: () => ({ kind: 'wiring', title: `${title} (cont.)`, sheetTitle: `${sheetTitle} (CONT.)`,
+                           layerId: s.id, subject: s.name, position: pos ? pos.name : null }),
+        }, [{ kind: 'wiring', name: `${s.name} (cont.)`, blocks: band.rest }]);
+    }
+
+    // The rulers over a simple sheet's drawing, the map sheets' own: a
+    // group's numbered straight through the wall, a screen's from 1, in
+    // the room kept for them at the drawing's head and left. True when
+    // drawn.
+    _bSimpleRulers(book, s, geo, mapArea) {
+        if (!geo || !geo.wall || typeof geo.rect !== 'function') return false;
+        const g = { ...geo, mapArea };
+        if (s.kind === 'group') this._bRulersAcross(book, s.layers, g);
+        else this._bRulers(book, s.layers[0], g);
+        return true;
+    }
+
+    // The rows a circuit feeds, as a ROWS cell: "3", "1-2", "1, 4". A
+    // screen's rows are its own, numbered from its top as the rulers
+    // number them; a group printed as one numbers its wall's rows straight
+    // through (_bRulersAcross gathers them the same way).
+    _bCircuitRows(s, carrier, num) {
+        const c = (typeof this.screenCircuits === 'function' ? this.screenCircuits(carrier) : [])
+            .find(x => x.num === num);
+        if (!c) return '';
+        const panels = (c.panels || []).map((p, i) => ({ p, l: (c.layers && c.layers[i]) || carrier }))
+            .filter(({ p, l }) => p && (s.kind !== 'member' || l === s.member));
+        let rows;
+        if (s.kind === 'group') {
+            if (!this._simpleRowCache || this._simpleRowCache.s !== s) {
+                const all = s.layers.flatMap(l => (l.panels || []).filter(p => p && !p.hidden));
+                const tol = Math.max(1, Math.min(...all.map(p => p.height || 1)) / 2);
+                const centres = [...new Set(all.map(p => p.y + p.height / 2))].sort((a, b) => a - b);
+                const bands = [];
+                for (const c0 of centres) {
+                    if (bands.length && c0 - bands[bands.length - 1] <= tol) continue;
+                    bands.push(c0);
+                }
+                this._simpleRowCache = { s, bands, tol };
+            }
+            const { bands, tol } = this._simpleRowCache;
+            rows = panels.map(({ p }) => bands.findIndex(b => Math.abs(p.y + p.height / 2 - b) <= tol) + 1)
+                .filter(n => n > 0);
+        } else {
+            rows = panels.map(({ p }) => (Number(p.row) || 0) + 1);
+        }
+        const list = [...new Set(rows)].sort((a, b) => a - b);
+        const out = [];
+        for (let i = 0; i < list.length; i++) {
+            let j = i;
+            while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+            out.push(j > i ? `${list[i]}-${list[j]}` : String(list[i]));
+            i = j;
+        }
+        return out.join(', ');
+    }
+
+    // Every bar where it hangs, header then footer: its size in the bar
+    // words the pull sheet uses, the columns it spans as the rulers number
+    // them, and on a curved row the angle at the joint after it.
+    _bSimpleBarList(book, target) {
+        const s = this._bSubject(target);
+        const rows = [];
+        let curved = false;
+        for (const kind of ['header', 'footer']) {
+            for (const l of s.layers) {
+                const placed = typeof this.riggingPlaced === 'function' ? this.riggingPlaced(l, kind) : [];
+                if (!placed.length) continue;
+                const cols = Number(l.columns) || 0;
+                const out = this.riggingCurveOn && this.riggingCurveOn(l) && typeof this.riggingCurveSolve === 'function'
+                    ? this.riggingCurveSolve(l) : null;
+                const joints = out && Array.isArray(out.joints) ? out.joints : null;
+                if (joints) curved = true;
+                for (const b of placed) {
+                    const from = b.start + 1, to = b.start + b.size;
+                    const span = `${Math.max(1, from)}-${Math.min(cols || to, to)}`;
+                    const j = joints ? joints[b.start + b.size - 1] : null;
+                    rows.push({ cells: [s.layers.length > 1 ? `${l.name} · ${kind === 'footer' ? 'Footer' : 'Header'}`
+                                                             : (kind === 'footer' ? 'Footer' : 'Header'),
+                                        RiggingMath.barName(b.size, kind), span,
+                                        Number.isFinite(j) ? `${+j.toFixed(1)}°` : ''] });
+                }
+            }
+        }
+        if (!rows.length) return [];
+        const cols = [{ title: 'row', w: 1.2 }, { title: 'bar', w: 1.6 }, { title: 'columns', w: 0.8 }];
+        if (curved) cols.push({ title: 'angle after', w: 0.8 });
+        return [{ lines: this._bTableLines(book, {
+            title: 'Bars', cols,
+            rows: rows.map(r => ({ cells: curved ? r.cells : r.cells.slice(0, 3) })),
+        }) }];
+    }
+
+    // The header and footer totals (owner, 2026-11-18: "Header foot should
+    // have total numbers of headers and footers too"): each bar size in the
+    // pull sheet's words ("Header Bar - Double"), each corner piece, and
+    // each side's total - a group's whole wall once, a bar across a seam on
+    // the screen it starts on (RiggingMath.tally over each screen's own
+    // row, as the Header/Footer tab counts them).
+    _bSimpleBarTotals(book, target) {
+        const s = this._bSubject(target);
+        const rows = [];
+        for (const kind of ['header', 'footer']) {
+            const lists = s.layers.map(l => (typeof this.riggingBarsOf === 'function' ? this.riggingBarsOf(l, kind) : []))
+                .filter(b => b.length);
+            const corners = typeof this.riggingCornersBySize === 'function' ? this.riggingCornersBySize(s.layers, kind) : {};
+            if (!lists.length && !Object.keys(corners).length) continue;
+            const { total, bySize } = RiggingMath.tally(lists);
+            Object.keys(bySize).map(Number).sort((a, b) => a - b)
+                .forEach(size => rows.push({ cells: [RiggingMath.barName(size, kind), this._bQty(bySize[size])] }));
+            let pieces = 0;
+            Object.keys(corners).map(Number).sort((a, b) => a - b).forEach(size => {
+                pieces += corners[size];
+                rows.push({ cells: [RiggingMath.cornerName(size, kind), this._bQty(corners[size])] });
+            });
+            rows.push({ cells: [`${kind === 'footer' ? 'Footer' : 'Header'} total`, this._bQty(total + pieces)], bold: true });
+        }
+        if (!rows.length) return [];
+        return [{ lines: this._bTableLines(book, {
+            title: 'Totals', cols: [{ title: 'bar', w: 1.6 }, { title: 'qty', w: 0.6, align: 'right' }], rows,
+        }) }];
     }
 
     // The show at a glance: the Show Look, cropped to the SCREENS' bounds
