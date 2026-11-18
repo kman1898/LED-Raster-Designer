@@ -185,7 +185,11 @@ class _Processors {
             || (method === 'PUT' && /\/slots\/\d+$/.test(url)));
         const pullBefore = removes && typeof this._pullLiveRowKeys === 'function'
             ? this._pullLiveRowKeys() : null;
-        return fetch(url, {
+        // Noted while it is out: a gear box that committed it waits for
+        // its reply before it is rebuilt (app-dock.js _hwPopoverHold).
+        const out = typeof this._hwPopoverRequestOut === 'function'
+            ? (p) => this._hwPopoverRequestOut(p) : (p) => p;
+        return out(fetch(url, {
             method,
             headers: { 'Content-Type': 'application/json' },
             body: body === undefined ? undefined : JSON.stringify(body),
@@ -233,7 +237,7 @@ class _Processors {
                 }
             })
             .catch(err => sendClientLog('processor_request_failed',
-                                        { url, method, error: String(err) }));
+                                        { url, method, error: String(err) })));
     }
 
     // The panel is rebuilt wholesale on every change, so any field the user is

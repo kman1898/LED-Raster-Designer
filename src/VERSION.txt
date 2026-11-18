@@ -727,6 +727,9 @@ FIXES
 - FIX: A saved preset with no weight or watts in it, an old one or one
   edited by hand, makes a screen with no weight figure and no power
   figure, instead of 20 kg and the watts from Preferences.
+- FIX: A bad IP, subnet or gateway typed in a processor's gear and entered
+  stays in its box, red with the reason, instead of the box going back to
+  what it held before, unmarked, while the bad entry was saved.
 
 v1.6.0 - November 6, 2026
 ----------------------------

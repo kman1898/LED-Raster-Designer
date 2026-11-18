@@ -1121,6 +1121,14 @@ class _HardwareDock {
     // and the Enter rule's release. Focus that moved on to another box in
     // the popover (Tab) holds again there; a box still focused after its
     // commit (the number arrows) is rebuilt with its focus kept.
+    //
+    // A commit that went to the server (a processor's IP, a name) is
+    // rebuilt only once its reply is in. Rebuilt before, the box was
+    // drawn from the tree the edit had not reached yet: a bad subnet that
+    // keeps the caret (the Enter rule leaves a red box open) came back
+    // blank and unmarked, and every render after it waited on the box
+    // still being typed in, so the server held 255.0.255.0 and the box
+    // showed nothing (CI, 2026-11-17).
     _hwPopoverHold(el) {
         this._hwPopoverHeldRefresh = true;
         if (this._hwPopoverHeldOn === el) return;
@@ -1132,17 +1140,40 @@ class _HardwareDock {
             el.removeEventListener('change', release);
             el.removeEventListener('focusout', release);
             if (this._hwPopoverHeldOn === el) this._hwPopoverHeldOn = null;
-            setTimeout(() => {
+            const run = () => {
                 if (!this._hwPopoverHeldRefresh) return;
                 this._hwPopoverHeldRefresh = false;
                 if (typeof this._preserveEditorFocus === 'function') {
                     this._preserveEditorFocus();
                 }
                 this._hwPopoverRefresh(document.activeElement === el);
+            };
+            setTimeout(() => {
+                const out = e.type === 'change' && this._hwPopoverRequestsOut;
+                if (!out || !out.size) {
+                    run();
+                    return;
+                }
+                // The reply's own render holds again on the box while it
+                // has the focus; this runs that held rebuild with the
+                // reply folded in.
+                Promise.all([...out]).then(() => setTimeout(run, 0));
             }, 0);
         };
         el.addEventListener('change', release);
         el.addEventListener('focusout', release);
+    }
+
+    // A request to the server still on its way (_processorRequest), until
+    // it has been answered and its reply applied, or has failed.
+    _hwPopoverRequestOut(promise) {
+        if (!promise || typeof promise.then !== 'function') return promise;
+        if (!this._hwPopoverRequestsOut) this._hwPopoverRequestsOut = new Set();
+        const out = this._hwPopoverRequestsOut;
+        const done = () => out.delete(tracked);
+        const tracked = promise.then(done, done);
+        out.add(tracked);
+        return promise;
     }
 
     _dockNote(host, text) {

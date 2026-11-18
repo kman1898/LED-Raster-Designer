@@ -260,6 +260,77 @@ def test_a_bad_entry_is_marked_red_with_a_plain_reason_and_stored_as_typed(page)
     assert ids['errors'] == []
 
 
+SLOW_REPLIES_JS = """(on) => {
+    const app = window.app;
+    if (!on) {
+        if (window.__netFetch) window.fetch = window.__netFetch;
+        window.__netFetch = null;
+        return;
+    }
+    const plain = window.__netFetch = window.fetch;
+    window.fetch = (url, opts) => {
+        const p = plain(url, opts);
+        if (!(opts && opts.method === 'PUT' && String(url).startsWith('/api/processors'))) return p;
+        return p.then(r => new Promise(res => setTimeout(() => res(r), 300)));
+    };
+}"""
+
+BAD_ENTRIES = [
+    ('processor-net-ip', 'main.ip', '10.0.0.300', 'Not an IP address'),
+    ('processor-net-subnet', 'main.subnet', '255.0.255.0', 'Not a subnet mask'),
+    ('processor-net-gateway', 'main.gateway', '10.0.0.300', 'Not a gateway address'),
+    ('processor-bu-net-ip', 'bu.ip', '10.0.0.300', 'Not an IP address'),
+    ('processor-bu-net-subnet', 'bu.subnet', '255.0.255.0', 'Not a subnet mask'),
+    ('processor-bu-net-gateway', 'bu.gateway', '10.0.0.300', 'Not a gateway address'),
+    ('show-net-subnet', 'show.subnet', '255.0.255.0', 'Not a subnet mask'),
+    ('show-net-gateway', 'show.gateway', '10.0.0.300', 'Not a gateway address'),
+]
+
+
+def test_a_bad_entry_keeps_its_text_and_mark_through_a_rebuild_held_on_its_box(page):
+    """CI, 2026-11-17: the subnet box came back unmarked. A render that
+    lands while a box has the focus (the box before it letting go, a reply,
+    another page's edit) holds the popover's rebuild until the box commits.
+    A bad entry keeps the caret after Enter, and the held rebuild ran at the
+    commit, before the server's reply: the box was drawn from the old tree,
+    blank and unmarked, and stayed so while it kept the focus. Here every
+    reply is held back 300 ms and a render lands on each box before it is
+    typed in; the box keeps the text, the red mark and the reason, and
+    keeps them through any later rebuild."""
+    pg, ids = page
+    pid = ids['procId']
+    pg.evaluate(SLOW_REPLIES_JS, True)
+    try:
+        for prefix, path, value, why in BAD_ENTRIES:
+            _clear_all(pg, pid)
+            _gear(pg, pid)
+            key = prefix if prefix.startswith('show-') else f'{prefix}-{pid}'
+            sel = f'#hw-gear-popover [data-lrd-field="{key}"]'
+            pg.locator(sel).click()
+            pg.evaluate("() => window.app.renderHardwareDock()")
+            pg.locator(sel).fill(value)
+            pg.keyboard.press('Enter')
+            _wait(pg, pid, f"{path} === '{value}'")
+            pg.wait_for_function("([sel, v]) => { const el = document.querySelector(sel);"
+                                 " return !!el && el.value === v; }", arg=[sel, value], timeout=3000)
+            read = """(sel) => { const el = document.querySelector(sel);
+                return { value: el.value, bad: el.classList.contains('hw-pop-net-bad'),
+                         invalid: el.getAttribute('aria-invalid'), title: el.title,
+                         focused: document.activeElement === el }; }"""
+            mark = pg.evaluate(read, sel)
+            assert mark['bad'] and mark['invalid'] == 'true', (key, mark)
+            assert mark['title'].startswith(why) and mark['focused'], (key, mark)
+            # any rebuild after it keeps the mark
+            pg.evaluate("() => window.app._hwPopoverRefresh(true)")
+            mark = pg.evaluate(read, sel)
+            assert mark['value'] == value and mark['bad'], (key, mark)
+            assert mark['title'].startswith(why), (key, mark)
+            pg.keyboard.press('Escape')
+    finally:
+        pg.evaluate(SLOW_REPLIES_JS, False)
+    assert ids['errors'] == []
+
+
 def test_two_units_on_one_ip_are_named_in_the_gear_the_strip_and_the_header(page):
     pg, ids = page
     pid = ids['procId']
