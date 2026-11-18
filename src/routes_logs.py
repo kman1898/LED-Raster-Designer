@@ -247,11 +247,12 @@ def browser_name(ua):
 # is under 1 KB.
 _MAX_EVENT_BYTES = 16 * 1024
 # Per client, a token bucket: 50 events a second sustained, with room for a
-# page's opening burst. The machine running the app is not held to it (its
+# page's opening burst (a tablet joining a show can pass 100 a second for a
+# few seconds). The machine running the app is not held to it (its
 # own windows burst past 100 a second while a show opens, and its lines are
 # the ones a report is read from).
 _EVENTS_PER_SECOND = 50.0
-_EVENT_BURST = 150.0
+_EVENT_BURST = 500.0
 _flood_lock = threading.Lock()
 _clients = {}   # remote address -> its bucket and its uncounted refusals
 

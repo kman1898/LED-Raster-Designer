@@ -367,11 +367,18 @@ class _LogsRecent {
                 // joined tablet says so once instead of asking every 2 s.
                 if (r.status === 403) {
                     this._stopLogsAutoRefresh();
-                    return Promise.reject(new Error('the log can be viewed only on the computer running the app.'));
+                    return null;
                 }
                 return r.json();
             })
-            .then(data => this._renderLogs(data, force))
+            .then(data => {
+                if (data === null) {
+                    const pre = document.getElementById('logs-content');
+                    if (pre) pre.textContent = 'The log can be viewed only on the computer running the app.';
+                    return;
+                }
+                this._renderLogs(data, force);
+            })
             .catch(err => this._renderLogsError(err));
     }
 

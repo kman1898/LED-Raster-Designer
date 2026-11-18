@@ -117,9 +117,10 @@ def test_a_flood_is_dropped_and_counted_in_one_warning(client, written, monkeypa
     clock = [1000.0]
     monkeypatch.setattr(routes_logs.time, 'monotonic', lambda: clock[0])
     ours = {'Origin': f'http://{HOST}'}
-    codes = [_post(client, {'action': 'spam', 'details': {'n': i}}, environ=REMOTE,
-                   headers=ours).status_code for i in range(400)]
     burst = int(routes_logs._EVENT_BURST)
+    total = burst + 250
+    codes = [_post(client, {'action': 'spam', 'details': {'n': i}}, environ=REMOTE,
+                   headers=ours).status_code for i in range(total)]
     assert codes[:burst] == [200] * burst
     assert set(codes[burst:]) == {429}
     assert len(_client_lines(written)) == burst
@@ -129,7 +130,7 @@ def test_a_flood_is_dropped_and_counted_in_one_warning(client, written, monkeypa
     assert _post(client, {'action': 'after'}, environ=REMOTE, headers=ours).status_code == 200
     warns = [w for w in written if w[0] == 'client_log_dropped']
     assert len(warns) == 1
-    assert warns[0][1]['dropped'] == 400 - burst
+    assert warns[0][1]['dropped'] == total - burst
     assert warns[0][1]['remote_addr'] == REMOTE['REMOTE_ADDR']
     # the dropped payloads are not in it
     assert 'spam' not in json.dumps(warns[0][1])
