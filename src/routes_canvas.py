@@ -8,7 +8,7 @@ from flask import Blueprint, request, jsonify, make_response, render_template
 
 import app
 import port_assignment
-from app import _find_canvas, _mirror_active_canvas_to_root, _next_canvas_color, _next_canvas_id, _next_canvas_workspace_position, _next_duplicate_canvas_name, log_event, socketio
+from app import _find_canvas, _mirror_active_canvas_to_root, canvas_size_text, _next_canvas_color, _next_canvas_id, _next_canvas_workspace_position, _next_duplicate_canvas_name, log_event, socketio
 
 canvas_bp = Blueprint('canvas', __name__)
 
@@ -60,7 +60,8 @@ def create_canvas():
     canvases.append(canvas)
     app.current_project['active_canvas_id'] = new_id
     app.current_project['is_pristine'] = False
-    log_event('canvas_create', {'id': new_id, 'name': canvas['name']})
+    size, show_size = canvas_size_text(canvas)
+    log_event('canvas_create', {'id': new_id, 'name': canvas['name'], 'size': size, 'show_size': show_size})
     import routes_project
     routes_project.emit_project_edited()
     return jsonify(app.current_project)
@@ -82,6 +83,7 @@ def update_canvas(canvas_id):
         'show_raster_width', 'show_raster_height',
         'data_flow_perspective', 'power_perspective',
     }
+    size_before = canvas_size_text(canvas)
     changed = {}
     for key, val in data.items():
         if key in allowed:
@@ -91,7 +93,12 @@ def update_canvas(canvas_id):
     # Slice 6: keep the project-root raster mirror in sync so any
     # client/test still reading root sees the latest active-canvas values.
     _mirror_active_canvas_to_root(app.current_project)
-    log_event('canvas_update', {'id': canvas_id, 'changed': changed})
+    details = {'id': canvas_id, 'changed': changed}
+    size_after = canvas_size_text(canvas)
+    if size_after != size_before:
+        details.update(size_from=size_before[0], size_to=size_after[0],
+                       show_size_from=size_before[1], show_size_to=size_after[1])
+    log_event('canvas_update', details)
     import routes_project
     routes_project.emit_project_edited()
     return jsonify(app.current_project)

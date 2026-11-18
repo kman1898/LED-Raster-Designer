@@ -487,6 +487,7 @@ def save_project():
     # (backwards-compat clients / older tests), propagate those into the
     # active canvas so the canvas object reflects the new values. Then
     # re-mirror canvas → root so root stays consistent.
+    sizes_before = app.canvas_sizes_of(app.current_project)
     canvases = app.current_project.get('canvases') or []
     if canvases and not data.get('canvases'):
         active_id = app.current_project.get('active_canvas_id')
@@ -502,6 +503,8 @@ def save_project():
             if key in data and data[key] is not None:
                 active[key] = data[key]
     app.current_project.update(data)
+    app.log_canvas_size_changes(sizes_before, app.current_project,
+                                'project_save_pristine_sync' if keep_pristine else 'project_save')
     if not keep_pristine:
         app.current_project['is_pristine'] = False
     _stamp_app_version(app.current_project)
@@ -649,6 +652,7 @@ def restore_project():
     release_ports = (isinstance(data, dict)
                      and str(data.pop('release_screens_ports', False)).lower() in ('1', 'true', 'yes'))
     pins_before = port_assignment.pins_of(data) if release_ports else None
+    sizes_before = app.canvas_sizes_of(app.current_project)
     app.current_project = data
     app.current_project['is_pristine'] = bool(keep_pristine and data.get('is_pristine') is True)
     # Backfill showOffsetX/Y on layers from older projects that pre-date the
@@ -686,6 +690,10 @@ def restore_project():
             'from_version': '<0.8',
             'to_version': app.CURRENT_FORMAT_VERSION,
         })
+    # undo, redo, a file open, a guide: a canvas that takes another size
+    # says so, with the replace's own reason (?reason=, _replace_marker)
+    app.log_canvas_size_changes(sizes_before, app.current_project,
+                                'project_' + _replace_marker('restore')['reason'])
     # v0.10.8.1: re-derive panel geometry from the per-panel states the client
     # sent, rather than trusting the x/y/width/height it sent alongside them.
     # Half-tiles resize the whole screen (a fully-half row collapses to half

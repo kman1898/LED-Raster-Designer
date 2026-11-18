@@ -518,6 +518,42 @@ def _mirror_active_canvas_to_root(project):
     return project
 
 
+def canvas_size_text(canvas):
+    """A canvas's Pixel Map and Show Look sizes, as the log writes them:
+    ('3840x2160', '3840x2160')."""
+    def num(key, fallback=None):
+        try:
+            return int(canvas.get(key) or (canvas.get(fallback) if fallback else 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+    return (f"{num('raster_width')}x{num('raster_height')}",
+            f"{num('show_raster_width', 'raster_width')}x{num('show_raster_height', 'raster_height')}")
+
+
+def canvas_sizes_of(project):
+    """{canvas id: canvas_size_text} for every canvas of PROJECT."""
+    canvases = (project or {}).get('canvases') if isinstance(project, dict) else None
+    return {c.get('id'): canvas_size_text(c) for c in (canvases or [])
+            if isinstance(c, dict) and c.get('id')}
+
+
+def log_canvas_size_changes(before, project, reason):
+    """One canvas_size_changed line for each canvas of PROJECT whose size
+    differs from BEFORE (a canvas_sizes_of map): the id, both sizes and
+    the route or pass that changed it. Canvas sizes change only when the
+    person sets them, so every change says where it came from
+    (2026-11-18: Canvas 1 went from 3840 x 2160 to 1920 x 1080 and the log
+    had no size in it at all)."""
+    for cid, now in canvas_sizes_of(project).items():
+        was = (before or {}).get(cid)
+        if was is None or was == now:
+            continue
+        log_event('canvas_size_changed', {
+            'id': cid, 'from': was[0], 'to': now[0],
+            'show_from': was[1], 'show_to': now[1], 'reason': reason,
+        })
+
+
 def _build_initial_project():
     """Build the in-memory project dict used at app startup and by /new."""
     project = {

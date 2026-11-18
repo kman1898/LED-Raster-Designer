@@ -287,6 +287,10 @@ class _ClientProps {
             this.project.layers.length === 1;
         if (startupDefaultMatch) {
             const layer = this.project.layers[0];
+            // The show as it came, before this pass gives it the
+            // Preferences: what the sync below compares with
+            // (_sendStartupSync).
+            const cameAs = this._startupSyncFields(this.project);
             layer.processorType = prefs.processorType;
             layer.lowLatency = !!prefs.lowLatency;
             layer.bitDepth = prefs.bitDepth;
@@ -357,20 +361,16 @@ class _ClientProps {
             // mirrored on this copy so the 'Initial State' undo snapshot,
             // taken right after this pass, carries it (see appVersion).
             this.project.app_version = this.appVersion();
-            this._trackProjectSync(fetch('/api/project', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    raster_width: prefs.rasterWidth,
-                    raster_height: prefs.rasterHeight,
-                    show_raster_width: prefs.rasterWidth,
-                    show_raster_height: prefs.rasterHeight,
-                    app_version: this.project.app_version,
-                    cableUnit: this.project.cableUnit,
-                    cableStock: this.project.cableStock === undefined ? null : this.project.cableStock,
-                    keep_pristine: true
-                })
-            }));
+            this._sendStartupSync({
+                raster_width: prefs.rasterWidth,
+                raster_height: prefs.rasterHeight,
+                show_raster_width: prefs.rasterWidth,
+                show_raster_height: prefs.rasterHeight,
+                app_version: this.project.app_version,
+                cableUnit: this.project.cableUnit,
+                cableStock: this.project.cableStock === undefined ? null : this.project.cableStock,
+                keep_pristine: true
+            }, cameAs);
             sendClientLog('startup_preferences_enforced', {
                 processorType: layer.processorType,
                 lowLatency: layer.lowLatency,
@@ -389,6 +389,83 @@ class _ClientProps {
             arrowColor: this.project.layers[0]?.arrowColor,
             dataFlowLabelSize: this.project.layers[0]?.dataFlowLabelSize
         });
+    }
+
+    // What the startup sync writes, as the show holds it: the canvas it
+    // lands on (the active one, where save_project puts root raster
+    // fields), its Canvas Size, the cable unit and the cable stock.
+    _startupSyncFields(project) {
+        const canvases = Array.isArray(project.canvases) ? project.canvases : [];
+        const c = canvases.find(x => x && x.id === project.active_canvas_id) || canvases[0] || project;
+        return {
+            canvasId: c.id || null,
+            raster_width: Number(c.raster_width) || 0,
+            raster_height: Number(c.raster_height) || 0,
+            show_raster_width: Number(c.show_raster_width) || Number(c.raster_width) || 0,
+            show_raster_height: Number(c.show_raster_height) || Number(c.raster_height) || 0,
+            cableUnit: project.cableUnit === undefined ? null : project.cableUnit,
+            cableStock: JSON.stringify(project.cableStock === undefined ? null : project.cableStock),
+        };
+    }
+
+    // The pristine startup show's Preferences go to the server
+    // (loadClientSideProperties), so the show holds the size the page
+    // shows. A page load runs that pass inside its follow pass (app-core
+    // loadProject, FOLLOWING), where every write is refused: from
+    // 2026-11-10 to 2026-11-18 this POST was, on every launch, and the
+    // server kept its 1920 x 1080. The page showed the Preferences' size
+    // until the first canvas answer replaced its copy (+ Add Canvas), and
+    // Canvas 1 read 1080p from then on. Inside a follow pass the send now
+    // waits, and loadProject makes it as soon as the pass is over
+    // (_sendOwedStartupSync).
+    _sendStartupSync(body, cameAs) {
+        if (this._followingHolds('startup_preferences', { keys: Object.keys(body) })) {
+            this._owedStartupSync = { body, cameAs };
+            return;
+        }
+        this._owedStartupSync = null;
+        this._postStartupSync(body, cameAs);
+    }
+
+    // The sync a load's follow pass held back, sent once the pass is
+    // over, and only where the server's copy differs from it: a page
+    // joining a show that already has the Preferences finds nothing to
+    // send and writes nothing.
+    _sendOwedStartupSync() {
+        const owed = this._owedStartupSync;
+        this._owedStartupSync = null;
+        if (!owed) return;
+        const { body, cameAs } = owed;
+        const differs = this._startupSizeDiffers(body, cameAs)
+            || body.cableUnit !== cameAs.cableUnit
+            || JSON.stringify(body.cableStock) !== cameAs.cableStock;
+        if (!differs) return;
+        this._postStartupSync(body, cameAs);
+    }
+
+    _startupSizeDiffers(body, cameAs) {
+        return Number(body.raster_width) !== cameAs.raster_width
+            || Number(body.raster_height) !== cameAs.raster_height
+            || Number(body.show_raster_width) !== cameAs.show_raster_width
+            || Number(body.show_raster_height) !== cameAs.show_raster_height;
+    }
+
+    _postStartupSync(body, cameAs) {
+        if (cameAs && this._startupSizeDiffers(body, cameAs)) {
+            sendClientLog('canvas_size_changed', {
+                id: cameAs.canvasId,
+                from: `${cameAs.raster_width}x${cameAs.raster_height}`,
+                to: `${body.raster_width}x${body.raster_height}`,
+                show_from: `${cameAs.show_raster_width}x${cameAs.show_raster_height}`,
+                show_to: `${body.show_raster_width}x${body.show_raster_height}`,
+                reason: 'startup_preferences',
+            });
+        }
+        this._trackProjectSync(fetch('/api/project', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }));
     }
     
     // Save client-side properties to localStorage
