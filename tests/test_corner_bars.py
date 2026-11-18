@@ -115,7 +115,7 @@ def test_1_panel_and_2_panel_corner_bars_are_separate_lines_everywhere(page):
     ids = reset(page, [dict(COLUMN, extra={'riggingSizes': [1, 2], 'riggingCorners': [
         {'at': 2, 'angle': 90, 'side': 'interior'}, {'at': 4.5, 'angle': 90, 'side': 'exterior'}]})])
     open_rigging(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     settled(page, lambda: pieces(page, ids[0]), lambda p: len(p) == 2)
     assert pieces(page, ids[0]) == [[2, 1, 1], [4.5, 3, 2]]
     assert placed(page, ids[0]) == [[0, 1], [2, 1], [5, 1]]
@@ -152,7 +152,7 @@ def test_two_screens_add_up_each_part_on_its_own_line(page):
     ])
     open_rigging(page)
     page.evaluate(f"() => window.app.setSelectedLayersByIds({ids}, {ids[0]})")
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     settled(page, lambda: [pieces(page, i) for i in ids], lambda p: all(p))
     assert pull_rig(page) == [['Header Bar - Corner (2 panel)', 2], ['Header Bar - Double', 4]]
     assert page.inner_text('#rigging-total-breakdown').split('\n') == ['Double: 4', 'Corner (2 panel): 2']
@@ -172,7 +172,7 @@ def test_a_corner_saved_under_90_takes_its_corner_bar_with_the_curve_on(page):
     ids = reset(page, [spec])
     open_rigging(page)
     assert page.locator('#rigging-corners input').count() == 0
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     settled(page, lambda: pieces(page, ids[0]), lambda p: p and curve_idle(page), 15000)
     assert pieces(page, ids[0]) == [[6.5, 5, 2]]
     assert layer(page, ids[0])['riggingCorners'] == [{'at': 6.5, 'angle': 90, 'side': 'interior', 'bar': True}]
@@ -239,7 +239,7 @@ def _shift(start, bars):
 def test_with_the_curve_on_each_side_of_a_corner_curves_as_its_own_wall(page):
     ids = reset(page, [CURVED])
     open_rigging(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     settled(page, lambda: placed(page, ids[0]), lambda b: b and curve_idle(page), 15000)
     n = history_len(page)
     # Add corner: between panels 6 and 7, its corner bar on panels 6 and 7,
@@ -319,7 +319,7 @@ def test_a_corner_down_a_panels_middle_curves_both_its_seams(page):
                                'riggingCorners': [{'at': 3, 'angle': 90, 'side': 'interior'}]})
     ids = reset(page, [spec])
     open_rigging(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     settled(page, lambda: pieces(page, ids[0]), lambda p: p and curve_idle(page), 15000)
     assert pieces(page, ids[0]) == [[3, 2, 1]]
     got = page.evaluate(SIDES_JS, [ids[0], [[2.5, 0, 0.5], [9.5, 0.5, 0]]])
@@ -349,7 +349,7 @@ def test_two_corners_make_three_sides_each_curved_on_its_own(page):
         {'at': 4, 'angle': 90, 'side': 'interior'}, {'at': 10.5, 'angle': 90, 'side': 'exterior'}]})
     ids = reset(page, [spec])
     open_rigging(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     settled(page, lambda: pieces(page, ids[0]), lambda p: len(p) == 2 and curve_idle(page), 15000)
     assert pieces(page, ids[0]) == [[4, 3, 1], [10.5, 9, 2]]
     got = page.evaluate(SIDES_JS, [ids[0], [[3.5, 0, 0.5], [6.5, 0.5, 1], [4, 1, 0]]])
@@ -372,7 +372,7 @@ def test_with_the_curve_on_leftover_stock_is_refused_for_each_side(page):
                                'riggingCorners': [{'at': 6, 'angle': 90, 'side': 'interior'}]})
     ids = reset(page, [spec])
     open_rigging(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     text = settled(page, lambda: page.inner_text('#rigging-curve-errors') if page.locator('#rigging-curve-errors').is_visible() else '',
                    lambda t: 'uncovered' in t, 15000)
     assert text == 'These bar sizes leave 1 panel uncovered on the left side (5.5 panels). Light another size.'
@@ -412,7 +412,7 @@ def test_a_show_saved_before_opens_with_its_bars_and_angles_as_they_were(page):
     assert layer(page, ids[0])['stage3d']['jointsCol'] == joints
     # the old pick no longer matches a side: the right side is the app's pick
     assert 'You picked this one by hand' not in page.inner_text('#rigging-curve-ways')
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     got = settled(page, lambda: page.evaluate(SIDES_JS, [ids[0], [[6, 0, 1], [6, 1, 0]]]),
                   lambda g: g['joints'][4] and curve_idle(page), 15000)
     assert got['joints'][0:5] == got['alone'][0]['joints']
@@ -471,7 +471,7 @@ def test_the_obj_faces_sit_on_each_sides_own_radius_arms_included(page):
                                             'riggingCurve': {'on': True, 'entry': 'degrees', 'value': 30, 'angles': [5, 7.5]}})
     ids = reset(page, [spec])
     open_rigging(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     settled(page, lambda: pieces(page, ids[0]), lambda p: p and curve_idle(page), 15000)
     got = page.evaluate(SIDES_JS, [ids[0], [[4, 0, 1], [6, 1, 0]]])
     left, right = got['alone']
@@ -510,7 +510,7 @@ def test_the_obj_puts_a_folded_panels_halves_on_their_sides_radius(page):
                                                              'goal': 'tightest', 'angles': [2.7, 3.6, 3.9, 5.2]}})
     ids = reset(page, [spec])
     open_rigging(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     settled(page, lambda: pieces(page, ids[0]), lambda p: p and curve_idle(page), 15000)
     got = page.evaluate(SIDES_JS, [ids[0], [[4.5, 0, 0.5, 'right'], [6.5, 0.5, 0, 'left']]])
     left, right = got['alone']
@@ -564,7 +564,7 @@ def test_a_corner_moved_on_a_curved_footer_says_no_bars_no_longer_fit(page):
                                                     'riggingCurve': {'on': True, 'value': 10, 'angles': [5]}})
     ids = reset(page, [spec])
     open_rigging(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     settled(page, lambda: placed(page, ids[0], 'footer'), lambda p: p and curve_idle(page), 15000)
     assert sum(z for _, z in placed(page, ids[0], 'footer')) == 12
     page.evaluate(WATCH_SAID_JS)

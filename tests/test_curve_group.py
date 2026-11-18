@@ -432,7 +432,7 @@ def test_two_curved_screens_grouped_wait_for_auto_then_curve_as_one(page):
     assert [layer(page, i)['riggingBars'] for i in ids] == [a['riggingBars'] for a in alone]
     assert [own_joints(layer(page, i)) for i in ids] == [own_joints(a) for a in alone]
     assert 'not this curve' in page.inner_text('#rigging-curve-note')
-    act(page, lambda: page.click('#rigging-auto-btn'))
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
     want = solve(page, ids[0])
     assert own_joints(layer(page, ids[0])) == want['joints'][:7]
     assert own_joints(layer(page, ids[1])) == want['joints'][8:]
@@ -716,7 +716,7 @@ def test_an_old_show_with_a_stacked_curve_opens_as_it_was(page):
     assert page.evaluate(CORNERS_JS, ids) == corners
     assert 'not this curve' in page.inner_text('#rigging-curve-note')
     # edited: Auto lays the one wall
-    act(page, lambda: page.click('#rigging-auto-btn'))
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
     want = solve(page, ids[0])
     assert own_joints(layer(page, ids[0])) == want['joints']
     assert own_joints(layer(page, ids[1])) == want['joints'][:5]
@@ -918,7 +918,7 @@ def test_after_curve_off_the_auto_button_still_lays_from_the_lit_sizes(page):
     page.click('#rigging-size-picker .rigging-size-btn[data-size="1"]')
     idle(page)
     assert layer(page, ids[0])['riggingSizes'] == [2]
-    act(page, lambda: page.click('#rigging-auto-btn'))
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
     assert row_bars(page, ids) == AUTO_ROW
     assert page.errors == []
 
@@ -939,7 +939,7 @@ def test_a_lit_size_lays_a_groups_auto_bars_again_in_one_step(page):
     group(page, ids)
     open_rigging(page)
     select(page, [ids[0]])
-    act(page, lambda: page.click('#rigging-auto-btn'))
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
     assert row_bars(page, ids) == AUTO_ROW
     n = history_len(page)
     size_click(page, 2)
@@ -958,7 +958,7 @@ def test_a_lit_size_lays_a_groups_auto_bars_again_in_one_step(page):
 def test_a_lit_size_lays_a_screen_again_and_says_when_it_cannot(page):
     ids = reset(page, wide_and_group()[:1])
     open_rigging(page)
-    act(page, lambda: page.click('#rigging-auto-btn'))
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
     assert layer(page, ids[0])['riggingBars'] == [2, 2, 2, 1, 2, 2, 2]
     # doubles alone cannot make 13: the bars stay, and the tab says so
     size_click(page, 1)
@@ -979,7 +979,10 @@ def test_a_lit_size_leaves_a_custom_row_and_a_wall_with_no_bars(page):
     page.evaluate("""(id) => { const a = window.app; const l = a.project.layers.find(x => x.id === id);
         a._riggingCustomSize = 2; const d = a.riggingBeginPlace(l, 'header', 0); a.riggingPreviewPlace(d, 3);
         a.riggingEndDrag(d, true); }""", ids[0])
+    # Auto picked with nothing selected only picks the way of working
+    page.evaluate("() => { window.app.setSelectedLayersByIds([], null); window.app.refreshRiggingPanel(); }")
     page.click('#rigging-tool-picker [data-tool="auto"]')
+    select(page, [ids[0]])
     custom = layer(page, ids[0])
     assert custom['riggingCustom'] is True and custom['riggingBars'] == [2, 2]
     size_click(page, 2)
@@ -988,4 +991,39 @@ def test_a_lit_size_leaves_a_custom_row_and_a_wall_with_no_bars(page):
     size_click(page, 2)
     bare = layer(page, ids[1])
     assert bare['riggingSizes'] == [1] and not bare.get('riggingBars')
+    assert page.errors == []
+
+
+# ── the Auto / Custom switch lays the bars ──────────────────────────────
+#
+# Owner's ruling (2026-11-18): the separate Auto button is gone. Picking
+# Auto on the Auto / Custom switch lays the selected screens' bars from the
+# lit sizes at once, and picking it again lays them again: a group's row
+# across its seams, a row laid by hand handed back to Auto.
+
+def test_picking_auto_lays_the_bars_and_picking_it_again_lays_them_again(page):
+    ids = reset(page, wide_and_group()[:3])
+    group(page, ids)
+    open_rigging(page)
+    assert page.locator('#rigging-auto-btn').count() == 0
+    select(page, [ids[0]])
+    n = history_len(page)
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
+    assert row_bars(page, ids) == AUTO_ROW
+    assert history_len(page) == n + 1
+    # Custom by hand, then Auto: the row is Auto's again, in one step
+    page.click('#rigging-tool-picker [data-tool="custom"]')
+    page.evaluate("""(id) => { const a = window.app; const l = a.project.layers.find(x => x.id === id);
+        a._riggingCustomSize = 1; const d = a.riggingBeginPlace(l, 'header', 0); a.riggingPreviewPlace(d, 1);
+        a.riggingEndDrag(d, true); }""", ids[0])
+    assert layer(page, ids[0])['riggingCustom'] is True and row_bars(page, ids) != AUTO_ROW
+    n = history_len(page)
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
+    assert row_bars(page, ids) == AUTO_ROW and layer(page, ids[0])['riggingCustom'] is False
+    assert history_len(page) == n + 1
+    # picked again after a Clear: laid again
+    page.click('#rigging-clear-btn')
+    settled(page, lambda: row_bars(page, ids), lambda b: b == [])
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
+    assert row_bars(page, ids) == AUTO_ROW
     assert page.errors == []

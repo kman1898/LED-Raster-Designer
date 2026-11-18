@@ -6369,11 +6369,11 @@
         },
         riggingAuto: {
             since: '1.7.0',
-            target: '#rigging-auto-btn', place: 'right', title: 'Auto',
-            body: 'Auto fits the fewest bars of the lit sizes across the screen, mirrored when it can be, with no extra singles. Select All Screens above it lines up every screen so one Auto does the lot.',
+            target: '#rigging-tool-picker', place: 'right', title: 'Auto',
+            body: 'Auto fits the fewest bars of the lit sizes across the screen, mirrored when it can be, with no extra singles, and picking it again lays them again. Select All Screens lines up every screen so one Auto does the lot.',
             before: function () { switchView('rigging'); },
             act: function (t) {
-                return t.click('#rigging-auto-btn').then(function () {
+                return t.click('.rigging-tool-btn[data-tool="auto"]').then(function () {
                     return t.wait(function () { var w = wall(); return w && w.riggingBars && w.riggingBars.length; });
                 }).then(function () { return t.pause(PACE.rest); });
             },
@@ -6687,11 +6687,8 @@
             act: function (t) {
                 var pieces = function () { var w = wall(); return w ? A().riggingCornerPiecesOf(w).length : 0; };
                 var idle = function () { return !A().riggingCurveBusy(); };
-                var custom = A()._riggingToolNow() === 'custom';
                 return t.wait(idle, 10000).then(function () {
-                    if (custom) return t.click('.rigging-tool-btn[data-tool="auto"]');
-                }).then(function () {
-                    return t.click('#rigging-auto-btn');
+                    return t.click('.rigging-tool-btn[data-tool="auto"]');
                 }).then(function () {
                     // Auto, and a curved wall's Curve laid again, all landed
                     return t.wait(function () { return pieces() === 1 && idle(); }, 10000);

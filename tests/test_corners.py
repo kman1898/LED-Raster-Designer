@@ -346,7 +346,7 @@ def test_an_old_corner_saved_under_90_opens_as_90_at_the_same_spot_and_side(page
     _, turns = plan_turns(quads, 1)
     assert turns == [0, 0, pytest.approx(-90), 0, 0]
     # and takes its corner bar, as every corner does
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     lay = settled(page, lambda: layer(page, ids[0]), lambda v: v.get('riggingBars'))
     assert lay['riggingCorners'] == [{'at': 3.5, 'angle': 90, 'side': 'exterior', 'bar': True}]
     assert lay['riggingBars'] == [2, 2] and lay['riggingBarStarts'] == [0, 4]

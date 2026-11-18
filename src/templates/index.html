@@ -1915,7 +1915,7 @@
                             <button type="button" class="btn btn-secondary rigging-mode-btn" data-mode="footer" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Footer, the selected screens carry their bars below the wall. A screen has bars on one side: bars already above move down as they are. A group's screens switch together.">Footer</button>
                         </div>
                         <div id="rigging-tool-picker" style="display: flex; gap: 4px; margin-bottom: 10px;">
-                            <button type="button" class="btn btn-secondary rigging-tool-btn active" data-tool="auto" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Auto, light the sizes you have and press Auto to fit the fewest bars across each selected screen, edge to edge.">Auto</button>
+                            <button type="button" class="btn btn-secondary rigging-tool-btn active" data-tool="auto" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Auto, fit the fewest bars of the lit sizes across each selected screen, edge to edge, on its side. Grouped screens standing edge to edge get one row across them. Pick it again to lay them again.">Auto</button>
                             <button type="button" class="btn btn-secondary rigging-tool-btn" data-tool="custom" style="flex: 1; padding: 4px 6px; font-size: 11px;" data-tooltip="Custom, pick one size, then click in the bar strip above or below a wall to drop a bar there, or drag along the strip to lay a row of them. Pick another size and keep going. Gaps are fine. The choice is saved with the show.">Custom</button>
                         </div>
                         <div id="rigging-size-label" style="color:#aaa; font-size: 12px; margin-bottom: 6px;">Sizes Auto uses</div>
@@ -2026,7 +2026,6 @@
                         </div>
                         <button type="button" id="rigging-select-all-btn" class="btn btn-secondary" style="width: 100%; margin-bottom: 4px;" data-tooltip="Select every screen in the show, on every canvas, so Auto and Clear act on all of them at once">Select All Screens</button>
                         <div style="display: flex; gap: 4px;">
-                            <button type="button" id="rigging-auto-btn" class="btn btn-primary" style="flex: 1;" disabled data-tooltip="Auto, fit the fewest bars of the lit sizes across each selected screen, on its side. Grouped screens standing edge to edge get one row across them.">Auto</button>
                             <button type="button" id="rigging-clear-btn" class="btn btn-secondary" style="flex: 1;" disabled data-tooltip="Clear, take every bar off the selected screens.">Clear</button>
                         </div>
                         <div id="rigging-custom-hint" style="display: none; color: #aaa; font-size: 12px; margin-top: 6px;"></div>

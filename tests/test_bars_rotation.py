@@ -163,7 +163,7 @@ def test_a_turned_screen_keeps_its_bars_on_its_columns_on_the_tab_in_3d_and_the_
     a = ids['A']
     tab(page, 'rigging')
     page.evaluate(f"window.app.setSelectedLayersByIds([{a}], {a})")
-    page.locator('#rigging-auto-btn').click()
+    page.locator('#rigging-tool-picker [data-tool="auto"]').click()
     page.wait_for_timeout(300)
     assert lay(page, a, 'riggingBars')['riggingBars'] == [2] * 6
     clear_toasts(page)
@@ -212,7 +212,7 @@ def test_a_turned_screen_takes_corners_and_the_curve_in_its_column_order(page):
     a = ids['A']
     tab(page, 'rigging')
     page.evaluate(f"window.app.setSelectedLayersByIds([{a}], {a})")
-    page.locator('#rigging-auto-btn').click()
+    page.locator('#rigging-tool-picker [data-tool="auto"]').click()
     page.wait_for_timeout(300)
     spots = page.evaluate(f"window.app.riggingCornerSpots(window.app.project.layers.find(l => l.id === {a}))")
     # the corner between panels 2 and 3 of the wall covers columns 1 and 2,

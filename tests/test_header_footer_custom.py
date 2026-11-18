@@ -162,7 +162,7 @@ def auto(p, *names, size=None):
     sel(p, *names)
     if size:
         light_only(p, size)
-    p.locator('#rigging-auto-btn').click()
+    p.locator('#rigging-tool-picker [data-tool="auto"]').click()
     p.wait_for_timeout(300)
 
 
@@ -389,7 +389,7 @@ def test_custom_click_and_drag_with_two_sizes(pg):
     view(p)
     sel(p, 'A')
     custom(p, 2)
-    assert not p.locator('#rigging-auto-btn').is_visible()
+    assert p.locator('#rigging-auto-btn').count() == 0
     assert p.locator('#rigging-custom-hint').is_visible()
     assert p.locator('#rigging-size-picker .rigging-size-btn.active').count() == 1
     n = steps(p)
@@ -810,7 +810,7 @@ def test_auto_or_custom_is_saved_with_the_show(pg):
     tab(p)
     sel(p, 'A')
     assert _tool(p) == ['custom']
-    assert p.locator('#rigging-custom-hint').is_visible() and not p.locator('#rigging-auto-btn').is_visible()
+    assert p.locator('#rigging-custom-hint').is_visible() and p.locator('#rigging-auto-btn').count() == 0
     # back to Auto, kept the same way; undo does not bring Custom back
     p.locator('.rigging-tool-btn[data-tool="auto"]').click()
     p.wait_for_timeout(300)
@@ -1063,7 +1063,9 @@ def test_custom_press_on_the_wall_selects_and_drags_the_screen(pg):
         p.wait_for_timeout(200)
         return (lay(p, 'A', 'offset_x', 'offset_y'), steps(p)) == before,             p.evaluate("() => [...window.app.selectedLayerIds]"), bars(p, 'A')
     in_custom = dragged()
-    p.locator('.rigging-tool-btn[data-tool="auto"]').click()
+    # Auto as a way of working only: picked on the switch it also lays the
+    # selected screens' bars (owner, 2026-11-18), which is not this test's
+    p.evaluate("() => window.app.setRiggingTool('auto')")
     in_auto = dragged()
     assert in_custom == in_auto, (in_custom, in_auto)
     assert in_custom[2] == [] and in_custom[1] == [p.ids['A']], in_custom

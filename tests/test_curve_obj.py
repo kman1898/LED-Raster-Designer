@@ -342,7 +342,7 @@ def test_custom_and_remove_bar_leave_a_curved_screen_alone_and_clear_turns_it_of
     assert history_len(page) == n
     page.click('#rigging-tool-picker [data-tool="auto"]')
     # Auto on a curved screen lays the curve again, not a plain fit
-    act(page, lambda: page.click('#rigging-auto-btn'))
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
     assert layer(page, ids[0])['riggingBars'] == lay['riggingBars']
     page.click('#rigging-clear-btn')
     off = settled(page, lambda: layer(page, ids[0]), lambda l: not l.get('riggingBars'))
@@ -394,7 +394,7 @@ def test_leftover_stock_is_named_and_lays_nothing(page):
     ids = reset(page, [{'name': 'ODD', 'columns': 15, 'rows': 2, 'offset_x': 0, 'offset_y': 0}])
     open_rigging(page)
     singles_only(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     before = settled(page, lambda: layer(page, ids[0]), lambda l: l.get('riggingBars') == [1] * 15)
     assert before['riggingBars'] == [1] * 15
     # doubles only: 15 panels leave one over. Lighting the double lays
@@ -413,7 +413,7 @@ def test_leftover_stock_is_named_and_lays_nothing(page):
     assert now['riggingBars'] == mixed
     assert not now.get('stage3d')
     # Auto says so too, and still lays nothing
-    act(page, lambda: page.click('#rigging-auto-btn'))
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
     assert 'No exact fit with these sizes: ODD' in page.inner_text('#rigging-status')
     assert layer(page, ids[0])['riggingBars'] == mixed and not layer(page, ids[0]).get('stage3d')
     # light singles again and it lays
@@ -570,7 +570,7 @@ def test_the_math_runs_in_a_worker_and_the_newest_edit_wins(page):
     page.evaluate('window.app.refreshRiggingPanel()')
     assert layer(page, ids[0])['riggingCurve']['bend'] == 'convex'
     assert 'not this curve' in page.inner_text('#rigging-curve-note')
-    act(page, lambda: page.click('#rigging-auto-btn'))
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
     assert joints_of(layer(page, ids[0])) == solve_now(page, ids[0])['joints']
     assert all(a <= 0 for a in joints_of(layer(page, ids[0])))
     assert page.errors == []

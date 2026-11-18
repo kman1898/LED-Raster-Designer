@@ -118,7 +118,7 @@ def steps(p):
 
 def auto(p, *names):
     sel(p, *names)
-    p.locator('#rigging-auto-btn').click()
+    p.locator('#rigging-tool-picker [data-tool="auto"]').click()
     p.wait_for_timeout(250)
 
 
@@ -287,7 +287,7 @@ def test_a_locked_screen_refuses_every_control_and_says_so(pg):
         assert now == before
         assert steps(p) == n
 
-    refused(lambda: p.locator('#rigging-auto-btn').click())
+    refused(lambda: p.locator('#rigging-tool-picker [data-tool="auto"]').click())
     refused(lambda: p.locator('#rigging-clear-btn').click())
     refused(lambda: p.locator('.rigging-size-btn[data-size="1"]').click())
     refused(lambda: typed(p, '#rigging-color-hex', '#ff0000'))
@@ -296,7 +296,7 @@ def test_a_locked_screen_refuses_every_control_and_says_so(pg):
     assert p.locator('#rigging-color-hex').input_value().lower() == '#000000'
     assert p.locator('#rigging-text-color-hex').input_value().lower() == '#ffffff'
     # A second press says it again: every attempt is told.
-    refused(lambda: p.locator('#rigging-auto-btn').click())
+    refused(lambda: p.locator('#rigging-tool-picker [data-tool="auto"]').click())
     # Unlocked, the same gestures work.
     p.evaluate("() => window.app.setLockOnSelected(false)")
     p.wait_for_timeout(200)
@@ -678,7 +678,7 @@ def test_a_turned_wall_keeps_its_bars_on_its_columns(pg):
     assert not p.locator('#rigging-fit-warning').is_visible()
     assert not any('no longer fit' in t for t in toasts(p)), toasts(p)
     sel(p, 'A')
-    p.locator('#rigging-auto-btn').click()
+    p.locator('#rigging-tool-picker [data-tool="auto"]').click()
     p.wait_for_timeout(300)
     assert lay(p, 'A', 'riggingBars')['riggingBars'] == [2] * 6
     turn(p, 180)
@@ -882,7 +882,7 @@ def test_bars_ride_the_wall_in_show_look_and_stay_out_of_it(pg):
     tab(p, 'show-look')
     drawn = p.evaluate("() => { const r = window.canvasRenderer; r.render(); return r.viewMode; }")
     assert drawn == 'show-look'
-    assert not p.locator('#rigging-auto-btn').is_visible()
+    assert not p.locator("#rigging-tool-picker").is_visible()
 
 
 def test_auto_on_a_grouped_wall_writes_each_member_and_undoes_as_one(pg):

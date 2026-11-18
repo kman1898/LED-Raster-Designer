@@ -548,7 +548,7 @@ def test_bars_that_no_longer_fit_are_flagged_after_the_move(pg):
     p.evaluate("""() => { const a = window.app;
         a._riggingWithGroups(a._riggingScreens()).forEach(l => { l.riggingSizes = [2]; });
         a.refreshRiggingPanel(); }""")
-    p.locator('#rigging-auto-btn').click()
+    p.locator('#rigging-tool-picker [data-tool="auto"]').click()
     p.wait_for_timeout(400)
     # one row across the pair: 22 panels, 11 doubles, nothing wrong
     assert p.evaluate("() => window.app.riggingShownMisfits().length") == 0

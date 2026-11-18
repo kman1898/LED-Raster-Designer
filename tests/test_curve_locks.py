@@ -358,7 +358,7 @@ def test_an_old_curve_with_off_list_angles_opens_flagged_and_auto_lays_it_from_t
     assert built == [old[str(j)] for j in range(15)]
     # Auto lays it again from the list, one step
     n = history_len(page)
-    act(page, lambda: page.click('#rigging-auto-btn'))
+    act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))
     now = joints_of(layer(page, ids[0]))
     assert set(now) <= {0, 5} and 5 in now and now == expected(page, ids[0])['joints']
     assert history_len(page) == n + 1
@@ -387,7 +387,7 @@ def test_an_old_curve_whose_panel_has_no_positions_opens_and_keeps_its_angles(pa
     # said once, by the lock positions row
     assert not page.is_visible('#rigging-curve-errors')
     # Auto cannot lay it, and leaves it as it was
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     idle(page)
     table = (layer(page, ids[0]).get('stage3d') or {}).get('jointsCol') or {}
     assert {k: v for k, v in table.items() if v} == {'3': 5, '7': 5}

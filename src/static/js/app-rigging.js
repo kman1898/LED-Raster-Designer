@@ -100,15 +100,14 @@ const listWords = (names) => (names.length <= 1 ? (names[0] || '')
 class _Rigging {
     _wireRigging() {
         const picker = document.getElementById('rigging-size-picker');
-        const auto = document.getElementById('rigging-auto-btn');
         const clear = document.getElementById('rigging-clear-btn');
-        if (!picker || !auto || !clear) return;
+        if (!picker || !clear) return;
 
         document.querySelectorAll('#rigging-mode-picker .rigging-mode-btn').forEach(btn => {
             btn.addEventListener('click', () => this.setRiggingSide(btn.dataset.mode === 'footer' ? 'footer' : 'header'));
         });
         document.querySelectorAll('#rigging-tool-picker .rigging-tool-btn').forEach(btn => {
-            btn.addEventListener('click', () => this.setRiggingTool(btn.dataset.tool === 'custom' ? 'custom' : 'auto'));
+            btn.addEventListener('click', () => this.pickRiggingTool(btn.dataset.tool === 'custom' ? 'custom' : 'auto'));
         });
         picker.querySelectorAll('.rigging-size-btn[data-size]').forEach(btn => {
             btn.addEventListener('click', () => this.toggleRiggingSize(parseInt(btn.dataset.size, 10)));
@@ -121,7 +120,6 @@ class _Rigging {
         });
         const selectAll = document.getElementById('rigging-select-all-btn');
         if (selectAll) selectAll.addEventListener('click', () => this.selectAllRiggingScreens());
-        auto.addEventListener('click', () => this.applyAutoRigging());
         clear.addEventListener('click', () => this.clearRiggingBars());
         const fitAuto = document.getElementById('rigging-fit-auto');
         if (fitAuto) fitAuto.addEventListener('click', () => this.fitMisfitRigging());
@@ -459,6 +457,18 @@ class _Rigging {
             if (!this._riggingFitRow(row, sizes)) misses.push(this._riggingRowName(row));
         }
         return { changed, misses };
+    }
+
+    // The Auto / Custom switch as clicked (owner, 2026-11-18: the separate
+    // Auto button is gone): Custom picks the way of working; Auto picks it
+    // and lays the selected screens' bars from the lit sizes at once, and
+    // picked again lays them again (applyAutoRigging: a group's row across
+    // its seams, a curved wall's Curve). With nothing selected, or no size
+    // lit, it only picks.
+    pickRiggingTool(tool) {
+        this.setRiggingTool(tool);
+        if (tool !== 'custom' && this._riggingScreens().length
+            && this._riggingSizesOf(this._riggingPrimary()).length) this.applyAutoRigging();
     }
 
     setRiggingTool(tool) {
@@ -940,13 +950,8 @@ class _Rigging {
         if (textEl) textEl.value = textColor.toLowerCase();
         if (textHex) textHex.value = textColor.toUpperCase();
 
-        const auto = document.getElementById('rigging-auto-btn');
         const clear = document.getElementById('rigging-clear-btn');
         const hint = document.getElementById('rigging-custom-hint');
-        if (auto) {
-            auto.disabled = screens.length === 0 || sizes.length === 0;
-            auto.style.display = tool === 'custom' ? 'none' : '';
-        }
         if (hint) {
             hint.style.display = tool === 'custom' ? '' : 'none';
             const where = side === 'footer' ? 'below' : 'above';

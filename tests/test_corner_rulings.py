@@ -346,7 +346,7 @@ def test_corner_bars_for_a_mid_panel_corner_and_a_seam_corner(page):
     page.select_option(f'{row(page, 3.5)} [data-corner-at]', '3')
     settled(page, lambda: corners_of(page, ids[0]), lambda v: v[0]['at'] == 3)
     n = history_len(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     # down the middle of panel 3: the corner bar is that panel, a double
     # on panels 1 and 2, a single and a double on 4 to 6
     lay = settled(page, lambda: layer(page, ids[0]), lambda v: v.get('riggingBars'))
@@ -411,7 +411,7 @@ def test_corner_bars_for_a_mid_panel_corner_and_a_seam_corner(page):
 def test_moving_or_taking_off_a_corner_lays_an_auto_row_again(page):
     ids = reset(page, [dict(COLUMN, extra={'riggingSizes': [2]})])
     open_rigging(page)
-    page.click('#rigging-auto-btn')
+    page.click('#rigging-tool-picker [data-tool="auto"]')
     settled(page, lambda: layer(page, ids[0]), lambda v: v.get('riggingBars') == [2, 2, 2])
     n = history_len(page)
     # Add corner (between panels 3 and 4) splits the row in the same step
