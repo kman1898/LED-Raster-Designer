@@ -37,7 +37,7 @@ const Controls = (() => {
     const ACTIONS = [
         { id: 'undo', area: 'General', label: 'Undo', keys: ['mod+KeyZ'], loose: true },
         { id: 'redo', area: 'General', label: 'Redo', keys: ['mod+shift+KeyZ'], loose: true },
-        { id: 'copy', area: 'General', label: 'Copy the selected screen', keys: ['mod+KeyC'], loose: true },
+        { id: 'copy', area: 'General', label: 'Copy', keys: ['mod+KeyC'], loose: true },
         { id: 'paste', area: 'General', label: 'Paste', keys: ['mod+KeyV'], loose: true },
         { id: 'duplicate', area: 'General', label: 'Duplicate', keys: ['mod+KeyJ'], loose: true },
         { id: 'selectAll', area: 'General', label: 'Select all', keys: ['mod+KeyA'] },
@@ -49,8 +49,9 @@ const Controls = (() => {
         { id: 'fitToView', area: 'General', label: 'Fit to view', keys: ['mod+shift+Digit1'], loose: true },
         { id: 'zoomToSelection', area: 'General', label: 'Zoom to selection (1:1)', keys: ['mod+shift+Digit2'], loose: true },
         { id: 'toggleSnap', area: 'General', label: 'Toggle snap', keys: ['mod+shift+Quote'], loose: true },
-        // `anyMods`: a key set with no modifier answers with any held, as
-        // Delete always did on these three tabs.
+        // `anyMods`: Delete or Backspace set with no modifier answers with
+        // any held, as Delete always did on these three tabs (any other key
+        // set here matches exactly).
         { id: 'deleteScreen', area: 'Pixel Map', label: 'Delete the selected screen', keys: ['Delete', 'Backspace'], anyMods: true },
         { id: 'nextPort', area: 'Data', label: 'Next port in custom mode', keys: ['Tab', 'BracketRight'] },
         { id: 'prevPort', area: 'Data', label: 'Previous port in custom mode', keys: ['shift+Tab', 'BracketLeft'] },
@@ -148,9 +149,12 @@ const Controls = (() => {
         return join(c);
     }
 
-    // The chord a key press makes, or null for a modifier on its own.
-    function fromEvent(e, isMac) {
-        const code = normCode(e.code) || keyToCode(e.key);
+    // The chord a key press makes, or null for a modifier on its own. `byKey`
+    // (the 3D keys): a letter is the letter typed, whatever key makes it on
+    // this keyboard's layout.
+    function fromEvent(e, isMac, byKey) {
+        const typed = byKey ? keyToCode(e.key) : '';
+        const code = (/^Key[A-Z]$/.test(typed) ? typed : '') || normCode(e.code) || keyToCode(e.key);
         if (!code || MODIFIER_CODES.has(code) || /^(Shift|Control|Alt|Meta|OS)$/.test(code)) return null;
         return join({
             mod: !!(isMac ? e.metaKey : e.ctrlKey),
@@ -164,15 +168,19 @@ const Controls = (() => {
 
     // Does this key press make `chord`? The modifiers must be exactly the
     // chord's. `opts.loose`: Cmd and Ctrl both count as the command key.
-    // `opts.byKey`: the letter or digit typed counts as well as the key.
-    // `opts.anyMods`: a chord with no modifier answers with any held.
+    // `opts.byKey`: a letter is the letter typed, never the physical key
+    // (on another layout the key in the F place types something else, as
+    // the 3D keys always read it); a digit is either.
+    // `opts.anyMods`: Delete or Backspace with no modifier answers with any
+    // held.
     function eventMatches(e, chord, isMac, opts = {}) {
         const c = parse(chord);
         if (!c.code) return false;
-        const codes = [normCode(e.code)];
-        if (opts.byKey || !e.code) codes.push(keyToCode(e.key));
+        let codes = [normCode(e.code)];
+        if (opts.byKey && /^Key[A-Z]$/.test(c.code)) codes = [keyToCode(e.key)];
+        else if (opts.byKey || !e.code) codes.push(keyToCode(e.key));
         if (!codes.includes(c.code)) return false;
-        if (opts.anyMods && !c.mod && !c.ctrl && !c.meta && !c.alt && !c.shift) return true;
+        if (anyModsKey(opts, c)) return true;
         let mod = !!(isMac ? e.metaKey : e.ctrlKey);
         let ctrl = !!(isMac && e.ctrlKey);
         let meta = !!(!isMac && e.metaKey);
@@ -206,6 +214,36 @@ const Controls = (() => {
         return keysFor(user, id).some(k => eventMatches(e, k, isMac, a));
     }
 
+    // A plain Delete or Backspace on an action that answers with any
+    // modifier held.
+    function anyModsKey(a, c) {
+        return !!(a && a.anyMods) && (c.code === 'Delete' || c.code === 'Backspace')
+            && !c.mod && !c.ctrl && !c.meta && !c.alt && !c.shift;
+    }
+
+    // The command key of a Cmd-or-Ctrl action read as a Mac's Control too:
+    // 'ctrl+KeyZ' is that action's 'mod+KeyZ'.
+    function loosened(chord) {
+        const c = parse(chord);
+        if (c.ctrl && !c.mod) { c.ctrl = false; c.mod = true; }
+        return join(c);
+    }
+
+    // Do key `ka` of action `a` and key `kb` of action `b` answer the same
+    // press? The same chord; a plain Delete that answers with any modifier
+    // and any chord on Delete; a Mac's Control+key and a Cmd-or-Ctrl
+    // action's key.
+    function clash(a, ka, b, kb) {
+        if (ka === kb) return true;
+        const ca = parse(ka), cb = parse(kb);
+        if (ca.code === cb.code && (anyModsKey(a, ca) || anyModsKey(b, cb))) return true;
+        if (loosened(ka) === loosened(kb)) {
+            // a Cmd-or-Ctrl action whose own key is the command key one
+            return !!((a.loose && !ca.ctrl && !ca.meta) || (b.loose && !cb.ctrl && !cb.meta));
+        }
+        return false;
+    }
+
     function overlaps(a, b) {
         const sa = SCOPE[a.area], sb = SCOPE[b.area];
         return sa === 'all' || sb === 'all' || sa === sb;
@@ -216,7 +254,8 @@ const Controls = (() => {
         const a = BY_ID.get(id);
         const n = normalize(chord);
         if (!a || !n) return [];
-        return ACTIONS.filter(b => b.id !== id && overlaps(a, b) && keysFor(user, b.id).includes(n))
+        return ACTIONS.filter(b => b.id !== id && overlaps(a, b)
+            && keysFor(user, b.id).some(k => clash(a, n, b, k)))
             .map(b => b.id);
     }
 

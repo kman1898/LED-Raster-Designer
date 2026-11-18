@@ -836,8 +836,12 @@ export class LEDRasterApp {
         } catch (e) {
             console.error('Error fetching server preferences:', e);
         }
-        // The printed keys and the 3D hint follow the person's Controls.
-        if (typeof this.refreshControlLabels === 'function') this.refreshControlLabels();
+        // The printed keys and the 3D hint follow the person's Controls,
+        // and the log says which keys they changed.
+        if (typeof this.refreshControlLabels === 'function') {
+            this.refreshControlLabels();
+            sendClientLog('controls_in_use', this.controlsLogSummary());
+        }
         // The saved cable stock presets, before the project loads: the
         // pristine startup show takes the default one's stock in the same
         // pass that takes the cable unit (app-cable-stock.js).

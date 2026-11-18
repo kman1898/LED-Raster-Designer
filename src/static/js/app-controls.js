@@ -94,9 +94,22 @@ class _Controls {
 
     // A tooltip written with {key:<id>} where it names a key: the
     // person's key goes in.
+    // While every key it names is shipped, the template's own words stand
+    // (data-tooltip as written, say "Ctrl/Cmd+Shift+1").
     controlTipText(el) {
+        if (el.dataset.shippedTip === undefined) el.dataset.shippedTip = el.getAttribute('data-tooltip') || '';
         const tpl = el.getAttribute('data-control-tip') || '';
+        const ids = [...tpl.matchAll(/\{key:([A-Za-z0-9]+)\}/g)].map(m => m[1]);
+        const set = this.controlsSet();
+        if (ids.every(id => C().isDefault(set, id))) return el.dataset.shippedTip;
         return tpl.replace(/\{key:([A-Za-z0-9]+)\}/g, (m, id) => this.controlKeyText(id));
+    }
+
+    // The person's changes as a small object for the log: the keys they
+    // set, and the 3D preset and any action moved off it.
+    controlsLogSummary(set) {
+        const c = C().clone(set === undefined ? this.controlsSet() : set);
+        return { keys: c.keys, mouse3d: c.mouse3d };
     }
 
     refreshControlLabels() {
@@ -435,7 +448,7 @@ class _Controls {
                 return;
             }
         }
-        const chord = lib.fromEvent(e, mac);
+        const chord = lib.fromEvent(e, mac, !!(lib.action(rec.id) || {}).byKey);
         if (!chord) return;   // a modifier on its own: wait for the key
         const why = lib.refusal(chord, mac);
         if (why) {
@@ -484,26 +497,47 @@ class _Controls {
         this._controlsNote(`${lib.action(id).label}: ${lib.formatList(lib.keysFor(next, id), mac)}. Save keeps it.`);
     }
 
-    _controlsReset(id, mouseId) {
+    async _controlsReset(id, mouseId) {
         const lib = C();
         if (mouseId) {
+            sendClientLog('controls_reset', { mouse: mouseId });
             this._controlsSet(lib.withMouse(this._controlsDraft, mouseId, null));
             this._controlsNote('');
             return;
         }
         const a = lib.action(id);
         if (!a) return;
-        // Its shipped keys come back: any other action holding one of them
-        // where this one acts lets it go, so no key ends up doing two things.
+        const mac = this._controlsMac();
+        // Its shipped keys come back. Another action now holding one of
+        // them where this one acts would answer the same key, so the swap
+        // question asks first, the way recording a key in use does: Yes
+        // takes the key back from it, No changes nothing.
         let next = this._controlsDraft;
+        const taken = [];
         a.keys.forEach(k => {
-            lib.conflicts(next, id, k).forEach(t => {
-                next = lib.withKeys(next, t, lib.keysFor(next, t).filter(x => x !== k));
-            });
+            lib.conflicts(next, id, k).forEach(t => { if (!taken.some(x => x.t === t && x.k === k)) taken.push({ t, k }); });
         });
+        if (taken.length) {
+            const keys = [...new Set(taken.map(x => lib.format(x.k, mac)))];
+            const others = [...new Set(taken.map(x => lib.action(x.t).label))].join(' and ');
+            const yes = await this.appConfirm(
+                `${keys.join(' and ')} ${keys.length > 1 ? 'are' : 'is'} already ${others}. Use it here and clear ${others}?`,
+                { id: 'controls-swap-modal', title: 'Key in use', okLabel: 'Yes', cancelLabel: 'No' });
+            sendClientLog('controls_swap', { id, reset: true, taken: taken.map(x => x.t), yes });
+            if (!yes) {
+                this._controlsNote('');
+                return;
+            }
+            taken.forEach(({ t, k }) => {
+                const cid = lib.normalize(k);
+                next = lib.withKeys(next, t, lib.keysFor(next, t).filter(x => lib.conflicts(
+                    lib.withKeys(lib.empty(), t, [x]), id, cid).indexOf(t) < 0));
+            });
+        }
         next = lib.withKeys(next, id, null);
+        sendClientLog('controls_reset', { id });
         this._controlsSet(next);
-        this._controlsNote(`${a.label} is back to ${lib.formatList(a.keys, this._controlsMac())}.`);
+        this._controlsNote(`${a.label} is back to ${lib.formatList(a.keys, mac)}.`);
     }
 
     async _controlsResetAll() {
