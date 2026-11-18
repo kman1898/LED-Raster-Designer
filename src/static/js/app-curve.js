@@ -22,7 +22,13 @@
 // the wall takes the bars Auto lays from its lit sizes, in the same undo
 // step (owner, 2026-11-18: the Curve's bars stayed on a wall that no longer
 // curved, and nothing after laid them again); Clear turns it off with no
-// bars at all. Lit sizes that
+// bars at all. A WALL WHOSE BARS WERE LAID BY HAND GETS THEM BACK (owner,
+// 2026-11-18): Curve on keeps each screen's own bars, on its side, and its
+// laid corner pieces (riggingCustomSaved, saved with the show, so undo,
+// redo and a reload keep it) and lays the Curve's; Curve off puts them back
+// as they were, laid by hand, and forgets them. Auto, a lit size and Curve
+// by hand while the Curve is on keep them; Clear forgets them, and a wall
+// that was on Auto has none and takes Auto's bars. Lit sizes that
 // cannot cover the wall exactly lay nothing (owner, 2026-11-09): the tab
 // names the gap and the screen's bars and joints stay as they are.
 //
@@ -1489,14 +1495,19 @@ class _Curve {
                 if (!hasLockPositions(this._curveRowLocks(row))) { noLocks.push(row); continue; }
                 const fresh = { ...s, on: true };
                 delete fresh.handJoints;
+                // a wall laid by hand: its bars are kept for Curve off
+                this._curveKeepHand(this._curveAll(row));
                 this._curveAll(row).forEach(m => { m.riggingCurve = { ...fresh }; m.riggingCustom = false; });
                 this._curveSyncSizes(row, primary);
             } else {
                 if (!this._curveAll(row).some(m => this.riggingCurveOf(m).on)) continue;
                 this.riggingCurveOff(this._curveAll(row));
-                // The Curve's bars give way to the ones Auto lays from the
-                // row's lit sizes (riggingFitRow, corners and all).
-                if (row.kind !== 'both' && !row.layers.some(m => m.riggingCustom === true)) {
+                // The Curve's bars give way to the ones the wall had laid by
+                // hand before it, or to the ones Auto lays from the row's lit
+                // sizes (riggingFitRow, corners and all).
+                if (this._curveAll(row).some(m => this._curveKept(m))) {
+                    this._curveGiveBackHand(this._curveAll(row));
+                } else if (row.kind !== 'both' && !row.layers.some(m => m.riggingCustom === true)) {
                     const plain = this.riggingRow(row.layers[0], row.kind);
                     if (!this._riggingFitRow(plain, this._riggingSizesOf(row.layers[0]))) misses.push(this._riggingRowName(plain));
                 }
@@ -1602,6 +1613,57 @@ class _Curve {
         }
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // The bars a screen had laid by hand when its Curve went on, held to
+    // their shape: { side, bars, starts, corners, seen } (starts in its own
+    // panels, corners the ats of its laid corner pieces, seen the ats of
+    // every corner it had), or null.
+    _curveKept(layer) {
+        const k = layer && layer.riggingCustomSaved;
+        if (!k || typeof k !== 'object' || !Array.isArray(k.bars)) return null;
+        const bars = k.bars.map(Number);
+        const starts = Array.isArray(k.starts) && k.starts.length === bars.length ? k.starts.map(Number) : null;
+        if (!starts || ![...bars, ...starts].every(n => Number.isInteger(n) && n >= 0)) return null;
+        const ats = (list) => (Array.isArray(list) ? list.map(Number).filter(Number.isFinite) : []);
+        return { side: k.side === 'footer' ? 'footer' : 'header', bars, starts, corners: ats(k.corners), seen: ats(k.seen) };
+    }
+
+    // Curve on over a wall laid by hand (any of its screens): every screen
+    // keeps its bars and laid corner pieces for Curve off. A wall on Auto
+    // keeps none.
+    _curveKeepHand(all) {
+        const hand = all.some(m => m.riggingCustom === true);
+        all.forEach(m => {
+            if (!hand) { if (m.riggingCustomSaved) m.riggingCustomSaved = null; return; }
+            const side = this.riggingSideOf(m) === 'footer' ? 'footer' : 'header';
+            const placed = this.riggingPlaced(m, side);
+            m.riggingCustomSaved = {
+                side, bars: placed.map(b => b.size), starts: placed.map(b => b.start),
+                corners: s3dCleanCorners(m.riggingCorners).filter(c => c.bar).map(c => c.at),
+                seen: s3dCleanCorners(m.riggingCorners).map(c => c.at),
+            };
+        });
+    }
+
+    // Curve off over a wall that was laid by hand: each screen's bars as
+    // they were kept, on its side, its corner pieces as they were (a corner
+    // added since takes its piece), laid by hand again; then forgotten.
+    _curveGiveBackHand(all) {
+        all.forEach(m => {
+            const k = this._curveKept(m);
+            m.riggingCustomSaved = null;
+            if (!k) return;
+            const side = this.riggingSideOf(m) === 'footer' ? 'footer' : 'header';
+            this._riggingWrite(m, side, k.bars.map((size, i) => ({ start: k.starts[i], size })));
+            m.riggingCustom = true;
+            // a corner it had keeps its piece as it was; one added since
+            // lays its piece
+            const ats = this.riggingCornerSpots(m).map(sp => sp.at);
+            const off = ats.filter(a => k.seen.includes(a) && !k.corners.includes(a));
+            this._riggingSetCornerBars(m, ats.filter(a => !off.includes(a)), true);
+            this._riggingSetCornerBars(m, off, false);
+        });
     }
 
     // A Custom gesture on a curved screen (owner, 2026-11-18): refused, said

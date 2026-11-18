@@ -693,6 +693,8 @@ class _Rigging {
             });
             l.riggingSide = side === 'footer' ? 'footer' : 'header';
             l.riggingCustom = false;
+            // bars kept from before a Curve go too (app-curve.js)
+            if (l.riggingCustomSaved) l.riggingCustomSaved = null;
             // The corner pieces come off with the bars.
             const laid = s3dCleanCorners(l.riggingCorners).filter(c => c.bar).map(c => c.at);
             if (laid.length) {
