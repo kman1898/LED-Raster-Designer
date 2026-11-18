@@ -10,9 +10,10 @@ and stored as typed; two units on one IP are named in the gear, in the Data
 tray's warning strip and by the header's IP turning red. They survive a
 reload and a save and reopen.
 
-On the binder: each processor's sheet has a NETWORK table, each screen's
-Data sheet its processor's IP in FACTS, and a NETWORK page after the
-processor sheets lists every unit in order - all only once a unit has an
+On the binder: each processor's sheet has a NETWORK table, and a NETWORK
+page after the processor sheets lists every unit in order (a screen's Data
+sheet carried its processor's IP in FACTS until the screens' FACTS went,
+2026-11-18) - all only once a unit has an
 IP, empty cells blank, never for a single screen or with the tick off.
 
 Run locally:
@@ -490,13 +491,14 @@ def test_the_binder_prints_every_unit_on_the_network_page_the_processor_sheet_an
     assert texts[i:i + 5] == ['UNIT', 'IP', 'SUBNET', 'GATEWAY', 'NOTE'], texts
     assert texts[i + 5:i + 15] == ['H9', '10.0.0.10', '255.255.255.0', '', 'control laptop port 2',
                                    'H9 BU', '10.0.0.11', '255.255.255.0', '', ''], texts[i:i + 16]
-    # each screen's Data sheet: its processor's IP and its backup unit's in FACTS
+    # each screen's Data sheet: no FACTS block, so no IP rows (owner,
+    # 2026-11-18: one FACTS sheet for the set); the processor sheet and
+    # the Network page above carry the IPs
     data_i = [i for i, (_, k, _) in enumerate(plan) if k == 'data']
     assert data_i, plan
     for d in data_i:
         texts = _texts(pg, d)
-        assert 'IP' in texts and texts[texts.index('IP') + 1] == '10.0.0.10', texts
-        assert 'Backup IP' in texts and texts[texts.index('Backup IP') + 1] == '10.0.0.11', texts
+        assert 'FACTS' not in texts and 'Backup IP' not in texts, texts
     # one screen's binder has no Network page; nor has one with the tick off
     one = dict(SHOW, scope={'kind': 'screen', 'layerId': str(ids['a'])})
     assert 'network' not in [k for _, k, _ in _plan(pg, one)]

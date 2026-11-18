@@ -869,7 +869,8 @@ def test_each_side_is_a_sheet_behind_its_own_map_and_runs_its_port_and_its_circu
     pw = _sheet(pg, opts, 'WALL-A - Power Wiring')
     dw = _sheet(pg, opts, 'WALL-A - Data Wiring')
     assert pw['plan'][0] == ['overview', '1.1', 'Overview', 1]
-    assert pw['plan'][5:9] == [['power', '2.5', 'WALL-A - Power - Front View', 6], ['wiring', '2.6', 'WALL-A - Power Wiring', 7],
+    assert pw['plan'][1][:3] == ['facts', '1.2', 'Facts']
+    assert pw['plan'][6:10] == [['power', '2.5', 'WALL-A - Power - Front View', 6], ['wiring', '2.6', 'WALL-A - Power Wiring', 7],
                                ['data', '2.7', 'WALL-A - Data - Front View', 8], ['wiring', '2.8', 'WALL-A - Data Wiring', 9]]
     for out, sheet_title, number, view in ((pw, 'WALL-A · POWER WIRING · FRONT VIEW', '2.6', 7),
                                            (dw, 'WALL-A · DATA WIRING · FRONT VIEW', '2.8', 9)):
@@ -1160,14 +1161,15 @@ def test_the_wiring_tick_takes_both_sheets_and_they_follow_the_maps_choice(page)
     numbered(without)
     assert [p[2] for p in without] == [p[2] for p in both if p[0] != 'wiring'], without
     assert without == [
-        ['overview', '1.1', 'Overview', 1],
+        ['overview', '1.1', 'Overview', 1], ['facts', '1.2', 'Facts', None],
         ['power', '2.1', 'CENTER - Power - Front View', 2], ['data', '2.2', 'CENTER - Data - Front View', 3],
         ['power', '2.3', 'WALL-A - Power - Front View', 4], ['data', '2.4', 'WALL-A - Data - Front View', 5],
         ['power', '2.5', 'WALL-B - Power - Front View', 6], ['data', '2.6', 'WALL-B - Data - Front View', 7],
         ['pull', '3.1', 'Pull - SR Beach, CENTER', None], ['distro', '4.1', 'Distro - SR', None],
         ['processor', '4.2', 'Processor - H9 · Pull list', None]]
     listed = out['contentsWithout']
-    assert listed[:6] == ['1.1', 'OVERVIEW', '2.1', 'CENTER · POWER · FRONT VIEW', '2.2', 'CENTER · DATA · FRONT VIEW']
+    assert listed[:8] == ['1.1', 'OVERVIEW', '1.2', 'FACTS', '2.1', 'CENTER · POWER · FRONT VIEW',
+                          '2.2', 'CENTER · DATA · FRONT VIEW']
     assert not [t for t in listed if 'WIRING' in t or 'SIGNAL' in t], listed
     # the Maps choice: Power alone, no Data Wiring sheet - and the mirror
     power = out['power']

@@ -206,7 +206,7 @@ def test_a_sheet_the_narrow_tables_would_not_help_keeps_its_layout(page):
     units wide (1114 and 1180 at the 0.15 in inset)."""
     pg, _ = page
     s = _sheets(pg, LETTER_BLOCK)
-    for kind, want in (('power', 1146), ('data', 1219)):
+    for kind, want in (('power', 1197), ('data', 1219)):
         sheet = s[kind]
         assert sheet['layout'] == 'stack' and sheet['cols'] == 2, (kind, sheet['layout'], sheet['cols'])
         assert abs(sheet['map']['w'] - want) < 2, (kind, sheet['map'])

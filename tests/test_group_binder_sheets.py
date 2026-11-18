@@ -186,8 +186,8 @@ def _aspect(sheet):
 def test_group_prints_one_sheet_per_side_drawing_every_member(page):
     """Names on Group: ONE Power and ONE Data sheet, titled by the group
     ("WALL · DATA · FRONT VIEW"), each map drawing both 4 x 3 walls - an
-    8 x 3 picture - its rulers numbering 1 to 8 straight through, its
-    FACTS the group's."""
+    8 x 3 picture - its rulers numbering 1 to 8 straight through, and no
+    FACTS block (the group's figures are its row on the FACTS sheet)."""
     pg, ids, errors = page
     out = _run(pg, ids, GROUP, titles=['WALL - Data - Front View', 'WALL - Power - Front View'])
     assert _titles(out) == ['LONE - Power - Front View', 'LONE - Data - Front View',
@@ -199,7 +199,7 @@ def test_group_prints_one_sheet_per_side_drawing_every_member(page):
     assert _aspect(data) == pytest.approx(8 / 3, rel=0.02), data['map']
     assert _ruler_numbers(data) == [1, 5, 8], _ruler_numbers(data)
     texts = data['texts']
-    assert 'Screen' in texts and texts[texts.index('Screen') + 1].startswith('4 × 3 + 4 × 3 · 24 panels'), texts
+    assert 'FACTS' not in texts and 'Screen' not in texts, texts
     assert not any('also on' in t for t in texts), texts
     power = out['sheets']['WALL - Power - Front View']
     assert _aspect(power) == pytest.approx(8 / 3, rel=0.02), power['map']
@@ -228,8 +228,8 @@ def test_screens_prints_every_member_with_its_own_wall(page):
     # rulers from 1 per screen: a 4-column wall numbers 1 to 4, never 8
     assert _ruler_numbers(out['sheets']['WALL-R - Data - Front View']) == [1, 4], \
         _ruler_numbers(out['sheets']['WALL-R - Data - Front View'])
-    # WALL-R's own Ports count is the ports on its cabinets
-    assert r_texts[r_texts.index('Ports') + 1].endswith('ports') or r_texts[r_texts.index('Ports') + 1].endswith('port')
+    # no FACTS block on a member's sheet (the FACTS sheet counts the ports)
+    assert 'FACTS' not in r_texts and 'Ports' not in r_texts, r_texts
     sheet = next(p for p in out['plan'] if p['title'] == 'WALL-R - Data - Front View')
     assert sheet['layerId'] == ids['r'] and sheet['groupId'] == 'g1', sheet
     assert not errors, errors
@@ -434,9 +434,12 @@ def test_pull_sheet_names_the_group_it_prints(page):
 # ── Follow-ups, the owner's answers of 2026-10-01 ─────────────────────────
 
 def _cables(texts):
-    """A screen sheet's CABLES THIS SCREEN cells, up to its FACTS."""
+    """A screen sheet's CABLES THIS SCREEN cells, up to the next table's
+    title (or the sheet's end)."""
     i = texts.index('CABLES THIS SCREEN')
-    return texts[i + 1:texts.index('FACTS', i)]
+    end = next((j for j in range(i + 1, len(texts)) if texts[j] in ('SHARED CIRCUITS', 'CIRCUITS', 'PORTS')),
+               len(texts))
+    return texts[i + 1:end]
 
 
 def test_a_members_cables_are_its_own_and_a_split_one_is_on_both(page):

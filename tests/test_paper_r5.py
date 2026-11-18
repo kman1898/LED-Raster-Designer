@@ -480,7 +480,10 @@ def test_a_long_distro_name_wraps_the_circuit_band(page):
 
 # ── 6. wording ───────────────────────────────────────────────────────────
 
-def test_a_thru_fed_distros_facts_say_its_rating_beside_its_name(page):
+def test_a_thru_fed_distro_is_named_with_its_rating_on_the_service_sheet(page):
+    """SR fed thru SL: the screens' sheets carry no FACTS any more (owner,
+    2026-11-18: one FACTS sheet for the set), and the service sheet names SR
+    with the distro it is fed thru, its rating in the next cell."""
     pg, errors = page
     _reset(pg)
     sl = {'id': 'd1', 'name': 'SL', 'ratingA': 400, 'system': '120/208', 'serviceId': 's1'}
@@ -493,10 +496,9 @@ def test_a_thru_fed_distros_facts_say_its_rating_beside_its_name(page):
                " voltage: 208, phase: 3 }]; app._distroFaceMemo = null; app._circuitTailCache = null;"
                " return null;")
         b = pg.evaluate(BINDER_JS, {'kinds': []})
-        rows = [v for k in b['kv'] if k['title'] == 'Facts' for key, v in k['pairs'] if key == 'Distro']
-        assert any(v.startswith('SR · 200 A · thru SL') for v in rows), rows
-        assert any(v.startswith('SL · 400 A') for v in rows), rows
-        assert not [v for v in rows if ' · thru SL · 200 A' in v], rows
+        assert not [k for k in b['kv'] if k['title'] == 'Facts'], b['kv']
+        rows = [r[:2] for t in b['tables'] if t['cols'][:2] == ['distro', 'rating'] for r in t['rows']]
+        assert ['SR · thru SL', '200 A'] in rows and ['SL', '400 A'] in rows, rows
     finally:
         _reset(pg)
     assert errors == [], errors

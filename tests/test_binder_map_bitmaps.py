@@ -144,7 +144,8 @@ def test_a_gradient_map_goes_as_a_split_pair_and_a_flat_map_as_one_png(page):
     and nothing blocked the pair - it lost on size."""
     pg, errors = page
     sheets = _by_title(_sheets(pg))
-    assert set(sheets) == {'Overview', GRAD_POWER, GRAD_WIRING, FLAT_POWER, 'FLAT - Power Wiring'}, list(sheets)
+    # (and the FACTS sheet, a table with no map)
+    assert set(sheets) == {'Overview', 'Facts', GRAD_POWER, GRAD_WIRING, FLAT_POWER, 'FLAT - Power Wiring'}, list(sheets)
     for title in ('Overview', GRAD_POWER, GRAD_WIRING):
         s = sheets[title]
         assert len(s['images']) == 2, (title, [i['data'][:30] for i in s['images']])
@@ -179,6 +180,8 @@ def test_every_map_bitmap_prints_at_300_dpi_and_an_arch_sheet_at_its_own_200(pag
     pg, _ = page
     for opts, dpi in ((OPTS, MAP_DPI), (dict(OPTS, sheet='archd'), PX_PER_IN)):
         for s in _sheets(pg, opts):
+            if s['kind'] == 'facts':
+                continue
             assert s['images'], s['title']
             for im in s['images']:
                 _h, img = _decode(im['data'])

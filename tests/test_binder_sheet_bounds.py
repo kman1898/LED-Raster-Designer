@@ -566,10 +566,10 @@ def test_a_long_set_lists_its_sheets_on_contents_sheets_after_the_overview(page)
     """Sixteen processors: some ninety sheets, a CONTENTS taller than a
     letter sheet (it ran off the overview's foot). The overview keeps its
     positions, totals and drawing (owner, 2026-11-18); the CONTENTS goes
-    whole onto sheets of its own right after it, 1.2 on - every sheet of
-    the set listed in order by the number it prints under, the CONTENTS
-    sheets too, at the overview's own size. Every sheet past the overview's
-    series keeps its number."""
+    whole onto sheets of its own right after it, 1.2 on, and the FACTS
+    sheet after those - every sheet of the set listed in order by the
+    number it prints under, the CONTENTS sheets too, at the overview's own
+    size. Every sheet past the overview's series keeps its number."""
     pg, errors = page
     _many(pg)
     for sheet in SMALL + ('tabloid',):
@@ -584,7 +584,8 @@ def test_a_long_set_lists_its_sheets_on_contents_sheets_after_the_overview(page)
         # the POSITIONS table: on the overview, always
         assert out['positions'] == ['1.1'], (sheet, out['positions'])
         assert all(p[3] == 1 for p in plan[1:1 + n]), plan[:n + 2]
-        assert plan[1 + n][0] == '2.1', plan[n:n + 3]
+        assert plan[1 + n][1] == 'facts' and plan[1 + n][0] == '1.%d' % (n + 2), plan[n:n + 3]
+        assert plan[2 + n][0] == '2.1', plan[n:n + 4]
         assert _listed_right(out['listed'], plan), (sheet, out['listed'][:5], len(out['listed']), len(plan))
         assert out['overview'] == {'contents': False, 'bubble': 'OVERVIEW', 'map': True}, out['overview']
     # the numbers of every sheet past the overview's series stand as they
@@ -598,14 +599,139 @@ def test_a_long_set_lists_its_sheets_on_contents_sheets_after_the_overview(page)
 
 def test_a_set_whose_contents_fit_keeps_them_on_the_overview(page):
     """The seeded show's few sheets: the CONTENTS on the overview, as it
-    always was, and no CONTENTS sheet - at letter and at tabloid."""
+    always was, and no CONTENTS sheet - at letter and at tabloid; the FACTS
+    sheet right after the overview, 1.2."""
     pg, errors = page
     _seeded(pg)
     for sheet in ('letter', 'tabloid'):
         out = pg.evaluate(CONTENTS_JS, _opts(sheet=sheet))
         assert [k for _n, k, _t, _s in out['plan']].count('contents') == 0, out['plan']
+        assert out['plan'][1][:3] == ['1.2', 'facts', 'FACTS'] and out['plan'][2][0] == '2.1', out['plan'][:3]
         assert out['overview']['contents'] is True, out['overview']
         assert _listed_right(out['listed'], out['plan']), out['listed']
+    assert errors == []
+
+
+# ── the FACTS sheet ──────────────────────────────────────────────────────
+
+# The FACTS sheet's tables as the binder builds them (the last of each the
+# plan made), the plan, and each screen sheet's text.
+FACTS_JS = r"""(opts) => {
+    const app = window.app;
+    const spied = {};
+    const origT = app._bTableLines;
+    app._bTableLines = function (book, spec) {
+        if (/^\d+ screens?$/.test(spec.title) || spec.title === 'Notes') {
+            spied[spec.title === 'Notes' ? 'notes' : 'rows'] = spec.rows.filter(r => r.cells)
+                .map(r => ({cells: r.cells.slice(), bold: !!r.bold}));
+            spied.cols = spied.cols || spec.cols.map(c => c.title);
+        }
+        return origT.apply(this, arguments);
+    };
+    let plan;
+    try { plan = app.planBinder(opts); } finally { app._bTableLines = origT; }
+    const sheets = {};
+    plan.forEach((p, i) => {
+        if (!['power', 'data', 'facts'].includes(p.kind)) return;
+        sheets[p.number] = {kind: p.kind, title: p.title, texts: app.renderBinderPage(opts, i).texts};
+    });
+    const screens = app._pullScreens().map(l => ({name: l.name, panels: app._bScreenFacts(l).active,
+                                                  watts: app._bScreenFacts(l).watts}));
+    return {plan: plan.map(p => [p.number, p.kind, p.title]), rows: spied.rows || [], notes: spied.notes || [],
+            cols: spied.cols || [], sheets, screens};
+}"""
+
+FACTS_COLS = ['screen', 'size', 'panels', 'resolution', 'watts', 'amps 1φ', 'amps 3φ', 'circuits', 'ports']
+
+
+def _num(s):
+    return float(s.replace(',', '')) if s else 0.0
+
+
+def test_the_facts_sheet_lists_every_screen_with_its_totals(page):
+    """One FACTS sheet right after the overview: a row per screen in the
+    order the screen sheets run (alphabetical here), its size, panels,
+    resolution, watts, amps 1φ and 3φ, circuits and ports, and a TOTAL row
+    that adds them up. No screen's power or data sheet carries a FACTS
+    block. A hidden screen prints no row; a screen with no power figure
+    prints no watts, is left out of the total and is named in the NOTES."""
+    pg, errors = page
+    _walls(pg)
+    opts = _opts(sheet='letter')
+    out = pg.evaluate(FACTS_JS, opts)
+    facts = [p for p in out['plan'] if p[1] == 'facts']
+    assert [p[0] for p in facts] == ['1.2'] and out['plan'][0][1] == 'overview', out['plan'][:3]
+    assert out['cols'] == FACTS_COLS, out['cols']
+    rows = [r['cells'] for r in out['rows']]
+    body, total = rows[:-1], rows[-1]
+    names = [r[0] for r in body]
+    assert names == sorted(names) and len(names) == 4, names
+    assert total[0] == 'Total' and out['rows'][-1]['bold'], total
+    tall = next(r for r in body if r[0] == 'STAGE LEFT VERTICAL IMAG TOWER')
+    assert tall[1] == '6 × 24' and tall[2] == '144' and tall[3] == '768 × 3072', tall
+    assert _num(tall[4]) == 144 * 180, tall
+    # (on 3-phase distros: no 1φ figure, as the screens' sheets never printed one)
+    assert tall[5] == '' and abs(_num(tall[6]) - 144 * 180 / (208 * 1.73)) < 0.06, tall
+    for col in (2, 4, 7, 8):
+        assert abs(sum(_num(r[col]) for r in body) - _num(total[col])) < 1, (col, body, total)
+    assert all(int(r[7]) > 0 and int(r[8]) > 0 for r in body), body
+    assert out['notes'] == [], out['notes']
+    # no FACTS block on any screen sheet; the FACTS sheet prints the table
+    for n, s in out['sheets'].items():
+        if s['kind'] == 'facts':
+            assert 'FACTS' in s['texts'] and 'TOTAL' not in s['texts'] and 'Total' in s['texts'], s['texts']
+            assert not [t for t in s['texts'] if '\u2014' in t or '\u2013' in t], s['texts']
+        else:
+            assert 'FACTS' not in s['texts'], (n, s['title'])
+    # the hidden screen and the screen with no power figure
+    pg.evaluate("""() => {
+        const app = window.app;
+        const L = (n) => app.project.layers.find(l => l.name === n);
+        L('DOWNSTAGE RIGHT SIDE FILL').visible = false;
+        L('UPSTAGE CENTER WIDE BACKDROP WALL').panelWatts = 0;
+        app._circuitTailCache = null;
+    }""")
+    try:
+        out = pg.evaluate(FACTS_JS, opts)
+    finally:
+        pg.evaluate("""() => {
+            const app = window.app;
+            const L = (n) => app.project.layers.find(l => l.name === n);
+            L('DOWNSTAGE RIGHT SIDE FILL').visible = true;
+            L('UPSTAGE CENTER WIDE BACKDROP WALL').panelWatts = 180;
+            app._circuitTailCache = null;
+        }""")
+    rows = [r['cells'] for r in out['rows']]
+    names = [r[0] for r in rows[:-1]]
+    assert 'DOWNSTAGE RIGHT SIDE FILL' not in names and len(names) == 3, names
+    wide = next(r for r in rows if r[0] == 'UPSTAGE CENTER WIDE BACKDROP WALL')
+    assert wide[4] == '' and wide[5] == '' and wide[6] == '', wide
+    assert abs(sum(_num(r[4]) for r in rows[:-1]) - _num(rows[-1][4])) < 1, rows
+    notes = [r['cells'] for r in out['notes']]
+    assert ['UPSTAGE CENTER WIDE BACKDROP WALL',
+            'No power figure: watts left out of the totals. Type them in Power Settings.'] in notes, notes
+    assert errors == []
+
+
+def test_the_facts_sheet_follows_the_screen_order(page):
+    """The export's Screen order: the FACTS rows run in the order the screen
+    sheets do, whichever order is picked."""
+    pg, errors = page
+    _walls(pg)
+    opts = _opts(sheet='tabloid')
+    for order in ('alpha', 'layers-up'):
+        pg.evaluate("(o) => { const b = window.app.project.binder || (window.app.project.binder = {}); "
+                    "b.screenOrder = o; }", order)
+        out = pg.evaluate(FACTS_JS, opts)
+        sheets = []
+        for _n, kind, title in out['plan']:
+            if kind == 'power':
+                name = title.split(' - Power')[0]
+                if name not in sheets:
+                    sheets.append(name)
+        rows = [r['cells'][0] for r in out['rows'][:-1]]
+        assert rows == sheets, (order, rows, sheets)
+    pg.evaluate("() => { delete window.app.project.binder.screenOrder; }")
     assert errors == []
 
 
@@ -627,18 +753,20 @@ def test_a_long_set_on_letter_moves_the_whole_contents_and_keeps_positions_wide(
     sheets): the CONTENTS ran past the sheet's frame, and POSITIONS stood
     its names three lines tall in one narrow column. Now the CONTENTS is
     whole on its own sheet, 1.2 - not one row of it left on the overview -
-    the screens from 2.1; the overview keeps
+    the FACTS sheet 1.3, the screens from 2.1; the overview keeps
     POSITIONS, SHOW TOTALS and the map, POSITIONS wider than one of the
     band's columns. On every paper size, title block on and off, nothing
     runs past the drawing area. (The owner's export: no pull or hardware
-    sheets.)"""
+    sheets. The sweep stands last in the module: six sizes of a sixty-sheet
+    set keep the page busy long enough for its server link to lapse.)"""
     pg, errors = page
     _nine(pg)
     out = pg.evaluate(CONTENTS_JS, _opts(sheet='letter', pull=False, hardware=False))
     plan = out['plan']
     assert 45 <= len(plan) <= 65, len(plan)
-    assert [p[:3] for p in plan[:2]] == [['1.1', 'overview', 'OVERVIEW'], ['1.2', 'contents', 'CONTENTS']], plan[:3]
-    assert plan[2][0] == '2.1', plan[:4]
+    assert [p[:3] for p in plan[:3]] == [['1.1', 'overview', 'OVERVIEW'], ['1.2', 'contents', 'CONTENTS'],
+                                          ['1.3', 'facts', 'FACTS']], plan[:4]
+    assert plan[3][0] == '2.1', plan[:5]
     assert out['overview'] == {'contents': False, 'bubble': 'OVERVIEW', 'map': True}, out['overview']
     assert out['positions'] == ['1.1'], out['positions']
     assert _listed_right(out['listed'], plan), (out['listed'][:5], len(out['listed']), len(plan))
@@ -651,10 +779,10 @@ def test_a_long_set_on_letter_moves_the_whole_contents_and_keeps_positions_wide(
     bad = []
     for sheet in ('letter', 'tabloid', 'archc', 'archd', 'a4', 'a3'):
         for tb in (True, False):
-            report = _bounds(pg, sheet=sheet, titleBlock=tb)
+            report = _bounds(pg, sheet=sheet, titleBlock=tb, pull=False, hardware=False)
             bad += ['%s %s: %s' % (sheet, 'block' if tb else 'no block', line) for line in _offenders(report)]
             kinds = [s['kind'] for s in report]
-            assert kinds.count('overview') == 1, (sheet, tb, kinds[:5])
+            assert kinds.count('overview') == 1 and kinds.count('facts') >= 1, (sheet, tb, kinds[:5])
     assert not bad, '\n' + '\n'.join(bad)
     assert errors == []
 

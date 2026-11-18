@@ -141,7 +141,7 @@ class _Services {
     }
 
     // "House · 600 A · 120/208V 3φ" - how the card, the gear and the
-    // binder name a service, read the way FACTS reads it.
+    // binder name a service.
     serviceLabel(s) {
         if (!s) return '';
         return `${s.name || s.id} · ${this.serviceSizeText(s)}`;
