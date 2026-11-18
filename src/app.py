@@ -1349,6 +1349,36 @@ def idm_highlight_stored(value, project):
     return {'layerId': layer_id, 'key': key}
 
 
+def drop_box_power_off_gone_screens(project):
+    """A breakout box powered from a circuit of a screen that is gone loses
+    that feed, and the boxes daisy chained after it theirs (owner,
+    2026-11-18, app-box-power.js): a screen id can come back on a new
+    screen after a reload, and the box must not ride it. In place; a
+    project without the key is left without it. The ids dropped."""
+    store = project.get('boxPower') if isinstance(project, dict) else None
+    if not isinstance(store, dict) or not store:
+        return []
+    ids = {str(l.get('id')) for l in project.get('layers') or [] if isinstance(l, dict)}
+    gone = set()
+    for box_id, rec in store.items():
+        at = rec.get('at') if isinstance(rec, dict) else None
+        if isinstance(at, dict) and at.get('kind') in ('start', 'end', 'fanout') \
+                and str(at.get('layerId')) not in ids:
+            gone.add(box_id)
+    grew = bool(gone)
+    while grew:
+        grew = False
+        for box_id, rec in store.items():
+            at = rec.get('at') if isinstance(rec, dict) else None
+            if box_id not in gone and isinstance(at, dict) and at.get('kind') == 'chain' \
+                    and at.get('from') in gone:
+                gone.add(box_id)
+                grew = True
+    for box_id in gone:
+        store.pop(box_id, None)
+    return sorted(gone)
+
+
 def normalize_idm_highlight(project):
     """The stored highlight held to its shape and to the screens as they
     stand, in place (the load and save funnels). A project without the key

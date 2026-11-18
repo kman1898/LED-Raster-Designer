@@ -655,6 +655,16 @@ class _MenuBar {
                 // screen the cursor named (showContextMenu stored them),
                 // re-checked here like every hw item - a disabled entry is
                 // a sentence, never a control.
+                // The box-power entries (app-box-power.js), armed at open
+                // time the same way: hw-bp-s<slot>-<n> in a submenu,
+                // hw-bp-i<n> on the menu itself.
+                const bp = action && /^hw-bp-(?:s(\d+)-(\d+)|i(\d+))$/.exec(action);
+                if (bp && this._boxPowerMenuActions) {
+                    const acts = this._boxPowerMenuActions;
+                    const en = bp[3] != null ? (acts.items || [])[Number(bp[3])]
+                        : (((acts.slots || [])[Number(bp[1])] || {}).entries || [])[Number(bp[2])];
+                    if (en && !en.disabled && typeof en.run === 'function') en.run();
+                }
                 if (action && action.startsWith('hw-out-')) {
                     const i = parseInt(action.replace('hw-out-', ''), 10);
                     const en = this._outputsMenuActions

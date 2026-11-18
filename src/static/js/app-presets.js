@@ -2534,7 +2534,9 @@ class _Presets {
             if (!(panelWatts > 0)) wattsUnset.push(layer.id);
             if (!voltages.includes(voltage)) voltages.push(voltage);
             const equivalentPanels = activePanels.reduce((sum, p) => sum + this.getPanelLoadFactor(layer, p), 0);
-            const layerWatts = panelWatts * equivalentPanels;
+            // and the breakout boxes its circuits power (app-box-power.js)
+            const layerWatts = panelWatts * equivalentPanels
+                + (typeof this.boxPowerScreenWatts === 'function' ? this.boxPowerScreenWatts(layer) : 0);
             totalWattsAll += layerWatts;
             // The circuits the app DRAWS, not a bulk division. Worked example:
             // 3 columns x 6 rows, 200 W a cabinet, 110 V x 20 A = 2200 W a
@@ -2552,6 +2554,22 @@ class _Presets {
             bucket.circuits += circuits;
             byVoltage.set(voltage, bucket);
         });
+        // The breakout boxes fed straight off a distro (app-box-power.js)
+        // are on no screen and no canvas: in the show's totals only, at
+        // their circuits' voltage.
+        if (!onlyCanvasId && typeof this.boxPowerDistroFedLoads === 'function') {
+            for (const b of this.boxPowerDistroFedLoads()) {
+                if (!(b.watts > 0)) continue;
+                const v = b.volts > 0 ? b.volts : 110;
+                totalWattsAll += b.watts;
+                if (!voltages.includes(v)) voltages.push(v);
+                const bucket = byVoltage.get(v) || { voltage: v, watts: 0, circuits: 0, amps1ph: 0, amps3ph: 0 };
+                bucket.watts += b.watts;
+
+                byVoltage.set(v, bucket);
+
+            }
+        }
         // I = P / V single phase, I = P / (V_LL x 1.73) three phase - the
         // SERVICE's line-to-line voltage (1.5, bug fix 3: 120V screens
         // ride a 208V service, 230V screens a 400V one).

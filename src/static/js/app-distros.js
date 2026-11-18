@@ -268,12 +268,17 @@ class _Distros {
         // (Location is not - it is descriptive and names nothing.)
         this._circuitTailCache = null;
         if (shared()) return null;
+        // A breakout box fed straight off an output or circuit the edit
+        // took away loses that feed (app-box-power.js), in this step.
+        const boxesOff = typeof this.boxPowerDropStaleOutputs === 'function'
+            ? this.boxPowerDropStaleOutputs(d).length : 0;
         // One entry per committed field (these fire on change, not per
         // keystroke), same as the other discrete label edits - under the
         // caller's name where the field has one of its own (the box type
         // chip's 'Set Multi Type').
         this.saveState(action || 'Edit Distro');
         this._persistDistros();
+        if (boxesOff) this._persistBoxPower();
         return d;
     }
 
@@ -625,11 +630,16 @@ class _Distros {
         this._circuitTailCache = null;
         // A pull-sheet edit on a row the removal took away goes with it.
         this._dropPullEditsGoneWith(pullBefore);
+        // A breakout box fed straight off it loses that feed, and the boxes
+        // daisy chained after it theirs (app-box-power.js), in this step.
+        const boxesOff = typeof this.boxPowerDropForDistro === 'function'
+            ? this.boxPowerDropForDistro(id).length : 0;
         // ONE entry for the removal AND the orphaning it caused, taken after
         // both so a single Ctrl+Z brings the distro back with its multis
         // still assigned to it - not a distro with its feeds cut loose.
         this.saveState('Remove Distro');
         this._persistDistros();
+        if (boxesOff) this._persistBoxPower();
         return true;
     }
 

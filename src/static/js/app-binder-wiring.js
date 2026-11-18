@@ -420,6 +420,33 @@ class _BinderWiring {
             byKey.set(box.key, d);
             for (const c of box.circuits || []) this._bwPowerWire(d, c, byNumOf(carrier).get(c.num), carrier, own, stubs, wires);
         }
+        // A breakout box powered from a circuit (app-box-power.js): a block
+        // of its own, its chain in the caption, its one inlet wired to the
+        // circuit's disc - "XD SR A · breakout box at the start · 10' TRUE1".
+        if (typeof this.boxPowerPlacements === 'function') {
+            const carriers = new Set(units.map(u => String(u.carrier.id)));
+            for (const p of this.boxPowerPlacements()) {
+                if (!p.layer || !carriers.has(String(p.layer.id)) || !this.boxPowerShown(p)) continue;
+                const circuit = byNumOf(p.layer).get(Number(p.at.circuit));
+                // the caption is the box's own words (app-box-power.js)
+                const head = p.head.box.id;
+                const d = { key: `bp:${head}`, title: this.boxPowerWiringCaption(p), n: 1,
+                            sockets: new Map([[1, 'power']]), notes: new Map() };
+                devices.push(d);
+                if (!circuit || !(circuit.panels || []).length) continue;
+                // the box's own cabinet across the whole wall (the
+                // circuit's first, or its last for the end), wired only
+                // where this sheet draws it
+                const i = p.at.kind === 'end' ? circuit.panels.length - 1 : 0;
+                const anchor = circuit.panels[i];
+                const pick = own(circuit, p.layer).find(x => x.p === anchor);
+                if (!pick) continue;
+                const stub = { kind: 'power', text: this.getPowerCircuitLabel(p.layer, p.at.circuit),
+                               panel: pick.p, layer: pick.on, circuit: Number(p.at.circuit) };
+                stubs.push(stub);
+                wires.push({ stub, device: d, socket: 1, kind: 'power' });
+            }
+        }
         return { stubs, devices, wires };
     }
 

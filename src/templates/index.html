@@ -331,6 +331,15 @@
                 <span class="menu-label-text" id="hw-outputs-label"></span>
                 <div id="hw-outputs-submenu" class="menu-submenu"></div>
             </div>
+            <!-- Powering a breakout box (app-box-power.js): on a circuit's
+                 first or last cabinet, a shared circuit, a free circuit or
+                 output chip in the Power tray - "Power a breakout box ..."
+                 with the show's boxes; on a powered box or its symbol -
+                 "Daisy chain to" and the remove. Armed by
+                 _prepareBoxPowerMenu; its items are made after this divider
+                 at open time, as many as apply (_fillBoxPowerMenu), and act
+                 through hw-bp-s<slot>-<n> and hw-bp-i<n>. -->
+            <div class="menu-divider hw-bp-only" style="display: none;"></div>
             <!-- The batch verb (2026-08-30): with a sweep selection armed
                  the menu deals it as Nfers - "3fer them (6 x 3fer)" - and
                  with none the same entries act on the whole screen under

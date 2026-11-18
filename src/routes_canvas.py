@@ -146,6 +146,11 @@ def delete_canvas(canvas_id):
         if l.get('canvas_id') != canvas_id
     ]
     layers_removed = layers_before - len(app.current_project['layers'])
+    # A breakout box powered from a circuit of a screen that went with the
+    # canvas loses that feed (app.drop_box_power_off_gone_screens).
+    dropped = app.drop_box_power_off_gone_screens(app.current_project)
+    if dropped:
+        log_event('box_power_dropped', {'why': 'canvas deleted', 'canvasId': canvas_id, 'boxIds': dropped})
     # A group is one wall on one canvas. Members that moved house together
     # stay a group; a member whose peers went elsewhere (or were deleted with
     # the canvas) leaves it, and _enforce_group_integrity below dissolves

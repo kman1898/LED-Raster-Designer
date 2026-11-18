@@ -478,6 +478,13 @@ DIFFERENT POWER ON ONE SCREEN
   knows the two legs share breakers: it keeps every pair within its limit,
   never makes a new OVER, and fixes a pair already over when the multis
   can be arranged to fix it.
+- NEW: Power a breakout box from your walls' circuits. On the Power tab,
+  right-click the first or last panel of a circuit, a 2fer or 3fer circuit,
+  or a free circuit in the Power tray, and pick the box. Its watts count on
+  that circuit, the distro and the totals, its cable and length go on the
+  pull sheet, and the binder's Power and Power Wiring sheets show it. An XD
+  or XD-T can daisy chain to the next one: right-click it and pick Daisy
+  chain to. Past 5 boxes, or past 2 A through one box's thru, reads in gold.
 
 POWER FIXES
 

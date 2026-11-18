@@ -2982,6 +2982,13 @@ class _HardwareDock {
         for (const text of this.breakerOverLines(this._dockBreakerOver)) {
             this._dockPowerWarnings.push({ text, breaker: true });
         }
+        // A daisy chain of breakout boxes past the TRUE1 thru's rating
+        // (app-box-power.js): gold, warned, never refused.
+        if (typeof this.boxPowerChainChecks === 'function') {
+            for (const w of this.boxPowerChainChecks()) {
+                this._dockPowerWarnings.push({ text: w.text, mild: true, boxChain: true });
+            }
+        }
         // Stamped before ANY early return, so the resize watcher always
         // compares against the pick this render actually saw.
         this._dockColPick = this._dockPickColCount();
@@ -4179,7 +4186,42 @@ class _HardwareDock {
             type: 'tail', distroId: d.id, number: n, tail: t,
             title: `${this.distroBoxName(d, n)} circuit ${t}`,
         }, `tail-${d.id}-${n}-${t}`);
+        this._dockBoxPowerChip(tile, d, n, t, holders);
         return tile;
+    }
+
+    // A circuit or output feeding a breakout box by itself
+    // (app-box-power.js): the chip says the box where a screen's name
+    // would be, its cable in the corner and its amps on the bar; a screen
+    // landing on it too is a clash.
+    _dockBoxPowerChip(tile, d, n, t, holders) {
+        const p = typeof this.boxPowerAtTail === 'function' ? this.boxPowerAtTail(d, n, t) : null;
+        if (!p) return;
+        const face = tile.querySelector('.lrd-tile-face');
+        const lines = face ? face.querySelectorAll('.lrd-tile-line') : [];
+        const names = p.chain.map(e => this.boxPowerTitle(e.box)).join(' + ');
+        tile.dataset.lrdBoxPower = p.head.box.id;
+        tile.classList.remove('lrd-tile-occupied');
+        tile.classList.add(holders.length ? 'lrd-tile-clash' : 'lrd-tile-occupied');
+        if (lines[1]) {
+            lines[1].style.color = holders.length ? '#d05a52' : 'var(--ps-dim, #c0c0c0)';
+            lines[1].textContent = holders.length ? 'clash' : names;
+        }
+        const cable = this.boxPowerCable(p.head.box.id);
+        if (cable && cable.ft != null && lines[0] && !lines[0].querySelector('.hw-dock-chip-cable')) {
+            lines[0].classList.add('lrd-tile-line-cable');
+            const corner = document.createElement('span');
+            corner.className = 'hw-dock-chip-cable';
+            corner.textContent = cable.text;
+            lines[0].appendChild(corner);
+        }
+        const watts = this._boxPowerChainWatts(p.chain, p.volts);
+        const amps = p.volts > 0 ? watts / p.volts : 0;
+        if (face) {
+            face.title = `${names}: a breakout box powered from this circuit by itself, `
+                + `${Math.round(watts)} W, ${amps.toFixed(2)} A. Right-click to remove it.`
+                + (holders.length ? " A screen's circuit is on it too." : '');
+        }
     }
 
     // One holder's label override, in the port-name-field register: the
