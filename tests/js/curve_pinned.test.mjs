@@ -97,7 +97,9 @@ describe('1.5 m bars on 500 mm panels, 5 degrees', () => {
 
 describe('15 x 500 mm on 1 m and 0.5 m stock, 5 degrees, 25 degrees', () => {
     for (const goal of ['simplest', 'even', 'tightest']) {
-        it(`${goal}: bars 1, 0.5, 1, 0.5 ..., 5 degrees after panels 3, 6, 9, 12, 14.5 mm off`, () => {
+        // A 1 m and a 0.5 m bar every third panel; built from the middle,
+        // the 1 m bar of each nearest it (fewestBetweenBends).
+        it(`${goal}: a 1 m and a 0.5 m bar every third panel, 5 degrees after panels 3, 6, 9, 12, 14.5 mm off`, () => {
             const r = solveCurve(curve((c) => {
                 c.panel.count = 15;
                 c.hardware.footer_widths_m = [0.5, 1];
@@ -105,7 +107,7 @@ describe('15 x 500 mm on 1 m and 0.5 m stock, 5 degrees, 25 degrees', () => {
                 c.target = { mode: 'sweep_deg', value: 25, radius_ref: 'face' };
                 c.fit_goal = goal;
             }));
-            expect(r.footers.map((f) => f.width_m)).toEqual([1, 0.5, 1, 0.5, 1, 0.5, 1, 0.5, 1, 0.5]);
+            expect(r.footers.map((f) => f.width_m)).toEqual([0.5, 1, 0.5, 1, 1, 0.5, 1, 0.5, 1, 0.5]);
             expect(bendsOf(r)).toEqual([3, 6, 9, 12]);
             expect(r.achieved.sweep_deg).toBeCloseTo(25, 6);
             expect(r.achieved.percent_circle).toBeCloseTo(6.94, 2);

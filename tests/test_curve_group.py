@@ -747,3 +747,95 @@ def test_members_of_different_heights_curve_as_one(page):
     assert all(layer(page, i)['riggingCurve']['on'] for i in ids)
     joined(wall_edges(page, ids))
     assert page.errors == []
+
+
+# ── a group lays the bars one wide screen lays ───────────────────────────
+#
+# Owner's report (2026-11-18): "screen 1 will only do single headers". A
+# group of 13, 13 and 4 columns curved from its middle laid singles over the
+# whole first screen and doubles on the others, for joints that mirror. The
+# calculator's layout search walked from the left end and kept the first of
+# every tie; between two bends the bars are now the fewest, the larger
+# nearest the Build from point (curve-math.js fewestBetweenBends). The group
+# lays what one 30 column screen lays, and a bar runs past a screen's edge
+# only across a seam into the next screen of the row, never past the wall.
+
+def wide_and_group():
+    """The 13, 13 and 4 column group of 192 x 384 px, 500 x 1000 mm panels,
+    and one 30 column screen of the same panel below it."""
+    panel = {'rows': 9, 'cabinet_width': 192, 'cabinet_height': 384,
+             'panel_width_mm': 500, 'panel_height_mm': 1000}
+    return [dict(panel, name=f'S{i + 1}', columns=c, offset_x=x, offset_y=0)
+            for i, (c, x) in enumerate([(13, 0), (13, 2496), (4, 4992)])] + \
+        [dict(panel, name='WIDE', columns=30, offset_x=0, offset_y=4000)]
+
+
+def row_bars(page, ids):
+    """The bars of a row of screens as [start, size] in the row's panels."""
+    out, at = [], 0
+    for i in ids:
+        lay = layer(page, i)
+        bars = lay.get('riggingBars') or []
+        starts = lay.get('riggingBarStarts')
+        run = 0
+        for k, size in enumerate(bars):
+            s = starts[k] if starts else run
+            out.append([at + s, size])
+            run = s + size
+        at += lay['columns']
+    return sorted(out)
+
+
+def curve_wide_and_group(page, ids, settings):
+    """The same Curve on the group and on the wide screen, each ticked on."""
+    for pick in ([ids[3]], [ids[0]]):
+        select(page, pick)
+        for key, value in settings.items():
+            page.evaluate("([k, v]) => window.app.setRiggingCurveField(k, v)", [key, value])
+            idle(page)
+        act(page, lambda: page.check('#rigging-curve-on'))
+
+
+@pytest.mark.parametrize('settings', [
+    {'value': 20, 'goal': 'simplest', 'from': 'center'},
+    {'value': 30, 'goal': 'even', 'from': 'center'},
+    {'value': 25, 'goal': 'simplest', 'from': 19},
+    {'value': 25, 'goal': 'simplest', 'from': 25.5},
+    {'value': 20, 'goal': 'tightest', 'from': 'center'},
+], ids=['simplest-20-center', 'even-30-center', 'simplest-25-from-19', 'simplest-25-from-25.5', 'tightest-20-center'])
+def test_a_13_13_4_group_lays_the_bars_one_30_column_screen_lays(page, settings):
+    ids = reset(page, wide_and_group())
+    group(page, ids[:3])
+    open_rigging(page)
+    curve_wide_and_group(page, ids, settings)
+    lays = [layer(page, i) for i in ids]
+    assert all((l.get('riggingCurve') or {}).get('on') for l in lays), [l.get('riggingCurve') for l in lays]
+    assert all(l['riggingCurve'] == lays[3]['riggingCurve'] for l in lays), [l['riggingCurve'] for l in lays]
+    wide = row_bars(page, [ids[3]])
+    walled = row_bars(page, ids[:3])
+    assert walled == wide, (walled, wide)
+    # the same joints, seams included
+    joints = own_joints(lays[0]) + [None] + own_joints(lays[1]) + [None] + own_joints(lays[2])
+    want = own_joints(lays[3])
+    assert [a for a, b in zip(joints, want) if a is not None] == [b for a, b in zip(joints, want) if a is not None]
+    # every bend sits between two bars, and nothing runs past the wall
+    starts = {s for s, _ in wide}
+    assert all(s + n <= 30 for s, n in wide)
+    for j, a in enumerate(want):
+        if a:
+            assert j + 1 in starts, (j, wide)
+    # a bar past a screen's edge only carries on into the next screen
+    for k, lay in enumerate(lays[:3]):
+        for s, n in row_bars(page, [ids[k]]):
+            assert s + n <= lay['columns'] + (0 if k == 2 else 1), (k, s, n)
+    # between two bends: one single when the stretch is odd, else none
+    cuts = [0] + [j + 1 for j, a in enumerate(want) if a] + [30]
+    for lo, hi in zip(cuts, cuts[1:]):
+        inside = [n for s, n in wide if lo <= s < hi]
+        assert sum(inside) == hi - lo and inside.count(1) == (hi - lo) % 2, (lo, hi, wide)
+    if settings['from'] == 'center' and want == want[::-1]:
+        assert sorted([30 - s - n, n] for s, n in wide) == wide, wide
+    # the first screen is not all singles
+    if settings['goal'] != 'tightest':
+        assert any(n == 2 for s, n in row_bars(page, [ids[0]])), row_bars(page, [ids[0]])
+    assert page.errors == []

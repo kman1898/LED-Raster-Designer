@@ -456,4 +456,66 @@ describe('a curve is held to 20 degrees a joint', () => {
     });
 });
 
+// Owner's report (2026-11-18): "screen 1 will only do single headers". A
+// thirty panel wall built from its middle laid singles over its whole left
+// half and doubles on its right for joints that mirror: the layout search
+// walks from the left end and keeps the first of every tie. Between two
+// bends the bars are now the fewest, the larger nearest the Build from
+// point, so the two halves lay the same bars; the joints do not change.
+describe('a thirty panel wall on singles and doubles lays the fewest bars between its bends', () => {
+    const LOCKS = [2.5, 5, 7.5, 10];
+    const wall = (over) => screenCurve({ panels: 30, panelWidthM: 0.5, sizes: [1, 2], settings: on(over), locks: LOCKS });
+    const placed = (out) => out.bars.map((size, i) => ({ start: out.starts[i], size }));
+    const stretches = (joints) => {
+        const cuts = [0, ...joints.map((a, i) => (a !== 0 ? i + 1 : -1)).filter((x) => x > 0), joints.length + 1];
+        return cuts.slice(1).map((hi, i) => [cuts[i], hi]);
+    };
+    const check = (out) => {
+        expect(out.errors).toEqual([]);
+        const bars = placed(out);
+        // every bend sits between two bars
+        const starts = new Set(bars.map((b) => b.start));
+        out.joints.forEach((a, i) => { if (a !== 0) expect(starts.has(i + 1)).toBe(true); });
+        // each stretch between bends: one single when it is odd, else none, the rest doubles
+        for (const [lo, hi] of stretches(out.joints)) {
+            const inside = bars.filter((b) => b.start >= lo && b.start < hi);
+            expect(inside.reduce((s, b) => s + b.size, 0)).toBe(hi - lo);
+            expect(inside.filter((b) => b.size === 1)).toHaveLength((hi - lo) % 2);
+        }
+        return bars;
+    };
+    const mirror = (bars, n = 30) => bars.map((b) => ({ start: n - b.start - b.size, size: b.size })).sort((a, b) => a.start - b.start);
+    for (const [goal, value] of [['simplest', 20], ['simplest', 15], ['simplest', 25], ['simplest', 40], ['even', 20], ['even', 30]]) {
+        it(`${goal} at ${value}% from the center: the same bars either side of the middle`, () => {
+            const out = wall({ goal, value, from: 'center' });
+            const bars = check(out);
+            expect([...out.joints].reverse()).toEqual(out.joints);
+            expect(mirror(bars)).toEqual(bars);
+        });
+    }
+    it('simplest at 20% from the center: the joints are the ones it always laid, and the left third takes doubles', () => {
+        const out = wall({ goal: 'simplest', value: 20, from: 'center' });
+        expect(out.joints).toEqual([5, 0, 0, 5, 0, 5, 5, 0, 0, 5, 0, 5, 0, 5, 0, 5, 0, 5, 0, 5, 0, 0, 5, 5, 0, 5, 0, 0, 5]);
+        expect(out.bars).toEqual([1, 1, 2, 2, 1, 1, 2, 2, 2, 2, 2, 2, 2, 1, 1, 2, 2, 1, 1]);
+        // the first thirteen panels: not all singles
+        expect(placed(out).filter((b) => b.start < 13 && b.size === 2).length >= 4).toBe(true);
+    });
+    for (const from of [19, 22, 24, 26.5, 25.5, 'left', 'right']) {
+        it(`simplest at 25% built from ${from}: the fewest bars between bends, the larger nearest the point`, () => {
+            const out = wall({ goal: 'simplest', value: 25, from });
+            const bars = check(out);
+            const at = from === 'left' ? 0 : from === 'right' ? 30 : from - 0.5;
+            for (const [lo, hi] of stretches(out.joints)) {
+                const inside = bars.filter((b) => b.start >= lo && b.start < hi).map((b) => b.size);
+                const mid = (lo + hi) / 2;
+                if (mid < at) expect(inside).toEqual([...inside].sort((a, b) => a - b));
+                if (mid > at) expect(inside).toEqual([...inside].sort((a, b) => b - a));
+            }
+        });
+    }
+    it('tightest lays the same joints with the fewest bars between them', () => {
+        check(wall({ goal: 'tightest', value: 20, from: 'center' }));
+    });
+});
+
 report();

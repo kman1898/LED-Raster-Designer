@@ -1910,6 +1910,95 @@ function tile(run, sizes) {
   return best[run] ?? null;
 }
 
+/**
+ * A build's bars laid again over its joints (owner, 2026-11-18: "screen 1
+ * will only do single headers"). Only a bend needs a join between two bars;
+ * a flat joint does not, so between two bends the bars are what Auto lays
+ * on a plain wall: the fewest singles, then the fewest bars. The layout
+ * search walks from the left end and keeps the first of every tie, so a
+ * flat stretch could come back as singles on one side of the wall and
+ * doubles on the other for the same joints. The joints, and so the wall,
+ * do not change.
+ *
+ * Within a stretch the larger bars sit nearest the Build from point
+ * (`datum`, a panel edge from the left), so a wall curved from its middle
+ * lays the same bars either side; a stretch centered on it is laid as a
+ * mirror where its bars allow. A corner bar's arms (`fixed`) stay their own
+ * bars, and a stretch the stock cannot make keeps the bars it had.
+ * `run_m` back unchanged when nothing moves.
+ */
+function fewestBetweenBends(joints, run_m, stockPanels, panelWidthM, panelToMeters, fixed, datum) {
+  const sizes = run_m.map((w) => panelsUnder(w, panelWidthM));
+  const n = sizes.reduce((s, k) => s + k, 0);
+  if (n !== joints.length + 1 || !stockPanels.length) return run_m;
+  const starts = [];
+  let at = 0;
+  for (const k of sizes) { starts.push(at); at += k; }
+  // The edges every build must keep: each bend and each arm's two ends.
+  const cuts = new Set([0, n]);
+  joints.forEach((a, i) => { if (a !== 0) cuts.add(i + 1); });
+  const arms = new Map((fixed || []).map((p) => [p.start, p.size]));
+  arms.forEach((size, start) => { cuts.add(start); cuts.add(start + size); });
+  // A bend must already sit between two bars; if not, leave the build be.
+  if ([...cuts].some((c) => c > 0 && c < n && !starts.includes(c))) return run_m;
+  const edges = [...cuts].sort((a, b) => a - b);
+  const out = [];
+  for (let e = 0; e + 1 < edges.length; e++) {
+    const lo = edges[e];
+    const hi = edges[e + 1];
+    const had = starts.map((s, i) => [s, i]).filter(([s]) => s >= lo && s < hi).map(([, i]) => run_m[i]);
+    if (arms.get(lo) === hi - lo) { out.push(...had); continue; }
+    const bars = fewestBars(hi - lo, stockPanels);
+    if (!bars) { out.push(...had); continue; }
+    const mid = (lo + hi) / 2;
+    let laid;
+    if (Math.abs(mid - datum) < 1e-9) laid = mirrored(bars);
+    else if (mid < datum) laid = [...bars].sort((a, b) => a - b);
+    else laid = [...bars].sort((a, b) => b - a);
+    out.push(...laid.map(panelToMeters));
+  }
+  const same = out.length === run_m.length && out.every((w, i) => w === run_m[i]);
+  return same ? run_m : out;
+}
+
+/** Bar sizes, in panels, making exactly `run`: the fewest singles, then the fewest bars. Null when none do. */
+function fewestBars(run, stock) {
+  const SINGLE = 10000;
+  const cost = [0];
+  const last = [0];
+  for (let r = 1; r <= run; r++) {
+    cost[r] = Infinity;
+    for (const k of stock) {
+      const c = k <= r ? cost[r - k] + (k === 1 ? SINGLE + 1 : 1) : Infinity;
+      if (c < cost[r]) { cost[r] = c; last[r] = k; }
+    }
+  }
+  if (cost[run] === Infinity) return null;
+  const bars = [];
+  for (let r = run; r > 0; r -= last[r]) bars.push(last[r]);
+  return bars;
+}
+
+/** Bars arranged as a mirror where they can be: pairs either side, the largest nearest the middle, one odd bar in it, any others at the ends. */
+function mirrored(bars) {
+  const counts = new Map();
+  for (const k of bars) counts.set(k, (counts.get(k) || 0) + 1);
+  const pairs = [];
+  const odd = [];
+  for (const [k, c] of counts) {
+    for (let i = 0; i < Math.floor(c / 2); i++) pairs.push(k);
+    if (c % 2) odd.push(k);
+  }
+  pairs.sort((a, b) => b - a);
+  odd.sort((a, b) => b - a);
+  const left = [...pairs].reverse();
+  const right = [...pairs];
+  const outerL = [];
+  const outerR = [];
+  while (odd.length >= 2) { outerL.unshift(odd.shift()); outerR.push(odd.shift()); }
+  return [...outerL, ...left, ...odd, ...right, ...outerR];
+}
+
 /** The datum as a position along the wall, in half-panel steps. */
 function datumPosition(origin, panelCount) {
   if (typeof origin === 'number') return snapDatum(origin, panelCount);
@@ -1988,13 +2077,22 @@ export function solveCurve(config, system = 'metric') {
   const stockPanels = [...new Set(sizes.map((w) => panelsUnder(w, panel.width_m)))].sort((a, b) => b - a);
   const panelToMeters = (k) => sizes.find((w) => panelsUnder(w, panel.width_m) === k) ?? panel.width_m;
 
+  // Every build's bars laid again over its joints: the fewest bars between
+  // its bends, the larger nearest the Build from point (fewestBetweenBends).
+  const datumEdge = datumPosition(build_from, panel.count) - 0.5;
+  const fewest = (candidate) => {
+    const run_m = fewestBetweenBends(candidate.joints, candidate.run_m, stockPanels, panel.width_m,
+                                     panelToMeters, fixed, datumEdge);
+    if (run_m === candidate.run_m) return candidate;
+    return { ...candidate, run_m, free: footerPlan(config, run_m).free };
+  };
   const candidates = (subset) => [
     ...fitted(subset).filter(respects),
     // Even walls are built directly, a regular spacing is not something the
     // fitter aims for, and the crew's "5° every third panel" should always be
     // on the table.
     ...evenBuilds(subset, panel.count, stockPanels, panelToMeters).filter(respects),
-];
+].map(fewest);
 
   const fitted = (subset) => {
     const angles = [0, ...subset];
