@@ -31,7 +31,7 @@
 // other organising things (canvases, groups) are already renamed by
 // double-click and reordered by drag, so the idiom is the panel's own.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, holdDragOff } from './helpers.js';
+import { sendClientLog, holdDragOff, nameFieldEnter } from './helpers.js';
 
 // The picker's "make one" entry. Never a beach id (ids are b<N>).
 const NEW_BEACH = '__new_beach__';
@@ -438,8 +438,10 @@ class _Beaches {
             }
         };
         nameInput.addEventListener('blur', commitName);
+        // Enter commits here; the blur after it finds the edit closed.
+        const endsEdit = nameFieldEnter(nameInput);
         nameInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
+            if (endsEdit(e)) { e.preventDefault(); commitName(); nameInput.blur(); }
             else if (e.key === 'Escape') {
                 nameInput.value = beach.name || '';
                 endEdit();

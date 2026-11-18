@@ -1,7 +1,7 @@
 // app-canvas-ui: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, holdDragOff, escapeCovered } from './helpers.js';
+import { sendClientLog, holdDragOff, nameFieldEnter, escapeCovered } from './helpers.js';
 
 class _CanvasUi {
     regroupLayersByCanvas(container) {
@@ -161,7 +161,10 @@ class _CanvasUi {
             e.stopPropagation();
             startRename();
         });
+        // Enter commits here and the blur after it finds the edit closed
+        // (the read-only check): one rename, one PUT, one undo step.
         const commitName = () => {
+            if (nameInput.readOnly) return;
             nameInput.readOnly = true;
             if (releaseDrag) { releaseDrag(); releaseDrag = null; }
             const newName = nameInput.value.trim();
@@ -172,8 +175,9 @@ class _CanvasUi {
             }
         };
         nameInput.addEventListener('blur', commitName);
+        const endsEdit = nameFieldEnter(nameInput);
         nameInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
+            if (endsEdit(e)) { e.preventDefault(); commitName(); nameInput.blur(); }
             else if (e.key === 'Escape') { nameInput.value = canvas.name || ''; nameInput.blur(); }
             if (!nameInput.readOnly) e.stopPropagation();
         });

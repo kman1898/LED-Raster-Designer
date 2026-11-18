@@ -386,6 +386,33 @@ function installEnterEndsEdit(doc) {
     });
 }
 
+// The rename fields of the Screens list (a screen, a canvas, a group, a
+// beach) commit from the Enter itself, not from the blur after it (owner,
+// Mac, 1.7.0 beta: "when i type in a layer name and hit enter nothing
+// happens"). Call once per field; the returned test says whether a keydown
+// is an Enter that ends the edit.
+//
+// An Enter that belongs to a text composition (an input method, or the
+// system's inline text on the Mac) only takes the composed text, and the
+// next Enter commits. Chromium marks that Enter isComposing; WebKit ends
+// the composition first and then sends the Enter with keyCode 229. A 229
+// with no composition just ended on the field is a plain Enter.
+function nameFieldEnter(field) {
+    let composing = false;
+    let endedAt = -Infinity;
+    field.addEventListener('compositionstart', () => { composing = true; });
+    field.addEventListener('compositionend', () => {
+        composing = false;
+        endedAt = performance.now();
+    });
+    return (e) => {
+        if (e.key !== 'Enter') return false;
+        if (e.isComposing || composing) return false;
+        if (e.keyCode === 229 && performance.now() - endedAt < 1000) return false;
+        return true;
+    };
+}
+
 // No autofill reaches a show. Owner, 2026-11-05: "i just had autofill
 // change a bunch of stuff. this cannot happen." With the Export window
 // open, the browser's contact AutoFill filled the Project Manager field
@@ -777,7 +804,7 @@ function escapeLayerOpen(event) {
 }
 
 export { evaluateMathExpression, isMacOS, sendClientLog, setClientLogPage, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
-    FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff, escapeCovered, escapeLayerOpen };
+    FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff, nameFieldEnter, escapeCovered, escapeLayerOpen };
 
 // Classic (non-module) scripts call these by name at runtime
 // (canvas.js -> sendClientLog, color_picker.js -> normalizeHex,

@@ -34,7 +34,7 @@
 // _enforce_group_integrity, so the SERVER decides what a membership that
 // disagrees with itself repairs to - none of that logic is repeated here.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, holdDragOff, escapeCovered } from './helpers.js';
+import { sendClientLog, holdDragOff, nameFieldEnter, escapeCovered } from './helpers.js';
 import { stripScreenFeeds, SCREEN_FEED_KEYS } from './app-clipboard.js';
 import { s3dCopyPlacement } from './app-stage3d.js';
 
@@ -2321,8 +2321,10 @@ class _ScreenGroups {
             }
         };
         nameInput.addEventListener('blur', commitName);
+        // Enter commits here; the blur after it finds the edit closed.
+        const endsEdit = nameFieldEnter(nameInput);
         nameInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') { e.preventDefault(); nameInput.blur(); }
+            if (endsEdit(e)) { e.preventDefault(); commitName(); nameInput.blur(); }
             else if (e.key === 'Escape') {
                 nameInput.value = group.name || '';
                 nameInput.readOnly = true;
