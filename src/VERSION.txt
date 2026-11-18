@@ -518,6 +518,8 @@ POWER FIXES
 
 ALSO NEW
 
+- NEW: The app log notes what the 3D view draws for each screen, so a
+  wrong picture in 3D can be tracked down.
 - NEW: Several circuits can be redrawn as one, the way ports can. In the
   Power view, pick them with Alt-drag (Option on a Mac), Shift-click or a
   Shift-drag box, right-click and choose Redraw circuits S1-5 to S2-1 as

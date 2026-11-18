@@ -48,6 +48,8 @@ const TEX_MIN = 1024;            // small screens are drawn up to this
 // ordinary textures.
 const DETAIL_SIDE = 8192;
 const DETAIL_TEXELS = 8192 * 4096;
+const TEX_LOG_MS = 1000;         // stage3d_texture: one per screen a second at most
+const TEX_MATCH_TOLERANCE = 24;  // a corner cabinet this far off its own colour is logged
 const DETAIL_AT = 1.5;           // a texel this many page px wide asks for it
 const DETAIL_SETTLE_MS = 250;    // after the camera stops
 // The near plane follows the camera in: a thousandth of the way to what it
@@ -798,6 +800,8 @@ class _Stage3D {
             return;
         }
         this._s3dWire();
+        // the first sync after this logs what the view shows (stage3d_view)
+        st.whyNext = 'tab switch';
         this._s3dLoad().then(() => {
             this._s3dResize();
             this._s3dSync();
@@ -856,6 +860,19 @@ class _Stage3D {
             st.renderer.domElement.id = 's3d-canvas';
             if (view) view.insertBefore(st.renderer.domElement, view.firstChild);
             st.webgl = true;
+            // A lost graphics context blanks the view (or, in some browsers,
+            // takes the page with it): the log says when, and what the
+            // stage held then. One line each way.
+            const held = () => {
+                const live = [...st.entries.values()];
+                return { screens: live.length, textures: live.map(e => ({ id: e.id, size: e.texSize || null })) };
+            };
+            st.renderer.domElement.addEventListener('webglcontextlost', () => {
+                sendClientLog('stage3d_context_lost', { active: !!st.active, ...held() });
+            });
+            st.renderer.domElement.addEventListener('webglcontextrestored', () => {
+                sendClientLog('stage3d_context_restored', { active: !!st.active, ...held() });
+            });
         } catch (err) {
             st.renderer = null;
             st.webgl = false;
@@ -1327,6 +1344,7 @@ class _Stage3D {
             // nothing drawn for the old show is kept - every mesh and
             // picture is built again from the new one.
             for (const e of st.entries.values()) { e.texKey = ''; e.geoKey = ''; e.barsKey = ''; }
+            if (!st.whyNext) st.whyNext = 'project opened';
             return;
         }
         if (st.cam && JSON.stringify(p.stage3dCamera) !== JSON.stringify(st.cam)) {
@@ -1608,12 +1626,28 @@ class _Stage3D {
             return;
         }
         this._s3dAdoptViewState();
+        st.why = this._s3dSyncWhy();
         const layout = this._s3dLayout();
         const seen = new Set();
         for (const item of layout.items) {
             seen.add(item.layer.id);
+            const had = st.entries.get(item.layer.id);
+            if (had) had.paintedNow = false;
             this._s3dUpdateEntry(item.layer, this._s3dPlacementOf(item.layer, layout));
         }
+        if (st.why === 'tab switch' || st.why === 'project opened') {
+            // What the view shows on entering 3D or on a show opening: each
+            // screen, its canvas, and whether its texture was drawn again or
+            // kept.
+            sendClientLog('stage3d_view', {
+                screens: layout.items.map(({ layer }) => {
+                    const e = st.entries.get(layer.id);
+                    return { id: layer.id, name: layer.name || '', canvas: layer.canvas_id || null,
+                        texture: e && e.paintedNow ? 'rebuilt' : 'reused', size: e && e.texSize ? e.texSize : null };
+                }),
+            });
+        }
+        st.why = null;
         for (const id of [...st.entries.keys()]) {
             if (!seen.has(id)) this._s3dDropEntry(id);
         }
@@ -1644,6 +1678,7 @@ class _Stage3D {
         if (e.lineGeo) e.lineGeo.dispose();
         if (e.labelGeo) e.labelGeo.dispose();
         if (e.tex) e.tex.dispose();
+        e.texAlloc = null;
         if (e.labelTex) e.labelTex.dispose();
         if (e.seam) { e.seam.geometry.dispose(); e.seam.material.dispose(); }
         this._s3dDropBars(e);
@@ -1691,8 +1726,9 @@ class _Stage3D {
         if (e.barGroup) e.barGroup.visible = st.bars !== false;
         const texKey = this._s3dTexKey(layer);
         if (e.texKey !== texKey) {
+            const first = !e.texKey;
             e.texKey = texKey;
-            this._s3dPaint(e, layer);
+            this._s3dPaint(e, layer, first && st.why !== 'tab switch' ? 'new screen' : (st.why || 'edit'));
         }
         e.placement = placement;
         e.footerMm = this._s3dFooterMm(layer);
@@ -1904,11 +1940,13 @@ class _Stage3D {
     // It is taken in two passes: the cabinets with every line on them onto
     // the face, and the screen's writing alone (the Screen name stage) onto
     // a transparent sheet laid over the seams (_s3dBuildMesh).
-    _s3dPaint(e, layer) {
+    _s3dPaint(e, layer, why = 'edit') {
         const st = this._s3dState();
         const T = st.T;
         const r = window.canvasRenderer;
         if (!r || !e.built) return;
+        // the 2D view and pass the renderer was in when the paint began
+        const before = { view: r.viewMode, idmPass: !!r._idmPass };
         const b = e.built.bounds;
         const side = Math.max(b.w, b.h);
         const maxTex = st.renderer ? st.renderer.capabilities.maxTextureSize : TEX_MAX;
@@ -1928,6 +1966,15 @@ class _Stage3D {
         e.labelCanvas.width = w;
         e.labelCanvas.height = h;
         const labelCtx = e.labelCanvas.getContext('2d', { alpha: true });
+        // A browser out of canvas memory hands back no 2D context: the
+        // screen keeps whatever its texture held, and the log says so.
+        if (!ctx || !labelCtx) {
+            sendClientLog('stage3d_texture_failed', {
+                id: layer.id, name: layer.name || '', canvas: layer.canvas_id || null, size: [w, h], why,
+                reason: 'no 2D drawing context for the texture',
+            });
+            return;
+        }
         const stages = (window.CanvasRenderer && window.CanvasRenderer.RENDER_STAGES) || [];
         const proj = this.project;
         const canvases = (proj && Array.isArray(proj.canvases)) ? proj.canvases : [];
@@ -1971,7 +2018,8 @@ class _Stage3D {
                 r.render();
             }
         } catch (err) {
-            sendClientLog('stage3d_paint_failed', { id: layer.id, error: String((err && err.message) || err) });
+            sendClientLog('stage3d_paint_failed', { id: layer.id, name: layer.name || '', canvas: layer.canvas_id || null,
+                size: [w, h], why, error: String((err && err.message) || err) });
         } finally {
             saved.canvasVis.forEach(([c, v]) => { c.visible = v; });
             saved.layerVis.forEach(([l, v]) => { l.visible = v; });
@@ -2000,6 +2048,13 @@ class _Stage3D {
             e.tex.magFilter = T.NearestFilter;
             e.frontMat.map = e.tex;
             e.frontMat.needsUpdate = true;
+            // The size the graphics card gave the texture's storage, read
+            // off its first upload after each allocation (three.js calls
+            // onUpdate after every upload and allocates fixed storage on the
+            // first one): what _s3dCheckUpload holds the picture against.
+            e.tex.onUpdate = (t) => {
+                if (!e.texAlloc && t.image) e.texAlloc = [t.image.width, t.image.height];
+            };
         } else if (e.tex.image !== e.canvas || !e.texSize || e.texSize[0] !== w || e.texSize[1] !== h
                 || e.texDetail !== !!e.detail) {
             // A new size needs new storage on the card. The canvas itself
@@ -2014,6 +2069,7 @@ class _Stage3D {
             // going on or off (up close and back) change the storage's
             // levels, so they get new storage too.
             e.tex.dispose();
+            e.texAlloc = null;
             e.tex.image = e.canvas;
         }
         e.tex.generateMipmaps = !e.detail;
@@ -2040,6 +2096,215 @@ class _Stage3D {
         e.labelTex.minFilter = e.detail ? T.LinearFilter : T.LinearMipmapLinearFilter;
         e.labelTex.needsUpdate = true;
         if (e.labels) e.labels.visible = true;
+        e.paintedNow = true;
+        // the next frame uploads it: the graphics card's answer is read then
+        if (!st.uploadCheck) st.uploadCheck = new Map();
+        st.uploadCheck.set(e.id, { name: layer.name || '', canvas: layer.canvas_id || null, size: [w, h], why });
+        this._s3dLogTexture(e, layer, why, before);
+    }
+
+    // -- what the view draws, in the app log ----------------------------
+    //
+    // The owner, 2026-11-18: "We need to show all of that stuff in logs
+    // because how else will we find bugs like this?" Each time a screen's
+    // texture is drawn (never per frame) the log gets stage3d_texture: the
+    // screen and its canvas, the view the picture was drawn in and the one
+    // the 2D renderer was in, the texture's size, why it was drawn, and a
+    // few colours read back from it: the average, a point in each corner
+    // cabinet and the middle. When the corner cabinets are not the screen's
+    // own checker or palette colours, stage3d_texture_mismatch says what
+    // was expected and what was drawn. At most one of each per screen a
+    // second: a burst logs its first and its last.
+
+    // After the frame that uploaded new textures: a refusal from the
+    // graphics card (too big, out of memory, a lost context) leaves a screen
+    // with no picture or an old one, so it is logged with each texture's
+    // size. One read of the error flag per frame that uploaded something.
+    _s3dCheckUpload() {
+        const st = this._s3dState();
+        const sent = st.uploadCheck;
+        st.uploadCheck = null;
+        if (!sent || !sent.size || !st.renderer) return;
+        // the storage the card holds against the picture drawn for it: a
+        // picture bigger or smaller than its storage is not what is shown
+        for (const [id, t] of sent) {
+            const e = st.entries.get(id);
+            if (!e || !e.texAlloc || !e.texSize) continue;
+            if (e.texAlloc[0] !== e.texSize[0] || e.texAlloc[1] !== e.texSize[1]) {
+                sendClientLog('stage3d_texture_stale', {
+                    id, name: t.name, canvas: t.canvas, why: t.why, size: e.texSize.slice(), gpu: e.texAlloc.slice(),
+                    level: 'warning', note: 'the graphics card holds a picture of another size',
+                });
+            }
+        }
+        let code = 0, lost = false;
+        try {
+            const gl = st.renderer.getContext();
+            code = gl.getError();
+            lost = typeof gl.isContextLost === 'function' && gl.isContextLost();
+        } catch (_) { return; }
+        if (!code && !lost) return;
+        sendClientLog('stage3d_texture_failed', {
+            reason: lost ? 'the graphics context was lost' : 'the graphics card refused the upload',
+            glError: code, maxTextureSize: st.renderer.capabilities ? st.renderer.capabilities.maxTextureSize : null,
+            screens: [...sent.entries()].map(([id, t]) => ({ id, ...t })),
+        });
+    }
+
+    // Why the stage is being synced: a tab switch (set on entering 3D), an
+    // undo or redo (the history stepped back or on), another show, or an
+    // edit.
+    _s3dSyncWhy() {
+        const st = this._s3dState();
+        const seen = st.histSeen;
+        const now = { idx: this.historyIndex, len: Array.isArray(this.history) ? this.history.length : 0,
+            epoch: this._projectEpoch || 0 };
+        st.histSeen = now;
+        let why = st.whyNext || 'edit';
+        st.whyNext = null;
+        if (why === 'edit' && seen) {
+            if (seen.epoch !== now.epoch) why = 'project opened';
+            else if (now.len === seen.len && now.idx < seen.idx) why = 'undo';
+            else if (now.len === seen.len && now.idx > seen.idx) why = 'redo';
+        }
+        return why;
+    }
+
+    _s3dLogTexture(e, layer, why, before) {
+        const now = Date.now();
+        const last = e.texLog || 0;
+        if (now - last >= TEX_LOG_MS) {
+            e.texLog = now;
+            // read back once the paint is done, off the paint's own time
+            const later = typeof window.requestIdleCallback === 'function'
+                ? (fn) => window.requestIdleCallback(fn, { timeout: 500 }) : (fn) => setTimeout(fn, 0);
+            later(() => {
+                const st = this._s3dState();
+                const live = ((this.project && this.project.layers) || []).find(l => l.id === e.id);
+                if (!live || st.entries.get(e.id) !== e) return;
+                this._s3dTextureLogNow(e, live, why, before);
+            });
+            return;
+        }
+        // within the second: the last one of the burst, once it ends
+        e.texLogPending = { why, before };
+        if (e.texLogTimer) return;
+        e.texLogTimer = setTimeout(() => {
+            e.texLogTimer = null;
+            const pending = e.texLogPending;
+            e.texLogPending = null;
+            const st = this._s3dState();
+            const live = ((this.project && this.project.layers) || []).find(l => l.id === e.id);
+            if (!pending || !live || st.entries.get(e.id) !== e) return;
+            e.texLog = Date.now();
+            this._s3dTextureLogNow(e, live, pending.why, pending.before);
+        }, TEX_LOG_MS - (now - last));
+    }
+
+    // The colours read back from a screen's texture, and the corner cabinets
+    // they were read from: the texture drawn down to 8 x 8 and the five
+    // points copied beside it into one small sheet, read back once.
+    // Changes nothing.
+    _s3dTextureSample(e, layer) {
+        const c = e.canvas;
+        const b = e.built && e.built.bounds;
+        if (!c || !b || !c.width || !c.height) return null;
+        const sx = c.width / b.w, sy = c.height / b.h;
+        const live = (layer.panels || []).filter(p => !p.hidden && !p.blank && Number(p.width) > 0 && Number(p.height) > 0);
+        const pick = (fx, fy) => live.reduce((best, p) => {
+            const score = fx * (Number(p.x) || 0) + fy * (Number(p.y) || 0);
+            return !best || score > best.score ? { p, score } : best;
+        }, null);
+        // each corner cabinet, read low in its middle: clear of its number,
+        // its Cabinet ID and its borders; then the middle of the picture
+        const points = [];
+        for (const [name, fx, fy] of [['tl', -1, -1], ['tr', 1, -1], ['bl', -1, 1], ['br', 1, 1]]) {
+            const hit = pick(fx, fy);
+            if (!hit) continue;
+            const p = hit.p;
+            points.push({ name, panel: p,
+                x: ((Number(p.x) || 0) - b.x + (Number(p.width) || 0) * 0.5) * sx,
+                y: ((Number(p.y) || 0) - b.y + (Number(p.height) || 0) * 0.8) * sy });
+        }
+        points.push({ name: 'centre', x: c.width / 2, y: c.height / 2 });
+        if (!this._s3dSampleSheet) this._s3dSampleSheet = document.createElement('canvas');
+        const sheet = this._s3dSampleSheet;
+        sheet.width = 8 + points.length;
+        sheet.height = 8;
+        const ctx = sheet.getContext('2d', { willReadFrequently: true });
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(c, 0, 0, 8, 8);
+        ctx.imageSmoothingEnabled = false;
+        const clamp = (v, hi) => Math.max(0, Math.min(hi - 1, Math.floor(v)));
+        points.forEach((pt, k) => ctx.drawImage(c, clamp(pt.x, c.width), clamp(pt.y, c.height), 1, 1, 8 + k, 0, 1, 1));
+        const d = ctx.getImageData(0, 0, sheet.width, 8).data;
+        const at = (x, y) => { const i = (y * sheet.width + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
+        const avg = [0, 0, 0];
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { const v = at(x, y); avg[0] += v[0]; avg[1] += v[1]; avg[2] += v[2]; }
+        const corners = {};
+        let centre = null;
+        points.forEach((pt, k) => {
+            const rgb = at(8 + k, 0);
+            if (pt.name === 'centre') centre = rgb;
+            else corners[pt.name] = { col: pt.panel.col, row: pt.panel.row, rgb, panel: pt.panel };
+        });
+        return { avg: avg.map(v => Math.round(v / 64)), corners, centre };
+    }
+
+    _s3dTextureLogNow(e, layer, why, before) {
+        let sample = null;
+        try { sample = this._s3dTextureSample(e, layer); } catch (_) { sample = null; }
+        const plainCorners = {};
+        if (sample) Object.entries(sample.corners).forEach(([k, v]) => { plainCorners[k] = v.rgb; });
+        sendClientLog('stage3d_texture', {
+            id: layer.id, name: layer.name || '', canvas: layer.canvas_id || null,
+            drawnIn: 'pixel-map', viewWas: before ? before.view : null,
+            idmPassWas: before ? before.idmPass : false,
+            source: { from: 'Pixel Map renderer', into: 'own texture canvas', fresh: true, detail: !!e.detail },
+            size: e.texSize || null, scale: e.texScale || null, why,
+            // the screen's pixel bounds: the picture is drawn from them and
+            // the mesh maps them onto its cabinets
+            bounds: e.built ? e.built.bounds : null, gpu: e.texAlloc ? e.texAlloc.slice() : null,
+            avg: sample ? sample.avg : null, corners: plainCorners, centre: sample ? sample.centre : null,
+        });
+        if (!sample) return;
+        const expect = this._s3dTextureExpect(layer);
+        if (!expect) return;
+        const wrong = [];
+        for (const [k, v] of Object.entries(sample.corners)) {
+            const want = expect(v.panel);
+            if (!want) continue;
+            const off = Math.max(...want.map((w, i) => Math.abs(w - v.rgb[i])));
+            if (off > TEX_MATCH_TOLERANCE) wrong.push({ corner: k, col: v.col, row: v.row, expected: want, got: v.rgb });
+        }
+        if (wrong.length) {
+            sendClientLog('stage3d_texture_mismatch', {
+                id: layer.id, name: layer.name || '', canvas: layer.canvas_id || null, why,
+                mode: layer.panelColorMode || 'checker', viewWas: before ? before.view : null,
+                color1: layer.color1 || null, color2: layer.color2 || null, wrong, level: 'warning',
+            });
+        }
+    }
+
+    // What a cabinet of `layer` should read on its texture, as [r, g, b], or
+    // null when there is no clear answer: a gradient over the cabinets or
+    // no fill at all.
+    _s3dTextureExpect(layer) {
+        const r = window.canvasRenderer;
+        if (!r || typeof r._panelBaseFill !== 'function') return null;
+        if (layer.gradientEnabled || layer.transparentFill) return null;
+        const parse = (fill) => {
+            const text = String(fill || '').trim();
+            let m = /^#([0-9a-f]{6})$/i.exec(text);
+            if (m) return [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16));
+            m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(text);
+            return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+        };
+        return (panel) => {
+            const was = r.printerMode;
+            r.printerMode = false;
+            try { return parse(r._panelBaseFill(panel, layer)); } finally { r.printerMode = was; }
+        };
     }
 
     // ── up close ──────────────────────────────────────────────────────────
@@ -2115,7 +2380,7 @@ class _Stage3D {
             const layer = layers.find(l => l.id === e.id);
             if (!layer) continue;
             e.detail = on;
-            this._s3dPaint(e, layer);
+            this._s3dPaint(e, layer, on ? 'up close' : 'back from up close');
             sendClientLog('stage3d_detail', { id: e.id, on: !!e.detail, tex: e.texSize });
         }
         this._s3dRequestRender();
@@ -2276,6 +2541,7 @@ class _Stage3D {
             this._s3dFitNear();
             this._s3dDetailCheck();
             st.renderer.render(st.scene, st.camera);
+            if (st.uploadCheck) this._s3dCheckUpload();
         });
     }
 

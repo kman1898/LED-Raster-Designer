@@ -1289,3 +1289,171 @@ def test_a_figure_menu_opens_right_after_g_ends_by_enter(page):
     assert page.locator('#s3d-field-menu').count() == 0
     assert page.errors == []
 
+
+# ── 7. what the view draws, in the app log ───────────────────────────────
+
+# The client log as sendClientLog beacons it, kept on the page.
+CLIENT_LOG = (
+    "window.__clog = [];"
+    "(function () { const send = navigator.sendBeacon && navigator.sendBeacon.bind(navigator);"
+    " navigator.sendBeacon = (u, b) => { try { b.text().then(t => { const j = JSON.parse(t);"
+    " window.__clog.push({ action: j.action, details: j.details }); }); } catch (e) {}"
+    " return send ? send(u, b) : true; }; })();"
+)
+
+
+def logged(pg, action, since=0):
+    return [e['details'] for e in pg.evaluate("() => window.__clog")[since:] if e['action'] == action]
+
+
+def log_len(pg):
+    return pg.evaluate("() => window.__clog.length")
+
+
+def test_the_log_says_what_each_3d_texture_draws(e2e_server, pw_browser):
+    """The owner, 2026-11-18: "We need to show all of that stuff in logs
+    because how else will we find bugs like this?" Entering 3D logs each
+    screen with its canvas and whether its texture was drawn again or kept
+    (stage3d_view); every texture drawn logs the screen, its canvas, the
+    view it was drawn in, its size, why, and colours read back from it
+    (stage3d_texture), on a tab switch, an edit and an undo alike. Corner
+    cabinets that are not the screen's own colours log
+    stage3d_texture_mismatch with what was expected and what was drawn."""
+    context = _context(pw_browser, CLIENT_LOG)
+    pg = context.new_page()
+    errors = []
+    pg.on('pageerror', lambda err: errors.append(str(err)))
+    try:
+        pg.goto(e2e_server, wait_until='domcontentloaded')
+        pg.wait_for_timeout(2000)
+        ids = reset(pg, ONE)
+        wall = ids[0]
+        own = pg.evaluate(f"""() => {{ const l = window.app.project.layers.find(x => x.id === {wall});
+            return {{c1: [l.color1.r, l.color1.g, l.color1.b], c2: [l.color2.r, l.color2.g, l.color2.b],
+                     canvas: l.canvas_id, tl: l.panels.find(p => p.col === 0 && p.row === 0).is_color1}}; }}""")
+        # a tab switch
+        start = log_len(pg)
+        open_3d(pg, 1)
+        view = settled(pg, lambda: logged(pg, 'stage3d_view', start), lambda v: len(v) >= 1)
+        assert view[0]['screens'] == [{'id': wall, 'name': 'Wall', 'canvas': own['canvas'], 'texture': 'rebuilt',
+                                       'size': view[0]['screens'][0]['size']}]
+        tex = settled(pg, lambda: logged(pg, 'stage3d_texture', start), lambda v: len(v) >= 1)[0]
+        assert tex['id'] == wall and tex['name'] == 'Wall' and tex['canvas'] == own['canvas']
+        assert tex['why'] == 'tab switch' and tex['drawnIn'] == 'pixel-map' and 'viewWas' in tex
+        assert tex['source']['fresh'] is True
+        w, h = tex['size']
+        assert w > 0 and h > 0
+        assert len(tex['avg']) == 3 and len(tex['centre']) == 3
+        assert sorted(tex['corners']) == ['bl', 'br', 'tl', 'tr']
+        # the top-left cabinet reads its own checker colour
+        want = own['c1'] if own['tl'] else own['c2']
+        assert max(abs(a - b) for a, b in zip(tex['corners']['tl'], want)) <= 24, (tex, want)
+        assert logged(pg, 'stage3d_texture_mismatch', start) == []
+        # back again with nothing changed: the texture is kept
+        start = log_len(pg)
+        open_tab(pg, 'pixel-map')
+        open_3d(pg, 1)
+        view = settled(pg, lambda: logged(pg, 'stage3d_view', start), lambda v: len(v) >= 1)
+        assert view[0]['screens'][0]['texture'] == 'reused'
+        assert logged(pg, 'stage3d_texture', start) == []
+        # an edit: the new colour is what the log reads back
+        pg.wait_for_timeout(1100)
+        start = log_len(pg)
+        pg.evaluate(f"""() => {{ const a = window.app; const l = a.project.layers.find(x => x.id === {wall});
+            l.color1 = {{r: 200, g: 20, b: 20}}; l.color2 = {{r: 20, g: 200, b: 20}};
+            a.updateLayers([l], true, 'Test Colours'); }}""")
+        tex = settled(pg, lambda: logged(pg, 'stage3d_texture', start), lambda v: len(v) >= 1)[0]
+        assert tex['why'] == 'edit'
+        want = [200, 20, 20] if own['tl'] else [20, 200, 20]
+        assert max(abs(a - b) for a, b in zip(tex['corners']['tl'], want)) <= 24, tex
+        # an undo
+        pg.wait_for_timeout(1100)
+        start = log_len(pg)
+        undo(pg)
+        tex = settled(pg, lambda: logged(pg, 'stage3d_texture', start), lambda v: len(v) >= 1)[0]
+        assert tex['why'] == 'undo'
+        want = own['c1'] if own['tl'] else own['c2']
+        assert max(abs(a - b) for a, b in zip(tex['corners']['tl'], want)) <= 24, tex
+        assert logged(pg, 'stage3d_texture_mismatch', start) == []
+        # a texture that is not the screen's own colours is said
+        pg.wait_for_timeout(1100)
+        start = log_len(pg)
+        pg.evaluate(f"""() => {{ const a = window.app, e = a._s3dState().entries.get({wall});
+            const ctx = e.canvas.getContext('2d'); ctx.fillStyle = '#2145dc';
+            ctx.fillRect(0, 0, e.canvas.width, e.canvas.height);
+            a._s3dTextureLogNow(e, a.project.layers.find(x => x.id === {wall}), 'test', null); }}""")
+        bad = settled(pg, lambda: logged(pg, 'stage3d_texture_mismatch', start), lambda v: len(v) >= 1)[0]
+        assert bad['id'] == wall and bad['canvas'] == own['canvas'] and bad['level'] == 'warning'
+        assert {x['corner'] for x in bad['wrong']} == {'tl', 'tr', 'bl', 'br'}
+        assert all(x['got'] == [33, 69, 220] for x in bad['wrong'])
+        assert bad['wrong'][0]['expected'] in (own['c1'], own['c2'])
+        # a corner set in the view: where its mark was drawn and where the
+        # fold stands, in mm along the wall, the same for a seam and a middle
+        corners_on(pg)
+        for at, mm in ((3.5, 1500), (5, 2250)):
+            pg.wait_for_timeout(1100)
+            start = log_len(pg)
+            pg.evaluate(f"window.app._s3dPickCorner({wall}, {at})")
+            pick = settled(pg, lambda: logged(pg, 'stage3d_corner_pick', start), lambda v: len(v) >= 1)[0]
+            assert pick['drawnMm'] == mm
+            pg.click('#s3d-corner-pop [data-s3d-corner="interior"]')
+            got = settled(pg, lambda: logged(pg, 'stage3d_corner_set', start), lambda v: len(v) >= 1)[0]
+            assert got['at'] == at and got['drawnMm'] == mm and got['foldMm'] == mm and 'level' not in got, got
+            pg.evaluate(f"window.app._s3dPickCorner({wall}, {at})")
+            pg.click('#s3d-corner-pop [data-s3d-corner="none"]')
+            settled(pg, lambda: pg.evaluate(f"(window.app.project.layers.find(l => l.id === {wall}).riggingCorners || []).length"),
+                    lambda v: v == 0)
+        corners_on(pg, False)
+        # a browser that gives no 2D context for the texture is said, with its size
+        start = log_len(pg)
+        pg.evaluate(f"""() => {{ const a = window.app, e = a._s3dState().entries.get({wall});
+            e.canvas.getContext = () => null;
+            const l = a.project.layers.find(x => x.id === {wall});
+            l.color1 = {{r: 10, g: 10, b: 10}}; a.updateLayers([l], true, 'Test Colours'); }}""")
+        failed = settled(pg, lambda: logged(pg, 'stage3d_texture_failed', start), lambda v: len(v) >= 1)[0]
+        assert failed['id'] == wall and failed['canvas'] == own['canvas'] and len(failed['size']) == 2
+        assert 'context' in failed['reason']
+        # the graphics context lost and given back: each said, with what the stage held
+        start = log_len(pg)
+        pg.evaluate("""() => { const gl = window.app._s3dState().renderer.getContext();
+            window.__lose = gl.getExtension('WEBGL_lose_context'); window.__lose.loseContext(); }""")
+        lost = settled(pg, lambda: logged(pg, 'stage3d_context_lost', start), lambda v: len(v) >= 1)[0]
+        assert lost['screens'] == 1 and lost['textures'][0]['id'] == wall and len(lost['textures'][0]['size']) == 2
+        pg.evaluate("() => window.__lose.restoreContext()")
+        back = settled(pg, lambda: logged(pg, 'stage3d_context_restored', start), lambda v: len(v) >= 1)[0]
+        assert back['screens'] == 1
+        assert errors == []
+    finally:
+        context.close()
+
+
+UP_CLOSE_JS = """(id) => {
+    const a = window.app, st = a._s3dState(), e = st.entries.get(id);
+    const layer = a.project.layers.find(l => l.id === id);
+    const gl = st.renderer.getContext();
+    gl.getError();
+    const step = (on) => {
+        e.detail = on;
+        a._s3dPaint(e, layer, on ? 'up close' : 'back from up close');
+        st.renderer.render(st.scene, st.camera);
+        return {detail: !!e.detail, size: e.texSize.slice(), gpu: e.texAlloc ? e.texAlloc.slice() : null,
+                error: gl.getError()};
+    };
+    return [step(true), step(false)];
+}"""
+
+
+def test_up_close_and_back_the_card_holds_the_picture_drawn(page):
+    """Up close a big screen is drawn again at one texel per pixel, and
+    back out at its ordinary size, with mipmaps off and on again: each
+    time the graphics card's storage for the texture is the picture's own
+    size (texAlloc, read off the card's upload), and the card takes it."""
+    ids = reset(page, [{'name': 'Wide', 'columns': 40, 'rows': 2, 'offset_x': 0, 'offset_y': 0}])
+    wall = ids[0]
+    open_3d(page, 1)
+    near, far = page.evaluate(UP_CLOSE_JS, wall)
+    assert near['detail'] and near['size'] == [5120, 256], near
+    assert far['size'] == [4096, 205] and not far['detail'], far
+    for got in (near, far):
+        assert got['gpu'] == got['size'] and got['error'] == 0, got
+    assert page.errors == []
