@@ -763,7 +763,7 @@ class _Stage3D {
                 renderer: null, webgl: false, scene: null, root: null, gridGroup: null,
                 persp: null, ortho: null, camera: null, controls: null, raycaster: null,
                 entries: new Map(), corner: null, epoch: null, cam: null,
-                units: 'ft', grid: true, bars: true, timer: null, frame: 0, gridKey: '',
+                units: 'ft', grid: true, bars: true, corners: false, timer: null, frame: 0, gridKey: '',
                 wired: false, drag: null, down: null, needsFit: false, saveTimer: null,
                 orthoHalf: 5000,
                 // app-stage3d-nav.js and app-stage3d-handles.js: the gesture
@@ -1239,6 +1239,7 @@ class _Stage3D {
         on('s3d-tool-rotate', 'click', () => this._s3dSetTool('rotate'));
         on('s3d-grid', 'click', () => this._s3dSetGrid(!this._s3dState().grid));
         on('s3d-bars', 'click', () => this._s3dSetBars(!this._s3dState().bars));
+        on('s3d-corners', 'click', () => this._s3dSetCorners(!this._s3dState().corners));
     }
 
     // Values only - the fields are never rebuilt, and the one being typed in
@@ -1260,6 +1261,11 @@ class _Stage3D {
         if (grid) grid.classList.toggle('active', st.grid !== false);
         const bars = byId('s3d-bars');
         if (bars) bars.classList.toggle('active', st.bars !== false);
+        const addCorners = byId('s3d-corners');
+        if (addCorners) {
+            addCorners.classList.toggle('active', st.corners === true);
+            addCorners.setAttribute('aria-pressed', st.corners === true ? 'true' : 'false');
+        }
         const tool = st.tool === 'rotate' ? 'rotate' : 'move';
         const move = byId('s3d-tool-move'), turn = byId('s3d-tool-rotate');
         if (move) move.classList.toggle('active', tool === 'move');
@@ -1310,6 +1316,7 @@ class _Stage3D {
             st.units = this._s3dShowUnits();
             st.grid = p.stage3dGrid !== false;
             st.bars = p.stage3dBars !== false;
+            st.corners = p.stage3dCorners === true;
             st.corner = null;
             st.cam = (p.stage3dCamera && Array.isArray(p.stage3dCamera.position)
                 && Array.isArray(p.stage3dCamera.target)) ? JSON.parse(JSON.stringify(p.stage3dCamera)) : null;
@@ -1324,6 +1331,7 @@ class _Stage3D {
         if ((p.stage3dUnits === 'm' || p.stage3dUnits === 'ft') && p.stage3dUnits !== st.units) p.stage3dUnits = st.units;
         if (p.stage3dGrid !== undefined && p.stage3dGrid !== st.grid) p.stage3dGrid = st.grid;
         if (p.stage3dBars !== undefined && p.stage3dBars !== st.bars) p.stage3dBars = st.bars;
+        if (p.stage3dCorners !== undefined && p.stage3dCorners !== st.corners) p.stage3dCorners = st.corners;
     }
 
     _s3dPutView(body) {
@@ -1366,6 +1374,25 @@ class _Stage3D {
         if (this.project) this.project.stage3dBars = st.bars;
         this._s3dPutView({ bars: st.bars });
         for (const e of st.entries.values()) if (e.barGroup) e.barGroup.visible = st.bars;
+        this._s3dRefreshPanel();
+        this._s3dRequestRender();
+    }
+
+    // Add corners (owner, 2026-11-18: "add a toggle that needs to be enabled
+    // to allow for adding corners. That way the lines dont show up by
+    // default"): off, a click on the selected screen only selects, and no
+    // corner spot is marked; on, a click on a seam or a panel's middle
+    // offers a corner (_s3dClick). View state saved with the show beside
+    // Grid and Bars, never an undo step; a show that never turned it on
+    // opens with it off.
+    _s3dSetCorners(on) {
+        const st = this._s3dState();
+        this._s3dAdoptViewState();
+        st.corners = !!on;
+        if (this.project) this.project.stage3dCorners = st.corners;
+        this._s3dPutView({ corners: st.corners });
+        if (!st.corners) this._s3dPickCorner(null);
+        sendClientLog('stage3d_corners', { on: st.corners });
         this._s3dRefreshPanel();
         this._s3dRequestRender();
     }
@@ -2223,9 +2250,10 @@ class _Stage3D {
         return { layerId: e.id, entry: e, point: hit.point.clone(), quad: Math.floor(hit.faceIndex / 2) };
     }
 
-    // A click on a screen selects it; a click on the screen already picked
-    // alone, on a seam or a panel's middle (_s3dSpotAt), offers a corner
-    // there (app-stage3d-panel.js _s3dPickCorner).
+    // A click on a screen selects it; with Add corners on, a click on the
+    // screen already picked alone, on a seam or a panel's middle
+    // (_s3dSpotAt), offers a corner there (app-stage3d-panel.js
+    // _s3dPickCorner).
     _s3dClick(hit, ev) {
         const st = this._s3dState();
         const layers = (this.project && this.project.layers) || [];
@@ -2265,7 +2293,8 @@ class _Stage3D {
             this._s3dRefreshPanel();
             return;
         }
-        const at = this._s3dSpotAt(hit);
+        // Add corners off: the click has selected, and that is all.
+        const at = st.corners ? this._s3dSpotAt(hit) : null;
         if (at !== null) this._s3dPickCorner(layer.id, at, ev ? ev.clientX : null, ev ? ev.clientY : null);
         else if (st.corner) this._s3dPickCorner(null);
     }
@@ -2345,7 +2374,7 @@ class _Stage3D {
             loaded: !!st.T, webgl: st.webgl, active: st.active, failed: st.failed,
             message: (document.getElementById('s3d-message') || {}).hidden === false
                 ? document.getElementById('s3d-message').textContent : '',
-            units: this._s3dUnits(), grid: st.grid, bars: st.bars,
+            units: this._s3dUnits(), grid: st.grid, bars: st.bars, corners: !!st.corners,
             corner: st.corner ? { layerId: st.corner.layerId, at: st.corner.at } : null,
             camera: this._s3dCameraState(),
             gliding: !!st.glide, wheel: st.wheel ? st.wheel.kind : null,

@@ -42,7 +42,8 @@
 //
 // THE CURVE is the Header/Footer tab's (the owner's calculator): shown here
 // as it stands, read-only, with a link to its settings. CORNERS are 90
-// degrees only, Interior or Exterior: a click on a seam, or on a panel's
+// degrees only, Interior or Exterior: with Add corners on (the camera bar's
+// switch, off by default), a click on a seam, or on a panel's
 // middle, of the selected screen opens a small picker beside the cursor,
 // None / Interior 90 / Exterior 90, written through app-corners.js
 // setRiggingCornerAt, the same riggingCorners the Header/Footer tab
@@ -789,10 +790,13 @@ class _Stage3DPanel {
 
     // Pick spot `at` of screen `layerId` for a corner (null lets go): the
     // spot is marked on the screen and the picker opens beside the click.
+    // With Add corners off (app-stage3d.js _s3dSetCorners) nothing is
+    // picked: no spot is marked and no picker opens.
     _s3dPickCorner(layerId, at = null, clientX = null, clientY = null) {
         const st = this._s3dState();
         const pop = document.getElementById('s3d-corner-pop');
         const was = st.corner;
+        if (!st.corners) at = null;
         if (layerId == null || at === null) {
             st.corner = null;
             if (pop) pop.hidden = true;
