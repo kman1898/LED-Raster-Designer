@@ -722,6 +722,13 @@ export function maxAngle(hardware, direction) {
   return usable.length ? usable[usable.length - 1] : 0;
 }
 
+// The angles joint `i` may take: `canCurve(i)` true (every option), false
+// (flat only), or a list of its own (an angle set by hand, the only one).
+function choicesAt(canCurve, options, i) {
+  const c = canCurve(i);
+  return Array.isArray(c) ? c : (c ? options : [0]);
+}
+
 function nearest(value, options) {
   let best = options[0] ?? 0;
   let bestErr = Math.abs(value - best);
@@ -755,7 +762,8 @@ export function fitJoints(
   /**
    * Which joints are free to bend. A joint in the middle of a footer is not:
    * a 1 m footer under 500 mm panels spans two of them and holds that joint
-   * rigid, so the wall is really a chain of 1 m segments.
+   * rigid, so the wall is really a chain of 1 m segments. A list in place
+   * of true or false is the joint's own angles: one set by hand.
    */
   canCurve = () => true,
   /**
@@ -768,7 +776,6 @@ export function fitJoints(
   if (jointCount <= 0) return [];
   const margin = preferEven ? WORTH_IT : 1e-12;
   const options = detents.length ? detents : [0];
-  const FLAT = [0];
 
   if (typeof origin === 'number') {
     // A datum along the wall: work outward from it both ways. No mirroring, the
@@ -787,10 +794,10 @@ export function fitJoints(
     // on a 15-joint wall gives no symmetric pair at all, and demanding a mirror
     // left the whole wall flat. Fit the two halves separately in that case.
     const symmetric = Array.from({ length: jointCount }, (_, i) => i).every(
-      (i) => canCurve(i) === canCurve(jointCount - 1 - i),
+      (i) => JSON.stringify(choicesAt(canCurve, options, i)) === JSON.stringify(choicesAt(canCurve, options, jointCount - 1 - i)),
 );
     if (!symmetric) return fitHalves(jointCount, idealDeg, options, canCurve, beamWidth);
-    const at = (step) => (canCurve(centerJointIndex(jointCount, step)) ? options : FLAT);
+    const at = (step) => choicesAt(canCurve, options, centerJointIndex(jointCount, step));
     // The rounding pass spreads curved joints evenly, which reads best; the
     // search finds the builds rounding misses by a long way. Only trade the even
     // spacing for a real gain, more than 1 % of a panel width (5 mm on 500 mm
@@ -803,7 +810,7 @@ export function fitJoints(
   }
 
   // Building from the right walks the joints in reverse, so step 0 is the last joint.
-  const at = (step) => (canCurve(origin === 'right' ? jointCount - 1 - step : step) ? options : FLAT);
+  const at = (step) => choicesAt(canCurve, options, origin === 'right' ? jointCount - 1 - step : step);
   const rounded = diffuseFromEnd(jointCount, idealDeg, at);
   const searched = searchFromEnd(jointCount, idealDeg, at, beamWidth);
   const best =
@@ -833,19 +840,17 @@ function fitHalves(
   canCurve,
   beamWidth,
 ) {
-  const FLAT = [0];
   const odd = jointCount % 2 === 1;
   const mid = Math.floor(jointCount / 2);
   const outward = odd ? (jointCount - 1) / 2 : jointCount / 2;
   // Right half runs mid(+1) outward; left half runs mid-1 inward-to-outward.
   const rightIndex = (step) => (odd ? mid + step : mid + step);
   const leftIndex = (step) => (odd ? mid - step : mid - 1 - step);
-  const atSide = (index) => (step) =>
-    canCurve(index(step)) ? options : FLAT;
+  const atSide = (index) => (step) => choicesAt(canCurve, options, index(step));
 
   const best = { dev: Infinity, center: 0, right: [], left: []             };
   // An odd joint count has a joint ON the center line, shared by both halves.
-  for (const center of odd ? (canCurve(mid) ? options : FLAT) : [0]) {
+  for (const center of odd ? choicesAt(canCurve, options, mid) : [0]) {
     const seed = startCenter(jointCount, odd ? center : null);
     const track = idealTrack(outward, idealDeg, startCenter(jointCount, odd ? idealDeg : null));
     const right = searchBest([seed], track, atSide(rightIndex), beamWidth, odd ? 1 : 0);
@@ -881,7 +886,6 @@ function fitAtJoint(
   beamWidth,
   d,
 ) {
-  const FLAT = [0];
   const best = { dev: Infinity, center: 0, right: [], left: []             };
   const atJoint = (c) => {
     const h = (c * Math.PI) / 360;
@@ -889,10 +893,10 @@ function fitAtJoint(
   };
   const side = (count, seed, ideal, index) =>
     count > 0
-      ? searchBest([seed], idealTrack(count, idealDeg, ideal), (s) => (canCurve(index(s)) ? options : FLAT), beamWidth, 0)
+      ? searchBest([seed], idealTrack(count, idealDeg, ideal), (s) => choicesAt(canCurve, options, index(s)), beamWidth, 0)
       : { ...seed, dev: Math.hypot(seed.x - ideal.x, seed.y - ideal.y) };
 
-  for (const center of canCurve(d) ? options : FLAT) {
+  for (const center of choicesAt(canCurve, options, d)) {
     const seed = atJoint(center);
     const ideal = atJoint(idealDeg);
     const right = side(jointCount - 1 - d, seed, ideal, (s) => d + 1 + s);
@@ -923,7 +927,6 @@ function fitOutward(
   beamWidth,
   firstRight,
 ) {
-  const FLAT = [0];
   const out = new Array        (jointCount).fill(0);
   const seed = startPanel();
   const side = (count, index) =>
@@ -931,7 +934,7 @@ function fitOutward(
       ? searchBest(
           [seed],
           idealTrack(count, idealDeg, seed),
-          (step) => (canCurve(index(step)) ? options : FLAT),
+          (step) => choicesAt(canCurve, options, index(step)),
           beamWidth,
           0,
 ).picks
@@ -2077,6 +2080,26 @@ export function solveCurve(config, system = 'metric') {
   const stockPanels = [...new Set(sizes.map((w) => panelsUnder(w, panel.width_m)))].sort((a, b) => b - a);
   const panelToMeters = (k) => sizes.find((w) => panelsUnder(w, panel.width_m) === k) ?? panel.width_m;
 
+  // BARS LAID BY HAND (owner, 2026-11-18: "custom curve just like
+  // header"): `hand_layout` { bars: [{ start, size }] in panels, the arms
+  // of any corner bars among them, gaps allowed; joints: { index: degrees }
+  // set by hand }. The bars are what they are: the joints are fitted to
+  // them, bending only where no bar runs across, each joint set by hand
+  // held to its angle. A panel under no bar is a run of its own.
+  const hand = config.hand_layout && Array.isArray(config.hand_layout.bars) ? config.hand_layout : null;
+  const handPins = new Map(Object.entries((hand && hand.joints) || {}).map(([k, v]) => [Number(k), Math.abs(Number(v))]));
+  const handInside = (i) => !!hand && hand.bars.some((b) => b.start <= i && i + 1 < b.start + b.size);
+  const handRun = (() => {
+    if (!hand) return null;
+    const at = new Map(hand.bars.map((b) => [b.start, b.size]));
+    const run = [];
+    for (let p = 0; p < panel.count;) {
+      const k = at.get(p);
+      run.push((k || 1) * panel.width_m);
+      p += k || 1;
+    }
+    return run;
+  })();
   // Every build's bars laid again over its joints: the fewest bars between
   // its bends, the larger nearest the Build from point (fewestBetweenBends).
   const datumEdge = datumPosition(build_from, panel.count) - 0.5;
@@ -2086,13 +2109,18 @@ export function solveCurve(config, system = 'metric') {
     if (run_m === candidate.run_m) return candidate;
     return { ...candidate, run_m, free: footerPlan(config, run_m).free };
   };
-  const candidates = (subset) => [
+  const candidates = (subset) => (hand ? [{
+    joints: fitJoints(jointCount, ideal, [0, ...subset], build_from, LAYOUT_BEAM,
+                      (i) => (handPins.has(i) ? [handPins.get(i)] : !handInside(i)), preferEven),
+    run_m: handRun,
+    free: footerPlan(config, handRun).free,
+  }] : [
     ...fitted(subset).filter(respects),
     // Even walls are built directly, a regular spacing is not something the
     // fitter aims for, and the crew's "5° every third panel" should always be
     // on the table.
     ...evenBuilds(subset, panel.count, stockPanels, panelToMeters).filter(respects),
-].map(fewest);
+].map(fewest));
 
   const fitted = (subset) => {
     const angles = [0, ...subset];
@@ -2405,6 +2433,13 @@ export function cleanCurve(raw) {
     : [...CURVE_DEFAULTS.angles];
   const sidePicks = Array.isArray(src.sidePicks) ? src.sidePicks.map(cleanPick) : [];
   while (sidePicks.length && !sidePicks[sidePicks.length - 1]) sidePicks.pop();
+  // The joints set by hand (owner, 2026-11-18), { joint index: signed
+  // degrees }, kept only when there is one.
+  const hand = src.handJoints && typeof src.handJoints === 'object' && !Array.isArray(src.handJoints)
+    ? Object.entries(src.handJoints)
+      .filter(([k, v]) => /^\d+$/.test(k) && typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= CURVE_MAX_JOINT_DEG + 1e-9)
+      .map(([k, v]) => [String(Number(k)), Math.round(v * 1000) / 1000 || 0])
+    : [];
   return {
     on: src.on === true,
     entry: pick(src.entry, ['percent', 'degrees'], CURVE_DEFAULTS.entry),
@@ -2420,6 +2455,7 @@ export function cleanCurve(raw) {
     // each side's own pick on a screen with corners, kept only when there
     // is one (a screen without corners keeps the shape it always had)
     ...(sidePicks.length ? { sidePicks } : {}),
+    ...(hand.length ? { handJoints: Object.fromEntries(hand) } : {}),
   };
 }
 
@@ -2622,7 +2658,7 @@ export const NO_LOCKS_MESSAGE = 'This panel has no curve lock positions yet. Set
  * bars marked, and `joints` across the whole screen, a corner's own seam
  * 0; `result` is null.
  */
-export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'metric', pieces, locks }) {
+export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'metric', pieces, locks, hand }) {
   let s = cleanCurve(settings);
   const count = Math.round(finiteOr(panels, 0));
   if (locks !== undefined) {
@@ -2637,9 +2673,18 @@ export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'me
     s = { ...s, angles };
   }
   const corners = cleanPieces(count, pieces);
+  const laid = handLaid(hand, count, s);
+  if (laid && laid.errors.length) return refused(laid.errors);
+  const handOut = (out) => (laid ? { ...out, hand: true } : out);
   if (!corners.length) {
     const pickKey = curvePickKey({ panels, panelWidthM, sizes, settings: s });
-    return solveWall(count, panelWidthM, sizes, s, system, s.pick, pickKey, `a ${count}-panel wall`);
+    return handOut(solveWall(count, panelWidthM, sizes, s, system, s.pick, pickKey, `a ${count}-panel wall`, null,
+                             laid ? { bars: laid.bars, own: laid.bars, joints: laid.joints } : null));
+  }
+  // The hand's bars stay off the corners' panels.
+  const onCorner = laid ? laid.bars.find((b) => corners.some((p) => b.start < p.start + p.size && p.start < b.start + b.size)) : null;
+  if (onCorner) {
+    return refused([`The bar over panels ${onCorner.start + 1} to ${onCorner.start + onCorner.size} runs onto a corner's panels. Move it off the corner, or press Auto.`]);
   }
   const runs = curveSides(count, corners);
   const sides = runs.map((side, index) => {
@@ -2667,7 +2712,21 @@ export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'me
         seams: unit === 1 ? null : edges.map((x) => Math.round((x - side.start) / unit) - 1),
       };
       const local = { ...s, from: sideFrom(s.from, side, count, unit) };
-      out = solveWall(units, panelWidthM, sizes, local, system, (s.sidePicks || [])[index] || null, pickKey, where, shape);
+      // The hand's bars and joints on this side, in its own steps.
+      let own = null;
+      if (laid) {
+        const lo = side.start;
+        const hi = side.start + side.panels;
+        const mine = laid.bars.filter((b) => b.start >= lo - 1e-9 && b.start + b.size <= hi + 1e-9)
+          .map((b) => ({ start: Math.round((b.start - lo) / unit), size: Math.round(b.size / unit) }));
+        const joints = {};
+        Object.entries(laid.joints).forEach(([k, a]) => {
+          const e = (Number(k) + 1 - lo) / unit;
+          if (Number.isInteger(e) && e >= 1 && e <= units - 1) joints[e - 1] = a;
+        });
+        own = { bars: [...fixed, ...mine].sort((a, b) => a.start - b.start), own: mine, joints };
+      }
+      out = solveWall(units, panelWidthM, sizes, local, system, (s.sidePicks || [])[index] || null, pickKey, where, shape, own);
     }
     return { name, ...side, seams: edges.map((x) => x - 1), out };
   });
@@ -2687,8 +2746,45 @@ export function screenCurve({ panels, panelWidthM, sizes, settings, system = 'me
     side.out.warnings.forEach((w) => warnings.push(`${cap(side.name)}: ${w}`));
   }
   placed.sort((a, b) => a.start - b.start);
-  return { errors: [], warnings, result: null, bars: placed.map((b) => b.size), joints, placed, sides, pickKey: null,
-           datum_at: datumPosition(s.from, count) };
+  return handOut({ errors: [], warnings, result: null, bars: placed.map((b) => b.size), joints, placed, sides, pickKey: null,
+           datum_at: datumPosition(s.from, count) });
+}
+
+// A wall's bars laid by hand and the joints set by hand, checked against
+// the panel's lock positions and the bars (owner, 2026-11-18): { bars,
+// joints, errors }, or null when nothing is laid by hand. `hand` is
+// { bars: [{ start, size }] in panels from the left, joints: { index:
+// signed degrees } }. A joint is set by hand to flat or to one of the
+// panel's positions for the way the wall bends, and a bend never sits
+// under a bar.
+function handLaid(hand, count, s) {
+  if (!hand || typeof hand !== 'object') return null;
+  const bars = (Array.isArray(hand.bars) ? hand.bars : [])
+    .map((b) => ({ start: Math.round(finiteOr(b && b.start, -1)), size: Math.round(finiteOr(b && b.size, 0)) }))
+    .filter((b) => b.start >= 0 && b.size >= 1 && b.start + b.size <= count)
+    .sort((a, b) => a.start - b.start);
+  const errors = [];
+  const joints = {};
+  const raw = hand.joints && typeof hand.joints === 'object' ? hand.joints : {};
+  Object.keys(raw).map(Number).filter((j) => Number.isInteger(j) && j >= 0 && j <= count - 2).sort((a, b) => a - b).forEach((j) => {
+    const a = Number(raw[j]);
+    if (!Number.isFinite(a)) return;
+    const said = `The joint after panel ${j + 1} is set by hand to ${formatLock(a)}`;
+    if (a !== 0) {
+      const way = s.bend === 'convex' ? a < 0 : a > 0;
+      if (!way || !s.angles.some((x) => Math.abs(x - Math.abs(a)) < 1e-6)) {
+        errors.push(`${said}, and this panel does not lock there for a ${s.bend} curve. Pick another angle for it, or press Auto.`);
+        return;
+      }
+      const over = bars.find((b) => b.start <= j && j + 1 < b.start + b.size);
+      if (over) {
+        errors.push(`${said}, but the bar over panels ${over.start + 1} to ${over.start + over.size} holds it straight. Move the bar, or set the joint flat.`);
+        return;
+      }
+    }
+    joints[j] = a;
+  });
+  return { bars, joints, errors };
 }
 
 // A screen the Curve lays nothing on, saying why.
@@ -2715,12 +2811,14 @@ function sideFrom(from, side, count, unit) {
 // count is in those steps), its corner bars' arms `fixed` bars at its
 // ends, `inner` the panels between them the stock covers, and `seams` the
 // steps' joints that are real seams (null when every one is).
-function solveWall(count, panelWidthM, sizes, s, system, pick, pickKey, where, shape = null) {
+function solveWall(count, panelWidthM, sizes, s, system, pick, pickKey, where, shape = null, hand = null) {
   // Leftover stock is refused, never hung past the edge (owner, 2026-11-09):
-  // a wall the lit sizes cannot cover exactly lays nothing.
+  // a wall the lit sizes cannot cover exactly lays nothing. Bars laid by
+  // hand (`hand`: { bars, own, joints } in steps, `bars` with the corner
+  // arms, `own` without) are laid as they are.
   const lit = (sizes || []).filter((k) => Math.round(finiteOr(k, 0)) >= 1);
   const cover = shape ? shape.inner : count;
-  if ((shape ? cover >= 1 : count >= 2) && lit.length) {
+  if (!hand && (shape ? cover >= 1 : count >= 2) && lit.length) {
     const gap = cover - stockCovers(cover, lit);
     if (gap > 0) {
       return {
@@ -2761,6 +2859,7 @@ function solveWall(count, panelWidthM, sizes, s, system, pick, pickKey, where, s
     config.layout_constraints = { pieces: shape.fixed };
     if (shape.seams) config.seam_joints = shape.seams;
   }
+  if (hand) config.hand_layout = { bars: hand.bars, joints: hand.joints };
   // A build picked by hand holds while nothing the joints depend on changed.
   config.pattern_choice = pick && pick.key === pickKey ? pick.id : 'auto';
   const result = solveCurve(config, system);
@@ -2770,8 +2869,8 @@ function solveWall(count, panelWidthM, sizes, s, system, pick, pickKey, where, s
   // The stock bars, in panels, the arms left out (they are the corner bars).
   const arm = (f) => !!shape && shape.fixed.some((p) => p.start === f.from - 1 && p.size === f.panels);
   const stockBars = result.footers.filter((f) => !arm(f));
-  const bars = stockBars.map((f) => Math.round(f.panels * unit));
-  const starts = stockBars.map((f) => (f.from - 1) * unit);
+  const bars = hand ? hand.own.map((b) => Math.round(b.size * unit)) : stockBars.map((f) => Math.round(f.panels * unit));
+  const starts = hand ? hand.own.map((b) => b.start * unit) : stockBars.map((f) => (f.from - 1) * unit);
   const sign = s.bend === 'concave' ? 1 : -1;
   const signed = result.joints.map((j) => (j.angle_deg === 0 ? 0 : sign * j.angle_deg));
   const joints = shape && shape.seams ? shape.seams.map((i) => signed[i]) : signed;

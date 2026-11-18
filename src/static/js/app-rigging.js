@@ -618,6 +618,8 @@ class _Rigging {
             // A curved screen's Auto lays its curve again, a curved group's
             // across the whole row (app-curve.js).
             if (typeof this.riggingCurveRowCurved === 'function' && this.riggingCurveRowCurved(row)) {
+                // a row laid by hand goes back to the Curve's bars and angles
+                this.riggingCurveHandOff(row.layers);
                 curved.push(row.layers[0]);
                 return;
             }
@@ -653,6 +655,7 @@ class _Rigging {
             const held = row.layers.filter(l => this._layerLocked(l));
             if (held.length) { held.forEach(l => { if (!locked.includes(l)) locked.push(l); }); return; }
             if (typeof this.riggingCurveRowCurved === 'function' && this.riggingCurveRowCurved(row)) {
+                this.riggingCurveHandOff(row.layers);
                 curved.push(row.layers[0]);
                 return;
             }
@@ -727,7 +730,8 @@ class _Rigging {
         const row = this.riggingRow(layer, kind);
         const locked = row.layers.filter(l => this._layerLocked(l));
         if (locked.length) { this._showLockedError(locked); return null; }
-        // A curved screen's bars are the Curve's (app-curve.js).
+        // A curved screen takes Custom too: the Curve fits its angles to
+        // the bars laid (app-curve.js), but not off a stacked wall's bar row.
         if (typeof this.riggingCurveRefusesHand === 'function' && this.riggingCurveRefusesHand(row.layers)) return null;
         // Pressing on one member presses on its group: the side and the
         // rows are the group's.
@@ -826,17 +830,24 @@ class _Rigging {
         if (keep && !changed && d.kind === 'place' && d.refused) {
             this._toast(`A ${RiggingMath.sizeWord(d.size).toLowerCase()} does not fit between this corner and the next corner or edge. Pick a smaller size.`, true, 5000);
         }
-        if (keep && changed) {
+        // On a curved row, a bar across a joint set by hand to bend is
+        // refused and the row put back (app-curve.js).
+        const covers = keep && changed && typeof this.riggingCurveHandCovers === 'function'
+            && this.riggingCurveHandCovers(d.rowObj.layers[0], d.placed);
+        if (keep && changed && !covers) {
             const n = (d.adds || []).length + (cornersMoved ? 1 : 0);
             const action = d.kind === 'place' ? `Add ${word} Bar${n > 1 ? 's' : ''}`
                 : d.kind === 'edge' ? `Resize ${word} Bar` : `Move ${word} Bar`;
-            this.updateLayers(d.rowObj.layers, true, action);
+            // a curved row is laid by hand now: its angles are fitted to
+            // these bars, one undo step with the gesture (app-curve.js)
+            const curved = typeof this.riggingCurveHandLaid === 'function' && this.riggingCurveHandLaid(d.rowObj.layers, action);
+            if (!curved) this.updateLayers(d.rowObj.layers, true, action);
         } else {
             this._riggingPutBack(d.kept);
         }
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
-        return keep && changed;
+        return keep && changed && !covers;
     }
 
     // A click on a bar picks it: drawn lit, and Delete (or the right-click
@@ -867,7 +878,13 @@ class _Rigging {
         const locked = row.layers.filter(l => this._layerLocked(l));
         if (locked.length) { this._showLockedError(locked); return false; }
         if (typeof this.riggingCurveRefusesHand === 'function' && this.riggingCurveRefusesHand(row.layers)) return false;
+        const curvedRow = typeof this.riggingCurveOn === 'function' && row.layers.some(l => this.riggingCurveOn(l));
         if (p.corner != null) {
+            // a curved wall's corner bars are its corners' (app-curve.js)
+            if (curvedRow) {
+                this._toast('A curved wall keeps its corner bars. Take the corner off, or turn Curve off, to take one off.', true, 6000);
+                return false;
+            }
             // A corner piece: off its corner, its panels left open.
             if (!this._riggingSetCornerBars(layer, [p.corner], false)) return false;
             row.layers.forEach(l => { l.riggingCustom = true; });
@@ -880,9 +897,11 @@ class _Rigging {
         const rest = row.placed.filter(b => !(b.owner === layer && b.start === at));
         if (rest.length === row.placed.length) return false;
         this._riggingWriteRow(row, plain(rest));
-        // A row with a bar taken out has a gap: it is a custom row now.
+        // A row with a bar taken out has a gap: it is a custom row now (a
+        // curved one has its angles fitted to the bars left).
         row.layers.forEach(l => { l.riggingCustom = true; });
-        this.updateLayers(row.layers, true, `Remove ${KIND_WORD[row.kind]} Bar`);
+        const action = `Remove ${KIND_WORD[row.kind]} Bar`;
+        if (!(curvedRow && this.riggingCurveHandLaid(row.layers, action))) this.updateLayers(row.layers, true, action);
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
         return true;

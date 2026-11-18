@@ -167,8 +167,12 @@ class _Corners {
             seen.add(row.key);
             if (row.layers.some(m => this._layerLocked(m))) continue;
             if (row.layers.some(m => typeof this.riggingCurveOn === 'function' && this.riggingCurveOn(m))) {
-                // a curved row (a group's too) is laid again by its Curve
-                if (typeof this.riggingCurveRowCurved === 'function' && this.riggingCurveRowCurved(row)) curved.push(row.layers[0]);
+                // a curved row (a group's too) is laid again by its Curve,
+                // its bars and angles the Curve's again around the corners
+                if (typeof this.riggingCurveRowCurved === 'function' && this.riggingCurveRowCurved(row)) {
+                    this.riggingCurveHandOff(row.layers);
+                    curved.push(row.layers[0]);
+                }
                 continue;
             }
             if (!row.placed.length && !row.pieces.length) continue;

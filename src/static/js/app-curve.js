@@ -78,6 +78,24 @@
 // typed "Lock angles" of the first 1.7.0 builds (riggingCurve.angles) are
 // no longer read.
 //
+// CUSTOM ON A CURVE (owner, 2026-11-18: "i need to be able to do custom
+// curve just like header", ruled both): with Curve on, Custom lays bars by
+// hand with the same click and drag as on a plain header, and a click on
+// a joint of the build sheet strip sets its angle by hand from the panel's
+// lock positions (or back to Auto). A row laid by hand (riggingCustom on
+// its screens) keeps its bars as they are; the Curve fits the angles to
+// them, bending only where no bar runs across, every joint set by hand
+// held to its angle (riggingCurve.handJoints, in the row's joints, kept
+// with the show like the rest of the Curve) and the rest filled in from
+// the lock positions, the 20 degree cap and Build from as ever
+// (curve-math.js screenCurve `hand`). Each gesture is one undo step. The
+// strip draws hand laid bars and hand set angles in blue. Auto, or Curve
+// ticked on, hands the row back to the Curve: its own bars and angles, the
+// hand choices cleared. A joint set to bend under a bar is refused in
+// plain words, the bar gesture or the pick left undone; a saved one the
+// lock positions no longer have says so in the tab until it is set again.
+// A corner added or taken off lays the row from the Curve again.
+//
 // A GROUPED WALL TAKES ONE CURVE (owner, 2026-11-16: "groups arent
 // allowing curve which is not correct"). The members of a group that
 // stand edge to edge carry one row of bars (app-rigging.js riggingRow),
@@ -233,6 +251,26 @@ class _Curve {
             this.setRiggingCurveField('pick', btn.dataset.pick, side ? Number(side.dataset.side) : null);
         });
         this._wireCurvePlanDrag(document.getElementById('rigging-curve-plan'));
+        // A click on a joint of the strip opens its angles below it; a
+        // click on one of them sets it (Auto hands it back).
+        const sheet = document.getElementById('rigging-curve-sheet');
+        if (sheet) sheet.addEventListener('click', (e) => {
+            const hit = e.target && e.target.closest ? e.target.closest('[data-joint]') : null;
+            if (!hit) return;
+            const primary = this._riggingPrimary(this._riggingScreens());
+            const row = primary ? this._curveRow(primary) : null;
+            if (!row) return;
+            this._curveJointPick = { key: row.key, j: Number(hit.getAttribute('data-joint')) };
+            this.refreshRiggingCurve();
+        });
+        const pick = document.getElementById('rigging-curve-joint');
+        if (pick) pick.addEventListener('click', (e) => {
+            const btn = e.target && e.target.closest ? e.target.closest('[data-joint-angle]') : null;
+            const p = this._curveJointPick;
+            if (!btn || !p) return;
+            const v = btn.dataset.jointAngle;
+            this.setRiggingCurveJoint(p.j, v === 'auto' ? null : Number(v));
+        });
     }
 
     // ---- what is stored ---------------------------------------------------
@@ -786,6 +824,7 @@ class _Curve {
     // along it.
     _curveInput(layer, settings = null) {
         const row = this._curveRow(layer);
+        const hand = this._curveHand(row);
         if (this._curveMulti(row)) {
             const lead = row.layers[0];
             const pieces = (row.spots || []).map(sp => ({ start: sp.start, size: sp.size }));
@@ -797,6 +836,7 @@ class _Curve {
                 system: this._curveSystem(),
                 locks: this._curveRowLocks(row),
                 ...(pieces.length ? { pieces } : {}),
+                ...(hand ? { hand } : {}),
             };
         }
         const s = settings || this.riggingCurveOf(layer);
@@ -809,7 +849,37 @@ class _Curve {
             // the panel's lock positions, the only angles the Curve lays
             locks: this.curveLocksOf(layer).list || null,
             ...(this._curveCornersOf(layer) || {}),
+            ...(hand ? { hand } : {}),
         };
+    }
+
+    // A row laid by hand (Custom on a curved row): its bars as they stand,
+    // in the row's panels, and the joints set by hand. Null when the Curve
+    // lays the row's bars.
+    _curveHand(row) {
+        if (!row || !row.layers || !row.layers.some(m => m.riggingCustom === true)) return null;
+        const s = this._curveRowSettings(row);
+        return {
+            bars: (row.placed || []).map(b => ({ start: b.start, size: b.size })),
+            joints: { ...(s.handJoints || {}) },
+        };
+    }
+
+    // The row of `layers` handed back to the Curve: its bars and angles the
+    // Curve's again, the hand choices cleared (Auto, Curve on, a corner).
+    riggingCurveHandOff(layers) {
+        for (const l of layers || []) {
+            const row = this._curveRow(l);
+            const all = row ? this._curveAll(row) : [l];
+            all.forEach(m => {
+                if (m.riggingCustom === true) m.riggingCustom = false;
+                if (m.riggingCurve && m.riggingCurve.handJoints) {
+                    const next = { ...m.riggingCurve };
+                    delete next.handJoints;
+                    m.riggingCurve = next;
+                }
+            });
+        }
     }
 
     // A screen's corner bars in the calculator's terms, in its own bar
@@ -920,6 +990,10 @@ class _Curve {
     // Each bar of an answer where it sits, its corner bars marked.
     _curvePlaced(out) {
         if (Array.isArray(out.placed) && out.placed.length) return out.placed;
+        // where each bar starts: bars laid by hand may have gaps
+        if (Array.isArray(out.starts) && out.starts.length === out.bars.length) {
+            return out.bars.map((size, i) => ({ start: out.starts[i], size, corner: false }));
+        }
         let at = 0;
         return out.bars.map(size => { const b = { start: at, size, corner: false }; at += size; return b; });
     }
@@ -934,7 +1008,7 @@ class _Curve {
         this._riggingWrite(layer, side, this._curvePlaced(out).filter(b => !b.corner).map(b => ({ start: b.start, size: b.size })));
         const ats = typeof this.riggingCornerSpots === 'function' ? this.riggingCornerSpots(layer).map(sp => sp.at) : [];
         if (ats.length) this._riggingSetCornerBars(layer, ats, true);
-        layer.riggingCustom = false;
+        layer.riggingCustom = !!out.hand;
         const jointsCol = {};
         this._curveJoints(layer, out).forEach((a, j) => { jointsCol[String(j)] = a; });
         const prev = this._s3dPlacementOf(layer);
@@ -951,7 +1025,7 @@ class _Curve {
         const placed = this._curvePlaced(out);
         this._riggingWriteRow(row, placed.filter(b => !b.corner).map(b => ({ start: b.start, size: b.size })));
         row.layers.forEach(m => {
-            m.riggingCustom = false;
+            m.riggingCustom = !!out.hand;
             m.riggingCurve = { ...s };
             const ats = (row.spots || []).filter(sp => sp.owner === m).map(sp => sp.at);
             if (ats.length) this._riggingSetCornerBars(m, ats, true);
@@ -1413,7 +1487,9 @@ class _Curve {
                 if (this._curveAll(row).every(m => this.riggingCurveOf(m).on)) continue;
                 // No positions, no curve: it waits until they are set.
                 if (!hasLockPositions(this._curveRowLocks(row))) { noLocks.push(row); continue; }
-                this._curveAll(row).forEach(m => { m.riggingCurve = { ...s, on: true }; });
+                const fresh = { ...s, on: true };
+                delete fresh.handJoints;
+                this._curveAll(row).forEach(m => { m.riggingCurve = { ...fresh }; m.riggingCustom = false; });
                 this._curveSyncSizes(row, primary);
             } else {
                 if (!this._curveAll(row).some(m => this.riggingCurveOf(m).on)) continue;
@@ -1528,14 +1604,166 @@ class _Curve {
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
 
-    // A Custom gesture or a Remove Bar on a curved screen: refused, said
-    // in one line. True when refused.
+    // A Custom gesture on a curved screen (owner, 2026-11-18): refused, said
+    // in one line, only on a stacked wall's screen off its bar row (its
+    // bars run along the wall's top or bottom row). True when refused.
     riggingCurveRefusesHand(layers) {
+        for (const l of layers || []) {
+            if (!this.riggingCurveOn(l)) continue;
+            const row = this._curveRow(l);
+            if (row && row.below && row.below.some(b => b.layer === l)) {
+                const top = row.kind === 'footer' ? 'bottom' : 'top';
+                this._toast(`${l.name || `Screen ${l.id}`} is curved with ${this._curveWallName(row)}, whose ${row.kind} bars run along its ${top} row. Lay them there.`, true, 6000);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Bars a Custom gesture leaves on a curved row (`placed`, in the row's
+    // panels): refused, said in one line, when one runs across a joint set
+    // by hand to bend. True when refused.
+    riggingCurveHandCovers(layer, placed) {
+        if (!this.riggingCurveOn(layer)) return false;
+        const row = this._curveRow(layer);
+        if (!row) return false;
+        const hand = this._curveRowSettings(row).handJoints || {};
+        for (const [k, a] of Object.entries(hand)) {
+            const j = Number(k);
+            if (!a) continue;
+            const over = (placed || []).find(b => b.start <= j && j + 1 < b.start + b.size);
+            if (over) {
+                this._toast(`That bar would run across the joint after panel ${j + 1}, set by hand to ${formatAngle(Math.abs(a))}, and a bar holds its joint straight. Set that joint flat or to Auto first.`, true, 6000);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // A Custom gesture on a curved row, done (app-rigging.js): the row is
+    // laid by hand now, and the Curve fits its angles to the bars, one
+    // undo step with the gesture. False when the row is not curved.
+    riggingCurveHandLaid(layers, action) {
         const curved = (layers || []).filter(l => this.riggingCurveOn(l));
         if (!curved.length) return false;
-        const names = listWords(curved.map(l => l.name || `Screen ${l.id}`));
-        this._toast(`${names} ${curved.length === 1 ? 'has its' : 'have their'} bars laid by the Curve. Turn Curve off to lay bars by hand.`, true, 6000);
+        (layers || []).forEach(m => { m.riggingCustom = true; });
+        const all = [...new Set([...(layers || []), ...curved.flatMap(l => { const row = this._curveRow(l); return row ? this._curveAll(row) : [l]; })])];
+        if (!this.riggingCurveRelayLater(curved, action, all)) this.updateLayers(all, true, action);
         return true;
+    }
+
+    // The angles a joint can be set to by hand on `row`: flat and the
+    // lock positions the row's panels share for the way it bends, signed.
+    _curveJointChoices(row) {
+        const s = this._curveRowSettings(row);
+        const list = this._curveRowLocks(row) || [];
+        const way = list.filter(a => (s.bend === 'convex' ? a < 0 : a > 0));
+        return [0, ...way.sort((a, b) => Math.abs(a) - Math.abs(b))];
+    }
+
+    // Why joint `j` (0-based, in the row's joints) cannot be set by hand to
+    // bend `a`, or '' when it can: a bar runs across it, or a corner's seam.
+    _curveJointRefusal(row, j, a) {
+        const bars = [...(row.placed || []), ...(row.pieces || [])];
+        const corner = (row.spots || []).find(sp => sp.start <= j && j + 1 < sp.start + sp.size);
+        if (corner) return `The joint after panel ${j + 1} is a corner's, and a corner takes no curve angle.`;
+        if (!a) return '';
+        if (!this._curveJointChoices(row).some(x => Math.abs(x - a) < 1e-6)) {
+            return `This panel does not lock at ${formatLock(a)} for a ${this._curveRowSettings(row).bend} curve. Pick one of its lock positions.`;
+        }
+        const over = bars.find(b => b.start <= j && j + 1 < b.start + b.size);
+        if (over) {
+            return `The bar over panels ${over.start + 1} to ${over.start + over.size} runs across the joint after panel ${j + 1} and holds it straight. Move the bar with Custom to bend it there.`;
+        }
+        return '';
+    }
+
+    // Joint `j` (0-based, across the row) of the screen the tab shows set
+    // by hand to `angle` (signed degrees, 0 flat), or back to the Curve's
+    // own pick (null). The row is laid by hand from then on: its bars stay
+    // as they are and the Curve fits the other joints. One undo step.
+    setRiggingCurveJoint(j, angle) {
+        const primary = this._riggingPrimary(this._riggingScreens());
+        const row = primary ? this._curveRow(primary) : null;
+        if (!row || !this.riggingCurveRowCurved(row)) return false;
+        const all = this._curveAll(row);
+        const locked = all.filter(m => this._layerLocked(m));
+        if (locked.length) { this._showLockedError(locked); return false; }
+        const width = row.width || Number(primary.columns) || 0;
+        if (!Number.isInteger(j) || j < 0 || j > width - 2) return false;
+        const s = this._curveRowSettings(row);
+        const hand = { ...(s.handJoints || {}) };
+        if (angle === null) {
+            if (!(String(j) in hand)) return false;
+            delete hand[String(j)];
+        } else {
+            const a = Number(angle);
+            if (!Number.isFinite(a)) return false;
+            const why = this._curveJointRefusal(row, j, a);
+            if (why) { this._toast(why, true, 6000); return false; }
+            if (hand[String(j)] === a && row.layers.every(m => m.riggingCustom === true)) return false;
+            hand[String(j)] = a;
+        }
+        const next = cleanCurve({ ...s, handJoints: hand });
+        all.forEach(m => { m.riggingCurve = { ...next }; });
+        row.layers.forEach(m => { m.riggingCustom = true; });
+        const action = angle === null ? 'Curve Joint Auto' : 'Curve Joint';
+        if (!this.riggingCurveRelayLater(all, action, all)) this.updateLayers(all, true, action);
+        this.refreshRiggingPanel();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        return true;
+    }
+
+    // The joint picked on the strip, for the screen the tab shows: its
+    // index, or null.
+    _curvePickedJoint(primary, row) {
+        const p = this._curveJointPick;
+        if (!p || !primary || !row) return null;
+        const width = row.width || Number(primary.columns) || 0;
+        return p.key === row.key && p.j <= width - 2 ? p.j : null;
+    }
+
+    // The strip's joint pick: the joint's angles to pick from, the one it
+    // has marked, Auto when set by hand.
+    _curveDrawJointPick(host, primary, row, out) {
+        if (!host) return;
+        const j = this._curvePickedJoint(primary, row);
+        if (j === null || !out || !out.joints || j >= out.joints.length) {
+            host.style.display = 'none';
+            host.innerHTML = '';
+            host.dataset.sig = '';
+            return;
+        }
+        const hand = this._curveRowSettings(row).handJoints || {};
+        const set = String(j) in hand;
+        const now = Number(out.joints[j]) || 0;
+        const choices = this._curveJointChoices(row);
+        const sig = JSON.stringify([j, set, now, choices]);
+        host.style.display = '';
+        if (host.dataset.sig === sig) return;
+        host.dataset.sig = sig;
+        host.innerHTML = '';
+        const words = document.createElement('div');
+        words.style.cssText = 'color: #aaa; font-size: 11px; margin-bottom: 3px;';
+        words.textContent = `Joint after panel ${j + 1}: ${set ? 'set by hand' : 'set by the Curve'}.`;
+        host.appendChild(words);
+        const line = document.createElement('div');
+        line.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px;';
+        const button = (value, text, on, tip) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn btn-secondary rigging-curve-btn' + (on ? ' active' : '');
+            b.dataset.jointAngle = value;
+            b.textContent = text;
+            b.setAttribute('data-tooltip', tip);
+            b.style.setProperty('padding', '2px 6px', 'important');
+            b.style.setProperty('font-size', '11px', 'important');
+            line.appendChild(b);
+        };
+        button('auto', 'Auto', !set, 'Let the Curve set this joint.');
+        choices.forEach(a => button(String(a), a ? formatAngle(Math.abs(a)) : 'Flat', set && Math.abs(now - a) < 1e-6,
+            a ? `Set this joint to ${formatAngle(Math.abs(a))} by hand.` : 'Set this joint flat by hand.'));
+        host.appendChild(line);
     }
 
     // ---- the panel --------------------------------------------------------
@@ -1586,7 +1814,7 @@ class _Curve {
                     : !hasLocks
                         ? 'This screen keeps the angles it was laid at until its panel\'s lock positions are set.'
                         : this._riggingToolNow() === 'custom'
-                            ? 'The Curve lays this screen\'s bars, so Custom does not. Turn Curve off to lay them by hand.'
+                            ? 'Custom: lay bars by hand and the Curve sets the angles where they meet. Click a joint on the build sheet to set it yourself.'
                             : multi
                                 ? `The Curve lays the bars across ${across} from the lit sizes, as one wall. Auto lays it again.`
                                 : 'The Curve lays this screen\'s bars from the lit sizes. Auto lays it again.';
@@ -1654,6 +1882,12 @@ class _Curve {
         }
         if (result) result.style.display = out.errors.length ? 'none' : '';
         if (out.errors.length) return;
+        // A row laid by hand: say so, and that Auto hands it back.
+        if (note && out.hand && !offList.length) {
+            note.textContent = this._riggingToolNow() === 'custom'
+                ? 'Laid by hand (blue): lay bars with Custom and the Curve sets the angles where they meet. Click a joint on the build sheet to set it yourself. Auto hands it all back to the Curve.'
+                : 'Laid by hand (blue): the Curve sets the angles where the bars meet. Click a joint on the build sheet to set it yourself. Auto hands it all back to the Curve.';
+        }
         // A redo can bring back an edit whose answer never landed: say so
         // rather than show a curve the screen does not carry.
         if (note && !offList.length && !this.riggingCurveBusy() && !this._curveLaidMatches(primary, out)) {
@@ -1665,7 +1899,9 @@ class _Curve {
         const cornerSeams = multi
             ? new Map((row.spots || []).filter(sp => sp.size === 2).map(sp => [sp.start, sp]))
             : s3dCornerSeams(primary, Number(primary.columns) || 0);
-        this._curveDrawSheet(document.getElementById('rigging-curve-sheet'), out, cornerSeams);
+        const picked = this._curvePickedJoint(primary, row);
+        this._curveDrawSheet(document.getElementById('rigging-curve-sheet'), out, cornerSeams, s.handJoints || {}, picked);
+        this._curveDrawJointPick(document.getElementById('rigging-curve-joint'), primary, row, out);
         if (out.sides) this._curveDrawCornerPlan(document.getElementById('rigging-curve-plan'), this._curveWallOf(primary, row), out);
         else this._curveDrawPlan(document.getElementById('rigging-curve-plan'), out);
         // One group per side on a screen with corners, each named; the
@@ -1819,19 +2055,25 @@ class _Curve {
     // The build sheet strip: the bars left to right, sized to their panels
     // and marked with their size, a tag with the angle on every join that
     // bends, and the datum marked under the strip.
-    _curveDrawSheet(host, out, cornerSeams = new Map()) {
+    _curveDrawSheet(host, out, cornerSeams = new Map(), handJoints = {}, picked = null) {
         if (!host) return;
         const bars = out.bars;
         const joints = out.joints;
         const panels = joints.length + 1;
         const datum = out.result ? out.result.datum_at : out.datum_at;
         const room = Math.max(120, (host.clientWidth || 200) - 2);
-        const sig = JSON.stringify([bars, joints, datum, room, [...cornerSeams.keys()], (out.placed || []).map(b => !!b.corner)]);
+        // where each bar starts: a row laid by hand may have gaps
+        const starts = Array.isArray(out.placed) && out.placed.length === bars.length ? out.placed.map(b => b.start)
+            : Array.isArray(out.starts) && out.starts.length === bars.length ? out.starts
+                : bars.map((n, i) => bars.slice(0, i).reduce((t, k) => t + k, 0));
+        const hand = !!out.hand;
+        const sig = JSON.stringify([bars, starts, joints, datum, room, [...cornerSeams.keys()], (out.placed || []).map(b => !!b.corner),
+                                    hand, handJoints, picked]);
         if (host.dataset.sig === sig) return;
         host.dataset.sig = sig;
         host.innerHTML = '';
         // The strip fits the panel; past 14 px a panel it scrolls instead.
-        const slots = Math.max(panels, bars.reduce((t, n) => t + n, 0));
+        const slots = Math.max(panels, ...bars.map((n, i) => starts[i] + n));
         const W = Math.max(room, Math.round(14 * slots));
         const H = 52;
         const svg = document.createElementNS(NS, 'svg');
@@ -1848,32 +2090,47 @@ class _Curve {
             return el;
         };
         const barTop = 22, barH = 16;
-        let at = 0;
+        const HAND = '#4fc3f7';
         bars.forEach((n, i) => {
-            const x = at * px;
-            // a corner bar: "Corner" where it fits, its size where not
+            const x = starts[i] * px;
+            // a corner bar: "Corner" where it fits, its size where not; a
+            // bar laid by hand in blue
             const corner = !!(Array.isArray(out.placed) && out.placed[i] && out.placed[i].corner);
             add('rect', { x: x + 0.5, y: barTop, width: Math.max(1, n * px - 1), height: barH, fill: '#2a2a2a',
-                          stroke: corner ? '#f5a623' : '#888', 'stroke-width': 1, 'data-bar': i, ...(corner ? { 'data-corner-bar': i } : {}) });
+                          stroke: corner ? '#f5a623' : (hand ? HAND : '#888'), 'stroke-width': 1, 'data-bar': i,
+                          ...(corner ? { 'data-corner-bar': i } : {}), ...(hand && !corner ? { 'data-hand-bar': i } : {}) });
             add('text', { x: x + n * px / 2, y: barTop + 12, 'text-anchor': 'middle', 'font-size': corner ? 9 : 10, fill: corner ? '#f5a623' : '#ddd' },
                 corner && n * px >= 34 ? 'Corner' : String(n));
-            at += n;
         });
         // The tags: the angle at each join that bends, over its seam, on a
         // second line where it would run into the one before.
         const ends = [-Infinity, -Infinity];
         joints.forEach((a, j) => {
-            // A corner's seam: "Corner", no curve angle on it.
+            // A corner's seam: "Corner", no curve angle on it. A joint set
+            // by hand: its angle in blue, flat too.
             const corner = cornerSeams.has(j);
-            if (!a && !corner) return;
+            const byHand = !corner && String(j) in handJoints;
             const x = (j + 1) * px;
+            if (picked === j) add('rect', { x: x - 4, y: barTop - 4, width: 8, height: barH + 8, fill: 'none', stroke: HAND, 'stroke-width': 1, 'data-picked-joint': j });
+            if (!a && !corner && !byHand) return;
             const text = corner ? 'Corner' : formatAngle(Math.abs(a));
             const half = text.length * 2.7 + 1;
             const line = x - half > ends[0] ? 0 : (x - half > ends[1] ? 1 : 0);
             ends[line] = x + half;
-            add('line', { x1: x, y1: line ? 11 : barTop - 3, x2: x, y2: barTop + barH, stroke: '#e22330', 'stroke-width': 1.5 });
-            add('text', { x, y: line ? 19 : 9, 'text-anchor': 'middle', 'font-size': 9, fill: corner ? '#f5a623' : '#f0f0f0',
-                [corner ? 'data-corner-seam' : 'data-angle']: j }, text);
+            add('line', { x1: x, y1: line ? 11 : barTop - 3, x2: x, y2: barTop + barH, stroke: byHand ? HAND : '#e22330', 'stroke-width': 1.5 });
+            add('text', { x, y: line ? 19 : 9, 'text-anchor': 'middle', 'font-size': 9, fill: corner ? '#f5a623' : (byHand ? HAND : '#f0f0f0'),
+                [corner ? 'data-corner-seam' : 'data-angle']: j, ...(byHand ? { 'data-hand-angle': j } : {}) }, text);
+        });
+        // Every joint but a corner's is a click target: it opens the joint's
+        // angles below the strip.
+        joints.forEach((a, j) => {
+            if (cornerSeams.has(j)) return;
+            const x = (j + 1) * px;
+            const hit = add('rect', { x: x - Math.max(3, px / 2), y: 0, width: Math.max(6, px), height: barTop + barH, fill: 'transparent',
+                                      'data-joint': j, style: 'cursor: pointer;' });
+            const tip = document.createElementNS(NS, 'title');
+            tip.textContent = `Joint after panel ${j + 1}: click to set its angle by hand`;
+            hit.appendChild(tip);
         });
         // The datum: where the crew sets out from (0.5 is the left end).
         const dx = (datum - 0.5) * px;

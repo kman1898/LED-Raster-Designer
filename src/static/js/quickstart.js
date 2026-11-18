@@ -397,6 +397,10 @@
     function curveTabClean() { return curveTabCleanFor(wall()); }
     // The same for the screen `w` the tab shows (a grouped row's: the
     // answer is the row's, app-curve.js).
+    // The middle screen of the group the Curve a group step makes.
+    function curveMiddle() {
+        return screens().find(function (l) { return l.name === 'CURVE MIDDLE'; }) || null;
+    }
     function curveTabCleanFor(w) {
         var a = A();
         if (!w || !w.riggingCurve || !w.riggingCurve.on || a.riggingCurveBusy()) return false;
@@ -6852,6 +6856,76 @@
                     + ((head && head.textContent) || '') + '.';
             }
         },
+        // Custom on a curve (owner, 2026-11-18: "i need to be able to do
+        // custom curve just like header"): on the group the step before
+        // curved, a joint of the build sheet strip clicked and set by hand
+        // to a lock position, the Curve fitting the other joints around it.
+        // The joint is the one nearest the middle of the wall with no bar
+        // across it, the angle the panel's largest it does not have now.
+        curveCustom: {
+            since: '1.7.0',
+            target: '#rigging-curve-result', place: 'right', title: 'Curve by hand',
+            body: 'With Curve on, Custom lays bars by hand just as on a straight wall, and the Curve sets the angles where they meet. Click a joint on the build sheet to set its angle yourself. What you set shows in blue, and Auto hands it back to the Curve.',
+            before: function () {
+                closePrefs(); hideMenus(); closePopover(); switchView('rigging');
+                var m = curveMiddle();
+                if (m) A().setSelectedLayersByIds([m.id], m.id);
+                A().refreshRiggingPanel();
+            },
+            act: function (t) {
+                var a = A(), m = curveMiddle();
+                if (!m) return Promise.reject(new Error('the curved group is missing'));
+                return t.wait(function () { return curveTabCleanFor(curveMiddle()); }, 10000).then(function (ok) {
+                    if (!ok) throw new Error('the group was not curved');
+                    var row = a._curveRow(curveMiddle());
+                    var out = a.riggingCurveCached(curveMiddle());
+                    var bars = row.placed || [];
+                    var free = [];
+                    for (var j = 0; j < out.joints.length; j++) {
+                        if (!bars.some(function (b) { return b.start <= j && j + 1 < b.start + b.size; })) free.push(j);
+                    }
+                    var mid = (out.joints.length - 1) / 2;
+                    free.sort(function (x, y) { return Math.abs(x - mid) - Math.abs(y - mid) || x - y; });
+                    if (!free.length) throw new Error('no joint to set');
+                    t.mem.j = free[0];
+                    var choices = a._curveJointChoices(row).filter(function (v) { return Math.abs(v - (Number(out.joints[t.mem.j]) || 0)) > 1e-6; });
+                    if (!choices.length) throw new Error('no other angle to set');
+                    t.mem.angle = choices[choices.length - 1];
+                    return t.click('#rigging-curve-sheet [data-joint="' + t.mem.j + '"]', { noClick: true });
+                }).then(function (el) {
+                    // an SVG joint takes its click as an event
+                    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                    return t.wait(function () { return !!$('#rigging-curve-joint [data-joint-angle="' + t.mem.angle + '"]'); });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the joint did not open its angles');
+                    return t.pause(PACE.hover);
+                }).then(function () {
+                    return t.click('#rigging-curve-joint [data-joint-angle="' + t.mem.angle + '"]');
+                }).then(function () {
+                    return t.wait(function () {
+                        var w = curveMiddle();
+                        var hand = w && w.riggingCurve && w.riggingCurve.handJoints;
+                        if (!hand || hand[String(t.mem.j)] !== t.mem.angle || a.riggingCurveBusy()) return false;
+                        var out = a.riggingCurveCached(w);
+                        return !!out && !out.errors.length && a._curveLaidMatches(w, out)
+                            && Math.abs(out.joints[t.mem.j] - t.mem.angle) < 1e-6
+                            && !!$('#rigging-curve-sheet [data-hand-angle="' + t.mem.j + '"]');
+                    }, 10000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the joint was not set by hand');
+                    return t.spot($('#rigging-curve-result')).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function (mem) {
+                var a = A(), w = curveMiddle();
+                var hand = w && w.riggingCurve && w.riggingCurve.handJoints;
+                if (!mem || mem.j == null || !hand || hand[String(mem.j)] !== mem.angle) return null;
+                if (!$('#rigging-curve-sheet [data-hand-angle="' + mem.j + '"]')) return null;
+                var g = a.getGroupOfLayer(w);
+                return 'The joint after panel ' + (mem.j + 1) + ' of ' + ((g && g.name) || 'the group') + ' is set by hand to '
+                    + Math.abs(mem.angle) + ' degrees, drawn in blue, and the Curve fits the other joints around it.';
+            }
+        },
         // Services (1.5.3, app-services.js): the house power several
         // distros are fed from. One step adds the Service card, the next
         // drags the distro's header bar onto it.
@@ -9578,7 +9652,7 @@
     // close their guide, after its runs, so nothing they add reaches a
     // later run or another guide's demo show.
     var DATA_PRACTICE = ['mirrorScreen', 'portPlug', 'portNumbers', 'portsMinimum', 'redrawAsOne', 'sweepPorts'];
-    var HEADER_PRACTICE = ['groupCurve'];
+    var HEADER_PRACTICE = ['groupCurve', 'curveCustom'];
     var POWER_PRACTICE = ['powerZPattern', 'circuitNumbers', 'mixedSources', 'resetHole', 'redrawCircuits',
                           'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun'];
     var GUIDE_SEED = { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } };

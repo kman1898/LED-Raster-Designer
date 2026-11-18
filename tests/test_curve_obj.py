@@ -324,7 +324,9 @@ def test_a_reload_keeps_the_curve_and_the_tab_shows_it(page, e2e_server):
     assert page.errors == []
 
 
-def test_custom_and_remove_bar_leave_a_curved_screen_alone_and_clear_turns_it_off(page):
+def test_custom_on_a_curved_screen_lays_by_hand_auto_hands_it_back_and_clear_turns_it_off(page):
+    # Custom on a curved screen (owner, 2026-11-18): the gestures lay bars by
+    # hand and the Curve fits the angles to them (tests/test_curve_custom.py).
     ids = reset(page)
     open_rigging(page)
     singles_only(page)
@@ -332,14 +334,22 @@ def test_custom_and_remove_bar_leave_a_curved_screen_alone_and_clear_turns_it_of
     lay = layer(page, ids[0])
     n = history_len(page)
     page.click('#rigging-tool-picker [data-tool="custom"]')
-    assert 'Custom does not' in page.inner_text('#rigging-curve-note')
-    refused = page.evaluate("(id) => window.app.riggingBeginPlace(window.app.project.layers.find(l => l.id === id), 'header', 3) === null", ids[0])
-    assert refused
-    assert 'laid by the Curve' in toast_says(page, 'laid by the Curve')
-    page.evaluate("(id) => window.app.pickRiggingBar({ layerId: id, row: 'header', start: 0, span: 1 })", ids[0])
-    assert page.evaluate('window.app.removePickedRiggingBar()') is False
+    assert 'Custom: lay bars by hand' in page.inner_text('#rigging-curve-note')
+    # a press is taken, not refused; let go without a change, nothing moves
+    taken = page.evaluate("""(id) => { const a = window.app;
+        const d = a.riggingBeginPlace(a.project.layers.find(l => l.id === id), 'header', 3);
+        if (!d) return false; a.riggingEndDrag(d, false); return true; }""", ids[0])
+    assert taken
     assert layer(page, ids[0])['riggingBars'] == lay['riggingBars']
     assert history_len(page) == n
+    page.evaluate("(id) => window.app.pickRiggingBar({ layerId: id, row: 'header', start: 0, span: 1 })", ids[0])
+    assert page.evaluate('window.app.removePickedRiggingBar()') is True
+    idle(page)
+    gone = layer(page, ids[0])
+    # the rest stand where they stood, panel 1 left bare
+    assert gone['riggingBars'] == lay['riggingBars'][1:]
+    assert gone['riggingBarStarts'] == list(range(1, len(lay['riggingBars'])))
+    assert gone['riggingCustom'] is True
     page.click('#rigging-tool-picker [data-tool="auto"]')
     # Auto on a curved screen lays the curve again, not a plain fit
     act(page, lambda: page.click('#rigging-tool-picker [data-tool="auto"]'))

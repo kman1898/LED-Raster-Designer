@@ -200,9 +200,14 @@ sets one angle at a regular spacing, and Tightest gets as close as the
 angles allow. Close enough is 25 mm, about an inch, unless you change it.
 
 - NEW: Change any setting, or the lit sizes, and the curve is laid again
-  in one undo step. Auto lays it again too. While Curve is on, the bars are
-  the Curve's: Custom and Remove Bar leave that screen alone, and Clear
-  takes the bars off and turns the Curve off.
+  in one undo step. Auto lays it again too, and Clear takes the bars off
+  and turns the Curve off.
+- NEW: Curve by hand. With Curve on, Custom lays bars with the same click
+  and drag as a straight wall, and the Curve sets the angles where the
+  bars meet. Click any joint on the build sheet to set its angle yourself
+  from the panel's lock positions, and the Curve fills in the rest. What
+  you set shows in blue and saves with the show, and Auto hands it all
+  back to the Curve. Bars you laid stay when you turn the Curve off.
 - NEW: A group whose screens stand edge to edge curves as one wall. Tick
   Curve on any of its screens and one curve runs across all of them, the
   seams between screens bending like any other joint. The % is of the
