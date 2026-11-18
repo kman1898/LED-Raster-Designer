@@ -703,8 +703,68 @@ function installNameDragSelects(doc) {
     }, true);
 }
 
+// ── Esc closes what is on top ─────────────────────────────────────────
+// Every dialog, panel, popover and menu that closes on Esc is a layer, and
+// one Esc closes only the layer drawn on top (the owner's ruling,
+// 2026-11-17): a gear panel over Preferences closes first, Preferences on
+// the next Esc. "On top" is the page's real stacking, read with
+// elementsFromPoint where two layers overlap - z-index and page order as
+// the browser paints them, never a fixed order of kinds. A layer inside
+// another (a menu opened in a dialog) counts as over it. Layers that do
+// not overlap cover nothing, so each still closes on Esc as before.
+//
+// Each layer's own Esc handler asks escapeCovered(itsElement, event) and
+// stands aside when the answer is yes. The answer is read once per key
+// press, before anything closes: a handler that runs after the top layer
+// closed still sees the stacking the key was pressed on, so no second
+// layer closes on the same Esc.
+const ESCAPE_LAYERS = '.modal, #hw-gear-popover, #context-menu, .context-menu, .menu-dropdown, '
+    + '.canvas-menu-popup, .lrd-cw-window, .lrd-cp-popover, .lrd-layout-dialog, '
+    + '#s3d-field-menu, #s3d-corner-pop';
+
+function _escapeLayerShown(el) {
+    if (!el || !el.isConnected || el.hidden) return false;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+    return el.getClientRects().length > 0;
+}
+
+function _escapeCoveredNow(el) {
+    if (!_escapeLayerShown(el)) return false;
+    const box = el.getBoundingClientRect();
+    const vw = window.innerWidth, vh = window.innerHeight;
+    for (const other of document.querySelectorAll(ESCAPE_LAYERS)) {
+        if (other === el || other.contains(el) || !_escapeLayerShown(other)) continue;
+        if (el.contains(other)) return true;
+        const o = other.getBoundingClientRect();
+        const left = Math.max(box.left, o.left, 0), right = Math.min(box.right, o.right, vw);
+        const top = Math.max(box.top, o.top, 0), bottom = Math.min(box.bottom, o.bottom, vh);
+        if (right - left < 1 || bottom - top < 1) continue;
+        const stack = document.elementsFromPoint((left + right) / 2, (top + bottom) / 2);
+        const iOther = stack.findIndex(n => other.contains(n));
+        if (iOther < 0) continue;
+        const iEl = stack.findIndex(n => el.contains(n));
+        if (iEl < 0 || iOther < iEl) return true;
+    }
+    return false;
+}
+
+const _escapeReads = new WeakMap();
+
+// With no element it only takes the key press's reading (the Esc
+// dispatcher does, first of all, app-menubar _escapeClosesDialog).
+function escapeCovered(el, event) {
+    if (!event) return !!el && _escapeCoveredNow(el);
+    let covered = _escapeReads.get(event);
+    if (!covered) {
+        covered = new Set([...document.querySelectorAll(ESCAPE_LAYERS)].filter(_escapeCoveredNow));
+        _escapeReads.set(event, covered);
+    }
+    return !!el && covered.has(el);
+}
+
 export { evaluateMathExpression, isMacOS, sendClientLog, setClientLogPage, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
-    FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff };
+    FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff, escapeCovered };
 
 // Classic (non-module) scripts call these by name at runtime
 // (canvas.js -> sendClientLog, color_picker.js -> normalizeHex,
@@ -714,3 +774,4 @@ export { evaluateMathExpression, isMacOS, sendClientLog, setClientLogPage, regis
 window.sendClientLog = sendClientLog;
 window.normalizeHex = normalizeHex;
 window.isTypingTarget = isTypingTarget;
+window.escapeCovered = escapeCovered;

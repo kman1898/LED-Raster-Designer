@@ -19,7 +19,7 @@
 // (app-menubar _escapeClosesDialog included), and Enter presses the
 // primary button (a prompt's Enter in its box is its OK).
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, escapeCovered } from './helpers.js';
 
 class _Dialogs {
     // The general form. `opts`:
@@ -86,6 +86,7 @@ class _Dialogs {
             };
             const onKey = (e) => {
                 if (e.key === 'Escape') {
+                    if (escapeCovered(modal, e)) return;
                     e.preventDefault();
                     e.stopPropagation();
                     done(cancel);

@@ -64,7 +64,7 @@
 // That rule holds where a mirror is SET: a mirror already made follows its
 // source through _syncMirrorScreens and is never checked against it.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, escapeCovered } from './helpers.js';
 
 // The fields that make a screen's data port map, copied from the source onto
 // its mirror. The processing settings ride with the walk because they decide
@@ -1035,7 +1035,8 @@ class _MirrorScreens {
                 if (e.target === modal) this._closeCopyRole(null);
             });
             document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && this._copyRoleResolve) this._closeCopyRole(null);
+                if (e.key === 'Escape' && this._copyRoleResolve
+                        && !escapeCovered(modal, e)) this._closeCopyRole(null);
             });
         }
         const text = document.getElementById('copy-role-text');

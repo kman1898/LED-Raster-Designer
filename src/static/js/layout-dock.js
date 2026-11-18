@@ -173,7 +173,9 @@
     document.removeEventListener('keydown', escMenu, true);
   }
   function outside(e) { if (menu && !menu.contains(e.target)) closeMenu(); }
-  function escMenu(e) { if (e.key === 'Escape') closeMenu(); }
+  function escMenu(e) {
+    if (e.key === 'Escape' && !(window.escapeCovered && window.escapeCovered(menu, e))) closeMenu();
+  }
 
   function openMenu(name, x, y) {
     closeMenu();
@@ -316,7 +318,11 @@
     back.appendChild(box);
     document.body.appendChild(back);
     function close() { back.remove(); document.removeEventListener('keydown', esc, true); }
-    function esc(e) { if (e.key === 'Escape') { e.preventDefault(); close(); } }
+    function esc(e) {
+      if (e.key !== 'Escape' || (window.escapeCovered && window.escapeCovered(back, e))) return;
+      e.preventDefault();
+      close();
+    }
     document.addEventListener('keydown', esc, true);
     back.addEventListener('pointerdown', function (e) { if (e.target === back) close(); });
     return { back: back, box: box, close: close };

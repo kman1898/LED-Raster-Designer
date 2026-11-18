@@ -39,7 +39,7 @@
 // native output's feed id), the dialog lists and closes them, and they close
 // with this window.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, escapeCovered } from './helpers.js';
 
 const OUTPUT_VIEWS = [
     ['pixel-map', 'Pixel Map'],
@@ -171,7 +171,8 @@ class _OutputDisplay {
             this.closeOutputDisplay(Number(btn.dataset.outputId));
         });
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && modal.style.display !== 'none') this.closeOutputDisplayDialog();
+            if (e.key === 'Escape' && modal.style.display !== 'none'
+                    && !escapeCovered(modal, e)) this.closeOutputDisplayDialog();
         });
         return modal;
     }

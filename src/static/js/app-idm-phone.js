@@ -7,7 +7,7 @@
 // (per viewer). A server the launcher set to this computer alone, or a
 // computer on no network, gets a plain note saying what to change.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, escapeCovered } from './helpers.js';
 import { qrSvg } from './qr-code.js';
 
 const ADDRESS_KEY = 'lrdIdmPhoneAddress';
@@ -89,7 +89,8 @@ class _IdmPhone {
         });
         modal.querySelector('#idm-phone-copy').addEventListener('click', () => this._idmPhoneCopy());
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && modal.style.display !== 'none') this.closeIdmPhoneDialog();
+            if (e.key === 'Escape' && modal.style.display !== 'none'
+                    && !escapeCovered(modal, e)) this.closeIdmPhoneDialog();
         });
         return modal;
     }

@@ -65,7 +65,7 @@
 // pattern this follows. mouseup is bound on the document for the same reason
 // canvas.js binds its own on window: a drag routinely ends over a sidebar.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, isTypingTarget } from './helpers.js';
+import { sendClientLog, isTypingTarget, escapeCovered } from './helpers.js';
 
 class _HardwareDock {
 
@@ -410,8 +410,12 @@ class _HardwareDock {
                     && e.target.closest('.lrd-resize-handle')) return;
             this._hwPopoverClose();
         });
+        // Esc closes it unless a dialog or menu is drawn over it (helpers.js
+        // escapeCovered): that closes first, the panel on the next Esc.
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this._hwPopover) this._hwPopoverClose();
+            if (e.key !== 'Escape' || !this._hwPopover) return;
+            if (escapeCovered(document.getElementById('hw-gear-popover'), e)) return;
+            this._hwPopoverClose();
         });
         // The popover is placed against a window and a tray that both
         // change size under it: re-place on either, so it never sits half

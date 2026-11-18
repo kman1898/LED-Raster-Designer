@@ -34,7 +34,7 @@
 // _enforce_group_integrity, so the SERVER decides what a membership that
 // disagrees with itself repairs to - none of that logic is repeated here.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, holdDragOff } from './helpers.js';
+import { sendClientLog, holdDragOff, escapeCovered } from './helpers.js';
 import { stripScreenFeeds, SCREEN_FEED_KEYS } from './app-clipboard.js';
 import { s3dCopyPlacement } from './app-stage3d.js';
 
@@ -1252,7 +1252,8 @@ class _ScreenGroups {
             if (e.target === modal) this.closeGroupLockDialog(null);
         });
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this._groupLockResolve) this.closeGroupLockDialog(null);
+            if (e.key === 'Escape' && this._groupLockResolve
+                    && !escapeCovered(modal, e)) this.closeGroupLockDialog(null);
         });
         this._groupLockWired = true;
     }
@@ -2082,7 +2083,7 @@ class _ScreenGroups {
             if (e.target === modal) this.closeGroupSettingsDialog(null);
         });
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this._groupSettingsResolve) {
+            if (e.key === 'Escape' && this._groupSettingsResolve && !escapeCovered(modal, e)) {
                 this.closeGroupSettingsDialog(null);
             }
         });
@@ -2430,7 +2431,7 @@ class _ScreenGroups {
             document.removeEventListener('keydown', onKey, true);
         };
         const onOutside = (e) => { if (!menu.contains(e.target)) close(); };
-        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        const onKey = (e) => { if (e.key === 'Escape' && !escapeCovered(menu, e)) close(); };
         // Defer so the click that opened us doesn't immediately close it.
         setTimeout(() => {
             document.addEventListener('mousedown', onOutside, true);

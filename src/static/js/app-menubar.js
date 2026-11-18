@@ -3,7 +3,7 @@
 // Shortcuts and About surfaces open from here. Moved verbatim out of
 // app-export-io.js and attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, isTypingTarget } from './helpers.js';
+import { sendClientLog, isTypingTarget, escapeCovered } from './helpers.js';
 
 // Help > Guides: each menu item's guide (quickstart.js GUIDES).
 const GUIDE_MENU = {
@@ -124,21 +124,22 @@ class _MenuBar {
     // is its Cancel: back to the start page when the start page opened it,
     // an empty project at launch, nothing added from Add Screen.
     //
-    // Only the TOPMOST open .modal answers, and only when it is one of these:
-    // a confirm opened over Preferences takes the Esc for itself. Something
-    // floating over either - the Colors window or a swatch popover, a canvas
-    // popup menu, a running guide - owns the Esc, so it is left alone.
+    // Only the open .modal drawn on top answers, and only when it is one of
+    // these: a confirm opened over Preferences takes the Esc for itself.
+    // Whatever is drawn over it - a dock gear panel, the Colors window or a
+    // swatch popover, a canvas popup menu, a 3D field menu - closes first
+    // on its own Esc, and the dialog waits for the next (helpers.js
+    // escapeCovered: the page's real stacking, read once per key press,
+    // here, before anything closes). A running guide owns the Esc.
     _escapeClosesDialog(e) {
         if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
-        const above = document.querySelector(
-            '.lrd-cw-window:not([hidden]), .lrd-cp-popover:not([hidden]), .canvas-menu-popup');
-        if (above && above.getClientRects().length) return;
+        escapeCovered(null, e);
         const guide = window.QuickStart && typeof window.QuickStart.state === 'function'
             ? window.QuickStart.state() : null;
         if (guide && guide.visible) return;
         const dropdown = [...document.querySelectorAll('.menu-dropdown')]
             .find(m => m.style.display === 'block');
-        if (dropdown && typeof this._hideMenuBarMenus === 'function') {
+        if (dropdown && !escapeCovered(dropdown, e) && typeof this._hideMenuBarMenus === 'function') {
             e.preventDefault();
             e.stopPropagation();
             this._hideMenuBarMenus();
@@ -146,7 +147,7 @@ class _MenuBar {
             return;
         }
         const menu = document.getElementById('context-menu');
-        if (menu && menu.style.display === 'block') {
+        if (menu && menu.style.display === 'block' && !escapeCovered(menu, e)) {
             e.preventDefault();
             e.stopPropagation();
             this.hideContextMenu();
@@ -161,9 +162,9 @@ class _MenuBar {
             'whatsnew-modal': 'whatsnew-close',
             'preset-picker-modal': 'preset-picker-cancel',
         };
-        const open = [...document.querySelectorAll('.modal')]
-            .filter(m => m.style.display !== 'none' && getComputedStyle(m).display !== 'none');
-        const top = open[open.length - 1];
+        const top = [...document.querySelectorAll('.modal')]
+            .filter(m => m.style.display !== 'none' && getComputedStyle(m).display !== 'none')
+            .find(m => !escapeCovered(m, e));
         if (!top || !CLOSERS[top.id]) return;
         const btn = document.getElementById(CLOSERS[top.id]);
         if (!btn) return;
@@ -306,7 +307,7 @@ class _MenuBar {
             document.removeEventListener('keydown', onKey, true);
         };
         const onOutside = (e) => { if (!menu.contains(e.target)) close(); };
-        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        const onKey = (e) => { if (e.key === 'Escape' && !escapeCovered(menu, e)) close(); };
         setTimeout(() => {
             document.addEventListener('mousedown', onOutside, true);
             document.addEventListener('keydown', onKey, true);
@@ -785,7 +786,7 @@ class _MenuBar {
             document.removeEventListener('keydown', onKey, true);
         };
         var onKey = function(e) {
-            if (e.key === 'Escape') {
+            if (e.key === 'Escape' && !escapeCovered(modal, e)) {
                 e.preventDefault();
                 e.stopPropagation();
                 close();

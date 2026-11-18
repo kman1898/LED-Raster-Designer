@@ -39,7 +39,7 @@
 //   * An old distro with no rows behaves exactly as it always did - it
 //     offers every multi type, its boxes come and go with what is on them.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, escapeCovered } from './helpers.js';
 
 // A screen voltage "is" a system's line-to-neutral or line-to-line figure
 // when it is one of that figure's NOMINAL names (owner, 2026-10-16: "you
@@ -1992,7 +1992,9 @@ class _DistroSystems {
                 document.removeEventListener('keydown', onKey, true);
                 resolve(applied);
             };
-            const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(false); } };
+            const onKey = (e) => {
+                if (e.key === 'Escape' && !escapeCovered(el, e)) { e.stopPropagation(); close(false); }
+            };
             document.addEventListener('keydown', onKey, true);
             el.querySelector('.crowd-cancel').addEventListener('click', () => {
                 sendClientLog('distro_crowding_cancelled', { distroId: d.id });

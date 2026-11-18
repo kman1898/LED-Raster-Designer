@@ -1,7 +1,7 @@
 // app-canvas-ui: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, holdDragOff } from './helpers.js';
+import { sendClientLog, holdDragOff, escapeCovered } from './helpers.js';
 
 class _CanvasUi {
     regroupLayersByCanvas(container) {
@@ -1166,7 +1166,7 @@ class _CanvasUi {
             document.removeEventListener('keydown', onKey, true);
         };
         const onOutside = (e) => { if (!menu.contains(e.target)) close(); };
-        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        const onKey = (e) => { if (e.key === 'Escape' && !escapeCovered(menu, e)) close(); };
         setTimeout(() => {
             document.addEventListener('mousedown', onOutside, true);
             document.addEventListener('keydown', onKey, true);
@@ -1223,7 +1223,7 @@ class _CanvasUi {
             document.removeEventListener('keydown', onKey, true);
         };
         const onOutside = (e) => { if (!menu.contains(e.target)) close(); };
-        const onKey = (e) => { if (e.key === 'Escape') close(); };
+        const onKey = (e) => { if (e.key === 'Escape' && !escapeCovered(menu, e)) close(); };
         // Defer to avoid catching the click that opened us.
         setTimeout(() => {
             document.addEventListener('mousedown', onOutside, true);

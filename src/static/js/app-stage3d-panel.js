@@ -48,7 +48,7 @@
 // setRiggingCornerAt, the same riggingCorners the Header/Footer tab
 // writes, so the two tabs always agree.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, escapeCovered } from './helpers.js';
 import {
     DEG, round, wrap180, s3dCornersOn, s3dCornerSeams, s3dCurveOn, s3dParseLength, s3dStoredFrom,
 } from './app-stage3d.js';
@@ -644,7 +644,7 @@ class _Stage3DPanel {
         menu.style.left = `${Math.max(4, Math.min(ev.clientX, window.innerWidth - w - 4))}px`;
         menu.style.top = `${Math.max(4, Math.min(ev.clientY, window.innerHeight - h - 4))}px`;
         st.fieldMenuClose = (e) => {
-            if (e.type === 'keydown' && e.key !== 'Escape') return;
+            if (e.type === 'keydown' && (e.key !== 'Escape' || escapeCovered(menu, e))) return;
             if (e.type === 'pointerdown' && menu.contains(e.target)) return;
             this._s3dCloseFieldMenu();
         };
@@ -862,7 +862,7 @@ class _Stage3DPanel {
         st.cornerPopClose = (e) => {
             const pop = document.getElementById('s3d-corner-pop');
             if (e.type === 'keydown') {
-                if (e.key !== 'Escape') return;
+                if (e.key !== 'Escape' || escapeCovered(pop, e)) return;
                 e.preventDefault();
                 e.stopPropagation();
             } else if (pop && pop.contains(e.target)) {

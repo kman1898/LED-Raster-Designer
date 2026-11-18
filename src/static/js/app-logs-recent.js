@@ -1,7 +1,7 @@
 // app-logs-recent: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, escapeCovered } from './helpers.js';
 
 // The most the copies kept in Recent Files may take together, in
 // characters (about 3 MB of localStorage, which counts UTF-16), so other
@@ -779,7 +779,9 @@ class _LogsRecent {
                 resolve(!!remove);
             };
             const onKey = (e) => {
-                if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+                if (e.key === 'Escape' && !escapeCovered(modal, e)) {
+                    e.preventDefault(); e.stopPropagation(); done(false);
+                }
             };
             const button = (label, primary, remove) => {
                 const b = document.createElement('button');

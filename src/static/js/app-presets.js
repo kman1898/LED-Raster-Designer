@@ -1,7 +1,7 @@
 // app-presets: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, setupColorPickerWithHex } from './helpers.js';
+import { sendClientLog, setupColorPickerWithHex, escapeCovered } from './helpers.js';
 
 // Library models renamed in a release, old "<manufacturer>|<model>" to new:
 // a favorite saved under the old name finds the model under its new one
@@ -2028,7 +2028,10 @@ class _Presets {
                 // of the document's Enter-ends-the-edit rule (helpers.js
                 // installEnterEndsEdit), so a refused name keeps its caret.
                 if (e.key === 'Enter') { e.preventDefault(); this.confirmPresetSave(); }
-                else if (e.key === 'Escape') this.closePresetSaveModal();
+                else if (e.key === 'Escape'
+                        && !escapeCovered(document.getElementById('preset-save-modal'), e)) {
+                    this.closePresetSaveModal();
+                }
             });
         }
         // Close modals on backdrop click

@@ -268,7 +268,10 @@
 
             // Escape closes; clicks inside don't bubble to the compact-picker closer.
             win.addEventListener('mousedown', (e) => e.stopPropagation());
-            document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.isOpen()) this.close(); });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && this.isOpen()
+                        && !(window.escapeCovered && window.escapeCovered(this.el, e))) this.close();
+            });
         },
 
         _wireDrag(handle, win) {
@@ -950,7 +953,10 @@
             }, true);
             // Close on outside click / Escape / scroll / resize.
             document.addEventListener('mousedown', () => { if (this.isOpen()) this.close(); });
-            document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.isOpen()) this.close(); });
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && this.isOpen()
+                        && !(window.escapeCovered && window.escapeCovered(this.el, e))) this.close();
+            });
             window.addEventListener('resize', () => this.close());
             window.addEventListener('scroll', () => { if (this.isOpen()) this.close(); }, true);
         }

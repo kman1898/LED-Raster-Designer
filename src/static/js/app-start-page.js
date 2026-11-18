@@ -58,7 +58,7 @@
 // Automated browsers ask only when a test sets __lrdStartPage or
 // __lrdStartupPicker.
 import { LEDRasterApp, PAGE_CLIENT_ID } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, escapeCovered } from './helpers.js';
 
 // The per-tab record a reload reads back (_saveReloadPlace).
 const RELOAD_PLACE_KEY = 'lrdReloadPlace';
@@ -169,6 +169,7 @@ class _StartPage {
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape' || !this.startPageOpen()) return;
             if (document.getElementById('recent-missing-modal')) return;
+            if (escapeCovered(modal, e)) return;
             // A guide step showing the page: Esc is the guide's (it
             // closes the page with the rest of its transients).
             const q = window.QuickStart;

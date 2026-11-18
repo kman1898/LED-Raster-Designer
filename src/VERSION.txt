@@ -751,6 +751,11 @@ FIXES
   its pick, says "The project was just started on another device." and
   shows the project the first answer made. Before, both could land, and
   the project ended up with two first screens.
+- FIX: Esc closes whatever is on top, one thing at a time. A gear panel
+  open over Preferences closes first and Preferences stays for the next
+  Esc, where Esc used to close Preferences and leave the panel. A dialog
+  open over a gear panel, such as Output to Display, closes on its own
+  instead of taking the panel with it.
 
 v1.6.0 - November 6, 2026
 ----------------------------
