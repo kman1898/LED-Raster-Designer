@@ -11,6 +11,8 @@ import re
 import socket
 import subprocess
 import base64
+import ipaddress
+from urllib.parse import urlsplit
 
 from flask import Blueprint, request, jsonify
 
@@ -114,9 +116,98 @@ def _is_same_machine(addr):
     return addr in _own_addresses() or ('::ffff:' + addr) in _own_addresses()
 
 
+def _netloc(url):
+    """host[:port] of an http(s) URL, lowercased; None for anything else
+    (including the "null" Origin a file or sandboxed page sends)."""
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme not in ('http', 'https'):
+        return None
+    return (parts.netloc or '').lower()
+
+
+def _host_is_ours(host):
+    """Is the Host a request names one this app is reached at?
+
+    localhost, an IP address (127.0.0.1, [::1], the LAN address a tablet or
+    phone joins on), or this computer's own name. Anything else is a page
+    on some other site whose name was pointed at this machine's address
+    after it loaded ("DNS rebinding"): the browser then treats the app as
+    that site's own, Origin and all, and only the Host gives it away. An
+    IP address cannot be pointed anywhere, so every one is taken; a page
+    at another address or port is still refused by the Origin check.
+    """
+    try:
+        name = urlsplit('//' + (host or '')).hostname
+    except ValueError:
+        return False
+    if not name:
+        return False
+    if name == 'localhost':
+        return True
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        pass
+    try:
+        own = socket.gethostname().lower()
+    except OSError:
+        return False
+    return bool(own) and name in (own, own + '.local')
+
+
+def foreign_page_reason():
+    """Why this request looks sent by a page that is not the app's own, or
+    None when nothing says so.
+
+    A page on any other site, open in a browser on this computer, can send
+    requests to the app at localhost, and a form or a body-less request
+    goes without the browser asking first. The browser names the sending
+    page (Origin, Sec-Fetch-Site, Referer), so such a request is told from
+    the app's own pages (the designer on this computer or a joined tablet,
+    the IDM phone page, the output window, the app window) and refused. A
+    request with none of those headers is not from a browser page at all;
+    the caller decides who may send those.
+    """
+    host = (request.host or '').lower()
+    if not _host_is_ours(host):
+        return 'host'
+    site = (request.headers.get('Sec-Fetch-Site') or '').lower()
+    if site in ('cross-site', 'same-site'):
+        return 'cross-site'
+    origin = request.headers.get('Origin')
+    if origin is not None:
+        return None if _netloc(origin) == host else 'origin'
+    referer = request.headers.get('Referer')
+    if referer is not None and _netloc(referer) != host:
+        return 'referer'
+    return None
+
+
+def log_foreign_page(action, reason, log=None):
+    """One line naming a refused request: where it claimed to come from,
+    never what it carried. `log` is the caller's own log_event."""
+    (log or log_event)(action, {
+        'remote_addr': request.remote_addr or '', 'path': request.path,
+        'reason': reason, 'host': request.host or '',
+        'origin': request.headers.get('Origin') or ''})
+
+
 @dialog_bp.before_request
 def _local_only():
     addr = request.remote_addr or ''
+    # A page from another site, open in a browser on this computer, comes
+    # from this computer's own address: it is refused by what the browser
+    # says sent it. A form post needs no permission, so this was a way for
+    # any web page to write a file anywhere on disk.
+    foreign = foreign_page_reason()
+    if foreign:
+        log_foreign_page('native_dialog_rejected_foreign_page', foreign)
+        return jsonify({'ok': False,
+                        'error': 'Native dialogs are only available to the app\'s own pages.'}), 403
     if not _is_same_machine(addr):
         log_event('native_dialog_rejected_remote', {
             'remote_addr': addr, 'path': request.path})

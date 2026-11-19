@@ -8,10 +8,12 @@ the browser's downloads folder. See tests/test_native_dialog.py for the
 helper-level contract; this file covers the routes.
 """
 
+import io
 import os
 import base64
 import codecs
 import tempfile
+import pytest
 from unittest.mock import patch
 
 
@@ -312,3 +314,38 @@ def test_read_file_reads_only_absolute_json_paths(client, tmp_path):
         resp = client.post('/api/native-dialog/read-file', json={'path': path})
         assert resp.status_code == 400, path
         assert 'text' not in resp.get_json(), path
+
+
+# A page on any other site, open in a browser on the computer running the
+# app, posts from this computer's own address. A form post needs no
+# permission from the app, so before the page check it could write any
+# file on disk through write-file.
+
+@pytest.mark.parametrize('headers,base', [
+    ({'Origin': 'http://evil.example'}, 'http://localhost'),
+    ({'Origin': 'http://127.0.0.1:9'}, 'http://127.0.0.1:8050'),
+    ({'Sec-Fetch-Site': 'cross-site'}, 'http://localhost'),
+    ({'Referer': 'http://evil.example/'}, 'http://localhost'),
+    ({'Origin': 'http://evil.example:8050'}, 'http://evil.example:8050'),
+], ids=['other-site', 'other-port', 'cross-site', 'referer', 'rebound-name'])
+def test_a_page_from_another_site_cannot_write_a_file(client, tmp_path, headers, base):
+    target = tmp_path / 'planted.txt'
+    resp = client.post('/api/native-dialog/write-file', base_url=base, headers=headers,
+                       data={'path': str(target), 'file': (io.BytesIO(b'x'), 'f.bin')},
+                       content_type='multipart/form-data',
+                       environ_overrides={'REMOTE_ADDR': '127.0.0.1'})
+    assert resp.status_code == 403
+    assert resp.get_json()['ok'] is False
+    assert not target.exists()
+
+
+def test_the_app_page_still_writes_a_file(client, tmp_path):
+    target = tmp_path / 'export.bin'
+    resp = client.post('/api/native-dialog/write-file', base_url='http://127.0.0.1:8050',
+                       headers={'Origin': 'http://127.0.0.1:8050',
+                                'Sec-Fetch-Site': 'same-origin'},
+                       data={'path': str(target), 'file': (io.BytesIO(b'ok'), 'f.bin')},
+                       content_type='multipart/form-data',
+                       environ_overrides={'REMOTE_ADDR': '127.0.0.1'})
+    assert resp.status_code == 200
+    assert target.read_bytes() == b'ok'

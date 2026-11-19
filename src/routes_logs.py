@@ -12,7 +12,6 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
-from urllib.parse import urlsplit
 
 from flask import Blueprint, request, jsonify
 
@@ -124,15 +123,23 @@ def _shape_line(line, fill, redact):
 
 
 def _reject_if_not_host():
-    """403 unless the request came from the machine running the app.
+    """403 unless the request came from the machine running the app, and
+    from one of the app's own pages there.
 
     Shares routes_dialog's definition rather than re-testing loopback here.
     A loopback-only test is wrong the moment the launcher binds the server to
     a network interface so the drawing can be opened from another machine -
     the HOST then reaches its own app at that LAN address, and a loopback test
-    locks it out of its own logs. Returns a response to return, or None.
+    locks it out of its own logs. A page from another site open in a browser
+    on this computer also comes from this computer's address, so what the
+    browser says sent the request is checked too (routes_dialog
+    foreign_page_reason). Returns a response to return, or None.
     """
-    from routes_dialog import _is_same_machine
+    from routes_dialog import _is_same_machine, foreign_page_reason, log_foreign_page
+    foreign = foreign_page_reason()
+    if foreign:
+        log_foreign_page('logs_host_action_rejected_foreign_page', foreign, log_event)
+        return jsonify({'error': "Only the app's own pages can use its log."}), 403
     addr = request.remote_addr or ''
     if _is_same_machine(addr):
         return None
@@ -336,32 +343,22 @@ _flood_lock = threading.Lock()
 _clients = {}   # remote address -> its bucket and its uncounted refusals
 
 
-def _netloc(url):
-    try:
-        parts = urlsplit(url)
-    except ValueError:
-        return None
-    if parts.scheme not in ('http', 'https'):
-        return None
-    return (parts.netloc or '').lower()
-
-
 def _origin_is_ours():
     """Did a page this app served send the request?
 
     A browser names the page's origin on every POST (Origin, and Referer
     under the default referrer policy), so a page from anywhere else, open
-    in a browser on the LAN, cannot pass for one of ours. With neither it
-    is not a browser page at all, and is taken only from this machine.
+    in a browser on the LAN or on this computer, cannot pass for one of
+    ours; nor can one whose site name was pointed at this machine after it
+    loaded, by the Host it names (routes_dialog foreign_page_reason). With
+    neither header it is not a browser page at all, and is taken only from
+    this machine.
     """
-    host = (request.host or '').lower()
-    origin = request.headers.get('Origin')
-    if origin is not None:
-        return _netloc(origin) == host
-    referer = request.headers.get('Referer')
-    if referer is not None:
-        return _netloc(referer) == host
-    from routes_dialog import _is_same_machine
+    from routes_dialog import _is_same_machine, foreign_page_reason
+    if foreign_page_reason():
+        return False
+    if request.headers.get('Origin') is not None or request.headers.get('Referer') is not None:
+        return True
     return _is_same_machine(request.remote_addr or '')
 
 
