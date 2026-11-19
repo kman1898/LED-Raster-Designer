@@ -48,7 +48,7 @@ MAX_FRAME_BYTES = 256 * 1024 * 1024
 
 
 class _Feed:
-    __slots__ = ('seq', 'data', 'title', 'message', 'closed')
+    __slots__ = ('seq', 'data', 'title', 'message', 'closed', 'size')
 
     def __init__(self):
         self.seq = 0
@@ -56,6 +56,18 @@ class _Feed:
         self.title = ''
         self.message = ''
         self.closed = False
+        self.size = None
+
+
+_PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+
+
+def _png_size(data):
+    """(width, height) from a PNG's header, or None: read off its first
+    24 bytes, so a frame is never decoded (or logged) to know its size."""
+    if len(data) < 24 or data[:8] != _PNG_SIGNATURE or data[12:16] != b'IHDR':
+        return None
+    return int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')
 
 
 def set_native_host(host):
@@ -167,6 +179,7 @@ def feed_frame(output_id):
     if not data or len(data) > MAX_FRAME_BYTES:
         return jsonify({'ok': False, 'error': 'No frame.'}), 400
     title = unquote(request.headers.get('X-Output-Title', ''))
+    size = _png_size(data)
     with _cond:
         feed = _feeds.get(output_id)
         if feed is None:
@@ -177,6 +190,19 @@ def feed_frame(output_id):
         feed.message = ''
         _cond.notify_all()
         seq = feed.seq
+        was = feed.size
+        feed.size = size
+    # A native output's first frame and each change of its size, never
+    # every frame (2026-11-19 logging audit, phase 2): its size and bytes,
+    # never the picture.
+    if seq == 1 or size != was:
+        w, h = size if size else (None, None)
+        log_event('output_native_frame', {
+            'id': output_id, 'seq': seq, 'size': [w, h] if size else None, 'bytes': len(data),
+            'first': seq == 1, 'title': title or None,
+        }, area='output', msg=(f'Native output {output_id} got its first frame' if seq == 1
+                               else f'Native output {output_id} frame size changed')
+                              + (f', {w}x{h}' if size else ', not a PNG') + f' ({len(data):,} bytes)')
     return jsonify({'ok': True, 'seq': seq})
 
 

@@ -14,8 +14,9 @@ import base64
 import io
 import json
 import math
+import time
 
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, g, request, jsonify, send_file
 from PIL import Image
 import numpy as np
 
@@ -24,6 +25,84 @@ from app import log_event
 from resolume_geometry import _export_units, _export_unit_bounds, generate_resolume_xml
 
 export_bp = Blueprint('export', __name__)
+
+
+# ── the log's line for every export (2026-11-19 logging audit, phase 2) ──
+#
+# Each /api/export/* request writes ONE export_file_done line once its
+# response is ready: the route, what it wrote (files, pages, PSD layers,
+# the picture's size), the bytes sent back and the time it took; a refused
+# or failed export says so as a warning with its error. A route adds what
+# only it knows through _note(); the bytes come off the response itself.
+# Never the pictures or the file's contents.
+
+_ROUTE_WORDS = {
+    'export.export_unified': 'Export', 'export.export_png': 'PNG export',
+    'export.export_psd': 'PSD export', 'export.export_zip': 'Layer ZIP export',
+    'export.export_zip_images': 'PNG ZIP export', 'export.export_pdf_from_images': 'PDF export',
+    'export.export_pdf_from_pages': 'Binder PDF', 'export.export_psd_from_image': 'PSD export',
+    'export.export_psd_zip_from_images': 'PSD ZIP export', 'export.export_resolume_xml': 'Advanced Output XML export',
+}
+
+
+def _note(**info):
+    """What this export wrote, for its export_file_done line."""
+    try:
+        g.export_log = dict(getattr(g, 'export_log', None) or {}, **info)
+    except RuntimeError:
+        pass
+
+
+@export_bp.before_request
+def _export_started():
+    g.export_t0 = time.monotonic()
+
+
+@export_bp.after_request
+def _export_done(response):
+    try:
+        info = dict(getattr(g, 'export_log', None) or {})
+        t0 = getattr(g, 'export_t0', None)
+        ms = int((time.monotonic() - t0) * 1000) if t0 else None
+        size = response.calculate_content_length() if not response.direct_passthrough else response.content_length
+        what = _ROUTE_WORDS.get(request.endpoint or '', request.path)
+        details = {'route': request.path, 'status': response.status_code, 'bytes': size, 'ms': ms, **info}
+        if response.status_code >= 400:
+            err = None
+            if response.is_json:
+                body = response.get_json(silent=True) or {}
+                err = body.get('error') if isinstance(body, dict) else None
+            details['error'] = err
+            log_event('export_file_done', details, area='export', level='warn',
+                      msg=f'{what} failed ({response.status_code}): {err or "no reason given"}')
+            return response
+        parts = []
+        if info.get('files') is not None:
+            parts.append(f"{info['files']} file{'' if info['files'] == 1 else 's'}")
+        if info.get('pages') is not None:
+            parts.append(f"{info['pages']} page{'' if info['pages'] == 1 else 's'}")
+        if info.get('layers') is not None:
+            parts.append(f"{info['layers']} PSD layer{'' if info['layers'] == 1 else 's'}")
+        if info.get('slices') is not None:
+            parts.append(f"{info['slices']} slice{'' if info['slices'] == 1 else 's'}")
+        if info.get('size'):
+            parts.append(f"{info['size'][0]}x{info['size'][1]}")
+        if size is not None:
+            parts.append(f'{size:,} bytes')
+        if ms is not None:
+            parts.append(f'{ms} ms')
+        log_event('export_file_done', details, area='export', msg=f'{what} written: ' + ', '.join(parts))
+    except Exception:
+        pass
+    return response
+
+
+def _data_url_bytes(value):
+    """The decoded size of a data URL, without decoding it."""
+    if not isinstance(value, str):
+        return 0
+    comma = value.find(',')
+    return (len(value) - comma - 1) * 3 // 4 if comma >= 0 else 0
 
 
 def _empty_psd_layer_mask(psd_layers):
@@ -183,7 +262,10 @@ def export_unified():
     
     raster_width = app.current_project.get('raster_width', 1920)
     raster_height = app.current_project.get('raster_height', 1080)
-    
+    _note(format=format_type, views=list(views), size=[raster_width, raster_height],
+          files=1 if format_type == 'pdf' or len(views) == 1 else len(views),
+          **({'pages': len(views)} if format_type == 'pdf' else {}))
+
     if format_type == 'pdf':
         # PDF: All views combined into one multi-page document
         try:
@@ -389,10 +471,13 @@ def export_png():
     final_img = Image.new('RGBA', (raster_width, raster_height), (0, 0, 0, 255))
     
     # Render and composite each visible layer
+    drawn = 0
     for layer in app.current_project['layers']:
         if layer.get('visible', True):
             layer_img = render_layer_to_image(layer, raster_width, raster_height, include_borders)
             final_img = Image.alpha_composite(final_img, layer_img)
+            drawn += 1
+    _note(files=1, size=[raster_width, raster_height], screens=drawn)
     
     # Convert to RGB for PNG (no transparency needed for final)
     final_rgb = Image.new('RGB', final_img.size, (0, 0, 0))
@@ -487,7 +572,8 @@ def export_psd():
     
     # Add layers to PSD
     psd.layer_and_mask_info.layer_info.layer_records = layer_records
-    
+    _note(files=1, layers=len(layer_records), size=[raster_width, raster_height])
+
     # Save to bytes
     psd_bytes = io.BytesIO()
     psd.write(psd_bytes)
@@ -510,6 +596,7 @@ def export_layers_as_zip(include_borders, raster_width, raster_height):
     # v0.11.0: one PNG per export unit, so a screen group leaves one file
     # named for the group rather than one file per member.
     units = _export_units(app.current_project, app.current_project['layers'])
+    _note(files=len(units), size=[raster_width, raster_height])
 
     with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as zf:
         # Add each unit as a separate PNG
@@ -593,7 +680,9 @@ def export_zip_images():
     data = request.get_json() or {}
     project_name = data.get('project_name', 'Project')
     images = data.get('images', [])
-    
+    _note(files=len(images), names=[str(i.get('name'))[:60] for i in images[:12] if isinstance(i, dict)],
+          image_bytes=sum(_data_url_bytes(i.get('data')) for i in images if isinstance(i, dict)))
+
     zip_bytes = io.BytesIO()
     
     with zipfile.ZipFile(zip_bytes, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -627,7 +716,9 @@ def export_pdf_from_images():
     images = data.get('images', [])
     default_width = data.get('width', 1920)
     default_height = data.get('height', 1080)
-    
+    _note(files=1, pages=len(images), size=[default_width, default_height],
+          image_bytes=sum(_data_url_bytes(i.get('data')) for i in images if isinstance(i, dict)))
+
     pdf_bytes = io.BytesIO()
     c = pdf_canvas.Canvas(pdf_bytes, pagesize=(default_width, default_height))
     
@@ -856,6 +947,11 @@ def export_pdf_from_pages():
     if not isinstance(pages, list) or not pages:
         return jsonify({'error': 'pages must be a non-empty list'}), 400
 
+    bitmaps = [v for p in pages if isinstance(p, dict) and isinstance(p.get('images'), dict)
+               for v in p['images'].values()]
+    _note(files=1, pages=len(pages), bitmaps=len(bitmaps),
+          bitmap_kb=sum(_data_url_bytes(v) for v in bitmaps) // 1024,
+          ops=sum(len(p.get('ops') or []) for p in pages if isinstance(p, dict)))
     pdf_bytes = io.BytesIO()
     c = pdf_canvas.Canvas(pdf_bytes, pagesize=(792, 612))
     c.setTitle(str(project_name))
@@ -1090,6 +1186,8 @@ def export_psd_from_image():
                 background=data.get('background'))
             flat = decode_base64_image(image_data) if image_data else None
             psd_bytes = _psd_bytes(PsdFile, ColorMode, width, height, layer_records, flat=flat)
+            _note(files=1, mode='elements', view=view_name, layers=len(layer_records), stages=len(stages),
+                  size=[width, height])
             print(f"PSD elements export complete: {psd_bytes.getbuffer().nbytes} bytes, "
                   f"{len(stages)} stages, {len(layer_records)} records")
             log_event('export_psd_elements', {
@@ -1174,6 +1272,7 @@ def export_psd_from_image():
         psd.write(psd_bytes)
         psd_bytes.seek(0)
         
+        _note(files=1, view=view_name, layers=len(layer_records), size=[width, height])
         print(f"PSD export complete: {psd_bytes.getbuffer().nbytes} bytes, {len(layer_records)} layers")
         
         return send_file(
@@ -1284,7 +1383,9 @@ def export_psd_zip_from_images():
                 psd_bytes_inner = io.BytesIO()
                 psd.write(psd_bytes_inner)
                 zf.writestr(f"{project_name} - {view_name}.psd", psd_bytes_inner.getvalue())
-        
+
+        _note(files=len(images), size=[width, height], mode=data.get('mode') or 'screens',
+              views=[str(i.get('name'))[:60] for i in images[:12] if isinstance(i, dict)])
         zip_bytes.seek(0)
         
         return send_file(
@@ -1311,11 +1412,16 @@ def export_resolume_xml():
 
         xml_content = generate_resolume_xml(app.current_project, project_name, raster_w, raster_h)
 
+        slices = xml_content.count('<Slice ')
         log_event('export_resolume', {
             'project_name': project_name,
             'raster': f'{raster_w}x{raster_h}',
-            'layers': len([l for l in app.current_project.get('layers', []) if l.get('type') == 'screen' and l.get('visible', True)])
+            'layers': len([l for l in app.current_project.get('layers', []) if l.get('type') == 'screen' and l.get('visible', True)]),
+            'slices': slices,
+            'screens': xml_content.count('<Screen '),
+            'bytes': len(xml_content.encode('utf-8')),
         })
+        _note(files=1, slices=slices, size=[raster_w, raster_h])
 
         return send_file(
             io.BytesIO(xml_content.encode('utf-8')),

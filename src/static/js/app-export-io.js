@@ -464,6 +464,7 @@ class _ExportIo {
      * raster size. canvasIds=[null] is the legacy single-canvas path.
      */
     async performExport(projectName, format, views, canvasIds) {
+        const exportT0 = performance.now();
         const viewNames = this.getExportViewNames();
         const suffixes = this.getExportSuffixesFromUI();
 
@@ -642,6 +643,8 @@ class _ExportIo {
 
                     if (svgRecorder) svgRecorder.begin();
                     window.canvasRenderer.render();
+                    // the log's read of what this file drew: nine pixels
+                    const grid = window.RenderLog ? window.RenderLog.grid(exportCanvas, exportCtx) : null;
 
                     const dataUrl = exportCanvas.toDataURL('image/png');
                     const svg = svgRecorder
@@ -701,6 +704,7 @@ class _ExportIo {
                         width: rasterWidth * exportScale,
                         height: rasterHeight * exportScale,
                         scale: exportScale,
+                        grid,
                         // PSD Elements only: [{name, image_data}] per stage.
                         stages,
                         // What the Elements PSD's Background layer is filled
@@ -751,6 +755,11 @@ class _ExportIo {
             });
         }
 
+        this._exportLogRendered(format, renderedItems, {
+            ms: Math.round(performance.now() - exportT0), transparent: !!useTransparentBg,
+            perspective: perspectiveOverrides, scaleClamped: scaleClampedAnywhere,
+        });
+
         // Dispatch to format-specific writer. Multi-canvas just means
         // more items, each writer already loops over them.
         if (format === 'png') {
@@ -768,6 +777,35 @@ class _ExportIo {
         }
     }
     
+    // What an export drew, file by file, in the log (export_rendered): its
+    // view and canvas, its size, its PNG's size in bytes and a 3 x 3 grid
+    // of its colours, read off the picture as it was drawn - never the
+    // picture itself (2026-11-19 logging audit, phase 2).
+    _exportLogRendered(format, items, info) {
+        try {
+            const viewNames = this.getExportViewNames();
+            const files = (items || []).map(it => {
+                const comma = typeof it.dataUrl === 'string' ? it.dataUrl.indexOf(',') : -1;
+                return {
+                    file: it.fileBase, view: it.view, canvas: it.canvasName || null, size: [it.width, it.height],
+                    scale: it.scale, bytes: comma >= 0 ? Math.round((it.dataUrl.length - comma - 1) * 3 / 4) : null,
+                    grid: it.grid || null, ...(it.stages ? { stages: it.stages.length } : {}),
+                };
+            });
+            const overrides = Object.keys(info.perspective || {}).length ? info.perspective : undefined;
+            const shown = files.slice(0, 12);
+            const first = files[0];
+            const what = files.length === 1 && first
+                ? `${viewNames[first.view] || first.view}${first.canvas ? ` of ${first.canvas}` : ''} ${first.size[0]}x${first.size[1]}`
+                : `${files.length} files`;
+            sendClientLog('export_rendered', {
+                format, files: shown, more: Math.max(0, files.length - shown.length), transparent: info.transparent,
+                perspective: overrides, scaleClamped: info.scaleClamped || undefined, ms: info.ms,
+            }, { area: 'export', msg: `${String(format).toUpperCase()} export drew ${what}`
+                + `${info.transparent ? ' on a transparent background' : ''} (${info.ms} ms)` });
+        } catch (_) { /* the log never stops an export */ }
+    }
+
     dataUrlToBlob(dataUrl) {
         const [meta, base64] = dataUrl.split(',');
         const contentType = meta.split(':')[1].split(';')[0];

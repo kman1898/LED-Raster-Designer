@@ -74,6 +74,54 @@
         };
     }
 
+    // One line of the app log, the way the designer's pages send it
+    // (helpers.js sendClientLog; this page loads no module).
+    function logLine(action, details, opts) {
+        try {
+            var d = Object.assign({ path: window.location.pathname }, details || {});
+            if (opts && opts.level) d._lvl = opts.level;
+            if (opts && opts.area) d._area = opts.area;
+            if (opts && opts.msg) d._msg = String(opts.msg);
+            var body = JSON.stringify({ action: action, details: d });
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon('/api/log', new Blob([body], { type: 'application/json' }));
+            } else {
+                fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body });
+            }
+        } catch (e) { /* logging never stops the picture */ }
+    }
+
+    // What this window holds, read off its own canvas: a 3 x 3 grid of
+    // colours (nine single pixels, never the picture).
+    function gridOf() {
+        var out = {};
+        var keys = [['tl', 1, 1], ['t', 3, 1], ['tr', 5, 1], ['l', 1, 3], ['c', 3, 3], ['r', 5, 3],
+            ['bl', 1, 5], ['b', 3, 5], ['br', 5, 5]];
+        try {
+            keys.forEach(function (k) {
+                var d = ctx.getImageData(Math.floor(canvas.width * k[1] / 6), Math.floor(canvas.height * k[2] / 6), 1, 1).data;
+                out[k[0]] = '#' + [d[0], d[1], d[2]].map(function (v) { return (v < 16 ? '0' : '') + v.toString(16); })
+                    .join('').toUpperCase();
+            });
+        } catch (e) { return null; }
+        return out;
+    }
+
+    // The first frame this window shows, and each change of its size:
+    // what the wall actually got (output_page_frame). Never per frame.
+    var shownSize = '';
+    function logShown() {
+        var size = canvas.width + 'x' + canvas.height;
+        if (size === shownSize) return;
+        var first = !shownSize;
+        shownSize = size;
+        logLine('output_page_frame', {
+            native: !!feed, frames: frames, size: [canvas.width, canvas.height], grid: gridOf(),
+            view: params.get('view') || 'pixel-map', canvasId: params.get('canvas') || ''
+        }, { area: 'output', msg: 'Output window ' + (first ? 'showed its first frame' : 'changed size to ' + size)
+            + (first ? ', ' + size : '') + (feed ? ' (native window)' : ' (browser window)') });
+    }
+
     var lastLog = '';
     function logLayout(info) {
         var key = JSON.stringify(info);
@@ -158,12 +206,19 @@
         showMessage('');
         if (meta && meta.title) document.title = meta.title;
         layout();
+        logShown();
     }
 
     function missing(text) {
         canvas.width = 0;
         canvas.height = 0;
-        missingText = text || 'Nothing to show.';
+        var said = text || 'Nothing to show.';
+        if (said !== missingText) {
+            logLine('output_page_missing', { native: !!feed, message: said },
+                { area: 'output', level: 'warn', msg: 'Output window shows no picture: ' + said });
+        }
+        shownSize = '';
+        missingText = said;
         showMessage(missingText);
     }
 
