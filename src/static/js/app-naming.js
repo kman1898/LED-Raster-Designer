@@ -4,6 +4,12 @@
 // colours. The label editors' focus-preserving rebuild helpers live here
 // with the editors they serve.
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLogOnChange } from './helpers.js';
+
+// The naming log's wait after the last rebuild, and its longest wait while
+// rebuilds never stop (_noteNamingRebuilt).
+const NAMING_LOG_MS = 700;
+const NAMING_LOG_MAX_MS = 3000;
 
 // The build that first stamped app_version on a saved project, and the
 // one whose shipped circuit green replaced the old #79FC4C: a project
@@ -300,6 +306,7 @@ class _Naming {
         }
         let entry = this._circuitTailCache.get(layer);
         if (entry) return entry;
+        this._noteNamingRebuilt();
         // A miss rebuilds the WHOLE show, not this layer: one screen's numbers
         // depend on every screen before it, so there is no such thing as
         // naming one of them on its own.
@@ -376,6 +383,70 @@ class _Naming {
             this._circuitTailCache.set(layer, entry);
         }
         return entry;
+    }
+
+    // ---- the log (2026-11-19 logging audit, phase 3) ---------------------
+    //
+    // The names above are rebuilt for every render burst. A rebuild only
+    // notes that one happened; once they have been quiet for NAMING_LOG_MS
+    // the names are read once more and each screen whose multi names,
+    // numbers, distros or shared-box problems changed gets one line
+    // (naming_resolved). A first look says nothing unless a shared box
+    // has a clash or too many circuits.
+    _noteNamingRebuilt() {
+        if (this._namingLogging) return;
+        const now = Date.now();
+        if (!this._namingLogSince) this._namingLogSince = now;
+        clearTimeout(this._namingLogTimer);
+        const wait = now - this._namingLogSince >= NAMING_LOG_MAX_MS ? 0 : NAMING_LOG_MS;
+        this._namingLogTimer = setTimeout(() => this._flushNamingLog(), wait);
+    }
+
+    _flushNamingLog() {
+        this._namingLogSince = 0;
+        if (!this.project || !Array.isArray(this.project.layers)) return;
+        this._namingLogging = true;
+        try {
+            const screens = this.project.layers.filter(l => l && (l.type || 'screen') === 'screen');
+            for (const l of screens) {
+                const entry = this._powerNaming(l);
+                const recs = [...((entry && entry.socas) || new Map()).values()];
+                const rows = recs.map(rec => {
+                    const clash = (rec.clashTails || []).length;
+                    const over = (rec.overTails || []).length;
+                    return [rec.name, rec.distroId || null, (rec.circuits || []).length,
+                            rec.pinned ? 1 : 0, rec.hand ? 1 : 0, clash, over];
+                });
+                const trouble = rows.some(r => r[5] || r[6]);
+                sendClientLogOnChange(`naming:${l.id}`, rows, 'naming_resolved', (first) => (
+                    (first && !trouble) || (first && !rows.length) ? null : {
+                        id: l.id, name: l.name,
+                        multis: rows.slice(0, 16).map(([name, distro, circuits, pinned, hand, clash, over]) => ({
+                            name, distro, circuits, ...(pinned ? { pinned: true } : {}), ...(hand ? { typed: true } : {}),
+                            ...(clash ? { clashCircuits: clash } : {}), ...(over ? { overCircuits: over } : {}),
+                        })),
+                    }), {
+                    area: 'power', level: trouble ? 'warn' : 'info',
+                    msg: `Multi names on ${l.name} (#${l.id}): ` + (rows.length
+                        ? rows.slice(0, 8).map(([name, distro, circuits, pinned, hand, clash, over]) =>
+                            `${name} (${circuits} circuits${distro ? `, ${this._namingDistroName(distro)}` : ', no distro'}`
+                            + `${pinned ? ', number picked' : ''}${hand ? ', typed' : ''}`
+                            + `${clash ? `, ${clash} circuits clash in a shared box` : ''}${over ? `, ${over} circuits past the box size` : ''})`).join(', ')
+                          + (rows.length > 8 ? ', ...' : '')
+                        : 'none'),
+                    fold: `naming:${l.id}`,
+                });
+            }
+        } catch (e) {
+            /* the log never breaks the names */
+        } finally {
+            this._namingLogging = false;
+        }
+    }
+
+    _namingDistroName(id) {
+        const d = typeof this.getDistros === 'function' ? this.getDistros().find(x => x.id === id) : null;
+        return d ? this.distroLabel(d) : String(id);
     }
 
     // One screen's share of the naming index, taking its numbers from the

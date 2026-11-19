@@ -4,6 +4,7 @@
 // walk, the rectangle constraint, and the Low Latency / bit depth UI
 // that reflects them.
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLogOnChange } from './helpers.js';
 
 // floor(a / b) for non-negative safe integers, exactly. The float quotient
 // is corrected by one either way, so a quotient that lands a hair under a
@@ -388,6 +389,50 @@ class _Capacity {
             + `${derate.worstCapacity.toLocaleString('en-US')} px, from `
             + `${derate.portCapacity.toLocaleString('en-US')} px.`;
         el.style.display = '';
+    }
+
+    // The log's line for a screen's port figures (updatePortCapacityDisplay):
+    // pixels a port carries, cabinets a port, ports needed, and why a figure
+    // is what it is - no published figure for the rate, a Low Latency
+    // derate down the canvas, a capacity error. Written when they change
+    // for that screen, never per draw (2026-11-19 logging audit, phase 3).
+    _logPortCapacity(layer, f) {
+        if (!layer || layer.id == null || !f) return;
+        const why = [];
+        if (!(f.portCapacity > 0)) {
+            const rates = this.getSupportedFrameRates(f.processorType, f.bitDepth);
+            why.push(rates.length && f.frameRate > rates[rates.length - 1]
+                ? `no published figure at ${f.frameRate} Hz ${f.bitDepth}-bit (published: ${rates.join(', ')} Hz)`
+                : 'no capacity figure for this processor and setting');
+        } else if (f.panelsPerPort < 1) {
+            why.push('one cabinet is more pixels than a port carries');
+        }
+        const derate = layer._lowLatencyDerate;
+        if (derate && derate.deratedPorts > 0) {
+            why.push(`Low Latency: ${derate.deratedPorts} of ${derate.totalPorts} ports start below the top `
+                + `of the ${derate.canvasHeight} px canvas, as little as ${derate.worstCapacity} px a port`);
+        } else if (layer.lowLatency && this.isLowLatencyCapacityPending(f.processorType)) {
+            why.push('Low Latency on, its capacity rule for this processor is not counted yet');
+        }
+        const error = f.error ? String(f.error.message || f.error).slice(0, 160) : null;
+        if (error) why.push(error);
+        const sig = [f.processorType, f.bitDepth, f.frameRate, !!layer.lowLatency, f.portCapacity,
+                     f.panelsPerPort, f.ports, why];
+        // A screen first seen with nothing to explain says nothing; a
+        // change after that, or a first look at a problem, is said.
+        sendClientLogOnChange(`capacity:${layer.id}`, sig, 'capacity_figured', (first) => (first && !why.length ? null : {
+            id: layer.id, name: layer.name, processor: f.processorType, bitDepth: f.bitDepth,
+            frameRate: f.frameRate, lowLatency: !!layer.lowLatency, pixelsPerPort: f.portCapacity,
+            panelsPerPort: f.panelsPerPort, ports: f.ports, ...(why.length ? { why } : {}),
+        }), {
+            area: 'data',
+            level: why.length && (!(f.portCapacity > 0) || f.panelsPerPort < 1 || error) ? 'warn' : 'info',
+            msg: `Port capacity: ${layer.name} (#${layer.id}) ${f.processorType} ${f.bitDepth}-bit `
+                + `${f.frameRate} Hz${layer.lowLatency ? ' Low Latency' : ''}: `
+                + `${f.portCapacity > 0 ? `${f.portCapacity} px a port, ${f.panelsPerPort} cabinets a port` : 'no figure'}, `
+                + `${f.ports} ports${why.length ? ` (${why.join('; ')})` : ''}`,
+            fold: `capacity:${layer.id}`,
+        });
     }
 
     // Update bit depth dropdown options based on selected processor

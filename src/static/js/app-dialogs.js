@@ -71,8 +71,15 @@ class _Dialogs {
         // does after the browser's own dialogs (a select that asked keeps
         // the focus for the next key).
         const before = document.activeElement;
+        // What the log says of the question (2026-11-19): its title and the
+        // first words of its text. A typed answer's text is never logged.
+        const asked = {
+            ...(opts.title ? { title: String(opts.title).slice(0, 80) } : {}),
+            question: String(opts.message == null ? '' : opts.message).replace(/\s+/g, ' ').slice(0, 120),
+        };
         return new Promise(resolve => {
             let primaryValue = null;
+            let via = 'button';
             const done = (value) => {
                 window.removeEventListener('keydown', onKey, true);
                 modal.remove();
@@ -81,7 +88,16 @@ class _Dialogs {
                     try { before.focus({ preventScroll: true }); } catch (_) { /* gone */ }
                 }
                 const answer = opts.input ? { value, text: input.value } : value;
-                sendClientLog('app_dialog_answered', { dialog: modal.id, value: typeof value === 'string' || typeof value === 'boolean' ? value : null });
+                const picked = buttons.find(b => b.value === value);
+                const answer_ = picked ? picked.label : (value === cancel ? 'cancel' : null);
+                sendClientLog('app_dialog_answered', {
+                    dialog: modal.id, value: typeof value === 'string' || typeof value === 'boolean' ? value : null,
+                    ...asked, answer: answer_, via,
+                    ...(opts.input ? { typed: input.value.length } : {}),
+                }, {
+                    area: 'app',
+                    msg: `Dialog answered: ${asked.title || asked.question.slice(0, 60)}: ${answer_ == null ? String(value) : answer_} (${via})`,
+                });
                 resolve(answer);
             };
             const onKey = (e) => {
@@ -89,11 +105,13 @@ class _Dialogs {
                     if (escapeCovered(modal, e)) return;
                     e.preventDefault();
                     e.stopPropagation();
+                    via = 'Esc';
                     done(cancel);
                 } else if (e.key === 'Enter' && !e.isComposing && primaryValue !== null
                         && !(e.target && e.target.tagName === 'BUTTON')) {
                     e.preventDefault();
                     e.stopPropagation();
+                    via = 'Enter';
                     done(primaryValue);
                 }
             };
@@ -108,10 +126,12 @@ class _Dialogs {
                 host.appendChild(el);
                 if (b.primary) { primaryValue = b.value; focus = el; }
             });
-            modal.addEventListener('mousedown', (e) => { if (e.target === modal) done(cancel); });
+            modal.addEventListener('mousedown', (e) => { if (e.target === modal) { via = 'backdrop'; done(cancel); } });
             window.addEventListener('keydown', onKey, true);
             document.body.appendChild(modal);
-            sendClientLog('app_dialog_open', { dialog: modal.id });
+            sendClientLog('app_dialog_open', { dialog: modal.id, ...asked }, {
+                area: 'app', msg: `Dialog: ${asked.title ? `${asked.title}: ` : ''}${asked.question}`,
+            });
             if (opts.input) { input.focus(); input.select(); }
             else if (focus) focus.focus();
         });

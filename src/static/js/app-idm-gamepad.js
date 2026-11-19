@@ -25,9 +25,12 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 import {
-    PAD_BUTTONS, REPEAT_DELAY_MS, REPEAT_EVERY_MS, DEADZONE, FIELD_CYCLE,
-    idmPadDirection, idmPadFrame, idmPadName, idmPadDispatch, idmPadFillHelp,
+    PAD_BUTTONS, PAD_ACTIONS, REPEAT_DELAY_MS, REPEAT_EVERY_MS, DEADZONE, FIELD_CYCLE,
+    idmPadDirection, idmPadFrame, idmPadName, idmPadDispatch, idmPadFillHelp, idmPadActionOf,
 } from './idm-pad.js';
+
+// A button's name for the log, from its number (PAD_BUTTONS).
+const PAD_BUTTON_NAMES = Object.fromEntries(Object.entries(PAD_BUTTONS).map(([k, v]) => [v, k]));
 import {
     idmActiveCanvas, idmNextScreenFrom, idmNextCanvasFrom, idmCanvasList, idmTargetOf, idmCanvasIdOf,
 } from './idm-core.js';
@@ -159,17 +162,45 @@ class _IdmGamepad {
             if (!ps.known.has(pad.index)) ps.known.set(pad.index, idmPadName(pad.id));
             // Out of focus the pad is ignored: what it holds is taken as
             // where it starts when the window comes back, so nothing fires.
-            const { state, actions } = idmPadFrame(ps.pads.get(pad.index), pad, now);
+            const was = ps.pads.get(pad.index);
+            const { state, actions } = idmPadFrame(was, pad, now);
             ps.pads.set(pad.index, state);
             // the native reader's pad acts with the window behind another
             if (!focused && !pad.native) continue;
-            for (const a of actions) this._idmPadAct(a);
+            for (const a of actions) {
+                // A move held down repeats every frame or so: only the
+                // first step of a hold is logged (2026-11-19).
+                this._idmPadLog(a, a.type === 'move' && was && was.dir === a.dir);
+                this._idmPadAct(a);
+            }
         }
         return true;
     }
 
     _idmPadAct(a) {
         idmPadDispatch(this._idmPadHost(), a);
+    }
+
+    // The log's line for a press (2026-11-19 logging audit, phase 3): the
+    // button and the job it did, once a press. Releases and the repeats of
+    // a held direction are not lines; taps in a row fold into one line on
+    // the server. Undo has its own line (idm_pad_undo).
+    _idmPadLog(a, repeat) {
+        if (!a || repeat || a.type === 'release') return;
+        if (a.type === 'move') {
+            sendClientLog('pad_button', { button: 'D-pad', action: 'move', dir: a.dir, cabinet: !!a.cabinet }, {
+                area: 'pad', msg: `Controller: move ${a.dir}${a.cabinet ? ' a cabinet' : ''}`, fold: 'pad-move',
+            });
+            return;
+        }
+        const job = idmPadActionOf(a.button);
+        if (job === 'undo') return;
+        const button = PAD_BUTTON_NAMES[a.button] || `button ${a.button}`;
+        sendClientLog('pad_button', { button, action: job || null }, {
+            area: 'pad',
+            msg: `Controller: ${button} ${job ? `(${PAD_ACTIONS[job] || job})` : 'pressed, no job'}`,
+            fold: `pad-${button}`,
+        });
     }
 
     // Each job of the table (idm-pad.js PAD_ACTIONS) on the computer.

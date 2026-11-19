@@ -32,7 +32,7 @@
 // funnel (app.py _normalize_services) keeps the ids unique and clears a
 // serviceId that names no service, or one of another system.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, sendClientLogOnChange } from './helpers.js';
 
 class _Services {
 
@@ -688,6 +688,17 @@ class _Services {
         // 1.6.0-beta.4: "SERVICE 1 service (400 A)").
         const raw = s.name || s.id;
         const name = /\bservice\b/i.test(String(raw)) ? raw : `${raw} service`;
+        // The log's line when the service goes over its limit or comes
+        // back under it (2026-11-19): once a change, never per render.
+        sendClientLogOnChange(`service-load:${s.id}`, !!load.over, 'service_load_warning', (first) => (
+            first && !load.over ? null : {
+                service: String(raw), over: !!load.over, amps: Math.round(load.amps * 10) / 10,
+                limitA: load.limitA, worstLeg: load.worstLeg || null,
+            }), {
+            area: 'distro', level: load.over ? 'warn' : 'info',
+            msg: `${name}: ${load.amps.toFixed(1)} A of ${+Number(load.limitA).toFixed(1)} A`
+                + (load.over ? ', OVER' : ', back within its limit'),
+        });
         if (load.over) {
             const leg = load.legs && load.worstLeg
                 ? ` worst leg ${this.distroLegLabel(s, load.worstLeg)}` : '';

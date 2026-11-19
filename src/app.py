@@ -406,8 +406,11 @@ def _log_flush_fold(key):
                                     run['last'], run['steps'], ms, run['counts'])
     level = 'debug' if action == 'sync_echoes_folded' else run['level']
     area = 'sync' if action == 'sync_echoes_folded' else run['area']
-    _log_write(run['first_ts'], action, details, run['source'], level, area,
-               log_diff.message(action, details))
+    # A run whose lines carried their own message (a page's `msg`) reads
+    # as its last one, with the steps it folded (2026-11-19).
+    given = run.get('last_msg') if action != 'sync_echoes_folded' else None
+    text = log_diff.message(action, dict(details, _msg=given) if given else details)
+    _log_write(run['first_ts'], action, details, run['source'], level, area, text)
 
 
 def flush_log(only_expired=False):
@@ -480,6 +483,7 @@ def log_event(action, details=None, source='server', *, level=None, area=None, m
                     run['last'] = details
                     run['last_action'] = action
                     run['last_at'] = now
+                    run['last_msg'] = msg if isinstance(msg, str) and msg else None
                     run['counts'][action] = run['counts'].get(action, 0) + 1
                     return
                 if run:
@@ -489,6 +493,7 @@ def log_event(action, details=None, source='server', *, level=None, area=None, m
                     'first_action': action, 'first': details,
                     'last_action': action, 'last': details,
                     'counts': {action: 1}, 'source': source, 'level': level, 'area': area,
+                    'last_msg': msg if isinstance(msg, str) and msg else None,
                 }
                 _ensure_log_fold_thread()
             details = _log_cap(details)

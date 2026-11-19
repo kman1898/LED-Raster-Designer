@@ -77,7 +77,7 @@
 // right up to the fold, the piece's arm on that side included
 // (app-curve.js).
 import { LEDRasterApp } from './app-core.js';
-import { setupColorPickerWithHex } from './helpers.js';
+import { setupColorPickerWithHex, sendClientLog } from './helpers.js';
 import { s3dCleanCorners, s3dCornersOn } from './app-stage3d.js';
 import { formatSmall } from './curve-math.js';
 
@@ -391,6 +391,22 @@ class _Rigging {
         return row.layers[0].name || `Screen ${row.layers[0].id}`;
     }
 
+    // ---- the log (2026-11-19 logging audit, phase 3) ---------------------
+
+    // A row as the log says it: "Main Wall: 4 bars (2, 2, 2, 1) on 7 panels",
+    // read as it stands now.
+    _riggingRowLogText(row) {
+        const now = this.riggingRow(row.layers[0], row.kind);
+        const sizes = (now.placed || []).map(b => b.size);
+        return `${this._riggingRowName(row)} ${KIND_WORD[row.kind].toLowerCase()}: `
+            + (sizes.length ? `${sizes.length} bars (${sizes.join(', ')} panels wide)` : 'no bars')
+            + (Number.isFinite(now.width) ? ` on ${now.width} panels` : '');
+    }
+
+    _logRigging(action, details, msg, level = 'info') {
+        sendClientLog(action, details, { area: 'rigging', level, msg });
+    }
+
     // ---- the panel's buttons --------------------------------------------
 
     toggleRiggingSize(size) {
@@ -398,6 +414,7 @@ class _Rigging {
         // Custom: the one size the next click or drag lays.
         if (this._riggingToolNow() === 'custom') {
             this._riggingCustomSize = size;
+            this._logRigging('rigging_custom_size', { size }, `Header/Footer Custom lays ${size}-panel bars`);
             this.refreshRiggingPanel();
             if (window.canvasRenderer) window.canvasRenderer.render();
             return;
@@ -425,6 +442,12 @@ class _Rigging {
             const later = typeof this.riggingCurveRelayLater === 'function'
                 && this.riggingCurveRelayLater(screens, 'Bar Sizes', all, { misses });
             if (!later) this.updateLayers(all, true, 'Bar Sizes');
+            this._logRigging('rigging_sizes_set', {
+                sizes, screens: screens.map(l => l.name), relaid: relaid.changed.length,
+                ...(misses && misses.length ? { misses } : {}),
+            }, `Bar sizes ${sizes.length ? sizes.join(', ') : 'none'} for ${screens.map(l => l.name).slice(0, 6).join(', ')}`
+                + (relaid.changed.length ? `; Auto bars laid again on ${relaid.changed.length} screens` : '')
+                + (misses && misses.length ? `; cannot cover ${misses.join(', ')}` : ''));
         }
         this.refreshRiggingPanel(misses && misses.length ? misses : undefined);
         if (window.canvasRenderer) window.canvasRenderer.render();
@@ -480,6 +503,7 @@ class _Rigging {
             // count it as an edit; then to the server, which saves it with
             // the show.
             this.project.riggingTool = next;
+            this._logRigging('rigging_mode_set', { tool: next }, `Header/Footer mode ${next === 'custom' ? 'Custom' : 'Auto'}`);
             (Array.isArray(this.history) ? this.history : []).forEach(entry => {
                 if (entry && entry.project && typeof entry.project === 'object') entry.project.riggingTool = next;
             });
@@ -522,6 +546,12 @@ class _Rigging {
                 this._riggingWrite(l, kind, placed);
             });
             this.updateLayers(screens, true, moved ? `Bars to ${KIND_WORD[kind]}` : `${KIND_WORD[kind]} Side`);
+            this._logRigging('rigging_side_set', { side: kind, screens: screens.map(l => l.name), moved },
+                `${KIND_WORD[kind]} for ${screens.map(l => l.name).slice(0, 6).join(', ')}${moved ? ', bars moved over' : ''}`);
+        }
+        if (both.length) {
+            this._logRigging('rigging_side_refused', { side: kind, screens: both.map(l => l.name), why: 'header and footer both set' },
+                `${KIND_WORD[kind]} not set on ${both.map(l => l.name).join(', ')}: it has a header and a footer, pick the side to keep first`, 'warn');
         }
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
@@ -629,6 +659,7 @@ class _Rigging {
         });
         const kinds = new Set(rows.map(r => r.kind));
         const action = kinds.size === 1 ? `Auto ${KIND_WORD[rows[0].kind]} Bars` : 'Auto Bars';
+        this._logRiggingAuto(action, rows, sizes, misses, curved);
         // With a curved screen among them, everything lands as one step
         // once its curve is worked out (app-curve.js).
         if (curved.length && this.riggingCurveRelayLater(curved, action, changed, { misses })) {
@@ -638,6 +669,23 @@ class _Rigging {
         this.updateLayers(changed, true, action);
         this.refreshRiggingPanel(misses);
         if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // Auto's line: each row laid (its bars as they now stand), the rows the
+    // sizes cannot cover, and the curved rows the Curve lays.
+    _logRiggingAuto(action, rows, sizes, misses, curved, extra = {}) {
+        const curvedIds = new Set((curved || []).map(l => l.id));
+        const laid = rows.filter(r => !r.layers.some(l => curvedIds.has(l.id))
+            && !(misses || []).includes(this._riggingRowName(r)));
+        const said = laid.slice(0, 6).map(r => this._riggingRowLogText(r));
+        this._logRigging('rigging_auto_bars', {
+            action, sizes, rows: said, ...(misses && misses.length ? { misses } : {}),
+            ...(curved && curved.length ? { curved: curved.map(l => l.name) } : {}), ...extra,
+        }, `${action} with sizes ${(sizes || []).join(', ') || 'none'}: ${said.join('; ') || 'nothing laid'}`
+            + (misses && misses.length ? `; the sizes cannot cover ${misses.join(', ')}` : '')
+            + (curved && curved.length ? `; the Curve lays ${curved.map(l => l.name).join(', ')}` : '')
+            + (extra.locked ? `; locked, left as they are: ${extra.locked.join(', ')}` : ''),
+        misses && misses.length ? 'warn' : 'info');
     }
 
     // The warning box's Auto: every row that no longer fits, fitted again
@@ -666,6 +714,10 @@ class _Rigging {
             row.layers.forEach(l => { if (!changed.includes(l)) changed.push(l); });
         });
         if (locked.length) this._showLockedError(locked);
+        this._logRiggingAuto('Auto Bars (fit what no longer fits)',
+            misfits.map(m => this.riggingRow(m.layers[0], m.kind)),
+            this._riggingSizesOf(misfits[0].layers[0]), misses, curved,
+            locked.length ? { locked: locked.map(l => l.name) } : {});
         if (curved.length && this.riggingCurveRelayLater(curved, 'Auto Bars', changed, { misses })) {
             this.refreshRiggingPanel();
             return;
@@ -708,6 +760,9 @@ class _Rigging {
         if (curved.length) this.riggingCurveOff(curved);
         const word = kinds.size === 1 ? `${KIND_WORD[[...kinds][0]]} ` : '';
         this.updateLayers(screens, true, `Clear ${word}Bars`);
+        this._logRigging('rigging_bars_cleared', { screens: screens.map(l => l.name), curveOff: curved.length },
+            `Clear ${word}Bars on ${screens.map(l => l.name).slice(0, 6).join(', ')}`
+            + (curved.length ? `; Curve turned off on ${curved.length}` : ''));
         this._riggingPicked = null;
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
@@ -830,6 +885,8 @@ class _Rigging {
         const word = KIND_WORD[d.row];
         // A click whose bar fits nowhere on its side of a corner says so.
         if (keep && !changed && d.kind === 'place' && d.refused) {
+            this._logRigging('rigging_bar_refused', { size: d.size, row: d.row, why: 'no room between the corner and the next corner or edge' },
+                `${word} bar of ${d.size} panels not laid on ${this._riggingRowName(d.rowObj)}: it does not fit between the corner and the next corner or edge`, 'warn');
             this._toast(`A ${RiggingMath.sizeWord(d.size).toLowerCase()} does not fit between this corner and the next corner or edge. Pick a smaller size.`, true, 5000);
         }
         // On a curved row, a bar across a joint set by hand to bend is
@@ -844,6 +901,12 @@ class _Rigging {
             // these bars, one undo step with the gesture (app-curve.js)
             const curved = typeof this.riggingCurveHandLaid === 'function' && this.riggingCurveHandLaid(d.rowObj.layers, action);
             if (!curved) this.updateLayers(d.rowObj.layers, true, action);
+            this._logRigging('rigging_bar_laid', { action, row: this._riggingRowLogText(d.rowObj), curved: !!curved },
+                `${action}: ${this._riggingRowLogText(d.rowObj)}${curved ? ', the Curve fits its angles to them' : ''}`);
+        } else if (keep && changed && covers) {
+            this._logRigging('rigging_bar_refused', { row: d.row, why: 'it would cross a joint set by hand to bend' },
+                `${word} bar on ${this._riggingRowName(d.rowObj)} put back: it would cross a joint set by hand to bend`, 'warn');
+            this._riggingPutBack(d.kept);
         } else {
             this._riggingPutBack(d.kept);
         }
@@ -884,6 +947,8 @@ class _Rigging {
         if (p.corner != null) {
             // a curved wall's corner bars are its corners' (app-curve.js)
             if (curvedRow) {
+                this._logRigging('rigging_bar_refused', { row: row.kind, why: 'a curved wall keeps its corner bars' },
+                    `Corner bar on ${this._riggingRowName(row)} not removed: a curved wall keeps its corner bars`, 'warn');
                 this._toast('A curved wall keeps its corner bars. Take the corner off, or turn Curve off, to take one off.', true, 6000);
                 return false;
             }
@@ -1213,6 +1278,11 @@ class _Rigging {
         this._riggingFitSaid = new Set(misfits.filter(m => !waits(m) || said.has(key(m))).map(key));
         if (fresh.length && typeof this._toast === 'function') {
             this._toast(this.riggingFitWarning(fresh), true, 8000);
+        }
+        if (fresh.length) {
+            this._logRigging('rigging_bars_no_longer_fit', {
+                rows: fresh.slice(0, 8).map(m => this.riggingMisfitLine(m)), offer: 'Auto',
+            }, `Header/Footer bars no longer fit: ${fresh.slice(0, 4).map(m => this.riggingMisfitLine(m)).join(' ')} Auto offered.`, 'warn');
         }
         this.refreshRiggingTotals();
     }

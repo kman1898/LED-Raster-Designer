@@ -17,6 +17,7 @@
 //     (routes_project new_project), and the pristine startup show takes it
 //     here, the way it takes the cable unit.
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLog } from './helpers.js';
 import { CABLE_UNITS, CABLE_STOCK_ALL, CABLE_STOCK_KINDS, CABLE_STOCK_FIBER } from './app-cable-units.js';
 
 // The fiber list (both modes') rides along: its row shows whatever the
@@ -45,6 +46,21 @@ class _CableStock {
         const before = this._storableCableStock(this.project.cableStock);
         if (JSON.stringify(next) === JSON.stringify(before)) return false;
         this.project.cableStock = next;
+        // The log's line (2026-11-19): each list that changed, old to new.
+        const changed = {};
+        for (const u of CABLE_UNITS) {
+            for (const k of STOCK_LISTS) {
+                const a = (before && before[u] && before[u][k]) || [];
+                const b = (next && next[u] && next[u][k]) || [];
+                if (JSON.stringify(a) !== JSON.stringify(b)) changed[`${u} ${k}`] = [a, b];
+            }
+        }
+        sendClientLog('cable_stock_set', { action, changed }, {
+            area: 'power',
+            msg: `${action}: ` + (Object.entries(changed).slice(0, 6)
+                .map(([list, [a, b]]) => `${list} ${a.join(', ') || 'none'} to ${b.join(', ') || 'none'}`)
+                .join('; ') || 'cleared'),
+        });
         // Project-level state, the cable unit's doctrine: snapshot after
         // the mutation, then persist (save_project merges top-level keys).
         if (typeof this.saveState === 'function') this.saveState(action);
