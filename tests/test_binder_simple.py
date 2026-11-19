@@ -35,6 +35,7 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 from test_binder_sheet_bounds import (BOUNDS_JS, NINE_JS, TOL, WALLS_JS,  # noqa: E402
                                       _fiber, _offenders, _opts, page)  # noqa: F401
+from test_wiring_stacked_boxes import SEED_JS as EIGHT_BOXES_JS  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -506,6 +507,69 @@ def test_the_export_logs_its_mode_and_sheets_by_kind(page):
     assert out and out['mode'] == 'simple', out
     assert out['kinds'].get('wiring', 0) >= 8 and 'power' not in out['kinds'] and 'data' not in out['kinds'], out
     assert sum(out['kinds'].values()) == out['pages'], out
+    assert errors == []
+
+
+# Every simple sheet's drawing and its tables as laid on the sheet: the
+# wiring drawing's boxes, discs, the runs' segments and the wall (or the
+# Header/Footer sheet's map), and the tables' columns; and its texts.
+OVERLAP_JS = r"""(opts) => {
+    const app = window.app;
+    const plan = app.planBinder(opts);
+    const out = [];
+    plan.forEach((p, i) => {
+        if (p.layout !== 'simple') return;
+        const r = app.renderBinderPage(opts, i);
+        const s = r.simple || {};
+        const ink = [];
+        const half = r.wiring && r.wiring.halves && r.wiring.halves[0];
+        if (half) {
+            for (const b of half.blocks || []) ink.push({ what: 'box ' + b.title, x: b.x, y: b.y, w: b.w, h: b.h });
+            for (const d of half.discs || []) ink.push({ what: 'disc ' + d.text, x: d.x - d.r, y: d.y - d.r, w: 2 * d.r, h: 2 * d.r });
+            for (const run of half.runs || []) {
+                for (let k = 1; k < run.points.length; k++) {
+                    const [a, b] = [run.points[k - 1], run.points[k]];
+                    ink.push({ what: 'run ' + run.from, x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]),
+                               w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) });
+                }
+            }
+            if (half.map) ink.push({ what: 'wall', x: half.map.x, y: half.map.y, w: half.map.w, h: half.map.h });
+        }
+        if (s.drawing) ink.push({ what: 'map', ...s.drawing });
+        out.push({ title: plan[i].sheetTitle, ink, tables: s.tables || [], texts: r.texts });
+    });
+    return { sheets: out, plan: plan.map(p => [p.number, p.kind, p.sheetTitle]) };
+}"""
+
+
+def _hits(a, b, pad=0.5):
+    return (a['x'] < b['x'] + b['w'] - pad and b['x'] < a['x'] + a['w'] - pad
+            and a['y'] < b['y'] + b['h'] - pad and b['y'] < a['y'] + a['h'] - pad)
+
+
+def test_a_drawing_never_runs_under_its_tables(page):
+    """A 30 x 7 data wall over eight breakout boxes, two rows a side: the
+    wiring layout needs the height of its box rows and the corridors between
+    them, and the PORTS tables were laid over its lower boxes and their runs
+    - PORTS twice side by side, the bottom box cut. Now the drawing takes the
+    height it needs and a readable wall, the tables what is left, and what
+    they cannot fit runs on to a "(cont.)" sheet: on every simple sheet, at
+    letter, A4 and tabloid, no box, disc, run or wall touches a table, and a
+    table run on into a next column is headed "(CONT.)", never a second
+    PORTS."""
+    pg, errors = page
+    pg.evaluate(EIGHT_BOXES_JS, [30, 2])
+    pg.wait_for_timeout(600)
+    for sheet in ('letter', 'a4', 'tabloid'):
+        out = pg.evaluate(OVERLAP_JS, _simple(sheet=sheet, pull=False, hardware=False))
+        assert out['sheets'], (sheet, out['plan'])
+        data = [s for s in out['sheets'] if 'DATA WIRING' in s['title']]
+        assert data and any(len([b for b in s['ink'] if b['what'].startswith('box ')]) == 8 for s in data), \
+            (sheet, [len(s['ink']) for s in data])
+        for s in out['sheets']:
+            bad = [(i['what'], t) for i in s['ink'] for t in s['tables'] if _hits(i, t)]
+            assert not bad, (sheet, s['title'], bad[:5])
+            assert s['texts'].count('PORTS') <= 1, (sheet, s['title'])
     assert errors == []
 
 

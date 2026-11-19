@@ -3060,7 +3060,7 @@ def test_smoke_live_show_b(page):
     plan = [(n, t) for n, t, *_rest in pages]
     PULL4 = 'Pull - SR, SL'
     assert plan == [
-        ('1.1', 'Overview'),
+        ('1.1', 'Overview'), ('1.2', 'Facts'),
         ('2.1', 'SR - MAIN - Power - Front View'), ('2.2', 'SR - MAIN - Power Wiring'), ('2.3', 'SR - MAIN - Data - Front View'), ('2.4', 'SR - MAIN - Data Wiring'),
         ('2.5', 'SR - Return - Power - Front View'), ('2.6', 'SR - Return - Power Wiring'), ('2.7', 'SR - Return - Data - Front View'), ('2.8', 'SR - Return - Data Wiring'),
         ('2.9', 'SL - MAIN - Power - Front View'), ('2.10', 'SL - MAIN - Power Wiring'), ('2.11', 'SL - MAIN - Data - Front View'), ('2.12', 'SL - MAIN - Data Wiring'),
@@ -3073,11 +3073,14 @@ def test_smoke_live_show_b(page):
     scales = {t: sc for _n, t, _l, _c, _v, sc, *_rest in pages}
     extents = {t: e for _n, t, _l, _c, _v, _s, e, _names in pages}
     names = {t: nm for _n, t, _l, _c, _v, _s, _e, nm in pages}
-    assert layouts['SR - MAIN - Power - Front View'] == ('side', 1, 2) and layouts['SR - Return - Power - Front View'] == ('side', 1, 6)
+    # (SR - MAIN's power sheet, its FACTS block gone since 2026-11-18, runs
+    # its tables round the map - the wrap layout - at 1: it stood beside
+    # them, one column, at ~1.12)
+    assert layouts['SR - MAIN - Power - Front View'] == ('wrap', 2, 2) and layouts['SR - Return - Power - Front View'] == ('side', 1, 6)
     assert layouts['SR - MAIN - Data - Front View'] == ('stack', 2, 4) and layouts['SR - Return - Data - Front View'] == ('side', 1, 8)
     assert layouts['SR - MAIN - Power Wiring'] == ('wiring', 1, 3) and layouts['SR - MAIN - Data Wiring'] == ('wiring', 1, 5)
     assert layouts['SR - Return - Power Wiring'] == ('wiring', 1, 7) and layouts['SR - Return - Data Wiring'] == ('wiring', 1, 9)
-    assert layouts['SL - MAIN - Power - Front View'] == ('side', 1, 10) and layouts['SL - MAIN - Data - Front View'] == ('stack', 2, 12)
+    assert layouts['SL - MAIN - Power - Front View'] == ('wrap', 2, 10) and layouts['SL - MAIN - Data - Front View'] == ('stack', 2, 12)
     assert layouts['Overview'] == ('overview', 3, 1) and layouts[PULL4] == ('tables', 2, None)
     assert not [t for _n, t in plan if '(cont.)' in t]
     # the fill: SR - MAIN's 22 circuits are tons of info - the tables
@@ -3088,13 +3091,14 @@ def test_smoke_live_show_b(page):
     # hardware sheets scale by the column rule, unchanged. Measured on the
     # save of 2026-09-15 (2026-09-24).
     main_s = scales['SR - MAIN - Power - Front View']
-    assert 1.05 < main_s < 1.25 and scales['SR - MAIN - Data - Front View'] == 1.03, scales
+    assert main_s == 1 and scales['SR - MAIN - Data - Front View'] == 1.05, scales
     ret_s = scales['SR - Return - Power - Front View']
     assert 1.3 < ret_s < 1.45, scales
     for t in ('SR - MAIN - Power - Front View', 'SR - MAIN - Data - Front View', 'SR - Return - Power - Front View', 'SR - Return - Data - Front View'):
         ext = extents[t]
         assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, (t, ext)
-        assert ext['h'] / DA['h'] >= 0.95, (t, ext)
+        # (the wrap layout leaves its last column short of the foot)
+        assert ext['h'] / DA['h'] >= (0.9 if t == 'SR - MAIN - Power - Front View' else 0.95), (t, ext)
     assert scales[PULL4] > 1 and scales['Distros - SR, SL'] > 1.5, scales
     # the positions side by side, the distros side by side, H9 with the
     # show's pull list beside it
@@ -3150,22 +3154,16 @@ def test_smoke_live_show_b(page):
     m = main['map']
     want_main = (28 * 60) / (11 * 120)
     assert abs(m['w'] / m['h'] - want_main) / want_main < 0.01, m
-    room_w = m['area']['w']
-    col = (DA['w'] - room_w) / main_s - COL_GAP
-    assert 500 < col < COL_W, (m['area'], col)
-    assert room_w >= round(DA['w'] * MAP_MIN_FRAC) and room_w > DA['w'] - (COL_W + COL_GAP) * main_s and m['area']['x'] == DA['x'], (m['area'], room_w)
-    zoom = _fit(room_w, DA['h'] - BUBBLE_H * main_s, 28 * 60, 11 * 120)
-    assert abs(m['zoom'] - zoom) < 0.01 and abs(m['w'] - 28 * 60 * zoom) <= 2, (m, zoom)
-    assert m['w'] / room_w > 0.75 and m['scale'] == main_s, m
-    # the CIRCUITS table beside the map, disjoint from it: every heading
-    # right of the map's area, at the scale
-    # (the tables' own headings: at ~1.12 a heading is set at the size the
-    # map's bracket labels are, so the log's headings carry "SR1 · 125'")
+    # the wrap layout: the map at its area's top left, the tables in the
+    # columns beside it and on under it - every heading right of the map's
+    # area or under it, never on it, all inside the drawing area
+    assert m['area']['x'] == DA['x'] and m['area']['y'] == DA['y'] and m['scale'] == main_s, m
+    assert m['area']['w'] >= round(DA['w'] * MAP_MIN_FRAC), m['area']
     heads = {t: (x, y) for t, x, y in main['headings'] if t in ('CIRCUITS', 'CABLES THIS SCREEN', 'FACTS')}
     assert 'CIRCUITS' in heads and 'CABLES THIS SCREEN' in heads and 'FACTS' not in heads, heads
-    assert all(x >= m['area']['x'] + m['area']['w'] + COL_GAP * main_s - 1 for x, _y in heads.values()), (heads, m['area'])
-    assert all(x + col * main_s <= DA['x'] + DA['w'] + 1 for x, _y in heads.values()), heads
-    assert heads['CIRCUITS'][1] < heads['CABLES THIS SCREEN'][1]
+    area = m['area']
+    assert all(x >= area['x'] + area['w'] - 1 or y >= area['y'] + area['h'] - 1 for x, y in heads.values()), (heads, area)
+    assert all(x <= DA['x'] + DA['w'] and y <= DA['y'] + DA['h'] for x, y in heads.values()), heads
     # the view bubble under the map
     b = main['bubble']
     assert b['number'] == 2 and b['name'] == 'SR - MAIN · POWER · FRONT VIEW'
@@ -3308,8 +3306,9 @@ def test_smoke_live_show_b(page):
     c = ov.index('CONTENTS')
     listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
     assert [n for n, _t in listed] == [n for n, _t in plan]
-    assert listed[1:5] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING · FRONT VIEW'),
-                           ('2.3', 'SR - MAIN · DATA · FRONT VIEW'), ('2.4', 'SR - MAIN · DATA WIRING · FRONT VIEW')], listed[1:5]
+    # (the FACTS sheet at 1.2)
+    assert listed[2:6] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING · FRONT VIEW'),
+                           ('2.3', 'SR - MAIN · DATA · FRONT VIEW'), ('2.4', 'SR - MAIN · DATA WIRING · FRONT VIEW')], listed[2:6]
     assert listed[-3:] == [('3.1', 'PULL · SR, SL'), ('4.1', 'DISTROS · SR, SL'),
                            ('4.2', 'PROCESSOR · H9 · PULL LIST')], listed[-3:]
     # no sheet says box, none says breakout as the generic noun, none Palette

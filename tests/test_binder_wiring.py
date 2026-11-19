@@ -1252,7 +1252,8 @@ def test_smoke_live_show_b_sr_main(page):
     assert [p[1:3] for p in plan if p[2].startswith('SR - MAIN')] == \
         [['2.1', 'SR - MAIN - Power - Front View'], ['2.2', 'SR - MAIN - Power Wiring'],
          ['2.3', 'SR - MAIN - Data - Front View'], ['2.4', 'SR - MAIN - Data Wiring']]
-    assert len(plan) == 20 and [p[3] for p in plan][:17] == list(range(1, 18)) and [p[3] for p in plan][17:] == [None] * 3
+    # (the FACTS sheet at 1.2, a table with no view of its own)
+    assert len(plan) == 21 and [p[3] for p in plan] == [1, None] + list(range(2, 18)) + [None] * 3
     _title_block(pw['texts'], 'SR - MAIN · POWER WIRING · FRONT VIEW', '2.2', show=project['name'])
     _title_block(dw['texts'], 'SR - MAIN · DATA WIRING · FRONT VIEW', '2.4', show=project['name'])
     assert pw['bubble']['number'] == 3 and pw['bubble']['name'] == 'SR - MAIN · POWER WIRING · FRONT VIEW'
@@ -1393,7 +1394,8 @@ def test_smoke_live_show_b_sr_main(page):
     ov = pg.evaluate("(o) => window.app.renderBinderPage(o, 0).texts", opts)
     c = ov.index('CONTENTS')
     listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
-    assert listed[1:5] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING · FRONT VIEW'),
+    # (the FACTS sheet at 1.2)
+    assert listed[2:6] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING · FRONT VIEW'),
                            ('2.3', 'SR - MAIN · DATA · FRONT VIEW'), ('2.4', 'SR - MAIN · DATA WIRING · FRONT VIEW')]
     # the words
     for out in (pw, dw):

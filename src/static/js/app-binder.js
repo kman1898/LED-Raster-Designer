@@ -210,6 +210,12 @@ const SIMPLE_RULER = { top: 52, left: 64 };
 // A simple sheet's tables of this many lines or fewer stay whole in one
 // column of its band (_bSimpleBand); longer ones run on across it.
 const SIMPLE_WHOLE = 12;
+// A simple sheet's wall is never squeezed under this share of the drawing
+// area's height to make room for its tables - or under what the width
+// lets it be, SIMPLE_WALL_W of the drawing's width at its own shape, where
+// that is less (_bSimpleShort).
+const SIMPLE_WALL_MIN = 0.22;
+const SIMPLE_WALL_W = 0.8;
 const BUBBLE_H = 96;
 // The map keeps at least this share of the drawing area whatever the
 // tables' scale - of the width beside them, of the height over them.
@@ -1508,6 +1514,7 @@ class _Binder {
                  bracketKey: log.bracketKey || null,
                  bubble: log.bubble || null, titleBlock: log.titleBlock || null,
                  logo: log.logo || null, wiring: log.wiring || null, fiber: log.fiber || null,
+                 simple: log.simple || null,
                  mapBitmaps: log.mapBitmaps || [],
                  page: plan[index] || null, pages: plan.length, sheet: book.sheet };
     }
@@ -3854,14 +3861,18 @@ class _Binder {
         };
         const lines = [];
         if (spec.title) {
-            lines.push({ h: H4_H, head: true, draw: (ctx, x, y, cw) => {
+            const titled = (text) => ({ h: H4_H, head: true, draw: (ctx, x, y, cw) => {
                 const w = tableW(cw);
-                this._bText(book, spec.title, x, y + 30,
+                this._bText(book, text, x, y + 30,
                             { size: SZ.h4, weight: 700, upper: true, maxWidth: w,
                               shrink: !!spec.titleShrink });
                 ctx.fillStyle = RULE;
                 ctx.fillRect(x, y + H4_H - 6, w, 2);
             } });
+            lines.push(lines.titleLine = titled(spec.title));
+            // (the same title saying it continues, for a caller that heads
+            // a continued column so - a simple sheet's band)
+            lines.contTitleLine = titled(`${spec.title} (cont.)`);
         }
         // `note`: one line of the table's own text under its title ("Also
         // on BK RACK"), repeated with the head where the block continues.
@@ -8890,14 +8901,37 @@ class _Binder {
         const sheetTitle = `${s.name} · ${power ? 'POWER' : 'DATA'} WIRING · ${view.toUpperCase()}`;
         const blocks = (power ? this._bPowerBlocks(book, s, scr, { rows: true }) : this._bDataBlocks(book, s, scr))
             .filter(b => b && (b.lines || []).length);
-        const band = this._bSimpleBand(book, blocks);
         const da = book.geo.da;
+        // THE DRAWING FIRST (a 30 x 7 wall over eight breakout boxes, two
+        // rows a side: its lower boxes and their runs were drawn over the
+        // PORTS tables). The wiring layout is asked for the height it really
+        // takes - its rows of boxes, the corridors between them, the lanes,
+        // and a wall a person can read - and the tables have only what is
+        // left under it; what they cannot fit there runs on to a "(cont.)"
+        // sheet, as on a Full sheet. Never one over the other.
+        const wside = power ? 'power' : 'signal';
+        let band = this._bSimpleBand(book, blocks);
+        let A = null, plan = null, lastLow = Infinity;
+        for (let i = 0; i < 6; i++) {
+            A = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
+                  w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top };
+            plan = this._bwPlanHalf(book, s, scr, wside, A);
+            // what lies past the drawing's foot is always given back; a wall
+            // under its readable height only while more room still grows it
+            // (the layout grows a wall only as far as its runs read as well)
+            const { over, low } = this._bSimpleShort(book, plan, A);
+            const short = over + (low < lastLow - 0.5 ? low : 0);
+            lastLow = low;
+            if (!(short > 0.5) || !band.cols.length) break;
+            band = this._bSimpleBand(book, blocks, Math.floor(band.h - short));
+        }
+        // (the layout of the drawing's final room, where the last step moved it)
+        if (Math.abs(A.h - (band.drawH - SIMPLE_RULER.top)) > 0.5) {
+            A = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
+                  w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top };
+            plan = this._bwPlanHalf(book, s, scr, wside, A);
+        }
         const drawH = band.drawH;
-        // the wiring drawing on what is left, the rulers' room kept at its
-        // head and its left
-        const A = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
-                    w: da.w - SIMPLE_RULER.left, h: drawH - SIMPLE_RULER.top };
-        const plan = this._bwPlanHalf(book, s, scr, power ? 'power' : 'signal', A);
         const viewNo = ++book.views;
         this._bPage(book, {
             kind: 'wiring', title, sheetTitle, viewName: sheetTitle, view: viewNo,
@@ -8912,10 +8946,43 @@ class _Binder {
             this._bSimpleTables(book, band);
             if (book.log) {
                 book.log.simple = { drawH, rulers, tablesY: band.y, colW: band.colW, cols: band.cols.length,
+                                    tables: this._bSimpleTableRects(book, band),
                                     wall: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h } : null };
             }
         });
         this._bSimpleRest(book, band, title, sheetTitle, s, pos);
+    }
+
+    // How much more height a simple sheet's wiring drawing needs than `A`
+    // gives it: what its layout lays out past A's foot (boxes, runs, discs,
+    // the wall - the plan's own places, _bwPlanHalf), and what its wall is
+    // short of a readable height: SIMPLE_WALL_MIN of the drawing area, or
+    // as tall as its width lets it be where that is less (a wide, short
+    // wall stopped by the sheet's width grows no taller with more room).
+    // { over, low }: the two in page units.
+    _bSimpleShort(book, plan, A) {
+        if (!plan) return { over: 0, low: 0 };
+        let bottom = -Infinity;
+        for (const b of plan.blocks || []) bottom = Math.max(bottom, b.y + b.h);
+        for (const r of plan.runs || []) for (const pt of r.points || []) bottom = Math.max(bottom, pt[1]);
+        for (const d of plan.discs || []) bottom = Math.max(bottom, d.y + (d.r || 0));
+        if (plan.mapArea) bottom = Math.max(bottom, plan.mapArea.y + plan.mapArea.h);
+        const over = Number.isFinite(bottom) ? Math.max(0, bottom - (A.y + A.h)) : 0;
+        const wall = plan.geo && plan.geo.wall;
+        let low = 0;
+        if (wall && wall.w > 0 && wall.h > 0) {
+            const want = Math.min(SIMPLE_WALL_MIN * book.geo.da.h, A.w * SIMPLE_WALL_W * wall.h / wall.w);
+            low = Math.max(0, want - wall.h);
+        }
+        return { over, low };
+    }
+
+    // The tables' columns on the sheet, for the log: [{ x, y, w, h }].
+    _bSimpleTableRects(book, band) {
+        const da = book.geo.da;
+        return band.cols.map((col, i) => ({
+            x: col.x != null ? col.x : da.x + i * (band.colW + COL_GAP), y: band.y,
+            w: col.w != null ? col.w : band.colW, h: col.h }));
     }
 
     // The simple Header/Footer sheet: the bars' map with the rulers, then
@@ -8931,8 +8998,25 @@ class _Binder {
         const layer = s.kind === 'layer' ? s.layers[0] : s;
         const blocks = [...this._bRiggingBlocks(book, s, { notesOnly: true }), ...this._bSimpleBarList(book, s),
                         ...this._bSimpleBarTotals(book, s)].filter(b => b && (b.lines || []).length);
-        const band = this._bSimpleBand(book, blocks);
         const da = book.geo.da;
+        let band = this._bSimpleBand(book, blocks);
+        // (the same guard as the wiring sheets': the bars' map keeps a
+        // readable wall, _bSimpleShort, and the tables take what is left)
+        let lastLow = Infinity;
+        for (let i = 0; i < 4 && band.cols.length; i++) {
+            const probeArea = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
+                                w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top };
+            const fg = this._bRiggingGutter(s);
+            const g = this._bMeasureMap(book, { measure: (a) => this._bMap(book, layer, 'rigging', a,
+                { left: 0, right: 0, top: fg.top > MAP_GUTTER.bottom ? fg.top : 0,
+                  bottom: fg.bottom > MAP_GUTTER.bottom ? fg.bottom : 0 }) }, probeArea);
+            const { over, low } = g ? this._bSimpleShort(book, { geo: g, mapArea: g.area }, probeArea)
+                : { over: 0, low: 0 };
+            const short = over + (low < lastLow - 0.5 ? low : 0);
+            lastLow = low;
+            if (!(short > 0.5)) break;
+            band = this._bSimpleBand(book, blocks, Math.floor(band.h - short));
+        }
         const drawH = band.drawH;
         // (the bars' room over and under the wall only: the rulers' room is
         // kept at the drawing's head and left, SIMPLE_RULER, and nothing
@@ -8962,6 +9046,8 @@ class _Binder {
             this._bSimpleTables(book, band);
             if (book.log) {
                 book.log.simple = { drawH, rulers, tablesY: band.y, colW: band.colW, cols: band.cols.length,
+                                    tables: this._bSimpleTableRects(book, band),
+                                    drawing: geo ? { x: used.x, y: used.y, w: used.w, h: used.h } : null,
                                     wall: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h } : null };
             }
         });
@@ -8978,13 +9064,25 @@ class _Binder {
     // cannot hold is carried on (_bPack's rest). { cols, rest, colW, h,
     // drawH, y }: drawH the drawing's height (its bubble under it), y
     // where the tables start.
-    _bSimpleBand(book, blocks) {
+    // `maxH`: the most the band may take (the drawing needs the rest,
+    // _bSimpleShort); none, and it takes what the drawing can spare at its
+    // least (MAP_MIN_FRAC of the area).
+    _bSimpleBand(book, blocks, maxH = null) {
         const da = book.geo.da;
         const colW = Math.max(COL_W, ...blocks.map(b => this._bBlockMinW(b)));
         const across = Math.max(1, Math.floor((da.w + COL_GAP) / (colW + COL_GAP)));
-        const room = Math.floor(da.h * (1 - MAP_MIN_FRAC)) - BUBBLE_H - COL_GAP;
+        let room = Math.floor(da.h * (1 - MAP_MIN_FRAC)) - BUBBLE_H - COL_GAP;
+        if (maxH != null) room = Math.max(0, Math.min(room, maxH));
+        // a table run on into the band's next column heads it "PORTS
+        // (CONT.)", never a second PORTS beside the first
+        blocks = blocks.map(b => {
+            const t = b.lines && b.lines.titleLine, c = b.lines && b.lines.contTitleLine;
+            if (!t || !c) return b;
+            const heads = b.contHeads || b.lines.contHeads || b.lines.filter(l => l.head);
+            return { ...b, contHeads: heads.map(l => (l === t ? c : l)) };
+        });
         let pack = null;
-        if (blocks.length) {
+        if (blocks.length && room > 0) {
             const at = (cap) => this._bPack(blocks, cap, across, SIMPLE_WHOLE);
             pack = at(room);
             if (!pack.rest.length) {
@@ -9036,7 +9134,9 @@ class _Binder {
         const cols = pack ? pack.cols.filter(c => c.items.length) : [];
         const h = cols.reduce((m, c) => Math.max(m, c.h), 0);
         const drawH = da.h - BUBBLE_H - (h ? h + COL_GAP : 0);
-        return { cols, rest: (pack && pack.rest) || [], colW: Math.min(colW, da.w), h, drawH,
+        // (no room at all: every table on the "(cont.)" sheet)
+        const rest = pack ? pack.rest : (blocks.length && !(room > 0) ? blocks : []);
+        return { cols, rest, colW: Math.min(colW, da.w), h, drawH,
                  y: da.y + drawH + BUBBLE_H + (h ? COL_GAP : 0) };
     }
 

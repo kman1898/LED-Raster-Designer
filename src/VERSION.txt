@@ -644,7 +644,10 @@ ALSO NEW
   each one feeds) or the ports, and the cables. A screen with header or
   footer bars gets its Header/Footer sheet the same way, with every bar
   where it hangs and the header and footer totals by size. The overview,
-  contents, FACTS, fiber, pull and hardware sheets print as in Full.
+  contents, FACTS, fiber, pull and hardware sheets print as in Full. A
+  drawing that needs the height, like a wall with two rows of breakout
+  boxes a side, keeps it, and the tables it has no room for go on to a
+  "(cont.)" sheet, never under the drawing.
 - NEW: The binder has one FACTS sheet right after the overview instead of
   a FACTS box on every screen's power and data sheet. It is a table with a
   row for each screen, or each group printed as one: its size, panels,
