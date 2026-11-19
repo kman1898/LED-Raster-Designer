@@ -707,6 +707,10 @@ class CanvasRenderer {
         if (this.viewMode === 'power' && this._stageOn('Power')) {
             this._svgGroup('Power', layer);
             this._keepTextUpright = rotating;
+            // A powered breakout box's feed line, under the circuits and
+            // their discs, so it never crosses a disc's label
+            // (canvas-power.js renderBoxPower)
+            this.renderBoxPower(layer, 'feeds');
             this.renderPowerArrows(layer);
             // A ganged circuit says so on the wall: the Nfer
             // bracket under its runs' feet (2026-08-30). Always
@@ -718,7 +722,7 @@ class CanvasRenderer {
             // A breakout box powered from a circuit (or off a distro
             // beside the screen it feeds), and its daisy chain
             // (app-box-power.js) - in exports too.
-            this.renderBoxPower(layer);
+            this.renderBoxPower(layer, 'boxes');
             // Brackets draw only when explicitly ticked (=== true,
             // matching the soca panel's checkbox): the user asked
             // for them off by default.

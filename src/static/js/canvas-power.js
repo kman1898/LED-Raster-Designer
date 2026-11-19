@@ -1882,7 +1882,16 @@ Object.assign(CanvasRenderer.prototype, {
     // screen its ports feed, its outlet in the pill. Outside the screen,
     // so it never covers a cabinet, a disc or a tag. Each pill drawn on the
     // working canvas is noted with its frame for the right-click.
-    renderBoxPower(layer) {
+    //
+    // TWO PASSES. The feed starts at the middle of its cabinet, which on a
+    // box at the start is the middle of the circuit's own disc, so it is
+    // drawn in a pass of its own ('feeds') BEFORE the circuits and their
+    // discs: the disc then covers the line's end and no line is ever drawn
+    // over a disc's label, as with a circuit no box is fed from. The pills
+    // and the chain follow in the 'boxes' pass, after them. Both passes
+    // lay the pills out the same way, so the feed ends where its pill is.
+    renderBoxPower(layer, pass = 'boxes') {
+        const feeds = pass === 'feeds';
         const app = window.app;
         if (!app || typeof app.boxPowerPlacements !== 'function' || !app.project || !app.project.boxPower) return;
         if ((layer.type || 'screen') !== 'screen' || layer.visible === false) return;
@@ -1931,6 +1940,8 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.setLineDash([]);
         const pill = (text, x, y, boxId) => {
             const w = this.ctx.measureText(text).width + padX * 2;
+            // (the feeds pass only lays it out)
+            if (feeds) return { x, y, w, h };
             this.ctx.beginPath();
             if (this.ctx.roundRect) this.ctx.roundRect(x, y, w, h, h * 0.25);
             else this.ctx.rect(x, y, w, h);
@@ -1997,8 +2008,9 @@ Object.assign(CanvasRenderer.prototype, {
             });
             drawn.push({ boxes: p.chain.map(e => e.box.id), at: p.at.kind,
                          circuit: p.layer ? p.at.circuit : null, edge: anchor ? edge : 'top' });
-            // the feed: the cabinet to the first pill
-            if (anchor) {
+            // the feed: the cabinet to the first pill (its own pass, under
+            // the discs)
+            if (feeds && anchor) {
                 const r = rects[0];
                 let tx, ty;
                 if (horiz) {
@@ -2019,7 +2031,7 @@ Object.assign(CanvasRenderer.prototype, {
                 this.ctx.stroke();
             }
             // the chain's TRUE1 links
-            if (rects.length > 1) {
+            if (!feeds && rects.length > 1) {
                 this.ctx.save();
                 this.ctx.setLineDash([size * 0.4, size * 0.3]);
                 this.ctx.lineWidth = lineW;
@@ -2042,7 +2054,7 @@ Object.assign(CanvasRenderer.prototype, {
         }
         this.ctx.restore();
         // what this redraw drew, logged when it changes (never per frame)
-        if (!this.exportMode && typeof app._boxPowerLogDrawn === 'function') app._boxPowerLogDrawn(layer.id, drawn);
+        if (!feeds && !this.exportMode && typeof app._boxPowerLogDrawn === 'function') app._boxPowerLogDrawn(layer.id, drawn);
     },
 
     renderPowerErrorOverlay(layer) {
