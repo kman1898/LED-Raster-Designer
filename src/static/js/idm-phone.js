@@ -40,7 +40,8 @@ import {
     FIELD_CYCLE, PAD_BUTTONS, idmPadFrame, idmPadDispatch, idmPadName, idmPadFillHelp,
 } from './idm-pad.js';
 
-const ORIGIN = 'phone' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+// The page id: the one its log lines carry (idm_phone.html lrdPhonePage).
+const ORIGIN = window.lrdPhonePage || ('phone' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
 const SIDE_KEY = 'lrdIdmListSide';
 const STEP_KEY = 'lrdIdmPhoneStep';
 // idm_phone.html reads this before the first paint, so the page never
@@ -50,6 +51,24 @@ const UNDO_MAX = 50;
 const TOAST_MS = 3200;
 
 const $ = (id) => document.getElementById(id);
+
+// A line of the app log (idm_phone.html window.lrdPhoneLog): what the
+// tech did here and what the page could not do, area 'phone'.
+function plog(action, details, opts) {
+    try {
+        if (typeof window.lrdPhoneLog === 'function') window.lrdPhoneLog(action, details || {}, opts || null);
+    } catch (_) { /* the log never stops the page */ }
+}
+
+// The phone's screen as the page sees it: its size, the window's, the
+// pixel ratio and which way it is held.
+function screenNow() {
+    const w = window.innerWidth || 0, h = window.innerHeight || 0;
+    let orientation = w > h ? 'landscape' : 'portrait';
+    try { if (screen.orientation && screen.orientation.type) orientation = screen.orientation.type; } catch (_) { /* older phone */ }
+    return { screen: [screen.width || 0, screen.height || 0], window: [w, h],
+        dpr: window.devicePixelRatio || 1, orientation };
+}
 
 function readStore(key) {
     try { return localStorage.getItem(key); } catch (_) { return null; }
@@ -166,8 +185,10 @@ function putLayer(layer, idm) {
             render();
         }
         return saved;
-    }).catch(() => {
+    }).catch((err) => {
         toast('The change did not reach the computer. Check the connection.');
+        plog('idm_phone_save_failed', { layerId: layer.id, error: String((err && err.message) || err) },
+            { level: 'warn', msg: `Phone change to screen #${layer.id} did not reach the computer` });
         return null;
     });
 }
@@ -303,7 +324,16 @@ function endMark() {
 }
 
 function commit(layer, before, after, action) {
+    const modules = (b) => Object.keys((b && b.marks) || {});
+    const was = new Set(modules(before)), now = new Set(modules(after));
+    const changed = [...new Set([...was, ...now])].filter(k => was.has(k) !== now.has(k));
     putLayer(layer, after).then(saved => {
+        plog('idm_phone_mark', {
+            action, layerId: layer.id, name: layer.name || '', modules: changed.length, keys: changed.slice(0, 8),
+            marked: now.size, saved: !!saved,
+        }, { level: saved ? 'info' : 'warn',
+            msg: `Phone: ${action} on ${layer.name || 'Screen'} (#${layer.id}), ${changed.length} module${changed.length === 1 ? '' : 's'}`
+                + (saved ? `, ${now.size} marked` : ', not saved') });
         if (!saved) return;
         S.undo.push({ layerId: layer.id, before, after: saved.idm === undefined ? null : saved.idm, action });
         if (S.undo.length > UNDO_MAX) S.undo.shift();
@@ -341,6 +371,8 @@ function undo() {
     if (idmCanonical(layer.idm === undefined ? null : layer.idm) !== idmCanonical(entry.after)) {
         S.undo = [];
         toast('That screen was changed on another device since, so it was left as it is.');
+        plog('idm_phone_undo_refused', { layerId: layer.id, action: entry.action, why: 'changed on another device' },
+            { level: 'warn', msg: `Phone undo of ${entry.action} refused: the screen changed on another device` });
         return;
     }
     if (lockedNote(layer)) {
@@ -349,6 +381,8 @@ function undo() {
     }
     layer.idm = entry.before;
     putLayer(layer, entry.before);
+    plog('idm_phone_undo', { layerId: layer.id, action: entry.action },
+        { msg: `Phone undid ${entry.action} on ${layer.name || 'Screen'} (#${layer.id})` });
     toast(`Undone: ${entry.action}`);
     render();
 }
@@ -364,6 +398,9 @@ function setField(color) {
     const c = idmColor(color);
     if (!c) return;
     const field = { ...fieldNow(), color: c };
+    if (field.color !== fieldNow().color) {
+        plog('idm_phone_field', { color: c }, { msg: `Phone set the IDM field to ${c}` });
+    }
     app.project.idmField = field;
     fetch('/api/project/idm-field', {
         method: 'PUT',
@@ -402,6 +439,13 @@ function messageNow() {
 
 function render() {
     const msg = messageNow();
+    // what stands in the way of the controls, when it changes
+    if (msg !== S.saidMessage) {
+        S.saidMessage = msg;
+        plog('idm_phone_message', { message: msg }, {
+            level: S.everConnected ? 'info' : 'debug',
+            msg: msg ? `Phone page shows: ${msg}` : 'Phone page controls are up' });
+    }
     const conn = $('ph-conn');
     if (conn) {
         conn.textContent = S.connected ? ((app.project && app.project.name) || 'Connected') : 'Not connected';
@@ -488,6 +532,21 @@ function fitPlace() {
     }
 }
 window.addEventListener('resize', fitPlace);
+
+// The phone turned: its new screen, once it settles.
+let turnTimer = null;
+window.addEventListener('resize', () => {
+    clearTimeout(turnTimer);
+    turnTimer = setTimeout(() => {
+        const sn = screenNow();
+        const way = sn.window[0] > sn.window[1] ? 'landscape' : 'portrait';
+        if (way === S.held) return;
+        const first = !S.held;
+        S.held = way;
+        if (first) return;
+        plog('idm_phone_screen', sn, { msg: `Phone turned to ${way}, ${sn.window[0]}x${sn.window[1]}` });
+    }, 600);
+});
 
 function renderReadout() {
     const t = target();
@@ -649,6 +708,8 @@ window.addEventListener('gamepadconnected', (e) => {
     const pad = e && e.gamepad;
     if (!pad) return;
     S.padNames.set(pad.index, idmPadName(pad.id));
+    plog('idm_phone_pad', { connected: true, name: idmPadName(pad.id), buttons: (pad.buttons || []).length },
+        { msg: `Phone controller connected: ${idmPadName(pad.id)}` });
     toast(`Controller connected: ${idmPadName(pad.id)}`);
     padHelp();
     padRun();
@@ -661,6 +722,7 @@ window.addEventListener('gamepaddisconnected', (e) => {
     const held = S.pads.get(index);
     S.pads.delete(index);
     if (held && held.buttons[PAD_BUTTONS.A]) endMark();
+    plog('idm_phone_pad', { connected: false, name }, { msg: `Phone controller disconnected: ${name}` });
     toast(`Controller disconnected: ${name}`);
     padHelp();
     padRun();
@@ -732,13 +794,20 @@ function wire() {
         return;
     }
     socket.on('connect', () => {
+        const again = !!S.everConnected;
+        S.everConnected = true;
         S.connected = true;
+        const sn = screenNow();
+        plog('idm_phone_connect', { reconnect: again, ...sn },
+            { msg: `Phone page ${again ? 'connected again' : 'connected'}, ${sn.window[0]}x${sn.window[1]} ${sn.orientation}` });
         render();
         checkShow();
     });
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (why) => {
         S.connected = false;
         if (S.stroke) S.stroke = null;
+        plog('idm_phone_disconnect', { why: String(why || '') },
+            { level: 'warn', msg: `Phone page lost the computer (${String(why || 'no reason given')})` });
         render();
     });
     socket.on('project_data', (p) => { adopt(p); checkShow(); });
@@ -794,6 +863,10 @@ window.idmPhone = {
 try {
     if (history.state && history.state.phSheet) history.replaceState(null, '');
 } catch (_) { /* nothing to tidy */ }
+{
+    const sn = screenNow();
+    S.held = sn.window[0] > sn.window[1] ? 'landscape' : 'portrait';
+}
 wire();
 // A pad paired before the page loaded shows once a button is pressed.
 for (const pad of padList()) S.padNames.set(pad.index, idmPadName(pad.id));

@@ -1075,6 +1075,10 @@ Object.assign(CanvasRenderer.prototype, {
     // to miss on a busy wall.
     _nferTagText(layer, gang) {
         const tagsOff = layer.showPowerNferTags === false;
+        if (gang.over && this._rlFrame) {
+            this._rlError(`over:${layer.id}:${gang.num}`,
+                `${layer.name || 'Screen'} (#${layer.id}): circuit ${gang.num} is OVER (${gang.ways}fer)`);
+        }
         if (tagsOff && !gang.over) return null;
         return tagsOff ? 'OVER' : `${gang.ways}fer${gang.over ? ' · OVER' : ''}`;
     },
@@ -2060,6 +2064,7 @@ Object.assign(CanvasRenderer.prototype, {
     renderPowerErrorOverlay(layer) {
         if (!layer._powerError) return;
         const err = layer._powerError;
+        if (this._rlFrame) this._rlError(`power:${layer.id}`, `${layer.name || 'Screen'} (#${layer.id}): ${err.message || 'power error'}`);
         // Same as renderCapacityErrorOverlay: this is called from the third
         // render pass outside the per-layer translate, so we need the layer's
         // active-view bounds (show offset already baked in), using raw

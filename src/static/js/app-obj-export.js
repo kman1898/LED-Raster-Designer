@@ -113,6 +113,9 @@ class _ObjExport {
         const plan = this.objExportPlan(projectName);
         if (!plan.units.length) return { plan, files: [] };
         const files = [];
+        // for the log: the faces written, their corners, and whether every
+        // UV lands on its texture (0 to 1)
+        const stats = { faces: 0, vertices: 0, uvOut: 0, textures: [] };
         for (const u of plan.units) {
             const unit = {
                 name: u.unit.name, kind: u.unit.kind, mtl: u.mtl,
@@ -121,6 +124,13 @@ class _ObjExport {
                     faces: this.objFacesOf(m.layer, this._objRasterOf(m.canvasId)),
                 })),
             };
+            unit.members.forEach(m => (m.faces || []).forEach(f => {
+                stats.faces += 1;
+                stats.vertices += (f.corners || []).length;
+                (f.uv || []).forEach(p => {
+                    if (!Array.isArray(p) || p.some(v => !(v >= -1e-6 && v <= 1 + 1e-6))) stats.uvOut += 1;
+                });
+            }));
             files.push({ filename: u.obj, blob: new Blob([buildObj(unit)], { type: 'text/plain' }) });
             files.push({ filename: u.mtl, blob: new Blob([buildMtl(u.materials)], { type: 'text/plain' }) });
         }
@@ -128,20 +138,28 @@ class _ObjExport {
         const rendered = await this.performExport(projectName, 'obj', ['pixel-map'], canvasIds);
         plan.pngs.forEach((p, i) => {
             const item = (rendered || []).find(r => r.canvasId === p.canvasId) || (rendered || [])[i];
-            if (item) files.push({ filename: p.file, blob: this.dataUrlToBlob(item.dataUrl) });
+            if (item) {
+                files.push({ filename: p.file, blob: this.dataUrlToBlob(item.dataUrl) });
+                stats.textures.push({ file: p.file, size: [item.width, item.height] });
+            }
         });
-        return { plan, files };
+        return { plan, files, stats };
     }
 
     async exportObj(projectName) {
-        const { plan, files } = await this.objExportFiles(projectName);
+        const { plan, files, stats } = await this.objExportFiles(projectName);
         if (!files.length) {
             throw new Error('No screens on the 3D stage to export. Show a screen in Show Look first.');
         }
+        const s = stats || { faces: 0, vertices: 0, uvOut: 0, textures: [] };
         sendClientLog('export_obj', {
             units: plan.units.map(u => ({ obj: u.obj, members: u.unit.members.length })),
             pngs: plan.pngs.map(p => p.file),
-        });
+            faces: s.faces, vertices: s.vertices, textures: s.textures, uvOutOfBounds: s.uvOut,
+        }, { area: 'export', level: s.uvOut ? 'warn' : 'info',
+            msg: `OBJ export: ${plan.units.length} model${plan.units.length === 1 ? '' : 's'}, ${s.faces} faces, ${s.vertices} vertices`
+                + (s.textures.length ? `, textures ${s.textures.map(t => `${t.size[0]}x${t.size[1]}`).join(', ')}` : '')
+                + (s.uvOut ? `; ${s.uvOut} UVs off their texture` : '') });
         await this.saveMultipleFiles(files);
     }
 }

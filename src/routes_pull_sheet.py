@@ -66,9 +66,14 @@ def export_pull_sheet():
         xlsx, warnings = pull_sheet.build_workbook(pull_list, meta)
     except FileNotFoundError:
         return jsonify({'error': 'The pull-sheet template is missing from this install'}), 500
+    positions = pull_list.get('positions') or []
     log_event('export_pull_sheet', {
         'name': project_name,
-        'positions': len(pull_list.get('positions') or []),
+        'positions': len(positions),
+        # the rows the sheet lists, and the workbook's size (2026-11-19
+        # logging audit, phase 2)
+        'rows': sum(len(p.get('rows') or []) for p in positions if isinstance(p, dict)),
+        'bytes': len(xlsx),
         'warnings': warnings,
     })
     resp = send_file(
