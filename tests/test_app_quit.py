@@ -230,7 +230,15 @@ def test_quit_now_is_the_launcher_s_quit_and_always_exits(monkeypatch):
 
 def test_the_launcher_hands_its_quit_to_the_server_before_it_serves(monkeypatch):
     """main() sets the quit handler before the server thread starts, so a
-    page that loads before the window is up can quit (and is offered it)."""
+    page that loads before the window is up can quit (and is offered it).
+
+    The controller reader main() starts beside the server is faked too, and
+    the synchronous Thread below is launcher_window's alone. Until
+    2026-11-19 the fake replaced threading.Thread for the whole process, so
+    the real reader's supervisor (native_pad.py) ran its loop on the test's
+    own thread with the real reader process: wherever pygame is installed
+    that loop never returns, and every CI test job hung on this test."""
+    import native_pad
     order = []
     monkeypatch.setattr(launcher_window, '_install_crash_logger', lambda: None)
     monkeypatch.setattr(launcher_window, '_clear_mark_of_the_web', lambda: None)
@@ -240,6 +248,7 @@ def test_the_launcher_hands_its_quit_to_the_server_before_it_serves(monkeypatch)
     monkeypatch.setattr(launcher_window.time, 'sleep', lambda s: None)
     monkeypatch.setattr(launcher_window, 'run_window', lambda settings: order.append('window'))
     monkeypatch.setattr(launcher_window, 'start_flask_server', lambda settings: order.append('server'))
+    monkeypatch.setattr(launcher_window, '_start_pad_reader', lambda settings=None: order.append('pad reader'))
     monkeypatch.setattr(updater, 'set_quit_handler', lambda fn: order.append(('handler', fn)))
     monkeypatch.setattr(updater, 'open_browser_on_launch', lambda settings: False)
     monkeypatch.delenv('LRD_NO_WINDOW', raising=False)
@@ -251,9 +260,21 @@ def test_the_launcher_hands_its_quit_to_the_server_before_it_serves(monkeypatch)
 
         def start(self):
             self.target(*self.args)
-    monkeypatch.setattr(launcher_window.threading, 'Thread', _Thread)
-    launcher_window.main()
-    assert order == [('handler', launcher_window.quit_now), 'server', 'window']
+
+    class _Threading:
+        """threading as launcher_window sees it: its Thread runs the target
+        at once; every other module keeps real threads."""
+        Thread = _Thread
+
+        def __getattr__(self, name):
+            return getattr(threading, name)
+    monkeypatch.setattr(launcher_window, 'threading', _Threading())
+    try:
+        launcher_window.main()
+    finally:
+        # a reader main() started for real must not outlive the test
+        native_pad.stop_reader()
+    assert order == [('handler', launcher_window.quit_now), 'server', 'pad reader', 'window']
 
 
 # ── The route behind File > Quit ──────────────────────────────────────────
