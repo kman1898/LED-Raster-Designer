@@ -210,6 +210,14 @@ SKIP = {
             'the layer; driven end-to-end by tests/test_idm_colours.py'
        for key in ('idm-label-color', 'idm-module-edge-color', 'idm-cabinet-edge-color',
                    'idm-shade-color', 'idm-shade-percent')},
+    # The controller's touchpad speed (app-idm-native-pad.js): how far a
+    # slide on THIS computer's controller moves the highlight. A setting
+    # of the viewer, kept in the browser (localStorage lrdIdmTouchSpeed),
+    # the same for every screen and every show - not layer state.
+    'idm-pad-touch-speed':
+        'writes the viewer\'s own touchpad speed to localStorage, not the '
+        'layer; driven end-to-end (kept across a reload) by '
+        'tests/test_idm_native_pad.py',
     # The show's cable unit beside the jumper fields (2026-10-17): a
     # project setting (project.cableUnit through setCableUnit), the same
     # one the export dialog's Cable lengths selects write.

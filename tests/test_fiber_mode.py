@@ -87,14 +87,40 @@ def test_the_single_mode_boxes_come_first_in_the_catalog_then_the_multimode():
                      'novastar-cvt4k-m', 'novastar-cvt10-m', 'novastar-cvt10-pro-m'], order
 
 
+def _cited(k):
+    """A key that only cites the sheet a figure was read from."""
+    return k == 'source' or k.endswith('Source')
+
+
+def _behaviour(d, top=True):
+    """`d` without what only the mode and the sheets may change: at the top
+    the mode keys and every note and source; inside a block (the box's
+    power) its source citation alone - each variant cites its own sheet
+    (the CVT4K-S and CVT4K-M have one each), every figure must match."""
+    if isinstance(d, dict):
+        return {k: _behaviour(v, False) for k, v in d.items()
+                if not _cited(k)
+                and not (top and (k in MODE_KEYS or k.endswith('Note') or k == 'note'))}
+    if isinstance(d, list):
+        return [_behaviour(v, False) for v in d]
+    return d
+
+
 def test_each_multimode_box_equals_its_single_mode_twin_but_for_the_mode():
     by_id = {d['id']: d for d in _cvt_entries()}
     for s, m, _sn, _mn in TWINS:
         a, b = by_id[s], by_id[m]
-        behave = lambda d: {k: v for k, v in d.items()  # noqa: E731
-                            if k not in MODE_KEYS and not k.endswith(('Note', 'Source')) and k != 'note'}
-        assert behave(a) == behave(b), (s, m)
+        assert _behaviour(a) == _behaviour(b), (s, m)
         assert set(a) == set(b), (s, m, set(a) ^ set(b))
+        # the box's power: every figure the same, each citing a sheet of
+        # NovaStar's own
+        pa, pb = a.get('power'), b.get('power')
+        assert pa and pb, (s, m)
+        assert set(pa) == set(pb), (s, m, set(pa) ^ set(pb))
+        assert {'watts', 'inlet', 'cables'} <= set(_behaviour(pa, False)), (s, pa)
+        assert _behaviour(pa, False) == _behaviour(pb, False), (s, m)
+        for d in (a, b):
+            assert d['power']['source'].startswith('https://oss.novastar.tech/'), d['id']
         # the catalog's own readers agree
         assert catalog.trunks_in(a) == catalog.trunks_in(b)
         assert catalog.input_outputs(a) == catalog.input_outputs(b)
