@@ -1,7 +1,7 @@
 // app-history: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog } from './helpers.js';
+import { sendClientLog, clientLogLastAction } from './helpers.js';
 
 class _History {
     // ===== HISTORY SYSTEM =====
@@ -60,7 +60,46 @@ class _History {
         if (typeof a.logo === 'string' && a.logo.length > 256 && a.logo === b.logo) a.logo = b.logo;
     }
 
+    // The name a screen save goes to the server's log under (_putLayer's
+    // X-LRD-Action): the undo step being made, else the field or button
+    // the person last touched, when either is under 1.5 s old.
+    _noteLogAction(action) {
+        if (action && action !== 'Update Layers') this._logAction = { what: String(action), at: Date.now() };
+    }
+
+    _putLogLabel() {
+        const a = this._logAction;
+        if (a && Date.now() - a.at <= 1500) return a.what;
+        return clientLogLastAction(1500);
+    }
+
+    // What an undo or redo put back, for its log line: the screens it
+    // changed and their fields, screens it brought back or took away, and
+    // the show-level fields. Names only, never values.
+    _historyStepDiff(before, after) {
+        const out = { layers: [], added: [], removed: [], project: [] };
+        try {
+            const str = (v) => JSON.stringify(v === undefined ? null : v);
+            const was = new Map(((before && before.layers) || []).map(l => [l.id, l]));
+            const now = new Map(((after && after.layers) || []).map(l => [l.id, l]));
+            for (const [id, l] of now) {
+                const o = was.get(id);
+                if (!o) { out.added.push(id); continue; }
+                const keys = [...new Set([...Object.keys(o), ...Object.keys(l)])]
+                    .filter(k => str(o[k]) !== str(l[k]));
+                if (keys.length) out.layers.push({ id, name: l.name, keys: keys.slice(0, 8), n: keys.length });
+            }
+            for (const id of was.keys()) if (!now.has(id)) out.removed.push(id);
+            const top = [...new Set([...Object.keys(before || {}), ...Object.keys(after || {})])]
+                .filter(k => k !== 'layers' && k !== 'idmField' && k !== 'idmHighlight');
+            out.project = top.filter(k => str((before || {})[k]) !== str((after || {})[k])).slice(0, 8);
+            out.layers = out.layers.slice(0, 12);
+        } catch (e) { /* the log line goes without it */ }
+        return out;
+    }
+
     saveState(action) {
+        this._noteLogAction(action);
         // v0.10.7.2: history isn't allocated until resetHistory() runs, which is
         // after setupEventListeners(). Guard against any save that fires before
         // then (e.g. a debounced picker commit flushing during setup) rather than
@@ -197,6 +236,7 @@ class _History {
      */
     debouncedSaveState(action, delay = 500, key = null) {
         // A held number's own step waits for its release (_wireNumberHold).
+        this._noteLogAction(action);
         if (this._numberHoldTakes(action)) return;
         const k = key || action;
         if (this._saveStateTimer && this._pendingSaveKey !== k) {
@@ -389,6 +429,7 @@ class _History {
             // held.
             const idmField = this.project ? this.project.idmField : undefined;
             const idmHighlight = this.project ? this.project.idmHighlight : undefined;
+            const undone = this._historyStepDiff(this.project, state.project);
             this.project = JSON.parse(JSON.stringify(state.project));
             this._shareBinderLogo(this.project, state.project);
             if (idmField !== undefined) this.project.idmField = JSON.parse(JSON.stringify(idmField));
@@ -396,12 +437,15 @@ class _History {
             this.dedupeProjectLayers('undo_restore');
             // The restored entry's numbers are the ones in force now.
             if (typeof this._resetMultiBaseline === 'function') this._resetMultiBaseline();
+            // The step undone is the one after the entry put back.
+            const undoneStep = this.history[this.historyIndex + 1];
             sendClientLog('undo', {
-                action: state.action,
+                action: undoneStep ? undoneStep.action : state.action,
+                restored: state.action,
                 historyIndex: this.historyIndex,
                 historyLength: this.history.length,
                 layers: this.project.layers ? this.project.layers.length : 0,
-                layerNames: this.project.layers ? this.project.layers.map(l => l.name) : []
+                changed: undone
             });
             
             this._reconcileSelectionAfterRestore();
@@ -682,6 +726,7 @@ class _History {
             // held.
             const idmField = this.project ? this.project.idmField : undefined;
             const idmHighlight = this.project ? this.project.idmHighlight : undefined;
+            const redone = this._historyStepDiff(this.project, state.project);
             this.project = JSON.parse(JSON.stringify(state.project));
             this._shareBinderLogo(this.project, state.project);
             if (idmField !== undefined) this.project.idmField = JSON.parse(JSON.stringify(idmField));
@@ -693,7 +738,7 @@ class _History {
                 historyIndex: this.historyIndex,
                 historyLength: this.history.length,
                 layers: this.project.layers ? this.project.layers.length : 0,
-                layerNames: this.project.layers ? this.project.layers.map(l => l.name) : []
+                changed: redone
             });
             
             this._reconcileSelectionAfterRestore();
