@@ -32,8 +32,9 @@ at. What this file pins:
   the module's field and mark stay in view in its middle, two frames apart
   are the same pixels, nothing redraws while it stands still, and it leaves
   both when the mouse leaves the panels. It reads on a black field, all
-  four sides of a corner module show on a white one, the outline of a
-  module picked from the swap list stays off the wall, and the wall's log
+  four sides of a corner module show on a white one, a row clicked in the
+  swap list moves the highlight there and keeps it, on the wall too
+  (owner, 2026-11-18, as the phone's list does), and the wall's log
   says what it drew once a move, never once a frame. A deleted screen
   takes its highlight with
   it, and the panel never names a module a delete, undo or redo took away,
@@ -949,17 +950,16 @@ def test_a_corner_module_keeps_all_four_sides_on_a_white_field(page):
         out.close()
 
 
-FLASHING_JS = """() => !!window.app._idmFlashFor(
-    window.app.project.layers.find(x => x.name === 'IdmA'))"""
-
-
-def test_the_swap_list_outline_stays_off_the_wall(page):
-    """A module picked from the swap list is outlined in the accent in the
-    view for a moment; the wall output never shows it, even on a frame
-    drawn from scratch while it is up."""
+def test_a_swap_list_row_puts_the_highlight_on_the_wall_and_keeps_it(page):
+    """Owner, 2026-11-18: clicking a row of the swap list on the computer
+    moves the real highlight to that module and keeps it there, the way a
+    tap on a row of the phone page's list does: the steady outline in the
+    view and on the wall, the server's copy for every other device, the
+    row marked. The mouse leaving the modules on its way to the list does
+    not take it away, and it is still there long after a moment."""
     cid = reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
-    click_field(page, '#ffffff', 'none')
+    click_field(page, '#ff0000', 'shade')
     page.evaluate("""() => {
         const app = window.app, a = app.project.layers.find(x => x.name === 'IdmA');
         a.idm.marks = {'1,0,1,1': {style: 'x', color: '#ffff00'}};
@@ -970,40 +970,50 @@ def test_the_swap_list_outline_stays_off_the_wall(page):
     page.evaluate("() => window.app._idmSetPointerOn(false)")
     out = open_output(page, cid)
     try:
-        # module (1,1) of cabinet (1,0): x 192..256, y 64..128, the X's
-        # crossing in its middle
+        # module (1,1) of cabinet (1,0): x 192..256, y 64..128 on the wall,
+        # the X's crossing in its middle; beside it the red field's shade
         wait_pixel(out, 224, 96, (255, 255, 0))
-        wall = [(194, 96), (199, 96), (224, 96), (224, 66)]
+        wall = [(189, 96), (194, 96), (199, 96), (224, 96)]
         bare_wall = [pixel(out, x, y) for x, y in wall]
-        bare_view = view_look(page, 'IdmA', 1, 0, 1, 1)
-        accent = page.evaluate("""() => {
-            const c = document.createElement('canvas').getContext('2d');
-            c.fillStyle = getComputedStyle(document.documentElement)
-                .getPropertyValue('--ps-accent').trim() || '#e22330';
-            c.fillRect(0, 0, 1, 1);
-            return Array.from(c.getImageData(0, 0, 1, 1).data.slice(0, 3));
-        }""")
-        frames = out.evaluate("() => Number(document.body.dataset.frames || 0)")
-        # the pick, and a wall frame drawn from scratch while it is up
-        page.evaluate("""() => {
-            const app = window.app, a = app.project.layers.find(x => x.name === 'IdmA');
-            app._idmFlashModule(a.id, '1,0,1,1');
-            app._outputDisplayRefresh(true);
-        }""")
-        assert page.evaluate(FLASHING_JS)
-        settled(out, lambda: out.evaluate("() => Number(document.body.dataset.frames || 0)"),
-                lambda n: n > frames)
-        # the view outlines it in the accent ...
+        assert bare_wall == [[217, 0, 0], [255, 0, 0], [255, 0, 0], [255, 255, 0]], bare_wall
+        lit_wall = [[217, 0, 0], [0, 0, 0], [255, 255, 255], [255, 255, 0]]
+        # the mouse on another module first: its hover highlight goes as
+        # the mouse leaves for the list, the row's stays
+        pt = point(page, 'IdmA', 0, 0, 0, 0)
+        page.mouse.move(pt['x'], pt['y'])
+        assert settled(page, lambda: hl(page), lambda v: v == ['IdmA', '0,0,0,0']) == ['IdmA', '0,0,0,0']
+        page.click('#idm-list .idm-row[data-idm-key="1,0,1,1"] .idm-row-go')
+        assert settled(page, lambda: hl(page), lambda v: v == ['IdmA', '1,0,1,1']) == ['IdmA', '1,0,1,1']
+        # the wall: the outline, steadily, the module's mark untouched
+        wait_pixel(out, 194, 96, (0, 0, 0))
+        assert steady(out, wall) == lit_wall
+        # the view: the same outline, the live highlight's (white inside)
         lit = view_look(page, 'IdmA', 1, 0, 1, 1)
         assert lit['edge'] == [0, 0, 0], lit
-        assert all(abs(a - b) <= 3 for a, b in zip(lit['inner'], accent)), (lit, accent)
-        assert lit['middle'] == bare_view['middle'], (lit, bare_view)
-        # ... the wall shows the module as it was
-        assert page.evaluate(FLASHING_JS)
-        assert [pixel(out, x, y) for x, y in wall] == bare_wall
+        assert lit['inner'] == [255, 255, 255], lit
+        # the server keeps it for every other device; the row is marked
+        a_id = page.evaluate("() => window.app.project.layers.find(x => x.name === 'IdmA').id")
+        want = {'layerId': a_id, 'key': '1,0,1,1'}
+        served = page.evaluate("""async () => {
+            for (let i = 0; i < 50; i++) {
+                const h = (await (await fetch('/api/project')).json()).idmHighlight || null;
+                if (h && h.key === '1,0,1,1') return h;
+                await new Promise(r => setTimeout(r, 100));
+            }
+            return null;
+        }""")
+        assert served == want, served
+        assert page.evaluate("""() => Array.from(document.querySelectorAll('#idm-list .idm-row.active'))
+            .map(r => r.dataset.idmKey)""") == ['1,0,1,1']
+        assert page.evaluate("() => window.app.currentLayer.name") == 'IdmA'
+        # well past a moment: still there, in the view and on the wall
+        page.wait_for_timeout(2500)
+        assert hl(page) == ['IdmA', '1,0,1,1']
+        assert steady(out, wall) == lit_wall
+        assert view_look(page, 'IdmA', 1, 0, 1, 1) == lit
         assert not page._errors, page._errors
     finally:
-        page.evaluate("() => window.app._idmSetPointerOn(true)")
+        page.evaluate("() => { window.app._idmSetPointerOn(true); window.app._idmClearHighlight(); }")
         out.close()
 
 

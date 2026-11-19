@@ -78,7 +78,6 @@ import {
 // The tests and the other modules read these from here, as they always have.
 export { idmColor, idmFieldSanitize };
 
-const FLASH_MS = 1800;
 const STYLE_KEY = 'lrdIdmMarkStyle';
 const COLOR_KEY = 'lrdIdmMarkColor';
 // Show the mouse on the wall (per viewer, on unless turned off).
@@ -158,7 +157,7 @@ class _IdmLocator {
             } catch (_) { /* storage blocked: the defaults */ }
             this._idmS = {
                 active: false, wired: false, style, color, side,
-                stroke: null, flash: null, flashTimer: null,
+                stroke: null,
                 fieldsKey: '', listKey: '', fieldUiKey: '', readoutKey: '', presetsKey: '',
                 // the field's PUT, held back while a colour is dragged
                 fieldTimer: null, fieldPending: null,
@@ -205,7 +204,7 @@ class _IdmLocator {
             if (e.target.closest('.idm-swap')) return;
             const row = e.target.closest('[data-idm-key]');
             if (!row) return;
-            this._idmFlashModule(Number(row.dataset.idmLayer), row.dataset.idmKey);
+            this._idmGoToRow(Number(row.dataset.idmLayer), row.dataset.idmKey);
         });
         on('idm-list', 'change', (e) => {
             const box = e.target.closest('[data-idm-swap]');
@@ -707,6 +706,7 @@ class _IdmLocator {
             if (!hl || idmTargetOf(window.canvasRenderer, this.project, hl)) return;
             this._idmPutHighlight(null);
             this._idmRefreshReadout();
+            this._idmSyncListHere();
             this._idmRepaint();
         }, 0);
     }
@@ -722,6 +722,7 @@ class _IdmLocator {
         this._idmPutHighlight(next);
         if (send) this._idmSendHighlight();
         this._idmRefreshReadout();
+        this._idmSyncListHere();
         this._idmRepaint();
     }
 
@@ -1514,16 +1515,14 @@ class _IdmLocator {
         this._idmSyncSide();
         if (!host) return;
         const groups = this._idmMarkGroups();
-        const flash = st.flash && Date.now() < st.flash.until ? `${st.flash.layerId}:${st.flash.key}` : '';
-        // The picked row is a class on the rows as they stand: its outline
-        // coming or going never rebuilds the list, so a tick box being
-        // reached for is never swapped out from under the pointer.
+        const here = this._idmListHere();
+        // The highlighted module's row is a class on the rows as they
+        // stand: the highlight moving never rebuilds the list, so a tick
+        // box being reached for is never swapped out from under the pointer.
         const key = JSON.stringify([st.side, groups.map(g => [g.layer.id, g.layer.name,
             g.rows.map(x => [x.key, x.place, x.ids, x.style, x.color])])]);
         if (key === st.listKey) {
-            host.querySelectorAll('.idm-row').forEach(row => {
-                row.classList.toggle('active', flash === `${row.dataset.idmLayer}:${row.dataset.idmKey}`);
-            });
+            this._idmSyncListHere();
             return;
         }
         st.listKey = key;
@@ -1547,7 +1546,7 @@ class _IdmLocator {
                 const words = `${name} · ${x.place}`;
                 const row = document.createElement('div');
                 row.className = 'idm-row';
-                if (flash === `${g.layer.id}:${x.key}`) row.classList.add('active');
+                if (here === `${g.layer.id}:${x.key}`) row.classList.add('active');
                 row.dataset.idmLayer = String(g.layer.id);
                 row.dataset.idmKey = x.key;
                 row.title = `${words} (${x.ids})`;
@@ -1634,41 +1633,44 @@ class _IdmLocator {
         });
     }
 
-    // A row of the list: select its screen and outline the module in the
-    // view, steadily, for a moment. One timer takes the outline away; it
-    // never blinks.
-    _idmFlashModule(layerId, key) {
+    // A row of the list: the live highlight goes to its module and stays
+    // there, in the view, on the wall and on every other device, the way a
+    // tap on a row of the phone page's list moves it (idm-phone.js
+    // setHighlight; owner, 2026-11-18). Its screen is selected too. The
+    // mouse did not put it there, so the mouse leaving the modules never
+    // takes it away; Esc or Clear highlight does, and the next arrow key or
+    // pad step carries on from it.
+    _idmGoToRow(layerId, key) {
         const st = this._idmState();
-        const layer = ((this.project && this.project.layers) || []).find(l => l.id === layerId);
-        if (!layer) return;
+        const layer = ((this.project && this.project.layers) || []).find(l => l && l.id === layerId);
+        if (!layer || typeof key !== 'string') return;
         if (!this.currentLayer || this.currentLayer.id !== layer.id
                 || (this.selectedLayerIds && this.selectedLayerIds.size > 1)) {
             this.selectLayer(layer);
         }
-        st.flash = { layerId, key, until: Date.now() + FLASH_MS };
-        clearTimeout(st.flashTimer);
-        st.flashTimer = setTimeout(() => {
-            st.flashTimer = null;
-            st.flash = null;
-            if (window.canvasRenderer) window.canvasRenderer.render();
-        }, FLASH_MS);
-        sendClientLog('idm_locate', { id: layerId, key });
-        if (window.canvasRenderer) window.canvasRenderer.render();
+        st.hover = null;
+        st.hoverLast = null;
+        this._idmSetHighlight(layer.id, key);
+        sendClientLog('idm_locate', { id: layer.id, key });
+        this._idmSyncListHere();
     }
 
-    // canvas-idm.js asks, per screen, whether a module of it was picked
-    // from the list: {key, colour} while it is outlined, in the accent.
-    _idmFlashFor(layer) {
-        const st = this._idmS;
-        const f = st && st.flash;
-        if (!f || !layer || f.layerId !== layer.id) return null;
-        const now = Date.now();
-        if (now >= f.until) return null;
-        let accent = '#e22330';
-        try {
-            accent = getComputedStyle(document.documentElement).getPropertyValue('--ps-accent').trim() || accent;
-        } catch (_) { /* the default accent */ }
-        return { key: f.key, colour: accent };
+    // The swap list row of the highlighted module, as "layerId:key", or ''.
+    _idmListHere() {
+        const hl = this._idmHl();
+        return hl ? `${hl.layerId}:${hl.key}` : '';
+    }
+
+    // The row of the highlighted module is marked (the phone's list marks
+    // it the same way); the list is not rebuilt.
+    _idmSyncListHere() {
+        if (!this._idmState().active) return;
+        const host = document.getElementById('idm-list');
+        if (!host) return;
+        const here = this._idmListHere();
+        host.querySelectorAll('.idm-row').forEach(row => {
+            row.classList.toggle('active', here === `${row.dataset.idmLayer}:${row.dataset.idmKey}`);
+        });
     }
 }
 

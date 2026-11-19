@@ -557,7 +557,8 @@ _SUP_LOCK = threading.Lock()
 
 def input_monitoring_ask(settings, save, platform=None):
     """(extra_env, on_asked) for the reader: on a Mac whose settings say
-    the Input Monitoring question was never put up, the reader asks, and
+    the Input Monitoring question was never put up, the reader asks when
+    a controller connects (native_pad_reader.AskOnConnect), and
     the settings remember it (the launcher's own settings dict, so its
     next save keeps the note). Elsewhere, nothing. asked() runs on the
     supervisor's thread: the launchers hand in launcher_settings.save_settings,
