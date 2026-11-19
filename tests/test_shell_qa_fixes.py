@@ -627,7 +627,13 @@ def test_the_header_is_unchanged_at_1600(e2e_server, pw_browser):
     try:
         st = pg.evaluate(HEADER_JS)
         assert st == {'height': 50, 'title': 'inline', 'toolbarOut': [], 'stripOut': []}, st
-        assert pg.evaluate("() => getComputedStyle(document.getElementById('canvas-controls')).flexWrap") == 'nowrap'
+        # The strip may wrap at any width (a docked panel narrows it), but
+        # with the default layout at 1600 its controls all sit on one row.
+        mids = pg.evaluate("""() => [...document.querySelectorAll(
+            '#canvas-controls > button, #canvas-controls > input, #canvas-controls > label')]
+            .filter(e => e.getBoundingClientRect().width > 0)
+            .map(e => { const r = e.getBoundingClientRect(); return r.top + r.height / 2; })""")
+        assert len(mids) > 5 and max(mids) - min(mids) < 6, f'the canvas strip is not one row at 1600: {mids}'
     finally:
         context.close()
 

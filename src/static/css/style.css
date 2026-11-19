@@ -23,18 +23,21 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 .lrd-ring[data-lrd-edge="left"], .lrd-ring[data-lrd-edge="right"] { flex-direction: row; }
 .lrd-ring[data-lrd-edge="top"], .lrd-ring[data-lrd-edge="bottom"] { flex-direction: column; }
 .lrd-ring > :not(.lrd-ring):not(#canvas-container) { flex: 0 0 auto; }
-#toolbar { background: #2a2a2a; border-bottom: 1px solid #3a3a3a; padding: 10px 20px; display: flex; justify-content: flex-start; align-items: center; gap: 14px; height: 50px; }
+/* The toolbar and the canvas strip wrap onto another row wherever their
+   controls don't fit the width they are given, at any window size: a panel
+   docked beside them narrows them as much as a small window does, and a
+   row that could not wrap ran on under the panel (the toolbar's last
+   buttons clipped, the canvas pushed under the Hardware tray docked right
+   at 1600). One row is still 50 px tall, as it always was. */
+#toolbar { background: #2a2a2a; border-bottom: 1px solid #3a3a3a; padding: 5px 20px; display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: 6px 14px; min-height: 50px; }
 .toolbar-section { display: flex; gap: 10px; align-items: center; }
-.toolbar-actions { flex: 0 0 auto; }
+.toolbar-actions { flex: 0 1 auto; flex-wrap: wrap; row-gap: 6px; }
 .toolbar-project { flex: 0 1 auto; }
 #toolbar h1 { font-size: 16px; color: #4A90E2; }
 /* Narrow windows (1.6 QA): below 1120 px the title text gives way to the
-   logo, and the toolbar and the canvas strip wrap onto a second row rather
-   than run on under the Screens panel. The default 1600-wide layout never
-   reaches either query. */
+   logo. The default 1600-wide layout never reaches the query. */
 #toolbar h1 { white-space: nowrap; }
 @media (max-width: 1119px) {
-    #toolbar { height: auto; min-height: 50px; flex-wrap: wrap; row-gap: 6px; padding-top: 6px; padding-bottom: 6px; }
     #toolbar h1 .lrd-app-title { display: none; }
     #toolbar h1 .lrd-logo-mark { margin-right: 0 !important; }
     #project-name { min-width: 120px; }
@@ -44,7 +47,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
        tray, its gears and their panels with it. It scrolls instead (the
        column it sits in may give way below its content for that). */
     #canvas-container { min-height: 0; }
-    #canvas-controls { flex-wrap: wrap; row-gap: 6px; min-height: 0; overflow-y: auto; }
+    #canvas-controls { min-height: 0; overflow-y: auto; }
     #canvas-controls .magnet-toggle { margin-left: 0 !important; }
 }
 /* Output to Display's button (beside Preferences, 2026-11-17) left the
@@ -53,10 +56,6 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #e0e0e0; over
 @media (max-width: 1279px) {
     #toolbar h1 .lrd-app-title { display: none; }
     #toolbar h1 .lrd-logo-mark { margin-right: 0 !important; }
-    /* Match Screens beside Canvas Size (2026-11-18) made the canvas strip
-       about 10 px too wide for one row at 1120: below 1280 the strip may
-       wrap too, which it only does where its controls don't fit. */
-    #canvas-controls { flex-wrap: wrap; row-gap: 6px; }
 }
 #project-name { color: #e0e0e0; font-size: 13px; background: transparent; border: 1px solid transparent; padding: 4px 8px; border-radius: 4px; min-width: 200px; }
 #project-name:hover { background: #1a1a1a; border-color: #3a3a3a; }
@@ -587,7 +586,7 @@ input::-webkit-credentials-auto-fill-button { visibility: hidden; display: none 
 .color-box > div { width: 100%; height: 40px; border-radius: 4px; border: 2px solid #3a3a3a; }
 .color-box span { font-size: 10px; color: #888; }
 #canvas-container { flex: 1; display: flex; flex-direction: column; background: #1a1a1a; }
-#canvas-controls { background: #252525; border-bottom: 1px solid #3a3a3a; padding: 8px; display: flex; gap: 10px; align-items: center; justify-content: flex-start; }
+#canvas-controls { background: #252525; border-bottom: 1px solid #3a3a3a; padding: 8px; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; justify-content: flex-start; }
 #canvas-controls button { background: #3a3a3a; border: 1px solid #4a4a4a; color: #e0e0e0; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; }
 #canvas-controls button:hover { background: #4a4a4a; }
 /* The custom-run readout in the canvas strip (2026-09-05: the 72px badge
