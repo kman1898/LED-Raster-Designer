@@ -1516,6 +1516,13 @@ class _BinderWiring {
                 const sy = b.side === 'top' ? b.y + b.h : b.y;
                 taken.push({ k: 0, c: tx, lo: Math.min(edgeY, sy), hi: Math.max(edgeY, sy) });
             }
+            // the ways out already taken from each disc: a disc whose
+            // circuit feeds two things (a multi's breakout and a breakout
+            // box powered from the same circuit) sends two runs off it -
+            // each its own stub, so two discs on the one spot - and by the
+            // same way out they lay on top of one another
+            const leftBy = new Map();
+            const spot = (d) => `${Math.round(d.x * 10)}:${Math.round(d.y * 10)}`;
             const plans = facts.wires.map((w) => {
                 const disc = discFor.get(w.stub);
                 const b = blockOf.get(w.device.key);
@@ -1535,11 +1542,16 @@ class _BinderWiring {
                 // that half of the wall, where its own stub will most likely
                 // stand)
                 const midY = wall.y + wall.h / 2;
-                const apart = (e, at) => (e !== 'top' && e !== 'bottom')
-                    || (inbound[e].every(x => Math.abs(x - tx) < 0.01 || Math.abs(x - at) >= 2 * pad)
-                        && discs.every(o => o === disc || (e === 'top' ? o.y > midY : o.y < midY)
-                                            || Math.abs(o.x - at) >= 2 * pad));
+                // (and a pen's width off a run already leaving the same
+                // disc the same way)
+                const sibs = leftBy.get(spot(disc)) || [];
+                const apart = (e, at) => sibs.every(o => o.edge !== e || Math.abs(o.at - at) >= 2 * pad)
+                    && ((e !== 'top' && e !== 'bottom')
+                        || (inbound[e].every(x => Math.abs(x - tx) < 0.01 || Math.abs(x - at) >= 2 * pad)
+                            && discs.every(o => spot(o) === spot(disc) || (e === 'top' ? o.y > midY : o.y < midY)
+                                                || Math.abs(o.x - at) >= 2 * pad)));
                 const { edge, stub, cost } = this._bwExit(disc, wall, ink, own, pad, room, near, taken, apart);
+                leftBy.set(spot(disc), sibs.concat([{ edge, at: stub.at }]));
                 return { w, disc, b, v, tx, ty, sx, vy: null, edge, stub, cost, own, T, near };
             });
 
@@ -2251,14 +2263,44 @@ class _BinderWiring {
                 this._bText(book, String(sk.n), sk.x, sk.y + NUMBER_SZ * K * 0.375,
                             { size: NUMBER_SZ * K, weight: 700, align: 'center',
                               color: sk.on ? (fill === WHITE ? INK : WHITE) : GREY_INK });
-                if (sk.note) {
-                    this._bText(book, sk.note, sk.x, b.noteY != null ? b.noteY : b.y + NOTE_DY * K,
-                                { size: NOTE_SZ * K, weight: 400, align: 'center',
-                                  color: sk.on ? MUTED : GREY_INK,
-                                  maxWidth: b.pitch * 2.4, shrink: true });
+                // A SOCKET'S NOTE NEVER UNDER A LINE. A run comes into its
+                // socket across the note's line, so the note of a socket a
+                // run comes into stands BESIDE that run, to its right and
+                // short of the next socket's run (owner's rule: no line
+                // crosses a box's lettering); a socket no run comes into
+                // keeps its note centred on it, short of the runs either
+                // side of it.
+                let noteBox = null;
+                if (sk.note && b.pitch > 0) {
+                    const ny = b.noteY != null ? b.noteY : b.y + NOTE_DY * K;
+                    const clear = (RUN_W + CASE_EXTRA) / 2 * K + 2 * K;
+                    const i = b.sockets.indexOf(sk);
+                    const lineAt = (q) => (q && q.on ? q.x : null);
+                    const prev = b.sockets[i - 1], next = b.sockets[i + 1];
+                    const style = { size: NOTE_SZ * K, weight: 400, shrink: true };
+                    let x = sk.x, align = 'center', room = b.pitch * 2.4;
+                    if (sk.on) {
+                        const end = lineAt(next) != null ? next.x - clear
+                            : next ? next.x - next.r : b.x + b.w - PAD * K / 2;
+                        x = sk.x + clear;
+                        align = 'left';
+                        room = Math.max(0, end - x);
+                    } else {
+                        const left = lineAt(prev) != null ? sk.x - prev.x - clear : room / 2;
+                        const right = lineAt(next) != null ? next.x - sk.x - clear : room / 2;
+                        room = Math.max(0, 2 * Math.min(room / 2, left, right));
+                    }
+                    // (no room at all beside it: no note rather than one under a line)
+                    if (room >= 1) {
+                        const nw = Math.min(room, this._bTextWidth(book, sk.note, { ...style, maxWidth: room }));
+                        this._bText(book, sk.note, x, ny,
+                                    { ...style, align, color: sk.on ? MUTED : GREY_INK, maxWidth: room });
+                        noteBox = { x: align === 'left' ? x : x - nw / 2, y: ny - NOTE_SZ * K * 0.75,
+                                    w: nw, h: NOTE_SZ * K };
+                    }
                 }
                 if (entry) entry.sockets.push({ n: sk.n, x: sk.x, y: sk.y, r: sk.r,
-                                                state: sk.state, note: sk.note, fill, rim });
+                                                state: sk.state, note: sk.note, fill, rim, noteBox });
             }
             if (log) log.blocks.push(entry);
         }
