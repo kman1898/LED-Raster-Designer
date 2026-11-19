@@ -1262,12 +1262,9 @@ class _ScreenInfo {
         // circuits when already active so programmatic selectLayer calls
         // (post-load, post-create, post-delete) don't fire spurious PUTs.
         this._activateCanvasForLayer(layer);
-        sendClientLog('select_layer_before_defaults', {
-            layerId: layer.id,
-            processorType: layer.processorType,
-            bitDepth: layer.bitDepth,
-            frameRate: layer.frameRate
-        });
+        // The fields the defaults below fill in, for the one select line.
+        const defaultsFilled = ['arrowLineWidth', 'arrowColor', 'dataFlowColor', 'dataFlowLabelSize',
+            'processorType', 'lowLatency'].filter(k => layer[k] === undefined);
         
         console.log('SELECT LAYER - selected id:', this.currentLayer.id);
         
@@ -1369,7 +1366,8 @@ class _ScreenInfo {
             this.currentLayer.type = 'screen';
         }
 
-        sendClientLog('select_layer_after_defaults', {
+        // One line a selection (it was two, before and after the defaults).
+        sendClientLog('select_layer', {
             layerId: this.currentLayer.id,
             layerName: this.currentLayer.name,
             type: this.currentLayer.type || 'screen',
@@ -1380,9 +1378,7 @@ class _ScreenInfo {
             frameRate: this.currentLayer.frameRate,
             tab: window.canvasRenderer ? window.canvasRenderer.viewMode : '?',
             selectedLayerIds: this.selectedLayerIds ? [...this.selectedLayerIds] : [],
-            showLabelName: this.currentLayer.showLabelName,
-            showDataFlowPortInfo: this.currentLayer.showDataFlowPortInfo,
-            showPowerCircuitInfo: this.currentLayer.showPowerCircuitInfo
+            ...(defaultsFilled.length ? { defaultsFilled } : {})
         });
         
         console.log('SELECT LAYER - after defaults:', {

@@ -55,15 +55,42 @@ function setClientLogPage(page) {
     clientLogPage = typeof page === 'string' && page ? page : null;
 }
 
-function sendClientLog(action, details = {}) {
+// What the person last did (a field set, a button pressed), for the line
+// a save writes on the server: its X-LRD-Action names the gesture
+// (app-history _putLogLabel).
+let lastUiAction = null;
+function noteUiAction(what) {
+    lastUiAction = what ? { what: String(what).slice(0, 80), at: Date.now() } : null;
+}
+function clientLogLastAction(maxAgeMs = 1500) {
+    if (!lastUiAction || Date.now() - lastUiAction.at > maxAgeMs) return '';
+    return lastUiAction.what;
+}
+
+// One line of the app log. `opts` may name the line's level ('debug',
+// 'info', 'warn', 'error'), its area ('data', 'power', '3d', ...), its
+// plain message, and a `fold` key: repeats of one key within a second are
+// folded into one line on the server (app.py log_event). Unnamed, the
+// server works them out from the event's name (log_diff.py).
+// Each line names its page (the page id) and the page's path when it is
+// not the app itself; the server stamps the time and the browser.
+function sendClientLog(action, details = {}, opts = null) {
     try {
+        const extra = {};
+        if (opts && typeof opts === 'object') {
+            if (opts.level) extra._lvl = opts.level;
+            if (opts.area) extra._area = opts.area;
+            if (opts.msg) extra._msg = String(opts.msg);
+            if (opts.fold) extra._fold = String(opts.fold);
+        }
+        const path = window.location.pathname || '/';
         const payload = {
             action,
             details: {
-                clientTime: new Date().toISOString(),
                 ...(clientLogPage ? { page: clientLogPage } : {}),
-                url: window.location.href,
-                ...details
+                ...(path !== '/' ? { path } : {}),
+                ...details,
+                ...extra
             }
         };
         const body = JSON.stringify(payload);
@@ -151,19 +178,34 @@ function registerGlobalClientLogging() {
         });
     });
 
+    // Noted before the field's own handler runs (capture), so the save
+    // that handler makes is named by this change, not the one before.
+    document.addEventListener('change', (event) => {
+        const field = clientLogField(event.target);
+        if (field) noteUiAction(`Set ${field}`);
+    }, true);
     document.addEventListener('change', (event) => {
         const target = event.target;
         if (!target) return;
         const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+            const field = clientLogField(target);
+            // A password is never logged, whatever field it is in.
+            const secret = target.type === 'password';
             sendClientLog('ui_change', {
-                id: clientLogField(target),
+                id: field,
                 type: target.type || '',
-                value: target.type === 'checkbox' ? target.checked : target.value
+                value: secret ? '[hidden]' : (target.type === 'checkbox' ? target.checked : target.value)
             });
         }
     });
 
+    document.addEventListener('click', (event) => {
+        const button = event.target && event.target.closest ? event.target.closest('button') : null;
+        if (!button) return;
+        const what = (button.textContent || '').trim() || button.getAttribute('aria-label') || button.title || button.id;
+        if (what) noteUiAction(`Clicked ${what}`);
+    }, true);
     document.addEventListener('click', (event) => {
         const button = event.target ? event.target.closest('button') : null;
         if (!button) return;
@@ -803,7 +845,7 @@ function escapeLayerOpen(event) {
     return _escapeRead(event).open;
 }
 
-export { evaluateMathExpression, isMacOS, sendClientLog, setClientLogPage, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
+export { evaluateMathExpression, isMacOS, sendClientLog, setClientLogPage, clientLogLastAction, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
     FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff, nameFieldEnter, escapeCovered, escapeLayerOpen };
 
 // Classic (non-module) scripts call these by name at runtime

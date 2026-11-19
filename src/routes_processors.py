@@ -19,6 +19,7 @@ import math
 from flask import Blueprint, g, request, jsonify
 
 import app
+import log_diff
 import processor_catalog as catalog
 import port_assignment as assignment
 from app import log_event, socketio
@@ -637,6 +638,7 @@ def update_processor(processor_id):
     if not proc:
         return jsonify({'error': 'Processor not found'}), 404
     data = request.json or {}
+    logged_before = log_diff.snapshot(proc, list(data))
     # The whole-processor pairing and the whole-unit level are validated,
     # not allow-listed, like the card's redundancy fields: any slot that
     # cannot mirror (or cannot take the mode) refuses the whole gesture
@@ -691,7 +693,9 @@ def update_processor(processor_id):
                 'redundancyMixed', 'network', 'backupNetwork'):
         if key in data:
             changed[key] = data.get(key)
-    log_event('processor_update', {'id': processor_id, 'changed': list(changed)})
+    log_event('processor_update', {'id': processor_id, 'name': proc.get('name'),
+                                   'changed': list(changed),
+                                   'diff': log_diff.diff(logged_before, proc)})
     return _state()
 
 
@@ -837,6 +841,7 @@ def update_card(processor_id, card_id):
     if not card:
         return jsonify({'error': 'Card not found'}), 404
     data = dict(request.json or {})
+    logged_before = log_diff.snapshot(card, list(data))
     device = catalog.get_device(card.get('deviceId')) or {}
     before = None
     if 'mode' in data:
@@ -927,7 +932,9 @@ def update_card(processor_id, card_id):
     for key in ('portLabelTemplate', 'returnLabelTemplate'):
         if key in data and not (card.get(key) or '').strip():
             card.pop(key, None)
-    log_event('processor_card_update', {'id': card_id, 'changed': list(changed)})
+    log_event('processor_card_update', {'id': card_id, 'name': card.get('name'),
+                                        'changed': list(changed),
+                                        'diff': log_diff.diff(logged_before, card)})
     return _state()
 
 
@@ -1175,6 +1182,7 @@ def update_cvt(processor_id, cvt_id):
     if not cvt:
         return jsonify({'error': 'Breakout box not found'}), 404
     data = request.json or {}
+    logged_before = log_diff.snapshot(cvt, list(data))
     # THE BOX'S INPUT SWITCH (owner, 2026-09-26: "A switch on the box"): a
     # CVT4K-S may run on ONE OPT - "each one only uses one optical port" -
     # and then carries only that OPT's share, 8 of its 16 (box_trunks_in,
@@ -1307,7 +1315,9 @@ def update_cvt(processor_id, cvt_id):
     for key in ('portLabelTemplate', 'returnLabelTemplate'):
         if key in data and not (cvt.get(key) or '').strip():
             cvt.pop(key, None)
-    log_event('processor_cvt_update', {'id': cvt_id, 'changed': list(changed)})
+    log_event('processor_cvt_update', {'id': cvt_id, 'name': cvt.get('name'),
+                                       'changed': list(changed),
+                                       'diff': log_diff.diff(logged_before, cvt)})
     return _state()
 
 
@@ -1572,9 +1582,12 @@ def update_snake(snake_id):
     if why:
         return jsonify({'error': why}), 400
     devices, _delivers = _snake_devices()
+    logged_before = log_diff.snapshot(snake, list(data))
     catalog.store_show_snake(app.current_project, data, devices, _next_seq,
                              snake)
-    log_event('snake_update', {'id': snake_id, 'changed': list(data)})
+    log_event('snake_update', {'id': snake_id, 'name': snake.get('name'),
+                               'changed': list(data),
+                               'diff': log_diff.diff(logged_before, snake)})
     return _state()
 
 

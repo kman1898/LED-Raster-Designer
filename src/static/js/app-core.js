@@ -1067,7 +1067,7 @@ export class LEDRasterApp {
         // A number held here: its ticks so far are its own step, not the
         // other page's (app-history _numberHoldCheckpoint).
         if (otherPage && typeof this._numberHoldCheckpoint === 'function') this._numberHoldCheckpoint();
-        sendClientLog('socket_layer_updated', { id: layer.id });
+        sendClientLog('socket_layer_updated', { id: layer.id, own: !!own });
         // The server's copy of a screen is taken in and shown; nothing
         // worked out on the way is written back (FOLLOWING). Another
         // page's change, or the server's own, is followed field for field
@@ -2364,6 +2364,7 @@ export class LEDRasterApp {
         const marker = (this._layerPutIsAnEdit() ? '?edited=1&' : '?')
             + `seq=${seq}&client=${this._echoClientId}`;
         const payload = this._noteLayerSent(id, body);
+        const logLabel = encodeURIComponent(typeof this._putLogLabel === 'function' ? this._putLogLabel() : '');
         // A save of the whole screen carries what it followed.
         if (this._followedLayers && body && this.project
                 && (this.project.layers || []).some(l => l.id === id && l === body)) {
@@ -2389,7 +2390,10 @@ export class LEDRasterApp {
                    new Response(payload, { status: 200, headers: { 'Content-Type': 'application/json' } }))
                 : fetch(`/api/layer/${id}${marker}`, {
                     method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
+                    // The server's log line names what the person did
+                    // (app-history _putLogLabel); a header, so the body
+                    // stays the layer byte for byte.
+                    headers: { 'Content-Type': 'application/json', 'X-LRD-Action': logLabel },
                     body: payload
                 })));
         this._layerPutChains.set(id, sent);

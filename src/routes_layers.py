@@ -9,6 +9,7 @@ import threading
 from flask import Blueprint, request, jsonify
 
 import app
+import log_diff
 import port_assignment
 import port_assignment as assignment
 from app import _assign_canvas_id, _build_panels, _find_canvas, _rebuild_layer_geometry_from_panel_states, _seed_data_with_canvas_defaults, create_image_layer, create_layer, create_text_layer, log_event, socketio
@@ -373,6 +374,25 @@ def mirror_refusal_check(layer_id):
         app.current_project, layer, wanted)})
 
 
+def _log_layer_edit(layer, before):
+    """One line for a screen save: what it changed, named by what the
+    person did when the page says (X-LRD-Action: the undo step's label or
+    the field they touched). Ticks of one gesture fold into one line
+    (app.log_event); a save that changed nothing is a debug line."""
+    from urllib.parse import unquote
+    changed = log_diff.diff(before, layer)
+    label = unquote(request.headers.get('X-LRD-Action', '') or '')[:80]
+    client = request.args.get('client') or ''
+    details = {'id': layer.get('id'), 'name': layer.get('name', '?'), 'diff': changed}
+    if label:
+        details['label'] = label
+    if not changed:
+        log_event('layer_save_noop', details, fold=f"noop:{layer.get('id')}:{client}")
+        return
+    log_event('update_layer', details,
+              fold=f"layer:{layer.get('id')}:{','.join(sorted(changed))}:{client}")
+
+
 @layers_bp.route('/api/layer/<int:layer_id>', methods=['PUT'])
 def update_layer(layer_id):
     data = dict(request.json or {})
@@ -392,7 +412,11 @@ def update_layer(layer_id):
     
     if not layer:
         return jsonify({'error': 'Layer not found'}), 404
-    
+
+    # The log says what this PUT CHANGED (log_diff), not the whole screen
+    # it carries: the page sends every field on every save, about 10 KB a
+    # line for a one-number edit (2026-11-18 audit).
+    logged_before = log_diff.snapshot(layer, [k for k in data if not k.startswith('_')])
     previous_offset_x = layer.get('offset_x', 0)
     previous_offset_y = layer.get('offset_y', 0)
     previous_group_id = layer.get('group_id')
@@ -679,21 +703,6 @@ def update_layer(layer_id):
             layer['beachId'] = previous_beach_id
             log_event('update_layer_unknown_beach', {'id': layer_id, 'beachId': wanted})
 
-    # Log with actual changed values (exclude large arrays for readability)
-    changed_values = {}
-    for key in data.keys():
-        val = data[key]
-        if key == 'panels':
-            changed_values[key] = f'{len(val)} panels' if isinstance(val, list) else str(val)[:50]
-        elif key == 'customPortPaths' or key == 'powerCustomPaths':
-            changed_values[key] = f'{len(val)} paths' if isinstance(val, dict) else str(val)[:50]
-        elif key == 'imageData':
-            changed_values[key] = f'{len(str(val))} chars'
-        elif isinstance(val, (list, dict)) and len(str(val)) > 200:
-            changed_values[key] = f'{type(val).__name__}({len(val)} items)'
-        else:
-            changed_values[key] = val
-    log_event('update_layer', {'id': layer_id, 'name': layer.get('name', '?'), 'changed': changed_values})
     
     # Only regenerate panels if grid size or cabinet size changes (not offset)
     if layer.get('type') not in ('image', 'text') and (
@@ -735,6 +744,7 @@ def update_layer(layer_id):
         else:
             layer['idm'] = data.get('idm')
     app.normalize_idm_layer(layer)
+    _log_layer_edit(layer, logged_before)
 
     if edited:
         app.current_project['is_pristine'] = False

@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, make_response, send_from_directory
 from flask_socketio import SocketIO, emit
+import atexit
 import itertools
 import json
 import math
@@ -11,7 +12,9 @@ import sys
 import datetime
 import platform
 import subprocess
+import threading
 from PIL import Image
+import log_diff
 import port_assignment
 
 # v0.8.7: Pillow's default decompression-bomb guard refuses images larger
@@ -321,19 +324,177 @@ def _layer_bounds(layer):
     height = (layer.get('rows', 0) or 0) * (layer.get('cabinet_height', 0) or 0)
     return {'x': layer.get('offset_x', 0), 'y': layer.get('offset_y', 0), 'width': width, 'height': height}
 
-def log_event(action, details=None, source='server'):
-    try:
+# ── The log writer ────────────────────────────────────────────────────────
+#
+# One JSON object a line, in the order written:
+#   {"timestamp": "2026-11-18 14:02:11.482", "lvl": "info", "area": "data",
+#    "source": "server", "action": "update_layer",
+#    "msg": "Change Label Size: Screen 2 (#2) dataFlowLabelSize 47 to 48",
+#    "details": {...}}
+# timestamp is local time to the millisecond; lvl (debug, info, warn,
+# error), area and msg come from log_diff unless the caller names them.
+# The keys every older reader used (timestamp, source, action, details)
+# are unchanged.
+#
+# Repeated lines fold (log_diff.default_fold_key, or a caller's `fold`):
+# the first is written at once, the ones that follow within a second are
+# held, and the run ends as ONE line that says where it started and where
+# it ended ("... 30 to 48 (18 steps, 1.4 s)"). A held spinner wrote five
+# lines a tick before (2026-11-18 audit).
+LOG_LINE_MAX_BYTES = 8 * 1024
+LOG_FOLD_WINDOW_S = 1.0
+_log_lock = threading.RLock()
+_log_folds = {}            # fold key -> the run being held
+_log_fold_thread = None
+
+
+def _log_now_text():
+    return datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+
+
+def _log_cap(details):
+    """details made to fit one line of LOG_LINE_MAX_BYTES: the biggest
+    values give way first (a traceback keeps its end)."""
+    text = json.dumps(details, ensure_ascii=False, default=str)
+    if len(text.encode('utf-8')) <= LOG_LINE_MAX_BYTES - 400:
+        return details
+    if not isinstance(details, dict):
+        return {'truncated': True, 'bytes': len(text)}
+    out = dict(details)
+    sizes = sorted(((len(json.dumps(v, ensure_ascii=False, default=str)), k) for k, v in out.items()),
+                   reverse=True)
+    for size, k in sizes:
+        if size <= 300:
+            break
+        v = out[k]
+        if isinstance(v, str) and k in ('traceback', 'stack', 'reason'):
+            out[k] = '...' + v[-3000:]
+        else:
+            out[k] = log_diff.short(v, 300)
+        text = json.dumps(out, ensure_ascii=False, default=str)
+        if len(text.encode('utf-8')) <= LOG_LINE_MAX_BYTES - 400:
+            out['truncated'] = True
+            return out
+    return {'truncated': True, 'bytes': len(text), 'keys': list(details.keys())[:30]}
+
+
+def _log_write(ts, action, details, source, level, area, msg):
+    payload = {
+        'timestamp': ts,
+        'lvl': level,
+        'area': area,
+        'source': source,
+        'action': action,
+        'msg': msg,
+        'details': details,
+    }
+    line = json.dumps(payload, ensure_ascii=False, default=str)
+    with _log_lock:
         os.makedirs(LOG_DIR_PATH, exist_ok=True)
         rotate_logs()
-        ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        payload = {
-            'timestamp': ts,
-            'source': source,
-            'action': action,
-            'details': details or {}
-        }
         with open(LOG_FILE_PATH, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + '\n')
+            f.write(line + '\n')
+
+
+def _log_flush_fold(key):
+    """Write the summary line of a held run, if it folded anything."""
+    run = _log_folds.pop(key, None)
+    if not run or run['steps'] <= 1:
+        return
+    ms = int((run['last_at'] - run['first_at']) * 1000)
+    action, details = log_diff.fold(run['first_action'], run['first'], run['last_action'],
+                                    run['last'], run['steps'], ms, run['counts'])
+    level = 'debug' if action == 'sync_echoes_folded' else run['level']
+    area = 'sync' if action == 'sync_echoes_folded' else run['area']
+    _log_write(run['first_ts'], action, details, run['source'], level, area,
+               log_diff.message(action, details))
+
+
+def flush_log(only_expired=False):
+    """Write every held run (only those a second quiet, when asked)."""
+    try:
+        with _log_lock:
+            now = time.monotonic()
+            for key in list(_log_folds):
+                run = _log_folds.get(key)
+                if only_expired and run and now - run['last_at'] <= LOG_FOLD_WINDOW_S:
+                    continue
+                _log_flush_fold(key)
+    except Exception:
+        pass
+
+
+def _log_fold_loop():
+    while True:
+        time.sleep(0.25)
+        if _log_folds:
+            flush_log(only_expired=True)
+
+
+def _ensure_log_fold_thread():
+    global _log_fold_thread
+    if _log_fold_thread is None:
+        _log_fold_thread = threading.Thread(target=_log_fold_loop, name='log-fold', daemon=True)
+        _log_fold_thread.start()
+
+
+atexit.register(flush_log)
+
+
+def log_event(action, details=None, source='server', *, level=None, area=None, msg=None, fold=None):
+    """Write one line to the app log.
+
+    level / area / msg override what log_diff works out from the event's
+    name and details. `fold` names the run a repeated line folds into
+    (None: log_diff's default for the event; False: never folded). A
+    page's line may carry the same as details._lvl, _area, _msg, _fold.
+    """
+    try:
+        details = details if details is not None else {}
+        if isinstance(details, dict) and any(k in details for k in ('_lvl', '_area', '_msg', '_fold')):
+            details = dict(details)
+            level = level or details.pop('_lvl', None)
+            area = area or details.pop('_area', None)
+            msg = msg or details.pop('_msg', None)
+            given_fold = details.pop('_fold', None)
+            if fold is None and given_fold:
+                fold = f'{source}:{details.get("page")}:{given_fold}'
+        details = log_diff.scrub(details)
+        if level not in log_diff.LEVELS:
+            level = log_diff.level_for(action, details)
+        if area not in log_diff.AREAS:
+            area = log_diff.area_for(action, details)
+        if fold is None:
+            fold = log_diff.default_fold_key(action, details, source)
+        ts = _log_now_text()
+        with _log_lock:
+            # A warning or an error is read with what led to it: every run
+            # still held is written first.
+            if level in ('warn', 'error') and _log_folds:
+                flush_log()
+            if fold:
+                now = time.monotonic()
+                run = _log_folds.get(fold)
+                if run and now - run['last_at'] <= LOG_FOLD_WINDOW_S:
+                    run['steps'] += 1
+                    run['last'] = details
+                    run['last_action'] = action
+                    run['last_at'] = now
+                    run['counts'][action] = run['counts'].get(action, 0) + 1
+                    return
+                if run:
+                    _log_flush_fold(fold)
+                _log_folds[fold] = {
+                    'first_ts': ts, 'first_at': now, 'last_at': now, 'steps': 1,
+                    'first_action': action, 'first': details,
+                    'last_action': action, 'last': details,
+                    'counts': {action: 1}, 'source': source, 'level': level, 'area': area,
+                }
+                _ensure_log_fold_thread()
+            details = _log_cap(details)
+            if not isinstance(msg, str) or not msg:
+                msg = log_diff.message(action, details)
+            _log_write(ts, action, details, source, level, area, msg)
     except Exception:
         pass
 
