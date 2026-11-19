@@ -1152,3 +1152,71 @@ GROUP_JS = """async () => {
     window.canvasRenderer.render();
     return true;
 }"""
+
+
+def _segs(run):
+    p = run['points']
+    return list(zip(p, p[1:]))
+
+
+def test_wiring_runs_off_a_shared_disc_stand_apart_and_cross_no_note(page):
+    """Every box powered from WALL A's circuits, the start and the end in
+    turn: a circuit then feeds its multi's breakout AND a breakout box, so
+    two runs leave its one disc. They used to leave it the same way, one
+    on top of the other for some 64 units, and the box's note naming the
+    circuit ("SL1-2" against its socket 1) stood centred on the socket, so
+    the box's own run came down through it. Now the second run leaves the
+    disc a pen's width off the first, and a note stands beside the run
+    into its socket - no run crosses a socket's note."""
+    pg, errors = page
+    _setup(pg)
+    b = _boxes(pg)
+    ids = [x['id'] for v in b.values() for x in v]
+    out = pg.evaluate("""(ids) => {
+        const app = window.app, a = app.project.layers[0];
+        const circ = (app.screenCircuits(a) || []).map(c => c.num);
+        ids.forEach((id, i) => app.setBoxPower(id, { kind: i % 2 ? 'end' : 'start', layerId: a.id,
+                                                     circuit: circ[i % circ.length] }));
+        // the full set, whatever the Simple tests left chosen
+        const opts = { ...app.readBinderOptions(), mode: 'full', sides: { power: true, data: false } };
+        const plan = app.planBinder(opts);
+        // (the first wall, whatever an earlier test named it)
+        const i = plan.findIndex(p => p.title === `${a.name} - Power Wiring`);
+        if (i < 0) return { titles: plan.map(p => p.title) };
+        return { halves: (app.renderBinderPage(opts, i).wiring || {}).halves || [] };
+    }""", ids)
+    assert out.get('halves') and len(out['halves']) == 1, out
+    h = out['halves'][0]
+    pen = (1.4 + 3.2) * h['scale']
+    # a disc that sends two runs - the very case
+    by_disc = {}
+    for r in h['runs']:
+        by_disc.setdefault(r['from'], []).append(r)
+    shared = {k: v for k, v in by_disc.items() if len(v) > 1}
+    assert shared, sorted(by_disc)
+    for name, runs in shared.items():
+        for i, r in enumerate(runs):
+            for o in runs[i + 1:]:
+                for a0, a1 in _segs(r):
+                    for b0, b1 in _segs(o):
+                        for k in (0, 1):          # 0: verticals at x, 1: horizontals at y
+                            if abs(a0[k] - a1[k]) > 0.01 or abs(b0[k] - b1[k]) > 0.01:
+                                continue
+                            lo = max(min(a0[1 - k], a1[1 - k]), min(b0[1 - k], b1[1 - k]))
+                            hi = min(max(a0[1 - k], a1[1 - k]), max(b0[1 - k], b1[1 - k]))
+                            assert not (abs(a0[k] - b0[k]) < pen and hi - lo > 0.5), (
+                                'two runs off one disc print as one', name, r['device'], o['device'])
+    notes = [(blk['title'], s) for blk in h['blocks'] for s in blk['sockets'] if s.get('note')]
+    assert notes, 'no socket note on the sheet'
+    pad = pen / 2
+    for title, s in notes:
+        nb = s['noteBox']
+        assert nb and nb['w'] > 0, (title, s)
+        for r in h['runs']:
+            for a, c in _segs(r):
+                x0, x1 = sorted((a[0], c[0]))
+                y0, y1 = sorted((a[1], c[1]))
+                assert not (x1 + pad > nb['x'] and x0 - pad < nb['x'] + nb['w']
+                            and y1 + pad > nb['y'] and y0 - pad < nb['y'] + nb['h']), (
+                    'a run crosses a socket note', title, s['note'], r['from'])
+    assert not errors
