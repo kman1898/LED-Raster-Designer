@@ -250,8 +250,13 @@ class _History {
     _wireNumberHold() {
         if (this._numberHoldWired) return;
         this._numberHoldWired = true;
+        // A field marked data-own-undo takes its own steps and is left alone:
+        // the palette Hue slider makes a run of arrow taps one step however
+        // slowly they come (app-quick-palettes.js), which a hold per tap
+        // would split.
         const held = (el) => el && el.tagName === 'INPUT'
-            && (el.type === 'number' || el.type === 'range') && !el.disabled && !el.readOnly;
+            && (el.type === 'number' || el.type === 'range') && !el.disabled && !el.readOnly
+            && !el.hasAttribute('data-own-undo');
         const KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown']);
         const start = (field, how, key) => {
             if (this._numberHold) return;
@@ -559,6 +564,11 @@ class _History {
         // Another undo/redo (or a new edit) moved the index while this PUT was
         // in flight - its own round-trip owns the client state now.
         if (this.history[this.historyIndex] !== entry) return;
+        // A number held through the round trip changed the show after the
+        // restore and has taken no step yet (its ticks wait for the release,
+        // _wireNumberHold): the PUT carried those ticks, and taking the
+        // answer into the entry would write them into the step undone to.
+        if (this._numberHold && this._numberHold.action) return;
         // No repair -> no adoption. Canonical compare, or the server's sorted
         // key order alone would count as one.
         if (this._canonicalJson(repaired)

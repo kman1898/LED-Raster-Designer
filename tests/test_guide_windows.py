@@ -90,8 +90,8 @@ GUIDE_RUNS = {
     'headerFooter': [],
     'threeD': [['outputOpen', 'outputChoices']],                     # output
     'idm': [],
-    'binder': [['exportBinder', 'screenOrder', 'wiringTick', 'riggingSheet',
-                'fiberPage', 'titleBlock'],                          # export:binder
+    'binder': [['exportBinder', 'screenOrder', 'wiringTick', 'binderMode',
+                'riggingSheet', 'fiberPage', 'titleBlock'],          # export:binder
                ['preferences', 'controls']],                         # prefs
 }
 # The guides whose steps share a window somewhere.
@@ -108,18 +108,18 @@ WHATS_NEW_RUNS = {
     '1.5.0': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
               ['jumperNames', 'pullPanels'],
               ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
-              ['riggingSheet', 'fiberPage']],
+              ['binderMode', 'riggingSheet', 'fiberPage']],
     '1.5.1': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
               ['jumperNames', 'pullPanels'],
               ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
-              ['riggingSheet', 'fiberPage']],
+              ['binderMode', 'riggingSheet', 'fiberPage']],
     '1.5.2': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
               ['jumperNames', 'pullPanels'],
               ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
-              ['riggingSheet', 'fiberPage']],
+              ['binderMode', 'riggingSheet', 'fiberPage']],
     '1.5.3': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
               ['jumperNames', 'pullPanels'],
-              ['outputOpen', 'outputChoices'], ['riggingSheet', 'fiberPage']],
+              ['outputOpen', 'outputChoices'], ['binderMode', 'riggingSheet', 'fiberPage']],
 }
 
 # Each step's declared windows as a token the page can compare without

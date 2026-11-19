@@ -1053,7 +1053,7 @@ NEW_IN_1_7 = [
     # Pixel Map
     'quickPalettes', 'groupDrag', 'groupMove', 'matchScreens', 'checkUpdates',
     # Data
-    'processorIp',
+    'processorIp', 'catSnake',
     # Power
     'breakerOver', 'edisonType', 'distroNeutral', 'mixedSources', 'resetHole', 'redrawCircuits',
     'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun',
@@ -1069,7 +1069,7 @@ NEW_IN_1_7 = [
     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
     'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap', 'notesChecklist',
     # Binder and Exports
-    'riggingSheet', 'objExport']
+    'binderMode', 'riggingSheet', 'objExport', 'controls']
 
 
 def test_the_guide_step_shows_the_palettes(page):

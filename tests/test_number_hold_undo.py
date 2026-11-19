@@ -357,6 +357,47 @@ def test_undo_during_a_hold_leaves_one_step_after_it(page):
     assert _size(page, lid) == 30
 
 
+# Every layer PUT answers late, so an undo's restore waits behind the hold's
+# ticks still on their way (_syncRestoredProject) and goes out carrying the
+# ticks made in the meantime: the race a loaded machine hit by chance.
+SLOW_LAYER_PUTS_JS = """(on) => {
+    if (!window.__fastFetch) {
+        window.__fastFetch = window.fetch;
+        window.fetch = function (url, opts) {
+            const p = window.__fastFetch.apply(this, arguments);
+            const put = opts && String(opts.method || '').toUpperCase() === 'PUT';
+            if (!window.__slowLayerPuts || !put || !String(url).includes('/api/layer/')) return p;
+            return p.then(r => new Promise(res => setTimeout(() => res(r), 300)));
+        };
+    }
+    window.__slowLayerPuts = on;
+}"""
+
+
+def test_an_undo_answered_mid_hold_keeps_the_step_it_went_back_to(page):
+    """1.7.0 QA: under load, Undo during a hold went back to the right
+    value, but its restore went out after the next ticks and its answer
+    (with them in it) was taken into the entry it went back to: a second
+    Undo landed on 31, not 30. The entry stays as it was taken."""
+    lid, field = _reset(page)
+
+    def undo(pg):
+        pg.evaluate("() => window.app.undo()")
+
+    page.evaluate(SLOW_LAYER_PUTS_JS, True)
+    try:
+        _hold(page, field, 1600, during=undo)
+        settled(page, lambda: _steps(page), lambda n: n >= 1)
+        page.wait_for_timeout(600)
+    finally:
+        page.evaluate(SLOW_LAYER_PUTS_JS, False)
+    assert _entry_size(page, 0, lid) == 30
+    assert _actions(page) == ['Hold Reset', ACTION], _actions(page)
+    assert _size(page, lid) > 30
+    page.evaluate("() => window.app.undo()")
+    assert _size(page, lid) == 30
+
+
 def test_a_release_the_page_never_saw_ends_the_hold(page):
     """Let go outside the window: no pointerup arrives. The next move with
     no button down ends the hold, and the next typed value is its own step."""
