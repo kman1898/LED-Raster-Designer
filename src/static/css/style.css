@@ -3401,3 +3401,36 @@ body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
 }
 #preferences-modal .pm-qp-row > label:first-child { align-self: start; padding-top: 8px; }
 #preferences-modal .pm-qp-grid.pm-qp-auto { opacity: 0.55; }
+
+/* The log viewer's readable view (app-logs-recent.js): level and area
+   chips, one row an event, warnings amber and errors red, a row opening
+   to its details on a click. */
+#logs-modal .logs-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+#logs-modal .logs-chip {
+    background: #1a1a1a;
+    border: 1px solid #3a3a3a;
+    color: #9a9a9a;
+    border-radius: 10px;
+    padding: 2px 9px;
+    font-size: 11px;
+    cursor: pointer;
+}
+#logs-modal .logs-chip.on { background: #33465c; border-color: #4A90E2; color: #fff; }
+#logs-modal #logs-view-filters.logs-raw-mode .logs-chips,
+#logs-modal #logs-view-filters.logs-raw-mode #logs-search { opacity: 0.4; pointer-events: none; }
+#logs-readable .logs-row { cursor: pointer; padding: 1px 0; }
+#logs-readable .logs-row:hover { background: #1b1b1b; }
+#logs-readable .logs-row.lvl-warn { color: #f0ad4e; }
+#logs-readable .logs-row.lvl-error { color: #ff6b6b; }
+#logs-readable .logs-row.lvl-debug { color: #8a8a8a; }
+#logs-readable .logs-row-details {
+    margin: 2px 0 6px 18px;
+    padding: 6px 8px;
+    background: #161616;
+    border-left: 2px solid #3a3a3a;
+    color: #cfcfcf;
+    white-space: pre-wrap;
+    cursor: text;
+    font-size: 11px;
+}
+#logs-readable .logs-empty { color: #888; padding: 8px 0; }

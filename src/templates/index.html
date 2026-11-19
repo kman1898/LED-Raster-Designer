@@ -4305,10 +4305,30 @@
                 <button id="logs-filter-clear" class="btn" style="background: #3a3a3a; padding: 4px 10px; font-size: 12px;">Clear filter</button>
                 <span id="logs-filter-status" style="color: #888; font-size: 11px;"></span>
             </div>
-            <pre id="logs-content" style="flex: 1; min-height: 360px; background: #0d0d0d; border: 1px solid #333; border-radius: 4px; padding: 10px; color: #ddd; font-family: Menlo, Consolas, monospace; font-size: 11px; overflow: auto; white-space: pre; margin: 0;"></pre>
+            <div id="logs-view-filters" style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+                <span id="logs-levels" class="logs-chips" title="Which levels to show"></span>
+                <input id="logs-search" type="search" placeholder="Search" aria-label="Search the log"
+                       style="background: #1a1a1a; border: 1px solid #333; color: #fff; padding: 4px 6px; border-radius: 4px; width: 160px; font-size: 12px;">
+                <label style="color: #ccc; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;"
+                       title="Only lines about the screen selected now">
+                    <input id="logs-this-screen" type="checkbox">
+                    Only this screen
+                </label>
+                <label style="color: #ccc; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;"
+                       title="The log file's own lines, every one, as written">
+                    <input id="logs-raw" type="checkbox">
+                    Raw
+                </label>
+                <span id="logs-areas" class="logs-chips" style="flex-basis: 100%;"></span>
+            </div>
+            <div id="logs-readable" role="log" aria-label="Log lines"
+                 style="flex: 1; min-height: 360px; background: #0d0d0d; border: 1px solid #333; border-radius: 4px; padding: 6px 10px; color: #ddd; font-family: Menlo, Consolas, monospace; font-size: 11px; overflow: auto; white-space: pre;"></div>
+            <pre id="logs-content" style="display: none; flex: 1; min-height: 360px; background: #0d0d0d; border: 1px solid #333; border-radius: 4px; padding: 10px; color: #ddd; font-family: Menlo, Consolas, monospace; font-size: 11px; overflow: auto; white-space: pre; margin: 0;"></pre>
             <div style="display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
                 <div style="display: flex; gap: 8px;">
                     <button id="logs-copy" class="btn" style="background: #3a3a3a; padding: 6px 14px;">Copy</button>
+                    <button id="logs-copy-report" class="btn" style="background: #3a3a3a; padding: 6px 14px;"
+                            title="Copy these lines with emails, phone numbers, network addresses and your user name hidden">Copy for a bug report</button>
                     <button id="logs-reveal" class="btn" style="background: #3a3a3a; padding: 6px 14px;">Open Folder</button>
                     <button id="logs-clear" class="btn" style="background: #552020; padding: 6px 14px; color: #fff;">Clear Logs</button>
                 </div>

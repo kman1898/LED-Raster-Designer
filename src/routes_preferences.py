@@ -10,6 +10,7 @@ be visible to app.py or the tests.
 from flask import Blueprint, request, jsonify
 
 import app
+import log_diff
 from app import log_event, socketio
 
 preferences_bp = Blueprint('preferences', __name__)
@@ -32,7 +33,9 @@ def save_preferences():
     if not isinstance(data, dict):
         log_event('save_preferences_rejected', {'type': type(data).__name__})
         return jsonify({'error': 'preferences must be a JSON object'}), 400
+    old = app.server_preferences if isinstance(app.server_preferences, dict) else {}
     app.server_preferences = data
-    log_event('save_preferences', {'keys': list(data.keys())})
+    # What the save changed, with its values; not every key it carried.
+    log_event('save_preferences', {'diff': log_diff.diff_dicts(old, data)})
     socketio.emit('preferences_updated', app.server_preferences)
     return jsonify({'status': 'success'})

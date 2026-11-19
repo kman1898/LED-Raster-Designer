@@ -8,6 +8,27 @@ import { sendClientLog, escapeCovered } from './helpers.js';
 // writes always have room (saveRecentFiles).
 const RECENT_COPY_BUDGET = 1500000;
 
+// The log viewer's readable view (2026-11-19): one line an event, "time
+// LEVEL AREA message", warnings amber, errors red, debug hidden until
+// asked for. The filters go to the server (GET /api/logs area / lvl / q /
+// layer), so a long log is never all loaded at once. Raw shows the file's
+// own lines, as the viewer always did.
+const LOG_LEVELS = [
+    { id: 'error', label: 'Errors', color: '#ff6b6b' },
+    { id: 'warn', label: 'Warnings', color: '#f0ad4e' },
+    { id: 'info', label: 'Info', color: '#dddddd' },
+    { id: 'debug', label: 'Debug', color: '#8a8a8a' },
+];
+const LOG_AREAS = ['pixelmap', 'cabinet', 'data', 'power', 'rigging', '3d', 'idm', 'phone', 'pad',
+    'output', 'binder', 'export', 'processor', 'fiber', 'distro', 'history', 'sync',
+    'file', 'prefs', 'guide', 'render', 'app'];
+const LOG_AREA_NAMES = { pixelmap: 'Pixel Map', cabinet: 'Cabinet ID', data: 'Data', power: 'Power',
+    rigging: 'Header/Footer', '3d': '3D', idm: 'IDM', phone: 'Phone', pad: 'Controller',
+    output: 'Output', binder: 'Binder', export: 'Export', processor: 'Processors', fiber: 'Fiber',
+    distro: 'Distros', history: 'Undo', sync: 'Sync', file: 'File', prefs: 'Preferences',
+    guide: 'Guides', render: 'Drawing', app: 'App' };
+const LOG_VIEW_KEY = 'lrd_logs_viewer';
+
 class _LogsRecent {
     // ── Logs Viewer (Help → Show Logs…) ──
     openLogsModal() {
@@ -15,6 +36,7 @@ class _LogsRecent {
         if (!modal) return;
         modal.style.display = 'block';
         this._ensureLogsModalWired();
+        this._syncLogViewControls();
         this._logsUserScrolledUp = false;
         this.refreshLogs(true);
     }
@@ -52,6 +74,9 @@ class _LogsRecent {
         if (closeBtn) closeBtn.addEventListener('click', () => this.closeLogsModal());
         if (refreshBtn) refreshBtn.addEventListener('click', () => this.refreshLogs(true));
         if (copyBtn) copyBtn.addEventListener('click', () => this.copyLogs());
+        const reportBtn = document.getElementById('logs-copy-report');
+        if (reportBtn) reportBtn.addEventListener('click', () => this.copyLogsForReport());
+        this._wireLogViewFilters();
         if (revealBtn) revealBtn.addEventListener('click', () => this.revealLogsFolder());
         if (clearBtn) clearBtn.addEventListener('click', () => this.clearLogs());
         if (linesSel) linesSel.addEventListener('change', () => this.refreshLogs(true));
@@ -62,6 +87,8 @@ class _LogsRecent {
         if (wrapCb && pre) {
             wrapCb.addEventListener('change', () => {
                 pre.style.whiteSpace = wrapCb.checked ? 'pre-wrap' : 'pre';
+                const readable = document.getElementById('logs-readable');
+                if (readable) readable.style.whiteSpace = wrapCb.checked ? 'pre-wrap' : 'pre';
             });
         }
         // Filter inputs: re-fetch through the current window (the bounds are
@@ -107,11 +134,20 @@ class _LogsRecent {
                 applyFilterNow();
             });
         }
-        if (pre) {
-            pre.addEventListener('scroll', () => {
-                // If user scrolls away from the bottom, stop auto-scrolling on refresh
-                const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 16;
-                this._logsUserScrolledUp = !atBottom;
+        const onScroll = (el) => () => {
+            // If user scrolls away from the bottom, stop auto-scrolling on refresh
+            const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 16;
+            this._logsUserScrolledUp = !atBottom;
+        };
+        if (pre) pre.addEventListener('scroll', onScroll(pre));
+        const readableEl = document.getElementById('logs-readable');
+        if (readableEl) {
+            readableEl.addEventListener('scroll', onScroll(readableEl));
+            // A line opens to its details, and closes again.
+            readableEl.addEventListener('click', (e) => {
+                const row = e.target.closest('.logs-row');
+                if (!row || e.target.closest('.logs-row-details')) return;
+                this._toggleLogRow(row);
             });
         }
         if (modal) {
@@ -347,7 +383,130 @@ class _LogsRecent {
         }
     }
 
-    refreshLogs(force) {
+    // ── Readable view: filters, rows, copy ──
+    _logView() {
+        if (!this._logViewState) {
+            let saved = null;
+            try { saved = JSON.parse(localStorage.getItem(LOG_VIEW_KEY) || 'null'); } catch (e) { saved = null; }
+            const ok = (list, all) => Array.isArray(list) ? list.filter(x => all.includes(x)) : null;
+            this._logViewState = {
+                levels: ok(saved && saved.levels, LOG_LEVELS.map(l => l.id)) || ['error', 'warn', 'info'],
+                areas: ok(saved && saved.areas, LOG_AREAS) || [],
+                raw: !!(saved && saved.raw),
+                q: (saved && typeof saved.q === 'string') ? saved.q : '',
+                thisScreen: false,
+                seenAreas: new Set(),
+                expanded: new Set(),
+            };
+        }
+        return this._logViewState;
+    }
+
+    _saveLogView() {
+        const v = this._logView();
+        try {
+            localStorage.setItem(LOG_VIEW_KEY, JSON.stringify({ levels: v.levels, areas: v.areas, raw: v.raw, q: v.q }));
+        } catch (e) { /* the filters are not remembered: fine */ }
+    }
+
+    _wireLogViewFilters() {
+        const v = this._logView();
+        const levelsEl = document.getElementById('logs-levels');
+        if (levelsEl && !levelsEl.childElementCount) {
+            for (const lvl of LOG_LEVELS) {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'logs-chip';
+                b.dataset.lvl = lvl.id;
+                b.textContent = lvl.label;
+                b.addEventListener('click', () => {
+                    const on = v.levels.includes(lvl.id);
+                    v.levels = on ? v.levels.filter(x => x !== lvl.id) : v.levels.concat(lvl.id);
+                    this._saveLogView();
+                    this._syncLogViewControls();
+                    this.refreshLogs(true);
+                });
+                levelsEl.appendChild(b);
+            }
+        }
+        const search = document.getElementById('logs-search');
+        if (search) {
+            search.addEventListener('input', () => {
+                v.q = search.value;
+                this._saveLogView();
+                this._debouncedLogFilter();
+            });
+        }
+        const thisScreen = document.getElementById('logs-this-screen');
+        if (thisScreen) thisScreen.addEventListener('change', () => {
+            v.thisScreen = thisScreen.checked;
+            this.refreshLogs(true);
+        });
+        const raw = document.getElementById('logs-raw');
+        if (raw) raw.addEventListener('change', () => {
+            v.raw = raw.checked;
+            this._saveLogView();
+            this._syncLogViewControls();
+            this.refreshLogs(true);
+        });
+    }
+
+    // The chips, boxes and the two views as the state says.
+    _syncLogViewControls() {
+        const v = this._logView();
+        document.querySelectorAll('#logs-levels .logs-chip').forEach(b => {
+            const on = v.levels.includes(b.dataset.lvl);
+            b.classList.toggle('on', on);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        const areasEl = document.getElementById('logs-areas');
+        if (areasEl) {
+            const show = LOG_AREAS.filter(a => v.seenAreas.has(a) || v.areas.includes(a));
+            const have = [...areasEl.querySelectorAll('.logs-chip')].map(b => b.dataset.area).join(',');
+            if (have !== show.join(',')) {
+                areasEl.textContent = '';
+                for (const a of show) {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'logs-chip';
+                    b.dataset.area = a;
+                    b.textContent = LOG_AREA_NAMES[a] || a;
+                    b.title = 'Show only these areas (none picked: every area)';
+                    b.addEventListener('click', () => {
+                        const on = v.areas.includes(a);
+                        v.areas = on ? v.areas.filter(x => x !== a) : v.areas.concat(a);
+                        this._saveLogView();
+                        this._syncLogViewControls();
+                        this.refreshLogs(true);
+                    });
+                    areasEl.appendChild(b);
+                }
+            }
+            areasEl.querySelectorAll('.logs-chip').forEach(b => {
+                const on = v.areas.includes(b.dataset.area);
+                b.classList.toggle('on', on);
+                b.setAttribute('aria-pressed', on ? 'true' : 'false');
+            });
+        }
+        const search = document.getElementById('logs-search');
+        if (search && search.value !== v.q && document.activeElement !== search) search.value = v.q;
+        const raw = document.getElementById('logs-raw');
+        if (raw) raw.checked = v.raw;
+        const thisScreen = document.getElementById('logs-this-screen');
+        if (thisScreen) {
+            thisScreen.disabled = !this.currentLayer;
+            if (!this.currentLayer) { thisScreen.checked = false; v.thisScreen = false; }
+        }
+        const pre = document.getElementById('logs-content');
+        const readable = document.getElementById('logs-readable');
+        if (pre) pre.style.display = v.raw ? '' : 'none';
+        if (readable) readable.style.display = v.raw ? 'none' : '';
+        const filters = document.getElementById('logs-view-filters');
+        if (filters) filters.classList.toggle('logs-raw-mode', v.raw);
+    }
+
+    // The request for what the viewer shows (`extra`: more params).
+    _logsUrl(extra = '') {
         const linesSel = document.getElementById('logs-lines');
         const lines = linesSel ? parseInt(linesSel.value, 10) || 500 : 500;
         // v0.10.8: the window goes to the server as epoch ms so the WHOLE log
@@ -361,6 +520,95 @@ class _LogsRecent {
             if (sinceMs !== null) url += `&since=${Math.floor(sinceMs)}`;
             if (untilMs !== null) url += `&until=${Math.floor(untilMs)}`;
         }
+        const v = this._logView();
+        if (!v.raw) {
+            url += '&fill=1';
+            if (v.levels.length < LOG_LEVELS.length) url += `&lvl=${encodeURIComponent(v.levels.join(',') || 'none')}`;
+            if (v.areas.length) url += `&area=${encodeURIComponent(v.areas.join(','))}`;
+            if (v.q.trim()) url += `&q=${encodeURIComponent(v.q.trim())}`;
+            if (v.thisScreen && this.currentLayer) url += `&layer=${encodeURIComponent(this.currentLayer.id)}`;
+        }
+        return url + extra;
+    }
+
+    // Parsed lines in time order (a folded run's line is written when the
+    // run ends, carrying the time it began).
+    _parseLogEntries(lines) {
+        const out = [];
+        lines.forEach((line, i) => {
+            let e = null;
+            try { e = JSON.parse(line); } catch (err) { e = null; }
+            if (!e || typeof e !== 'object') e = { timestamp: '', lvl: 'info', area: 'app', msg: String(line), action: '' };
+            e._i = i;
+            out.push(e);
+        });
+        out.sort((a, b) => (String(a.timestamp) < String(b.timestamp) ? -1
+            : String(a.timestamp) > String(b.timestamp) ? 1 : a._i - b._i));
+        return out;
+    }
+
+    _logEntryText(e, full = false) {
+        const ts = String(e.timestamp || '');
+        const time = full ? ts : (ts.length > 11 ? ts.slice(11) : ts);
+        const lvl = String(e.lvl || 'info').toUpperCase().padEnd(5);
+        const area = String(e.area || 'app').toUpperCase().padEnd(9);
+        return `${time} ${lvl} ${area} ${e.msg || e.action || ''}`;
+    }
+
+    _renderReadableLogs(lines) {
+        const el = document.getElementById('logs-readable');
+        if (!el) return;
+        const v = this._logView();
+        const entries = this._parseLogEntries(lines);
+        entries.forEach(e => { if (e.area) v.seenAreas.add(e.area); });
+        this._logEntriesShown = entries;
+        el.textContent = '';
+        const frag = document.createDocumentFragment();
+        for (const e of entries) {
+            const row = document.createElement('div');
+            row.className = `logs-row lvl-${e.lvl || 'info'}`;
+            const key = `${e.timestamp}|${e.action}|${e.msg}`;
+            row.dataset.key = key;
+            const head = document.createElement('div');
+            head.className = 'logs-row-head';
+            head.textContent = this._logEntryText(e);
+            head.title = `${e.timestamp} ${e.action || ''} (click for details)`;
+            row.appendChild(head);
+            row._entry = e;
+            if (v.expanded.has(key)) this._toggleLogRow(row, true);
+            frag.appendChild(row);
+        }
+        el.appendChild(frag);
+        if (!entries.length) {
+            const none = document.createElement('div');
+            none.className = 'logs-empty';
+            none.textContent = 'No lines match these filters.';
+            el.appendChild(none);
+        }
+        this._syncLogViewControls();
+    }
+
+    _toggleLogRow(row, open) {
+        const v = this._logView();
+        const have = row.querySelector('.logs-row-details');
+        const want = open === undefined ? !have : open;
+        if (!want) {
+            if (have) have.remove();
+            v.expanded.delete(row.dataset.key);
+            return;
+        }
+        if (have) return;
+        const e = row._entry || {};
+        const det = document.createElement('pre');
+        det.className = 'logs-row-details';
+        const shown = { action: e.action, source: e.source, details: e.details };
+        det.textContent = JSON.stringify(shown, null, 2);
+        row.appendChild(det);
+        v.expanded.add(row.dataset.key);
+    }
+
+    refreshLogs(force) {
+        const url = this._logsUrl();
         fetch(url)
             .then(r => {
                 // The log is read only on the computer running the app; a
@@ -388,7 +636,14 @@ class _LogsRecent {
         if (!pre) return;
         const rawLines = Array.isArray(data.lines) ? data.lines : [];
         const { lines: visibleLines } = this._filterLogLines(rawLines, data);
-        pre.textContent = visibleLines.join('\n');
+        const v = this._logView();
+        const sig = `${v.raw}|${visibleLines.length}|${visibleLines[visibleLines.length - 1] || ''}|${visibleLines[0] || ''}`;
+        const unchanged = !force && sig === this._logsLastSig;
+        this._logsLastSig = sig;
+        if (!unchanged) {
+            pre.textContent = visibleLines.join('\n');
+            if (!v.raw) this._renderReadableLogs(visibleLines);
+        }
         if (meta) {
             const sizeKB = (data.file_size_bytes || 0) / 1024;
             const sizeStr = sizeKB >= 1024
@@ -401,6 +656,8 @@ class _LogsRecent {
         // Auto-scroll to bottom unless the user scrolled up
         if (force || !this._logsUserScrolledUp) {
             pre.scrollTop = pre.scrollHeight;
+            const readable = document.getElementById('logs-readable');
+            if (readable) readable.scrollTop = readable.scrollHeight;
             this._logsUserScrolledUp = false;
         }
     }
@@ -410,10 +667,38 @@ class _LogsRecent {
         if (pre) pre.textContent = `Failed to load logs: ${err && err.message || err}`;
     }
 
-    copyLogs() {
+    // What Copy takes: the lines as shown, the readable ones with their
+    // full date and time.
+    _logsShownText() {
+        const v = this._logView();
+        if (!v.raw && Array.isArray(this._logEntriesShown)) {
+            return this._logEntriesShown.map(e => this._logEntryText(e, true)).join('\n');
+        }
         const pre = document.getElementById('logs-content');
-        if (!pre) return;
-        const text = pre.textContent || '';
+        return pre ? (pre.textContent || '') : '';
+    }
+
+    // Copy for a bug report: the same lines, with emails, phone numbers,
+    // network addresses and the user name in file paths masked by the
+    // server (log_diff.redact), for pasting where anyone can read it.
+    copyLogsForReport() {
+        const v = this._logView();
+        fetch(this._logsUrl('&redact=1'))
+            .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+            .then(data => {
+                const lines = Array.isArray(data.lines) ? data.lines : [];
+                const text = v.raw ? lines.join('\n')
+                    : this._parseLogEntries(lines).map(e => this._logEntryText(e, true)).join('\n');
+                this._copyLogText(text, 'logs-copy-report');
+            })
+            .catch(err => this._toast('The log was not copied: ' + (err && err.message || 'unknown error'), true, 6000));
+    }
+
+    copyLogs() {
+        this._copyLogText(this._logsShownText(), 'logs-copy');
+    }
+
+    _copyLogText(text, buttonId) {
         // Fallback: a temporary textarea and execCommand. Also taken when
         // the clipboard API refuses - the Mac app's web view rejects
         // writeText now and then (the owner's log, 2026-09-25, showed an
@@ -425,18 +710,18 @@ class _LogsRecent {
             ta.select();
             try { document.execCommand('copy'); } catch (e) { /* ignore */ }
             document.body.removeChild(ta);
-            this._flashCopyButton();
+            this._flashCopyButton(buttonId);
         };
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text)
-                .then(() => this._flashCopyButton(), viaTextarea);
+                .then(() => this._flashCopyButton(buttonId), viaTextarea);
         } else {
             viaTextarea();
         }
     }
 
-    _flashCopyButton() {
-        const btn = document.getElementById('logs-copy');
+    _flashCopyButton(buttonId = 'logs-copy') {
+        const btn = document.getElementById(buttonId);
         if (!btn) return;
         const orig = btn.textContent;
         btn.textContent = 'Copied ✓';

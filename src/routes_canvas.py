@@ -7,6 +7,7 @@ import json
 from flask import Blueprint, request, jsonify, make_response, render_template
 
 import app
+import log_diff
 import port_assignment
 from app import _find_canvas, _mirror_active_canvas_to_root, canvas_size_text, _next_canvas_color, _next_canvas_id, _next_canvas_workspace_position, _next_duplicate_canvas_name, log_event, socketio
 
@@ -84,16 +85,15 @@ def update_canvas(canvas_id):
         'data_flow_perspective', 'power_perspective',
     }
     size_before = canvas_size_text(canvas)
-    changed = {}
+    before = log_diff.snapshot(canvas, [k for k in data if k in allowed])
     for key, val in data.items():
         if key in allowed:
             canvas[key] = val
-            changed[key] = val
     app.current_project['is_pristine'] = False
     # Slice 6: keep the project-root raster mirror in sync so any
     # client/test still reading root sees the latest active-canvas values.
     _mirror_active_canvas_to_root(app.current_project)
-    details = {'id': canvas_id, 'changed': changed}
+    details = {'id': canvas_id, 'name': canvas.get('name'), 'diff': log_diff.diff(before, canvas)}
     size_after = canvas_size_text(canvas)
     if size_after != size_before:
         details.update(size_from=size_before[0], size_to=size_after[0],

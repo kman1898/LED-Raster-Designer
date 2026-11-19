@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from flask import Blueprint, request, jsonify
 
+import log_diff
 from app import LOG_FILE_PATH, LOG_DIR_PATH, log_event
 
 logs_bp = Blueprint('logs', __name__)
@@ -61,6 +62,67 @@ def _epoch_ms_arg(name):
         return None
 
 
+def _list_arg(name, allowed):
+    """A comma list query param held to `allowed`; None when absent."""
+    raw = (request.args.get(name) or '').strip()
+    if not raw:
+        return None
+    got = {p.strip().lower() for p in raw.split(',') if p.strip()}
+    return got & set(allowed)
+
+
+def _content_filter():
+    """The viewer's area / level / text / screen filters as one test of a
+    raw line, or None when none is asked for. A line written before lines
+    had a level and an area gets them from log_diff, the way the viewer
+    shows it."""
+    areas = _list_arg('area', log_diff.AREAS)
+    levels = _list_arg('lvl', log_diff.LEVELS)
+    q = (request.args.get('q') or '').strip().lower()
+    layer = (request.args.get('layer') or '').strip()
+    if areas is None and levels is None and not q and not layer:
+        return None
+
+    def keep(line):
+        if q and q not in line.lower():
+            return False
+        if areas is None and levels is None and not layer:
+            return True
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            return False
+        if not isinstance(entry, dict):
+            return False
+        log_diff.normalize(entry)
+        if areas is not None and entry.get('area') not in areas:
+            return False
+        if levels is not None and entry.get('lvl') not in levels:
+            return False
+        if layer and not log_diff.mentions_layer(entry, layer):
+            return False
+        return True
+    return keep
+
+
+def _shape_line(line, fill, redact):
+    """A line as the viewer asked for it: older lines given their level,
+    area and message (fill), personal details masked (redact)."""
+    if not fill and not redact:
+        return line
+    try:
+        entry = json.loads(line)
+    except ValueError:
+        return log_diff.redact_text(line) if redact else line
+    if not isinstance(entry, dict):
+        return line
+    if fill:
+        log_diff.normalize(entry)
+    if redact:
+        entry = log_diff.redact(entry)
+    return json.dumps(entry, ensure_ascii=False, default=str)
+
+
 def _reject_if_not_host():
     """403 unless the request came from the machine running the app.
 
@@ -102,6 +164,16 @@ def get_logs():
     since_ms = _epoch_ms_arg('since')
     until_ms = _epoch_ms_arg('until')
     filtering = since_ms is not None or until_ms is not None
+    # area / lvl / q / layer: the viewer's chips and search. Over the whole
+    # file with a time window, else over the recent tail.
+    keep = _content_filter()
+    fill = str(request.args.get('fill', '')).lower() in ('1', 'true', 'yes')
+    redact = str(request.args.get('redact', '')).lower() in ('1', 'true', 'yes')
+    try:
+        from app import flush_log
+        flush_log()   # a run still being folded is written before it is read
+    except Exception:
+        pass
     result_lines = []
     matched_count = None
     file_size = 0
@@ -126,6 +198,8 @@ def get_logs():
                             if since_ms is not None and ts < since_ms:
                                 continue
                             if until_ms is not None and ts > until_ms:
+                                continue
+                            if keep is not None and not keep(line):
                                 continue
                             matched_count += 1
                             kept.append(line)
@@ -153,6 +227,9 @@ def get_logs():
                     if nl != -1:
                         text = text[nl + 1:]
                 all_lines = text.splitlines()
+                if keep is not None:
+                    all_lines = [ln for ln in all_lines if ln and keep(ln)]
+                    matched_count = len(all_lines)
                 result_lines = all_lines[-lines_arg:]
     except OSError:
         pass
@@ -164,6 +241,8 @@ def get_logs():
                 archive_count += 1
     except OSError:
         pass
+    if fill or redact:
+        result_lines = [_shape_line(ln, fill, redact) for ln in result_lines]
     return jsonify({
         'lines': result_lines,
         'file_size_bytes': file_size,
@@ -174,7 +253,7 @@ def get_logs():
         # None when no time filter was applied; otherwise how many lines in the
         # whole file matched, so the viewer can say "most recent N of M".
         'matched_count': matched_count,
-        'filtered': filtering
+        'filtered': filtering or keep is not None
     })
 
 
