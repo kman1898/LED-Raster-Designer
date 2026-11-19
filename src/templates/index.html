@@ -3883,8 +3883,14 @@
                 <!-- Controls (the owner's rulings, 2026-11-18; app-controls.js):
                      every rebindable action by area with its keys, the 3D
                      mouse presets and per action buttons, the fixed keys.
-                     Saved per person with the rest of Preferences, never
-                     with the show. The list scrolls inside itself. -->
+                     Saved with the rest of Preferences on the computer
+                     running the app, never with the show: every page that
+                     opens the designer from it, a joined laptop's too,
+                     reads the same record, and a Save reaches them all
+                     (preferences_updated). Touch never follows it (the 3D
+                     view keeps touch its own way), and the phone page has
+                     no keys of its own to set (owner, 2026-11-18: say so).
+                     The list scrolls inside itself. -->
                 <section class="pm-section" id="pm-sec-controls" data-key="controls">
                     <div class="prefs-group pm-controls">
                         <div class="pm-controls-top">
@@ -3892,6 +3898,7 @@
                             <button type="button" id="pref-controls-reset-all" class="btn" data-tooltip="Reset all to defaults, Put every key and the 3D mouse back the way the app ships. Asks first; Save keeps it.">Reset all to defaults</button>
                         </div>
                         <div class="pm-controls-intro">Click a key to set a new one; Esc cancels. Save keeps your changes.</div>
+                        <div class="pm-controls-intro" id="pref-controls-shared">This computer and every laptop joined to this show share these settings: a change saved on one reaches them all. A phone or tablet keeps its touch gestures.</div>
                         <div class="pm-controls-note" id="pref-controls-note" role="status" hidden></div>
                         <div class="pm-scroll" id="pref-controls-list"></div>
                     </div>

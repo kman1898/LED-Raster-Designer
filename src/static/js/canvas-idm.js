@@ -596,8 +596,6 @@ Object.assign(CanvasRenderer.prototype, {
         const field = this.idmFieldSpec();
         const counts = this.idmCounts(layer);
         const unit = onScreen ? Math.max(1, 1 / (this.zoom || 1)) : 1;
-        const flash = (onScreen && window.app && typeof window.app._idmFlashFor === 'function')
-            ? window.app._idmFlashFor(layer) : null;
         // The on-screen grid sits over the wall's own 1 px edges, so an edge
         // colour the crew CHOSE colours the grid's light core where the
         // border draws that edge (module edges in Lines and Ticks, cabinet
@@ -667,15 +665,6 @@ Object.assign(CanvasRenderer.prototype, {
                 ctx.strokeStyle = cabinetCore;
                 ctx.lineWidth = 1.5 * unit;
                 ctx.strokeRect(...rect);
-                // A module picked from the locator list: a steady outline in
-                // the accent, inside the module, as the live highlight's.
-                if (flash) {
-                    for (const c of cells) {
-                        if (this.idmCellKey(panel, c) !== flash.key) continue;
-                        const b = this._idmOutlineBands(Math.min(c.w, c.h), true);
-                        this._idmOutline(ctx, c.x, c.y, c.w, c.h, b.outer, b.inner, flash.colour);
-                    }
-                }
             }
             ctx.restore();
         }

@@ -14,8 +14,11 @@
 //                           the person's keys.
 //
 // The keys live in the Preferences record (preferences.controls), saved
-// with the dialog's Save like every other tab: per person, never with the
-// show. The registry, the matching and the names are controls.js.
+// with the dialog's Save like every other tab: on the computer running the
+// app, never with the show. Every page that opens the designer from it (a
+// joined laptop too) shares them, and the tab says so (owner, 2026-11-18);
+// touch never follows them. The registry, the matching and the names are
+// controls.js.
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 

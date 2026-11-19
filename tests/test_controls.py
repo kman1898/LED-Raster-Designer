@@ -14,7 +14,9 @@ rulings, 2026-11-18).
   the app's own dialog (Yes moves it, No keeps both), Reset per action
   (no question) and Reset all (asks), keys the browser keeps refused, a
   change kept by Save and still there after a reload, and the new key
-  working while the old one does nothing.
+  working while the old one does nothing; a laptop joined to the show
+  shares them (a key saved on one reaches the other live) and the tab
+  says so.
 - Help > Keyboard Shortcuts, the menus and the tooltips say the person's
   keys.
 - The 3D view on Orbit first, and on a per action change.
@@ -491,6 +493,35 @@ def test_a_new_key_works_is_kept_by_save_and_is_there_after_a_reload(page):
     open_controls(page)
     assert chips(page, 'duplicate') == [f'{mod_word(page)}+D']
     page.locator('#preferences-cancel').click()
+    assert page.errors == []
+
+
+SHARED_NOTE = ('This computer and every laptop joined to this show share these settings: '
+               'a change saved on one reaches them all. A phone or tablet keeps its touch gestures.')
+
+
+def test_a_joined_laptop_shares_the_controls_and_the_tab_says_so(page, e2e_server, pw_browser):
+    """Owner, 2026-11-18: a laptop joined to the show shares these settings
+    (accepted), and the tab says so in plain words. A second browser on
+    the show hears a key saved on the first without a reload."""
+    m = mod(page)
+    open_controls(page)
+    shared = page.locator('#pref-controls-shared')
+    assert shared.is_visible()
+    assert shared.inner_text() == SHARED_NOTE
+    context = _context(pw_browser)
+    try:
+        other = context.new_page()
+        other.goto(e2e_server, wait_until='domcontentloaded')
+        other.wait_for_function("() => !!(window.app && window.app.project && window.Controls)")
+        other.wait_for_timeout(1000)
+        assert other.evaluate("() => window.app.controlKeys('duplicate')") != ['mod+KeyD']
+        record(page, 'duplicate', f'{m}+KeyD')
+        save(page)
+        other.wait_for_function("() => JSON.stringify(window.app.controlKeys('duplicate'))"
+                                " === JSON.stringify(['mod+KeyD'])", timeout=5000)
+    finally:
+        context.close()
     assert page.errors == []
 
 

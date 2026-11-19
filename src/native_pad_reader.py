@@ -29,12 +29,20 @@ WHAT IT SENDS
 
       {"t": "watch", "on": true | false}
 
-    macOS's Input Monitoring is asked for ONCE ever (owner, 2026-11-17):
-    the server starts the first reader with LRD_PAD_ASK_INPUT_MONITORING=1,
-    the reader puts up the system's question (IOHIDRequestAccess) and says
-    so, and the server notes it in the app's settings, which outlast
-    updates. macOS remembers the answer from then on; the app never asks
-    again and says nothing about it.
+    macOS's Input Monitoring is asked for ONCE ever (owner, 2026-11-17),
+    and only when a controller actually connects (owner, 2026-11-18): never
+    at launch, never on opening the IDM Locator tab. Until it has been put
+    up, the server starts each reader with LRD_PAD_ASK_INPUT_MONITORING=1;
+    the reader watches for a controller to connect (AskOnConnect: the I/O
+    registry, which needs no permission), puts up the system's question
+    (IOHIDRequestAccess) when macOS keeps that controller from it, and
+    says so, and the server notes it in the app's settings, which outlast
+    updates. A controller macOS lets the reader open without the
+    permission (a game pad that is not also a keyboard, mouse or touchpad)
+    is never a reason to ask. macOS remembers the answer from then on; the
+    app never asks again and says nothing about it. When the permission
+    turns on with a refused controller still connected, the reader ends
+    and the server starts a fresh one, which opens it.
 
     The buttons and axes are in the browser's "standard" layout (the same
     numbers app-idm-gamepad.js reads from navigator.getGamepads), so ONE
@@ -360,6 +368,16 @@ class SdlPads:
         except Exception:
             return 'unknown'
 
+    def sees_any(self):
+        """Does SDL have any joystick or controller open? (One macOS kept
+        from it never shows here.)"""
+        if self.open:
+            return True
+        try:
+            return self.pg.joystick.get_count() > 0
+        except Exception:
+            return False
+
     def events(self, ev):
         pg = self.pg
         t = ev.type
@@ -461,6 +479,231 @@ def ask_input_monitoring_once(link, env=None, platform=None, request=None):
     if link is not None:
         link.send(msg)
     return msg
+
+
+# A game controller by its HID usages (Generic Desktop page): a joystick, a
+# game pad or a multi-axis controller (what SDL itself looks for).
+GAME_USAGES = frozenset({(0x01, 0x04), (0x01, 0x05), (0x01, 0x08)})
+# The HID devices macOS will not let an app open without Input Monitoring:
+# a keyboard, a mouse or a touchpad among its usages (Apple's IOHIDFamily,
+# IOHIDDevice::start, which then sets RequiresTCCAuthorization on it).
+GUARDED_USAGES = frozenset({(0x01, 0x06), (0x01, 0x02), (0x0D, 0x05)})
+# While the question is still to be put: how often the registry is read,
+# and how long a controller macOS lists may go unread by SDL before the
+# question goes up anyway.
+CONNECT_LOOK_S = 1.0
+CONNECT_GRACE_S = 3.0
+
+
+def mac_game_controllers():
+    """The game controllers connected to this Mac, read from the I/O
+    registry, which any process may read with no permission: a list of
+    {'name', 'guarded'}, guarded when macOS wants Input Monitoring before
+    an app opens it. None off macOS, or when the registry cannot be read."""
+    if sys.platform != 'darwin':
+        return None
+    try:
+        return _read_mac_hid_registry()
+    except Exception:
+        return None
+
+
+def _read_mac_hid_registry():
+    import ctypes
+    from ctypes import byref, c_bool, c_char_p, c_int32, c_long, c_uint32, c_void_p
+    iokit = ctypes.cdll.LoadLibrary(_IOKIT)
+    cf = ctypes.cdll.LoadLibrary('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
+    utf8 = 0x08000100                                   # kCFStringEncodingUTF8
+    cf.CFStringCreateWithCString.argtypes = [c_void_p, c_char_p, c_uint32]
+    cf.CFStringCreateWithCString.restype = c_void_p
+    cf.CFRelease.argtypes = [c_void_p]
+    cf.CFGetTypeID.argtypes = [c_void_p]
+    cf.CFGetTypeID.restype = c_long
+    for name in ('CFArrayGetTypeID', 'CFDictionaryGetTypeID', 'CFNumberGetTypeID',
+                 'CFBooleanGetTypeID', 'CFStringGetTypeID'):
+        getattr(cf, name).restype = c_long
+    cf.CFArrayGetCount.argtypes = [c_void_p]
+    cf.CFArrayGetCount.restype = c_long
+    cf.CFArrayGetValueAtIndex.argtypes = [c_void_p, c_long]
+    cf.CFArrayGetValueAtIndex.restype = c_void_p
+    cf.CFDictionaryGetValue.argtypes = [c_void_p, c_void_p]
+    cf.CFDictionaryGetValue.restype = c_void_p
+    cf.CFNumberGetValue.argtypes = [c_void_p, c_long, ctypes.POINTER(c_int32)]
+    cf.CFNumberGetValue.restype = c_bool
+    cf.CFBooleanGetValue.argtypes = [c_void_p]
+    cf.CFBooleanGetValue.restype = c_bool
+    cf.CFStringGetCString.argtypes = [c_void_p, c_char_p, c_long, c_uint32]
+    cf.CFStringGetCString.restype = c_bool
+    iokit.IOServiceMatching.argtypes = [c_char_p]
+    iokit.IOServiceMatching.restype = c_void_p
+    iokit.IOServiceGetMatchingServices.argtypes = [c_uint32, c_void_p, ctypes.POINTER(c_uint32)]
+    iokit.IOServiceGetMatchingServices.restype = c_int32
+    iokit.IOIteratorNext.argtypes = [c_uint32]
+    iokit.IOIteratorNext.restype = c_uint32
+    iokit.IOObjectRelease.argtypes = [c_uint32]
+    iokit.IORegistryEntryCreateCFProperty.argtypes = [c_uint32, c_void_p, c_void_p, c_uint32]
+    iokit.IORegistryEntryCreateCFProperty.restype = c_void_p
+    types = {n: getattr(cf, f'CF{n}GetTypeID')() for n in ('Array', 'Dictionary', 'Number', 'Boolean', 'String')}
+
+    keys = {}
+
+    def key(text):
+        if text not in keys:
+            keys[text] = cf.CFStringCreateWithCString(None, text.encode('utf-8'), utf8)
+        return keys[text]
+
+    def is_a(ref, kind):
+        return bool(ref) and cf.CFGetTypeID(ref) == types[kind]
+
+    def number(ref):
+        out = c_int32(0)
+        if is_a(ref, 'Number') and cf.CFNumberGetValue(ref, 3, byref(out)):    # kCFNumberSInt32Type
+            return int(out.value)
+        return None
+
+    def prop(service, name):
+        return iokit.IORegistryEntryCreateCFProperty(service, key(name), None, 0)
+
+    found = []
+    it = c_uint32(0)
+    try:
+        matching = iokit.IOServiceMatching(b'IOHIDDevice')
+        if not matching or iokit.IOServiceGetMatchingServices(0, matching, byref(it)) != 0:
+            return None                       # the matching dict is taken either way
+        while True:
+            service = iokit.IOIteratorNext(it.value)
+            if not service:
+                break
+            try:
+                usages = set()
+                pairs = prop(service, 'DeviceUsagePairs')
+                if pairs:
+                    try:
+                        if is_a(pairs, 'Array'):
+                            for i in range(cf.CFArrayGetCount(pairs)):
+                                d = cf.CFArrayGetValueAtIndex(pairs, i)
+                                if is_a(d, 'Dictionary'):
+                                    up = number(cf.CFDictionaryGetValue(d, key('DeviceUsagePage')))
+                                    u = number(cf.CFDictionaryGetValue(d, key('DeviceUsage')))
+                                    if up is not None and u is not None:
+                                        usages.add((up, u))
+                    finally:
+                        cf.CFRelease(pairs)
+                if not usages:
+                    page, usage = prop(service, 'PrimaryUsagePage'), prop(service, 'PrimaryUsage')
+                    try:
+                        if number(page) is not None and number(usage) is not None:
+                            usages.add((number(page), number(usage)))
+                    finally:
+                        for ref in (page, usage):
+                            if ref:
+                                cf.CFRelease(ref)
+                if not usages & GAME_USAGES:
+                    continue
+                guarded = bool(usages & GUARDED_USAGES)
+                tcc = prop(service, 'RequiresTCCAuthorization')
+                if tcc:
+                    try:
+                        guarded = guarded or (is_a(tcc, 'Boolean') and bool(cf.CFBooleanGetValue(tcc)))
+                    finally:
+                        cf.CFRelease(tcc)
+                name = 'Controller'
+                product = prop(service, 'Product')
+                if product:
+                    try:
+                        buf = ctypes.create_string_buffer(256)
+                        if is_a(product, 'String') and cf.CFStringGetCString(product, buf, 256, utf8):
+                            name = buf.value.decode('utf-8', 'replace') or name
+                    finally:
+                        cf.CFRelease(product)
+                found.append({'name': name[:80], 'guarded': guarded})
+            finally:
+                iokit.IOObjectRelease(service)
+    finally:
+        if it.value:
+            iokit.IOObjectRelease(it.value)
+        for ref in keys.values():
+            if ref:
+                cf.CFRelease(ref)
+    return found
+
+
+class AskOnConnect:
+    """macOS's Input Monitoring question, put up the moment a game
+    controller actually connects (owner, 2026-11-18): never at launch,
+    never on opening the IDM Locator tab, and once ever (the server says
+    whether it is still to be put: ASK_INPUT_MONITORING_ENV).
+
+    What Apple's own HID code shows (IOKitUser IOHIDManager.c,
+    IOHIDFamily IOHIDDevice.cpp and IOHIDDeviceClass.m): a process with no
+    Input Monitoring is still told a device connected, since the I/O
+    registry needs no permission and IOHIDManager's matching callback runs
+    for every device whether or not opening it was allowed; what needs the
+    permission is OPENING a device that is a keyboard, a mouse or a
+    touchpad. A game pad that is none of those is read without it.
+
+    So, while the question is still to be put, the reader reads the
+    registry every CONNECT_LOOK_S, and asks when a game controller is
+    there that macOS guards, or one SDL still has not opened after
+    CONNECT_GRACE_S (macOS kept it from SDL, whatever the reason: the
+    question is the one thing the app can do about it). A controller SDL
+    reads is never a reason to ask. With the registry unreadable the
+    reader never asks at all."""
+
+    def __init__(self, link, env=None, platform=None, seen=None, request=None):
+        env = os.environ if env is None else env
+        platform = sys.platform if platform is None else platform
+        self.link = link
+        self.env = env
+        self.platform = platform
+        self.seen = seen or mac_game_controllers
+        self.request = request
+        self.pending = platform == 'darwin' and env.get(ASK_INPUT_MONITORING_ENV) == '1'
+        self.next_look = 0.0
+        self.unread_since = None
+        self.asked = None              # the message sent, once asked
+
+    def tick(self, now, sdl_sees_any):
+        """One turn of the reader's loop. The message sent when it asked
+        this turn, else None."""
+        if not self.pending or now < self.next_look:
+            return None
+        self.next_look = now + CONNECT_LOOK_S
+        try:
+            pads = self.seen()
+        except Exception:
+            pads = None
+        if pads is None:
+            self.pending = False       # never ask blind
+            return None
+        if not pads:
+            self.unread_since = None
+            return None
+        if not any(p.get('guarded') for p in pads):
+            if sdl_sees_any:
+                self.unread_since = None
+                return None
+            if self.unread_since is None:
+                self.unread_since = now
+            if now - self.unread_since < CONNECT_GRACE_S:
+                return None
+        self.pending = False
+        self.asked = ask_input_monitoring_once(self.link, env=self.env, platform=self.platform,
+                                               request=self.request)
+        return self.asked
+
+
+def restart_for_permission(was, now, sdl_sees_any, seen=None):
+    """Input Monitoring just turned on while a controller is connected that
+    SDL could not open: SDL never tries a refused device again, so the
+    reader ends and the server starts a fresh one, which opens it."""
+    if now != 'granted' or was in (None, 'granted') or sdl_sees_any:
+        return False
+    try:
+        pads = (seen or mac_game_controllers)()
+    except Exception:
+        return False
+    return bool(pads)
 
 
 class _MacRunLoop:
@@ -661,7 +904,9 @@ def run(link=None, test=None, clock=time.monotonic, stop_after=None):
         return EXIT_UNAVAILABLE
     if link:
         link.send({'t': 'hello', 'token': link.token, 'pygame': pygame.version.ver, 'sdl': sdl})
-        ask_input_monitoring_once(link)
+    # macOS's Input Monitoring: asked when a controller connects, never
+    # here at the start (AskOnConnect).
+    asker = AskOnConnect(link) if link else None
     if test:
         test.line(f'Controller test: pygame {pygame.version.ver}, SDL {sdl}. Nothing is sent to the app. Ctrl+C stops.')
         test.line('Pair a PlayStation or Xbox controller, press its buttons and slide a finger on the touchpad.')
@@ -693,9 +938,16 @@ def run(link=None, test=None, clock=time.monotonic, stop_after=None):
                 battery_at = now
                 for pad in norm.pads.values():
                     pad.battery = pads.battery(pad.id)
+            if asker is not None:
+                asker.tick(now, pads.sees_any())
             if perm is not None and not norm.pads and now - perm_at >= PERMISSION_EVERY_S:
                 perm_at = now
-                perm = input_monitoring()
+                was, perm = perm, input_monitoring()
+                if restart_for_permission(was, perm, pads.sees_any()):
+                    # SDL was refused the controller before the permission
+                    # came: a fresh reader opens it (the supervisor starts
+                    # one a moment later; the app is not touched)
+                    return 0
             status = norm.status(perm)
             if status != sent_status:
                 sent_status = status

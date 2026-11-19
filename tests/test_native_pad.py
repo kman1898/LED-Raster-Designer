@@ -26,9 +26,13 @@ What this file pins, with no controller and no browser:
   a page that closes the tab (or loses the controller to another) gets
   nothing more and is told to let go. A change of target and a change in
   macOS's Input Monitoring go to the log.
-* On a Mac the first reader ever puts up the Input Monitoring question,
-  the app's settings note it, and no reader asks again (owner,
-  2026-11-17); never off a Mac.
+* On a Mac the Input Monitoring question goes up once ever, the app's
+  settings note it, and no reader asks again (owner, 2026-11-17); never
+  off a Mac. It goes up only when a controller connects that macOS keeps
+  from the reader (owner, 2026-11-18): never at the start, never with no
+  controller, never for a controller SDL reads, never with the registry
+  unreadable; a refused controller still there when the permission turns
+  on gets a fresh reader.
 * The spec keeps SDL and what it links to, and leaves pygame's other
   libraries, its font and its icon out.
 * Settings saves from the reader's thread and the launcher's never meet
@@ -593,6 +597,121 @@ def test_on_a_mac_input_monitoring_is_asked_for_once_ever(fake_reader, tmp_path)
     assert native_pad.input_monitoring_ask(settings, saved.append, platform='darwin') == ({}, None)
     assert native_pad.input_monitoring_ask({}, saved.append, platform='win32') == ({}, None)
     assert native_pad.input_monitoring_ask(None, saved.append, platform='darwin') == ({}, None)
+
+
+def test_the_reader_never_asks_at_the_start():
+    """Owner, 2026-11-18: not at first launch and not on opening the IDM
+    Locator tab. run() puts no question up itself; only AskOnConnect
+    does, from inside the loop."""
+    tree = ast.parse(open(READER, encoding='utf-8').read())
+    run = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run')
+    called = {c.func.id if isinstance(c.func, ast.Name) else getattr(c.func, 'attr', None)
+              for c in ast.walk(run) if isinstance(c, ast.Call)}
+    assert 'ask_input_monitoring_once' not in called
+    assert 'request_input_monitoring' not in called
+    assert 'AskOnConnect' in called and 'tick' in called
+
+
+ASK_ENV = {reader.ASK_INPUT_MONITORING_ENV: '1'}
+DUALSENSE = {'name': 'DualSense Wireless Controller', 'guarded': False}
+GUARDED = {'name': 'Pad With Keys', 'guarded': True}
+
+
+def _asker(registry, env=ASK_ENV, platform='darwin'):
+    """An AskOnConnect over a stand-in registry (a list of lists, one per
+    look; the last repeats) and a stand-in question."""
+    asked = []
+    looks = list(registry)
+
+    def seen():
+        item = looks.pop(0) if len(looks) > 1 else looks[0]
+        if isinstance(item, Exception):
+            raise item
+        return item
+    a = reader.AskOnConnect(None, env=env, platform=platform, seen=seen,
+                            request=lambda: asked.append(1) or False)
+    return a, asked
+
+
+def test_the_question_waits_for_a_controller_macos_keeps_from_the_reader():
+    """Apple's HID code: a process with no Input Monitoring is still told a
+    device connected; only a keyboard, mouse or touchpad needs it to be
+    opened. The reader asks when such a controller connects, once."""
+    assert reader.GAME_USAGES == {(1, 4), (1, 5), (1, 8)}
+    assert reader.GUARDED_USAGES == {(1, 6), (1, 2), (0x0D, 5)}
+    step = reader.CONNECT_LOOK_S
+    # nothing connected: looks, never asks, however long
+    a, asked = _asker([[]])
+    for i in range(30):
+        assert a.tick(i * step, False) is None
+    assert asked == [] and a.pending
+    # one connects that macOS guards: asked at the next look, once
+    a, asked = _asker([[], [], [GUARDED]])
+    assert a.tick(0.0, False) is None
+    assert a.tick(step / 2, False) is None                     # between looks: no read
+    assert a.tick(step, False) is None
+    assert a.tick(2 * step, False) == {'t': 'input_monitoring_asked', 'granted': False}
+    assert asked == [1] and not a.pending
+    for i in range(3, 20):
+        assert a.tick(i * step, False) is None
+    assert asked == [1]
+
+
+def test_a_controller_the_reader_can_open_is_never_a_reason_to_ask():
+    step = reader.CONNECT_LOOK_S
+    # a game pad SDL reads: never asked
+    a, asked = _asker([[DUALSENSE]])
+    for i in range(30):
+        assert a.tick(i * step, True) is None
+    assert asked == [] and a.pending
+    # one SDL still has not opened after the grace: asked, once
+    a, asked = _asker([[DUALSENSE]])
+    t = 0.0
+    while t < reader.CONNECT_GRACE_S:
+        assert a.tick(t, False) is None
+        t += step
+    assert a.tick(t, False) == {'t': 'input_monitoring_asked', 'granted': False}
+    assert asked == [1]
+    # SDL opening it inside the grace ends the wait; a later unplug and
+    # replug starts it again
+    a, asked = _asker([[DUALSENSE], [DUALSENSE], [], [DUALSENSE]])
+    assert a.tick(0.0, False) is None
+    assert a.tick(step, True) is None
+    assert a.tick(2 * step, False) is None                     # unplugged
+    assert a.tick(3 * step, False) is None                     # back: the wait starts over
+    assert a.tick(3 * step + reader.CONNECT_GRACE_S - 0.01, False) is None
+    assert asked == []
+
+
+def test_no_question_off_a_mac_already_asked_or_with_the_registry_unreadable():
+    for kw in ({'platform': 'win32'}, {'env': {}}):
+        a, asked = _asker([[GUARDED]], **kw)
+        assert not a.pending
+        assert a.tick(0.0, False) is None and a.tick(10.0, False) is None
+        assert asked == []
+    # the registry cannot be read: never ask blind
+    for broken in (None, OSError('no IOKit')):
+        a, asked = _asker([broken, [GUARDED]])
+        assert a.tick(0.0, False) is None
+        assert not a.pending
+        assert a.tick(10.0, False) is None
+        assert asked == []
+    # and off a Mac the registry reader says so without touching IOKit
+    if sys.platform != 'darwin':
+        assert reader.mac_game_controllers() is None
+
+
+def test_permission_turned_on_with_a_refused_controller_gets_a_fresh_reader():
+    there, none = (lambda: [GUARDED]), (lambda: [])
+    restart = reader.restart_for_permission
+    assert restart('unknown', 'granted', False, seen=there)
+    assert restart('denied', 'granted', False, seen=there)
+    assert not restart('unknown', 'granted', True, seen=there)     # SDL has it
+    assert not restart('unknown', 'granted', False, seen=none)     # nothing connected
+    assert not restart('granted', 'granted', False, seen=there)    # no change
+    assert not restart('unknown', 'denied', False, seen=there)
+    assert not restart(None, None, False, seen=there)              # off a Mac
+    assert not restart('unknown', 'granted', False, seen=lambda: None)
 
 
 def test_start_reader_passes_the_mac_question_on(monkeypatch):
