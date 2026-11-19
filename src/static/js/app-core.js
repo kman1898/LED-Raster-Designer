@@ -878,12 +878,29 @@ export class LEDRasterApp {
             // anything the page did since; adopting it threw those edits off
             // the page (CI, 2026-10-18: a wall seeded right after load read
             // 0 kg). loadProject already holds that state, so the first copy
-            // is dropped once the load is done. A reconnect's copy still
-            // applies: the server is the truth after a disconnect.
+            // is dropped once the load is done, when it is the show the load
+            // read. A first connect that only completes after another page
+            // changed the show (a slow join, a drop mid-handshake) brings a
+            // different one: this page heard none of the change, so it reads
+            // the show again and follows it (_catchUpFirstConnect). A
+            // reconnect's copy still applies: the server is the truth after
+            // a disconnect.
             const firstConnect = (this._socketConnects || 0) <= 1 && !this._firstProjectDataSeen;
             this._firstProjectDataSeen = true;
             if (firstConnect && this._initialLoadComplete) {
-                sendClientLog('socket_project_data_skipped', { reason: 'first_connect_after_load' });
+                const loaded = this._loadedShowJson;
+                this._loadedShowJson = null;
+                const same = typeof loaded === 'string' && typeof this._canonicalJson === 'function'
+                    && this._canonicalJson(data) === loaded;
+                if (same) {
+                    sendClientLog('socket_project_data_skipped', { reason: 'first_connect_after_load' });
+                } else {
+                    sendClientLog('socket_project_data_first_differs', {
+                        layers: data && data.layers ? data.layers.length : 0,
+                        compared: typeof loaded === 'string',
+                    });
+                    this._catchUpFirstConnect();
+                }
                 return;
             }
             sendClientLog('socket_project_data', { layers: data.layers ? data.layers.length : 0 });
@@ -1458,6 +1475,37 @@ export class LEDRasterApp {
             });
     }
 
+    // The first connect's copy was not the show the load read: another
+    // page changed it while this page was joining, before its socket could
+    // hear the change. The copy itself is not taken: it may have left the
+    // server before the load's own read did (a polling socket holds it
+    // until its next poll), so the show is read again, once this page's
+    // own writes have landed, and followed the way another page's edit is
+    // (_onProjectEdited: the selection by id, one undo step).
+    _catchUpFirstConnect() {
+        if (this._firstConnectCatchUp) return;
+        const read = () => Promise.resolve(typeof this._layerSavesSettled === 'function'
+            ? this._layerSavesSettled() : null)
+            .then(() => fetch('/api/project'))
+            .then(res => {
+                const rev = Number(res.headers.get('X-Project-Rev'));
+                const unsaved = res.headers.get('X-Project-Unsaved') === '1';
+                return res.json().then(p => ({ p, rev, unsaved }));
+            })
+            .then(({ p, rev, unsaved }) => {
+                // a write of this page's went out meanwhile: read after it
+                if (LIVE_WRITES.out > 0) return read();
+                sendClientLog('first_connect_reread', { layers: (p.layers || []).length, rev });
+                this._onProjectReplaced(p, { reason: 'edit', client: '', token: null, unsaved });
+                if (Number.isFinite(rev)) this._syncRev = Math.max(this._syncRev || 0, rev);
+            });
+        this._firstConnectCatchUp = read()
+            .catch((err) => {
+                sendClientLog('first_connect_reread_failed', { error: String(err && err.message || err) });
+            })
+            .finally(() => { this._firstConnectCatchUp = null; });
+    }
+
     // Which page's guide holds the show, when it is not this one.
     _guideRunningElsewhere() {
         return !!(this._guidePage && this._guidePage !== PAGE_CLIENT_ID);
@@ -1829,6 +1877,11 @@ export class LEDRasterApp {
                 // and sent now it would put the Preferences' Canvas Size,
                 // cable unit and stock on the show this load brings.
                 this._owedStartupSync = null;
+                // The show as this read had it, before the page works on
+                // it: the first connect's copy is dropped only when it is
+                // this same show (the project_data handler).
+                this._loadedShowJson = !this._firstProjectDataSeen && typeof this._canonicalJson === 'function'
+                    ? this._canonicalJson(data) : null;
                 this.project = data;
                 // The page joins the show as the server holds it: what the
                 // load works out (defaults, the opening screen and its
