@@ -922,6 +922,11 @@ FIXES
 - FIX: Raster now reads Canvas Size wherever the app shows it: the
   toolbar's width and height, their tips, the line a text layer can add,
   Fit's tip and the export scale.
+- FIX: With a panel docked beside the canvas, such as the Hardware tray
+  on the right, the toolbar and the strip above the canvas move their
+  last controls onto a second row when they run out of room. They used
+  to run on under the panel, cutting off the last buttons and pushing
+  the canvas under it.
 
 v1.6.0 - November 6, 2026
 ----------------------------
