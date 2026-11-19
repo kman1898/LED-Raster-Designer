@@ -25,7 +25,7 @@ from test_tour_anchors import _wait_step  # noqa: E402
 GUIDE = 'binder'
 # The guide's steps, its intro and outro among them. A step added or taken
 # away changes this; the parametrized Go to below covers every one.
-STEPS = 12
+STEPS = 13
 DEMO_SHOW = dict(name='Demo Show', screens=['DEMO WALL', 'DEMO WALL 2'], processors=2, distros=1, services=1, beaches=1, groups=1)
 
 
