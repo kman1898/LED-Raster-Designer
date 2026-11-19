@@ -1220,3 +1220,102 @@ def test_wiring_runs_off_a_shared_disc_stand_apart_and_cross_no_note(page):
                             and y1 + pad > nb['y'] and y0 - pad < nb['y'] + nb['h']), (
                     'a run crosses a socket note', title, s['note'], r['from'])
     assert not errors
+
+
+# Every line the map strokes AFTER a disc's lettering, checked against the
+# lettering's box on the same bitmap (device pixels, so whatever frame the
+# disc and the line were drawn in), and the sheet's own runs against the
+# discs it logged. Arcs (a disc's own rim) are not lines and are not read.
+STROKES_OVER_LABELS_JS = """(ids) => {
+    const app = window.app, a = app.project.layers[0], r = window.canvasRenderer;
+    const circ = (app.screenCircuits(a) || []).map(c => c.num);
+    ids.forEach((id, i) => app.setBoxPower(id, { kind: i % 2 ? 'end' : 'start', layerId: a.id,
+                                                 circuit: circ[i % circ.length] }));
+    const opts = { ...app.readBinderOptions(), mode: 'full', sides: { power: true, data: false } };
+    const plan = app.planBinder(opts);
+    const i = plan.findIndex(p => p.title === `${a.name} - Power Wiring`);
+    if (i < 0) return { titles: plan.map(p => p.title) };
+    const P = CanvasRenderingContext2D.prototype;
+    const orig = { beginPath: P.beginPath, moveTo: P.moveTo, lineTo: P.lineTo, stroke: P.stroke };
+    const label = r._fillWrappedLabel;
+    const boxes = [], over = [];
+    let path = [];
+    const mine = (c) => c === r.ctx;
+    const dev = (c, x, y) => { const m = c.getTransform();
+                               return [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f]; };
+    r._fillWrappedLabel = function (ls, x, y, fontPx) {
+        if (Array.isArray(ls) && ls.length && this.ctx) {
+            const w = Math.max(...ls.map(t => this.ctx.measureText(t).width));
+            const h = (fontPx || 14) * ls.length;
+            const c0 = dev(this.ctx, x - w / 2, y - h / 2), c1 = dev(this.ctx, x + w / 2, y + h / 2);
+            boxes.push({ text: ls.join(''), canvas: this.ctx.canvas,
+                         x0: Math.min(c0[0], c1[0]), x1: Math.max(c0[0], c1[0]),
+                         y0: Math.min(c0[1], c1[1]), y1: Math.max(c0[1], c1[1]) });
+        }
+        return label.apply(this, arguments);
+    };
+    P.beginPath = function () { if (mine(this)) path = []; return orig.beginPath.apply(this, arguments); };
+    P.moveTo = function (x, y) { if (mine(this)) path.push([dev(this, x, y)]); return orig.moveTo.apply(this, arguments); };
+    P.lineTo = function (x, y) {
+        if (mine(this)) { if (!path.length) path.push([]); path[path.length - 1].push(dev(this, x, y)); }
+        return orig.lineTo.apply(this, arguments);
+    };
+    P.stroke = function () {
+        if (mine(this) && !arguments.length) {
+            const half = this.lineWidth / 2;
+            for (const sub of path) for (let k = 1; k < sub.length; k++) {
+                const [p, q] = [sub[k - 1], sub[k]];
+                for (const b of boxes) {
+                    if (b.canvas !== this.canvas) continue;
+                    // the segment's own box against the lettering's (the
+                    // map's lines are all square to the wall)
+                    if (Math.max(p[0], q[0]) + half > b.x0 && Math.min(p[0], q[0]) - half < b.x1
+                        && Math.max(p[1], q[1]) + half > b.y0 && Math.min(p[1], q[1]) - half < b.y1) {
+                        over.push({ text: b.text, colour: String(this.strokeStyle), from: p, to: q });
+                    }
+                }
+            }
+        }
+        return orig.stroke.apply(this, arguments);
+    };
+    let out;
+    try {
+        out = (app.renderBinderPage(opts, i).wiring || {}).halves || [];
+    } finally {
+        Object.assign(P, orig);
+        delete r._fillWrappedLabel;
+        if (r._fillWrappedLabel !== label) r._fillWrappedLabel = label;
+    }
+    return { halves: out, over, labels: boxes.length };
+}"""
+
+
+def test_wiring_no_line_crosses_a_disc_label(page):
+    """A box powered at the START of a circuit is fed from the circuit's
+    first cabinet, where the circuit's own disc stands. The map's feed line
+    for it ran from that cabinet's middle - the disc's middle - out to the
+    wall's edge, drawn after the disc, so on the Power Wiring sheet a dark
+    stroke crossed "SL1-1". The feed is now drawn under the circuits and
+    their discs: no line the map strokes after a disc crosses its
+    lettering, and no run the sheet draws comes into a disc's lettering."""
+    pg, errors = page
+    _setup(pg)
+    b = _boxes(pg)
+    ids = [x['id'] for v in b.values() for x in v]
+    out = pg.evaluate(STROKES_OVER_LABELS_JS, ids)
+    assert out.get('halves') and len(out['halves']) == 1, out
+    assert out['labels'], 'no disc lettering seen on the map'
+    assert not out['over'], ('a line drawn over a disc\'s lettering', out['over'][:4])
+    h = out['halves'][0]
+    assert h['discs'], h
+    for d in h['discs']:
+        # the lettering sits inside the disc's middle
+        q = d['r'] * 0.7
+        for r in h['runs']:
+            for a, c in _segs(r):
+                x0, x1 = sorted((a[0], c[0]))
+                y0, y1 = sorted((a[1], c[1]))
+                assert not (x1 > d['x'] - q and x0 < d['x'] + q
+                            and y1 > d['y'] - q and y0 < d['y'] + q), (
+                    'a run comes into a disc\'s lettering', d['text'], r['from'], r['device'])
+    assert not errors
