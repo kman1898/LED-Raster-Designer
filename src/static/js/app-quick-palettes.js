@@ -5,6 +5,7 @@
 // a user keeps for themselves are a preference (app-preferences.js,
 // quickPaletteSource / quickPaletteColors).
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLog } from './helpers.js';
 import {
     QUICK_PALETTE_STYLES, generateQuickPalettes, hueOf, normalizeQuickPalettes, rotateHue,
 } from './quick-palettes.js';
@@ -99,6 +100,8 @@ class _QuickPalettes {
                 S().style = btn.dataset.style;
                 try { localStorage.setItem(STYLE_KEY, S().style); } catch (e) { /* storage blocked */ }
                 this.renderQuickPalettes();
+                sendClientLog('quick_palette_style', { style: S().style, colors: this._qpLogSet() },
+                    { area: 'pixelmap', msg: `Quick Palettes style ${S().style}` });
             });
         });
 
@@ -110,6 +113,8 @@ class _QuickPalettes {
             st.baseHue = Math.floor(Math.random() * 360);
             st.shuffled = true;
             this.renderQuickPalettes();
+            sendClientLog('quick_palette_shuffled', { baseHue: st.baseHue, style: st.style, colors: this._qpLogSet() },
+                { area: 'pixelmap', msg: `Quick Palettes shuffled around hue ${st.baseHue}` });
         });
 
         // The slider follows `input`. Nothing starts until the thumb really
@@ -145,6 +150,16 @@ class _QuickPalettes {
             st.moved = null;
             // Out and back to where it began: nothing to record.
             if (this._qpScreens().every(l => began.get(l.id) === this._qpPairOf(l).join('|'))) return;
+            // One line per adjustment; a run of arrow-key taps folds into
+            // one on the server (2026-11-19).
+            const turned = this._qpScreens();
+            sendClientLog('quick_palette_hue', {
+                shift: st.shift, screens: turned.map(l => ({ name: l.name, colors: this._qpPairOf(l) })).slice(0, 8),
+            }, {
+                area: 'pixelmap', fold: 'quick-palette-hue',
+                msg: `Palette hue ${st.shift > 0 ? '+' : ''}${st.shift} deg: `
+                    + turned.slice(0, 6).map(l => `${l.name} ${this._qpPairOf(l).join(' / ')}`).join(', '),
+            });
             this.updateLayers(this.getSelectedLayers());
             if (run) this.debouncedSaveState(HUE_STEP, HUE_RUN_MS, HUE_STEP_KEY);
             else this.saveState(HUE_STEP);
@@ -271,10 +286,20 @@ class _QuickPalettes {
         this.loadQuickPalettes();
     }
 
+    // The set on show, for the log: eight "#c1/#c2" pairs.
+    _qpLogSet() {
+        try { return this.getQuickPalettes().map(p => `${p[0]}/${p[1]}`); } catch (e) { return null; }
+    }
+
     // Color the selected screens with pair `index` of the set on show.
     applyQuickPalette(index) {
         const pair = this.getQuickPalettes()[index];
         if (!pair) return;
+        const onto = this.getSelectedLayers().filter(l => (l.type || 'screen') === 'screen');
+        sendClientLog('quick_palette_applied', { index: index + 1, colors: pair, screens: onto.map(l => l.name).slice(0, 12) }, {
+            area: 'pixelmap',
+            msg: `Quick Palette ${index + 1} (${pair[0]} / ${pair[1]}) on ${onto.map(l => l.name).slice(0, 6).join(', ') || 'nothing selected'}`,
+        });
         const c1 = this.hexToRgb(pair[0]);
         const c2 = this.hexToRgb(pair[1]);
         this.applyToSelectedLayers(layer => {

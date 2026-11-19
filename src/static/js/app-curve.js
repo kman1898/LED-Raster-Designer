@@ -134,6 +134,7 @@
 // screen standing as it is, its part of the curve kept (the tab says it is
 // not that screen's own curve until Auto lays it again).
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLog } from './helpers.js';
 import {
     anglesFromQuat, quatFromPlacement, quatInv, quatMul, quatRotate, round, s3dBuild, s3dCleanCorners,
     s3dCornerSeams, s3dCornersOn, s3dCornerTurn, s3dResolve, s3dSanitize, wrap180, DEG, PIVOT,
@@ -986,6 +987,46 @@ class _Curve {
         return p;
     }
 
+    // The log's line for one answer of the calculator as it lands on a wall
+    // (2026-11-19): the settings it was asked with, the bars, how many
+    // joints bend, the biggest, how many sit at the lock limit, the sweep
+    // reached and how far off the drawn arc, and every warning or refusal.
+    _curveLogOut(name, action, input, out) {
+        const s = (input && input.settings) || {};
+        const joints = Array.isArray(out && out.joints) ? out.joints.map(Number) : [];
+        const bent = joints.filter(a => Math.abs(a) > 1e-9);
+        const most = bent.reduce((m, a) => Math.max(m, Math.abs(a)), 0);
+        const atLimit = bent.filter(a => Math.abs(a) >= CURVE_MAX_JOINT_DEG - 1e-6).length;
+        const errors = (out && out.errors) || [];
+        const warnings = (out && out.warnings) || [];
+        const r = out && out.result;
+        const a = r && r.achieved;
+        const sides = Array.isArray(out && out.sides) ? out.sides.length : 0;
+        const asked = `${s.value}${s.entry === 'degrees' ? ' deg' : '%'} ${s.bend || ''}, ${s.goal || ''}`;
+        const details = {
+            name, action, asked: { entry: s.entry, value: s.value, bend: s.bend, goal: s.goal, from: s.from },
+            panels: input && input.panels, sizes: input && input.sizes,
+            bars: ((out && out.bars) || []).slice(0, 40), joints: bent.length, maxJoint: Math.round(most * 100) / 100,
+            atLimit, limit: CURVE_MAX_JOINT_DEG,
+            ...(a ? { sweep: Math.round(a.sweep_deg * 10) / 10, percent: Math.round(a.percent_circle * 10) / 10 } : {}),
+            ...(r && Number.isFinite(r.max_arc_deviation_m) ? { offMm: Math.round(r.max_arc_deviation_m * 1000) } : {}),
+            ...(sides ? { sides } : {}), ...(out && out.hand ? { hand: true } : {}),
+            ...(warnings.length ? { warnings: warnings.slice(0, 4) } : {}),
+            ...(errors.length ? { errors: errors.slice(0, 4) } : {}),
+        };
+        const msg = errors.length
+            ? `Curve on ${name} (${asked}) not laid: ${errors.slice(0, 2).join(' ')}`
+            : `Curve on ${name} (${asked}): ${details.bars.length} bars (${details.bars.join(', ')}), `
+                + `${bent.length} joints bend, biggest ${details.maxJoint} deg`
+                + (atLimit ? `, ${atLimit} at the ${CURVE_MAX_JOINT_DEG} deg limit` : '')
+                + (a ? `, sweep ${details.sweep} deg (${details.percent}% of a circle)` : '')
+                + (details.offMm != null ? `, ${details.offMm} mm off the drawn arc at worst` : '')
+                + (sides ? `, ${sides} sides` : '')
+                + (warnings.length ? `; ${warnings.slice(0, 2).join(' ')}` : '');
+        sendClientLog(errors.length ? 'curve_refused' : 'curve_solved', details,
+            { area: 'rigging', level: errors.length ? 'warn' : 'info', msg });
+    }
+
     // True while the calculator is working for the tab.
     riggingCurveBusy() {
         return (this._curveBusy || 0) > 0 || !!(this._curvePending && this._curvePending.size);
@@ -1352,7 +1393,7 @@ class _Curve {
             const lead = row.layers[0];
             const input = this._curveInput(lead);
             this._curveAll(row).forEach(m => this._curveLatest.set(m.id, seq));
-            return { id: lead.id, ids: this._curveAllIds(row), key: JSON.stringify(input), shape: this._curveShape(row),
+            return { id: lead.id, ids: this._curveAllIds(row), key: JSON.stringify(input), shape: this._curveShape(row), input,
                      name: this._curveMulti(row) ? this._curveWallName(row) : (lead.name || `Screen ${lead.id}`),
                      p: this.riggingCurveRequest(input) };
         });
@@ -1409,6 +1450,7 @@ class _Curve {
                 }
                 if (outs[i].errors.length) misses.push(j.name);
                 else this._curveWrite(live, outs[i]);
+                try { this._curveLogOut(j.name, action, j.input, outs[i]); } catch (e) { /* the log never stops a curve */ }
                 this._curveAll(row).forEach(m => { if (!changed.includes(m)) changed.push(m); });
             });
             const laid = changed.length > 0;
@@ -1514,6 +1556,20 @@ class _Curve {
             }
             this._curveAll(row).forEach(m => { if (!changed.includes(m)) changed.push(m); });
         }
+        if (changed.length || refused.length || noLocks.length) {
+            sendClientLog('curve_set', {
+                on, screens: changed.map(l => l.name),
+                ...(refused.length ? { refused: refused.map(([row, why]) => `${this._curveRowWords(row)}: ${why}`) } : {}),
+                ...(noLocks.length ? { noLockPositions: noLocks.map(r => this._curveRowWords(r)) } : {}),
+                ...(misses.length ? { misses } : {}),
+            }, {
+                area: 'rigging', level: refused.length || noLocks.length ? 'warn' : 'info',
+                msg: `Curve ${on ? 'on' : 'off'}${changed.length ? ` for ${changed.map(l => l.name).slice(0, 6).join(', ')}` : ''}`
+                    + (refused.length ? `; refused: ${refused.map(([row, why]) => `${this._curveRowWords(row)}, ${why}`).join('; ')}` : '')
+                    + (noLocks.length ? `; no lock positions: ${noLocks.map(r => this._curveRowWords(r)).join(', ')}` : '')
+                    + (misses.length ? `; Auto bars cannot cover ${misses.join(', ')}` : ''),
+            });
+        }
         if (refused.length || noLocks.length) {
             const lines = refused.map(([row, why]) => `${this._curveRowWords(row)} cannot take a Curve: ${why}.`);
             if (noLocks.length) {
@@ -1578,6 +1634,8 @@ class _Curve {
             const v = Number(String(raw).replace(/[%°\s]/g, ''));
             const max = base.entry === 'degrees' ? 360 : 100;
             if (!Number.isFinite(v) || v < 0 || v > max) {
+                sendClientLog('curve_field_refused', { key, value: String(raw).slice(0, 20), why: `outside 0 to ${max}` },
+                    { area: 'rigging', level: 'warn', msg: `Curve ${base.entry === 'degrees' ? 'sweep' : '%'} ${String(raw).slice(0, 20)} refused: type 0 to ${max}` });
                 this._toast(base.entry === 'degrees' ? 'Curve, type degrees of sweep from 0 to 360.' : 'Curve, type a % of a full circle from 0 to 100.', true, 5000);
                 this.refreshRiggingPanel();
                 return;
@@ -1607,6 +1665,12 @@ class _Curve {
             if (!sized && this._curveAll(row).every(m => JSON.stringify(next) === JSON.stringify(this.riggingCurveOf(m)))) continue;
             this._curveAll(row).forEach(m => { m.riggingCurve = { ...next }; });
             this._curveAll(row).forEach(m => { if (!changed.includes(m)) changed.push(m); });
+        }
+        if (changed.length) {
+            sendClientLog('curve_field_set', { key, patch, screens: changed.map(l => l.name) }, {
+                area: 'rigging',
+                msg: `Curve ${key} set to ${JSON.stringify(patch[key] !== undefined ? patch[key] : patch)} on ${changed.map(l => l.name).slice(0, 6).join(', ')}`,
+            });
         }
         if (changed.length && !this.riggingCurveRelayLater(changed, 'Curve', changed)) {
             this.updateLayers(changed, true, 'Curve');
@@ -1762,7 +1826,12 @@ class _Curve {
             const a = Number(angle);
             if (!Number.isFinite(a)) return false;
             const why = this._curveJointRefusal(row, j, a);
-            if (why) { this._toast(why, true, 6000); return false; }
+            if (why) {
+                sendClientLog('curve_joint_refused', { joint: j + 1, angle: a, why },
+                    { area: 'rigging', level: 'warn', msg: `Curve joint after panel ${j + 1} to ${a} deg refused: ${why}` });
+                this._toast(why, true, 6000);
+                return false;
+            }
             if (hand[String(j)] === a && row.layers.every(m => m.riggingCustom === true)) return false;
             hand[String(j)] = a;
         }
@@ -1770,6 +1839,9 @@ class _Curve {
         all.forEach(m => { m.riggingCurve = { ...next }; });
         row.layers.forEach(m => { m.riggingCustom = true; });
         const action = angle === null ? 'Curve Joint Auto' : 'Curve Joint';
+        sendClientLog('curve_joint_set', { joint: j + 1, angle, screens: all.map(l => l.name) }, {
+            area: 'rigging', msg: `Curve joint after panel ${j + 1} ${angle === null ? 'back to Auto' : `set by hand to ${angle} deg`}`,
+        });
         if (!this.riggingCurveRelayLater(all, action, all)) this.updateLayers(all, true, action);
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();

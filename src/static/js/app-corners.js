@@ -48,6 +48,7 @@
 // spot on every selected screen that has one there, so twin columns edit
 // together.
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLog } from './helpers.js';
 import { CORNER_ANGLE, s3dBuild, s3dCleanCorners, s3dCornerAnchor, s3dCornersOn } from './app-stage3d.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -241,8 +242,18 @@ class _Corners {
     // A Corners edit saved as one undo step: the screens it changed, the
     // others its bars changed, and a curved screen's Curve laid again
     // around its corners, all together (app-curve.js riggingCurveRelayLater).
+    // The log's line for a corner edit or refusal (2026-11-19).
+    _logCorner(event, details, msg, level = 'info') {
+        sendClientLog(event, details, { area: 'rigging', level, msg });
+    }
+
     _cornerCommit(changed, relay, action) {
         if (!changed.length) return;
+        this._logCorner('corner_set', {
+            action, screens: changed.map(l => ({ name: l.name, corners: this.riggingCornersOf(l).map(c => `${c.at} ${c.side}`) })),
+            ...(relay && relay.curved && relay.curved.length ? { curved: relay.curved.map(l => l.name) } : {}),
+        }, `${action}: ` + changed.slice(0, 6).map(l => `${l.name} corners at `
+            + (this.riggingCornersOf(l).map(c => `${c.at} ${c.side}`).join(', ') || 'none')).join('; '));
         const all = changed.concat(relay ? relay.others : []);
         const curved = relay ? relay.curved : [];
         if (curved.length && typeof this.riggingCurveRelayLater === 'function'
@@ -261,7 +272,11 @@ class _Corners {
             changed.push(l);
         }
         if (changed.length) this._cornerCommit(changed, this._cornerRelayBars(changed), 'Add Corner');
-        else if (screens.length) this._toast('This screen has no room for another corner. Corners need a panel of their own for their corner bars.', true, 5000);
+        else if (screens.length) {
+            this._logCorner('corner_refused', { screens: screens.map(l => l.name), why: 'no room for another corner' },
+                `Add Corner refused on ${screens.map(l => l.name).join(', ')}: no panel free for its corner bars`, 'warn');
+        }
+        if (!changed.length && screens.length) this._toast('This screen has no room for another corner. Corners need a panel of their own for their corner bars.', true, 5000);
         this.refreshRiggingPanel();
         if (window.canvasRenderer) window.canvasRenderer.render();
     }
@@ -301,6 +316,8 @@ class _Corners {
             changed.push(l);
         }
         if (blocked.length) {
+            this._logCorner('corner_refused', { at: patch.at, screens: blocked.map(l => l.name), why: 'taken or too close to another corner' },
+                `Corner move to ${patch.at} refused on ${blocked.map(l => l.name).join(', ')}: taken or too close to another corner`, 'warn');
             this._toast(`${cornerSpotLabel(patch.at)} is taken or too close to another corner on ${blocked.map(l => l.name || `Screen ${l.id}`).join(', ')}. Corners need a panel of their own for their corner bars.`, true, 6000);
         }
         // A corner that moved splits its bars somewhere else.
@@ -358,6 +375,8 @@ class _Corners {
             action = 'Corner';
         } else {
             if (!this._cornerSpotFree(spot, list.map(c => c.at))) {
+                this._logCorner('corner_refused', { at: spot, screen: layer.name, why: 'too close to another corner' },
+                    `Corner at ${spot} refused on ${layer.name}: too close to another corner`, 'warn');
                 this._toast(`${cornerSpotLabel(spot)} is too close to another corner on ${layer.name || 'this screen'}. Corners need a panel of their own for their corner bars.`, true, 6000);
                 return false;
             }

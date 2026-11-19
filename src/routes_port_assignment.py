@@ -35,11 +35,63 @@ import uuid
 from flask import Blueprint, g, request, jsonify
 
 import app
+import log_diff
 import port_assignment as assignment
 import processor_catalog as catalog
 from app import log_event, socketio
 
 port_assignment_bp = Blueprint('port_assignment', __name__)
+
+
+# The log's one line for each placement: what landed where, then why
+# (the solver's `reasons`, port_assignment._say). 2026-11-19.
+def _why(d):
+    reasons = d.get('reasons') or []
+    return f' ({"; ".join(str(r) for r in reasons[:6])})' if reasons else ''
+
+
+def _m_overflow(d):
+    return (f"Screen #{d.get('layer')} dropped on card {d.get('card')}: "
+            f"{d.get('ports')} ports placed{_why(d)}")
+
+
+def _m_place(d):
+    return (f"Screen #{d.get('layer')} port {int(d.get('index') or 0) + 1} placed on "
+            f"card {d.get('card')} port {d.get('port')}{_why(d)}")
+
+
+def _m_pin(d):
+    return (f"Screen #{d.get('layer')} port {int(d.get('index') or 0) + 1} pinned to "
+            f"card {d.get('card')} port {d.get('port')}{_why(d)}")
+
+
+def _m_move_block(d):
+    to = d.get('to') or {}
+    return (f"Screen #{d.get('layer')} moved as a block to card {to.get('cardId')} "
+            f"from port {to.get('startPort')}{_why(d)}")
+
+
+def _m_reasons(d):
+    screens = d.get('screens') or []
+    shown = screens[:6]
+    text = '; '.join(f"{s.get('name') or s.get('id')}: {', '.join(s.get('reasons') or [])}"
+                     for s in shown)
+    if len(screens) > len(shown):
+        text += f'; {len(screens) - len(shown)} more screens'
+    return f'Ports: {text}'
+
+
+def _m_refused(d):
+    return f"Port placement refused ({d.get('route')}): {log_diff.short(d.get('why'), 240)}"
+
+
+for _event, _fmt in (('port_assignment_overflow', _m_overflow),
+                     ('port_assignment_place', _m_place),
+                     ('port_assignment_pin', _m_pin),
+                     ('port_assignment_move_block', _m_move_block),
+                     ('port_assignment_reasons', _m_reasons),
+                     ('port_assignment_refused', _m_refused)):
+    log_diff.register(_event, _fmt)
 
 # THE ORDER OF THE ASSIGNMENT'S ANSWERS. Every reply that carries a
 # resolution takes the next number BEFORE it reads the stored pins, so a
@@ -189,13 +241,60 @@ def _screens():
     return out
 
 
+def _refused(why, layer=None, card=None, status=409, **body):
+    """A refused edit's answer, and the log line that says why (2026-11-19
+    logging audit, phase 3: a refusal the page shows as a toast was in the
+    log only as the toast's text, with no screen or card)."""
+    details = {'route': request.path.rsplit('/', 1)[-1], 'why': why}
+    if layer is not None:
+        details['layer'] = layer
+    if card:
+        details['card'] = card
+    log_event('port_assignment_refused', details, level='warn', area='data')
+    return jsonify(dict({'error': why}, **body)), status
+
+
+# What each screen's ports read like the last time a resolution was made,
+# per project: a screen's line is logged when it changes, never on every
+# resolve (the page resolves on most edits).
+_last_reasons = {'project': None, 'by_layer': {}}
+
+
+def _log_reason_changes(resolution):
+    """One line naming the screens whose port state changed since the last
+    resolution, each with why (port_assignment.resolution_reasons). A
+    screen missing from this request (a caller that sent a partial list)
+    keeps its last line."""
+    try:
+        project = id(app.current_project)
+        if _last_reasons['project'] != project:
+            _last_reasons['project'] = project
+            _last_reasons['by_layer'] = {}
+        seen = _last_reasons['by_layer']
+        names = {str(s['layerId']): s.get('name') or str(s['layerId'])
+                 for s in resolution.get('screens') or []}
+        changed = []
+        for layer_id, lines in assignment.resolution_reasons(resolution).items():
+            if seen.get(layer_id) == lines:
+                continue
+            seen[layer_id] = lines
+            changed.append({'id': layer_id, 'name': names.get(layer_id),
+                            'reasons': lines})
+        if not changed:
+            return
+        log_event('port_assignment_reasons', {'screens': changed[:20]},
+                  area='data', fold=False)
+    except Exception:
+        pass
+
+
 def _mirror_refused(layer_id):
     """The 409 for placing a mirror screen's ports on their own
     (port_assignment.mirror_refusal), else None."""
     why = assignment.mirror_refusal(_screens(), layer_id, _processors(),
                                     _state())
     if why:
-        return jsonify({'error': why, 'mirror': True}), 409
+        return _refused(why, layer=layer_id, mirror=True)
     return None
 
 
@@ -205,9 +304,11 @@ def _payload():
     # read before it.
     stamp = {'boot': _STAMP_BOOT, 'n': next(_stamps)}
     state = _state()
+    resolution = assignment.resolve(_processors(), _screens(), state)
+    _log_reason_changes(resolution)
     return {
         'state': state,
-        'resolution': assignment.resolve(_processors(), _screens(), state),
+        'resolution': resolution,
         'assignmentStamp': stamp,
     }
 
@@ -221,20 +322,20 @@ def _link_refused(state):
     why = assignment.link_cap_refusal(_processors(), _screens(), _state(),
                                       _screens(), state)
     if why:
-        return jsonify({'error': why, 'linkCap': True}), 409
+        return _refused(why, linkCap=True)
     # THE CANVAS (owner, 2026-10-07): a mapping that would take a Brompton
     # processor's screens past the canvas it publishes is refused the same
     # way, on the same working copy - port_assignment.canvas_refusal.
     why = assignment.canvas_refusal(_processors(), _screens(), _state(),
                                     _screens(), state)
     if why:
-        return jsonify({'error': why, 'canvas': True}), 409
+        return _refused(why, canvas=True)
     # CARDS THAT CANNOT LOAD ONE SCREEN TOGETHER (NovaStar's H cards -
     # port_assignment.mix_refusal): refused, never warned.
     why = assignment.mix_refusal(_processors(), _state(), _processors(),
                                  state, _screens())
     if why:
-        return jsonify({'error': why, 'cardMix': True}), 409
+        return _refused(why, cardMix=True)
     return None
 
 
@@ -362,15 +463,18 @@ def pin_port():
         return refused
     _retire()
     state = _working()
+    reasons = []
     pinned, error = assignment.pin_to_card(
-        _processors(), _screens(), state, layer_id, index, card_id, port)
+        _processors(), _screens(), state, layer_id, index, card_id, port,
+        reasons=reasons)
     if error:
-        return jsonify({'error': error}), 409
+        return _refused(error, layer=layer_id, card=card_id)
     refused = _link_refused(state)
     if refused:
         return refused
     log_event('port_assignment_pin', {'layer': layer_id, 'index': index,
-                                      'card': card_id, 'port': pinned['port']})
+                                      'card': card_id, 'port': pinned['port'],
+                                      'reasons': reasons})
     return _saved(_store(state), extra={'pinned': pinned})
 
 
@@ -409,22 +513,24 @@ def place_port():
         return refused
     _retire()
     state = _working()
+    reasons = []
     placed, error, conflict = assignment.place_port(
         _processors(), _screens(), state, layer_id, index, card_id, port,
-        confirm=bool(data.get('confirm')))
+        confirm=bool(data.get('confirm')), reasons=reasons)
     if error:
-        body = {'error': error}
         # The client may not simply retry: a conflict is a question, and the
         # answer to it is a person reading who is already there.
         if conflict:
-            body['conflict'] = conflict
-        return jsonify(body), 409
+            return _refused(error, layer=layer_id, card=card_id,
+                            conflict=conflict)
+        return _refused(error, layer=layer_id, card=card_id)
     refused = _link_refused(state)
     if refused:
         return refused
     log_event('port_assignment_place', {'layer': layer_id, 'index': index,
                                         'card': card_id, 'port': placed['port'],
-                                        'confirmed': bool(data.get('confirm'))})
+                                        'confirmed': bool(data.get('confirm')),
+                                        'reasons': reasons})
     return _saved(_store(state), extra={'moved': placed})
 
 
@@ -587,6 +693,7 @@ def move_block():
         return refused
     _retire()
     state = _working()
+    reasons = []
     moved, error = assignment.move_block(
         _processors(), _screens(), state, layer_id,
         card_id=data.get('cardId'),
@@ -594,13 +701,15 @@ def move_block():
         # A breakout box is a span of card ports; the dock sends the span so
         # "drop the box on a screen" lands the run on the box and nowhere else.
         first_port=None if first is None else int(first),
-        last_port=None if last is None else int(last))
+        last_port=None if last is None else int(last),
+        reasons=reasons)
     if error:
-        return jsonify({'error': error}), 409
+        return _refused(error, layer=layer_id, card=data.get('cardId'))
     refused = _link_refused(state)
     if refused:
         return refused
-    log_event('port_assignment_move_block', {'layer': layer_id, 'to': moved})
+    log_event('port_assignment_move_block', {'layer': layer_id, 'to': moved,
+                                             'reasons': reasons})
     return _saved(_store(state), extra={'moved': moved})
 
 
@@ -619,6 +728,7 @@ def place_overflow():
         return refused
     _retire()
     state = _working()
+    reasons = []
     moved, error = assignment.place_overflow(
         _processors(), _screens(), state, layer_id, card_id,
         # Same box-span window move-block carries; see that route.
@@ -628,12 +738,14 @@ def place_overflow():
         box_id=data.get('boxId') or None,
         # The dock's drop names the screen port under the cursor (0-based):
         # the fill takes the unplaced ports up to it and no further.
-        last_index=None if last_index is None else int(last_index))
+        last_index=None if last_index is None else int(last_index),
+        reasons=reasons)
     if error:
-        return jsonify({'error': error}), 409
+        return _refused(error, layer=layer_id, card=card_id)
     refused = _link_refused(state)
     if refused:
         return refused
     log_event('port_assignment_overflow', {'layer': layer_id, 'card': card_id,
-                                           'ports': len(moved['moved'])})
+                                           'ports': len(moved['moved']),
+                                           'reasons': reasons})
     return _saved(_store(state), extra={'moved': moved})

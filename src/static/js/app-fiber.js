@@ -37,6 +37,7 @@
 // refuses with the reason; this side reads the resolved boxes and the
 // show's list, names the strands, and writes one request per gesture.
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLog } from './helpers.js';
 import { MTP_POLARITIES, mtpPolarity, mtpPolarityWord, mtpFarPosition, mtpLegsAtBreakout,
          fiberStrandPositions } from './mtp-polarity.js';
 
@@ -881,6 +882,12 @@ class _Fiber {
         // refusal reads and the picker snaps back to what is stored.
         const why = this.fiberLinkBodyModeRefusal(box, key, body);
         if (why) {
+            // The log's line for the refusal (2026-11-19): the box, the link
+            // and the cable picked, with the reason.
+            const title = box.displayTitle || box.name || box.deviceName || box.id;
+            sendClientLog('fiber_link_refused', {
+                box: title, link: key, cable: body && body.cable ? (this.getFiberCable(body.cable) || {}).name || body.cable : null, why,
+            }, { area: 'fiber', level: 'warn', msg: `Fiber link ${key} on ${title} refused: ${why}` });
             if (typeof this._toast === 'function') this._toast(why, true, 6000);
             if (typeof this.renderProcessorPanel === 'function') this.renderProcessorPanel();
             return Promise.resolve();

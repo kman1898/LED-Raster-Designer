@@ -4,6 +4,7 @@
 // leg phasors and per-soca circuit positions / phase offsets the engine
 // and the distro panel both read.
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLog } from './helpers.js';
 
 // The exhaustive search's ceiling, in arrangements - the product of every
 // partly-filled multi's tail subsets on one distro. A multi has at most
@@ -786,7 +787,54 @@ class _PhaseBalance {
         };
     }
 
+    // Each 3-phase distro's leg amps, for the log's before and after
+    // (2026-11-19): { name: { X, Y, Z, imb } } with amps to a tenth and the
+    // imbalance %, for `ids` (every distro with legs when null).
+    _balanceLegsForLog(ids = null) {
+        const out = {};
+        this._circuitTailCache = null;
+        let loads = [];
+        try { loads = this.getDistroLoads(); } catch (e) { return out; }
+        for (const b of loads) {
+            if (!b.id || !b.legs || (ids && !ids.has(b.id))) continue;
+            const legs = {};
+            (b.legs.names || []).forEach((k, i) => {
+                const label = (b.legs.labels && b.legs.labels[i]) || k;
+                legs[label] = Math.round(((b.legs[k] && b.legs[k].amps) || 0) * 10) / 10;
+            });
+            legs.imb = Math.round((b.imbalancePct || 0) * 10) / 10;
+            out[b.name] = legs;
+        }
+        return out;
+    }
+
+    _balanceLegsText(legs) {
+        return Object.entries(legs || {}).map(([name, l]) => {
+            const parts = Object.entries(l).filter(([k]) => k !== 'imb').map(([k, a]) => `${k} ${a} A`);
+            return `${name} ${parts.join(', ')} (${l.imb}% off even)`;
+        }).join('; ');
+    }
+
     applyPhaseBalance(moves) {
+        const logIds = new Set((moves || []).map(m => m && m.distroId).filter(Boolean));
+        const legsBefore = this._balanceLegsForLog(logIds.size ? logIds : null);
+        const done = (n) => {
+            // The log's line (2026-11-19): what moved, and every leg before
+            // and after, so an Apply that changed nothing says so.
+            const legsAfter = this._balanceLegsForLog(logIds.size ? logIds : null);
+            const tails = (xs) => (Array.isArray(xs) ? xs.join(',') : '?');
+            sendClientLog('phase_balance_applied', {
+                moves: (moves || []).length, screens: n,
+                multis: (moves || []).slice(0, 12).filter(Boolean).map(m => `${m.name || `multi ${m.soca}`} `
+                    + `(${m.layerName || `#${m.layerId}`}) breakers ${tails(m.from)} to ${tails(m.to)}`),
+                before: legsBefore, after: legsAfter,
+            }, {
+                area: 'power',
+                msg: `Balance applied: ${(moves || []).length} multis moved on ${n} screens. `
+                    + `Before: ${this._balanceLegsText(legsBefore)}. After: ${this._balanceLegsText(legsAfter)}`,
+            });
+            return n;
+        };
         const touched = new Set();
         // A locked screen keeps its breakers (the owner's ruling,
         // 2026-10-16): a move that would write one is left out - a shared
@@ -811,9 +859,21 @@ class _PhaseBalance {
         }
         this._showLockedError([...lockedMet.values()]);
         this._circuitTailCache = null;
-        if (shared()) return 0;
+        if (shared()) {
+            sendClientLog('phase_balance_refused', {
+                moves: (moves || []).length,
+                why: 'a locked screen shares a box the moves would deal again',
+            }, { area: 'power', level: 'warn' });
+            return 0;
+        }
+        if (lockedMet.size) {
+            sendClientLog('phase_balance_held', {
+                why: 'locked screens keep their breakers',
+                screens: [...lockedMet.values()].map(l => l.name),
+            }, { area: 'power', level: 'warn' });
+        }
         if (touched.size) this.updateLayers([...touched], true, 'Balance Phase Legs');
-        return touched.size;
+        return done(touched.size);
     }
 
     // Show what the balancer found and let the user accept or decline it.
@@ -828,6 +888,33 @@ class _PhaseBalance {
     // show read that silence as "balancing won't calculate".
     showBalanceDialog(distroId) {
         const r = this.suggestPhaseBalance(distroId);
+        // The log's line for what the balancer found (2026-11-19): the
+        // imbalance and busiest leg before and after, the moves offered,
+        // and why there are none when there are none.
+        try {
+            const d0 = distroId ? this.getDistros().find(d => d.id === distroId) : null;
+            const held = [];
+            if (!r.targets.length) held.push('no partly-filled multis to move');
+            if ((r.locked || []).length) held.push(`${r.locked.length} held by locked screens`);
+            if ((r.hidden || []).length) held.push(`${r.hidden.length} on hidden screens`);
+            if (r.blockedByBusiest) held.push('a better spread would load the busiest leg more');
+            if (!r.exhaustive) held.push(`best found in ${r.searched} of ${r.total} arrangements`);
+            const pct = (x) => `${Math.round((x || 0) * 10) / 10}%`;
+            const amps = (x) => `${Math.round((x || 0) * 10) / 10} A`;
+            sendClientLog('phase_balance_suggested', {
+                distro: d0 ? this.distroLabel(d0) : 'every distro',
+                before: { imb: r.before, busiest: r.beforeBusiest, neutral: r.beforeNeutral },
+                after: { imb: r.after, busiest: r.afterBusiest, neutral: r.afterNeutral },
+                moves: r.moves.length, searched: r.searched, exhaustive: r.exhaustive,
+                ...(held.length ? { why: held } : {}),
+            }, {
+                area: 'power',
+                msg: `Balance suggested for ${d0 ? this.distroLabel(d0) : 'every distro'}: `
+                    + `${r.moves.length} moves, imbalance ${pct(r.before)} to ${pct(r.after)}, `
+                    + `busiest leg ${amps(r.beforeBusiest)} to ${amps(r.afterBusiest)}`
+                    + (held.length ? ` (${held.join('; ')})` : ''),
+            });
+        } catch (e) { /* the log never breaks the dialog */ }
         const ID = 'balance-modal';
         document.getElementById(ID)?.remove();
         const esc = (s) => this._esc ? this._esc(s) : s;
@@ -1448,6 +1535,8 @@ class _PhaseBalance {
     // members do not hold. Every locked screen the reset would otherwise
     // have changed is named.
     clearPhaseBalance(distroId) {
+        const logIds = distroId ? new Set([distroId]) : null;
+        const legsBefore = this._balanceLegsForLog(logIds);
         const screens = (this.project.layers || []).filter(l => (l.type || 'screen') === 'screen');
         // Whatever still moves a locked screen after all that holding puts
         // the whole reset back, the screen named (_lockedPowerTrial).
@@ -1487,10 +1576,23 @@ class _PhaseBalance {
         this._circuitTailCache = null;
         this._showPairedResetError(this._resetAroundPairedRows(screens, distroId, preReset));
         this._circuitTailCache = null;
-        if (shared()) return 0;
+        if (shared()) {
+            sendClientLog('phase_balance_reset_refused', {
+                why: 'a locked screen shares a box the reset would deal again',
+            }, { area: 'power', level: 'warn' });
+            return 0;
+        }
         // Locked screens are not written: nothing on them changed.
         const writable = screens.filter(l => !this._layerLocked(l));
         if (writable.length) this.updateLayers(writable, true, 'Reset Phase Offsets');
+        const legsAfter = this._balanceLegsForLog(logIds);
+        sendClientLog('phase_balance_reset', {
+            distro: distroId || 'every distro', before: legsBefore, after: legsAfter,
+            ...(lockedHit.size ? { held: [...lockedHit.values()].map(l => l.name) } : {}),
+        }, {
+            area: 'power',
+            msg: `Phase offsets reset: before ${this._balanceLegsText(legsBefore)}; after ${this._balanceLegsText(legsAfter)}`,
+        });
         return screens.length;
     }
 

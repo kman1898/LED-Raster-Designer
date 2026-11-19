@@ -50,6 +50,7 @@
 // system is shown beside it, and past it reads amber, the way the legs'
 // limit reads (distroMainLimit).
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLogOnChange } from './helpers.js';
 
 // The supply settings, as a fraction of the fundamental current (percent).
 // Sources, quoted in the 2026-11-11 report to the owner:
@@ -331,6 +332,28 @@ class _Neutral {
     // The Power tab's lines about one distro's neutral: red past its
     // rating, amber past the 80% continuous figure. Plain words.
     distroNeutralWarnings(d, load) {
+        const out = this._distroNeutralWarningsNow(d, load);
+        // The log's line when the warning comes, goes or changes level
+        // (2026-11-19): this runs on every render of the Power tab, the
+        // line only on a change.
+        if (d && d.id != null) {
+            const N = load && load.neutral;
+            const state = !out.length ? 'ok' : (out[0].mild ? 'past 80%' : 'over');
+            sendClientLogOnChange(`neutral:${d.id}`, state, 'neutral_warning', (first) => (
+                first && state === 'ok' ? null : {
+                    distro: this.distroLabel(d), state,
+                    amps: N ? Math.round(N.amps * 10) / 10 : null,
+                    ratingA: N ? N.ratingA : null, size: N ? N.size : null,
+                }), {
+                area: 'power', level: state === 'over' ? 'warn' : 'info',
+                msg: state === 'ok' ? `${this.distroLabel(d)}: power in neutral back within its rating`
+                    : out[0].text,
+            });
+        }
+        return out;
+    }
+
+    _distroNeutralWarningsNow(d, load) {
         const N = load && load.neutral;
         if (!N || !N.checked) return [];
         const name = this.distroLabel(d);
