@@ -51,6 +51,16 @@ Object.assign(CanvasRenderer.prototype, {
         if (!layer._capacityError) return;
 
         const err = layer._capacityError;
+        // an error the view shows goes to the log when the set changes
+        // (render-log.js render_overlay)
+        if (this._rlFrame) {
+            const need = err.unitType === 'panel' ? 'one panel is bigger than a port'
+                : `cannot fit complete ${err.unitType || 'unit'} (${err.unitCount} panels, a port fits ${err.panelsPerPort})`;
+            const port = Number.isFinite(Number(err.portCapacity)) ? Number(err.portCapacity).toLocaleString('en-US') : '?';
+            const panel = Number.isFinite(Number(err.panelPixels)) ? Number(err.panelPixels).toLocaleString('en-US') : '?';
+            this._rlError(`capacity:${layer.id}`, `${layer.name || 'Screen'} (#${layer.id}): ${need}${err.lowLatency ? ' at Low Latency' : ''}`
+                + ` (port ${port} px, panel ${panel} px)`);
+        }
         const bounds = this.getLayerBoundsInActiveView(layer);
         const layerCenterX = bounds.x + (bounds.width / 2);
         const layerCenterY = bounds.y + (bounds.height / 2);
@@ -518,6 +528,8 @@ Object.assign(CanvasRenderer.prototype, {
 
         const drawPort = (portPanels, portNum, loadPanels) => {
             if (portPanels.length === 0) return;
+            // the view's line counts the runs it drew (render-log.js)
+            if (this._rlFrame) { this._rlCount('ports'); this._rlCount('cabinets on ports', portPanels.length); }
             const scoredPanels = (loadPanels === undefined) ? portPanels : loadPanels;
 
             // dock drag: the run under the cursor lights up before its lines

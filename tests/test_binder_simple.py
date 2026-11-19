@@ -510,7 +510,8 @@ def test_the_wiring_tick_stands_off_in_simple(page):
 
 def test_the_export_logs_its_mode_and_sheets_by_kind(page):
     """export_binder_start says Full or Simple and how many sheets of each
-    kind it sends."""
+    kind it sends; export_binder_done says what it printed, sheet by sheet
+    (2026-11-19 logging audit, phase 2)."""
     pg, errors = page
     _walls(pg)
     out = pg.evaluate("""async () => {
@@ -532,11 +533,18 @@ def test_the_export_logs_its_mode_and_sheets_by_kind(page):
         }
         await new Promise(r => setTimeout(r, 300));
         const start = sent.find(s => s.action === 'export_binder_start');
-        return start ? start.details : null;
+        const done = sent.find(s => s.action === 'export_binder_done');
+        return start ? Object.assign({}, start.details, { done: done ? done.details : null }) : null;
     }""")
     assert out and out['mode'] == 'simple', out
     assert out['kinds'].get('wiring', 0) >= 8 and 'power' not in out['kinds'] and 'data' not in out['kinds'], out
     assert sum(out['kinds'].values()) == out['pages'], out
+    done = out['done']
+    assert done and done['pages'] == out['pages'] and done['bytes'] == 4 and done['ms'] >= 0, done
+    assert len(done['sheets']) == min(40, out['pages']) and done['sheets'][0]['kind'], done
+    assert all('kind' in s and 'title' in s for s in done['sheets']), done
+    assert 'data:image' not in str(done)
+    assert done['_msg'].startswith(f"Binder saved: {out['pages']} pages"), done['_msg']
     assert errors == []
 
 

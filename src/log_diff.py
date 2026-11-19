@@ -594,6 +594,38 @@ def _m_toast(d):
     return f"Error shown: {short(d.get('message'), 200)}"
 
 
+# What an export wrote (2026-11-19 logging audit, phase 2): the lines that
+# were here before it, said plainly. The new render and export lines name
+# their own message.
+def _plural(n, word):
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def _m_pull_sheet(d):
+    text = f"Pull sheet written: {_plural(d.get('positions') or 0, 'position')}"
+    if d.get('rows') is not None:
+        text += f", {_plural(d.get('rows'), 'row')}"
+    if d.get('bytes') is not None:
+        text += f", {d.get('bytes'):,} bytes"
+    if d.get('warnings'):
+        text += f", {_plural(len(d.get('warnings')), 'warning')}"
+    return text
+
+
+def _m_xml_export(d):
+    text = f"Advanced Output XML written: {d.get('raster') or '?'}, {_plural(d.get('layers') or 0, 'screen')}"
+    if d.get('slices') is not None:
+        text += f", {_plural(d.get('slices'), 'slice')}"
+    return text
+
+
+def _m_svg(d):
+    each = d.get('each') or []
+    views = sorted({str(e.get('view')) for e in each if isinstance(e, dict) and e.get('view')})
+    return (f"SVG export: {_plural(d.get('files') or 0, 'file')}, {(d.get('bytes') or 0):,} bytes"
+            + (f" ({', '.join(views)})" if views else ''))
+
+
 _FORMATTERS = {
     'update_layer': _m_update_layer,
     'layer_save_noop': _m_update_layer,
@@ -615,6 +647,9 @@ _FORMATTERS = {
     'save_preferences': _m_prefs,
     'sync_echoes_folded': _m_sync_fold,
     'socket_layer_updated': _m_socket_layer,
+    'export_pull_sheet': _m_pull_sheet,
+    'export_resolume': _m_xml_export,
+    'export_svg': _m_svg,
 }
 
 

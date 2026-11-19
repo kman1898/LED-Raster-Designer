@@ -24,6 +24,44 @@
             try { light = localStorage.getItem('lrdIdmPhoneTheme') === 'light'; } catch (e) { light = false; }
             document.documentElement.setAttribute('data-theme', light ? 'light' : 'dark');
         })();
+        // The page's own line in the app log, the way the designer's pages
+        // send it (helpers.js sendClientLog): the page id (the same one the
+        // page's saves name, idm-phone.js ORIGIN) and its path, a level, an
+        // area and a plain message. Set up before anything else runs, so an
+        // error while the page's modules load is in the log too
+        // (2026-11-19 logging audit: the phone page had no log at all).
+        (function () {
+            var page = 'phone' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+            window.lrdPhonePage = page;
+            function log(action, details, opts) {
+                try {
+                    var d = { page: page, path: window.location.pathname };
+                    for (var k in (details || {})) d[k] = details[k];
+                    if (opts && opts.level) d._lvl = opts.level;
+                    d._area = (opts && opts.area) || 'phone';
+                    if (opts && opts.msg) d._msg = String(opts.msg);
+                    var body = JSON.stringify({ action: action, details: d });
+                    if (navigator.sendBeacon) {
+                        navigator.sendBeacon('/api/log', new Blob([body], { type: 'application/json' }));
+                    } else {
+                        fetch('/api/log', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: body, keepalive: true }).catch(function () {});
+                    }
+                } catch (e) { /* the log never stops the page */ }
+            }
+            window.lrdPhoneLog = log;
+            window.addEventListener('error', function (e) {
+                log('client_error', {
+                    message: String(e.message || ''), filename: e.filename || '', lineno: e.lineno || 0,
+                    colno: e.colno || 0, stack: e.error ? String(e.error.stack || e.error).slice(0, 2000) : ''
+                }, { level: 'error', msg: 'Phone page error: ' + String(e.message || 'unknown') });
+            });
+            window.addEventListener('unhandledrejection', function (e) {
+                var why = e.reason ? String(e.reason.stack || e.reason).slice(0, 2000) : '';
+                log('client_unhandled_rejection', { reason: why },
+                    { level: 'error', msg: 'Phone page rejection: ' + why.split('\n')[0] });
+            });
+        })();
     </script>
     <style>
         :root, :root[data-theme="dark"] {

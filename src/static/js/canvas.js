@@ -2366,6 +2366,8 @@ class CanvasRenderer {
         // this view comes through here too (exportMode), and so carries the
         // field and the marks; nothing else ever renders this view.
         if (this.viewMode === 'idm' && !this._idmPass) {
+            // (render-log.js: the IDM Locator's own line, after its pass)
+            const _rlIdm = this._rlBegin ? this._rlBegin() : 0;
             this._idmPass = true;
             this.viewMode = 'pixel-map';
             try {
@@ -2374,6 +2376,7 @@ class CanvasRenderer {
                 this.viewMode = 'idm';
                 this._idmPass = false;
             }
+            if (_rlIdm) this._rlEnd(_rlIdm, 'idm');
             if (!this.exportMode && window.app && typeof window.app._idmOnRender === 'function') {
                 window.app._idmOnRender();
             }
@@ -2387,6 +2390,9 @@ class CanvasRenderer {
             if (window.app && typeof window.app._s3dOnRender === 'function') window.app._s3dOnRender();
             return;
         }
+        // What a main pass drew goes to the log once the view is quiet
+        // (render-log.js); an export or offscreen pass starts nothing.
+        const _rlT0 = this._rlBegin ? this._rlBegin() : 0;
         // v0.8.7.8: bump a per-render token so screen-fill gradients are built
         // at most once per layer per frame (cached on the layer keyed by this).
         this._renderPass = (this._renderPass || 0) + 1;
@@ -3128,6 +3134,7 @@ class CanvasRenderer {
         }
         
         this.ctx.restore();
+        if (_rlT0) this._rlEnd(_rlT0);
     }
     
     // The circle-and-X is a test pattern for THE WALL - you look at it to see
@@ -3819,6 +3826,7 @@ class CanvasRenderer {
         if (!layer.transparentFill && this._stageOn('Panels')) {
             this.ctx.fillStyle = this._panelBaseFill(panel, layer);
             this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+            if (this._rlFrame) this._rlPanel(panel, layer);
             // v0.8.7.8: gradient overlay on top of the checkerboard, below borders.
             this._applyGradientOverlay(panel, layer);
         }
@@ -3969,6 +3977,7 @@ class CanvasRenderer {
         if (!layer.transparentFill && this._stageOn('Panels')) {
             this.ctx.fillStyle = this._panelBaseFill(panel, layer);
             this.ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+            if (this._rlFrame) this._rlPanel(panel, layer);
             // v0.8.7.8: gradient overlay on top of the checkerboard, below borders.
             this._applyGradientOverlay(panel, layer);
         }

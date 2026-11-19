@@ -886,7 +886,9 @@ class _ExportSvg {
             .filter(v => typeof v.svg === 'string')
             .map(v => ({ filename: `${v.fileBase}.svg`, blob: new Blob([v.svg], { type: 'image/svg+xml' }) }));
         if (!files.length) throw new Error('No SVG was recorded for the export');
-        sendClientLog('export_svg', { files: files.length, bytes: files.reduce((n, f) => n + f.blob.size, 0) });
+        const each = renderedViews.filter(v => typeof v.svg === 'string').slice(0, 12)
+            .map((v, i) => ({ file: files[i].filename, view: v.view, canvas: v.canvasName || null, bytes: files[i].blob.size }));
+        sendClientLog('export_svg', { files: files.length, bytes: files.reduce((n, f) => n + f.blob.size, 0), each });
         if (files.length === 1) {
             await this.saveBlobWithPicker(files[0].blob, files[0].filename, 'image/svg+xml');
             return;

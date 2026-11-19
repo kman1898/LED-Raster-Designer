@@ -1397,6 +1397,7 @@ class _Binder {
     // keeps its palette, maps and sheet ticks on the show (BINDER
     // CHOICES); any other caller prints and writes nothing.
     async exportBinder(projectName, run = {}) {
+        const binderT0 = performance.now();
         const name = projectName || (this.project && this.project.name) || 'Project';
         const opts = this.readBinderOptions();
         if (typeof this.refreshPortAssignment === 'function') {
@@ -1466,11 +1467,53 @@ class _Binder {
         if (!response.ok) {
             let msg = 'Failed to build the binder';
             try { msg = (await response.json()).error || msg; } catch (_) {}
+            sendClientLog('export_binder_failed', { pages: pages.length, status: response.status, error: msg },
+                { area: 'binder', msg: `Binder export failed: ${msg}` });
             throw new Error(msg);
         }
         const blob = await response.blob();
-        await this.saveBlobWithPicker(blob, this.binderFileName(name), 'application/pdf');
+        const saved = await this.saveBlobWithPicker(blob, this.binderFileName(name), 'application/pdf');
+        this._binderLogDone(pages, blob, saved, { t0: binderT0, cannotFit, over, misfit, bitmaps });
         return { pages: pages.length, cannotFit, over };
+    }
+
+    // What the binder printed, in the log (export_binder_done): its pages,
+    // the PDF's size, how long it took and where it went, the warnings it
+    // printed with, and one short row per sheet - its number, kind, title,
+    // layout and scale, and its map's bitmap (size, PNG or JPEG under PNG,
+    // KB). Never a bitmap itself (2026-11-19 logging audit, phase 2).
+    _binderLogDone(pages, blob, saved, info) {
+        try {
+            const plan = pages.plan || [];
+            const maps = new Map();
+            (pages.maps || []).forEach(m => {
+                const had = maps.get(m.page);
+                if (!had) maps.set(m.page, { w: m.w, h: m.h, enc: m.enc, kb: m.kb, n: 1 });
+                else { had.kb += m.kb; had.n += 1; }
+            });
+            const cut = (t) => { const s = String(t || ''); return s.length > 40 ? s.slice(0, 37) + '...' : s; };
+            const sheets = plan.slice(0, 40).map((p, i) => {
+                const m = maps.get(i + 1);
+                return {
+                    n: p.number != null ? p.number : i + 1, kind: p.kind, title: cut(p.sheetTitle || p.title),
+                    layout: p.layout || undefined, scale: p.scale !== 1 ? p.scale : undefined,
+                    ...(m ? { map: m.n > 1 ? m : { w: m.w, h: m.h, enc: m.enc, kb: m.kb } } : {}),
+                };
+            });
+            const ms = Math.round(performance.now() - info.t0);
+            const where = saved && saved.path ? saved.path : (saved && saved.how) || null;
+            const warn = [info.cannotFit, info.over, info.misfit].filter(Boolean);
+            sendClientLog('export_binder_done', {
+                pages: pages.length, bytes: blob ? blob.size : null, ms, path: where,
+                saved: !!(saved && saved.saved), cancelled: !!(saved && saved.cancelled),
+                cannotFit: info.cannotFit || null, over: info.over || null, fitWarning: info.misfit || null,
+                bitmaps: info.bitmaps, sheets, moreSheets: Math.max(0, plan.length - sheets.length),
+            }, { area: 'binder', level: warn.length ? 'warn' : 'info',
+                msg: `Binder ${saved && saved.cancelled ? 'built, not saved' : 'saved'}: ${pages.length} page${pages.length === 1 ? '' : 's'},`
+                    + ` ${Math.round((blob ? blob.size : 0) / 1024).toLocaleString('en-US')} KB in ${(ms / 1000).toFixed(1)} s`
+                    + (saved && saved.path ? ` to ${saved.path}` : '')
+                    + (warn.length ? `; printed with ${warn.length} warning${warn.length === 1 ? '' : 's'}` : '') });
+        } catch (_) { /* the log never stops an export */ }
     }
 
     // The sheet list, without drawing anything: [{ kind, number, title,
@@ -1531,9 +1574,13 @@ class _Binder {
         const dry = this._binderDryBook(o);
         const plan = dry.pages.map(p => this._bPlanEntry(dry, p));
         const bitmaps = !run || run.bitmaps !== false;
-        const book = this._binderBook(o, { dry: false, total: plan.length, plan, bitmaps });
-        // (each sheet's kind, in order, for the export's log)
+        const mapLog = [];
+        const book = this._binderBook(o, { dry: false, total: plan.length, plan, bitmaps, mapLog });
+        // (each sheet's kind, in order, its plan and its map's bitmap, for
+        // the export's log)
         book.records.kinds = plan.map(p => p.kind);
+        book.records.plan = plan;
+        book.records.maps = mapLog;
         return book.records;
     }
 
@@ -5741,6 +5788,11 @@ class _Binder {
             if (book.log) {
                 (book.log.mapBitmaps || (book.log.mapBitmaps = [])).push(
                     { split, blocked: blocked || null, png: single.length, pair: pairLen });
+            }
+            // the export's log: this sheet's map (sizes only)
+            if (book.run && Array.isArray(book.run.mapLog)) {
+                book.run.mapLog.push({ page: book.records.length + 1, w: off.width, h: off.height,
+                    enc: split ? 'jpeg+png' : 'png', kb: Math.round((split ? pairLen : single.length) * 3 / 4 / 1024) });
             }
             if (split) {
                 passes.forEach((c, i) => {

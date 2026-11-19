@@ -807,6 +807,7 @@ class _OutputDisplay {
             target = canvases.find(c => c && c.id === entry.canvasId) || null;
             if (!target) {
                 page.missing('This canvas is no longer in the project.');
+                this._outputDisplayLogFrame(entry, { missing: 'canvas no longer in the project' });
                 return true;
             }
         }
@@ -856,7 +857,9 @@ class _OutputDisplay {
             r.zoom = 1;
             r.panX = -ws.wx;
             r.panY = -ws.wy;
+            const t0 = performance.now();
             r.render();
+            entry.frameMs = Math.round((performance.now() - t0) * 10) / 10;
         } finally {
             r._idmNoHighlight = false;
             canvases.forEach((c, i) => { c.visible = visibility[i]; });
@@ -871,14 +874,75 @@ class _OutputDisplay {
             r.panX = saved.panX;
             r.panY = saved.panY;
         }
-        if (idm) return this._outputDisplayCompose(entry, page);
+        if (idm) {
+            const shown = this._outputDisplayCompose(entry, page);
+            if (shown) this._outputDisplayLogFrame(entry, { canvas: target });
+            return shown;
+        }
         try {
             page.present(off, { title: `${this._outputDisplayLabel(entry)} · Output` });
         } catch (err) {
             sendClientLog('output_display_present_failed', { message: String(err && err.message || err) });
             return false;
         }
+        this._outputDisplayLogFrame(entry, { canvas: target });
         return true;
+    }
+
+    // What an output window shows, in the log (output_frame): on a new
+    // picture only (the refresh above renders when the show's signature
+    // changed, never per frame), the first at once and then at most one
+    // line every 2 s, the frames between folded into its `n`. The output,
+    // its canvas and view, the raster size, native window or browser, the
+    // frame's number and render time, and a 3 x 3 grid of the colours it
+    // sent; an IDM Locator output adds its field colour and the modules
+    // marked. A canvas gone from the show says so.
+    _outputDisplayLogFrame(entry, info) {
+        const RL = window.RenderLog;
+        if (!RL) return;
+        entry.frameSeq = (entry.frameSeq || 0) + 1;
+        if (!entry.frameLog) {
+            entry.frameLog = RL.watcher({
+                leading: true, gapMs: 2000,
+                emit: (f, n) => this._outputDisplayWriteFrame(entry, f, n),
+            });
+        }
+        entry.frameLog.seen({ ...info, seq: entry.frameSeq, ms: entry.frameMs || null });
+    }
+
+    _outputDisplayWriteFrame(entry, f, n) {
+        const RL = window.RenderLog;
+        const where = entry.native ? 'native window' : 'browser window';
+        const display = entry.native ? (entry.displayName || null) : null;
+        if (f.missing) {
+            sendClientLog('output_frame', { id: entry.id, canvasId: entry.canvasId, view: entry.view, native: !!entry.native,
+                missing: f.missing, n }, { area: 'output', level: 'warn',
+                msg: `Output ${entry.id} shows nothing: ${f.missing}` });
+            return;
+        }
+        const off = entry.offscreen;
+        const w = off ? off.width : 0, h = off ? off.height : 0;
+        const details = {
+            id: entry.id, canvas: f.canvas ? (f.canvas.name || f.canvas.id) : null, canvasId: entry.canvasId,
+            view: entry.view, raster: [w, h], native: !!entry.native, display, seq: f.seq, ms: f.ms, n,
+            grid: RL.grid(off, entry.offCtx),
+        };
+        let extra = '';
+        if (entry.view === 'idm') {
+            const r = window.canvasRenderer;
+            let field = null;
+            try { field = r && typeof r.idmFieldSpec === 'function' ? r.idmFieldSpec().color : null; } catch (_) { field = null; }
+            const layers = ((this.project && this.project.layers) || []).filter(l => l && l.visible
+                && (!entry.canvasId || (l.show_canvas_id || l.canvas_id) === entry.canvasId || l.canvas_id === entry.canvasId));
+            const marked = layers.reduce((t, l) => t + ((l.idm && l.idm.marks && typeof l.idm.marks === 'object')
+                ? Object.keys(l.idm.marks).length : 0), 0);
+            details.field = field;
+            details.marked = marked;
+            extra = `, field ${field || '?'}, ${marked} module${marked === 1 ? '' : 's'} marked`;
+        }
+        sendClientLog('output_frame', details, { area: 'output',
+            msg: `Output ${entry.id} showed ${RL.viewWord(entry.view)} of ${details.canvas || 'the show'} ${w}x${h}`
+                + ` in a ${where}${display ? ` on ${display}` : ''} (frame ${f.seq}${f.ms != null ? `, ${f.ms} ms` : ''}${extra})` });
     }
 
     // An IDM Locator output's frame: its last render (entry.base) with the

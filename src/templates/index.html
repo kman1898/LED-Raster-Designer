@@ -4472,6 +4472,9 @@
     <!-- the keys and the 3D mouse as set in Preferences > Controls -->
     <script src="/static/js/controls.js"></script>
     <script src="/static/js/canvas.js"></script>
+    <!-- what the views draw, in the app log (window.RenderLog and the
+         renderer's _rl* notes); before the mixins that note into it -->
+    <script src="/static/js/render-log.js"></script>
     <!-- CanvasRenderer mixins: classic scripts that Object.assign onto
          CanvasRenderer.prototype. They must follow canvas.js and precede
          main.js, which constructs the renderer. -->

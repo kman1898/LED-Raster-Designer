@@ -50,6 +50,8 @@ const DETAIL_SIDE = 8192;
 const DETAIL_TEXELS = 8192 * 4096;
 const TEX_LOG_MS = 1000;         // stage3d_texture: one per screen a second at most
 const TEX_MATCH_TOLERANCE = 24;  // a corner cabinet this far off its own colour is logged
+const PAINT_LOG_QUIET_MS = 500;  // render_3d_paint: the paints of half a second, one line
+const PAINT_LOG_MAX_MS = 2000;   // ... and never held longer than this
 const DETAIL_AT = 1.5;           // a texel this many page px wide asks for it
 const DETAIL_SETTLE_MS = 250;    // after the camera stops
 // The near plane follows the camera in: a thousandth of the way to what it
@@ -1648,9 +1650,9 @@ class _Stage3D {
             });
         }
         st.why = null;
-        for (const id of [...st.entries.keys()]) {
-            if (!seen.has(id)) this._s3dDropEntry(id);
-        }
+        const dropped = [...st.entries.keys()].filter(id => !seen.has(id));
+        for (const id of dropped) this._s3dDropEntry(id);
+        this._s3dLogSync(layout, dropped);
         if (st.corner && !st.entries.has(st.corner.layerId)) this._s3dPickCorner(null);
         const tokens = this._s3dTokens();
         if (st.renderer) st.renderer.setClearColor(tokens.canvas, 1);
@@ -1667,6 +1669,41 @@ class _Stage3D {
         }
         this._s3dRefreshPanel();
         this._s3dRequestRender();
+    }
+
+    // What the stage holds, in the log when it changes (render_3d_sync):
+    // its screens, the ones added and dropped (deleted, or hidden), how
+    // many stand where Show Look puts them (no 3D place of their own yet),
+    // and what the graphics card allows. Never per sync.
+    _s3dLogSync(layout, dropped) {
+        const st = this._s3dState();
+        const ids = layout.items.map(({ layer }) => layer.id);
+        let unplaced = 0;
+        for (const id of ids) {
+            const e = st.entries.get(id);
+            if (e && !e.stored) unplaced += 1;
+        }
+        const was = st.syncSeen || { ids: [], unplaced: -1, names: new Map(), sig: null };
+        const sig = ids.join(',') + '|' + unplaced;
+        if (sig === was.sig) return;
+        const names = new Map(layout.items.map(({ layer }) => [layer.id, `${layer.name || 'Screen'} (#${layer.id})`]));
+        st.syncSeen = { ids, unplaced, sig, names };
+        const before = new Set(was.ids);
+        const added = ids.filter(id => !before.has(id));
+        const layers = (this.project && this.project.layers) || [];
+        const gone = (dropped && dropped.length ? dropped : was.ids.filter(id => !ids.includes(id))).map(id => {
+            const live = layers.find(l => l && l.id === id);
+            return { id, name: was.names.get(id) || `#${id}`, why: live ? 'hidden' : 'deleted' };
+        });
+        const maxTex = st.renderer && st.renderer.capabilities ? st.renderer.capabilities.maxTextureSize : null;
+        const parts = [`3D: ${ids.length} screen${ids.length === 1 ? '' : 's'}`];
+        if (added.length && was.sig) parts.push(`${added.length} added`);
+        if (gone.length) parts.push(`${gone.length} dropped (${[...new Set(gone.map(g => g.why))].join(', ')})`);
+        if (unplaced) parts.push(`${unplaced} at their Show Look place`);
+        sendClientLog('render_3d_sync', {
+            screens: ids.length, added: added.slice(0, 8).map(id => names.get(id)),
+            dropped: gone.slice(0, 8), unplaced, webgl: !!st.renderer, maxTextureSize: maxTex,
+        }, { area: '3d', msg: parts.join(', ') });
     }
 
     _s3dDropEntry(id) {
@@ -1728,6 +1765,13 @@ class _Stage3D {
         if (e.texKey !== texKey) {
             const first = !e.texKey;
             e.texKey = texKey;
+            // which of the screen's saved fields changed, for the paint's
+            // line: "3D repainted ... (color1)"
+            const parts = this._s3dTexParts(layer);
+            e.paintReason = e.texParts
+                ? Object.keys({ ...e.texParts, ...parts }).filter(k => e.texParts[k] !== parts[k]).sort()
+                : ['new'];
+            e.texParts = parts;
             this._s3dPaint(e, layer, first && st.why !== 'tab switch' ? 'new screen' : (st.why || 'edit'));
         }
         e.placement = placement;
@@ -1818,6 +1862,18 @@ class _Stage3D {
             e.labels.geometry = e.labelGeo;
         }
         e.seamKey = '';
+        // for the paint's line: the cabinets as quads, the corners folded,
+        // and the Curve's joints held to its limit
+        let clamped = 0;
+        const raw = layer.stage3d && layer.stage3d.jointsCol;
+        if (raw && typeof raw === 'object') {
+            Object.values(raw).forEach(v => {
+                const x = Number(v);
+                if (Number.isFinite(x) && Math.abs(x) > JOINT_LIMIT) clamped += 1;
+            });
+        }
+        e.meshInfo = { quads: n, folds: s3dCornersOn(layer, built.colLen.length).length, clamped };
+        e.meshNew = true;
     }
 
     // The screen's header and footer bars (s3dBarRows): one mesh per row,
@@ -1930,6 +1986,20 @@ class _Stage3D {
         return JSON.stringify(layer, strip) + '|' + font + '|' + JSON.stringify((this.project && this.project.groups) || []);
     }
 
+    // _s3dTexKey's parts, field by field: what changed between two keys.
+    _s3dTexParts(layer) {
+        const out = {};
+        for (const k of Object.keys(layer || {})) {
+            if (k === 'stage3d' || k === 'locked' || (k.length > 1 && k.charAt(0) === '_')) continue;
+            try { out[k] = JSON.stringify(layer[k]); } catch (_) { out[k] = '?'; }
+        }
+        let font = '';
+        try { font = (this.getPreferences && this.getPreferences().font) || ''; } catch (_) { font = ''; }
+        out['(font)'] = font;
+        out['(groups)'] = JSON.stringify((this.project && this.project.groups) || []);
+        return out;
+    }
+
     // The screen's front, drawn by the Pixel Map renderer itself onto a
     // canvas of its own - the binder's single-screen route (app-binder
     // _bPaintMap): the renderer pointed at an offscreen canvas in export
@@ -1978,6 +2048,8 @@ class _Stage3D {
         const stages = (window.CanvasRenderer && window.CanvasRenderer.RENDER_STAGES) || [];
         const proj = this.project;
         const canvases = (proj && Array.isArray(proj.canvases)) ? proj.canvases : [];
+        const paintT0 = performance.now();
+        e.paintCount = (e.paintCount || 0) + 1;
         const saved = {
             canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
             printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
@@ -2039,6 +2111,7 @@ class _Stage3D {
             r.panX = saved.panX;
             r.panY = saved.panY;
         }
+        e.paintMs = Math.round((performance.now() - paintT0) * 10) / 10;
         // A texel seen bigger than a page pixel is drawn as a crisp
         // square, the way Pixel Map shows its pixels at high zoom.
         if (!e.tex) {
@@ -2256,6 +2329,34 @@ class _Stage3D {
         try { sample = this._s3dTextureSample(e, layer); } catch (_) { sample = null; }
         const plainCorners = {};
         if (sample) Object.entries(sample.corners).forEach(([k, v]) => { plainCorners[k] = v.rgb; });
+        const wrong = [];
+        const expect = sample ? this._s3dTextureExpect(layer) : null;
+        if (sample && expect) {
+            for (const [k, v] of Object.entries(sample.corners)) {
+                const want = expect(v.panel);
+                if (!want) continue;
+                const off = Math.max(...want.map((w, i) => Math.abs(w - v.rgb[i])));
+                if (off > TEX_MATCH_TOLERANCE) wrong.push({ corner: k, col: v.col, row: v.row, expected: want, got: v.rgb });
+            }
+        }
+        const RL = window.RenderLog;
+        const hexOf = (rgb) => (RL ? RL.hex(rgb) : String(rgb));
+        const labels = this._s3dLabelsDrawn(e);
+        const reason = Array.isArray(e.paintReason) ? e.paintReason.slice(0, 8) : [];
+        const skipped = layer.gradientEnabled ? 'gradient' : (layer.transparentFill ? 'see-through fill' : null);
+        this._s3dPaintNote({
+            id: layer.id, name: layer.name || '', size: e.texSize || null, scale: e.texScale || null,
+            detail: !!e.detail, why, reason, labels, ms: e.paintMs || null, n: e.paintCount || 1,
+            sample: sample ? { ...Object.fromEntries(Object.entries(plainCorners).map(([k, v]) => [k, hexOf(v)])),
+                c: sample.centre ? hexOf(sample.centre) : null } : null,
+            ...(skipped ? { check: `skipped (${skipped})` } : {}),
+            mismatch: wrong.map(w => w.corner),
+            ...(wrong.length ? { drew: hexOf(wrong[0].got), saved: hexOf(wrong[0].expected) } : {}),
+            ...(e.meshNew && e.meshInfo ? { mesh: e.meshInfo } : {}),
+        });
+        e.paintCount = 0;
+        e.meshNew = false;
+        // the full read, screen by screen (render_3d_paint says it plainly)
         sendClientLog('stage3d_texture', {
             id: layer.id, name: layer.name || '', canvas: layer.canvas_id || null,
             drawnIn: 'pixel-map', viewWas: before ? before.view : null,
@@ -2266,24 +2367,95 @@ class _Stage3D {
             // the mesh maps them onto its cabinets
             bounds: e.built ? e.built.bounds : null, gpu: e.texAlloc ? e.texAlloc.slice() : null,
             avg: sample ? sample.avg : null, corners: plainCorners, centre: sample ? sample.centre : null,
-        });
-        if (!sample) return;
-        const expect = this._s3dTextureExpect(layer);
-        if (!expect) return;
-        const wrong = [];
-        for (const [k, v] of Object.entries(sample.corners)) {
-            const want = expect(v.panel);
-            if (!want) continue;
-            const off = Math.max(...want.map((w, i) => Math.abs(w - v.rgb[i])));
-            if (off > TEX_MATCH_TOLERANCE) wrong.push({ corner: k, col: v.col, row: v.row, expected: want, got: v.rgb });
-        }
+            reason, labels, ms: e.paintMs || null, mismatch: wrong.map(w => w.corner),
+        }, { area: '3d', level: 'debug' });
         if (wrong.length) {
             sendClientLog('stage3d_texture_mismatch', {
                 id: layer.id, name: layer.name || '', canvas: layer.canvas_id || null, why,
                 mode: layer.panelColorMode || 'checker', viewWas: before ? before.view : null,
                 color1: layer.color1 || null, color2: layer.color2 || null, wrong, level: 'warning',
-            });
+            }, { area: '3d', level: 'warn',
+                msg: `3D paint of ${layer.name || 'Screen'} (#${layer.id}) does not match its colours at `
+                    + `${wrong.map(w => w.corner).join(', ')}: drew ${hexOf(wrong[0].got)}, saved ${hexOf(wrong[0].expected)}` });
         }
+    }
+
+    // Did the screen's writing sheet get anything drawn on it? Read off a
+    // small copy (the browser's own downscale keeps a line of text in it),
+    // never the sheet itself.
+    _s3dLabelsDrawn(e) {
+        const c = e.labelCanvas;
+        if (!c || !c.width || !c.height) return false;
+        try {
+            if (!this._s3dLabelSheet) this._s3dLabelSheet = document.createElement('canvas');
+            const sheet = this._s3dLabelSheet;
+            sheet.width = Math.min(256, c.width);
+            sheet.height = Math.min(128, c.height);
+            const ctx = sheet.getContext('2d', { willReadFrequently: true });
+            ctx.clearRect(0, 0, sheet.width, sheet.height);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(c, 0, 0, sheet.width, sheet.height);
+            const d = ctx.getImageData(0, 0, sheet.width, sheet.height).data;
+            for (let i = 3; i < d.length; i += 4) if (d[i]) return true;
+            return false;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    // The paints of half a second, one line (render_3d_paint): "3D
+    // repainted 3 screens (color1)", or for one screen its size and what
+    // changed. A screen whose corner cabinets are not its own colours makes
+    // the line a warning that says where and what was drawn.
+    _s3dPaintNote(rec) {
+        const st = this._s3dState();
+        if (!st.paintBatch) st.paintBatch = { items: [], first: Date.now(), timer: null };
+        const b = st.paintBatch;
+        const i = b.items.findIndex(x => x.id === rec.id);
+        if (i >= 0) {
+            rec.n += b.items[i].n;
+            rec.reason = [...new Set([...b.items[i].reason, ...rec.reason])].sort();
+            if (!rec.mesh && b.items[i].mesh) rec.mesh = b.items[i].mesh;
+            b.items[i] = rec;
+        } else {
+            b.items.push(rec);
+        }
+        clearTimeout(b.timer);
+        const wait = Math.max(0, Math.min(PAINT_LOG_QUIET_MS, b.first + PAINT_LOG_MAX_MS - Date.now()));
+        b.timer = setTimeout(() => this._s3dPaintFlush(), wait);
+    }
+
+    _s3dPaintFlush() {
+        const st = this._s3dState();
+        const b = st.paintBatch;
+        st.paintBatch = null;
+        if (!b || !b.items.length) return;
+        clearTimeout(b.timer);
+        const items = b.items;
+        const reasons = [...new Set(items.flatMap(x => x.reason))].sort();
+        const changed = reasons.filter(k => k !== 'new');
+        const bad = items.filter(x => x.mismatch.length);
+        const n = items.reduce((t, x) => t + (x.n || 1), 0);
+        const label = (x) => `${x.name || 'Screen'} (#${x.id})`;
+        const list = (keys) => keys.slice(0, 4).join(', ') + (keys.length > 4 ? ', ...' : '');
+        let msg;
+        if (bad.length) {
+            const x = bad[0];
+            msg = `3D paint of ${label(x)} does not match its colours at ${x.mismatch.join(', ')}: drew ${x.drew}, saved ${x.saved}`
+                + (bad.length > 1 ? ` (and ${bad.length - 1} more screen${bad.length > 2 ? 's' : ''})` : '');
+        } else if (items.length === 1) {
+            const x = items[0];
+            const own = x.reason.filter(k => k !== 'new');
+            msg = `3D painted ${label(x)}${x.size ? ` ${x.size[0]}x${x.size[1]}` : ''}`
+                + (own.length ? ` (${list(own)} changed)` : ` (${x.why})`);
+        } else {
+            msg = `3D repainted ${items.length} screens (${changed.length ? list(changed) : items[0].why})`;
+        }
+        sendClientLog('render_3d_paint', {
+            screens: items.slice(0, 12), more: Math.max(0, items.length - 12), reasons: reasons.slice(0, 12), n,
+            mismatch: bad.map(x => ({ id: x.id, at: x.mismatch })),
+        }, { area: '3d', level: bad.length ? 'warn' : 'info', msg });
     }
 
     // What a cabinet of `layer` should read on its texture, as [r, g, b], or
@@ -2380,6 +2552,7 @@ class _Stage3D {
             const layer = layers.find(l => l.id === e.id);
             if (!layer) continue;
             e.detail = on;
+            e.paintReason = [on ? 'up close' : 'back from up close'];
             this._s3dPaint(e, layer, on ? 'up close' : 'back from up close');
             sendClientLog('stage3d_detail', { id: e.id, on: !!e.detail, tex: e.texSize });
         }
