@@ -360,10 +360,30 @@ def test_no_sheet_prints_a_hidden_screen(binders):
     hidden = binders['hidden']
     assert _page_hits(hidden) == [], _page_hits(hidden)
     assert [p['title'] for p in hidden['pages']] == [
-        'Overview', 'SHOWN - Power - Front View', 'SHOWN - Power Wiring',
+        'Overview', 'Facts', 'SHOWN - Power - Front View', 'SHOWN - Power Wiring',
         'SHOWN - Data - Front View', 'SHOWN - Data Wiring', 'Fiber', 'Pull - SHOWN',
         'Service - HOUSE', 'Distro - SHARED', 'Processor - RACK SHARED · Pull list',
         'Network'], [p['title'] for p in hidden['pages']]
+
+
+def test_the_facts_sheet_has_no_row_for_a_hidden_screen(binders):
+    """The set's one FACTS sheet (after the Overview) lists the screens that
+    print: shown, it has a row for each of the three; with HID A and HID B
+    hidden, one row (SHOWN) and a total that counts SHOWN's circuits and
+    ports alone - nothing of a hidden screen on the sheet."""
+    before, hidden = binders['before'], binders['hidden']
+    facts = [p for p in hidden['pages'] if p['kind'] == 'facts']
+    assert [p['title'] for p in facts] == ['Facts'], [p['title'] for p in facts]
+    assert _page_hits(hidden, kinds=('facts',)) == [], _page_hits(hidden, kinds=('facts',))
+    rows = lambda out, title: [r for t in _table(out, title) for r in t['rows']]  # noqa: E731
+    names = [r[0] for r in rows(before, '3 screens')]
+    assert sorted(names[:-1]) == ['HID A', 'HID B', 'SHOWN'] and names[-1] == 'Total', \
+        _table(before, '3 screens')
+    assert _table(hidden, '3 screens') == [] and _table(hidden, '2 screens') == []
+    shown = rows(hidden, '1 screen')
+    assert [r[0] for r in shown] == ['SHOWN', 'Total'], _table(hidden, '1 screen')
+    # the total is SHOWN's own row: its circuits and its four ports
+    assert shown[1][-2:] == shown[0][-2:] and shown[0][-1] == '4', shown
 
 
 def test_the_shared_distro_and_service_print_only_the_shown_screen(binders):

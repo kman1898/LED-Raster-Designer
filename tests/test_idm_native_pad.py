@@ -227,6 +227,51 @@ def test_a_slide_glides_paints_with_a_held_and_the_speed_is_kept(page, bridge):
     assert not page._errors, page._errors
 
 
+SPEED_JS = """() => [document.getElementById('idm-pad-touch-speed').value,
+                       window.app._idmNative.speed]"""
+WIRED_JS = "() => window.app && window.app._idmNative && window.app._idmNative.wired"
+
+
+def test_the_touchpad_speed_is_the_viewers_and_survives_a_reload(e2e_server, pw_browser):
+    """The speed is this viewer's setting, kept in the browser: a reload
+    shows it on the slider and the glide reads it; it never touches the show
+    (no layer or project write, nothing to undo). Nothing stored, or a
+    value off the slider, reads as the middle setting."""
+    context, pg = _new_page(pw_browser, e2e_server)
+    try:
+        pg.wait_for_function(WIRED_JS, timeout=10000)
+        speed = lambda: pg.evaluate(SPEED_JS)  # noqa: E731
+        assert speed() == ['5', 5]
+        pg.evaluate("""() => { window.__writes = [];
+            const f = window.fetch;
+            window.fetch = (url, o) => { const m = (o && o.method) || 'GET';
+                const u = String(url);
+                if (m !== 'GET' && (u.includes('/api/layer') || u.includes('/api/project'))) {
+                    window.__writes.push(m + ' ' + u);
+                }
+                return f(url, o); }; }""")
+        project = pg.evaluate("() => JSON.stringify(window.app.project)")
+        history = pg.evaluate("() => window.app.history.length")
+        set_speed(pg, 8)
+        pg.wait_for_timeout(400)
+        assert speed() == ['8', 8]
+        assert pg.evaluate("() => localStorage.getItem('lrdIdmTouchSpeed')") == '8'
+        assert pg.evaluate("() => window.__writes") == []
+        assert pg.evaluate("() => JSON.stringify(window.app.project)") == project
+        assert pg.evaluate("() => window.app.history.length") == history
+        pg.reload(wait_until='domcontentloaded')
+        pg.wait_for_function(WIRED_JS, timeout=15000)
+        assert speed() == ['8', 8]
+        # a value off the slider reads as the middle setting
+        pg.evaluate("() => localStorage.setItem('lrdIdmTouchSpeed', '42')")
+        pg.reload(wait_until='domcontentloaded')
+        pg.wait_for_function(WIRED_JS, timeout=15000)
+        assert speed() == ['5', 5]
+        assert not pg._errors, pg._errors
+    finally:
+        context.close()
+
+
 def test_lb_or_rb_held_while_sliding_moves_by_whole_cabinets(page, bridge):
     """IdmA is 3 x 2 cabinets of 2 x 2 modules: a key is "column,row,module
     x,module y". A bumper held turns each module's worth of slide into a
