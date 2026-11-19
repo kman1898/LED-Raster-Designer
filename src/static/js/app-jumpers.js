@@ -76,6 +76,7 @@
 // the canvas draws both at their pixel sizes. Rotation is not applied: a
 // 90-degree turn swaps dx and dy, which leaves |dx| + |dy| as it was.
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLogOnChange } from './helpers.js';
 
 // The stock ladder a long jumper rounds up to, and the slack added first,
 // live in app-cable-units.js - per unit, the ladders editable in
@@ -311,15 +312,41 @@ class _Jumpers {
     // itself up (a cross-member shim through its srcPanel).
     jumperLongLinkMap(layer, side) {
         const map = new Map();
+        const rounded = [];
         for (const run of this.screenJumperRuns(layer, side)) {
             for (const link of this.jumperLinksOfRun(run.panels, run.layers, layer, side)) {
                 if (link.kind !== 'long' || link.ft == null) continue;
                 let inner = map.get(link.a);
                 if (!inner) { inner = new Map(); map.set(link.a, inner); }
                 inner.set(link.b, link.ft);
+                rounded.push([Math.round((Number(link.rawFt) || 0) * 10) / 10, link.ft]);
             }
         }
+        this._logLongJumpers(layer, side, rounded);
         return map;
+    }
+
+    // The log's line for a screen's long jumpers, each measured length and
+    // the stock length it rounds up to (2026-11-19). The map is built on
+    // every draw; the line is written only when the set changes.
+    _logLongJumpers(layer, side, rounded) {
+        if (!layer || layer.id == null) return;
+        const unit = typeof this.cableUnit === 'function' ? this.cableUnit() : 'ft';
+        const word = unit === 'm' ? 'm' : 'ft';
+        sendClientLogOnChange(`jumpers:${layer.id}:${side}`, rounded, 'jumper_lengths_rounded', (first) => (
+            first && !rounded.length ? null : {
+                id: layer.id, name: layer.name, side, long: rounded.length, unit,
+                slack: typeof this.jumperSlack === 'function' ? this.jumperSlack(unit) : null,
+                rounded: rounded.slice(0, 16),
+            }), {
+            area: side === 'power' ? 'power' : 'data',
+            msg: rounded.length
+                ? `Long ${side} jumpers on ${layer.name} (#${layer.id}): ${rounded.length}, measured with slack and rounded up to stock: `
+                    + rounded.slice(0, 8).map(([raw, ft]) => `${raw} to ${ft} ${word}`).join(', ')
+                    + (rounded.length > 8 ? ', ...' : '')
+                : `No long ${side} jumpers on ${layer.name} (#${layer.id}) now`,
+            fold: `jumpers:${layer.id}:${side}`,
+        });
     }
 
     // ---- the sidebar's Jumpers row ------------------------------------------

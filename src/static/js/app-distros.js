@@ -3,6 +3,16 @@
 // a distro: which distro, which multi number, its share of a box, and its
 // user-typed name with collision checks.
 import { LEDRasterApp } from './app-core.js';
+import { sendClientLog } from './helpers.js';
+
+// The log's word for a distro field's value: short, never a whole record.
+function distroLogValue(v) {
+    if (v === undefined) return null;
+    if (v === null || typeof v !== 'object') return v;
+    const text = JSON.stringify(v);
+    if (text.length <= 80) return v;
+    return Array.isArray(v) ? `${v.length} items` : `${Object.keys(v).length} fields`;
+}
 
 class _Distros {
 
@@ -111,7 +121,18 @@ class _Distros {
         // current_project wholesale). Post-mutation, like every other action.
         this.saveState('Add Distro');
         this._persistDistros();
+        sendClientLog('distro_added', { id: d.id, name: d.name, system: d.system, ratingA: d.ratingA }, {
+            area: 'distro', msg: `Distro added: ${d.name} (${d.id}), ${d.system}, ${d.ratingA} A`,
+        });
         return d;
+    }
+
+    // A distro edit or removal that did not happen, and why (2026-11-19).
+    _logDistroRefused(d, what, why) {
+        sendClientLog(`distro_${what}_refused`, { id: d && d.id, name: d && (d.name || d.id), why }, {
+            area: 'distro', level: 'warn',
+            msg: `Distro ${what === 'edit' ? 'edit' : 'removal'} refused: ${(d && (d.name || d.id)) || '?'}: ${why}`,
+        });
     }
 
     updateDistro(id, patch = {}, action = 'Edit Distro') {
@@ -120,12 +141,21 @@ class _Distros {
         // A distro on a service keeps the service's system (2026-10-20):
         // a new system is refused, saying why, until it comes off.
         if (typeof this._serviceRefusesDistroPatch === 'function'
-                && this._serviceRefusesDistroPatch(d, patch)) return null;
+                && this._serviceRefusesDistroPatch(d, patch)) {
+            this._logDistroRefused(d, 'edit', 'it is on a service, which sets its system');
+            return null;
+        }
         // Ticking "100% rated breakers" (or a new system) moves the packing
         // % of the screens on this distro. A locked screen stays unchanged
         // (owner, 2026-10-16), so a patch that would repack one is refused
         // whole, the locked screens named, and nothing changes.
-        if (this._repacksLockedScreens(d, patch)) return null;
+        if (this._repacksLockedScreens(d, patch)) {
+            this._logDistroRefused(d, 'edit', 'a locked screen would pack differently');
+            return null;
+        }
+        // The fields as they were, for the log's line of what changed.
+        const logBefore = {};
+        Object.keys(patch || {}).forEach(k => { logBefore[k] = distroLogValue(d[k]); });
         // A change to the face - its rows, its system, a preset laid on it,
         // a row removed - never leaves a multi on a one-circuit output
         // (owner, 2026-10-18): it asks first, take the multi off and apply,
@@ -267,7 +297,10 @@ class _Distros {
         // renamed by it, and so is every circuit hanging off those multis.
         // (Location is not - it is descriptive and names nothing.)
         this._circuitTailCache = null;
-        if (shared()) return null;
+        if (shared()) {
+            this._logDistroRefused(d, 'edit', "a locked screen's multis would move");
+            return null;
+        }
         // A breakout box fed straight off an output or circuit the edit
         // took away loses that feed (app-box-power.js), in this step.
         const boxesOff = typeof this.boxPowerDropStaleOutputs === 'function'
@@ -279,6 +312,21 @@ class _Distros {
         this.saveState(action || 'Edit Distro');
         this._persistDistros();
         if (boxesOff) this._persistBoxPower();
+        const diff = {};
+        Object.keys(logBefore).forEach(k => {
+            const now = distroLogValue(d[k]);
+            if (JSON.stringify(now) !== JSON.stringify(logBefore[k])) diff[k] = [logBefore[k], now];
+        });
+        const said = Object.entries(diff).slice(0, 6)
+            .map(([k, [a, b]]) => `${k} ${JSON.stringify(a)} to ${JSON.stringify(b)}`).join(', ');
+        sendClientLog('distro_edited', {
+            id: d.id, name: d.name, action: action || 'Edit Distro', diff,
+            ...(boxesOff ? { boxesUnfed: boxesOff } : {}),
+        }, {
+            area: 'distro',
+            msg: `${action || 'Edit Distro'}: ${d.name} (${d.id})${said ? `: ${said}` : ', nothing changed'}`
+                + (boxesOff ? `; ${boxesOff} breakout boxes lost their power` : ''),
+        });
         return d;
     }
 
@@ -571,7 +619,10 @@ class _Distros {
         // 2026-10-16) - whole or not at all, and the error names it.
         const fedLocked = (this.project.layers || []).filter(l => l && this._layerLocked(l)
             && Object.values(l.powerSocaDistro || {}).includes(id));
-        if (this._lockedRefused(fedLocked)) return false;
+        if (this._lockedRefused(fedLocked)) {
+            this._logDistroRefused(list[i], 'remove', `it feeds locked screens: ${fedLocked.map(l => l.name).join(', ')}`);
+            return false;
+        }
         // ...and so does a locked screen the removal would REPACK (owner,
         // 2026-10-22): one grouped with a screen it feeds, whose packing %
         // the group shares (_repackRefused). Refused whole, nothing moved.
@@ -582,7 +633,10 @@ class _Distros {
                 if (!map) continue;
                 for (const k of Object.keys(map)) if (map[k] === id) delete map[k];
             }
-        })) return false;
+        })) {
+            this._logDistroRefused(list[i], 'remove', 'a locked screen would pack differently');
+            return false;
+        }
         // ...and so does a locked screen whose multis the removal would
         // deal again or re-number (_lockedPowerTrial): written, checked,
         // put back whole.
@@ -602,6 +656,7 @@ class _Distros {
                               circuits: this._socaClearTargets(layer, k).circuits });
             }
         }
+        const gone = list[i];
         list.splice(i, 1);
         forget.forEach(f => this._forgetFeedLengths(f.layer, f.idx, f.circuits));
         // A distro fed thru the one removed is fed from its service again:
@@ -623,7 +678,10 @@ class _Distros {
             for (const k of Object.keys(map)) if (map[k] === id) { delete map[k]; changed = true; }
             if (changed) touched.push(layer);
         }
-        if (shared()) return false;
+        if (shared()) {
+            this._logDistroRefused(gone, 'remove', "a locked screen's multis would move");
+            return false;
+        }
         if (touched.length) this.updateLayers(touched);
         // The orphaned multis fall back into the unassigned bucket, which
         // renumbers it and everything after it.
@@ -640,6 +698,15 @@ class _Distros {
         this.saveState('Remove Distro');
         this._persistDistros();
         if (boxesOff) this._persistBoxPower();
+        sendClientLog('distro_removed', {
+            id, name: gone && gone.name, multisUnfed: forget.length, screens: touched.map(l => l.name),
+            ...(boxesOff ? { boxesUnfed: boxesOff } : {}),
+        }, {
+            area: 'distro',
+            msg: `Distro removed: ${(gone && gone.name) || id} (${id}); ${forget.length} multis now on no distro`
+                + (touched.length ? ` (${touched.map(l => l.name).slice(0, 6).join(', ')})` : '')
+                + (boxesOff ? `; ${boxesOff} breakout boxes lost their power` : ''),
+        });
         return true;
     }
 

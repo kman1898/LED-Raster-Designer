@@ -1,7 +1,7 @@
 // app-power: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, isVerticalFlowPattern } from './helpers.js';
+import { sendClientLog, sendClientLogOnChange, isVerticalFlowPattern } from './helpers.js';
 
 // The first build whose US circuits packed to 80% of the breaker: a show
 // saved before it keeps its automatic 2fers and 3fers as they were
@@ -442,6 +442,14 @@ class _Power {
         }
         // The cap under the custom controls reads the same figures.
         this._syncCustomFillReadout('data');
+        // The log's line for these figures, written when they change
+        // (app-capacity.js _logPortCapacity, 2026-11-19).
+        if (typeof this._logPortCapacity === 'function') {
+            this._logPortCapacity(this.currentLayer, {
+                processorType, bitDepth, frameRate, portCapacity, panelsPerPort,
+                ports: portsShown, error: minimum.error || null,
+            });
+        }
     }
 
     // ---- what one circuit carries (the owner's rulings, 2026-10-22) --------
@@ -7220,6 +7228,139 @@ class _Power {
     }
 
 }
+
+// ── the log's line for an automatic circuit plan (2026-11-19) ─────────
+//
+// calculatePowerAssignments runs on every draw of the Power view and in
+// trial passes (a lock check, an older show's migration, a guide's check).
+// A call from outside the planner only notes which screen was planned;
+// once the calls have been quiet for POWER_PLAN_LOG_MS (or every
+// POWER_PLAN_LOG_MAX_MS while they never stop), each noted screen is
+// planned once more as it stands and its plan compared with the one last
+// logged. Only a change is written (power_auto_planned): the circuits, the
+// amps each carries, and why each ends where it does. Never one per draw.
+const POWER_PLAN_LOG_MS = 700;
+const POWER_PLAN_LOG_MAX_MS = 3000;
+const _calculatePowerAssignments = _Power.prototype.calculatePowerAssignments;
+_Power.prototype.calculatePowerAssignments = function (layer) {
+    const top = !this._packOverride && !this._powerPlanLogging;
+    const result = _calculatePowerAssignments.call(this, layer);
+    if (top && layer && layer.id != null) {
+        try { this._notePowerPlan(layer.id); } catch (e) { /* the log never breaks a plan */ }
+    }
+    return result;
+};
+
+_Power.prototype._notePowerPlan = function (id) {
+    if (!this._powerPlanNoted) this._powerPlanNoted = new Set();
+    this._powerPlanNoted.add(id);
+    const now = Date.now();
+    if (!this._powerPlanSince) this._powerPlanSince = now;
+    clearTimeout(this._powerPlanTimer);
+    const wait = now - this._powerPlanSince >= POWER_PLAN_LOG_MAX_MS ? 0 : POWER_PLAN_LOG_MS;
+    this._powerPlanTimer = setTimeout(() => this._flushPowerPlanLog(), wait);
+};
+
+// One screen's plan in the log's words: { sig, details } or null.
+_Power.prototype._powerPlanSummary = function (layer) {
+    if (!layer || (layer.type || 'screen') !== 'screen') return null;
+    // A screen whose circuits are drawn by hand has no automatic plan.
+    if (typeof this.isCustomPower === 'function' && this.isCustomPower(layer)) return null;
+    let result;
+    this._powerPlanLogging = true;
+    try {
+        this._packOverride = null;
+        result = _calculatePowerAssignments.call(this, layer) || {};
+    } finally {
+        this._powerPlanLogging = false;
+    }
+    const cap = this.circuitCapacity(layer);
+    const volts = Number(cap.voltage) || parseFloat(layer.powerVoltage) || 0;
+    const circuits = result.circuits || [];
+    const nums = Array.isArray(result.nums) ? result.nums : circuits.map((_, i) => i + 1);
+    const wattsOf = (panels, owners) => this._circuitWatts(layer, panels, owners);
+    const rows = circuits.map((panels, i) => {
+        const w = wattsOf(panels, result.layers && result.layers[i]);
+        return {
+            n: nums[i],
+            cabinets: (panels || []).filter(p => p && !p.blank).length,
+            watts: Math.round(w),
+            amps: volts > 0 ? Math.round((w / volts) * 10) / 10 : null,
+        };
+    });
+    // Why each circuit ends where it does: the next cabinet would take it
+    // past what a circuit carries (full), or it ends with its row or
+    // column (an Organized walk, a share, a redrawn circuit beside it).
+    let full = 0;
+    let lineEnd = 0;
+    for (let i = 0; i + 1 < circuits.length; i++) {
+        const list = circuits[i + 1] || [];
+        const k = list.findIndex(p => p && !p.blank);
+        const owner = result.layers && result.layers[i + 1] ? [result.layers[i + 1][k]] : null;
+        const nextW = k >= 0 ? wattsOf([list[k]], owner) : 0;
+        if (rows[i].watts + nextW > cap.watts + 0.5) full += 1;
+        else lineEnd += 1;
+    }
+    const why = [];
+    const limit = typeof this.circuitLimitText === 'function' ? this.circuitLimitText(layer) : '';
+    if (cap.cap && cap.cap.why) why.push(String(cap.cap.why));
+    const bt = typeof this.getPowerBreakout === 'function' ? this.getPowerBreakout(layer) : null;
+    if (bt && Number(bt.circuitA) > 0) {
+        why.push(`the ${this._breakoutShortName(bt)} breakout puts every circuit on ${Number(bt.circuitA)} A`);
+    }
+    const mode = layer.powerMaximize ? 'Max Capacity' : (layer.powerOrganized ? 'Organized' : 'in walk order');
+    const error = result.error ? String(result.error.message || result.error) : null;
+    return {
+        sig: [error, Math.round(cap.watts), rows.map(r => [r.n, r.cabinets, r.watts])],
+        details: {
+            id: layer.id, name: layer.name, circuits: rows.length,
+            limit, circuitWatts: Math.round(cap.watts), voltage: volts, mode,
+            pattern: typeof this.autoPowerPattern === 'function' ? this.autoPowerPattern(layer) : null,
+            // [circuit, cabinets, amps] each, the first 24
+            perCircuit: rows.slice(0, 24).map(r => [r.n, r.cabinets, r.amps]),
+            splits: { full, lineEnd },
+            ...(why.length ? { why } : {}),
+            ...(error ? { error } : {}),
+        },
+    };
+};
+
+_Power.prototype._flushPowerPlanLog = function () {
+    const ids = [...(this._powerPlanNoted || [])];
+    this._powerPlanNoted = new Set();
+    this._powerPlanSince = 0;
+    if (!this.project || !Array.isArray(this.project.layers)) return;
+    if (!this._powerPlanCounts) this._powerPlanCounts = new Map();
+    for (const id of ids) {
+        const layer = this.project.layers.find(l => l && l.id === id);
+        if (!layer) continue;
+        let plan = null;
+        try { plan = this._powerPlanSummary(layer); } catch (e) { plan = null; }
+        if (!plan) continue;
+        const d = plan.details;
+        const was = this._powerPlanCounts.get(id);
+        sendClientLogOnChange(`power-plan:${id}`, plan.sig, 'power_auto_planned', (first) => {
+            // A screen seen for the first time with nothing to plan says
+            // nothing; every change after that is said.
+            if (first && !d.circuits && !d.error) return null;
+            this._powerPlanCounts.set(id, d.circuits);
+            const count = was != null && was !== d.circuits
+                ? `${was} to ${d.circuits} circuits` : `${d.circuits} circuits`;
+            const amps = d.perCircuit.slice(0, 12).map(r => (r[2] == null ? '?' : r[2])).join(', ');
+            const ends = d.circuits > 1
+                ? `; ${d.splits.full} full, ${d.splits.lineEnd} end with a row or column` : '';
+            d._msg = `Power plan: ${d.name} (#${d.id}): ${count} on ${d.limit || 'its circuit'}`
+                + `${ends}${amps ? `; amps ${amps}${d.circuits > 12 ? ', ...' : ''}` : ''}`
+                + `${d.why ? `; ${d.why.join('; ')}` : ''}${d.error ? `; ${d.error}` : ''}`;
+            return d;
+        }, (details) => {
+            const msg = details._msg;
+            delete details._msg;
+            return { area: 'power', level: details.error ? 'warn' : 'info', msg,
+                     ...(details.error ? {} : { fold: `power-plan:${id}` }) };
+        });
+    }
+};
 
 for (const k of Object.getOwnPropertyNames(_Power.prototype)) {
     if (k !== 'constructor') {

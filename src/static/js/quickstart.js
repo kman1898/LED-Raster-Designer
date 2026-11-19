@@ -39,6 +39,17 @@
     var FIRST_RUN_KEY = 'lrd_quickstart_first_run_done';
 
     // ── small helpers ────────────────────────────────────────────────────
+    // The app log's lines for a guide (2026-11-19 logging audit, phase 3):
+    // started, each step passed (with how long it took) or failed (with
+    // what it looked for and where the app stood), and ended. Guides never
+    // fail, so a step that does not take must be plain in the log.
+    function glog(action, details, level, msg) {
+        try {
+            if (typeof window.sendClientLog === 'function') {
+                window.sendClientLog(action, details, { area: 'guide', level: level || 'info', msg: msg });
+            }
+        } catch (e) { /* the log never stops a guide */ }
+    }
     function A() { return window.app; }
     function R() { return window.canvasRenderer; }
     function $(sel, root) { return (root || document).querySelector(sel); }
@@ -2931,6 +2942,7 @@
     }
 
     function runAct(step) {
+        var actAt = Date.now();
         S.running = true;
         T.mem = {};
         setState('running');
@@ -2970,6 +2982,7 @@
             settle();
             S.phase = 'settled';
             setState(note ? 'done' : 'failed');
+            logVerdict(step, note, err, Date.now() - actAt);
             // The step took on its own entry state: the show holds the next
             // step's entry in the same guide. A step that took on an entry that was
             // NOT reached (applyEntry stopped on the way, the step played
@@ -2983,6 +2996,36 @@
             }
             return afterStep();
         });
+    }
+
+    // One line per step that ran: passed, or failed with the step's key,
+    // what it looks for, whether that is on the page, the view and the
+    // error, so a failing guide step is found in the log without a rerun.
+    function logVerdict(step, note, err, took) {
+        var key = (S.keys && S.keys[S.idx]) || null;
+        var where = { guide: S.name, step: key, n: S.idx + 1, of: S.list.length, ms: took };
+        if (S.logStats) S.logStats[note ? 'passed' : 'failed'] += 1;
+        if (note) {
+            glog('guide_step_passed', where, 'info',
+                 'Guide ' + S.name + ' step ' + (S.idx + 1) + ' (' + key + ') passed in ' + took + ' ms');
+            return;
+        }
+        var sel = null;
+        try { sel = typeof step.target === 'function' ? step.target() : step.target; } catch (e) { sel = null; }
+        var found = false;
+        try { found = !!stepTargetEl(step); } catch (e) { found = false; }
+        var box = els && els.callout ? els.callout.querySelector('.qs-result') : null;
+        var why = err ? String(err.message || err).slice(0, 200) : 'its check never answered';
+        where.title = String(step.title || '').replace(/<[^>]*>/g, '').slice(0, 80);
+        where.target = sel ? String(sel).slice(0, 120) : null;
+        where.targetFound = found;
+        where.view = mode();
+        where.error = why;
+        if (box && box.textContent) where.shown = box.textContent.slice(0, 160);
+        glog('guide_step_failed', where, 'error',
+             'Guide ' + S.name + ' step ' + (S.idx + 1) + ' (' + key + ') FAILED after ' + took + ' ms: ' + why
+             + (sel ? '; looked for ' + String(sel).slice(0, 80) + (found ? ' (on the page)' : ' (not on the page)') : '')
+             + '; view ' + where.view);
     }
 
     function afterStep() {
@@ -3569,6 +3612,9 @@
         S.startedVia = null;
         S.startError = null;
         S.visible = true;
+        S.logStats = { passed: 0, failed: 0, at: Date.now() };
+        glog('guide_started', { guide: name, steps: S.list.length }, 'info',
+             'Guide started: ' + String(tour.title || name).replace(/&[a-z]+;/g, "'") + ', ' + S.list.length + ' steps');
         els.catch.style.display = 'block';
         els.spot.style.display = 'block';
         els.callout.style.display = 'block';
@@ -3607,6 +3653,14 @@
         S.token++;
         S.keep = null;
         S.phase = null;
+        var stats = S.logStats || { passed: 0, failed: 0, at: Date.now() };
+        S.logStats = null;
+        glog('guide_ended', { guide: S.name, at: S.idx + 1, of: S.list.length, passed: stats.passed,
+                              failed: stats.failed, finished: S.idx === S.list.length - 1,
+                              ms: Date.now() - stats.at },
+             stats.failed ? 'warn' : 'info',
+             'Guide ended: ' + S.name + ' at step ' + (S.idx + 1) + ' of ' + S.list.length + ', '
+             + stats.passed + ' passed, ' + stats.failed + ' failed');
         leaveCurrent(null);
         S.visible = false;
         S.running = true;   // no re-entry while the world goes back

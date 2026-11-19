@@ -2003,6 +2003,75 @@ def _platform_issues(resolved_screens, by_id):
     return out
 
 
+# ── Why, for the log ──────────────────────────────────────────────────────
+#
+# The fills and placements below make choices a person did not spell out
+# (which free socket, where a run splits, which cards were skipped). Each
+# takes an optional `reasons` list and appends a few short plain lines
+# saying why; the routes log them (routes_port_assignment). Callers that
+# pass nothing get exactly the answer they always got (2026-11-19 logging
+# audit, phase 3).
+
+REASONS_MAX = 8
+
+
+def _say(reasons, text):
+    if reasons is not None and text and len(reasons) < REASONS_MAX:
+        reasons.append(text)
+
+
+def _ports_text(numbers):
+    """"3", "3-6", "3, 5, 7-9": port numbers as a person reads them."""
+    numbers = sorted(int(n) for n in numbers)
+    runs = []
+    for n in numbers:
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    parts = [str(a) if a == b else f'{a}-{b}' for a, b in runs]
+    if len(parts) > 6:
+        parts = parts[:6] + [f'{len(parts) - 6} more']
+    return ', '.join(parts)
+
+
+def resolution_reasons(resolution):
+    """{layerId: [short lines]}: where each screen's ports stand and why
+    any are off a card, read off a resolution. The routes log a screen's
+    lines when they change."""
+    issues_by_layer = {}
+    for issue in (resolution or {}).get('issues') or []:
+        lid = issue.get('layerId')
+        if lid is not None and issue.get('kind') not in ('overflow', 'overlap'):
+            issues_by_layer.setdefault(str(lid), []).append(issue)
+    titles = {c['cardId']: c.get('title') or c['cardId']
+              for c in (resolution or {}).get('cards') or []}
+    out = {}
+    for scr in (resolution or {}).get('screens') or []:
+        lines = []
+        ports = scr.get('ports') or []
+        on = [p for p in ports if p.get('cardId')]
+        if scr.get('mirrorOf') not in (None, ''):
+            lines.append(f'mirror copy of {scr["mirrorOf"]}')
+        lines.append(f'{len(on)} of {scr.get("required", len(ports))} ports on a card')
+        if scr.get('split'):
+            names = [titles.get(c, c) for c in scr.get('cardIds') or []]
+            lines.append(f'split across {len(names)} cards ({_and_list(names[:4])})')
+        if scr.get('unplaced'):
+            lines.append('not attached: port '
+                         + _ports_text(i + 1 for i in scr['unplaced']))
+        clash = [p['number'] for p in on if p.get('overlap')]
+        if clash:
+            lines.append('shares a socket: port ' + _ports_text(clash))
+        over = [p['number'] for p in on if p.get('beyondCapacity')]
+        if over:
+            lines.append('past the card\'s sockets: port ' + _ports_text(over))
+        for issue in issues_by_layer.get(str(scr['layerId']), []):
+            lines.append(str(issue.get('kind')).replace('-', ' '))
+        out[str(scr['layerId'])] = lines[:REASONS_MAX]
+    return out
+
+
 def _overflow_issues(resolved_screens, cards):
     """A screen with ports on no card - never placed, or more than its card
     had room for.
@@ -2526,7 +2595,7 @@ def _foreign_claims(processors, screens, state, layer_id, index=None):
 
 
 def pin_to_card(processors, screens, state, layer_id, index, card_id,
-                port=None):
+                port=None, reasons=None):
     """Pin one port of one screen to a named card.
 
     The port number is optional, and leaving it out is the normal case from the
@@ -2558,6 +2627,12 @@ def pin_to_card(processors, screens, state, layer_id, index, card_id,
                     None)
         if port is None:
             return None, f'{_card_title(card)} has no free ports.'
+        skipped = [n for n in (card.get('sockets') or []) if n < port]
+        _say(reasons, f'lowest free port on {_card_title(card)} is {port}'
+             + (f' ({len(skipped)} before it taken or held for backup)'
+                if skipped else ''))
+    else:
+        _say(reasons, f'port {port} named')
     set_pin(state, layer_id, index, card['cardId'], port)
     return {'cardId': card['cardId'], 'port': int(port)}, None
 
@@ -2613,7 +2688,7 @@ def _placement_note(after, scr, index, card, port):
 
 
 def place_port(processors, screens, state, layer_id, index, card_id, port,
-               confirm=False):
+               confirm=False, reasons=None):
     """Put ONE port of ONE screen on the card port somebody chose.
 
     Three answers instead of the usual two, because this is the one edit that
@@ -2699,9 +2774,19 @@ def place_port(processors, screens, state, layer_id, index, card_id, port,
             f'nobody is on.'
         ), {'cardId': card['cardId'], 'port': port, 'occupants': here}
 
+    shared = (card['cardId'], port) in taken
     set_pin(state, layer_id, index, card['cardId'], port)
     after = resolve(processors, screens, state)
     was = _spot_index(before).get((layer_id, index))
+    if was and was[0] is not None:
+        old_card = by_id.get(was[0])
+        _say(reasons, 'moved from ' + (_port_title(old_card, was[1]) if old_card
+                                       else f'{was[0]} port {was[1]}'))
+    if shared:
+        _say(reasons, f'shares {_port_title(card, port)} with what was there (confirmed)')
+    mine = _resolved_screen(after, layer_id)
+    if mine and len(mine['cardIds']) > 1:
+        _say(reasons, f'{scr["name"]} now spans {len(mine["cardIds"])} cards')
     return {
         'cardId': card['cardId'],
         'port': port,
@@ -2724,7 +2809,8 @@ def _fits(card, start, size, taken):
 
 
 def move_block(processors, screens, state, layer_id, card_id=None,
-               start_port=None, first_port=None, last_port=None):
+               start_port=None, first_port=None, last_port=None,
+               reasons=None):
     """Move a screen's WHOLE set of ports to the next free block.
 
     Whole set, in the same relative order, or not at all. A screen is cabled as
@@ -2781,6 +2867,8 @@ def move_block(processors, screens, state, layer_id, card_id=None,
         if not _fits(card, int(start_port), size, taken):
             return None, (f'Ports {start_port}-{int(start_port) + size - 1} on '
                           f'{_card_title(card)} are not all free.')
+        _say(reasons, f'start port {int(start_port)} on {_card_title(card)} named')
+        _say(reasons, f'whole run of {size} ports moved together')
         return _pin_block(state, layer_id, card['cardId'], int(start_port),
                           size), None
 
@@ -2799,8 +2887,12 @@ def move_block(processors, screens, state, layer_id, card_id=None,
         # "next free block" would relocate a run onto gear it cannot use.
         # When that leaves nowhere at all, say the real reason rather than
         # "no run free".
-        search = [cid for cid in search
-                  if platform_allows(by_id[cid], scr['platform'])]
+        wrong = [cid for cid in search
+                 if not platform_allows(by_id[cid], scr['platform'])]
+        search = [cid for cid in search if cid not in wrong]
+        if wrong:
+            _say(reasons, f'{len(wrong)} of the {_show_unit_word(cards)}s skipped '
+                          f'(another platform)')
         if not search:
             label = PLATFORM_LABELS.get(scr['platform'], scr['platform'])
             return None, (f'{scr["name"]} is programmed {label}, and no {_show_unit_word(cards)} '
@@ -2830,6 +2922,19 @@ def move_block(processors, screens, state, layer_id, card_id=None,
             highest = min(highest, hi - size + 1)
         for start in range(lowest, highest + 1):
             if _fits(card, start, size, taken):
+                if position == 0 and cid == current_card and not card_id:
+                    _say(reasons, f'searched forward from port {current_start} '
+                                  f'on {_card_title(card)}')
+                elif position:
+                    _say(reasons, f'{position} {_show_unit_word(cards)}s before it '
+                                  f'had no run of {size} free')
+                if lo is not None or hi is not None:
+                    _say(reasons, f'kept inside ports {lo or 1}-{hi or top} (the box)')
+                _say(reasons, f'first free run of {size} starts at port {start} '
+                              f'on {_card_title(card)}')
+                _say(reasons, 'whole run moved together; this screen\'s own '
+                              'pins replaced' if here else
+                              f'whole run of {size} ports moved together')
                 return _pin_block(state, layer_id, cid, start, size), None
 
     if lo is not None or hi is not None:
@@ -2887,7 +2992,7 @@ def _pin_block(state, layer_id, card_id, start, size):
 
 def place_overflow(processors, screens, state, layer_id, card_id,
                    first_port=None, last_port=None, last_index=None,
-                   box_id=None):
+                   box_id=None, reasons=None):
     """Put a screen's unattached ports onto a card, in order.
 
     This is the fill a card or box drop runs - a screen with nothing on a
@@ -2980,6 +3085,26 @@ def place_overflow(processors, screens, state, layer_id, card_id,
         set_pin(state, layer_id, index, card['cardId'], port)
         moved.append({'index': index, 'port': port})
     left = len(spare) - len(moved)
+    if reasons is not None:
+        if last_index is not None and len(spare) < len(current['unplaced']):
+            _say(reasons, f'{len(spare)} unplaced ports up to port '
+                          f'{int(last_index) + 1}, where it was dropped')
+        else:
+            _say(reasons, f'{len(spare)} unplaced ports')
+        if first_port is not None or last_port is not None:
+            _say(reasons, f'kept inside ports {lo}-{hi}'
+                          + (" (that box's own sockets)" if mine is not None else ' (the box)'))
+        window = [n for n in sockets if lo <= n <= hi and (mine is None or n in mine)]
+        backup = [n for n in window if n in roles]
+        busy = [n for n in window if (card['cardId'], n) in taken and n not in roles]
+        if backup:
+            _say(reasons, f'{len(backup)} ports held for backup skipped')
+        if busy:
+            _say(reasons, f'{len(busy)} ports already taken skipped')
+        _say(reasons, f'packed from port {moved[0]["port"]} on {_card_title(card)}')
+        if left:
+            _say(reasons, f'split at capacity: {len(free)} free on {_card_title(card)}, '
+                          f'{left} left not attached')
     note = None
     if left:
         note = (f'{_card_title(card)} took {len(moved)} of {len(spare)} ports. '

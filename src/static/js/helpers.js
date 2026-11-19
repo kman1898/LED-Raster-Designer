@@ -109,6 +109,32 @@ function sendClientLog(action, details = {}, opts = null) {
     }
 }
 
+// A line written only when what it reports CHANGED since the last line
+// under the same key (2026-11-19 logging audit, phase 3): a plan worked
+// out on every draw, a warning shown on every render, a name resolved
+// per frame. `sig` is what is compared (as JSON); `details` may be a
+// function of `first` (true the first time the key is seen), returning
+// null to write nothing that time. Returns true when a line was written.
+const clientLogLastSig = new Map();
+function sendClientLogOnChange(key, sig, action, details, opts = null) {
+    let text;
+    try { text = JSON.stringify(sig); } catch (e) { return false; }
+    const k = String(key);
+    if (clientLogLastSig.get(k) === text) return false;
+    const first = !clientLogLastSig.has(k);
+    clientLogLastSig.delete(k);
+    clientLogLastSig.set(k, text);
+    if (clientLogLastSig.size > 4000) clientLogLastSig.delete(clientLogLastSig.keys().next().value);
+    let d = details;
+    if (typeof d === 'function') {
+        try { d = d(first); } catch (e) { d = null; }
+    }
+    if (!d) return false;
+    const o = typeof opts === 'function' ? opts(d, first) : opts;
+    sendClientLog(action, d, o);
+    return true;
+}
+
 // The field an element is known by in the log: its id, else the
 // data-lrd-field every generated control carries (most tray and popover
 // fields have no id, so a bare id logged "" for them).
@@ -845,7 +871,7 @@ function escapeLayerOpen(event) {
     return _escapeRead(event).open;
 }
 
-export { evaluateMathExpression, isMacOS, sendClientLog, setClientLogPage, clientLogLastAction, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
+export { evaluateMathExpression, isMacOS, sendClientLog, sendClientLogOnChange, setClientLogPage, clientLogLastAction, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
     FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff, nameFieldEnter, escapeCovered, escapeLayerOpen };
 
 // Classic (non-module) scripts call these by name at runtime
@@ -854,6 +880,7 @@ export { evaluateMathExpression, isMacOS, sendClientLog, setClientLogPage, clien
 // evaluated before app-core.js constructs the renderer that registers the
 // keydown listener, so the alias exists before any key can reach it.
 window.sendClientLog = sendClientLog;
+window.sendClientLogOnChange = sendClientLogOnChange;
 window.normalizeHex = normalizeHex;
 window.isTypingTarget = isTypingTarget;
 window.escapeCovered = escapeCovered;
