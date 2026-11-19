@@ -126,17 +126,22 @@ jobs:
           pip install -r src/requirements.txt
           pip install pytest pytest-cov pypdf
 
+      # Each test step is capped: a run takes 3 to 5 minutes, and a hung
+      # test (2026-11-19: a launcher test ran the real controller reader on
+      # its own thread) held all three jobs for hours.
       - name: Run tests (Unix)
         if: runner.os != 'Windows'
         run: |
           source .venv/bin/activate
           python -m pytest tests/ -v --tb=short --cov=src --cov-report=term-missing --ignore=tests/test_browser.py
+        timeout-minutes: 20
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         run: |
           .venv\Scripts\activate
           python -m pytest tests/ -v --tb=short --cov=src --cov-report=term-missing --ignore=tests/test_browser.py
+        timeout-minutes: 20
 
   browser-test:
     name: Browser (chromium ${{ matrix.shard }}/4)
