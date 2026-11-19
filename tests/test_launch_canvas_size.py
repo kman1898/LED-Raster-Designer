@@ -434,6 +434,12 @@ def test_a_reconnect_takes_the_servers_canvas_sizes_and_writes_nothing(e2e_serve
     try:
         pg, logs, writes, problems = _open(context, e2e_server)
         assert pg.evaluate("() => window.app.project.active_canvas_id") == 'c1'
+        # A RECONNECT needs a first connect: the page must have connected and
+        # taken its first copy before the drop. Dropping mid-handshake makes
+        # the next connect the page's first, whose copy is skipped by design
+        # (CI 2026-11-19: one socket_connect, then first_connect_after_load).
+        pg.wait_for_function("() => window.app.socket.connected && window.app._socketConnects >= 1"
+                             " && window.app._firstProjectDataSeen === true", timeout=10000)
         pg.evaluate("() => window.app.socket.disconnect()")
         pg.wait_for_function("() => !window.app.socket.connected", timeout=5000)
         # meanwhile another page gives Canvas 1 a new size and works on Canvas 2
