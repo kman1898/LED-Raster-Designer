@@ -456,6 +456,26 @@ class _ContextMenu {
                 sub.appendChild(item);
             });
             el.appendChild(sub);
+            // A show's every box is a long list: opened low on the window it
+            // ran off the bottom, its last boxes out of reach. Held inside
+            // the window as it opens (scrolling where it is taller).
+            el.addEventListener('mouseenter', () => {
+                sub.style.top = '';
+                sub.style.maxHeight = '';
+                sub.style.overflowY = '';
+                const margin = 8;
+                const r = sub.getBoundingClientRect();
+                if (!r.height) return;
+                const room = window.innerHeight - 2 * margin;
+                if (r.height > room) {
+                    sub.style.maxHeight = `${room}px`;
+                    sub.style.overflowY = 'auto';
+                }
+                const h = Math.min(r.height, room);
+                const over = r.top + h - (window.innerHeight - margin);
+                const lift = Math.max(0, Math.min(over, r.top - margin));
+                if (lift > 0) sub.style.top = `${-6 - lift}px`;
+            });
             put(el);
         });
         (bp.items || []).forEach((en, i) => {

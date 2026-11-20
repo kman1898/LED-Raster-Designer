@@ -1,15 +1,25 @@
 """Powering a breakout box from the walls' power circuits, and the XD / XD-T
 daisy chain (owner rulings, 2026-11-18; app-box-power.js).
 
-  * A box is powered, per box, from the START of a circuit, its END, an
-    OPEN circuit or output on a distro (by itself), or a spare leg of a
-    fan-out (a shared 2fer / 3fer circuit). Each is a right-click on the
-    Power tab: a circuit's first cabinet (its tag sits there) or last, a
-    free chip in the Power tray, a shared circuit. Removing it is a
-    right-click too. One undo step each; a locked screen refuses.
-  * Only the XD and XD-T (TRUE1 in and thru) daisy chain. Past 5 boxes in
-    one chain, or past 2 A through the first box's thru, is warned in gold,
-    never refused.
+  * A box is powered, per box, from the START of a circuit, its END, or an
+    open circuit on a distro by itself: a direct output, or a spare
+    circuit of a multi that already runs to a screen. Each is a
+    right-click on the Power tab: a circuit's first cabinet (its tag sits
+    there; on a shared 2fer / 3fer circuit the first of any run) or last,
+    a free chip in the Power tray. Removing it is a right-click too. One
+    undo step each; a locked screen refuses.
+  * At the start (2026-11-19, 2026-11-20): EVERY box, an XD or XD-T too,
+    gets a 2fer at the head of the circuit (behind it, on a shared
+    circuit, the circuit's own 2fer), counted on the pull sheet, the
+    binder's Shared circuits table and the screens' 2fer totals. A thru
+    never feeds panels. A box at the start or end follows its
+    panel when any change renumbers its circuit, or loses its power (named
+    in gold) when the panel no longer starts or ends a run; and a box at
+    the end is wired on the Power Wiring sheet from the run's last panel.
+  * Only the XD and XD-T (TRUE1 in and thru) daisy chain. Past the 5 units
+    a chain is rated for is warned in gold, never refused; an XD anywhere
+    in a chain also past its own thru's 2 A, the draw of the boxes after
+    it. The XD-T publishes no amp figure, so no amp warning.
   * Watts: XD-T 50, XD-S 50, CVT10 18, CVT10 Pro 22, CVT4K 21; the
     original XD by the straight line between 0.4 A at 100 V and 0.2 A at
     240 V, held outside them, watts = volts x amps. They count on the
@@ -91,6 +101,16 @@ def test_server_catalog_power_blocks():
         assert block['note'], dev_id
     for dev_id in ('novastar-cvt8-5g', 'brompton-qd-s', 'megapixel-rs12'):
         assert catalog.box_power_block(catalog.get_device(dev_id)) is None, dev_id
+    # the thru's rating (owner, 2026-11-20): 5 units on both; 2 A on the
+    # XD only, the XD-T publishing no amp figure
+    xd = catalog.box_power_block(catalog.get_device('brompton-xd'))
+    xdt = catalog.box_power_block(catalog.get_device('brompton-xd-t'))
+    assert (xd.get('thruUnits'), xd.get('thruAmps')) == (5, 2)
+    assert (xdt.get('thruUnits'), xdt.get('thruAmps')) == (5, None)
+    for dev_id in want:
+        if want[dev_id][1] is None:
+            block = catalog.box_power_block(catalog.get_device(dev_id))
+            assert 'thruUnits' not in block and 'thruAmps' not in block, dev_id
 
 
 def test_server_no_figure_is_none():
@@ -476,22 +496,62 @@ def test_end_of_circuit_by_right_click(page):
     assert not errors
 
 
+def test_the_box_list_stays_inside_the_window(page):
+    """Every box of the show is one long submenu. Opened low on the window
+    it ran off the bottom, its last boxes out of reach (and a click there
+    landed on the Power tray). It now opens held inside the window."""
+    pg, errors = page
+    _setup(pg)
+    pg.evaluate("""() => { const r = window.canvasRenderer;
+        const rect = r.canvas.getBoundingClientRect();
+        r.panY = rect.height - 140; r.render(); }""")
+    menu = _right_click(pg, pg.evaluate(CABINET_JS, {'name': 'WALL A', 'circuit': 2, 'last': True}))
+    slot = next(m for m in menu if m['label'].startswith('Power a breakout box at the end of'))
+    pg.hover(f'#context-menu [data-action="{slot["action"]}"]')
+    pg.wait_for_timeout(80)
+    box = pg.evaluate(f"""() => {{
+        const el = document.querySelector('#context-menu [data-action="{slot["action"]}"] > .menu-submenu');
+        const r = el.getBoundingClientRect();
+        return {{ top: r.top, bottom: r.bottom, h: window.innerHeight }}; }}""")
+    assert box['top'] >= 0 and box['bottom'] <= box['h'], box
+    _escape(pg)
+    assert not errors
+
+
 # ---- (c) an open circuit on a distro -----------------------------------------------
 
 def test_open_distro_circuit_by_right_click(page):
-    """Right-click output 2's free circuit 3 in the Power tray: the CVT10
-    rides it by itself, 18 W on d1 (a 120 V circuit: 0.15 A on its leg)."""
+    """Right-click output 1's spare circuit 3 in the Power tray (WALL A's
+    multi runs from output 1 on circuits 1 and 2): the CVT10 rides it by
+    itself, 18 W on d1 (a 120 V circuit: 0.15 A on its leg). Output 2 has
+    no multi on it, so its free circuits only say why they are not
+    offered (owner, 2026-11-19); the Edison output 3, a direct output, is
+    offered."""
     pg, errors = page
     _setup(pg)
     pg.evaluate("() => window.app.setHardwareDockMode ? window.app.setHardwareDockMode('power') : null")
     cvt = _boxes(pg)['novastar-cvt10'][0]
     before = pg.evaluate("() => window.app.getDistroLoads().find(x => x.id === 'd1').watts")
-    at = pg.evaluate(CHIP_JS, {'d': 'd1', 'number': 2, 'tail': 3})
+    # an empty output: one greyed line, no submenu of boxes
+    empty = pg.evaluate(CHIP_JS, {'d': 'd1', 'number': 2, 'tail': 3})
+    assert empty, 'no chip for output 2'
+    menu = _right_click(pg, empty)
+    bp = [m for m in menu if m['label'].startswith('Power a breakout box from')]
+    assert len(bp) == 1 and bp[0]['disabled'] and not bp[0]['entries'], menu
+    _escape(pg)
+    # a direct output
+    direct = pg.evaluate(CHIP_JS, {'d': 'd1', 'number': 3, 'tail': 1})
+    assert direct, 'no chip for the Edison output'
+    menu = _right_click(pg, direct)
+    bp = [m for m in menu if m['label'].startswith('Power a breakout box from')]
+    assert len(bp) == 1 and not bp[0]['disabled'] and bp[0]['entries'], menu
+    _escape(pg)
+    at = pg.evaluate(CHIP_JS, {'d': 'd1', 'number': 1, 'tail': 3})
     assert at, 'no free chip'
     menu = _right_click(pg, at)
     _pick(pg, menu, 'Power a breakout box from', cvt['title'])
     st = _state(pg)
-    assert st['store'][cvt['id']]['at'] == {'kind': 'distro', 'distroId': 'd1', 'number': 2, 'tail': 3}
+    assert st['store'][cvt['id']]['at'] == {'kind': 'distro', 'distroId': 'd1', 'number': 1, 'tail': 3}
     assert st['store'][cvt['id']]['cable'] == 'powercon'
     L = pg.evaluate("() => window.app.getDistroLoads().find(x => x.id === 'd1')")
     assert L['watts'] == pytest.approx(before + 18)
@@ -508,38 +568,389 @@ def test_open_distro_circuit_by_right_click(page):
     assert not errors
 
 
-# ---- (d) a spare leg on a fan-out ----------------------------------------------------
+# ---- (d) a circuit shared by a 2fer ----------------------------------------------------
 
-def test_fanout_by_right_click(page):
-    """WALL B's one circuit 2fer'd into a run per row: right-click it, "from
-    the 2fer of", and the CVT4K-S (21 W) rides it."""
+# The first cabinet of each run of WALL B's circuit 1, as client points.
+RUN_HEADS_JS = """() => {
+    const app = window.app, r = window.canvasRenderer;
+    r.render();
+    const l = app.project.layers.find(x => x.name === 'WALL B');
+    const c = app.screenCircuits(l).find(x => x.num === 1);
+    const { dx, dy } = r.getLayerRenderOffset(l);
+    const { wx, wy } = r._layerCanvasOffset(l);
+    const rect = r.canvas.getBoundingClientRect();
+    return c.branches.map(run => { const p = run[0];
+        return { x: rect.left + r.panX + (p.x + p.width / 2 + dx + wx) * r.zoom,
+                 y: rect.top + r.panY + (p.y + p.height / 2 + dy + wy) * r.zoom }; });
+}"""
+
+# WALL B's circuit 1 on the pull sheet: its splitter rows [type, qty, notes]
+# (rows of one type and circuit merge, their notes joined).
+# (The NovaStar boxes feed no screen here, so their processor is held on
+# paper for it: the paper rule has tests of its own.)
+SPLITTERS_JS = """() => {
+    const app = window.app, b = app.project.layers[1];
+    const off = app._pullProcOffPaper, hid = app._pullHiddenOnlyBox;
+    app._pullProcOffPaper = () => false;
+    app._pullHiddenOnlyBox = () => false;
+    try {
+        const scr = app.buildPullList().byScreen[b.id];
+        return scr.rows.filter(r => /\\d+fer$/.test(r.type)).map(r => [r.type, r.qty, r.notes]);
+    } finally { app._pullProcOffPaper = off; app._pullHiddenOnlyBox = hid; }
+}"""
+
+
+def test_a_box_on_a_2fer_circuit_is_at_its_start(page):
+    """WALL B's one circuit 2fer'd into a run per row (owner, 2026-11-19).
+    A box there is a box at the circuit's START, offered on the first panel
+    of either run, never mid-run, and no separate "from the 2fer" pick. The
+    CVT4K-S (21 W) takes a TRUE1 2fer of its own ahead of the circuit's
+    2fer: two 2fers on the pull sheet. An XD-T the same (2026-11-20: a thru
+    never feeds the panels or their 2fer). An older file's 'fanout' record
+    reads as the start."""
     pg, errors = page
     shape = _setup(pg, nfer=True)
     assert shape['b'] == [[1, 2]], shape
-    k4 = _boxes(pg)['novastar-cvt4k-s'][0]
-    menu = _right_click(pg, pg.evaluate(CABINET_JS, {'name': 'WALL B', 'row': 1, 'col': 1}))
-    _pick(pg, menu, 'Power a breakout box from the 2fer of', k4['title'])
+    b = _boxes(pg)
+    k4, xdt = b['novastar-cvt4k-s'][0], b['brompton-xd-t'][0]
+    # mid-run: nothing to power a box from
+    menu = _right_click(pg, pg.evaluate(CABINET_JS, {'name': 'WALL B', 'row': 0, 'col': 1}))
+    assert not any(m['label'].startswith('Power a breakout box at the start of') for m in menu), menu
+    _escape(pg)
+    heads = pg.evaluate(RUN_HEADS_JS)
+    assert len(heads) == 2, heads
+    for at in heads:
+        menu = _right_click(pg, at)
+        labels = [m['label'] for m in menu]
+        assert any(t.startswith('Power a breakout box at the start of') for t in labels), labels
+        assert not any('2fer of' in t for t in labels), labels
+        _escape(pg)
+    assert pg.evaluate(SPLITTERS_JS) == [['TRUE1 2fer', 1, '']]
+    menu = _right_click(pg, heads[1])
+    _pick(pg, menu, 'Power a breakout box at the start of', k4['title'])
     st = _state(pg)
-    assert st['store'][k4['id']]['at']['kind'] == 'fanout'
+    assert st['store'][k4['id']]['at']['kind'] == 'start'
     leg = pg.evaluate("() => window.app.getSocaPlan(window.app.project.layers[1])[0].legs[0]")
     assert leg['boxWatts'] == pytest.approx(21)
     assert leg['watts'] == pytest.approx(600 + 21)
+    # the circuit's own 2fer and the box's: two on the circuit's row
+    assert pg.evaluate(SPLITTERS_JS) == [['TRUE1 2fer', 2, f"breakout box {k4['title']}"]]
+    words = pg.evaluate("""(id) => { const app = window.app;
+        const p = app.boxPowerPlacements().find(x => x.head.box.id === id);
+        return { caption: app.boxPowerWiringCaption(p), circuit: app._bBoxPowerOnText(p.layer, 1) }; }""",
+                        k4['id'])
+    assert words['caption'].endswith(' · on a TRUE1 2fer, other leg to the 2fer'), words
+    assert words['circuit'] == f"breakout box {k4['title']} at the start, on a TRUE1 2fer, other leg to the 2fer"
+    # the XD-T in its place: its own 2fer too, never its thru
+    pg.evaluate("""([k, x]) => { const app = window.app, b = app.project.layers[1];
+        app.removeBoxPower(k);
+        app.setBoxPower(x, { kind: 'start', layerId: b.id, circuit: 1 }); }""", [k4['id'], xdt['id']])
+    assert pg.evaluate(SPLITTERS_JS) == [['TRUE1 2fer', 2, f"breakout box {xdt['title']}"]]
+    cap = pg.evaluate("""(id) => { const app = window.app;
+        return app.boxPowerWiringCaption(app.boxPowerPlacements().find(x => x.head.box.id === id)); }""",
+                      xdt['id'])
+    assert cap.endswith(' · on a TRUE1 2fer, other leg to the 2fer'), cap
+    assert 'thru' not in cap, cap
+    # an older file's fan-out record
+    old = pg.evaluate("""([k, x]) => { const app = window.app, b = app.project.layers[1];
+        app.removeBoxPower(x);
+        app.project.boxPower[k] = { cardId: app.boxPowerBoxes().find(e => e.box.id === k).card.id,
+                                    at: { kind: 'fanout', layerId: b.id, circuit: 1 }, cable: 'powercon' };
+        app._boxPowerMemo = null; app._boxPowerStandMemo = null; app._boxPowerCircuitIdx = null;
+        const e = app.boxPowerOf(k);
+        return { kind: e.at.kind, where: app.boxPowerWhereText(e) }; }""", [k4['id'], xdt['id']])
+    assert old['kind'] == 'start' and old['where'].startswith('the start of'), old
+    assert not errors
+
+
+def test_every_box_at_a_circuits_start_is_on_a_2fer(page):
+    """On WALL A's single-run circuits: an XD-T at the start of circuit 1 and
+    a CVT10 at the start of circuit 2 each get a TRUE1 2fer at its head, one
+    leg to the box and one to the panels, listed on the pull sheet (owner,
+    2026-11-20: an XD or XD-T is never in line, its thru never feeds the
+    panels). The canvas pill, the Power Wiring caption and the circuit list
+    say so; the watts are the boxes' own figures."""
+    pg, errors = page
+    _setup(pg)
+    b = _boxes(pg)
+    xdt, cvt = b['brompton-xd-t'][0], b['novastar-cvt10'][0]
+    out = pg.evaluate("""([t, c]) => {
+        const app = window.app, a = app.project.layers[0];
+        app.setBoxPower(t, { kind: 'start', layerId: a.id, circuit: 1 });
+        app.setBoxPower(c, { kind: 'start', layerId: a.id, circuit: 2 });
+        const off = app._pullProcOffPaper, hid = app._pullHiddenOnlyBox;
+        app._pullProcOffPaper = () => false;
+        app._pullHiddenOnlyBox = () => false;
+        let rows;
+        try { rows = app.buildPullList().byScreen[a.id].rows; }
+        finally { app._pullProcOffPaper = off; app._pullHiddenOnlyBox = hid; }
+        const place = (id) => app.boxPowerPlacements().find(x => x.head.box.id === id);
+        app._boxPowerDrawnLog = null;
+        const seen = [];
+        const log = app._boxPowerLogDrawn;
+        app._boxPowerLogDrawn = function (layerId, drawn) { seen.push(...drawn); return log.apply(this, arguments); };
+        try { window.canvasRenderer.render(); } finally { app._boxPowerLogDrawn = log; }
+        const legs = app.getSocaPlan(a)[0].legs;
+        return { fers: rows.filter(r => /\\d+fer$/.test(r.type)).map(r => [r.type, r.qty, r.label, r.notes]),
+                 label1: app.getPowerCircuitLabel(a, 1), label2: app.getPowerCircuitLabel(a, 2),
+                 capT: app.boxPowerWiringCaption(place(t)), capC: app.boxPowerWiringCaption(place(c)),
+                 on1: app._bBoxPowerOnText(a, 1), on2: app._bBoxPowerOnText(a, 2),
+                 drawn: seen.map(d => [d.boxes[0], d.wiring]),
+                 watts: legs.map(l => l.boxWatts) };
+    }""", [xdt['id'], cvt['id']])
+    # one row of the type: both circuits' 2fers, each box named
+    assert len(out['fers']) == 1 and out['fers'][0][:2] == ['TRUE1 2fer', 2], out
+    for want in (out['label1'], out['label2']):
+        assert want in out['fers'][0][2], out
+    for box in (xdt, cvt):
+        assert f"breakout box {box['title']}" in out['fers'][0][3], out
+    for cap in (out['capT'], out['capC']):
+        assert cap.endswith(' · on a TRUE1 2fer, other leg to the panels') and 'thru' not in cap, out
+    assert out['on1'] == f"breakout box {xdt['title']} at the start, on a TRUE1 2fer, other leg to the panels"
+    assert out['on2'] == f"breakout box {cvt['title']} at the start, on a TRUE1 2fer, other leg to the panels"
+    assert sorted(out['drawn']) == sorted([[xdt['id'], 'on a TRUE1 2fer'], [cvt['id'], 'on a TRUE1 2fer']]), out
+    assert out['watts'] == [pytest.approx(50), pytest.approx(18)], out
+    assert not errors
+
+
+# The FACTS sheet's text, where the binder's power notes (warnings) print.
+FACTS_FN = """const FACTS = (app) => {
+    const opts = { ...app.readBinderOptions(), mode: 'full', sides: { power: true, data: false } };
+    const plan = app.planBinder(opts);
+    const i = plan.findIndex(p => p.kind === 'facts');
+    if (i < 0) return '';
+    // a note wraps at its words: the lines joined, spaces made one
+    return (app.renderBinderPage(opts, i).texts || []).map(x => typeof x === 'string' ? x : String(x.text || ''))
+        .join(' ').replace(/\\s+/g, ' ');
+};"""
+
+# For WALL A's flow patterns: where the panels of a box at the start of
+# circuit 1 and a box at the end of circuit 2 land - the circuit whose
+# first (or last) panel each is, or null - read straight off the circuits.
+FLOW_LANDING_JS = """() => {
+    const app = window.app, a = app.project.layers[0];
+    const key = (p) => `${p.row}:${p.col}`;
+    const keep = a.powerFlowPattern;
+    const at = (pat) => {
+        a.powerFlowPattern = pat;
+        app._circuitTailCache = null;
+        const cs = app.screenCircuits(a);
+        return { cs: cs.map(c => ({ num: c.num, first: key(c.panels[0]), last: key(c.panels[c.panels.length - 1]) })) };
+    };
+    const base = at('tl-h').cs;
+    const s = base.find(c => c.num === 1).first, e = base.find(c => c.num === 2).last;
+    const out = {};
+    for (const pat of ['tl-h', 'tr-h', 'bl-h', 'br-h', 'tl-v', 'tr-v', 'bl-v', 'br-v']) {
+        const cs = at(pat).cs;
+        const hs = cs.find(c => c.first === s), te = cs.find(c => c.last === e);
+        out[pat] = { start: hs ? hs.num : null, end: te ? te.num : null };
+    }
+    a.powerFlowPattern = keep;
+    app._circuitTailCache = null;
+    return out;
+}"""
+
+FOLLOW_JS = """([t, c, pat, how]) => {
+    """ + FACTS_FN + """
+    const app = window.app, a = app.project.layers[0];
+    a.powerFlowPattern = 'tl-h';
+    app._circuitTailCache = null;
+    app.setBoxPower(t, { kind: 'start', layerId: a.id, circuit: 1 });
+    app.setBoxPower(c, { kind: 'end', layerId: a.id, circuit: 2 });
+    const toasts = [];
+    const toast = app._toast;
+    app._toast = function (msg) { toasts.push(String(msg)); return toast.apply(this, arguments); };
+    const saves = app.__saves;
+    try {
+        if (how === 'carry') {
+            // the moments a circuit's cable follows its first cabinet
+            const carry = app._cableCarryBegin([a]);
+            a.powerFlowPattern = pat;
+            app._circuitTailCache = null;
+            app._cableCarryApply(carry);
+            app.saveState('Change Power Pattern');
+        } else {
+            // any other change: the undo step it takes
+            a.powerFlowPattern = pat;
+            app._circuitTailCache = null;
+            app.saveState('Change Power Pattern');
+        }
+    } finally { app._toast = toast; }
+    const rec = (id) => JSON.parse(JSON.stringify(app.project.boxPower[id] || null));
+    app.renderHardwareDock();
+    const out = { t: rec(t), c: rec(c), powered: [!!app.boxPowerOf(t), !!app.boxPowerOf(c)], toasts,
+                  steps: app.__saves - saves,
+                  lost: app.boxPowerLost().map(x => x.text),
+                  strip: (app._dockPowerWarnings || []).filter(w => w.boxLost).map(w => [w.mild, w.text]),
+                  notes: FACTS(app) };
+    app.undo();
+    out.undone = [!!app.boxPowerOf(t), !!app.boxPowerOf(c)];
+    out.undoneCircuits = [app.project.boxPower[t].at.circuit, app.project.boxPower[c].at.circuit];
+    a.powerFlowPattern = 'tl-h';
+    app._circuitTailCache = null;
+    return out;
+}"""
+
+
+def test_a_box_follows_its_panel_across_a_renumber(page):
+    """WALL A's circuits renumbered under their panels (owner, 2026-11-19):
+    the box at the start of circuit 1 and the box at the end of circuit 2
+    ride whatever circuit their panels now start or end, by the cable carry
+    and by any change's own undo step alike; the move is in that one step."""
+    pg, errors = page
+    _setup(pg)
+    b = _boxes(pg)
+    xdt, cvt = b['brompton-xd-t'][0], b['novastar-cvt10'][0]
+    land = pg.evaluate(FLOW_LANDING_JS)
+    moves = [p for p, v in land.items() if v['start'] and v['end'] and (v['start'], v['end']) != (1, 2)]
+    assert moves, land
+    for how, pat in (('carry', moves[0]), ('step', moves[-1])):
+        out = pg.evaluate(FOLLOW_JS, [xdt['id'], cvt['id'], pat, how])
+        want = land[pat]
+        assert out['t']['at']['circuit'] == want['start'] and not out['t'].get('lost'), (how, pat, out)
+        assert out['c']['at']['circuit'] == want['end'] and not out['c'].get('lost'), (how, pat, out)
+        assert out['powered'] == [True, True] and out['lost'] == [] and out['toasts'] == [], (how, pat, out)
+        assert out['steps'] == 1, out
+        # one undo puts the change and the boxes back together
+        assert out['undone'] == [True, True] and out['undoneCircuits'] == [1, 2], out
+    assert not errors
+
+
+def test_a_box_whose_panel_stops_starting_a_run_loses_power(page):
+    """A change after which the box's panel no longer starts (or ends) a run
+    (owner, 2026-11-19): the box loses its power, a toast names it at once,
+    the Power tab and the binder's notes keep naming it in gold, and the
+    one undo step brings it back powered."""
+    pg, errors = page
+    _setup(pg)
+    b = _boxes(pg)
+    xdt, cvt = b['brompton-xd-t'][0], b['novastar-cvt10'][0]
+    land = pg.evaluate(FLOW_LANDING_JS)
+    # the pattern that leaves the most of the two panels off a run's end,
+    # the start box's among them
+    gone = sorted((p for p, v in land.items() if not v['start']),
+                  key=lambda p: -int(not land[p]['end']))
+    assert gone, land
+    pat = gone[0]
+    out = pg.evaluate(FOLLOW_JS, [xdt['id'], cvt['id'], pat, 'step'])
+    lost = [xdt] + ([cvt] if not land[pat]['end'] else [])
+    assert out['t'].get('lost'), out
+    assert bool(out['c'].get('lost')) == (not land[pat]['end']), (pat, land[pat], out)
+    assert out['powered'] == [False, bool(land[pat]['end'])], out
+    assert out['steps'] == 1, out
+    for box in lost:
+        said = [t for t in out['lost'] if box['title'] in t]
+        assert said and 'has no power' in said[0], out['lost']
+        assert any(box['title'] in t for t in out['toasts']), out['toasts']
+        assert any(box['title'] in t for m, t in out['strip'] if m), out['strip']
+        assert f"Breakout box {box['title']} has no power" in out['notes'], out['notes']
+    assert '—' not in ' '.join(out['lost'])
+    assert out['undone'] == [True, True] and out['undoneCircuits'] == [1, 2], out
+    # its power can be taken off for good from the tray's box, or given again
+    again = pg.evaluate("""([t, c, pat]) => { const app = window.app, a = app.project.layers[0];
+        a.powerFlowPattern = pat; app._circuitTailCache = null; app.saveState('Change Power Pattern');
+        const items = app._boxPowerBoxItems(t).items.map(i => i.label);
+        app.setBoxPower(c, { kind: 'start', layerId: a.id, circuit: 1 });
+        const out = { items, repowered: !!app.boxPowerOf(c), lostNow: app.boxPowerLost().map(x => x.boxId) };
+        app.removeBoxPower(t);
+        out.removed = app.project.boxPower[t] === undefined;
+        a.powerFlowPattern = 'tl-h'; app._circuitTailCache = null;
+        return out; }""", [xdt['id'], cvt['id'], gone[0]])
+    assert again['items'] == ['Remove breakout box power'], again
+    assert again['repowered'] and again['lostNow'] == [xdt['id']], again
+    assert again['removed'], again
+    assert not errors
+
+
+def test_the_thru_is_for_daisy_chains_only(page):
+    """An XD-T or XD at the start of a circuit is on its TRUE1 2fer like any
+    box (owner, 2026-11-20): the circuit's panels never go through its thru,
+    so WALL A's 1800 W circuits put no warning on either, and the canvas
+    pill says "on a TRUE1 2fer"."""
+    pg, errors = page
+    _setup(pg)
+    b = _boxes(pg)
+    xdt, xd = b['brompton-xd-t'][0], b['brompton-xd'][0]
+    out = pg.evaluate("""([t, x]) => {
+        const app = window.app, a = app.project.layers[0];
+        app.setBoxPower(t, { kind: 'start', layerId: a.id, circuit: 1 });
+        app.setBoxPower(x, { kind: 'start', layerId: a.id, circuit: 2 });
+        app.renderHardwareDock();
+        const strip = (app._dockPowerWarnings || []).filter(w => w.boxChain).length;
+        const seen = [];
+        const log = app._boxPowerLogDrawn;
+        app._boxPowerDrawnLog = null;
+        app._boxPowerLogDrawn = function (l, drawn) { seen.push(...drawn); return log.apply(this, arguments); };
+        try { window.canvasRenderer.render(); } finally { app._boxPowerLogDrawn = log; }
+        return { checks: app.boxPowerChainChecks().length, strip,
+                 drawn: seen.map(d => [d.boxes[0], d.wiring, d.over.length > 0]),
+                 words: [t, x].map(id => app.boxPowerStartWiring(
+                     app.boxPowerPlacements().find(p => p.head.box.id === id)).words) };
+    }""", [xdt['id'], xd['id']])
+    assert out['checks'] == 0 and out['strip'] == 0, out
+    assert sorted(out['drawn']) == sorted([[xdt['id'], 'on a TRUE1 2fer', False],
+                                           [xd['id'], 'on a TRUE1 2fer', False]]), out
+    assert out['words'] == ['on a TRUE1 2fer, other leg to the panels'] * 2, out
+    assert not errors
+
+
+def test_a_box_2fer_counts_in_the_shared_circuits_and_screen_counts(page):
+    """A box at a circuit's start adds a 2fer (owner, 2026-11-19): it counts everywhere the pull sheet's 2fers do - the
+    binder's Shared circuits table on the screen's power sheet and the
+    2fer count in the pull pages' table of screens (the binder's 2fer
+    totals; the overview sheet prints none). (The boxes' processors are held on paper here:
+    the paper rule has tests of its own.)"""
+    pg, errors = page
+    _setup(pg)
+    xs = _boxes(pg)['brompton-xd-s'][0]
+    out = pg.evaluate("""(s) => {
+        const app = window.app, a = app.project.layers[0];
+        const off = app._pullProcOffPaper, hid = app._pullHiddenOnlyBox;
+        app._pullProcOffPaper = () => false;
+        app._pullHiddenOnlyBox = () => false;
+        const join = (r) => (r.texts || []).map(x => typeof x === 'string' ? x : String(x.text || '')).join(' | ');
+        const opts = { ...app.readBinderOptions(), mode: 'full', sides: { power: true, data: false } };
+        const pages = () => {
+            const plan = app.planBinder(opts);
+            const at = (pick) => { const i = plan.findIndex(pick); return i < 0 ? '' : join(app.renderBinderPage(opts, i)); };
+            const all = (pick) => plan.map((p, i) => (pick(p) ? join(app.renderBinderPage(opts, i)) : ''))
+                .filter(Boolean).join(' | ');
+            return { pull: all(p => p.kind === 'pull'),
+                     power: at(p => p.title === `${a.name} - Power - Front View`) };
+        };
+        try {
+            const before = pages();
+            app.setBoxPower(s, { kind: 'start', layerId: a.id, circuit: 2 });
+            const after = pages();
+            const gangs = app.buildPullList().byScreen[a.id].gangs;
+            return { before, after, gangs, label: app.getPowerCircuitLabel(a, 2) };
+        } finally { app._pullProcOffPaper = off; app._pullHiddenOnlyBox = hid; }
+    }""", xs['id'])
+    assert out['gangs']['twofer'] == 1, out['gangs']
+    assert '× 2fer' not in out['before']['pull'], out['before']['pull']
+    assert '1× 2fer' in out['after']['pull'], out['after']['pull']
+    assert 'SHARED CIRCUITS' not in out['before']['power'].upper()
+    pw = out['after']['power']
+    assert 'SHARED CIRCUITS' in pw.upper(), pw
+    assert f"{out['label']} · breakout box {xs['title']}" in pw, pw
     assert not errors
 
 
 # ---- the daisy chain ----------------------------------------------------------------
 
 def test_daisy_chain_and_its_warnings(page):
-    """A powered XD-T chains on by right-clicking its pill. Five XD-Ts at
-    120 V: the head's thru carries 4 x 50 / 120 = 1.67 A, no warning. Six
-    boxes is past 5: warned. At 110 V six XD-Ts put 5 x 50 / 110 = 2.27 A
-    through the thru: past 2 A, warned too. Never refused."""
+    """A powered XD-T chains on by right-clicking its pill. Five boxes are
+    within the 5 units a TRUE1 thru chain is rated for; six are past it:
+    warned in gold, "XD-T A chain: 6 boxes, rated for 5." Never refused.
+    The XD-Ts' thrus publish no amp figure; the one XD in it (fifth) carries
+    only the last box (44.57 W, 0.37 A at 120 V) on through its own thru,
+    well inside its 2 A, at 110 V too."""
     pg, errors = page
     _setup(pg)
     b = _boxes(pg)
     chain = [x['id'] for x in b['brompton-xd-t']] + [b['brompton-xd'][0]['id'], b['brompton-xd'][1]['id']]
     head = chain[0]
-    pg.evaluate("(id) => window.app.setBoxPower(id, { kind: 'start', layerId: window.app.project.layers[0].id, circuit: 2 })",
+    pg.evaluate("(id) => window.app.setBoxPower(id, { kind: 'end', layerId: window.app.project.layers[0].id, circuit: 2 })",
                 head)
     s0 = _state(pg)
     at = pg.evaluate(SYMBOL_JS, head)
@@ -555,7 +966,7 @@ def test_daisy_chain_and_its_warnings(page):
     assert s1['saves'] == s0['saves'] + 1
     assert s1['store'][chain[1]]['at'] == {'kind': 'chain', 'from': head}
     assert s1['store'][chain[1]]['cable'] == 'true1'
-    # on to five XD-Ts... (four of them, then the XD)
+    # on to five boxes (four XD-Ts, then the XD)
     for up, down in zip(chain[1:4], chain[2:5]):
         assert pg.evaluate("([a, z]) => window.app.chainBoxPower(a, z)", [up, down])
     checks = pg.evaluate("() => window.app.boxPowerChainChecks()")
@@ -563,46 +974,98 @@ def test_daisy_chain_and_its_warnings(page):
     w = pg.evaluate("() => window.app.getSocaPlan(window.app.project.layers[0])[0].legs[1].boxWatts")
     assert w == pytest.approx(4 * 50 + _xd_watts(120))
     assert pg.evaluate("([a, z]) => window.app.chainBoxPower(a, z)", [chain[4], chain[5]])
-    checks = pg.evaluate("""() => window.app.boxPowerChainChecks().map(c => ({ count: c.count, amps: c.amps,
-        over: c.over, text: c.text }))""")
-    assert len(checks) == 1
-    assert checks[0]['count'] == 6 and checks[0]['over'] == {'boxes': True, 'amps': False}
-    # 3 XD-T + 2 XD after the head: (150 + 2 x 44.57) / 120 = 1.99 A
-    assert checks[0]['amps'] == pytest.approx((3 * 50 + 2 * _xd_watts(120)) / 120)
-    assert 'has 6 boxes' in checks[0]['text'] and '\u2014' not in checks[0]['text']
+    checks = pg.evaluate("""() => window.app.boxPowerChainChecks().map(c => ({ kind: c.kind, box: c.box.box.id,
+        count: c.count, units: c.units, text: c.text }))""")
+    assert checks == [{'kind': 'units', 'box': head, 'count': 6, 'units': 5,
+                       'text': f"{b['brompton-xd-t'][0]['title']} chain: 6 boxes, rated for 5."}], checks
+    assert '—' not in checks[0]['text']
     # the tray says it in gold
     strip = pg.evaluate("""() => { window.app.renderHardwareDock();
         return (window.app._dockPowerWarnings || []).filter(w => w.boxChain).map(w => w.mild); }""")
     assert strip == [True]
-    # 110 V: past 2 A as well
+    # 110 V: the XD's thru carries 42.43 W, 0.39 A: still only the count
     pg.evaluate("""() => { const app = window.app; app.project.layers[0].powerVoltage = 110;
         app._boxPowerMemo = null; }""")
-    checks = pg.evaluate("() => window.app.boxPowerChainChecks().map(c => ({ over: c.over, amps: c.amps }))")
-    assert checks[0]['over'] == {'boxes': True, 'amps': True}
-    assert checks[0]['amps'] == pytest.approx((3 * 50 + 2 * _xd_watts(110)) / 110)
+    checks = pg.evaluate("() => window.app.boxPowerChainChecks().map(c => c.kind)")
+    assert checks == ['units']
     assert not errors
 
 
-def test_chain_amps_warning_alone(page):
-    """The 2 A reading on its own (a chain of five, the thru past 2 A):
-    warned for the amps, not the count. No model on the catalog draws that
-    much in five, so the figures are given."""
+# A chain of `ids` off the end of WALL A's circuit 1, every box drawing
+# `watts` (no model in the catalog draws enough within five boxes to load
+# an XD's thru past 2 A, so the figure is given): the warnings, the tray's
+# gold lines, the boxes the canvas marks and the FACTS sheet's notes.
+XD_THRU_JS = """([ids, watts]) => {
+    """ + FACTS_FN + """
+    const app = window.app, a = app.project.layers[0];
+    app.setBoxPower(ids[0], { kind: 'end', layerId: a.id, circuit: 1 });
+    for (let i = 1; i < ids.length; i++) app.chainBoxPower(ids[i - 1], ids[i]);
+    const real = app.boxPowerWattsAt;
+    if (watts != null) app.boxPowerWattsAt = () => watts;
+    try {
+        app._boxPowerMemo = null;
+        const checks = app.boxPowerChainChecks().map(c => ({ kind: c.kind, box: c.box.box.id, amps: c.amps,
+                                                            rated: c.rated, text: c.text }));
+        app.renderHardwareDock();
+        const strip = (app._dockPowerWarnings || []).filter(w => w.boxChain).map(w => [w.mild, w.text]);
+        const seen = [];
+        const log = app._boxPowerLogDrawn;
+        app._boxPowerDrawnLog = null;
+        app._boxPowerLogDrawn = function (l, drawn) { seen.push(...drawn); return log.apply(this, arguments); };
+        try { window.canvasRenderer.render(); } finally { app._boxPowerLogDrawn = log; }
+        return { checks, strip, drawn: seen.map(d => d.over), notes: FACTS(app) };
+    } finally { app.boxPowerWattsAt = real; }
+}"""
+
+
+def test_an_xd_is_warned_past_2_a_through_its_own_thru(page):
+    """The 2 A is the XD's OWN thru rating (owner, 2026-11-20): what its
+    thru carries on to the boxes after it, never its own draw. An XD
+    heading four boxes of 70 W at 120 V passes 280 W, 2.33 A: "XD A thru:
+    2.33 A to the boxes after it, rated for 2 A." in gold on the Power tab,
+    the XD's pill and the binder's notes. At the catalog's own figures
+    (4 x 50 W, 1.67 A) it is not warned. Never refused."""
     pg, errors = page
     _setup(pg)
     b = _boxes(pg)
-    ids = [x['id'] for x in b['brompton-xd-t']] + [b['brompton-xd'][0]['id']]
-    pg.evaluate("(id) => window.app.setBoxPower(id, { kind: 'end', layerId: window.app.project.layers[0].id, circuit: 1 })",
-                ids[0])
-    for up, down in zip(ids, ids[1:]):
-        assert pg.evaluate("([a, z]) => window.app.chainBoxPower(a, z)", [up, down])
-    out = pg.evaluate("""() => {
-        const app = window.app;
-        const real = app.boxPowerWattsAt;
-        app.boxPowerWattsAt = () => 70;      // 4 x 70 / 120 = 2.33 A after the head
-        try { return app.boxPowerChainChecks().map(c => ({ over: c.over, amps: c.amps })); }
-        finally { app.boxPowerWattsAt = real; }
-    }""")
-    assert out == [{'over': {'boxes': False, 'amps': True}, 'amps': pytest.approx(4 * 70 / 120)}]
+    xd = b['brompton-xd'][0]
+    ids = [xd['id']] + [x['id'] for x in b['brompton-xd-t'][:4]]
+    out = pg.evaluate(XD_THRU_JS, [ids, 70])
+    assert len(out['checks']) == 1, out
+    c = out['checks'][0]
+    assert c['kind'] == 'amps' and c['box'] == xd['id'] and c['rated'] == 2, c
+    assert c['amps'] == pytest.approx(4 * 70 / 120), c
+    assert c['text'] == f"{xd['title']} thru: 2.33 A to the boxes after it, rated for 2 A.", c
+    assert out['strip'] == [[True, c['text']]], out
+    assert out['drawn'] == [[xd['id']]], out
+    assert c['text'] in out['notes'], out['notes']
+    real = pg.evaluate("() => window.app.boxPowerChainChecks().length")
+    assert real == 0
+    assert not errors
+
+
+def test_an_xd_mid_chain_behind_an_xd_t_is_warned(page):
+    """An XD-T heads the chain and an XD stands second in it (owner,
+    2026-11-20): the XD-T's thru publishes no amp figure and is never
+    checked, but the XD's own thru is, whatever heads the chain. Five boxes
+    of 90 W at 120 V: the XD passes the three after it, 270 W, 2.25 A:
+    "XD A thru: 2.25 A to the boxes after it, rated for 2 A." Only the XD
+    is named and marked; five boxes is no count warning."""
+    pg, errors = page
+    _setup(pg)
+    b = _boxes(pg)
+    xdts, xd = b['brompton-xd-t'], b['brompton-xd'][0]
+    ids = [xdts[0]['id'], xd['id'], xdts[1]['id'], xdts[2]['id'], xdts[3]['id']]
+    out = pg.evaluate(XD_THRU_JS, [ids, 90])
+    assert len(out['checks']) == 1, out
+    c = out['checks'][0]
+    assert c['kind'] == 'amps' and c['box'] == xd['id'] and c['rated'] == 2, c
+    assert c['amps'] == pytest.approx(3 * 90 / 120), c
+    assert c['text'] == f"{xd['title']} thru: 2.25 A to the boxes after it, rated for 2 A.", c
+    assert out['strip'] == [[True, c['text']]], out
+    # the XD's pill, not the XD-T heading the chain
+    assert out['drawn'] == [[xd['id']]], out
+    assert c['text'] in out['notes'], out['notes']
     assert not errors
 
 
@@ -778,7 +1241,9 @@ def test_a_deleted_screen_or_distro_takes_its_box_feeds(page):
 def test_a_missing_circuit_is_no_feed(page):
     """A box on circuit 2 of WALL A: a repack that leaves WALL A one circuit
     takes its feed everywhere - no load, no pull row, no binder row, and its
-    gear reads unpowered - without touching the store."""
+    gear reads unpowered - without touching the store, until the change's
+    undo step is taken: there the box follows its panel or loses its power
+    (test_a_box_follows_its_panel_..., test_a_box_whose_panel_stops_...)."""
     pg, errors = page
     _setup(pg)
     xd = _boxes(pg)['brompton-xd'][0]['id']
@@ -1318,4 +1783,48 @@ def test_wiring_no_line_crosses_a_disc_label(page):
                 assert not (x1 > d['x'] - q and x0 < d['x'] + q
                             and y1 > d['y'] - q and y0 < d['y'] + q), (
                     'a run comes into a disc\'s lettering', d['text'], r['from'], r['device'])
+    assert not errors
+
+
+END_WIRING_JS = """([x, mode]) => {
+    const app = window.app, a = app.project.layers[0];
+    app.setBoxPower(x, { kind: 'end', layerId: a.id, circuit: 1 });
+    const opts = { ...app.readBinderOptions(), mode, sides: { power: true, data: false } };
+    const plan = app.planBinder(opts);
+    const i = plan.findIndex(p => mode === 'simple'
+        ? p.sheetTitle === `${a.name} · POWER WIRING · FRONT VIEW` : p.title === `${a.name} - Power Wiring`);
+    if (i < 0) return { titles: plan.map(p => p.title) };
+    const c = app.screenCircuits(a).find(z => z.num === 1);
+    const last = c.panels[c.panels.length - 1];
+    return { halves: (app.renderBinderPage(opts, i).wiring || {}).halves || [],
+             label: app.getPowerCircuitLabel(a, 1), lastCol: last.col, cols: a.columns };
+}"""
+
+
+@pytest.mark.parametrize('mode', ['full', 'simple'])
+def test_wiring_a_box_at_the_end_leaves_the_last_panel(page, mode):
+    """A box powered at a circuit's END is fed from the run's last panel
+    (owner, 2026-11-19): on the Power Wiring sheet, full and Simple, its line
+    leaves a dot on that panel, not the circuit's label disc on its first
+    panel, which the multi's own run still leaves."""
+    pg, errors = page
+    _setup(pg)
+    xd = _boxes(pg)['brompton-xd'][0]
+    out = pg.evaluate(END_WIRING_JS, [xd['id'], mode])
+    assert out.get('halves'), out
+    h = out['halves'][0]
+    ends = [d for d in h['discs'] if d.get('end')]
+    label = [d for d in h['discs'] if not d.get('end') and d['text'] == out['label']]
+    assert len(ends) == 1 and label, h['discs']
+    end, lab = ends[0], label[0]
+    # the dot is inside the last panel, a panel's width or more from the label
+    pnl = end['panel']
+    assert pnl['x'] <= end['x'] <= pnl['x'] + pnl['w'] and pnl['y'] <= end['y'] <= pnl['y'] + pnl['h'], end
+    assert abs(end['x'] - lab['x']) >= pnl['w'] * 0.9 or abs(end['y'] - lab['y']) >= pnl['h'] * 0.9, (end, lab)
+    assert end['r'] < lab['r'], (end, lab)
+    # the box's run starts at the dot
+    runs = [r for r in h['runs'] if r['device'].startswith(xd['title'])]
+    assert len(runs) == 1, h['runs']
+    x0, y0 = runs[0]['points'][0]
+    assert ((x0 - end['x']) ** 2 + (y0 - end['y']) ** 2) ** 0.5 <= end['r'] * 2 + 1, (runs[0]['points'][:2], end)
     assert not errors

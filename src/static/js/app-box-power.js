@@ -17,9 +17,13 @@
 //     refuses any change with the locked-screen dialog.
 //   * DAISY CHAIN: only boxes with a power thru, the original XD and the
 //     XD-T (TRUE1 in and thru). A powered one chains to another. Each link
-//     is a TRUE1 jumper with a length. Brompton rates the thru "5 units,
-//     2 A max": past 5 boxes in one chain, or past 2 A through the first
-//     box's thru, is WARNED in gold, never refused.
+//     is a TRUE1 jumper with a length. The thru is for daisy chaining boxes
+//     ONLY, never panels (owner, 2026-11-20, on Brompton's XD data sheet of
+//     Mar 2026 and its processor manual V3.5 Rev F of Sep 2026): a chain
+//     past the 5 units both are rated for is WARNED in gold, never refused;
+//     an XD anywhere in a chain is warned too past its own thru's 2 A, the
+//     draw of the boxes after it. The XD-T publishes no amp figure, so none
+//     is used (catalog `thruUnits` / `thruAmps`).
 //   * WATTS: each box adds its published figure to the circuit it rides
 //     (catalog `power`, processor_catalog.box_power_watts is the server's
 //     twin): its circuit's amps, the distro legs, the neutral at the
@@ -31,9 +35,32 @@
 //   * A box removed, or moved to another card, takes its feed with it (the
 //     record names the card it was powered on). Copies never carry feeds.
 //
+// THE WIRING AT A CIRCUIT'S START (owner rulings, 2026-11-19, 2026-11-20):
+//   * EVERY box at the start of a circuit, an XD or XD-T included, gets a
+//     2fer at the head of the circuit, of the panels' own connector (TRUE1
+//     on a TRUE1 wall): one leg to the box, one to the panels. No box sits
+//     in line: nothing official runs panels off a thru. An older show that
+//     had an XD in line just reads this way. The 2fer is on the pull sheet.
+//   * On a circuit already shared by a 2fer (or wider): the box's own 2fer
+//     comes first, its other leg into the circuit's 2fer. So a box on a
+//     shared circuit is a box at its START, offered on the first panel of
+//     any of its runs. (An older file's 'fanout' record reads as 'start'.)
+//   * Off a distro: only a direct output, or a spare circuit of a multi
+//     that already runs to a screen, is offered.
+//   * Any change that renumbers a circuit or takes it away: the box follows
+//     its panel (the first for the start, the last for the end) to the
+//     circuit that panel now starts (or ends) a run of; a panel that no
+//     longer does leaves the box with no power, named in gold until it is
+//     powered again. In the change's own undo step (_boxPowerFollowPanels).
+//   * A box's own 2fer counts wherever 2fers do: the pull sheet, the
+//     binder's Shared circuits table and the screens' 2fer totals
+//     (boxPowerExtraTwofers).
+//
 // THE MODEL. `project.boxPower = { [boxId]: rec }`, persisted on POST
 // /api/project like the distros:
-//   rec = { cardId, at, cable?, ft? }
+//   rec = { cardId, at, cable?, ft?, panel?, lost? }
+//   (`panel`: the scoped cabinet key a box at a start or end follows;
+//   `lost`: that panel stopped starting or ending a run, no power)
 //   at  = { kind: 'start' | 'end' | 'fanout', layerId, circuit }
 //       | { kind: 'distro', distroId, number, tail }
 //       | { kind: 'chain', from: <boxId upstream> }
@@ -51,9 +78,9 @@ export const BOX_POWER_CABLES = {
     'true1-iec': 'TRUE1 → IEC',
     'edison-iec': 'Edison → IEC',
 };
-// Brompton's thru rating, the owner's pick of its two figures.
+// The units a TRUE1 thru chain is rated for where a catalog entry with a
+// thru says none (each XD and XD-T says its own `thruUnits`: 5).
 export const BOX_CHAIN_MAX_BOXES = 5;
-export const BOX_CHAIN_MAX_AMPS = 2;
 
 const CIRCUIT_KINDS = ['start', 'end', 'fanout'];
 
@@ -148,10 +175,13 @@ class _BoxPower {
         for (const id of keys) {
             const rec = store[id];
             const hit = boxes.get(id);
-            if (!rec || typeof rec !== 'object' || !hit || !rec.at) continue;
+            // (a box whose panel stopped starting or ending a run has no
+            // power: boxPowerLost names it)
+            if (!rec || typeof rec !== 'object' || !hit || !rec.at || rec.lost) continue;
             if (rec.cardId != null && String(rec.cardId) !== String(hit.card.id)) continue;
             if (!this.boxPowerSpec(hit.box)) continue;
-            const at = rec.at;
+            // a box on a shared circuit is a box at its start (2026-11-19)
+            const at = rec.at.kind === 'fanout' ? { ...rec.at, kind: 'start' } : rec.at;
             if (CIRCUIT_KINDS.includes(at.kind)) {
                 if (!layers.some(l => String(l.id) === String(at.layerId))) continue;
             } else if (at.kind === 'distro') {
@@ -181,9 +211,10 @@ class _BoxPower {
     }
 
     // Whether the spot a head record names is there NOW: a screen's
-    // circuit of that number (a repack can take it away - then the box has
-    // no feed anywhere until it is powered again; following its panel is
-    // the owner's question), or an output and circuit the distro has.
+    // circuit of that number (a renumber the box's panel is followed
+    // across moves the record, _boxPowerCarryApply; a repack that takes
+    // the number away leaves the box with no feed anywhere until it is
+    // powered again), or an output and circuit the distro has.
     _boxPowerSpotStands(at) {
         if (CIRCUIT_KINDS.includes(at.kind)) {
             const layer = ((this.project && this.project.layers) || [])
@@ -441,12 +472,34 @@ class _BoxPower {
         const layer = ((this.project && this.project.layers) || []).find(l => String(l.id) === String(at.layerId));
         const label = layer ? this.getPowerCircuitLabel(layer, at.circuit) : `circuit ${at.circuit}`;
         const scr = layer ? ` (${layer.name})` : '';
-        if (at.kind === 'fanout') {
-            const c = layer ? this.screenCircuits(layer).find(x => Number(x.num) === Number(at.circuit)) : null;
-            const ways = c && Array.isArray(c.runIds) ? c.runIds.length : 2;
-            return `the ${ways}fer of ${label}${scr}`;
-        }
-        return `the ${at.kind} of ${label}${scr}`;
+        return `the ${at.kind === 'fanout' ? 'start' : at.kind} of ${label}${scr}`;
+    }
+
+    // How a box (or a daisy chain) at the START of a circuit is wired in,
+    // or null for any other placement (owner, 2026-11-19, 2026-11-20):
+    //   { ways, plug, splitter, words, tag }
+    // EVERY box at a start, an XD or XD-T as much as the rest, is fed from
+    // a 2fer at the head of the circuit, of the panels' own connector
+    // (`splitter`, "TRUE1 2fer"): one leg to the box, the other to the
+    // panels or into the circuit's own Nfer. A thru never feeds panels.
+    // `ways` is the circuit's own splitter (1 for none). `words` is what
+    // paper prints ("on a TRUE1 2fer, other leg to the 2fer"), `tag` the
+    // canvas pill's short form ("on a TRUE1 2fer").
+    boxPowerStartWiring(p) {
+        if (!p || !p.layer || !p.at || !['start', 'fanout'].includes(p.at.kind) || !p.head) return null;
+        const c = this.screenCircuits(p.layer).find(x => Number(x.num) === Number(p.at.circuit)) || null;
+        const ways = c && Array.isArray(c.runIds) && c.runIds.length > 1 ? c.runIds.length : 1;
+        const on = (c && c.layers && c.layers[0]) || p.layer;
+        const plug = (typeof this.panelInput === 'function' && this.panelInput(on).name) || 'TRUE1';
+        const to = ways > 1 ? `the ${ways}fer` : 'the panels';
+        return { ways, plug, splitter: `${plug} 2fer`,
+                 words: `on a ${plug} 2fer, other leg to ${to}`, tag: `on a ${plug} 2fer` };
+    }
+
+    // The placement box `boxId` is part of (its own, or its chain head's),
+    // or null.
+    _boxPowerPlacementOf(boxId) {
+        return this.boxPowerPlacements().find(x => x.chain.some(c => c.box.id === boxId)) || null;
     }
 
     // The cables box `box`'s feed can take: [{ id, name }]. A chain link is
@@ -477,13 +530,17 @@ class _BoxPower {
     }
 
     // A powered box's block on the Power Wiring sheet: "XD SR A · breakout
-    // box at the start · 10' TRUE1"; a chain "XD-T A + XD-T B · breakout
-    // boxes, daisy chain at the start · 15' TRUE1".
+    // box at the start · 10' TRUE1 · on a TRUE1 2fer, other leg to the
+    // panels"; a chain "XD-T A + XD-T B · breakout boxes, daisy chain at the
+    // start · 15' TRUE1 · on a TRUE1 2fer, other leg to the panels"; at the
+    // end "XD A · breakout box at the end · 10' TRUE1".
     boxPowerWiringCaption(p) {
-        const at = p.at.kind === 'fanout' ? 'on the fan-out' : `at the ${p.at.kind}`;
+        const kind = p.at.kind === 'fanout' ? 'start' : p.at.kind;
+        const wiring = this.boxPowerStartWiring(p);
         return [p.chain.map(e => this.boxPowerTitle(e.box)).join(' + '),
-                `${p.chain.length > 1 ? 'breakout boxes, daisy chain' : 'breakout box'} ${at}`,
-                this.boxPowerCableText(this.boxPowerCable(p.head.box.id))].filter(Boolean).join(' · ');
+                `${p.chain.length > 1 ? 'breakout boxes, daisy chain' : 'breakout box'} at the ${kind}`,
+                this.boxPowerCableText(this.boxPowerCable(p.head.box.id)),
+                wiring ? wiring.words : ''].filter(Boolean).join(' · ');
     }
 
     // The words a surface prints for a box's cable: "10' TRUE1", "TRUE1, no
@@ -496,29 +553,79 @@ class _BoxPower {
 
     // ---- warnings -------------------------------------------------------------
 
-    // The daisy chains past Brompton's thru rating: [{ head, count, amps,
-    // over: { boxes, amps }, text }]. The current is what the head's thru
-    // carries - every box after the head - at the head's circuit voltage.
+    // The daisy chains past their TRUE1 thru's rating (owner, 2026-11-20,
+    // on Brompton's XD data sheet of Mar 2026 and its processor manual V3.5
+    // Rev F of Sep 2026): one entry per warning,
+    //   { kind: 'units' | 'amps', head, box, layer, count, amps, units,
+    //     rated, text }
+    // where `box` is the entry the warning names.
+    //   * UNITS, per chain: past the boxes the chain is rated for (5 on the
+    //     XD and the XD-T; the least of its boxes' `thruUnits`), named by
+    //     its head: "XD-T A chain: 6 boxes, rated for 5."
+    //   * AMPS, per XD, wherever it stands in the chain (owner, 2026-11-20):
+    //     the 2 A is the XD's OWN thru rating (`thruAmps`), so what counts
+    //     is the draw of every box after it, down its thru - its own draw
+    //     comes in through its input - at the circuit's voltage: "XD B
+    //     thru: 2.14 A to the boxes after it, rated for 2 A." The XD-T
+    //     publishes no amp figure, so its thru is never checked.
+    // Gold, never refused.
     boxPowerChainChecks() {
         const out = [];
         for (const p of this.boxPowerPlacements()) {
             if (p.chain.length < 2) continue;
             const v = p.volts;
-            const downstream = this._boxPowerChainWatts(p.chain.slice(1), v);
-            const amps = v > 0 ? downstream / v : 0;
-            const tooMany = p.chain.length > BOX_CHAIN_MAX_BOXES;
-            const tooMuch = amps > BOX_CHAIN_MAX_AMPS + 1e-9;
-            if (!tooMany && !tooMuch) continue;
-            const name = this.boxPowerTitle(p.head.box);
-            const parts = [];
-            if (tooMany) parts.push(`${p.chain.length} boxes`);
-            if (tooMuch) parts.push(`${amps.toFixed(2)} A through its thru`);
-            out.push({ head: p.head, count: p.chain.length, amps, over: { boxes: tooMany, amps: tooMuch },
-                       text: `The daisy chain from ${name} has ${parts.join(' and ')}. `
-                           + `A TRUE1 thru is rated for ${BOX_CHAIN_MAX_BOXES} boxes and `
-                           + `${BOX_CHAIN_MAX_AMPS} A.` });
+            const base = { head: p.head, layer: p.layer || null, count: p.chain.length };
+            const units = Math.min(...p.chain.map(e => this.boxPowerThruUnits(e.box) || BOX_CHAIN_MAX_BOXES));
+            if (p.chain.length > units) {
+                out.push({ ...base, kind: 'units', box: p.head, units, amps: null, rated: null,
+                           text: `${this.boxPowerTitle(p.head.box)} chain: ${p.chain.length} boxes, `
+                               + `rated for ${units}.` });
+            }
+            p.chain.forEach((e, i) => {
+                const rated = this.boxPowerThruAmps(e.box);
+                const after = p.chain.slice(i + 1);
+                if (rated == null || !after.length) return;
+                const amps = v > 0 ? this._boxPowerChainWatts(after, v) / v : 0;
+                if (!(amps > rated + 1e-9)) return;
+                out.push({ ...base, kind: 'amps', box: e, units, amps, rated,
+                           text: `${this.boxPowerTitle(e.box)} thru: ${amps.toFixed(2)} A to the `
+                               + `${after.length === 1 ? 'box' : 'boxes'} after it, rated for ${rated} A.` });
+            });
         }
         return out;
+    }
+
+    // The boxes a box's TRUE1 thru chain is rated for (the catalog's
+    // `thruUnits`), or null for a box with no thru.
+    boxPowerThruUnits(box) {
+        if (!this.boxPowerHasThru(box)) return null;
+        const n = Number((this.boxPowerSpec(box) || {}).thruUnits);
+        return Number.isFinite(n) && n > 0 ? n : BOX_CHAIN_MAX_BOXES;
+    }
+
+    // The amps this box's own thru may carry on to the boxes after it (the
+    // catalog's `thruAmps`), or null where none is published: the XD's
+    // 2 A; the XD-T has none, and no other box has a thru. Never made up.
+    boxPowerThruAmps(box) {
+        if (!this.boxPowerHasThru(box)) return null;
+        const a = Number((this.boxPowerSpec(box) || {}).thruAmps);
+        return Number.isFinite(a) && a > 0 ? a : null;
+    }
+
+    // The 2fers boxes add to circuit `num` of `layer` (every box at its
+    // start, owner 2026-11-20), as the pull sheet lists them: the
+    // placements, less a box off paper. The binder's Shared circuits table
+    // and the screens' 2fer counts read the same list (2026-11-19: "count
+    // everywhere").
+    boxPowerExtraTwofers(layer, num) {
+        if (!layer || !this.project || !this.project.boxPower) return [];
+        return this.boxPowerOnCircuit(layer, num).filter(p => {
+            const w = this.boxPowerStartWiring(p);
+            if (!w || !w.splitter) return false;
+            const e = p.head;
+            if (typeof this._pullHiddenOnlyBox === 'function' && this._pullHiddenOnlyBox(e.box, e.card)) return false;
+            return !(typeof this._pullProcOffPaper === 'function' && this._pullProcOffPaper(e.proc));
+        });
     }
 
     // The powered boxes with no power figure (they add nothing): names. A
@@ -622,6 +729,8 @@ class _BoxPower {
     // written, when the box takes no power, the spot is taken or a screen
     // it would change is locked (named in the dialog).
     setBoxPower(boxId, at) {
+        // a box on a shared circuit is a box at its start (2026-11-19)
+        if (at && at.kind === 'fanout') at = { ...at, kind: 'start' };
         const hit = this.boxPowerBoxes().find(b => b.box.id === boxId);
         if (!hit || !this.boxPowerSpec(hit.box) || !at) return false;
         const layers = [...this._boxPowerLayersOf(boxId)];
@@ -641,6 +750,12 @@ class _BoxPower {
         const store = this.project.boxPower && typeof this.project.boxPower === 'object'
             ? this.project.boxPower : (this.project.boxPower = {});
         const rec = { cardId: hit.card.id, at: { ...at } };
+        // the panel it follows (_boxPowerFollowPanels)
+        if (CIRCUIT_KINDS.includes(at.kind)) {
+            const l = ((this.project && this.project.layers) || []).find(x => String(x.id) === String(at.layerId));
+            const key = this._boxPowerPanelKey(l, at.circuit, at.kind === 'end' ? 'end' : 'start');
+            if (key) rec.panel = key;
+        }
         const opts = this.boxPowerCableOptions(hit.box, at.kind === 'chain');
         if (opts.length) rec.cable = opts[0].id;
         store[boxId] = rec;
@@ -751,6 +866,198 @@ class _BoxPower {
             && !this._boxPowerSpotStands(at), 'distro outputs changed');
     }
 
+    // ---- a box follows its panel ----------------------------------------------
+    //
+    // The owner, 2026-11-19: a powered box follows its PANEL, the way a card
+    // pin rides its cabinets across a port renumber - on ANY change that
+    // renumbers a circuit or takes it away (a repack, a resize, a redraw,
+    // Organized or Max Capacity, 2fer packing, the Circuit numbers switch,
+    // merged circuits, ...). A box at the start notes the circuit's first
+    // panel, a box at the end its last (the record's `panel`, a scoped
+    // cabinet key). After the change the box rides whatever circuit that
+    // panel lands on, as long as the panel still STARTS one of its runs (a
+    // box at the start) or ENDS one (a box at the end). Otherwise it loses
+    // its power (`lost`): it draws nothing, a toast says so at once and the
+    // Power tab and the binder keep naming it until it is powered again or
+    // its power is removed. It runs as every undo step is taken
+    // (saveState), so it is part of the step that caused it, and with a
+    // circuit cable's carry (app-power.js _cableCarryBegin /
+    // _cableCarryApply) at the moments a cable follows its cabinet.
+
+    // The scoped key of the panel a box at the start (or end) of circuit
+    // `num` of `layer` is on now: the circuit's first (or last) panel.
+    _boxPowerPanelKey(layer, num, kind) {
+        if (!layer || typeof this.getScopedPanelKey !== 'function') return null;
+        const c = this.screenCircuits(layer).find(x => Number(x.num) === Number(num));
+        if (!c || !(c.panels || []).length) return null;
+        const i = kind === 'end' ? c.panels.length - 1 : 0;
+        const on = (c.layers && c.layers[i]) || layer;
+        return this.getScopedPanelKey(on.id, c.panels[i]);
+    }
+
+    // `layer`'s circuits by the panels that start and end their runs:
+    // { heads: Map(key -> num), tails: Map(key -> num) }.
+    _boxPowerRunEnds(layer) {
+        const heads = new Map(), tails = new Map();
+        for (const c of this.screenCircuits(layer)) {
+            const panels = c.panels || [];
+            const runs = Array.isArray(c.branches) && c.branches.length ? c.branches : [panels];
+            const key = (i) => this.getScopedPanelKey(((c.layers && c.layers[i]) || layer).id, panels[i]);
+            let off = 0;
+            for (const run of runs) {
+                const n = (run || []).length;
+                if (n && panels[off] && panels[off + n - 1]) {
+                    if (!heads.has(key(off))) heads.set(key(off), c.num);
+                    if (!tails.has(key(off + n - 1))) tails.set(key(off + n - 1), c.num);
+                }
+                off += n;
+            }
+        }
+        return { heads, tails };
+    }
+
+    // The panel a placement is drawn from: the record's own panel where it
+    // is on the circuit, else the circuit's first (or last) panel.
+    // { panel, layerId } or null.
+    boxPowerAnchor(p) {
+        if (!p || !p.layer) return null;
+        const c = this.screenCircuits(p.layer).find(x => Number(x.num) === Number(p.at.circuit));
+        if (!c || !(c.panels || []).length) return null;
+        const key = p.head && p.head.rec ? p.head.rec.panel : null;
+        if (key && typeof this.getScopedPanelKey === 'function') {
+            for (let i = 0; i < c.panels.length; i++) {
+                const on = (c.layers && c.layers[i]) || p.layer;
+                if (c.panels[i] && this.getScopedPanelKey(on.id, c.panels[i]) === key) {
+                    return { panel: c.panels[i], layerId: on.id };
+                }
+            }
+        }
+        const i = p.at.kind === 'end' ? c.panels.length - 1 : 0;
+        return { panel: c.panels[i], layerId: ((c.layers && c.layers[i]) || p.layer).id };
+    }
+
+    // Follow every box at a circuit's start or end to its panel's circuit
+    // now, or mark it `lost`. A record with no panel yet (an older file)
+    // takes the one its circuit has now. A locked screen is left as it is.
+    // Returns { moved, lost } (box ids) and sends the store when it wrote.
+    // `say`: a toast names the boxes that lost their power.
+    _boxPowerFollowPanels({ say = true } = {}) {
+        const out = { moved: [], lost: [] };
+        const store = this.project && this.project.boxPower;
+        if (!store || typeof store !== 'object' || !Object.keys(store).length) return out;
+        const layers = (this.project && this.project.layers) || [];
+        const ends = new Map();
+        let wrote = false;
+        for (const [boxId, rec] of Object.entries(store)) {
+            const at = rec && rec.at;
+            if (!at || !CIRCUIT_KINDS.includes(at.kind) || rec.lost) continue;
+            const layer = layers.find(l => String(l.id) === String(at.layerId));
+            if (!layer || (typeof this._layerLocked === 'function' && this._layerLocked(layer))) continue;
+            const kind = at.kind === 'end' ? 'end' : 'start';
+            if (!rec.panel) {
+                const key = this._boxPowerPanelKey(layer, at.circuit, kind);
+                if (key) { store[boxId] = { ...rec, panel: key }; wrote = true; }
+                continue;
+            }
+            if (!ends.has(layer)) ends.set(layer, this._boxPowerRunEnds(layer));
+            const num = ends.get(layer)[kind === 'end' ? 'tails' : 'heads'].get(rec.panel);
+            if (num === undefined) {
+                store[boxId] = { ...rec, lost: true };
+                out.lost.push(boxId);
+                wrote = true;
+            } else if (Number(num) !== Number(at.circuit)) {
+                store[boxId] = { ...rec, at: { ...at, circuit: Number(num) } };
+                out.moved.push(boxId);
+                wrote = true;
+            }
+        }
+        if (!wrote) return out;
+        this._boxPowerMemo = null;
+        this._boxPowerStandMemo = null;
+        this._boxPowerCircuitIdx = null;
+        if (out.moved.length || out.lost.length) sendClientLog('box_power_followed', out);
+        this._persistBoxPower();
+        if (say && out.lost.length && typeof this._toast === 'function') {
+            this._toast(this.boxPowerLost().filter(x => out.lost.includes(x.boxId)).map(x => x.text).join(' '),
+                        true, 9000);
+        }
+        return out;
+    }
+
+    // With a circuit cable's carry (app-power.js _cableCarryBegin): every
+    // record takes its panel BEFORE the change, an older one included.
+    _boxPowerCarryBegin() {
+        this._boxPowerFollowPanels({ say: false });
+        return true;
+    }
+
+    // ... and follows it after the change. True when a record moved or
+    // lost its power.
+    _boxPowerCarryApply(snap) {
+        if (!snap) return false;
+        const r = this._boxPowerFollowPanels();
+        return !!(r.moved.length || r.lost.length);
+    }
+
+    // The boxes that lost their power when their panel stopped starting (or
+    // ending) a run: [{ boxId, box, rec, layer, chained, text }], tray
+    // order. `chained`: how many boxes daisy chained after it lost theirs
+    // with it.
+    boxPowerLost() {
+        const store = this.project && this.project.boxPower;
+        if (!store || typeof store !== 'object') return [];
+        const out = [];
+        for (const { box, card } of this.boxPowerBoxes()) {
+            const rec = store[box.id];
+            if (!rec || !rec.lost || !rec.at) continue;
+            if (rec.cardId != null && String(rec.cardId) !== String(card.id)) continue;
+            const layer = ((this.project && this.project.layers) || [])
+                .find(l => String(l.id) === String(rec.at.layerId)) || null;
+            let chained = 0;
+            const seen = new Set([box.id]);
+            for (let from = box.id, more = true; more;) {
+                more = false;
+                for (const [id, r] of Object.entries(store)) {
+                    if (r && r.at && r.at.kind === 'chain' && r.at.from === from && !seen.has(id)) {
+                        seen.add(id);
+                        chained++;
+                        from = id;
+                        more = true;
+                        break;
+                    }
+                }
+            }
+            const title = this.boxPowerTitle(box);
+            const end = rec.at.kind === 'end';
+            out.push({ boxId: box.id, box, rec, layer, chained,
+                       text: `Breakout box ${title} has no power: the panel it was powered from no longer `
+                           + `${end ? 'ends' : 'starts'} a circuit${layer ? ` on ${layer.name}` : ''}.`
+                           + (chained ? ` The ${chained === 1 ? 'box' : `${chained} boxes`} daisy chained `
+                               + 'after it lost theirs too.' : '')
+                           + ' Power it again from the Power tab.' });
+        }
+        return out;
+    }
+
+    // Whether a record that does not stand is kept anyway: a box that lost
+    // its power (or one chained after it), still on its card, so the
+    // warning names it and powering it again brings its chain back.
+    _boxPowerKeptLost(id) {
+        const store = this.project && this.project.boxPower;
+        const boxes = new Map(this.boxPowerBoxes().map(b => [b.box.id, b]));
+        const seen = new Set();
+        for (let cur = id; cur && !seen.has(cur);) {
+            seen.add(cur);
+            const rec = store && store[cur];
+            const hit = boxes.get(cur);
+            if (!rec || !rec.at || !hit) return false;
+            if (rec.cardId != null && String(rec.cardId) !== String(hit.card.id)) return false;
+            if (rec.at.kind !== 'chain') return !!rec.lost;
+            cur = rec.at.from;
+        }
+        return false;
+    }
+
     // What a renderBoxPower pass drew on one screen, logged when it
     // changes (each redraw draws the same thing; one line per change).
     _boxPowerLogDrawn(layerId, drawn) {
@@ -773,7 +1080,7 @@ class _BoxPower {
         const live = this._boxPowerLive();
         let dropped = false;
         for (const id of Object.keys(store)) {
-            if (!live.has(id)) { delete store[id]; dropped = true; }
+            if (!live.has(id) && !this._boxPowerKeptLost(id)) { delete store[id]; dropped = true; }
         }
         if (dropped) this._boxPowerMemo = null;
         return dropped;
@@ -841,7 +1148,9 @@ class _BoxPower {
         return null;
     }
 
-    // One power slot: a submenu of the show's boxes for spot `at`.
+    // One power slot: a submenu of the show's boxes for spot `at`. `intro`
+    // opens each entry's tip: words the box's name follows, or a function
+    // of the box giving the whole sentence.
     _boxPowerSlot(label, at, intro) {
         const offered = this.boxPowerOffered();
         const here = this._boxPowerAtSpot(at);
@@ -859,7 +1168,7 @@ class _BoxPower {
             }
             return {
                 label: now ? `${title} (now on ${this.boxPowerWhereText(now)})` : title,
-                title: `${intro} ${title}.`
+                title: (typeof intro === 'function' ? intro(box) : `${intro} ${title}.`)
                     + (now ? ` It comes off ${this.boxPowerWhereText(now)}, its cable and length with it.` : '')
                     + ' Its watts count on the circuit. One undoable step.',
                 run: () => this.setBoxPower(box.id, at),
@@ -877,6 +1186,17 @@ class _BoxPower {
     // the Data tray): remove its power, and daisy chain on from it.
     _boxPowerBoxItems(boxId) {
         const e = this.boxPowerOf(boxId);
+        // a box that lost its power: its record can still be taken away
+        const lost = !e ? this.boxPowerLost().find(x => x.boxId === boxId) : null;
+        if (lost) {
+            return { slots: [], items: [{
+                label: 'Remove breakout box power',
+                title: `${this.boxPowerTitle(lost.box)} has no power since its panel stopped `
+                    + `${lost.rec.at.kind === 'end' ? 'ending' : 'starting'} a circuit. This takes its feed `
+                    + 'away for good, its cable and length with it. One undoable step.',
+                run: () => this.removeBoxPower(boxId),
+            }] };
+        }
         if (!e) return { slots: [], items: [] };
         const title = this.boxPowerTitle(e.box);
         const chained = e.at.kind === 'chain';
@@ -916,6 +1236,22 @@ class _BoxPower {
         return { slots, items };
     }
 
+    // Whether output `number` of `d` is offered to power a box straight off
+    // the distro (owner, 2026-11-19): a direct output, or an output whose
+    // multi already runs to a screen (its spare circuits). Never an output
+    // with nothing on it, nor a multi that runs nowhere. The circuit itself
+    // being free is the caller's check.
+    boxPowerDistroOffered(d, number) {
+        if (!d) return false;
+        const fb = typeof this.faceBox === 'function' ? this.faceBox(d, number) : null;
+        if (fb && fb.kind === 'direct') return true;
+        const multis = typeof this._distroMultiNumbers === 'function'
+            ? (this._distroMultiNumbers(d.id).get(Number(number)) || []) : [];
+        const layers = (this.project && this.project.layers) || [];
+        return multis.some(m => m.legs > 0 && layers.some(l => String(l.id) === String(m.layerId)
+            && (l.type || 'screen') === 'screen'));
+    }
+
     // The right-click's box-power items at client point (x, y):
     //   { slots: [{ label, entries }], items: [{ label, title, run }] }
     // or null where none apply. On the Power tab canvas: a box symbol, or a
@@ -945,9 +1281,16 @@ class _BoxPower {
                     const fb = typeof this.faceBox === 'function' ? this.faceBox(d, number) : null;
                     const where = fb && fb.kind === 'direct'
                         ? this.distroBoxName(d, number) : `${this.distroBoxName(d, number)} circuit ${tail}`;
-                    out.slots.push(this._boxPowerSlot(`Power a breakout box from ${where}`,
-                        { kind: 'distro', distroId: d.id, number, tail },
-                        `${where} feeds, by itself,`));
+                    if (this.boxPowerDistroOffered(d, number)) {
+                        out.slots.push(this._boxPowerSlot(`Power a breakout box from ${where}`,
+                            { kind: 'distro', distroId: d.id, number, tail },
+                            `${where} feeds, by itself,`));
+                    } else {
+                        out.items.push({ label: `Power a breakout box from ${where}`, disabled: true,
+                                         title: 'A breakout box takes a direct output, or a spare circuit of '
+                                             + 'a multi that already runs to a screen. Nothing runs from '
+                                             + `${this.distroBoxName(d, number)} yet.` });
+                    }
                 }
             }
             return out.slots.length || out.items.length ? out : null;
@@ -977,22 +1320,32 @@ class _BoxPower {
             return !!p && (p === hit.panel || (String(on.id) === String(hit.layerId)
                 && p.row === hit.panel.row && p.col === hit.panel.col));
         };
-        const first = same(0);
+        // A circuit shared by a 2fer (or wider) starts at the first panel of
+        // each of its runs: a box there is at the circuit's start, ahead of
+        // its splitter (owner, 2026-11-19).
+        const heads = [0];
+        if (Array.isArray(c.branches) && c.branches.length > 1) {
+            let off = 0;
+            for (const run of c.branches) {
+                if (off > 0 && off < c.panels.length) heads.push(off);
+                off += (run || []).length;
+            }
+        }
+        const first = heads.some(i => same(i));
         const last = same(c.panels.length - 1);
         const label = this.getPowerCircuitLabel(owner, c.num);
         const spot = (kind) => ({ kind, layerId: owner.id, circuit: c.num });
+        const ways = Array.isArray(c.runIds) && c.runIds.length > 1 ? c.runIds.length : 1;
         if (first) {
+            const plug = this.panelInput((c.layers && c.layers[0]) || owner).name;
+            const to = ways > 1 ? `${label}'s ${ways}fer` : 'its panels';
             out.slots.push(this._boxPowerSlot(`Power a breakout box at the start of ${label}`, spot('start'),
-                `${label} goes to the box first, then on to its panels:`));
+                (box) => `A ${plug} 2fer at the head of ${label}: one leg to ${this.boxPowerTitle(box)}, `
+                    + `the other to ${to}. The 2fer goes on the pull sheet.`));
         }
         if (first || last) {
             out.slots.push(this._boxPowerSlot(`Power a breakout box at the end of ${label}`, spot('end'),
                 `The power out of ${label}'s last panel jumps to`));
-        }
-        if (Array.isArray(c.runIds) && c.runIds.length > 1) {
-            out.slots.push(this._boxPowerSlot(
-                `Power a breakout box from the ${c.runIds.length}fer of ${label}`, spot('fanout'),
-                `A leg of ${label}'s ${c.runIds.length}fer feeds`));
         }
         // the boxes already on this circuit's ends, to take off
         for (const p of this.boxPowerOnCircuit(owner, c.num)) {
@@ -1019,11 +1372,20 @@ class _BoxPower {
         wrap.appendChild(head);
         const where = document.createElement('div');
         where.className = 'hw-box-power-where';
-        const p = this.boxPowerPlacements().find(x => x.chain.some(c => c.box.id === box.id));
+        const p = this._boxPowerPlacementOf(box.id);
         const watts = p ? this.boxPowerWattsAt(this.boxPowerSpec(box), p.volts) : null;
         where.textContent = `From ${this.boxPowerWhereText(e)}`
             + (watts != null ? ` · ${Math.round(watts)} W` : ' · no power figure');
         wrap.appendChild(where);
+        // at a circuit's start: how it is wired in, on its 2fer (the head
+        // of a daisy chain only; the boxes after it hang off its thru)
+        const wiring = p && p.head.box.id === box.id ? this.boxPowerStartWiring(p) : null;
+        if (wiring) {
+            const how = document.createElement('div');
+            how.className = 'hw-box-power-where hw-box-power-wiring';
+            how.textContent = `${wiring.words[0].toUpperCase()}${wiring.words.slice(1)}`;
+            wrap.appendChild(how);
+        }
         const row = document.createElement('div');
         row.className = 'hw-box-power-row';
         const sel = document.createElement('select');

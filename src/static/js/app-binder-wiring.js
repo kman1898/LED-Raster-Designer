@@ -422,7 +422,9 @@ class _BinderWiring {
         }
         // A breakout box powered from a circuit (app-box-power.js): a block
         // of its own, its chain in the caption, its one inlet wired to the
-        // circuit's disc - "XD SR A · breakout box at the start · 10' TRUE1".
+        // circuit's disc (a box at the end: to the run's last panel) - "XD
+        // SR A · breakout box at the start · 10' TRUE1 · on a TRUE1 2fer,
+        // other leg to the panels".
         if (typeof this.boxPowerPlacements === 'function') {
             const carriers = new Set(units.map(u => String(u.carrier.id)));
             for (const p of this.boxPowerPlacements()) {
@@ -438,11 +440,20 @@ class _BinderWiring {
                 // circuit's first, or its last for the end), wired only
                 // where this sheet draws it
                 const i = p.at.kind === 'end' ? circuit.panels.length - 1 : 0;
-                const anchor = circuit.panels[i];
+                // the box's own panel (boxPowerAnchor), else the circuit's end
+                const own0 = typeof this.boxPowerAnchor === 'function' ? this.boxPowerAnchor(p) : null;
+                const anchor = (own0 && own0.panel) || circuit.panels[i];
+                const end = p.at.kind === 'end' && anchor !== circuit.panels[0];
                 const pick = own(circuit, p.layer).find(x => x.p === anchor);
                 if (!pick) continue;
+                // A box at the END is fed from the run's last panel, not the
+                // circuit's label (owner, 2026-11-19): its stub is that
+                // panel (`end`), never seated on the label's disc
+                // (_bwSeat), and drawn as a dot there. (A box whose
+                // panel is the circuit's first leaves the label's disc.)
                 const stub = { kind: 'power', text: this.getPowerCircuitLabel(p.layer, p.at.circuit),
-                               panel: pick.p, layer: pick.on, circuit: Number(p.at.circuit) };
+                               panel: pick.p, layer: pick.on, circuit: Number(p.at.circuit),
+                               ...(end ? { end: true } : {}) };
                 stubs.push(stub);
                 wires.push({ stub, device: d, socket: 1, kind: 'power' });
             }
@@ -493,10 +504,12 @@ class _BinderWiring {
     // screen by that radius, both carried onto the sheet through the map's
     // own rect(). A renderer that cannot be asked falls back to a third of
     // the panel.
-    _bwDisc(book, rule, geo, panel, text, onLayer = null) {
+    // `point`: no label stands there (a box fed from a run's last panel):
+    // a dot of a sixth of the panel at its centre.
+    _bwDisc(book, rule, geo, panel, text, onLayer = null, point = false) {
         const p = panel;
-        let rad = Math.min(p.width, p.height) / 3;
-        if (rule.r && typeof rule.r._layoutCircleLabel === 'function') {
+        let rad = Math.min(p.width, p.height) / (point ? 6 : 3);
+        if (!point && rule.r && typeof rule.r._layoutCircleLabel === 'function') {
             const saved = rule.r.ctx;
             try {
                 rule.r.ctx = book.measureCtx;
@@ -1207,7 +1220,9 @@ class _BinderWiring {
         const rule = this._bwDiscRule(layer, side);
         const placeDiscs = (geo) => {
             discOf.clear();
-            for (const st of facts.stubs) discOf.set(st, this._bwDisc(book, rule, geo, st.panel, st.text, st.layer));
+            for (const st of facts.stubs) {
+                discOf.set(st, this._bwDisc(book, rule, geo, st.panel, st.text, st.layer, !!st.end));
+            }
         };
         placeDiscs(W.geo);
         const meanOf = (key) => {
@@ -1454,7 +1469,7 @@ class _BinderWiring {
                 const d = placed.get(st) || discOf.get(st);
                 const w = facts.wires.find(x => x.stub === st) || null;
                 return { kind: st.kind, text: st.text, x: d.x, y: d.y, r: d.r, panel: d.panel,
-                         placed: !!w,
+                         placed: !!w, ...(st.end ? { end: true } : {}),
                          hue: isData ? (st.kind === 'return' ? backupInk : primaryInk)
                                      : hue.get(w ? w.device.key : ''),
                          src: st };
@@ -2179,6 +2194,9 @@ class _BinderWiring {
             by.get(d.key).push(d);
         }
         for (const st of facts.stubs) {
+            // a box at a circuit's end leaves the run's last panel, not the
+            // label (_bwPowerFacts)
+            if (st.end) continue;
             const list = by.get(String(st.text).replace(/\s+/g, ''));
             if (!list || !list.length) continue;
             const p = st.panel;
@@ -2309,11 +2327,15 @@ class _BinderWiring {
         // power the breakout's hue is carried to them as a ring, so a run
         // and the disc it leaves read as one.
         for (const d of P.discs) {
-            if (!printer && !P.isData && d.hue && d.r > 0) {
+            if (d.end && d.r > 0) {
+                // a box fed from a run's last panel: no label there, so a
+                // dot marks where its line leaves (owner, 2026-11-19)
+                this._bwSolid(ctx, d.x, d.y, d.r, printer ? INK : (d.hue || INK));
+            } else if (!printer && !P.isData && d.hue && d.r > 0) {
                 this._bwRing(ctx, d.x, d.y, d.r, d.hue, DISC_RIM * K);
             }
             if (log) log.discs.push({ kind: d.kind, text: d.text, x: d.x, y: d.y, r: d.r,
-                                      panel: d.panel, placed: d.placed });
+                                      panel: d.panel, placed: d.placed, ...(d.end ? { end: true } : {}) });
         }
 
         // the runs, last, so a line can be followed over everything it
