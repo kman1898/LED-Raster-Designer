@@ -1109,9 +1109,72 @@ class _BinderWiring {
 
     // ---- the geometry -------------------------------------------------------
 
+    // NOTHING LEAVES THE DRAWING AREA (2026-11-20). The prototype's page is
+    // carried onto the sheet at K = the area's width / 1000, and the wall
+    // takes whatever height the boxes, the corridors and the lanes leave it
+    // - down to its floor of 40 units. Where even that is too much (eight
+    // breakout boxes in two rows a side on tabloid without its title block,
+    // on A3 under a view band) the stack ran on past the drawing's foot:
+    // the last row of boxes and its input line were cut by the page edge.
+    // So where the sheet laid out at K does not fit its area's height, the
+    // whole drawing is laid out again at the largest K that does - the same
+    // answer the binder gives any other drawing too big for its area
+    // (_bFillScale: one uniform scale, as large as keeps it inside) - and
+    // stands centred across the area's width. Only as much smaller as it
+    // must be: a sheet that fits is laid out exactly as it always was.
+    // `fit` false lays it out at K whatever it takes (the simple sheet asks
+    // so first, and gives the drawing room from its tables before this).
+    _bwPlanHalf(book, target, scr, side, A, fit = true) {
+        const P = this._bwLayHalf(book, target, scr, side, A);
+        if (!fit) return P;
+        const K0 = P.K;
+        const at = (k) => {
+            const w = PROTO_W * k;
+            return this._bwLayHalf(book, target, scr, side, { ...A, x: A.x + (A.w - w) / 2, w });
+        };
+        const fits = (Q) => !(this._bwOver(Q, A).by > 0.5);
+        // (the room it was given, for the log)
+        const within = { x: A.x, y: A.y, w: A.w, h: A.h };
+        if (fits(P)) return Object.assign(P, { fit: 1, within });
+        // the height the stack wants, in the prototype's units, against the
+        // height the area gives at a smaller K - a step further each time a
+        // layout at that K still wants more (its lanes are its own)
+        let k = K0, Q = P;
+        for (let i = 0; i < 8 && !fits(Q); i++) {
+            k = Math.min(k * 0.99, A.h / this._bwOver(Q, A).need);
+            Q = at(k);
+        }
+        if (fits(Q)) {
+            // and the largest K that fits, between the first that did and
+            // the one that did not: the wall a smaller layout grows into is
+            // room a larger one could have used
+            let lo = k, hi = K0;
+            for (let i = 0; i < 5; i++) {
+                const m = (lo + hi) / 2;
+                const M = at(m);
+                if (fits(M)) { lo = m; Q = M; } else hi = m;
+            }
+        }
+        return Object.assign(Q, { fit: Q.K / K0, within });
+    }
+
+    // How far a laid-out half runs past its area's foot (`by`, page units),
+    // and the height it wants in the prototype's units (`need`: its stack
+    // from the area's head, and the foot it keeps).
+    _bwOver(P, A) {
+        let bottom = -Infinity;
+        for (const b of P.blocks || []) bottom = Math.max(bottom, b.y + b.h);
+        for (const r of P.runs || []) for (const pt of r.points || []) bottom = Math.max(bottom, pt[1]);
+        for (const d of P.discs || []) bottom = Math.max(bottom, d.y + (d.r || 0));
+        if (P.mapArea) bottom = Math.max(bottom, P.mapArea.y + P.mapArea.h);
+        if (!Number.isFinite(bottom)) return { by: 0, need: 0 };
+        const foot = FOOT_PAD + (P.unplaced ? FOOT_LINE : 0);
+        return { by: bottom - (A.y + A.h - foot * P.K), need: (bottom - A.y) / P.K + foot };
+    }
+
     // One half laid out in page units, nothing painted. The prototype's
     // page is 1000 wide; K carries its every number onto this half.
-    _bwPlanHalf(book, target, scr, side, A) {
+    _bwLayHalf(book, target, scr, side, A) {
         const subject = this._bSubject(target);
         const layer = subject.layers[0];
         // the runs' inks are the screen that carries them
@@ -2355,11 +2418,12 @@ class _BinderWiring {
             }
         }
         const log = book.log && book.page && book.page.painting ? {
-            side: P.side, scale: K, rows: P.rows, pitch: P.pitch, grow: P.grow || 0, head: P.head || 0,
+            side: P.side, scale: K, fit: P.fit || 1, rows: P.rows, pitch: P.pitch, grow: P.grow || 0, head: P.head || 0,
             rowsTop: P.rowsTop || 0, rowsBottom: P.rowsBottom || 0,
             spare: P.spare || 0, rail: P.rail, availW: P.availW,
             gap: P.gap || null, lanes: P.lanes || null,
             area: { x: A.x, y: A.y, w: A.w, h: A.h },
+            within: P.within || { x: A.x, y: A.y, w: A.w, h: A.h },
             wallRoom: P.wallRoom ? { x: P.wallRoom.x, y: P.wallRoom.y, w: P.wallRoom.w, h: P.wallRoom.h } : null,
             map: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h,
                          zoom: geo.zoom, area: geo.area } : null,

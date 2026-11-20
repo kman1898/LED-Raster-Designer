@@ -47,8 +47,8 @@ def _js_consts(*names):
     return out
 
 
-RUN_W, CASE_EXTRA, MARGIN, PROTO_W, MIN_BOX_GAP, LANE_STEP = _js_consts(
-    'RUN_W', 'CASE_EXTRA', 'MARGIN', 'PROTO_W', 'MIN_BOX_GAP', 'LANE_STEP')
+RUN_W, CASE_EXTRA, MARGIN, PROTO_W, MIN_BOX_GAP, LANE_STEP, FOOT_PAD = _js_consts(
+    'RUN_W', 'CASE_EXTRA', 'MARGIN', 'PROTO_W', 'MIN_BOX_GAP', 'LANE_STEP', 'FOOT_PAD')
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -262,7 +262,11 @@ def _cuts(a, b, c, d):
 # block on, the one sheet this guarded, happened to be clear. So every
 # paper, the block on and off, front and rear, and each with the room a
 # view band over the drawing (120 high) and the stage strips beside it
-# (48 a side) would leave.
+# (48 a side) would leave. And on each, nothing past the room the sheet
+# gave the drawing: on tabloid without the block (and A3 under a band) the
+# last row of boxes used to run past the drawing's foot, its input line cut
+# by the page edge - the drawing is now laid out smaller, only as far as
+# it must be (_bwPlanHalf).
 ROOMS = {'whole': None, 'banded': {'top': 120, 'side': 48}, 'band only': {'top': 120, 'side': 0}}
 
 
@@ -294,7 +298,44 @@ def _no_run_crosses_a_box(page, palette, view, **more):
     bad = _crossings_through_boxes(h)
     assert bad == [], ('a run crosses a box', len(bad), bad[:6])
     assert _on_top_of_each_other(h) == [], ('two runs print as one', _on_top_of_each_other(h)[:6])
+    out = _outside_the_drawing(h)
+    assert out == [], ('past the drawing area', len(out), out[:6])
+    # and drawn smaller only as far as it must be: a drawing laid out at a
+    # smaller scale to stay inside reaches down to its foot
+    if h['fit'] < 0.999:
+        room = h['within']
+        low = max(b['y'] + b['h'] for b in h['blocks'])
+        assert (room['y'] + room['h'] - low) / h['scale'] < FOOT_PAD + 2, (h['fit'], low, room)
     assert errors == []
+
+
+def _outside_the_drawing(h):
+    """Everything the sheet drew that reaches past the room it was given:
+    a box, a run (its pen and casing), a disc, the wall."""
+    a = h['within']
+    pad = (RUN_W + CASE_EXTRA) / 2 * h['scale']
+    x0, y0 = a['x'] - 0.5, a['y'] - 0.5
+    x1, y1 = a['x'] + a['w'] + 0.5, a['y'] + a['h'] + 0.5
+
+    def past(l, t, r, b):
+        return l < x0 or t < y0 or r > x1 or b > y1
+
+    out = []
+    for b in h['blocks']:
+        if past(b['x'], b['y'], b['x'] + b['w'], b['y'] + b['h']):
+            out.append(('box', b['title'], b['x'], b['y'], b['w'], b['h']))
+    for r in h['runs']:
+        for p in r['points']:
+            if past(p[0] - pad, p[1] - pad, p[0] + pad, p[1] + pad):
+                out.append(('run', r['from'], p))
+                break
+    for d in h['discs']:
+        if past(d['x'] - d['r'], d['y'] - d['r'], d['x'] + d['r'], d['y'] + d['r']):
+            out.append(('disc', d['text']))
+    m = h['map']
+    if m and past(m['x'], m['y'], m['x'] + m['w'], m['y'] + m['h']):
+        out.append(('wall', m))
+    return out
 
 
 def test_an_outer_box_stands_over_a_channel_of_the_inner_row(page):

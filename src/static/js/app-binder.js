@@ -9046,7 +9046,7 @@ class _Binder {
         for (let i = 0; i < 6; i++) {
             A = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
                   w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top };
-            plan = this._bwPlanHalf(book, s, scr, wside, A);
+            plan = this._bwPlanHalf(book, s, scr, wside, A, false);
             // what lies past the drawing's foot is always given back; a wall
             // under its readable height only while more room still grows it
             // (the layout grows a wall only as far as its runs read as well)
@@ -9060,8 +9060,11 @@ class _Binder {
         if (Math.abs(A.h - (band.drawH - SIMPLE_RULER.top)) > 0.5) {
             A = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
                   w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top };
-            plan = this._bwPlanHalf(book, s, scr, wside, A);
+            plan = this._bwPlanHalf(book, s, scr, wside, A, false);
         }
+        // and where the tables have no more room to give it, the drawing
+        // is laid out smaller rather than run past its foot (_bwPlanHalf)
+        if (this._bwOver(plan, A).by > 0.5) plan = this._bwPlanHalf(book, s, scr, wside, A);
         const drawH = band.drawH;
         const viewNo = ++book.views;
         this._bPage(book, {
