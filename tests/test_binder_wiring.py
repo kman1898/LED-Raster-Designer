@@ -84,9 +84,14 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from test_binder import (  # noqa: E402
-    SEED_JS, _SHOW_JSON, W, H, SCALE, MAP_SCALE, DA, SCRATCH_FIXTURE,
+    SEED_JS, _SHOW_JSON, W, H, SCALE, MAP_SCALE, MAP_DA, SCRATCH_FIXTURE,
     BOX_WORD, MAP_ZOOM_CAP, TITLE_BLOCK, _generic_breakout, _title_block,
+    _contents_listed, STAGE_H,
 )
+
+# A wiring sheet's drawing area: under the view band (app-binder.js
+# VIEW_BAND; 2026-11-19), its drawing's room less the stage line at its foot.
+DA = MAP_DA
 
 from conftest import private_fixture, private_fixture_missing  # noqa: E402
 
@@ -820,7 +825,7 @@ def _one_side(out, side):
     h = halves[0]
     a = h['area']
     assert (a['x'], a['y'], a['w']) == (DA['x'], DA['y'], DA['w']), (a, DA)
-    assert abs(a['h'] - (DA['h'] - BUBBLE_H)) < 0.01, (a, DA)
+    assert abs(a['h'] - (DA['h'] - BUBBLE_H - STAGE_H)) < 0.01, (a, DA)
     return h
 
 
@@ -1391,11 +1396,15 @@ def test_smoke_live_show_b_sr_main(page):
         for r in h['blocks']:
             assert _inside(r, DA), (h['side'], r)
     # the CONTENTS
+    # (on the overview, or on a CONTENTS sheet of its own right after it)
     ov = pg.evaluate("(o) => window.app.renderBinderPage(o, 0).texts", opts)
-    c = ov.index('CONTENTS')
-    listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
-    # (the FACTS sheet at 1.2)
-    assert listed[2:6] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING · FRONT VIEW'),
+    if not [t for t in ov if t.startswith('CONTENTS')]:
+        ov = pg.evaluate("(o) => window.app.renderBinderPage(o, 1).texts", opts)
+    numbers = pg.evaluate("(o) => window.app.planBinder(o).map(p => p.number)", opts)
+    listed = _contents_listed(ov, numbers)
+    # (after the overview, the CONTENTS sheet where it has one, and the FACTS)
+    k = [n for n, _t in listed].index('2.1')
+    assert listed[k:k + 4] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING · FRONT VIEW'),
                            ('2.3', 'SR - MAIN · DATA · FRONT VIEW'), ('2.4', 'SR - MAIN · DATA WIRING · FRONT VIEW')]
     # the words
     for out in (pw, dw):

@@ -234,8 +234,15 @@ class _BinderWiring {
         const title = `${subject.name} - ${power ? 'Power' : 'Data'} Wiring`;
         // the side the wall is drawn from, named as its map sheet names it
         const sheetTitle = `${subject.name} · ${power ? 'POWER' : 'DATA'} WIRING · ${this._bViewName(book).toUpperCase()}`;
+        // the VIEW BAND over it (the frame banded while it is laid out and
+        // painted, app-binder.js _bViewBandGeo), and the wiring laid out in
+        // its room less the stage line at its foot (_bLessStageLine)
+        const band = this._bBandSide(book);
+        const frame = book.geo;
+        book.geo = this._bViewBandGeo(frame, band);
         const area = this._bwArea(book);
-        const plan = this._bwPlanHalf(book, subject, scr, side, area.half);
+        const room = this._bLessStageLine(area.half);
+        const plan = this._bwPlanHalf(book, subject, scr, side, room);
         const view = ++book.views;
         this._bPage(book, {
             kind: 'wiring', title, sheetTitle, viewName: sheetTitle, view,
@@ -248,9 +255,11 @@ class _BinderWiring {
                        blocks: plan.blocks.length, unplaced: plan.unplaced }],
         }, () => {
             if (book.log) book.log.wiring = { halves: [] };
-            this._bwDrawHalf(book, subject, plan);
+            const geo = this._bwDrawHalf(book, subject, plan);
+            this._bStageLine(book, band, geo && geo.wall, room, room.y + room.h);
             this._bViewBubble(book, view, sheetTitle, book.geo.da.x + 20, area.bubbleY, null, book.geo.da.w - 20);
         });
+        book.geo = frame;
     }
 
     // The drawing area for the one side: all of it but the bubble's room

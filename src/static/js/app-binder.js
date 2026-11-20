@@ -217,6 +217,37 @@ const SIMPLE_WHOLE = 12;
 const SIMPLE_WALL_MIN = 0.22;
 const SIMPLE_WALL_W = 0.8;
 const BUBBLE_H = 96;
+// THE VIEW BAND (owner, 2026-11-19, picked from mockups: stage hands read a
+// rear-view set as the front because the small "· REAR VIEW" in the
+// heading went unnoticed). Every map sheet - Power, Data, the wiring
+// sheets, Header/Footer, the simple sheets and the Overview - wears a
+// thick band across the head of its drawing area, the side it is drawn
+// from in big white capitals: red for the rear, blue for the front. Both
+// fills are dark enough that the white words still read on a black and
+// white printout. The band is part of the sheet's frame (_bPageFrame); the
+// drawing area under it is that much shorter (_bViewBandGeo), so the
+// layouts fill what is left as they always have. (`gap` keeps the words'
+// em box - what _bInkUnderMap reads as ink - off the map under the band,
+// so a map still goes as its split pair.)
+const VIEW_BAND = { h: 84, gap: 36, size: 50, pad: 24 };
+const VIEW_BANDS = {
+    front: { fill: '#123f8c', words: 'FRONT VIEW · AUDIENCE SIDE' },
+    rear: { fill: '#b3121b', words: 'REAR VIEW · BEHIND THE WALL' },
+};
+// The printer palette has no colour: the rear band black, the front a dark
+// grey, the white words reading the same on both.
+const VIEW_BANDS_PRINTER = { front: '#4d4d4d', rear: '#111111' };
+// THE STAGE LINE (owner, 2026-11-20: the words up the sides got lost beside
+// multi names like "STAGE LEFT POWER DISTRO RACK A9"): ONE line under every
+// map drawing, "< STAGE LEFT" at the wall's left edge and "STAGE RIGHT >"
+// at its right, each arrow pointing out - the crew behind a rear-view wall
+// face the audience, so a rear sheet reads "< STAGE LEFT ... STAGE RIGHT >"
+// and a front sheet "< STAGE RIGHT ... STAGE LEFT >". Where the wall is too
+// narrow for both at its edges they stand `gap` apart, centred under it.
+// The line takes `h` from the foot of the drawing's room
+// (_bLessStageLine), so it never meets the drawing, the view bubble under
+// it or the tables (_bStageLine).
+const STAGE = { size: 26, min: 16, h: 40, gap: 48 };
 // The map keeps at least this share of the drawing area whatever the
 // tables' scale - of the width beside them, of the height over them.
 const MAP_MIN_FRAC = 0.45;
@@ -1515,6 +1546,7 @@ class _Binder {
                  bubble: log.bubble || null, titleBlock: log.titleBlock || null,
                  logo: log.logo || null, wiring: log.wiring || null, fiber: log.fiber || null,
                  simple: log.simple || null,
+                 viewBand: log.viewBand || null, stage: log.stage || null,
                  mapBitmaps: log.mapBitmaps || [],
                  page: plan[index] || null, pages: plan.length, sheet: book.sheet };
     }
@@ -2537,6 +2569,33 @@ class _Binder {
         return { W, H, border, tb, da, titleBlock: on };
     }
 
+    // A map sheet's frame: `geo` with the VIEW BAND across the head of its
+    // drawing area (VIEW_BAND, drawn by _bPageFrame) and the drawing area
+    // under it, that much shorter. `side` is 'front' or 'rear'. A geo that
+    // already has its band is returned as it is.
+    _bViewBandGeo(geo, side) {
+        if (geo.viewBand) return geo;
+        const da = geo.da;
+        const cut = VIEW_BAND.h + VIEW_BAND.gap;
+        return { ...geo, viewBand: { side: side === 'rear' ? 'rear' : 'front', x: da.x, y: da.y, w: da.w, h: VIEW_BAND.h },
+                 da: { ...da, y: da.y + cut, h: Math.max(0, da.h - cut) } };
+    }
+
+    // The side the set's maps are drawn from, as the band names it.
+    _bBandSide(book) {
+        return book && book.meta && book.meta.view === 'rear' ? 'rear' : 'front';
+    }
+
+    // A drawing's room less the stage line's at its foot (STAGE), its
+    // height cap (hMax) with it.
+    _bLessStageLine(area) {
+        if (!area) return area;
+        const out = { ...area };
+        if (Number.isFinite(area.h)) out.h = Math.max(0, area.h - STAGE.h);
+        if (Number.isFinite(area.hMax)) out.hMax = Math.max(0, area.hMax - STAGE.h);
+        return out;
+    }
+
     // ---- sheets: number, paint, frame, close --------------------------------
 
     // A sheet. `spec` names it ({ kind, title, sheetTitle, view?, layerId,
@@ -2610,7 +2669,11 @@ class _Binder {
         ctx.setTransform(book.scale, 0, 0, book.scale, 0, 0);
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, W, H);
-        if (!titleBlock) return;
+        // (a map sheet's VIEW BAND last, after the title block)
+        if (!titleBlock) {
+            if (book.geo.viewBand) this._bViewBand(book, book.geo.viewBand);
+            return;
+        }
         ctx.strokeStyle = INK;
         ctx.lineWidth = 3;
         ctx.setLineDash([]);
@@ -2620,6 +2683,81 @@ class _Binder {
         // are the history; this is the number the file wears).
         this._bText(book, `rev ${book.meta.rev}`, da.x, border.y + border.h - 9,
                     { size: SZ.foot, color: MUTED });
+        if (book.geo.viewBand) this._bViewBand(book, book.geo.viewBand);
+    }
+
+    // THE VIEW BAND across the head of a map sheet's drawing area (VIEW_BAND):
+    // the fill edge to edge, the words in white capitals on its middle,
+    // shrunk only where a narrow sheet cannot hold them at full size.
+    _bViewBand(book, band) {
+        const ctx = book.ctx;
+        const side = VIEW_BANDS[band.side] ? band.side : 'front';
+        const look = { ...VIEW_BANDS[side],
+                       ...(book.meta.palette === 'printer' ? { fill: VIEW_BANDS_PRINTER[side] } : {}) };
+        ctx.fillStyle = look.fill;
+        ctx.fillRect(band.x, band.y, band.w, band.h);
+        const room = band.w - VIEW_BAND.pad * 2;
+        const opts = { size: VIEW_BAND.size, weight: 800, align: 'center', color: '#ffffff',
+                       maxWidth: room, shrink: true, minSize: 24 };
+        // (the size _bText will shrink it to, so the capitals can be
+        // centred on the band's middle: cap height ~0.72 em)
+        const mc = book.measureCtx;
+        let size = VIEW_BAND.size;
+        mc.font = this._bFont(size, 800);
+        while (size > 24 && mc.measureText(look.words).width > room + 0.5) {
+            size -= 0.5;
+            mc.font = this._bFont(size, 800);
+        }
+        const width = mc.measureText(look.words).width;
+        const words = this._bText(book, look.words, band.x + band.w / 2, band.y + band.h / 2 + size * 0.36, opts);
+        if (book.log && book.page && book.page.painting) {
+            book.log.viewBand = { side: band.side, words, fill: look.fill, color: '#ffffff', size, width,
+                                  x: band.x, y: band.y, w: band.w, h: band.h };
+        }
+    }
+
+    // THE STAGE LINE under a map drawing (STAGE): "< STAGE LEFT" from the
+    // wall's left edge, "STAGE RIGHT >" to its right edge on a rear sheet
+    // (the words the other way round on a front one), on the line whose
+    // top is `top`, never past `room`'s sides. Where the wall is too narrow
+    // for both at its edges, the pair stands centred under it, `gap` apart;
+    // where the room is too narrow even for that, the words shrink.
+    _bStageLine(book, side, wall, room, top) {
+        if (!book.page || !book.page.painting || !wall || !(wall.w > 0) || !room) return;
+        const rear = side === 'rear';
+        const left = `< ${rear ? 'STAGE LEFT' : 'STAGE RIGHT'}`;
+        const right = `${rear ? 'STAGE RIGHT' : 'STAGE LEFT'} >`;
+        const mc = book.measureCtx;
+        const widths = (size) => {
+            mc.font = this._bFont(size, 800);
+            return [mc.measureText(left).width, mc.measureText(right).width];
+        };
+        let size = STAGE.size;
+        let [wl, wr] = widths(size);
+        while (size > STAGE.min && wl + wr + STAGE.gap > room.w) {
+            size -= 1;
+            [wl, wr] = widths(size);
+        }
+        const lo = room.x, hi = room.x + room.w;
+        let x0 = Math.max(lo, wall.x), x1 = Math.min(hi, wall.x + wall.w);
+        if (x1 - x0 < wl + wr + STAGE.gap) {
+            // centred under the wall, kept inside the room
+            const total = wl + wr + STAGE.gap;
+            const start = Math.max(lo, Math.min(hi - total, wall.x + wall.w / 2 - total / 2));
+            x0 = start;
+            x1 = start + total;
+        }
+        // the capitals centred on the line (cap height ~0.72 em)
+        const y = top + STAGE.h / 2 + size * 0.36;
+        const opts = { size, weight: 800 };
+        this._bText(book, left, x0, y, { ...opts, align: 'left' });
+        this._bText(book, right, x1, y, { ...opts, align: 'right' });
+        if (book.log) {
+            book.log.stage = { side: rear ? 'rear' : 'front', size, top, h: STAGE.h, y,
+                               left: { text: left, x0, x1: x0 + wl, y0: y - size * 0.72, y1: y },
+                               right: { text: right, x0: x1 - wr, x1, y0: y - size * 0.72, y1: y },
+                               wall: { x: wall.x, y: wall.y, w: wall.w, h: wall.h } };
+        }
     }
 
     // The painted sheet as its record - what the PDF route replays:
@@ -4955,7 +5093,8 @@ class _Binder {
         // the map's own room could not hold it - _bMapSheets)
         const GUT = spec.gutter || MAP_GUTTER;
         const gutW = GUT.left + GUT.right;
-        const gutH = GUT.top + GUT.bottom + (spec.keyH || 0);
+        // (and the stage line under the map, _bMapSheets)
+        const gutH = GUT.top + GUT.bottom + (spec.keyH || 0) + STAGE.h;
         const tallest = (pack) => pack.cols.reduce((m, c) => Math.max(m, c.h), 0);
         const clamp = (v) => Math.max(1, Math.min(FILL_CAP, Math.floor(v * 1000) / 1000));
         const minW = Math.round(da.w * MAP_MIN_FRAC), minH = Math.round(da.h * MAP_MIN_FRAC);
@@ -5297,7 +5436,20 @@ class _Binder {
     // (_bBracketGutter's keyShort: a wide, short wall over its tables)
     // is laid out again with the key's height reserved under the wall, a
     // few times over while the key's columns change with the room.
-    _bMapSheets(book, spec, blocks) {
+    //
+    // The sheet wears the VIEW BAND (_bViewBandGeo), and the map is drawn
+    // in its room less the stage line at its foot (_bLessStageLine), the
+    // line printed there under the wall (_bStageLine) and the bubble under
+    // the line. The "(cont.)" sheets of tables alone have neither.
+    _bMapSheets(book, spec0, blocks) {
+        const side = this._bBandSide(book);
+        const spec = { ...spec0,
+            measure: typeof spec0.measure === 'function' ? (area) => spec0.measure(this._bLessStageLine(area)) : spec0.measure,
+            draw: (area) => spec0.draw(this._bLessStageLine(area)) };
+        // the VIEW BAND over the sheet: the frame banded while it is laid
+        // out and painted (_bViewBandGeo); its "(cont.)" sheets have none
+        const frame = book.geo;
+        book.geo = this._bViewBandGeo(frame, side);
         const L0 = this._bMapLayout(book, spec, blocks);
         let L = L0;
         const shortOf = (lay) => {
@@ -5319,17 +5471,19 @@ class _Binder {
         this._bPage(book, { ...spec, view, layout: L.kind, cols: L.cols, scale: L.scale, extent: L.extent,
                             coverage: L.coverage }, (page, scaled) => {
             const used = spec.draw(L.mapArea) || L.mapArea;
+            this._bStageLine(book, side, used.geo ? used.geo.wall : used, L.mapArea, used.y + used.h);
             scaled(() => {
-                const [bx, by] = L.toBase(L.mapArea.x + 20, used.y + used.h + 8);
+                const [bx, by] = L.toBase(L.mapArea.x + 20, used.y + used.h + STAGE.h + 8);
                 const [ex] = L.toBase(L.mapArea.x + L.mapArea.w, used.y);
                 this._bViewBubble(book, view, spec.viewName, bx, by, spec.note, ex - bx);
                 this._bDrawLayout(book, L);
             });
         });
+        book.geo = frame;
         let rest = L.pack.rest;
         while (rest.length) {
             const C = this._bLayout(book, rest);
-            this._bPage(book, { ...spec, title: `${spec.title} (cont.)`, sheetTitle: `${spec.sheetTitle} (CONT.)`,
+            this._bPage(book, { ...spec0, title: `${spec0.title} (cont.)`, sheetTitle: `${spec0.sheetTitle} (CONT.)`,
                                 layout: C.kind, cols: C.cols },
                         () => this._bDrawLayout(book, C));
             rest = C.pack.rest;
@@ -5716,7 +5870,7 @@ class _Binder {
             canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
             printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
             hideNames: r.hideScreenNames,
-            ignoreRaster: r.ignoreRasterBounds,
+            ignoreRaster: r.ignoreRasterBounds, noBadge: r.binderNoBadge,
             rigRoom: r.riggingTopRoom, rigRoomBelow: r.riggingBottomRoom, rigSolo: r.riggingSolo,
             rigSides: r.riggingSideRooms,
             active: this.project ? this.project.active_canvas_id : null,
@@ -5884,6 +6038,8 @@ class _Binder {
                 r.exportMode = true;
                 r.exportTransparentBg = true;
                 r.hideScreenNames = true;
+                // no BACK badge on the map: the sheet's VIEW BAND says it
+                r.binderNoBadge = true;
                 // This sheet is ONE screen on its own page: the processor's
                 // raster is not what bounds it, and clipping panels to the
                 // raster cut the wall wherever a screen stood further down or
@@ -5989,6 +6145,7 @@ class _Binder {
             r.exportTransparentBg = saved.transparent;
             r.hideScreenNames = saved.hideNames;
             r.ignoreRasterBounds = saved.ignoreRaster;
+            r.binderNoBadge = saved.noBadge;
             r.printerMode = saved.printer;
             r.riggingTopRoom = saved.rigRoom;
             r.riggingBottomRoom = saved.rigRoomBelow;
@@ -7251,7 +7408,7 @@ class _Binder {
                 if (s.kind === 'group') this._bRulersAcross(book, s.layers, geo);
                 else this._bRulers(book, layer, geo);
                 if (view === 'power') this._bBoxBrackets(book, layer, scr, geo, s);
-                return geo.area;
+                return { ...geo.area, geo };
             },
         }, blocks);
     }
@@ -7375,7 +7532,7 @@ class _Binder {
             measure: (area) => this._bMap(book, layer, 'rigging', area, gutter),
             draw: (area) => {
                 const geo = this._bMap(book, layer, 'rigging', area, gutter);
-                return geo ? geo.area : null;
+                return geo ? { ...geo.area, geo } : null;
             },
         }, this._bRiggingBlocks(book, s));
     }
@@ -8259,7 +8416,8 @@ class _Binder {
         // the column it is painted in. Measured in COL_W and painted in the
         // wider column, a CONTENTS title that fits on one line was given a
         // second line's height it never used (3.1 and 4.4 on a real show).
-        const da = book.geo.da;
+        // (under the FRONT view band: the overview is always the front)
+        const da = this._bViewBandGeo(book.geo, 'front').da;
         const across = Math.max(1, Math.floor((da.w + COL_GAP) / (COL_W + COL_GAP)));
         const wide = (da.w - (across - 1) * COL_GAP) / across;
         const rows = list.positions.map(pos => {
@@ -8441,12 +8599,17 @@ class _Binder {
                     colX: band.colX, colWOf: band.colW };
         const mapArea = band.area;
         const view = ++book.views;
+        const frame = book.geo;
+        book.geo = this._bViewBandGeo(frame, 'front');
         this._bPage(book, { kind: 'overview', title: 'Overview', sheetTitle: 'OVERVIEW', viewName: 'OVERVIEW',
                             subject: book.meta.show, view, layout: 'overview', cols: across }, () => {
             this._bDrawLayout(book, L);
             const used = this._bShowMap(book, mapArea) || mapArea;
-            // the view's bubble just under the drawing, at its left
-            this._bViewBubble(book, view, 'OVERVIEW', Math.max(mapArea.x, used.x) + 20, used.y + used.h + 8);
+            // the stage line under the drawing, from the front (none where
+            // the band left the drawing no room at all)
+            if (mapArea.h > 0) this._bStageLine(book, 'front', used, mapArea, used.y + used.h);
+            // the view's bubble just under the line, at the drawing's left
+            this._bViewBubble(book, view, 'OVERVIEW', Math.max(mapArea.x, used.x) + 20, used.y + used.h + STAGE.h + 8);
             // what the tests read: each table column's box, the band's
             // height and how the contents split
             if (book.log && book.log.map) {
@@ -8455,6 +8618,7 @@ class _Binder {
                 book.log.map.positionsW = band.posW;
             }
         });
+        book.geo = frame;
         if (moved) this._bContentsSheets(book, contents, wide, posMoved ? blocks[0].lines : null);
     }
 
@@ -8745,7 +8909,9 @@ class _Binder {
     // column's left edge and width (the first wider where POSITIONS spans
     // more than one), and the width POSITIONS took.
     _bOverviewBand(book, positions, totals, contents, across, wide) {
-        const da = book.geo.da;
+        // (the overview wears the FRONT band, whoever asks: _bContentsMove
+        // from the plan too)
+        const da = this._bViewBandGeo(book.geo, 'front').da;
         const sum = (lines) => lines.reduce((s, l) => s + l.h, 0);
         const contentsTable = (title, rows) => this._bTableLines(book, {
             title, cols: [{ title: 'sheet', w: 0.4 }, { title: 'title', w: 1.6 }], rows, width: wide,
@@ -8854,7 +9020,8 @@ class _Binder {
                 : it === 'T' ? totals : tables.get(it)))));
             const h = cols.reduce((m, c) => Math.max(m, c.h), 0);
             const y = da.y + h + COL_GAP;
-            const area = { x: da.x, y, w: da.w, h: Math.max(0, da.y + da.h - BUBBLE_H - y) };
+            // (and the stage line's height under the drawing, STAGE)
+            const area = { x: da.x, y, w: da.w, h: Math.max(0, da.y + da.h - BUBBLE_H - STAGE.h - y) };
             const zoom = area.h > 0 ? Math.min(area.w / ext.w, area.h / ext.h, MAP_ZOOM_CAP) : 0;
             const pH = t.pos ? sum(t.pos.lines) : 0;
             const better = !best || zoom > best.zoom * (1 + 1e-9)
@@ -8901,6 +9068,11 @@ class _Binder {
         const sheetTitle = `${s.name} · ${power ? 'POWER' : 'DATA'} WIRING · ${view.toUpperCase()}`;
         const blocks = (power ? this._bPowerBlocks(book, s, scr, { rows: true }) : this._bDataBlocks(book, s, scr))
             .filter(b => b && (b.lines || []).length);
+        // the VIEW BAND over the sheet, not over its "(cont.)" sheets: the
+        // frame banded while it is laid out and painted (_bViewBandGeo)
+        const bandSide = this._bBandSide(book);
+        const frame = book.geo;
+        book.geo = this._bViewBandGeo(frame, bandSide);
         const da = book.geo.da;
         // THE DRAWING FIRST (a 30 x 7 wall over eight breakout boxes, two
         // rows a side: its lower boxes and their runs were drawn over the
@@ -8913,8 +9085,9 @@ class _Binder {
         let band = this._bSimpleBand(book, blocks);
         let A = null, plan = null, lastLow = Infinity;
         for (let i = 0; i < 6; i++) {
-            A = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
-                  w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top };
+            // (the stage line at the drawing's foot, _bLessStageLine)
+            A = this._bLessStageLine({ x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
+                                       w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top });
             plan = this._bwPlanHalf(book, s, scr, wside, A);
             // what lies past the drawing's foot is always given back; a wall
             // under its readable height only while more room still grows it
@@ -8926,9 +9099,10 @@ class _Binder {
             band = this._bSimpleBand(book, blocks, Math.floor(band.h - short));
         }
         // (the layout of the drawing's final room, where the last step moved it)
-        if (Math.abs(A.h - (band.drawH - SIMPLE_RULER.top)) > 0.5) {
-            A = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
-                  w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top };
+        if (Math.abs(A.h - (band.drawH - SIMPLE_RULER.top - STAGE.h)) > 0.5) {
+            // (the stage line at the drawing's foot, _bLessStageLine)
+            A = this._bLessStageLine({ x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
+                                       w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top });
             plan = this._bwPlanHalf(book, s, scr, wside, A);
         }
         const drawH = band.drawH;
@@ -8942,6 +9116,7 @@ class _Binder {
             if (book.log) book.log.wiring = { halves: [] };
             const geo = this._bwDrawHalf(book, s, plan);
             const rulers = geo ? this._bSimpleRulers(book, s, geo, { x: da.x, y: da.y, w: da.w, h: drawH }) : false;
+            this._bStageLine(book, bandSide, geo && geo.wall, { x: da.x, w: da.w }, da.y + drawH - STAGE.h);
             this._bViewBubble(book, viewNo, sheetTitle, da.x + 20, da.y + drawH + 4, null, da.w - 20);
             this._bSimpleTables(book, band);
             if (book.log) {
@@ -8950,6 +9125,7 @@ class _Binder {
                                     wall: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h } : null };
             }
         });
+        book.geo = frame;
         this._bSimpleRest(book, band, title, sheetTitle, s, pos);
     }
 
@@ -8998,14 +9174,19 @@ class _Binder {
         const layer = s.kind === 'layer' ? s.layers[0] : s;
         const blocks = [...this._bRiggingBlocks(book, s, { notesOnly: true }), ...this._bSimpleBarList(book, s),
                         ...this._bSimpleBarTotals(book, s)].filter(b => b && (b.lines || []).length);
+        // the VIEW BAND over the sheet, not over its "(cont.)" sheets: the
+        // frame banded while it is laid out and painted (_bViewBandGeo)
+        const bandSide = this._bBandSide(book);
+        const frame = book.geo;
+        book.geo = this._bViewBandGeo(frame, bandSide);
         const da = book.geo.da;
         let band = this._bSimpleBand(book, blocks);
         // (the same guard as the wiring sheets': the bars' map keeps a
         // readable wall, _bSimpleShort, and the tables take what is left)
         let lastLow = Infinity;
         for (let i = 0; i < 4 && band.cols.length; i++) {
-            const probeArea = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
-                                w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top };
+            const probeArea = this._bLessStageLine({ x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
+                                                     w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top });
             const fg = this._bRiggingGutter(s);
             const g = this._bMeasureMap(book, { measure: (a) => this._bMap(book, layer, 'rigging', a,
                 { left: 0, right: 0, top: fg.top > MAP_GUTTER.bottom ? fg.top : 0,
@@ -9024,8 +9205,9 @@ class _Binder {
         const full = this._bRiggingGutter(s);
         const gutter = { left: 0, right: 0, top: full.top > MAP_GUTTER.bottom ? full.top : 0,
                          bottom: full.bottom > MAP_GUTTER.bottom ? full.bottom : 0 };
-        const area = { x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
-                       w: da.w - SIMPLE_RULER.left, h: drawH - SIMPLE_RULER.top };
+        // (the stage line at the drawing's foot, _bLessStageLine)
+        const area = this._bLessStageLine({ x: da.x + SIMPLE_RULER.left, y: da.y + SIMPLE_RULER.top,
+                                            w: da.w - SIMPLE_RULER.left, h: drawH - SIMPLE_RULER.top });
         const viewNo = ++book.views;
         this._bPage(book, {
             kind: 'rigging', title, sheetTitle, viewName: sheetTitle, view: viewNo,
@@ -9041,7 +9223,10 @@ class _Binder {
                 : geo;
             const rulers = inked ? this._bSimpleRulers(book, s, inked, { x: da.x, y: da.y, w: da.w, h: drawH }) : false;
             const used = geo ? geo.area : area;
-            this._bViewBubble(book, viewNo, sheetTitle, da.x + 20, Math.min(used.y + used.h, da.y + drawH) + 4,
+            // the stage line right under the bars' map, the bubble under it
+            const lineTop = Math.min(used.y + used.h, da.y + drawH - STAGE.h);
+            this._bStageLine(book, bandSide, geo && geo.wall, { x: da.x, w: da.w }, lineTop);
+            this._bViewBubble(book, viewNo, sheetTitle, da.x + 20, lineTop + STAGE.h + 4,
                               null, da.w - 20);
             this._bSimpleTables(book, band);
             if (book.log) {
@@ -9051,6 +9236,7 @@ class _Binder {
                                     wall: geo ? { x: geo.wall.x, y: geo.wall.y, w: geo.wall.w, h: geo.wall.h } : null };
             }
         });
+        book.geo = frame;
         this._bSimpleRest(book, band, title, sheetTitle, s, pos);
     }
 
@@ -9407,7 +9593,8 @@ class _Binder {
         const r = window.canvasRenderer;
         const S = this._bMapScale(book);
         const saved = { canvas: r.canvas, ctx: r.ctx, exportMode: r.exportMode, transparent: r.exportTransparentBg,
-                        printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY };
+                        printer: r.printerMode, viewMode: r.viewMode, zoom: r.zoom, panX: r.panX, panY: r.panY,
+                        noBadge: r.binderNoBadge };
         let used = null;
         try {
             r.viewMode = 'show-look';
@@ -9435,6 +9622,7 @@ class _Binder {
             r.exportMode = true;
             r.exportTransparentBg = true;
             r.printerMode = book.meta.palette === 'printer';
+            r.binderNoBadge = true;
             r.zoom = zoom * S;
             r.panX = -x1 * zoom * S;
             r.panY = -y1 * zoom * S;
@@ -9457,6 +9645,7 @@ class _Binder {
             r.canvas = saved.canvas; r.ctx = saved.ctx; r.exportMode = saved.exportMode;
             r.exportTransparentBg = saved.transparent; r.printerMode = saved.printer;
             r.viewMode = saved.viewMode; r.zoom = saved.zoom; r.panX = saved.panX; r.panY = saved.panY;
+            r.binderNoBadge = saved.noBadge;
         }
         return used;
     }
