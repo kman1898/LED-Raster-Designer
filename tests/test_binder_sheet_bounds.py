@@ -669,7 +669,10 @@ def test_the_facts_sheet_lists_every_screen_with_its_totals(page):
     opts = _opts(sheet='letter')
     out = pg.evaluate(FACTS_JS, opts)
     facts = [p for p in out['plan'] if p[1] == 'facts']
-    assert [p[0] for p in facts] == ['1.2'] and out['plan'][0][1] == 'overview', out['plan'][:3]
+    # (right after the overview and its CONTENTS sheet, where the list
+    # moved to one)
+    lead = [p for p in out['plan'] if p[1] in ('overview', 'contents')]
+    assert [p[0] for p in facts] == ['1.%d' % (len(lead) + 1)] and out['plan'][0][1] == 'overview', out['plan'][:3]
     assert out['cols'] == FACTS_COLS, out['cols']
     rows = [r['cells'] for r in out['rows']]
     body, total = rows[:-1], rows[-1]

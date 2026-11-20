@@ -46,6 +46,9 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 LETTER_W, LETTER_H, PAD = 2200, 1700, 50
 DA_PAD, DA_FOOT, TB_W = 10, 30, 480
 MAP_GUTTER = {'left': 200, 'right': 180, 'top': 74, 'bottom': 16}
+# A map sheet's drawing starts under its view band (app-binder.js
+# VIEW_BAND: 84 tall, 36 under it; owner, 2026-11-19).
+VIEW_BAND_CUT = 84 + 36
 
 # One screen, WALL-A: 16 x 5 of 500 x 1000 mm panels (192 x 384 px), 208 V
 # circuits ganged through 3fers on one Socapex multi at 100', its ports on
@@ -152,8 +155,10 @@ def test_the_power_tables_stand_three_across_and_the_wall_takes_the_room(page):
     power, data = s['power'], s['data']
     assert power['layout'] == 'stack' and power['cols'] == 3, (power['layout'], power['cols'])
     m = power['map']
-    assert m['w'] >= 1390 and abs(m['w'] / m['h'] - 1.6) < 0.01, m
-    assert data['map']['w'] >= 1530, data['map']
+    # (1359 since the view band and the stage line, 2026-11-19)
+    assert m['w'] >= 1350 and abs(m['w'] / m['h'] - 1.6) < 0.01, m
+    # (1443 since the view band and the stage line, 2026-11-19)
+    assert data['map']['w'] >= 1440, data['map']
     assert power['map']['w'] >= data['map']['w'] * 0.87, (power['map'], data['map'])
     # the tables never smaller than the base type
     assert power['scale'] >= 1 and data['scale'] >= 1, (power['scale'], data['scale'])
@@ -189,11 +194,11 @@ def test_with_the_title_block_off_the_drawing_runs_to_the_quarter_inch(page):
     pg, _ = page
     for s in _sheets(pg, LETTER_PLAIN).values():
         img = s['images'][0]
-        assert abs(img['y'] - PAD) < 0.5, (s['title'], img)
+        assert abs(img['y'] - (PAD + VIEW_BAND_CUT)) < 0.5, (s['title'], img)
         assert img['x'] >= PAD - 0.5 and img['x'] + img['w'] <= LETTER_W - PAD + 0.5, (s['title'], img)
     for s in _sheets(pg, LETTER_BLOCK).values():
         img = s['images'][0]
-        assert abs(img['y'] - (PAD + DA_PAD)) < 0.5, (s['title'], img)
+        assert abs(img['y'] - (PAD + DA_PAD + VIEW_BAND_CUT)) < 0.5, (s['title'], img)
         assert img['x'] + img['w'] <= LETTER_W - PAD - TB_W - DA_PAD + 0.5, (s['title'], img)
 
 
@@ -206,10 +211,15 @@ def test_a_sheet_the_narrow_tables_would_not_help_keeps_its_layout(page):
     units wide (1114 and 1180 at the 0.15 in inset)."""
     pg, _ = page
     s = _sheets(pg, LETTER_BLOCK)
-    for kind, want in (('power', 1197), ('data', 1219)):
-        sheet = s[kind]
-        assert sheet['layout'] == 'stack' and sheet['cols'] == 2, (kind, sheet['layout'], sheet['cols'])
-        assert abs(sheet['map']['w'] - want) < 2, (kind, sheet['map'])
+    # Since the view band and the stage line took their share of the
+    # sheet (2026-11-19) the Power wall is 1026 wide, and the Data sheet's
+    # Ports table runs on beside and under its wall (the wrap layout, two
+    # columns of the tables' own width - still not the narrow set).
+    power, data = s['power'], s['data']
+    assert power['layout'] == 'stack' and power['cols'] == 2, (power['layout'], power['cols'])
+    assert abs(power['map']['w'] - 1026.21) < 2, power['map']
+    assert data['layout'] in ('stack', 'wrap') and data['cols'] == 2, (data['layout'], data['cols'])
+    assert data['map']['w'] >= 1000, data['map']
 
 
 # Every sheet of the set with the block on, every extra sheet kind drawn:
@@ -239,7 +249,7 @@ def test_with_the_title_block_on_the_drawing_stands_a_hair_inside_the_border(pag
     pg, _ = page
     for s in _sheets(pg, LETTER_BLOCK).values():
         img = s['images'][0]
-        assert abs(img['y'] - (PAD + DA_PAD)) < 0.5, (s['title'], img)
+        assert abs(img['y'] - (PAD + DA_PAD + VIEW_BAND_CUT)) < 0.5, (s['title'], img)
         assert img['x'] >= PAD + DA_PAD - 0.5, (s['title'], img)
     opts = {**LETTER_BLOCK, 'pull': True, 'hardware': True, 'wiring': True, 'cover': True}
     left, top = PAD + DA_PAD, PAD + DA_PAD

@@ -166,6 +166,18 @@ TITLE_BLOCK = os.environ.get('LRD_BINDER_NO_TITLE_BLOCK', '').strip().lower() \
 DA_BLOCK = _da(W, H, True)
 DA_PLAIN = _da(W, H, False)
 DA = DA_BLOCK if TITLE_BLOCK else DA_PLAIN
+# THE VIEW BAND (owner, 2026-11-19): a MAP sheet's drawing area starts under
+# the band across its head (app-binder.js VIEW_BAND: 84 tall and 36 under
+# it), and its map's room keeps the stage line at its foot (STAGE.h, 40;
+# owner, 2026-11-20). The other sheets keep the whole area.
+VIEW_BAND_CUT, STAGE_H = 84 + 36, 40
+
+
+def _banded(da):
+    return {**da, 'y': da['y'] + VIEW_BAND_CUT, 'h': da['h'] - VIEW_BAND_CUT}
+
+
+MAP_DA = _banded(DA)
 TB_X = W - PAD - TB_W
 # The tables' column, the gap, the view bubble's room under a map; the
 # map's gutters (the rulers' and the brackets' room) and its zoom cap.
@@ -182,9 +194,11 @@ FILL_CAP = 2.4
 MAP_MIN_FRAC = 0.45
 
 
-def _fit(room_w, room_h, ww, wh):
+def _fit(room_w, room_h, ww, wh, line=True):
     """The wall's page zoom in a room of page units - _bMapLayout's fit,
-    _bMap's own arithmetic."""
+    _bMap's own arithmetic. A sheet's room keeps the stage line at its foot
+    (`line`); the map's own area (its log's `area`) is already without it."""
+    room_h -= STAGE_H if line else 0
     return min((room_w - GUT['left'] - GUT['right']) / ww, (room_h - GUT['top'] - GUT['bottom']) / wh, MAP_ZOOM_CAP)
 
 
@@ -1296,6 +1310,19 @@ def test_no_sheet_says_box_breakout_or_palette(page):
     assert [t for t in distro if re.fullmatch(r'\d+ on 2 Multi 208', t)], distro
 
 
+def _contents_listed(texts, numbers):
+    """The CONTENTS rows as (number, title), in the plan's order, read off
+    a sheet's texts - whether the list stands in one column, runs on into
+    "CONTENTS 1" / "CONTENTS 2", or fills a CONTENTS sheet of its own (each
+    title on one line)."""
+    c = next(i for i, t in enumerate(texts) if t.startswith('CONTENTS'))
+    at = {}
+    for i in range(c, len(texts) - 1):
+        if texts[i] in numbers and texts[i] not in at:
+            at[texts[i]] = i
+    return [(n, texts[at[n] + 1]) for n in numbers if n in at]
+
+
 def _map_of(out):
     m = out['map']
     assert m, out.keys()
@@ -1337,26 +1364,28 @@ def test_the_map_takes_the_room_the_tables_leave(page):
         # tables at 1 (within the half per cent that counts as free), and
         # the type never reaches the width-filling scale at its expense
         row_w = cols * col_w + (cols - 1) * COL_GAP
-        assert 1 <= s < int(DA['w'] / row_w * 1000) / 1000, (s, row_w)
+        assert 1 <= s < int(MAP_DA['w'] / row_w * 1000) / 1000, (s, row_w)
         m = _map_of(out)
-        tables_h1 = (DA['h'] - m['area']['h']) / s            # bubble + gap + tallest column, at 1
-        assert m['zoom'] >= _fit(DA['w'], DA['h'] - tables_h1, ww, wh) * 0.979, (title, m, s)
-        assert m['area'] == {'x': DA['x'], 'y': DA['y'], 'w': DA['w'], 'h': m['area']['h']}, m['area']
+        tables_h1 = (MAP_DA['h'] - m['area']['h']) / s            # bubble + gap + tallest column, at 1
+        assert m['zoom'] >= _fit(MAP_DA['w'], MAP_DA['h'] - tables_h1, ww, wh) * 0.979, (title, m, s)
+        assert m['area'] == {'x': MAP_DA['x'], 'y': MAP_DA['y'], 'w': MAP_DA['w'], 'h': m['area']['h']}, m['area']
         assert abs(m['w'] / m['h'] - ww / wh) / (ww / wh) < 0.01, (title, m)
-        zoom = _fit(DA['w'], m['area']['h'], ww, wh)
+        zoom = _fit(MAP_DA['w'], m['area']['h'], ww, wh, line=False)
         assert abs(m['zoom'] - zoom) < 0.01 and zoom < MAP_ZOOM_CAP and abs(m['w'] - ww * zoom) <= 2, (title, m, zoom)
-        inner_cx = DA['x'] + GUT['left'] + (DA['w'] - GUT['left'] - GUT['right']) / 2
-        assert abs(m['x'] + m['w'] / 2 - inner_cx) <= 1 and m['y'] == DA['y'] + GUT['top'], m
+        inner_cx = MAP_DA['x'] + GUT['left'] + (MAP_DA['w'] - GUT['left'] - GUT['right']) / 2
+        assert abs(m['x'] + m['w'] / 2 - inner_cx) <= 1 and m['y'] == MAP_DA['y'] + GUT['top'], m
         assert m['scale'] == s
         heads = out['headings']
         assert heads and all(y >= m['area']['y'] + m['area']['h'] for _t, _x, y in heads), (heads, m['area'])
         xs = sorted({x for _t, x, _y in heads})
-        assert xs[0] == DA['x'] and len(xs) == cols, xs
+        assert xs[0] == MAP_DA['x'] and len(xs) == cols, xs
         assert all(b - a >= (col_w + COL_GAP) * s - 1 for a, b in zip(xs, xs[1:])), (xs, s)
-        assert xs[-1] + col_w * s <= DA['x'] + DA['w'] + 1, xs
+        assert xs[-1] + col_w * s <= MAP_DA['x'] + MAP_DA['w'] + 1, xs
         ext = p['extent']
-        assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, ext
-        assert p['coverage'] >= 0.75, p
+        assert ext['w'] <= MAP_DA['w'] + 1 and ext['h'] <= MAP_DA['h'] + 1, ext
+        # (0.72 since the view band and the stage line took their share of
+        # the sheet, 2026-11-19)
+        assert p['coverage'] >= 0.7, p
         assert 'FACTS' not in out['texts'] and 'CABLES THIS SCREEN' in out['texts'], title
         assert not [t for t in out['texts'] if '(cont.)' in t or '(CONT.)' in t], title
         b = out['bubble']
@@ -1365,37 +1394,37 @@ def test_the_map_takes_the_room_the_tables_leave(page):
     a = _render(pg, SHOW, 'WALL-A - Power - Front View')
     # (0.8 with a FACTS block under the map; 0.75 since the screens' FACTS
     # went, 2026-11-18: less table ink, the same wall)
-    assert a['page']['coverage'] >= 0.75, a['page']
+    assert a['page']['coverage'] >= 0.7, a['page']
     # CENTER: side - the map keeps 45 % of the width, the tables the rest
     # at the scale that leaves it (the height would allow more)
     c = _render(pg, SHOW, 'CENTER - Power - Front View')
     s = c['page']['scale']
     assert c['page']['layout'] == 'side' and c['page']['cols'] == 1, c['page']
-    cap = int((DA['w'] - round(DA['w'] * MAP_MIN_FRAC)) / (COL_W + COL_GAP) * 1000) / 1000
+    cap = int((MAP_DA['w'] - round(MAP_DA['w'] * MAP_MIN_FRAC)) / (COL_W + COL_GAP) * 1000) / 1000
     assert 1.2 < s <= cap, (s, cap)
     m = _map_of(c)
-    room_w = DA['w'] - (COL_W + COL_GAP) * s
-    assert abs(m['area']['w'] - room_w) < 0.01 and m['area']['x'] == DA['x'], (m['area'], room_w)
+    room_w = MAP_DA['w'] - (COL_W + COL_GAP) * s
+    assert abs(m['area']['w'] - room_w) < 0.01 and m['area']['x'] == MAP_DA['x'], (m['area'], room_w)
     assert m['scale'] == s and abs(m['w'] / m['h'] - 3 / 5) < 0.01, m
-    zoom = _fit(room_w, DA['h'] - BUBBLE_H * s, 3 * 128, 5 * 128)
+    zoom = _fit(room_w, MAP_DA['h'] - BUBBLE_H * s, 3 * 128, 5 * 128)
     assert abs(m['zoom'] - zoom) < 0.01 and zoom < MAP_ZOOM_CAP, (m, zoom)
     # the wall first: it is as large as it would be with the tables at 1
     # (within the 2 per cent that counts as free - the bubble under it
     # grows with the type), and the type has grown into the width a tall
     # wall leaves beside it, short of the old 45 %-width scale that starved
     # the map
-    z1 = min(_fit(DA['w'] - (COL_W + COL_GAP), DA['h'] - BUBBLE_H, 3 * 128, 5 * 128), MAP_ZOOM_CAP)
+    z1 = min(_fit(MAP_DA['w'] - (COL_W + COL_GAP), MAP_DA['h'] - BUBBLE_H, 3 * 128, 5 * 128), MAP_ZOOM_CAP)
     assert m['zoom'] >= z1 * 0.979, (m['zoom'], z1)
     assert cap - s > 0.2, (s, cap)
-    assert m['x'] >= DA['x'] and m['x'] + m['w'] <= m['area']['x'] + m['area']['w'] + 1, m
-    assert m['area']['y'] + m['area']['h'] <= DA['y'] + DA['h'] + 1, m
+    assert m['x'] >= MAP_DA['x'] and m['x'] + m['w'] <= m['area']['x'] + m['area']['w'] + 1, m
+    assert m['area']['y'] + m['area']['h'] <= MAP_DA['y'] + MAP_DA['h'] + 1, m
     ext = c['page']['extent']
-    assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, ext
+    assert ext['w'] <= MAP_DA['w'] + 1 and ext['h'] <= MAP_DA['h'] + 1, ext
     heads = c['headings']
     assert heads and all(x >= m['area']['x'] + m['area']['w'] + COL_GAP * s - 1 for _t, x, _y in heads), (heads, m['area'])
-    assert all(x + COL_W * s <= DA['x'] + DA['w'] + 1 for _t, x, _y in heads), heads
+    assert all(x + COL_W * s <= MAP_DA['x'] + MAP_DA['w'] + 1 for _t, x, _y in heads), heads
     b = c['bubble']
-    assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1, (b, m['area'])
+    assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= MAP_DA['y'] + MAP_DA['h'] + 1, (b, m['area'])
     # the record: the tables' text at base x s, the rulers (22) and the
     # bracket labels (28) at their own sizes, the title block at its own
     rec = _record(pg, json.loads(_SHOW_JSON), 'CENTER - Power - Front View')
@@ -3091,14 +3120,15 @@ def test_smoke_live_show_b(page):
     # hardware sheets scale by the column rule, unchanged. Measured on the
     # save of 2026-09-15 (2026-09-24).
     main_s = scales['SR - MAIN - Power - Front View']
-    assert main_s == 1 and scales['SR - MAIN - Data - Front View'] == 1.05, scales
+    # (the data sheet at 1.04 since the view band, 2026-11-19)
+    assert main_s == 1 and scales['SR - MAIN - Data - Front View'] == 1.04, scales
     ret_s = scales['SR - Return - Power - Front View']
     assert 1.3 < ret_s < 1.45, scales
     for t in ('SR - MAIN - Power - Front View', 'SR - MAIN - Data - Front View', 'SR - Return - Power - Front View', 'SR - Return - Data - Front View'):
         ext = extents[t]
-        assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, (t, ext)
+        assert ext['w'] <= MAP_DA['w'] + 1 and ext['h'] <= MAP_DA['h'] + 1, (t, ext)
         # (the wrap layout leaves its last column short of the foot)
-        assert ext['h'] / DA['h'] >= (0.9 if t == 'SR - MAIN - Power - Front View' else 0.95), (t, ext)
+        assert ext['h'] / MAP_DA['h'] >= (0.9 if t == 'SR - MAIN - Power - Front View' else 0.95), (t, ext)
     assert scales[PULL4] > 1 and scales['Distros - SR, SL'] > 1.5, scales
     # the positions side by side, the distros side by side, H9 with the
     # show's pull list beside it
@@ -3157,17 +3187,17 @@ def test_smoke_live_show_b(page):
     # the wrap layout: the map at its area's top left, the tables in the
     # columns beside it and on under it - every heading right of the map's
     # area or under it, never on it, all inside the drawing area
-    assert m['area']['x'] == DA['x'] and m['area']['y'] == DA['y'] and m['scale'] == main_s, m
-    assert m['area']['w'] >= round(DA['w'] * MAP_MIN_FRAC), m['area']
+    assert m['area']['x'] == MAP_DA['x'] and m['area']['y'] == MAP_DA['y'] and m['scale'] == main_s, m
+    assert m['area']['w'] >= round(MAP_DA['w'] * MAP_MIN_FRAC), m['area']
     heads = {t: (x, y) for t, x, y in main['headings'] if t in ('CIRCUITS', 'CABLES THIS SCREEN', 'FACTS')}
     assert 'CIRCUITS' in heads and 'CABLES THIS SCREEN' in heads and 'FACTS' not in heads, heads
     area = m['area']
     assert all(x >= area['x'] + area['w'] - 1 or y >= area['y'] + area['h'] - 1 for x, y in heads.values()), (heads, area)
-    assert all(x <= DA['x'] + DA['w'] and y <= DA['y'] + DA['h'] for x, y in heads.values()), heads
+    assert all(x <= MAP_DA['x'] + MAP_DA['w'] and y <= MAP_DA['y'] + MAP_DA['h'] for x, y in heads.values()), heads
     # the view bubble under the map
     b = main['bubble']
     assert b['number'] == 2 and b['name'] == 'SR - MAIN · POWER · FRONT VIEW'
-    assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= DA['y'] + DA['h'] + 1
+    assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= MAP_DA['y'] + MAP_DA['h'] + 1
     # the brackets: SR1 and SR2 down the right at ONE distance (rows 1-6 over
     # rows 7-11 share an edge, they do not overlap); SR3 and SR4 down the left
     br = {x['name']: x for x in main['brackets']}
@@ -3219,11 +3249,11 @@ def test_smoke_live_show_b(page):
     rm = retp['map']
     want = (6 * 60) / (11 * 120)
     assert abs(rm['w'] / rm['h'] - want) / want < 0.01, rm
-    room_w = DA['w'] - (COL_W + COL_GAP) * ret_s
-    zoom = _fit(room_w, DA['h'] - BUBBLE_H * ret_s, 6 * 60, 11 * 120)
-    assert zoom == (DA['h'] - BUBBLE_H * ret_s - GUT['top'] - GUT['bottom']) / (11 * 120)
+    room_w = MAP_DA['w'] - (COL_W + COL_GAP) * ret_s
+    zoom = _fit(room_w, MAP_DA['h'] - BUBBLE_H * ret_s, 6 * 60, 11 * 120)
+    assert zoom == (MAP_DA['h'] - BUBBLE_H * ret_s - STAGE_H - GUT['top'] - GUT['bottom']) / (11 * 120)
     assert rm['scale'] == ret_s and abs(rm['zoom'] - zoom) < 0.01, (rm, zoom)
-    assert rm['x'] >= DA['x'] and rm['y'] + rm['h'] <= DA['y'] + DA['h'] and abs(rm['area']['w'] - room_w) < 0.01, rm
+    assert rm['x'] >= MAP_DA['x'] and rm['y'] + rm['h'] <= MAP_DA['y'] + MAP_DA['h'] and abs(rm['area']['w'] - room_w) < 0.01, rm
     assert len(retp['brackets']) == 1 and retp['brackets'][0]['depth'] == 0
     rrec = _record(pg, json.loads(_SHOW_JSON), 'SR - Return - Power - Front View')
     rsizes = {o['size'] for o in rrec['record']['ops'] if o['op'] == 'text'}
@@ -3247,10 +3277,10 @@ def test_smoke_live_show_b(page):
     # other, the row at 1.03, the wall the height left
     dm = dpage['map']
     assert abs(dm['w'] / dm['h'] - want_main) / want_main < 0.01, dm
-    assert dm['area']['w'] == DA['w'] and abs(dm['zoom'] - _fit(DA['w'], dm['area']['h'], 28 * 60, 11 * 120)) < 0.01, dm
+    assert dm['area']['w'] == MAP_DA['w'] and abs(dm['zoom'] - _fit(MAP_DA['w'], dm['area']['h'], 28 * 60, 11 * 120, line=False)) < 0.01, dm
     dheads = {t: (x, y) for t, x, y in dpage['headings']}
     assert all(y >= dm['area']['y'] + dm['area']['h'] for _x, y in dheads.values()), (dheads, dm['area'])
-    assert dheads['PORTS'][0] == DA['x'] and 'FACTS' not in dheads, dheads
+    assert dheads['PORTS'][0] == MAP_DA['x'] and 'FACTS' not in dheads, dheads
     assert 'PORTS' in dpage['texts']
     data = dpage['texts']
     # the box delivering the ports bands the primary half (2026-09-07: a
@@ -3301,14 +3331,17 @@ def test_smoke_live_show_b(page):
         by = {sc['name']: sc for sc in screens}
         assert abs(by['SR - MAIN']['w'] / by['SR - MAIN']['h'] - (28 * 60) / (11 * 120)) < 0.02, by['SR - MAIN']
         assert abs(by['SR - Return']['w'] / by['SR - Return']['h'] - (6 * 60) / (11 * 120)) < 0.02, by['SR - Return']
-    # the overview's contents names every sheet
+    # the overview's contents names every sheet (on a CONTENTS sheet of its
+    # own right after the overview where the overview cannot hold it)
     ov = _render(pg, SHOW, 'Overview')['texts']
-    c = ov.index('CONTENTS')
-    listed = [(ov[c + 3 + 2 * n], ov[c + 4 + 2 * n]) for n in range(len(plan))]
+    if not [t for t in ov if t.startswith('CONTENTS')]:
+        ov = _render(pg, SHOW, 'Contents')['texts']
+    listed = _contents_listed(ov, [n for n, _t in plan])
     assert [n for n, _t in listed] == [n for n, _t in plan]
-    # (the FACTS sheet at 1.2)
-    assert listed[2:6] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING · FRONT VIEW'),
-                           ('2.3', 'SR - MAIN · DATA · FRONT VIEW'), ('2.4', 'SR - MAIN · DATA WIRING · FRONT VIEW')], listed[2:6]
+    # (after the overview, its CONTENTS sheet where it has one, and the FACTS)
+    k = [n for n, _t in listed].index('2.1')
+    assert listed[k:k + 4] == [('2.1', 'SR - MAIN · POWER · FRONT VIEW'), ('2.2', 'SR - MAIN · POWER WIRING · FRONT VIEW'),
+                           ('2.3', 'SR - MAIN · DATA · FRONT VIEW'), ('2.4', 'SR - MAIN · DATA WIRING · FRONT VIEW')], listed[k:k + 4]
     assert listed[-3:] == [('3.1', 'PULL · SR, SL'), ('4.1', 'DISTROS · SR, SL'),
                            ('4.2', 'PROCESSOR · H9 · PULL LIST')], listed[-3:]
     # no sheet says box, none says breakout as the generic noun, none Palette
@@ -3438,10 +3471,11 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     cap over tables at 1x, tiny). Both layouts are tried with the TABLES'
     scale chosen for each, the map taking the room the tables leave, and
     the one whose ink covers more of the drawing area wins. The 9 x 5 wall
-    (1944 x 1080 px, nine circuits on two multis) at Tabloid: STACK, the
-    map across the full width, the tables at ~1.28 under it in three
-    columns, coverage past 0.8; at ARCH C: STACK, the map at full width
-    (zoom ~1.94, under the cap), the tables at ~1.93. The map is painted
+    (1944 x 1080 px, nine circuits on two multis) at Tabloid: WRAP since
+    the view band and the stage line took their share of the sheet
+    (2026-11-19; STACK before) - the wall stopped by the height, the tables
+    under it, the circuits running on from one column to the next; at
+    ARCH C: STACK, the map at full width (under the cap). The map is painted
     in page units - its rulers and brackets at their inch sizes - and the
     tables at the scale; nothing reaches past the drawing area."""
     pg, ids = page
@@ -3454,32 +3488,34 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     p = tabloid['page']
     m = _map_of(tabloid)
     s = p['scale']
-    assert p['layout'] == 'stack' and p['cols'] == 2, p
+    assert p['layout'] == 'wrap' and p['cols'] == 3, p
     # the wall first: the type takes only what the wall cannot use, never
     # past the width-filling 1.278
     assert 1 <= s <= 1.278 + 1e-9, (s, p)
-    assert p['extent']['h'] >= DA['h'] * 0.98, p      # and the sheet is full to its foot
+    assert p['extent']['h'] >= MAP_DA['h'] * 0.98, p      # and the sheet is full to its foot
     assert p['coverage'] >= 0.75, p              # (0.8 with a FACTS block, before 2026-11-18)
-    # the map: full width, the wall centred in it, its zoom the fit of the
-    # height the tables leave (they set it: the row fills the width)
-    assert m['area']['x'] == DA['x'] and m['area']['w'] == DA['w'] and m['area']['y'] == DA['y'], m
+    # the map: at the area's top left under the band, the wall centred in
+    # it, its zoom the fit of the room the tables leave
+    assert m['area']['x'] == MAP_DA['x'] and m['area']['y'] == MAP_DA['y'], m
+    assert m['area']['w'] <= MAP_DA['w'], m
     assert abs(m['w'] / m['h'] - ww / wh) / (ww / wh) < 0.01, m
-    zoom = _fit(DA['w'], m['area']['h'], ww, wh)
+    zoom = _fit(m['area']['w'], m['area']['h'], ww, wh, line=False)
     assert abs(m['zoom'] - zoom) < 0.01 and abs(m['w'] - ww * zoom) <= 2, (m, zoom)
-    inner_cx = DA['x'] + GUT['left'] + (DA['w'] - GUT['left'] - GUT['right']) / 2
-    assert 1300 <= m['area']['h'] <= 1450 and abs(m['x'] + m['w'] / 2 - inner_cx) <= 1, m
+    inner_cx = m['area']['x'] + GUT['left'] + (m['area']['w'] - GUT['left'] - GUT['right']) / 2
+    assert 1200 <= m['area']['h'] <= 1450 and abs(m['x'] + m['w'] / 2 - inner_cx) <= 1, m
     assert m['scale'] == s
-    # the two tables under it, side by side, at the scale - each heading
-    # below the map, the row across the width, inside the area (no FACTS
-    # block since 2026-11-18)
+    # the two tables under it, the circuits run on into a second column,
+    # side by side at the scale - each heading below the map, the row
+    # across the width, inside the area (no FACTS block since 2026-11-18)
     heads = {t: (x, y) for t, x, y in tabloid['headings']}
     assert set(heads) == {'CIRCUITS', 'CABLES THIS SCREEN'}, heads
-    xs = sorted(x for x, _y in heads.values())
-    assert all(y >= m['area']['y'] + m['area']['h'] for _x, y in heads.values()), (heads, m['area'])
-    assert xs[0] == DA['x'] and all(b - a >= (COL_W + COL_GAP) * s - 1 for a, b in zip(xs, xs[1:])), xs
-    assert xs[-1] + COL_W * s <= DA['x'] + DA['w'] + 1, xs
+    assert [t for t, _x, _y in tabloid['headings']].count('CIRCUITS') == 2, tabloid['headings']
+    xs = sorted(x for _t, x, _y in tabloid['headings'])
+    assert all(y >= m['area']['y'] + m['area']['h'] for _t, _x, y in tabloid['headings']), (tabloid['headings'], m['area'])
+    assert xs[0] == MAP_DA['x'] and all(b - a >= (COL_W + COL_GAP) * s - 1 for a, b in zip(xs, xs[1:])), xs
+    assert xs[-1] + COL_W * s <= MAP_DA['x'] + MAP_DA['w'] + 1, xs
     ext = p['extent']
-    assert ext['w'] <= DA['w'] + 1 and ext['h'] <= DA['h'] + 1, ext
+    assert ext['w'] <= MAP_DA['w'] + 1 and ext['h'] <= MAP_DA['h'] + 1, ext
     b = tabloid['bubble']
     assert b['y'] - b['r'] >= m['area']['y'] + m['area']['h'] and b['y'] + b['r'] <= min(y for _x, y in heads.values()), (b, heads)
     # the bands and the rows say what the wall is
@@ -3494,7 +3530,8 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     assert round(25 * s, 2) in sizes and round(24 * s, 2) in sizes and round(21 * s, 2) in sizes, (s, sizes)
     assert 22 in sizes and 28 in sizes and 56 in sizes and 25 not in sizes, sizes
     img = [o for o in rec['record']['ops'] if o['op'] == 'image']
-    assert len(img) == 1 and img[0]['x'] == DA['x'] and img[0]['y'] == DA['y'] and img[0]['w'] == DA['w'], img
+    assert len(img) == 1 and img[0]['x'] == m['area']['x'] and img[0]['y'] == m['area']['y'], img
+    assert img[0]['w'] == m['area']['w'], img
     # ARCH C: the same rule, the wall filling the width under the cap
     archc = _render(pg, SHOW.replace("sheet: 'tabloid'", "sheet: 'archc'"), title)
     pc = archc['page']
@@ -3520,12 +3557,12 @@ def test_the_fill_picks_the_layout_that_covers_most(page):
     data = _render(pg, SHOW, 'D - OffSL IMAG - Data - Front View')
     pd = data['page']
     assert pd['layout'] == 'stack' and pd['scale'] > 1 and pd['coverage'] > 0.6, pd
-    assert pd['extent']['w'] <= DA['w'] + 1 and pd['extent']['h'] <= DA['h'] + 1, pd
+    assert pd['extent']['w'] <= MAP_DA['w'] + 1 and pd['extent']['h'] <= MAP_DA['h'] + 1, pd
     # the whole set's sheets, every one inside its drawing area
     plan = pg.evaluate("(o) => window.app.planBinder(o)", json.loads(_SHOW_JSON))
     for e in plan:
         if e['extent']:
-            assert e['extent']['w'] <= DA['w'] + 1 and e['extent']['h'] <= DA['h'] + 1, e
+            assert e['extent']['w'] <= MAP_DA['w'] + 1 and e['extent']['h'] <= MAP_DA['h'] + 1, e
     # the sheets as PDFs, for a look (pdftoppm), when asked
     out_dir = os.environ.get('LRD_BINDER_PDF_DIR')
     if out_dir:

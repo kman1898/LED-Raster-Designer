@@ -268,6 +268,8 @@ Object.assign(CanvasRenderer.prototype, {
      */
     renderPerspectiveBadge() {
         if (this.viewMode !== 'data-flow' && this.viewMode !== 'power') return;
+        // (a binder sheet's map: its VIEW BAND names the side, app-binder.js)
+        if (this.binderNoBadge) return;
         if (!this.isMirroredView()) return;
         const label = 'BACK';
         const arr = (window.app && window.app.project && Array.isArray(window.app.project.canvases))

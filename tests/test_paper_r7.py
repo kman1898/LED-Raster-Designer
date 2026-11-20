@@ -345,15 +345,20 @@ def test_two_distros_sharing_numbers_tag_by_distro(page):
 def test_three_long_names_on_a_wide_wall_print_whole(page):
     """36 x 6, the vertical pattern, three multis of a long-named distro:
     on Letter every label prints its name and its length, the gutter grown
-    a little rather than the length dropped."""
+    a little rather than the length dropped - or, since the view band and
+    the stage line took their share of the letter sheet (2026-11-19), tags
+    with the key naming each whole: never a label cut."""
     pg, errors = page
     configure(pg, 'WIDE', {'powerFlowPattern': 'tl-v', **multis(40, length='125')},
               [dist('UPSTAGE LEFT POWER DISTRO A')])
     got = run_all(pg, 3)
-    assert got['letter'] == 'labels', got
+    assert got['letter'] in ('labels', 'tags'), got
     out = pg.evaluate(SHEET_JS, 'letter')
     for b in out['brackets']:
-        assert whole(b) and b['lines'][-1].endswith("125'"), b
+        if 'tag' in b:
+            assert b['full'].startswith(b['name'] + ' · ') and b['full'].endswith("125'"), b
+        else:
+            assert whole(b) and b['lines'][-1].endswith("125'"), b
     assert errors == [], errors
 
 

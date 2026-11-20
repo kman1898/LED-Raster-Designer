@@ -37,6 +37,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 
 from conftest import open_app  # noqa: E402
+from test_binder import _contents_listed  # noqa: E402
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -151,8 +152,10 @@ PLAN_JS = """([order, opts]) => {
     const app = window.app;
     app.setBinderField('screenOrder', order, 'Set Screen Order');
     const plan = app.planBinder(opts);
+    // (the CONTENTS on the overview, or on its own sheet right after it)
+    const k = plan.findIndex(p => p.kind === 'contents');
     return { plan: plan.map(p => [p.number, p.sheetTitle, p.kind, p.subject]),
-             overview: app.renderBinderPage(opts, 0).texts };
+             overview: app.renderBinderPage(opts, k > 0 ? k : 0).texts };
 }"""
 
 
@@ -272,8 +275,7 @@ def test_top_to_bottom_prints_the_screens_panel_order(page):
         screens = [n for n, _t, k, _s in plan if k not in ('overview',) and n.startswith('2.')]
         assert screens == [f'2.{i + 1}' for i in range(len(screens))], screens
         ov = out['overview']
-        k = ov.index('CONTENTS')
-        listed = [(ov[k + 3 + 2 * i], ov[k + 4 + 2 * i]) for i in range(len(plan))]
+        listed = _contents_listed(ov, [n for n, _t, _k, _s in plan])
         assert listed == [(n, t) for n, t, _k, _s in plan], listed
     assert errors == [], errors
 

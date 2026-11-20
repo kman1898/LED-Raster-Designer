@@ -61,14 +61,21 @@ SHEETS = {'tabloid': (3400, 2200), 'letter': (2200, 1700), 'a3': (3308, 2338), '
 BEFORE = (1499, 598)
 
 
+# The overview wears the FRONT view band across the head of its drawing
+# area (app-binder.js VIEW_BAND: 84 tall, 36 under it; owner, 2026-11-19),
+# and its drawing keeps the stage line at its foot (STAGE.h; 2026-11-20).
+VIEW_BAND_CUT, STAGE_H = 84 + 36, 40
+
+
 def _da(w, h, block=True):
     # (no block, no border to clear: the drawing runs to the quarter inch)
     # (with it, a hair inside the rule and the rev line's strip at the foot)
+    # (under the view band)
     inset = DA_PAD if block else 0
     foot = DA_FOOT if block else 0
-    return {'x': PAD + inset, 'y': PAD + inset,
+    return {'x': PAD + inset, 'y': PAD + inset + VIEW_BAND_CUT,
             'w': w - PAD * 2 - (TB_W if block else 0) - inset * 2,
-            'h': h - PAD * 2 - inset - foot}
+            'h': h - PAD * 2 - inset - foot - VIEW_BAND_CUT}
 
 
 SEED_JS = """async () => {
@@ -194,15 +201,18 @@ def test_the_tables_share_a_band_and_the_drawing_takes_the_width(page):
     assert abs(m['tables'][1]['h'] - m['tables'][2]['h']) <= 2 * ROW_H, m['tables']
     area = m['area']
     assert area == {'x': da['x'], 'y': da['y'] + band['h'] + COL_GAP, 'w': da['w'],
-                    'h': da['y'] + da['h'] - BUBBLE_H - (da['y'] + band['h'] + COL_GAP)}, area
-    # the whole width, centered in the height it leaves
-    assert m['x'] == da['x'] and m['w'] == da['w'], m
+                    'h': da['y'] + da['h'] - BUBBLE_H - STAGE_H - (da['y'] + band['h'] + COL_GAP)}, area
+    # as large as its room holds it - the whole width, or (since the view
+    # band and the stage line took their share, 2026-11-19) the whole
+    # height, centred across
+    assert abs(m['w'] - area['w']) <= 1 or abs(m['h'] - area['h']) <= 1, (m, area)
+    assert abs((m['x'] + m['w'] / 2) - (area['x'] + area['w'] / 2)) <= 1, (m, area)
     assert m['h'] <= area['h'] and abs((m['y'] - area['y']) - (area['y'] + area['h'] - m['y'] - m['h'])) <= 1, m
     assert m['zoom'] < MAP_ZOOM_CAP
     # the gain over the drawing before this change
     assert m['w'] * m['h'] >= 2.5 * BEFORE[0] * BEFORE[1], (m, BEFORE)
     b = out['bubble']
-    assert 0 <= (b['y'] - b['r']) - (m['y'] + m['h']) <= 20, (b, m)
+    assert 0 <= (b['y'] - b['r']) - (m['y'] + m['h'] + STAGE_H) <= 20, (b, m)
     assert errors == []
 
 
@@ -264,7 +274,7 @@ def _check_sheet(out, da, tb_x, where):
         assert _disjoint(draw, t), (where, draw, t)
         assert t['x'] + t['w'] <= tb_x, (where, t, tb_x)
     assert draw['x'] >= da['x'] - 0.5 and draw['x'] + draw['w'] <= da['x'] + da['w'] + 0.5, (where, draw, da)
-    assert draw['y'] + draw['h'] <= da['y'] + da['h'] - BUBBLE_H + 1, (where, draw, da)
+    assert draw['y'] + draw['h'] <= da['y'] + da['h'] - BUBBLE_H - STAGE_H + 1, (where, draw, da)
     assert draw['x'] + draw['w'] <= tb_x, (where, draw, tb_x)
     # as large as it fits its room
     assert (m['zoom'] >= MAP_ZOOM_CAP - 1e-6 or abs(draw['w'] - area['w']) <= 1
@@ -275,7 +285,8 @@ def _check_sheet(out, da, tb_x, where):
     b = out['bubble']
     assert b['number'] == 1 and b['name'] == 'OVERVIEW', (where, b)
     circle = {'x': b['x'] - b['r'], 'y': b['y'] - b['r'], 'w': 2 * b['r'], 'h': 2 * b['r']}
-    assert 0 <= circle['y'] - (draw['y'] + draw['h']) <= 20, (where, b, draw)
+    # (under the stage line under the drawing)
+    assert 0 <= circle['y'] - (draw['y'] + draw['h'] + STAGE_H) <= 20, (where, b, draw)
     assert circle['y'] + circle['h'] <= da['y'] + da['h'] + 1 and circle['x'] >= da['x'], (where, b, da)
     images = [o for o in out['ops'] if o['op'] == 'image']
     for im in images:

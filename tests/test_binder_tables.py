@@ -870,20 +870,24 @@ def test_a_long_table_reads_the_same_on_its_cont_sheet(variants):
 # a short block (the Cables) is never split to get there.
 
 def test_the_tables_wrap_around_the_map(seeded):
-    """MAIN's power sheet on Tabloid: the 28 x 11 wall over the tables, its
-    circuit table - too long for one column under the wall at a size
-    worth having - running on from one column to the next, the Cables
-    whole in the next, once, everything under the view; no FACTS block
-    (owner, 2026-11-18: the set's one FACTS sheet carries it)."""
+    """MAIN's power sheet on Tabloid: the 28 x 11 wall and its tables. Its
+    circuit table ran on from one column to the next under the wall (the
+    wrap layout); since the view band and the stage line took their share
+    of the sheet (2026-11-19) the wall is stopped by the sheet's height, so
+    the tables stand whole in a column BESIDE it - the circuits, the Cables
+    under them, once, every heading right of the view; no FACTS block
+    (owner, 2026-11-18: the set's one FACTS sheet carries it). (The wrap
+    itself: the 9 x 5 IMAG's sheet, test_binder.py, and the letter Data
+    sheet, test_binder_wide_wall_room.py.)"""
     page = seeded['MAIN - Power - Front View']
-    assert page['layout'] == 'wrap', (page['layout'], page['extent'])
+    assert page['layout'] == 'side', (page['layout'], page['extent'])
     t = [o['t'] for o in page['texts']]
     assert t.count('FACTS') == 0 and t.count('CABLES THIS SCREEN') == 1, t
     view = next(o for o in page['texts'] if o['t'] == 'MAIN · POWER · FRONT VIEW' and o['x'] < 1000)
     at = lambda name: [(o['x'], o['y']) for o in page['texts'] if o['t'] == name]
     circuits, cables = at('CIRCUITS'), at('CABLES THIS SCREEN')
-    # the circuits table in two columns, side by side, its heading repeated
-    assert len(circuits) == 2 and circuits[0][1] == circuits[1][1] and circuits[0][0] < circuits[1][0], circuits
-    # the short block whole, in the next column
-    assert len(cables) == 1 and cables[0][0] > circuits[1][0], (cables, circuits)
-    assert all(y > view['y'] for _x, y in circuits + cables), view
+    # the circuits table whole in one column, the Cables under it
+    assert len(circuits) == 1 and len(cables) == 1, (circuits, cables)
+    assert cables[0][0] == circuits[0][0] and cables[0][1] > circuits[0][1], (cables, circuits)
+    # beside the wall: right of the view under it, never over it
+    assert all(x > view['x'] + 1000 for x, _y in circuits + cables), view
