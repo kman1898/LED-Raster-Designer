@@ -447,7 +447,7 @@ Object.assign(CanvasRenderer.prototype, {
         const sites = [];
         layer.panels.forEach(panel => {
             if (panel.hidden) return;
-            if (panel.x >= this.rasterWidth || panel.y >= this.rasterHeight) return;
+            if (!this.ignoreRasterBounds && (panel.x >= this.rasterWidth || panel.y >= this.rasterHeight)) return;
             
             // Calculate label based on style
             const text = labelOf(panel);
@@ -1547,7 +1547,8 @@ Object.assign(CanvasRenderer.prototype, {
         
         corners.forEach(corner => {
             // Skip if corner is outside raster bounds
-            if (corner.x < 0 || corner.x >= this.rasterWidth || corner.y < 0 || corner.y >= this.rasterHeight) {
+            if (!this.ignoreRasterBounds
+                && (corner.x < 0 || corner.x >= this.rasterWidth || corner.y < 0 || corner.y >= this.rasterHeight)) {
                 return;
             }
             
