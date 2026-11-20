@@ -1874,7 +1874,7 @@ Object.assign(CanvasRenderer.prototype, {
 
     // POWERED BREAKOUT BOXES (owner, 2026-11-18): each box a pill with its
     // name just OUTSIDE the screen's edge nearest the cabinet it is fed at
-    // - the circuit's first cabinet for the start or a fan-out, its last
+    // - the circuit's first cabinet for the start, its last
     // for the end - with a line in the circuit's colour from that cabinet;
     // its daisy chain runs on along the edge, box to box, a dashed TRUE1
     // line between each (gold where the chain is past the thru's rating).
@@ -1906,6 +1906,8 @@ Object.assign(CanvasRenderer.prototype, {
         // is in that member's frame.
         const circuitsOf = new Map();
         const anchorOf = (p) => {
+            // the box's own panel (app-box-power.js boxPowerAnchor)
+            if (typeof app.boxPowerAnchor === 'function') return app.boxPowerAnchor(p);
             if (!circuitsOf.has(p.layer.id)) {
                 circuitsOf.set(p.layer.id, new Map((app.screenCircuits(p.layer) || []).map(c => [Number(c.num), c])));
             }
@@ -1925,7 +1927,11 @@ Object.assign(CanvasRenderer.prototype, {
             }
         }
         if (!mine.length) return;
-        const over = new Set((app.boxPowerChainChecks() || []).map(w => w.head.box.id));
+        // gold: a chain past its rating (its links) and the box a warning
+        // names (its pill: the chain's head, or an XD past its own thru)
+        const checks = app.boxPowerChainChecks() || [];
+        const over = new Set(checks.map(w => w.head.box.id));
+        const overBox = new Set(checks.map(w => (w.box || w.head).box.id));
         const b = this.getLayerBounds(layer);
         const size = Math.max(12, layer.powerLabelSize || 14);
         const font = `bold ${size}px ${projectFontFamily()}`;
@@ -1948,7 +1954,8 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.fillStyle = this.printerMode ? '#ffffff' : '#10202a';
             this.ctx.fill();
             this.ctx.lineWidth = Math.max(1.5, size * 0.14);
-            this.ctx.strokeStyle = this.printerMode ? PRINTER_INK : rimColor;
+            // gold: past its TRUE1 thru's rating (boxPowerChainChecks)
+            this.ctx.strokeStyle = this.printerMode ? PRINTER_INK : (overBox.has(boxId) ? '#c8963a' : rimColor);
             this.ctx.stroke();
             this.ctx.fillStyle = this.printerMode ? PRINTER_INK : '#ffffff';
             this.ctx.textAlign = 'left';
@@ -1963,8 +1970,13 @@ Object.assign(CanvasRenderer.prototype, {
             return { x, y, w, h };
         };
         for (const { p, anchorPanel } of mine) {
+            // a box at a circuit's start says how it is wired in: "on a
+            // TRUE1 2fer" (2026-11-19, every box since 2026-11-20)
+            const wiring = p.layer && typeof app.boxPowerStartWiring === 'function'
+                ? app.boxPowerStartWiring(p) : null;
             const texts = p.chain.map((e, i) => app.boxPowerTitle(e.box)
-                + (i === 0 && p.d ? ` · ${app.boxPowerWhereText(e)}` : ''));
+                + (i === 0 && p.d ? ` · ${app.boxPowerWhereText(e)}` : '')
+                + (i === 0 && wiring ? ` · ${wiring.tag}` : ''));
             this.ctx.font = font;
             const widths = texts.map(n => this.ctx.measureText(n).width + padX * 2);
             let anchor = null, edge = 'top';
@@ -2007,7 +2019,9 @@ Object.assign(CanvasRenderer.prototype, {
                 if (horiz) cx += r.w + step; else cy += h + step;
             });
             drawn.push({ boxes: p.chain.map(e => e.box.id), at: p.at.kind,
-                         circuit: p.layer ? p.at.circuit : null, edge: anchor ? edge : 'top' });
+                         circuit: p.layer ? p.at.circuit : null, edge: anchor ? edge : 'top',
+                         wiring: wiring ? wiring.tag : null,
+                         over: p.chain.filter(e => overBox.has(e.box.id)).map(e => e.box.id) });
             // the feed: the cabinet to the first pill (its own pass, under
             // the discs)
             if (feeds && anchor) {

@@ -6030,7 +6030,11 @@ class _Power {
     _cableCarryBegin(layers) {
         this._circuitTailCache = null;
         const snap = [];
-        this._cableCarryScope(layers).forEach(layer => {
+        const scope = this._cableCarryScope(layers);
+        // a breakout box powered at a circuit's start or end follows its
+        // panel the same way (app-box-power.js, owner 2026-11-19)
+        const boxes = typeof this._boxPowerCarryBegin === 'function' ? this._boxPowerCarryBegin(scope) : [];
+        scope.forEach(layer => {
             const store = layer.powerCircuitCables;
             if (!store || !Object.keys(store).length) return;
             const heads = new Map();
@@ -6045,7 +6049,7 @@ class _Power {
             });
             if (heads.size) snap.push({ layer, heads });
         });
-        return { snap, notes: [], changed: [] };
+        return { snap, boxes, notes: [], changed: [] };
     }
 
     // Move the cables the snapshot saw onto the circuits their first
@@ -6056,6 +6060,9 @@ class _Power {
         if (!carry || carry.applied) return carry;
         carry.applied = true;
         this._circuitTailCache = null;
+        if (typeof this._boxPowerCarryApply === 'function' && this._boxPowerCarryApply(carry.boxes)) {
+            carry.boxesMoved = true;
+        }
         for (const { layer, heads } of carry.snap) {
             if (this._layerLocked(layer)) continue;
             const store = layer.powerCircuitCables || {};
@@ -6136,7 +6143,7 @@ class _Power {
     // cable really moved.
     _cableCarryCommit(carry, action) {
         this._cableCarryApply(carry);
-        if (!carry || !carry.changed.length || carry.committed) return false;
+        if (!carry || (!carry.changed.length && !carry.boxesMoved) || carry.committed) return false;
         carry.committed = true;
         this.saveState(action);
         this.saveClientSideProperties();

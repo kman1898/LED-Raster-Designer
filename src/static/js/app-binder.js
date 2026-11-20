@@ -7643,10 +7643,20 @@ class _Binder {
                 const mine = new Map(units.filter(u => u.carrier === carrier)
                     .flatMap(u => (u.box.circuits || []).map(c => [c.num, c.amps])));
                 for (const c of this.screenCircuits(carrier)) {
-                    if (!(Array.isArray(c.runIds) && c.runIds.length > 1)) continue;
                     if (grouped && !mine.has(c.num)) continue;
-                    shared.push({ cells: [this.getPowerCircuitLabel(carrier, c.num),
-                                          `${c.runIds.length}fer`, this._bAmpsCell(carrier, mine.get(c.num))] });
+                    const label = this.getPowerCircuitLabel(carrier, c.num);
+                    if (Array.isArray(c.runIds) && c.runIds.length > 1) {
+                        shared.push({ cells: [label, `${c.runIds.length}fer`, this._bAmpsCell(carrier, mine.get(c.num))] });
+                    }
+                    // a breakout box's own 2fer at the head of the circuit
+                    // (app-box-power.js, owner 2026-11-19), as the pull
+                    // sheet lists it
+                    const boxes = typeof this.boxPowerExtraTwofers === 'function'
+                        ? this.boxPowerExtraTwofers(carrier, c.num) : [];
+                    for (const p of boxes) {
+                        shared.push({ cells: [`${label} · breakout box ${this.boxPowerTitle(p.head.box)}`, '2fer',
+                                              this._bAmpsCell(carrier, mine.get(c.num))] });
+                    }
                 }
             }
         }
@@ -7660,19 +7670,23 @@ class _Binder {
         return blocks;
     }
 
-    // "breakout box XD SR A at the start" - the boxes riding circuit `num`
-    // of `layer`, for its row in the circuit list; '' with none.
+    // "breakout box XD SR A at the start, on a TRUE1 2fer, other leg to the
+    // panels" - the boxes
+    // riding circuit `num` of `layer`, for its row in the circuit list, a
+    // box at the start with how it is wired in (app-box-power.js
+    // boxPowerStartWiring: on its 2fer); '' with none.
     _bBoxPowerOnText(layer, num) {
         if (typeof this.boxPowerOnCircuit !== 'function') return '';
         const list = this.boxPowerOnCircuit(layer, num);
         if (!list.length) return '';
         const words = list.map(p => {
             const names = p.chain.map(e => this.boxPowerTitle(e.box)).join(' + ');
-            const at = p.at.kind === 'fanout' ? 'on the fan-out' : `at the ${p.at.kind}`;
-            return `${names} ${at}`;
+            const wiring = this.boxPowerStartWiring(p);
+            return `${names} at the ${p.at.kind === 'fanout' ? 'start' : p.at.kind}`
+                + (wiring ? `, ${wiring.words}` : '');
         });
         const n = list.reduce((t, p) => t + p.chain.length, 0);
-        return `${n === 1 ? 'breakout box' : 'breakout boxes'} ${words.join(', ')}`;
+        return `${n === 1 ? 'breakout box' : 'breakout boxes'} ${words.join('; ')}`;
     }
 
     // The Breakout box power table's rows for the boxes riding any circuit
@@ -8710,6 +8724,15 @@ class _Binder {
         out.push(...(typeof this.twoferOverChecks === 'function' ? this.twoferOverChecks() : [])
             .filter(r => r.holders.some(h => sheetLayers.has(String(h.layer.id))))
             .map(r => ['Two-fer over', r.text]));
+        // daisy chains past their TRUE1 thru's rating, and boxes that lost
+        // their power when their panel stopped starting or ending a run
+        // (app-box-power.js)
+        out.push(...(typeof this.boxPowerChainChecks === 'function' ? this.boxPowerChainChecks() : [])
+            .filter(w => w.layer && sheetLayers.has(String(w.layer.id)))
+            .map(w => ['Breakout box', w.text]));
+        out.push(...(typeof this.boxPowerLost === 'function' ? this.boxPowerLost() : [])
+            .filter(x => x.layer && sheetLayers.has(String(x.layer.id)))
+            .map(x => ['Breakout box', x.text]));
         return out;
     }
 
@@ -9800,6 +9823,10 @@ class _Binder {
                     if (ways === 2) gangs.twofer++;
                     else if (ways === 3) gangs.threefer++;
                     else if (ways > 3) addWider(gangs, { wider: { [ways]: 1 } });
+                    // a breakout box's own 2fer counts too (app-box-power.js)
+                    if (typeof this.boxPowerExtraTwofers === 'function') {
+                        gangs.twofer += this.boxPowerExtraTwofers(u.carrier, c.num).length;
+                    }
                 }
             }
             return { circuits: units.reduce((a, u) => a + (u.box.circuits || []).length, 0),

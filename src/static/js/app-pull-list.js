@@ -2116,6 +2116,19 @@ class _PullList {
                 }
                 row(`${inputOf(c).name} ${ways}fer`, 'EA', 1, label, '', at);
             }
+            // Every breakout box at the circuit's start, an XD or XD-T too,
+            // takes a 2fer of the panels' connector at the head of the
+            // circuit: one leg to the box, the other to the panels or into
+            // the circuit's own splitter (app-box-power.js, owner 2026-11-19
+            // and 2026-11-20: a thru never feeds panels). It counts as a 2fer
+            // everywhere 2fers are counted (gangs).
+            if (typeof this.boxPowerExtraTwofers === 'function') {
+                for (const p of this.boxPowerExtraTwofers(layer, c.num)) {
+                    out.gangs.twofer++;
+                    row(`${inputOf(c).name} 2fer`, 'EA', 1, label,
+                        `breakout box ${this.boxPowerTitle(p.head.box)}`, at);
+                }
+            }
             // An Edison or L6-20 breakout reaches the panels through an
             // adapter cable per circuit, "Edison → TRUE1 cable" (the owner,
             // 2026-10-21: never "tail"). A circuit on a direct output has no

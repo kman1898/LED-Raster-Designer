@@ -80,6 +80,10 @@ def get_device(device_id):
 #   230 V 0.2143 A 49.3 W · 240 V 0.2000 A 48.0 W
 # A box with no figure adds nothing (None), and is named where a figure is
 # missing. app-box-power.js boxPowerWattsAt is the page's twin of this.
+# A thru is for daisy chaining boxes only (owner, 2026-11-20): `thruUnits`
+# the boxes one chain is rated for, `thruAmps` what the box's own thru may
+# carry on to the boxes after it, where the maker publishes it (the XD's
+# 2 A; none for the XD-T).
 def box_power_block(device):
     """The `power` block of a catalog box, or None."""
     block = (device or {}).get('power')

@@ -91,6 +91,17 @@ class _History {
                 sendClientLog('multi_numbers_commit_failed', { action, error: String(e && e.message || e) });
             }
         }
+        // A powered breakout box follows its panel (owner, 2026-11-19): a
+        // change that renumbered or took away its circuit moves the box to
+        // its panel's circuit now, or leaves it with no power, in this
+        // same entry (app-box-power.js _boxPowerFollowPanels).
+        if (typeof this._boxPowerFollowPanels === 'function') {
+            try {
+                this._boxPowerFollowPanels();
+            } catch (e) {
+                sendClientLog('box_power_follow_failed', { action, error: String(e && e.message || e) });
+            }
+        }
         // A mirror screen's data map is its source's (2026-10-30): copied
         // onto it before the entry is taken, so undo, redo and save carry
         // the map the canvas draws (app-mirror-screens.js).

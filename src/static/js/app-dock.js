@@ -2982,11 +2982,18 @@ class _HardwareDock {
         for (const text of this.breakerOverLines(this._dockBreakerOver)) {
             this._dockPowerWarnings.push({ text, breaker: true });
         }
-        // A daisy chain of breakout boxes past the TRUE1 thru's rating
+        // A daisy chain of breakout boxes past its TRUE1 thru's rating
+        // (units, and the XD's amps), and a box that
+        // lost its power when its panel stopped starting or ending a run
         // (app-box-power.js): gold, warned, never refused.
         if (typeof this.boxPowerChainChecks === 'function') {
             for (const w of this.boxPowerChainChecks()) {
                 this._dockPowerWarnings.push({ text: w.text, mild: true, boxChain: true });
+            }
+        }
+        if (typeof this.boxPowerLost === 'function') {
+            for (const x of this.boxPowerLost()) {
+                this._dockPowerWarnings.push({ text: x.text, mild: true, boxLost: true });
             }
         }
         // Stamped before ANY early return, so the resize watcher always
