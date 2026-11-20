@@ -2441,6 +2441,11 @@ class _BinderWiring {
         } : null;
 
         // the blocks: the name INSIDE, on its own line under the sockets
+        // (each section named for the sheet's overlay line,
+        // app-binder-overlays.js)
+        const wireWhy = P.isData ? 'data wiring' : 'power wiring';
+        this._bInkMark(book, 'wiring devices', wireWhy);
+        this._bInkCount(book, 'wiring devices', P.blocks.length);
         for (const b of P.blocks) {
             this._bwRound(ctx, b.x, b.y, b.w, b.h, BOX_R * K, WHITE, b.rim, BOX_RIM * K);
             const title = this._bText(book, b.title, b.x + PAD * K, b.titleY || (b.y + TITLE_DY * K),
@@ -2507,12 +2512,18 @@ class _BinderWiring {
         // the wall's own discs are the origin - no second tag is drawn. On
         // power the breakout's hue is carried to them as a ring, so a run
         // and the disc it leaves read as one.
+        this._bInkMark(book, 'disc rings', wireWhy);
         for (const d of P.discs) {
             if (d.end && d.r > 0) {
                 // a box fed from a run's last panel: no label there, so a
-                // dot marks where its line leaves (owner, 2026-11-19)
+                // dot marks where its line leaves (owner, 2026-11-19); its
+                // own overlay on the sheet's log line (app-binder-overlays.js)
+                this._bInkMark(book, 'box end dots', 'box power');
+                this._bInkCount(book, 'box end dots');
                 this._bwSolid(ctx, d.x, d.y, d.r, printer ? INK : (d.hue || INK));
+                this._bInkMark(book, 'disc rings', wireWhy);
             } else if (!printer && !P.isData && d.hue && d.r > 0) {
+                this._bInkCount(book, 'disc rings');
                 this._bwRing(ctx, d.x, d.y, d.r, d.hue, DISC_RIM * K);
             }
             if (log) log.discs.push({ kind: d.kind, text: d.text, x: d.x, y: d.y, r: d.r,
@@ -2521,6 +2532,8 @@ class _BinderWiring {
 
         // the runs, last, so a line can be followed over everything it
         // crosses - each drawn twice, the white casing first
+        this._bInkMark(book, 'wiring runs', wireWhy);
+        this._bInkCount(book, 'wiring runs', P.runs.length);
         for (const r of P.runs) {
             this._bwPath(ctx, r.points, WHITE, r.width + CASE_EXTRA * K, []);
             this._bwPath(ctx, r.points, r.colour, r.width, r.dash);
@@ -2530,10 +2543,12 @@ class _BinderWiring {
                                      through: !!r.through, gap: r.gap || null });
         }
 
+        this._bInkMark(book, 'unplaced note', 'cabinets left unplaced');
         if (P.unplaced) {
             this._bText(book, `${P.unplaced} of ${P.total} not placed on any ${this.showUnitWord()}, no run to draw`,
                         A.x, A.y + A.h - 4 * K, { size: NOTE_SZ * K * 1.15, weight: 400, color: MUTED });
         }
+        this._bInkMark(book, null);
         if (log) book.log.wiring.halves.push(log);
         // the wall it drew, for a caller that rules it (the simple sheet)
         return geo;
