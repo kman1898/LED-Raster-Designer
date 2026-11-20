@@ -61,23 +61,18 @@ def _epoch_ms_arg(name):
 
 
 def _reject_if_not_host():
-    """403 unless the request came from the machine running the app, and
-    from one of the app's own pages there.
+    """403 unless the request came from the machine running the app.
 
     Shares routes_dialog's definition rather than re-testing loopback here.
     A loopback-only test is wrong the moment the launcher binds the server to
     a network interface so the drawing can be opened from another machine -
     the HOST then reaches its own app at that LAN address, and a loopback test
     locks it out of its own logs. A page from another site open in a browser
-    on this computer also comes from this computer's address, so what the
-    browser says sent the request is checked too (routes_dialog
-    foreign_page_reason). Returns a response to return, or None.
+    on this computer also comes from this computer's address; it is refused
+    before this, by app.py refuse_foreign_pages. Returns a response to
+    return, or None.
     """
-    from routes_dialog import _is_same_machine, foreign_page_reason, log_foreign_page
-    foreign = foreign_page_reason()
-    if foreign:
-        log_foreign_page('logs_host_action_rejected_foreign_page', foreign, log_event)
-        return jsonify({'error': "Only the app's own pages can use its log."}), 403
+    from routes_dialog import _is_same_machine
     addr = request.remote_addr or ''
     if _is_same_machine(addr):
         return None
