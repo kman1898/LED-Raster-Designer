@@ -750,10 +750,31 @@ class _BinderWiring {
     // lane whose marks it does not lie on top of, so two runs share a lane
     // wherever their stretches do not meet and the sheet spends no room it
     // does not need. Returns the lane each took and how many there are.
-    _bwLanes(items) {
+    //
+    // `nearer(a, b)`, where given, says item a must take a lane nearer the
+    // wall than item b: a's line up from the wall to its lane stands on b's
+    // line from its lane on to its socket, and with a's lane the further
+    // out the two would share that stretch and print as one (2026-11-20).
+    // Such an item waits for every item that must stand nearer than it and
+    // then takes the lowest free lane past theirs; with no such pair the
+    // lanes are handed out exactly as they always were. A ring of such
+    // waits (each run's line on the other's) is broken by the order given.
+    _bwLanes(items, nearer = null) {
         const taken = [];
-        for (const it of items) {
+        const need = items.map(() => []);
+        if (nearer) {
+            items.forEach((a, i) => items.forEach((b, j) => {
+                if (i !== j && nearer(a, b)) need[j].push(i);
+            }));
+        }
+        const done = items.map(() => false);
+        for (let placed = 0; placed < items.length; placed++) {
+            let idx = items.findIndex((_it, i) => !done[i] && need[i].every(q => done[q]));
+            if (idx < 0) idx = done.indexOf(false);
+            const it = items[idx];
+            done[idx] = true;
             let k = 0;
+            for (const q of need[idx]) if (done[q] && q !== idx) k = Math.max(k, items[q].lane + 1);
             for (; ; k++) {
                 const on = taken[k] || (taken[k] = []);
                 if (on.every(([lo, hi]) => it.hi <= lo + 0.01 || it.lo >= hi - 0.01)) {
@@ -764,6 +785,59 @@ class _BinderWiring {
             it.lane = k;
         }
         return taken.length;
+    }
+
+    // THE LANES BY THE WALL ON A BOX'S SIDE (2026-11-20). A run there has a
+    // line up from the wall to its lane (`up`: the stub off its disc, or the
+    // rail it came along) and a line from its lane on to its socket (`on`).
+    // Handed out first-fit in the order the runs come, a run could take a
+    // lane further out than another run whose socket stands over its stub -
+    // and then its stub went on up along that run's drop, the two printing
+    // as one line. On a sheet whose wall is short and narrow (four boxes a
+    // side on letter, A3, ARCH C, tabloid without its title block) a disc is
+    // smaller than a run's pen, so no way off it steps aside, and the nudge
+    // never moves a run's first or last line. So where the lanes as they
+    // always were put any run's line up within `pen` of another's line on
+    // past it, they are handed out again with that run nearer the wall
+    // (_bwLanes' `nearer`), in whichever of a few orders - as they came,
+    // left to right, or nested one way round or the other - wants the
+    // fewest lanes and then crosses least; a sheet with no such pair is
+    // laid out exactly as it always was. Returns the lanes wanted.
+    _bwNearLanes(items, up, on, pen) {
+        const E = 0.01;
+        let n = this._bwLanes(items);
+        const nearer = (a, b) => Math.abs(up(a) - on(b)) < pen;
+        const clash = (list) => list.some(a => list.some(b => a !== b && nearer(a, b) && a.lane >= b.lane));
+        if (!clash(items)) return n;
+        // a horizontal crossing another run's line up (it stands past the
+        // other's lane) or its line on (it stands inside it)
+        const cross = (list) => {
+            let c = 0;
+            for (const a of list) {
+                for (const b of list) {
+                    if (a === b) continue;
+                    const u = up(b), o = on(b);
+                    if (u > a.lo + E && u < a.hi - E && a.lane < b.lane) c++;
+                    if (o > a.lo + E && o < a.hi - E && a.lane > b.lane) c++;
+                }
+            }
+            return c;
+        };
+        const left = (it) => on(it) < up(it);
+        const nest = (first) => items.slice().sort((a, b) => ((left(a) === first ? 0 : 1) - (left(b) === first ? 0 : 1))
+            || (left(a) ? up(a) - up(b) : up(b) - up(a)));
+        const orders = [items, items.slice().sort((a, b) => (a.lo - b.lo) || (a.hi - b.hi)), nest(true), nest(false)];
+        let best = null;
+        for (const order of orders) {
+            const list = order.map(it => ({ ...it }));
+            const m = this._bwLanes(list, nearer);
+            const c = cross(list);
+            if (!best || m < best.m || (m === best.m && c < best.c)) best = { m, c, list };
+        }
+        const of = new Map(best.list.map(it => [it.p, it.lane]));
+        for (const it of items) it.lane = of.get(it.p);
+        n = best.m;
+        return n;
     }
 
     // The turns a run through a channel makes in the corridor, from its
@@ -1640,6 +1714,35 @@ class _BinderWiring {
                     G.forEach((p, i) => { p.tx = was[i]; });
                     L = this._bwTurns(G.map(p => ({ p, x: p.tx, t: p.sx })), CLR * K);
                 }
+                // A RING (2026-11-20): two runs that change places, each up
+                // its channel within a pen of the other's stub. The lanes by
+                // the wall part a run's stub from a line it stands on by
+                // turning that run nearer the wall (_bwNearLanes), but of two
+                // such runs each would have to be nearer than the other, and
+                // whichever is not prints its stub along the other's line.
+                // So a run in a ring steps along its channel, between its
+                // neighbours, off the other's stub - as little as it can -
+                // where the corridor still holds the turns that wants.
+                const onOf = (q) => (q.v ? q.tx : q.sx);
+                const ups = plans.filter(q => q.edge === s && Number.isFinite(q.stub.at));
+                const ring = (p, x) => p.edge === s && ups.some(q => q !== p
+                    && Math.abs(x - q.stub.at) < pen2 && Math.abs(onOf(q) - p.stub.at) < pen2);
+                for (const B of inChannel.values()) {
+                    B.forEach((p, i) => {
+                        if (!ring(p, p.tx)) return;
+                        const a = Math.max(A.x + p.v.c0 * K, i ? B[i - 1].tx + sp : -Infinity);
+                        const z = Math.min(A.x + p.v.c1 * K, i < B.length - 1 ? B[i + 1].tx - sp : Infinity);
+                        const xs = [a, z, ...ups.flatMap(q => [q.stub.at - pen2 - 0.01, q.stub.at + pen2 + 0.01])]
+                            .filter(x => x >= a - 0.01 && x <= z + 0.01 && !ring(p, x))
+                            .sort((u, w) => Math.abs(u - p.tx) - Math.abs(w - p.tx));
+                        if (!xs.length) return;
+                        const at = p.tx;
+                        p.tx = xs[0];
+                        const L2 = this._bwTurns(G.map(q => ({ p: q, x: q.tx, t: q.sx })), CLR * K);
+                        if (corrOf(s, ri) * K / (L2.n + 1) < pen2 + K) p.tx = at;
+                        else L = L2;
+                    });
+                }
                 for (const p of G) {
                     const step = corrOf(s, ri) * K / (L.n + 1);
                     const lane = L.of.has(p) ? L.of.get(p) : -1;
@@ -1736,7 +1839,12 @@ class _BinderWiring {
                         .map(p => span(p, p.stub.at, acrossAt(p))),
                     far.filter(p => acrossAt(p) >= p.stub.at).sort((a, b) => b.stub.at - a.stub.at)
                         .map(p => span(p, p.stub.at, acrossAt(p))));
-                const nNear = this._bwLanes(nearSpans), nFar = this._bwLanes(farSpans);
+                // (a near run's line up from the wall is its stub, or the
+                // rail it came along; its line on, its drop or its channel:
+                // _bwNearLanes keeps the one off the other)
+                const upOf = (it) => (railX.has(it.p) ? railX.get(it.p) : it.p.stub.at);
+                const nNear = this._bwNearLanes(nearSpans, upOf, (it) => it.p.tx, 2 * pad);
+                const nFar = this._bwLanes(farSpans);
                 const n = nNear + nFar;
                 // counted out from the wall: the near lanes first, nearest
                 // the wall in the order they were handed out; the far lanes

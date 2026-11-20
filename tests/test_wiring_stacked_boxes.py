@@ -117,14 +117,31 @@ SEED_JS = """async ([cols, cards]) => {
     return {wall: wall.id};
 }"""
 
-# The screen's DATA WIRING sheet, as the binder logs it.
+# The screen's DATA WIRING sheet, as the binder logs it. `room`, where
+# given, takes { top, side } page units off the drawing's room - a band
+# over the drawing (a map sheet's view band takes 120) and a strip off
+# either side - for as long as the sheet is laid out and painted.
 SHEET_JS = """(opts) => {
     const app = window.app;
-    const plan = app.planBinder(opts);
-    const idx = plan.findIndex(p => /data wiring/i.test(p.title || ''));
-    if (idx < 0) return { missing: true, plan: plan.map(p => p.title) };
-    const r = app.renderBinderPage(opts, idx);
-    return { halves: (r.wiring || {}).halves || [], title: plan[idx].title };
+    const room = opts.room || null;
+    const had = Object.prototype.hasOwnProperty.call(app, '_bwArea');
+    const own = app._bwArea;
+    if (room) {
+        app._bwArea = function (book) {
+            const a = own.call(this, book);
+            return { ...a, half: { x: a.half.x + room.side, y: a.half.y + room.top,
+                                   w: a.half.w - 2 * room.side, h: a.half.h - room.top } };
+        };
+    }
+    try {
+        const plan = app.planBinder(opts);
+        const idx = plan.findIndex(p => /data wiring/i.test(p.title || ''));
+        if (idx < 0) return { missing: true, plan: plan.map(p => p.title) };
+        const r = app.renderBinderPage(opts, idx);
+        return { halves: (r.wiring || {}).halves || [], title: plan[idx].title };
+    } finally {
+        if (had) app._bwArea = own; else delete app._bwArea;
+    }
 }"""
 
 # _bwAcross on boxes made up for it: rows of { w, sockets } per side.
@@ -165,8 +182,8 @@ def page(e2e_server, pw_browser):
     context.close()
 
 
-def _half(pg, palette='colour', view='front'):
-    out = pg.evaluate(SHEET_JS, {**OPTS, 'palette': palette, 'view': view})
+def _half(pg, palette='colour', view='front', **more):
+    out = pg.evaluate(SHEET_JS, {**OPTS, 'palette': palette, 'view': view, **more})
     assert not out.get('missing'), out
     halves = out['halves']
     assert len(halves) == 1, out
@@ -237,11 +254,34 @@ def _cuts(a, b, c, d):
             and min(v0[1], v1[1]) + 0.01 < y < max(v0[1], v1[1]) - 0.01)
 
 
+# Where the runs go hangs on the room the sheet gives the drawing: its
+# paper, the title block, the side it is seen from, and anything else
+# drawn over it. Two runs printed as one on tabloid with the title block
+# off, on letter, A3 and ARCH C (2026-11-20) - a stub up out of the wall
+# lay along another run's drop into its socket - while tabloid with the
+# block on, the one sheet this guarded, happened to be clear. So every
+# paper, the block on and off, front and rear, and each with the room a
+# view band over the drawing (120 high) and the stage strips beside it
+# (48 a side) would leave.
+ROOMS = {'whole': None, 'banded': {'top': 120, 'side': 48}, 'band only': {'top': 120, 'side': 0}}
+
+
+@pytest.mark.parametrize('room', list(ROOMS))
 @pytest.mark.parametrize('view', ['front', 'rear'])
-@pytest.mark.parametrize('palette', ['colour', 'printer'])
-def test_no_run_crosses_a_box_with_four_boxes_a_side(page, palette, view):
+@pytest.mark.parametrize('block', [True, False], ids=['block', 'no block'])
+@pytest.mark.parametrize('sheet', ['letter', 'tabloid', 'a3', 'archc'])
+def test_no_run_crosses_a_box_with_four_boxes_a_side(page, sheet, block, view, room):
+    _no_run_crosses_a_box(page, 'colour', view, sheet=sheet, titleBlock=block, room=ROOMS[room])
+
+
+@pytest.mark.parametrize('view', ['front', 'rear'])
+def test_no_run_crosses_a_box_on_the_press(page, view):
+    _no_run_crosses_a_box(page, 'printer', view)
+
+
+def _no_run_crosses_a_box(page, palette, view, **more):
     pg, errors = page
-    h = _half(pg, palette, view)
+    h = _half(pg, palette, view, **more)
     sides = [b['side'] for b in h['blocks']]
     assert sides.count('top') >= 4 and sides.count('bottom') >= 4, sides
     # the layout this guards: a side whose boxes take a second row
@@ -315,6 +355,43 @@ def test_the_turns_in_the_corridor_cross_nothing(page):
                         bad.append((r['from'], o['from'], round(y, 1)))
     assert turned, 'no run turned in a corridor'
     assert bad == [], bad[:6]
+
+
+# _bwLanes on spans made up for it: each { lo, hi, up (the line up from
+# the wall), on (the line on to its socket) }; a span whose line up stands
+# on another's line on must take the lane nearer the wall.
+LANES_JS = """([spans, rule]) => {
+    const app = window.app;
+    const items = spans.map(s => ({ ...s }));
+    const n = app._bwLanes(items, rule ? (a, b) => Math.abs(a.up - b.on) < 1 : null);
+    return { n, lanes: items.map(i => i.lane) };
+}"""
+
+
+def test_a_line_up_from_the_wall_never_runs_on_up_another_runs_drop(page):
+    """Two runs whose stretches along the lanes do not meet share a lane,
+    as they always did - but where one's line up from the wall stands on
+    the other's line down from its socket, the first turns on a lane
+    nearer the wall, so the two never share a stretch of that line."""
+    pg, _ = page
+    # The first's stub comes up at 100, where the third's drop comes down at
+    # 100.5. Their stretches along the lane do not meet, so they used to
+    # share a lane - or, handed out the other way, the first's stub went on
+    # up past the third's lane along the third's drop.
+    spans =[{'lo': 0, 'hi': 100, 'up': 100, 'on': 0},
+             {'lo': 200, 'hi': 300, 'up': 300, 'on': 200},
+             {'lo': 100.5, 'hi': 160, 'up': 160, 'on': 100.5}]
+    plain = pg.evaluate(LANES_JS, [spans, False])
+    assert plain == {'n': 1, 'lanes': [0, 0, 0]}, plain
+    # with the rule: the third's stub (at 160) stands on nothing, but the
+    # first's stub (at 100) stands on the third's drop (at 100.5)
+    ruled = pg.evaluate(LANES_JS, [spans, True])
+    assert ruled['lanes'][0] < ruled['lanes'][2], ruled
+    assert ruled['lanes'][1] == 0, ruled
+    # a ring (each one's stub on the other's drop) still gives every span a lane
+    ring = [{'lo': 0, 'hi': 50, 'up': 0, 'on': 50}, {'lo': 50.2, 'hi': 90, 'up': 50, 'on': 0}]
+    out = pg.evaluate(LANES_JS, [ring, True])
+    assert len(out['lanes']) == 2 and all(isinstance(v, int) for v in out['lanes']), out
 
 
 def test_the_same_sheet_twice_draws_the_same(page):
