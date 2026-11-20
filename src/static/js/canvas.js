@@ -831,7 +831,12 @@ class CanvasRenderer {
         // v0.9.3: while a screen is rotated (Pixel Map / Cabinet ID) the raster
         // rect would be repositioned in the rotated space and would trim the
         // rotated content; skip it (the export canvas edge still bounds output).
-        if (this._layerRotating) return;
+        // Nor where the render is told the raster bounds nothing (a binder
+        // sheet's one screen, ignoreRasterBounds): its panels are drawn
+        // wherever they stand, so its runs, discs and labels are too - a
+        // screen further down the canvas than the raster reached printed
+        // its cabinets with no circuit on them.
+        if (this._layerRotating || this.ignoreRasterBounds) return;
         const dx = this._renderDx || 0;
         const dy = this._renderDy || 0;
         this.ctx.beginPath();
