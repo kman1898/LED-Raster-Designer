@@ -712,13 +712,12 @@ class CanvasRenderer {
             // (canvas-power.js renderBoxPower)
             this.renderBoxPower(layer, 'feeds');
             this.renderPowerArrows(layer);
-            // A ganged circuit says so on the wall: the Nfer
-            // bracket under its runs' feet (2026-08-30). Always
-            // on - a share that barely reads is the problem it
-            // exists to fix - and in exports too: it lives
-            // BELOW the screen, the soca brackets above, so
-            // the two never fight.
-            this.renderNferBrackets(layer);
+            // No line under a ganged circuit's feet: the grey Nfer
+            // bracket (2026-08-30) lost its "2fer" pill to the label
+            // disc on 2026-09-15 and then read as an unexplained mark
+            // ("i have no idea what this is", 2026-11-20). The pill
+            // by the label and the binder's Shared circuits table say
+            // which runs share.
             // A breakout box powered from a circuit (or off a distro
             // beside the screen it feeds), and its daisy chain
             // (app-box-power.js) - in exports too.

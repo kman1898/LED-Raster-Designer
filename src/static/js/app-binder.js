@@ -61,7 +61,7 @@
 //
 // The map IS the canvas renderer's own drawing in exportMode - runs,
 // arrowheads, label discs sized to their text, the cable tags where the
-// screen's Show Cable Tags switch is on, the gang brackets where its 2fer
+// screen's Show Cable Tags switch is on, the 2fer / 3fer pills where its 2fer
 // switch is on. Those switches are the user's documentation choices and
 // the binder follows them; it forces nothing on. The one thing the sheet
 // takes off the wall is the screen-name plate (hideScreenNames): the title

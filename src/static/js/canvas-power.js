@@ -1,4 +1,4 @@
-// canvas.js mixin: The power pass: circuit colours and keys, the run arrows, soca and gang (Nfer) brackets, cable tags, the power error overlay.
+// canvas.js mixin: The power pass: circuit colours and keys, the run arrows, soca brackets, cable tags and gang (Nfer) pills, the power error overlay.
 // Classic script. Loads after canvas.js (which declares class CanvasRenderer)
 // and before main.js; every method here lands on CanvasRenderer.prototype by
 // name, so a name defined in two canvas-*.js files is a silent overwrite -
@@ -1090,63 +1090,6 @@ Object.assign(CanvasRenderer.prototype, {
         return gang.over
             ? { fill: '#d05a52', rim: '#ffffff', ink: NFER_TAG_COLORS.ink }
             : NFER_TAG_COLORS;
-    },
-
-    // A committed gang's face on the wall (2026-08-30, "B and then right
-    // click"): a bracket spanning the ganged runs' FEET - red when the
-    // shared circuit is past the screen's amps figure. The concept mock's
-    // after-strips promised exactly this; before it a share barely read on
-    // the map at all. Drawn from the layer's own power pass, so it inherits
-    // every transform the runs get, and it draws in exports too - the soca
-    // brackets live ABOVE the screen, this below, so the two never
-    // collide. Cross-member circuits keep the bracket on the OWNER's own
-    // cabinets: a peer's cabinets live in the peer's frame and a span
-    // computed across frames would land nowhere.
-    // The "2fer" / "3fer" pill used to float on this line, and on a wall
-    // of row runs the line is a row seam a long way from the runs' heads:
-    // "the drawing isn't obvious what it is connected to" (2026-09-15).
-    // The pill now hangs off the shared circuit's own label disc with its
-    // cable tag - "it should just connect to 10' True1 for example. just
-    // put it right above that or under it" - see renderPowerArrows'
-    // drawCableTags. The bracket itself is unchanged.
-    renderNferBrackets(layer) {
-        const gangs = this._nferGangs(layer);
-        if (!gangs.length) return;
-        const labelSize = Math.max(10, (layer.powerLabelSize || 14) * 0.8);
-        this.ctx.save();
-        for (const c of gangs) {
-            const own = c.layers
-                ? c.panels.filter((p, i) => !c.layers[i]
-                    || c.layers[i] === layer || c.layers[i].id === layer.id)
-                : c.panels;
-            if (!own.length) continue;
-            let x1 = Infinity, x2 = -Infinity, yBot = -Infinity;
-            own.forEach(p => {
-                x1 = Math.min(x1, Number(p.x) || 0);
-                x2 = Math.max(x2, (Number(p.x) || 0) + (Number(p.width) || 0));
-                yBot = Math.max(yBot,
-                    (Number(p.y) || 0) + (Number(p.height) || 0));
-            });
-            if (!Number.isFinite(x1) || !Number.isFinite(x2)
-                    || !Number.isFinite(yBot)) continue;
-            // The tray's gang tag's grey; red only when OVER.
-            const color = this._ink(c.over ? '#d05a52' : NFER_TAG_COLORS.rim);
-            // Hugging the gang's own boundary: below the screen for
-            // column runs (the clean mock look), ON the row seam for
-            // horizontal runs - either way, the line under "these runs
-            // share one feed".
-            const y = yBot + labelSize * 0.25;
-            const tick = labelSize * 0.45;
-            this.ctx.lineWidth = Math.max(1.5, labelSize * 0.12);
-            this.ctx.strokeStyle = color;
-            this.ctx.beginPath();
-            this.ctx.moveTo(x1 + 2, y - tick);
-            this.ctx.lineTo(x1 + 2, y);
-            this.ctx.lineTo(x2 - 2, y);
-            this.ctx.lineTo(x2 - 2, y - tick);
-            this.ctx.stroke();
-        }
-        this.ctx.restore();
     },
 
     // The cable tag: "10' True1" in the mock's gold on near-black with a

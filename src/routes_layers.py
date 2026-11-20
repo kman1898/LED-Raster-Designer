@@ -551,7 +551,7 @@ def update_layer(layer_id):
                 'beachId',
                 'showDataFlowPortInfo', 'showDataFlowPortLoad',
                 'showPowerCircuitInfo',
-                # The 2fer / 3fer tag switch on the Nfer bracket (default
+                # The 2fer / 3fer tag switch (default
                 # on; only an explicit false hides the text).
                 'showPowerNferTags',
                 # The cable tag beside a circuit's label (default off;

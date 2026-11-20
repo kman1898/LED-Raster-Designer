@@ -21,8 +21,8 @@ really drew, in the bitmap's pixels):
     shared disc;
   - with Show Cable Tags off the pill takes the cable tag's place by the
     disc (the slot nearest it, on the same side, centred the same); with
-    Show 2fer/3fer Tags off there is no pill at all (the bracket under the
-    feet stays - it is not touched here);
+    Show 2fer/3fer Tags off there is no pill at all (no bracket line is
+    drawn under the feet since 2026-11-20);
   - the pill never covers a disc, a tag or another pill, and stays inside
     its wall; the same at any zoom and on a rotated screen, where the
     stack is a stack ON THE PAGE (the tags are placed in the upright frame
