@@ -36,7 +36,18 @@ app = Flask(__name__,
             template_folder=os.path.join(BASE_DIR, 'templates'),
             static_folder=os.path.join(BASE_DIR, 'static'))
 app.config['SECRET_KEY'] = 'led-raster-designer-secret'
-socketio = SocketIO(app, cors_allowed_origins="*")
+
+
+def _socket_origin_allowed(origin, environ):
+    # A page's socket only from the app's own pages: one on another site
+    # would hear the whole show on connect (routes_dialog
+    # socket_origin_allowed; imported here, as the routes import this
+    # module).
+    from routes_dialog import socket_origin_allowed
+    return socket_origin_allowed(origin, environ)
+
+
+socketio = SocketIO(app, cors_allowed_origins=_socket_origin_allowed)
 
 
 # Every socket message goes out as a SNAPSHOT of what it carries. The
@@ -518,6 +529,34 @@ def log_request():
             })
     except Exception:
         pass
+
+
+# ── Only the app's own pages read or change the show ──────────────────
+#
+# Every /api/ route reads or changes the show, the computer it runs on, or
+# both. A page on any other site, open in a browser on this computer or on
+# the LAN, can send requests to the app, and a form or a body-less POST
+# goes without the browser asking first: File > New, Quit, Install update,
+# a file written to disk. And a site whose name is pointed at this
+# computer after its page loaded reads every answer. So each request is
+# asked what the browser says sent it and which Host it names
+# (routes_dialog page_reason), and one from anywhere but the app's own
+# pages is refused with a 403 and a log line. The page HTML (the app, the
+# IDM phone page, the output window) and its static files stay open: a
+# link or a QR code from anywhere opens the app, and the pages hold no show
+# until they ask these routes for it. The page log has its own check,
+# which counts refusals rather than logging each (routes_logs client_log).
+@app.before_request
+def refuse_foreign_pages():
+    path = request.path
+    if not path.startswith('/api/') or path == '/api/log':
+        return None
+    from routes_dialog import foreign_page_reason, log_foreign_page
+    reason = foreign_page_reason()
+    if not reason:
+        return None
+    log_foreign_page('request_rejected_foreign_page', reason)
+    return jsonify({'ok': False, 'error': "Only the app's own pages can use this."}), 403
 
 
 @app.errorhandler(Exception)
@@ -2866,6 +2905,15 @@ def _rebuild_layer_geometry_from_panel_states(layer):
 
 @socketio.on('connect')
 def handle_connect():
+    # The socket's handshake was asked the Origin already (the allowed
+    # origins above); a page whose site name was pointed at this computer
+    # sends none, and only its Host gives it away. Refused before the show
+    # goes out.
+    from routes_dialog import foreign_page_reason, log_foreign_page
+    reason = foreign_page_reason()
+    if reason:
+        log_foreign_page('socket_rejected_foreign_page', reason)
+        return False
     print('Client connected')
     # The page's id rides on the socket's query: a launch page closed with
     # its start page still open gives it up once its socket is gone

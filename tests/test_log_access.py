@@ -35,8 +35,12 @@ def written(monkeypatch):
     def spy(action, details=None, source='server'):
         lines.append((action, details, source))
 
+    import routes_dialog
     monkeypatch.setattr(routes_logs, 'log_event', spy)
     monkeypatch.setattr(routes_logs, '_clients', {})
+    # refusals of pages from other sites (app.py refuse_foreign_pages)
+    monkeypatch.setattr(routes_dialog, 'log_event', spy)
+    monkeypatch.setattr(routes_dialog, '_refusals', {})
     return lines
 
 
@@ -236,7 +240,7 @@ def test_a_page_from_another_site_on_this_computer_is_refused(
                       data=json.dumps({'action': 'forged'}), content_type='text/plain')
     assert res.status_code == 403
     assert _client_lines(written) == []
-    refused = [w for w in written if w[0] == 'logs_host_action_rejected_foreign_page']
+    refused = [w for w in written if w[0] == 'request_rejected_foreign_page']
     assert len(refused) == 3
     assert {r[1]['path'] for r in refused} == {'/api/logs', '/api/logs/reveal'}
 
@@ -337,7 +341,7 @@ def test_a_real_page_from_another_site_cannot_reach_the_log(
 
         def seen():
             refused_writes = sum(st['refused'] for st in routes_logs._clients.values())
-            lines = [w for w in written if w[0] == 'logs_host_action_rejected_foreign_page']
+            lines = [w for w in written if w[0] == 'request_rejected_foreign_page']
             return refused_writes, lines
         refused_writes, refused = settled(pg, seen, lambda s: s[0] >= 2 and len(s[1]) >= 2)
         # the beacon and the post both reached the server and were refused
