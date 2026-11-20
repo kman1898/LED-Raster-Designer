@@ -1563,6 +1563,9 @@ class _Binder {
                  logo: log.logo || null, wiring: log.wiring || null, fiber: log.fiber || null,
                  simple: log.simple || null,
                  mapBitmaps: log.mapBitmaps || [],
+                 // what the sheet's map drew, as its log line says it
+                 // (app-binder-overlays.js)
+                 overlays: (book.overlayLog && book.overlayLog[0]) || null,
                  page: plan[index] || null, pages: plan.length, sheet: book.sheet };
     }
 
@@ -6436,6 +6439,7 @@ class _Binder {
                 const x = side === 'R'
                     ? geo.wall.x + geo.wall.w + reach.right + BR_BASE.R + depth * step.R
                     : geo.wall.x - reach.left - BR_BASE.L - depth * step.L;
+                this._bInkCount(book, 'gutter brackets');
                 ctx.strokeStyle = INK;
                 ctx.lineWidth = 3;
                 ctx.setLineDash([]);
@@ -9491,20 +9495,26 @@ class _Binder {
             r.panX = -x1 * zoom * S;
             r.panY = -y1 * zoom * S;
             r.render();
+            // (the sheet's overlay line names these, app-binder-overlays.js)
+            this._bInkMark(book, 'map ground', 'overview');
             book.ctx.fillStyle = '#f4f4f4';
             book.ctx.fillRect(dx, dy, drawW, drawH);
             // every screen the show has on (the show map leaves the
             // user's own visibility alone), as the renderer just drew them
             this._bLayMapBitmap(book, off, [dx, dy, drawW, drawH], '#f4f4f4',
                 () => this._bMapSplitBlocker({ view: 'show-look', clipped: true }));
+            this._bInkMark(book, 'map frame', 'overview');
             book.ctx.strokeStyle = RULE;
             book.ctx.lineWidth = 2;
             book.ctx.setLineDash([]);
             book.ctx.strokeRect(dx, dy, drawW, drawH);
             // every screen's own outline, both palettes
+            this._bInkMark(book, 'screen outlines', 'overview');
+            this._bInkCount(book, 'screen outlines', screenRects.length);
             book.ctx.strokeStyle = INK;
             book.ctx.lineWidth = 3;
             for (const sr of screenRects) book.ctx.strokeRect(sr.x, sr.y, sr.w, sr.h);
+            this._bInkMark(book, null);
         } finally {
             r.canvas = saved.canvas; r.ctx = saved.ctx; r.exportMode = saved.exportMode;
             r.exportTransparentBg = saved.transparent; r.printerMode = saved.printer;
