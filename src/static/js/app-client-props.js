@@ -243,7 +243,7 @@ class _ClientProps {
             // and export exactly as it did before.
             if (layer.showDataFlowPortLoad === undefined) layer.showDataFlowPortLoad = false;
             if (layer.showPowerCircuitInfo === undefined) layer.showPowerCircuitInfo = false;
-            // The 2fer / 3fer tag on a shared circuit's bracket defaults ON;
+            // The 2fer / 3fer tag beside a shared circuit's label defaults ON;
             // the switch exists because "i need a way to disable the
             // twofer/3fer text on the screen if i dont want it there"
             // (2026-09-06). A project saved before the switch keeps its tags.

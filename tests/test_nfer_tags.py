@@ -1,9 +1,9 @@
 """The 2fer / 3fer tag of a shared circuit, and the switch that hides it.
 
 "i need a way to disable the twofer/3fer text on the screen if i dont want it
-there." (user, 2026-09-06). The Nfer bracket under a ganged circuit's runs
-(canvas-power.js renderNferBrackets) is the share itself and always draws;
-the tag pill - "2fer", "3fer", "2fer · OVER" - is TEXT the user may not want
+there." (user, 2026-09-06). The grey Nfer bracket that once ran under a
+ganged circuit's feet is gone (2026-11-20: on its own it read as an
+unexplained line), so nothing under the runs marks a share; the tag pill - "2fer", "3fer", "2fer · OVER" - is TEXT the user may not want
 on the wall. Since 2026-09-15 the pill hangs off the shared circuit's label
 disc with its cable tag (renderPowerArrows' drawCableTags; the geometry is
 tests/test_nfer_brackets.py's) rather than on the bracket - "the drawing
@@ -84,10 +84,11 @@ SETUP_JS = """async () => {
     };
 }"""
 
-# What the bracket pass and the label pass put on the canvas: every
-# stroke() of renderNferBrackets (one per bracket - called directly so the
-# stroke count is the bracket count and nothing else's), and from the power
-# view's own render every fer / OVER fillText (the pill's text) with the
+# What the power view puts on the canvas: `bracket` is whether the old
+# Nfer bracket pass still exists (it must not), `under` counts the stroked
+# segments drawn BELOW the wall's bottom edge across the gang's width (the
+# bracket's place - nothing else draws there), and from the power view's
+# own render every fer / OVER fillText (the pill's text) with the
 # fill it was painted in and the rim stroked right before it.
 BRACKET_PASS_JS = """() => {
     const app = window.app, r = window.canvasRenderer, ctx = r.ctx;
@@ -96,8 +97,10 @@ BRACKET_PASS_JS = """() => {
     const texts = [];
     let strokes = 0, pillStrokes = 0;
     const pill = {};
-    ctx.stroke = function () { if (ctx.lineWidth >= 1.5) strokes++; return oS.apply(ctx, arguments); };
-    try { r.renderNferBrackets(layer); } finally { ctx.stroke = oS; }
+    const bracket = typeof r.renderNferBrackets === 'function';
+    const yBot = Math.max(...layer.panels.map(p => (Number(p.y) || 0) + (Number(p.height) || 0)));
+    const oL = ctx.lineTo;
+    let under = 0;
     // the pill: its rim is the thin stroke right before its text
     let lastThin = null;
     ctx.fillText = function (t, x, y, w) {
@@ -105,9 +108,12 @@ BRACKET_PASS_JS = """() => {
         return oT.call(ctx, t, x, y, w);
     };
     ctx.stroke = function () { if (ctx.lineWidth < 1.5) lastThin = ctx.strokeStyle; return oS.apply(ctx, arguments); };
+    // in the layer's own frame, a segment end past the wall's foot is the
+    // bracket's place (the soca brackets live above the wall)
+    ctx.lineTo = function (x, y) { if (Number(y) > yBot + 0.5) under++; return oL.apply(ctx, arguments); };
     const prev = r.viewMode;
-    try { r.viewMode = 'power'; r.render(); } finally { ctx.fillText = oT; ctx.stroke = oS; r.viewMode = prev; }
-    return { strokes, pillStrokes, texts, flag: layer.showPowerNferTags, pill, labelBg: layer.powerLabelBgColor || '#D95000' };
+    try { r.viewMode = 'power'; r.render(); } finally { ctx.fillText = oT; ctx.stroke = oS; ctx.lineTo = oL; r.viewMode = prev; }
+    return { bracket, under, strokes, pillStrokes, texts, flag: layer.showPowerNferTags, pill, labelBg: layer.powerLabelBgColor || '#D95000' };
 }"""
 
 # Every fillText the real render pass paints in power view - interactively
@@ -188,15 +194,15 @@ def _served_flag(page, layer_id, expect, timeout_ms=4000):
     return served
 
 
-def test_a_fresh_screen_draws_the_bracket_and_the_tag(page):
+def test_a_fresh_screen_draws_the_tag_and_no_bracket(page):
     """Default ON: a screen that never had the key draws its 2fer tag - the
-    checkbox shows ticked, the bracket strokes once, the pill says 2fer."""
+    checkbox shows ticked, no bracket line under the runs, the pill says 2fer."""
     state = page.evaluate(STATE_JS)
     assert state['flag'] is True, state
     assert state['visible'] and state['checked'], (
         f'the switch must sit ticked under Show Circuit Info: {state}')
     out = page.evaluate(BRACKET_PASS_JS)
-    assert out['strokes'] == 1, f'one shared circuit, one bracket: {out}'
+    assert not out['bracket'] and out['under'] == 0, f'no bracket under the shared runs: {out}'
     assert out['texts'] == ['2fer'], out
     frame = page.evaluate(FRAME_TEXTS_JS)
     assert frame['interactive'] == ['2fer'], frame
@@ -213,11 +219,11 @@ def test_a_project_without_the_key_keeps_its_tags(page):
         try { return (%s)(); } finally { l.showPowerNferTags = saved; }
     }""" % BRACKET_PASS_JS)
     assert out['flag'] is None, out
-    assert out['strokes'] == 1 and out['texts'] == ['2fer'], out
+    assert out['under'] == 0 and out['texts'] == ['2fer'], out
 
 
-def test_unticking_hides_the_text_and_keeps_the_bracket(page):
-    """The switch off: the bracket still strokes, no fer text - on screen
+def test_unticking_hides_the_text(page):
+    """The switch off: no fer text - on screen
     and in the export pass alike. The flag lands on the layer and on the
     server, so a reload keeps the choice. The toggle is one history step:
     undo restores the tag (and re-ticks the box from the restored layer),
@@ -231,7 +237,7 @@ def test_unticking_hides_the_text_and_keeps_the_bracket(page):
         f'the toggle must be one named history step: {state}')
 
     out = page.evaluate(BRACKET_PASS_JS)
-    assert out['strokes'] == 1, f'the bracket must survive the switch: {out}'
+    assert not out['bracket'] and out['under'] == 0, f'no bracket with the switch off: {out}'
     assert out['texts'] == [], f'the tag text must be gone: {out}'
     frame = page.evaluate(FRAME_TEXTS_JS)
     assert frame['interactive'] == [], frame
@@ -249,7 +255,7 @@ def test_unticking_hides_the_text_and_keeps_the_bracket(page):
     assert state['flag'] is True and state['checked'], (
         f'undo must restore the flag and the checkbox with it: {state}')
     out = page.evaluate(BRACKET_PASS_JS)
-    assert out['strokes'] == 1 and out['texts'] == ['2fer'], out
+    assert out['under'] == 0 and out['texts'] == ['2fer'], out
     served = _served_flag(page, layer_id, True)
     assert served and served['flag'] is True, served
 
@@ -258,7 +264,7 @@ def test_unticking_hides_the_text_and_keeps_the_bracket(page):
     state = page.evaluate(STATE_JS)
     assert state['flag'] is False and not state['checked'], state
     out = page.evaluate(BRACKET_PASS_JS)
-    assert out['strokes'] == 1 and out['texts'] == [], out
+    assert out['under'] == 0 and out['texts'] == [], out
 
     # Leave the switch on for whoever runs next.
     page.locator('#show-power-nfer-tags').click()
