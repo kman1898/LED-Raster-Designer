@@ -27671,9 +27671,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN1.9-C Indoor",
@@ -27686,9 +27686,9 @@
       "weight_kg": 8.0,
       "weight_lb": 17.63696,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN1.9-R Indoor",
@@ -27701,9 +27701,9 @@
       "weight_kg": 6.5,
       "weight_lb": 14.330029999999999,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN2.6 Indoor",
@@ -27716,9 +27716,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN2.6-C Indoor",
@@ -27731,9 +27731,9 @@
       "weight_kg": 8.0,
       "weight_lb": 17.63696,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN2.6-R Indoor",
@@ -27746,9 +27746,9 @@
       "weight_kg": 6.5,
       "weight_lb": 14.330029999999999,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN2.9 Full Panel Indoor",
@@ -27761,9 +27761,9 @@
       "weight_kg": 13.5,
       "weight_lb": 29.762369999999997,
       "proc_type": null,
-      "watts_max": 300.3,
+      "watts_max": 300.0,
       "watts_ave": 100.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.5)"
     },
     {
       "name": "LN2.9 Half Panel Indoor",
@@ -27776,9 +27776,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN2.9-C Indoor",
@@ -27791,9 +27791,9 @@
       "weight_kg": 8.0,
       "weight_lb": 17.63696,
       "proc_type": null,
-      "watts_max": 149.6,
-      "watts_ave": null,
-      "source": "catalog"
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "catalog; power from Planar LN sheet 05/2024 planar.com (600/200 W/m² × 0.25); sheet prints 176x168, kept 168x168 (500 mm / 2.976 mm) (#132)"
     },
     {
       "name": "LN2.9-R Indoor",
@@ -27806,9 +27806,9 @@
       "weight_kg": 6.5,
       "weight_lb": 14.330029999999999,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN2.9S Full Panel Outdoor",
@@ -27821,9 +27821,9 @@
       "weight_kg": 13.5,
       "weight_lb": 29.762369999999997,
       "proc_type": null,
-      "watts_max": 300.3,
+      "watts_max": 300.0,
       "watts_ave": 100.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.5)"
     },
     {
       "name": "LN2.9S Half Panel Outdoor",
@@ -27836,9 +27836,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN2.9S-R Outdoor",
@@ -27851,9 +27851,9 @@
       "weight_kg": 6.5,
       "weight_lb": 14.330029999999999,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN3.9 Full Panel Indoor",
@@ -27866,9 +27866,9 @@
       "weight_kg": 13.5,
       "weight_lb": 29.762369999999997,
       "proc_type": null,
-      "watts_max": 300.3,
+      "watts_max": 300.0,
       "watts_ave": 100.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.5)"
     },
     {
       "name": "LN3.9 Half Panel Indoor",
@@ -27881,9 +27881,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN3.9-C Indoor",
@@ -27896,9 +27896,9 @@
       "weight_kg": 8.0,
       "weight_lb": 17.63696,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "catalog; power from Planar LN sheet 05/2024 planar.com (600/200 W/m² × 0.25); sheet prints 4.808mm pitch, kept 3.906 (128 px over 500 mm) (#132)"
     },
     {
       "name": "LN3.9-R Indoor",
@@ -27911,9 +27911,9 @@
       "weight_kg": 6.5,
       "weight_lb": 14.330029999999999,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN3.9S Full Panel Outdoor",
@@ -27926,9 +27926,9 @@
       "weight_kg": 13.5,
       "weight_lb": 29.762369999999997,
       "proc_type": null,
-      "watts_max": 300.3,
+      "watts_max": 300.0,
       "watts_ave": 100.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.5)"
     },
     {
       "name": "LN3.9S Half Panel Outdoor",
@@ -27941,9 +27941,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN3.9S-R Outdoor",
@@ -27956,9 +27956,9 @@
       "weight_kg": 6.5,
       "weight_lb": 14.330029999999999,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN4.8S Full Panel Outdoor",
@@ -27971,9 +27971,9 @@
       "weight_kg": 13.5,
       "weight_lb": 29.762369999999997,
       "proc_type": null,
-      "watts_max": 300.3,
+      "watts_max": 300.0,
       "watts_ave": 100.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.5)"
     },
     {
       "name": "LN4.8S Half Panel Outdoor",
@@ -27986,9 +27986,9 @@
       "weight_kg": 7.5,
       "weight_lb": 16.53465,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LN4.8S-R Outdoor",
@@ -28001,9 +28001,9 @@
       "weight_kg": 6.5,
       "weight_lb": 14.330029999999999,
       "proc_type": null,
-      "watts_max": 149.6,
+      "watts_max": 150.0,
       "watts_ave": 50.0,
-      "source": "catalog"
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "LRS 1.9",
@@ -34647,6 +34647,351 @@
       "watts_max": 400.4,
       "watts_ave": null,
       "source": "catalog"
+    },
+    {
+      "name": "LN1.9 Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 256,
+      "pixels_h": 256,
+      "pitch_mm": 1.953,
+      "weight_kg": 7.5,
+      "weight_lb": 16.53465,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN1.9-C Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 256,
+      "pixels_h": 256,
+      "pitch_mm": 1.953,
+      "weight_kg": 8.0,
+      "weight_lb": 17.63696,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN1.9-R Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 256,
+      "pixels_h": 256,
+      "pitch_mm": 1.953,
+      "weight_kg": 6.5,
+      "weight_lb": 14.330029999999999,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN2.6 Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 192,
+      "pixels_h": 192,
+      "pitch_mm": 2.604,
+      "weight_kg": 7.5,
+      "weight_lb": 16.53465,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN2.6-C Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 192,
+      "pixels_h": 192,
+      "pitch_mm": 2.604,
+      "weight_kg": 8.0,
+      "weight_lb": 17.63696,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN2.6-R Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 192,
+      "pixels_h": 192,
+      "pitch_mm": 2.604,
+      "weight_kg": 6.5,
+      "weight_lb": 14.330029999999999,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN2.9 Full Panel Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 168,
+      "pixels_h": 336,
+      "pitch_mm": 2.976,
+      "weight_kg": 13.5,
+      "weight_lb": 29.762369999999997,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 100.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.5)"
+    },
+    {
+      "name": "LN2.9 Half Panel Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 168,
+      "pixels_h": 168,
+      "pitch_mm": 2.976,
+      "weight_kg": 7.5,
+      "weight_lb": 16.53465,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN2.9-C Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 168,
+      "pixels_h": 168,
+      "pitch_mm": 2.976,
+      "weight_kg": 8.0,
+      "weight_lb": 17.63696,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "catalog; power from Planar LN sheet 05/2024 planar.com (600/200 W/m² × 0.25); sheet prints 176x168, kept 168x168 (500 mm / 2.976 mm) (#132)"
+    },
+    {
+      "name": "LN2.9-R Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 168,
+      "pixels_h": 168,
+      "pitch_mm": 2.976,
+      "weight_kg": 6.5,
+      "weight_lb": 14.330029999999999,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN2.9S Full Panel Outdoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 168,
+      "pixels_h": 336,
+      "pitch_mm": 2.976,
+      "weight_kg": 13.5,
+      "weight_lb": 29.762369999999997,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 100.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.5)"
+    },
+    {
+      "name": "LN2.9S Half Panel Outdoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 168,
+      "pixels_h": 168,
+      "pitch_mm": 2.976,
+      "weight_kg": 7.5,
+      "weight_lb": 16.53465,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN2.9S-R Outdoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 168,
+      "pixels_h": 168,
+      "pitch_mm": 2.976,
+      "weight_kg": 6.5,
+      "weight_lb": 14.330029999999999,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN3.9 Full Panel Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 13.5,
+      "weight_lb": 29.762369999999997,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 100.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.5)"
+    },
+    {
+      "name": "LN3.9 Half Panel Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 7.5,
+      "weight_lb": 16.53465,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN3.9-C Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 8.0,
+      "weight_lb": 17.63696,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "catalog; power from Planar LN sheet 05/2024 planar.com (600/200 W/m² × 0.25); sheet prints 4.808mm pitch, kept 3.906 (128 px over 500 mm) (#132)"
+    },
+    {
+      "name": "LN3.9-R Indoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 6.5,
+      "weight_lb": 14.330029999999999,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN3.9S Full Panel Outdoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 128,
+      "pixels_h": 256,
+      "pitch_mm": 3.906,
+      "weight_kg": 13.5,
+      "weight_lb": 29.762369999999997,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 100.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.5)"
+    },
+    {
+      "name": "LN3.9S Half Panel Outdoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 7.5,
+      "weight_lb": 16.53465,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN3.9S-R Outdoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 128,
+      "pixels_h": 128,
+      "pitch_mm": 3.906,
+      "weight_kg": 6.5,
+      "weight_lb": 14.330029999999999,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN4.8S Full Panel Outdoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 1000.0,
+      "pixels_w": 104,
+      "pixels_h": 208,
+      "pitch_mm": 4.808,
+      "weight_kg": 13.5,
+      "weight_lb": 29.762369999999997,
+      "proc_type": null,
+      "watts_max": 300.0,
+      "watts_ave": 100.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.5)"
+    },
+    {
+      "name": "LN4.8S Half Panel Outdoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 104,
+      "pixels_h": 104,
+      "pitch_mm": 4.808,
+      "weight_kg": 7.5,
+      "weight_lb": 16.53465,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
+    },
+    {
+      "name": "LN4.8S-R Outdoor",
+      "connector": null,
+      "width_mm": 500.0,
+      "height_mm": 500.0,
+      "pixels_w": 104,
+      "pixels_h": 104,
+      "pitch_mm": 4.808,
+      "weight_kg": 6.5,
+      "weight_lb": 14.330029999999999,
+      "proc_type": null,
+      "watts_max": 150.0,
+      "watts_ave": 50.0,
+      "source": "official: Planar LN Series spec PDF 05/2024, planar.com (600/200 W/m² × 0.25)"
     },
     {
       "name": "TVF 0.9",
