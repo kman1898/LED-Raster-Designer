@@ -5923,10 +5923,22 @@ class _Binder {
             const mirrored = !!(canvas && r._isCanvasMirrored(canvas));
             const crw = canvas ? ((canvas.show_raster_width) || canvas.raster_width || 0) : 0;
             const offs = new Map(subject.members.map(l => [l, r.getLayerRenderOffset(l)]));
+            // Each screen's Pixel Map rotation, as the renderer turns its
+            // picture about the wall's middle (canvas.js _layerDrawFrame).
+            const turnOf = (l) => (typeof r._layerDrawFrame === 'function' ? r._layerDrawFrame(l) : null);
+            const turns = new Map(subject.members.map(l => [l, turnOf(l)]));
             // A processor-coord rect of a screen (this layer unless named),
-            // in the canvas's drawn frame (mirrored around the raster's right
-            // edge on a Back view).
+            // in the canvas's drawn frame: turned with the screen's picture
+            // (a quarter turn swaps its width and height), then mirrored
+            // around the raster's right edge on a Back view.
             const local = (px, py, pw, ph, l = layer) => {
+                const fr = turns.has(l) ? turns.get(l) : turnOf(l);
+                if (fr && fr.rot) {
+                    const c = r._drawnPoint(fr, px + pw / 2, py + ph / 2);
+                    if (fr.swap) [pw, ph] = [ph, pw];
+                    px = c.x - pw / 2;
+                    py = c.y - ph / 2;
+                }
                 const { dx, dy } = offs.get(l) || r.getLayerRenderOffset(l);
                 return { x: mirrored ? crw - (px + dx + pw) : px + dx, y: py + dy, w: pw, h: ph };
             };
@@ -6376,14 +6388,21 @@ class _Binder {
     _bRulers(book, layer, geo) {
         const panels = (layer.panels || []).filter(p => p && !p.hidden);
         if (!panels.length) return;
+        // A picture turned a quarter (its Pixel Map rotation) runs the
+        // wall's rows across the sheet and its columns down it: each
+        // ruler numbers the cabinets standing along it, by their own
+        // column or row.
+        const deg = (((Number(layer.rotation) || 0) % 360) + 360) % 360;
+        const swap = deg === 90 || deg === 270;
         const cols = new Map(), rows = new Map();
         for (const p of panels) {
             const rc = geo.rect(p.x, p.y, p.width, p.height);
-            const c = cols.get(p.col);
-            if (!c) cols.set(p.col, { x1: rc.x, x2: rc.x + rc.w });
+            const ck = swap ? p.row : p.col, rk = swap ? p.col : p.row;
+            const c = cols.get(ck);
+            if (!c) cols.set(ck, { x1: rc.x, x2: rc.x + rc.w });
             else { c.x1 = Math.min(c.x1, rc.x); c.x2 = Math.max(c.x2, rc.x + rc.w); }
-            const rr = rows.get(p.row);
-            if (!rr) rows.set(p.row, { y1: rc.y, y2: rc.y + rc.h });
+            const rr = rows.get(rk);
+            if (!rr) rows.set(rk, { y1: rc.y, y2: rc.y + rc.h });
             else { rr.y1 = Math.min(rr.y1, rc.y); rr.y2 = Math.max(rr.y2, rc.y + rc.h); }
         }
         this._bRulersDraw(book, geo, cols, rows);
@@ -7478,12 +7497,13 @@ class _Binder {
     // over it - room below it for them too. A screen whose picture is
     // turned (its Pixel Map rotation) has its bars on the picture's side
     // its wall's top or bottom turns to, and that side gets the room.
-    _bRiggingGutter(target) {
+    // `base` is the gutters before the bars' room (the map's by default).
+    _bRiggingGutter(target, base = MAP_GUTTER) {
         const has = (l, kind) => (typeof this.riggingSliceOf === 'function'
             ? this.riggingSliceOf(l, kind).length > 0
             : Array.isArray(l[kind === 'footer' ? 'riggingFooterBars' : 'riggingBars'])
                 && l[kind === 'footer' ? 'riggingFooterBars' : 'riggingBars'].length > 0);
-        const out = { ...MAP_GUTTER };
+        const out = { ...base };
         for (const l of this._bSubject(target).layers) {
             const side = (s) => (typeof this.riggingPictureSide === 'function' ? this.riggingPictureSide(l, s) : s);
             if (has(l, 'footer')) out[side('bottom')] = Math.max(out[side('bottom')], MAP_GUTTER.top);
@@ -9295,6 +9315,16 @@ class _Binder {
             w: col.w != null ? col.w : band.colW, h: col.h }));
     }
 
+    // A simple Header/Footer sheet's room beside the wall: none, but where
+    // a turned picture (its Pixel Map rotation) puts the bars on its left
+    // or right - the sheet's other side on a rear view, which is drawn
+    // mirrored. { left, right }.
+    _bSimpleRiggingSides(book, s) {
+        const beside = this._bRiggingGutter(s, NO_OVERHANG);
+        const back = VIEW_PERSPECTIVE[book && book.meta && book.meta.view] === 'back';
+        return { left: back ? beside.right : beside.left, right: back ? beside.left : beside.right };
+    }
+
     // The simple Header/Footer sheet: the bars' map with the rulers, then
     // the full sheet's notes (bars that no longer fit, bars across screens:
     // _bRiggingBlocks), every bar where it hangs (_bSimpleBarList) and the
@@ -9323,7 +9353,7 @@ class _Binder {
                                                      w: da.w - SIMPLE_RULER.left, h: band.drawH - SIMPLE_RULER.top });
             const fg = this._bRiggingGutter(s);
             const g = this._bMeasureMap(book, { measure: (a) => this._bMap(book, layer, 'rigging', a,
-                { left: 0, right: 0, top: fg.top > MAP_GUTTER.bottom ? fg.top : 0,
+                { ...this._bSimpleRiggingSides(book, s), top: fg.top > MAP_GUTTER.bottom ? fg.top : 0,
                   bottom: fg.bottom > MAP_GUTTER.bottom ? fg.bottom : 0 }) }, probeArea);
             const { over, low } = g ? this._bSimpleShort(book, { geo: g, mapArea: g.area }, probeArea)
                 : { over: 0, low: 0 };
@@ -9349,12 +9379,21 @@ class _Binder {
             ...(s.groupId != null ? { groupId: s.groupId, layerIds: s.layers.map(l => l.id) } : {}),
             layout: 'simple', cols: band.cols.length, scale: 1,
         }, () => {
-            const geo = this._bMap(book, layer, 'rigging', area, gutter);
+            // (beside the wall too, where a turned picture puts its bars)
+            const sided = { ...gutter, ...this._bSimpleRiggingSides(book, s) };
+            const geo = this._bMap(book, layer, 'rigging', area, sided);
             // (the column ruler over the bars drawn above the wall, never
             // through them: the map's own ink starts at its area's head)
-            const inked = geo && geo.area && geo.area.y < geo.wall.y
+            let inked = geo && geo.area && geo.area.y < geo.wall.y
                 ? { ...geo, mapInkTop: Math.min(typeof geo.mapInkTop === 'number' ? geo.mapInkTop : geo.wall.y, geo.area.y) }
                 : geo;
+            // (the row ruler left of the bars a turned picture puts on the
+            // wall's left, never through them: its strip starts at the
+            // frame's left edge)
+            if (inked && sided.left > 0 && geo.extent) {
+                inked = { ...inked, mapInkLeft: Math.min(typeof inked.mapInkLeft === 'number'
+                    ? inked.mapInkLeft : geo.wall.x, geo.extent.x) };
+            }
             const rulers = inked ? this._bSimpleRulers(book, s, inked, { x: da.x, y: da.y, w: da.w, h: drawH }) : false;
             const used = geo ? geo.area : area;
             // the stage line right under the bars' map, the bubble under it
@@ -9510,12 +9549,12 @@ class _Binder {
             // places, where two walls side by side on stage can stand one
             // over the other
             if (!this._simpleRowCache || this._simpleRowCache.s !== s) {
-                this._simpleRowCache = { s, ...this._bWallBands(s.layers, 'power', 'y') };
+                this._simpleRowCache = { s, ...this._bWallBands(s.layers, 'power', 'y', true) };
             }
-            const { bands, offs } = this._simpleRowCache;
+            const { bands, drawn } = this._simpleRowCache;
             rows = panels.map(({ p, l }) => {
-                const off = offs.get(l) || { dy: 0 };
-                return bands.findIndex(b => Math.abs(p.y + off.dy + p.height / 2 - b.c) <= b.tol) + 1;
+                const d = drawn(l, p);
+                return bands.findIndex(b => Math.abs(d.a + d.s / 2 - b.c) <= b.tol) + 1;
             }).filter(n => n > 0);
         } else {
             rows = panels.map(({ p }) => (Number(p.row) || 0) + 1);
@@ -9535,26 +9574,38 @@ class _Binder {
     // (_bRulersAcross): its members' cabinets where they draw on `view` -
     // each member's render offset on that view (its Show Look place)
     // included - gathered by their centres, in the front's order.
-    // { bands: [{ c, a, b, tol }], offs: Map(layer -> { dx, dy }) }.
-    _bWallBands(layers, view, axis) {
+    // { bands: [{ c, a, b, tol }], offs: Map(layer -> { dx, dy }),
+    // drawn(layer, panel) -> { a, s } }. `turned`: each member's cabinets
+    // where its Pixel Map rotation draws them (the rulers' places), not
+    // where they stand unturned.
+    _bWallBands(layers, view, axis, turned = false) {
         const r = window.canvasRenderer;
-        const offs = new Map();
+        const offs = new Map(), frames = new Map();
         const was = r ? r.viewMode : null;
         try {
             if (r) r.viewMode = view;
             for (const l of layers) {
                 offs.set(l, r && typeof r.getLayerRenderOffset === 'function' ? r.getLayerRenderOffset(l) : { dx: 0, dy: 0 });
+                if (turned && r && typeof r._layerDrawFrame === 'function') frames.set(l, r._layerDrawFrame(l));
             }
         } finally { if (r) r.viewMode = was; }
+        const drawn = (l, p) => {
+            const fr = frames.get(l);
+            if (fr && fr.rot) {
+                const d = r._drawnPanelRect(fr, p);
+                return axis === 'x' ? { a: d.x, s: d.width } : { a: d.y, s: d.height };
+            }
+            const off = offs.get(l) || { dx: 0, dy: 0 };
+            return axis === 'x' ? { a: p.x + off.dx, s: p.width || 0 } : { a: p.y + off.dy, s: p.height || 0 };
+        };
         const spans = [];
         for (const l of layers) {
-            const off = offs.get(l) || { dx: 0, dy: 0 };
             for (const p of (l.panels || [])) {
                 if (!p || p.hidden) continue;
-                spans.push(axis === 'x' ? { a: p.x + off.dx, s: p.width || 0 } : { a: p.y + off.dy, s: p.height || 0 });
+                spans.push(drawn(l, p));
             }
         }
-        if (!spans.length) return { bands: [], offs };
+        if (!spans.length) return { bands: [], offs, drawn };
         const tol = Math.max(1, Math.min(...spans.map(x => x.s || 1)) / 2);
         const bands = [];
         for (const x of spans.slice().sort((u, v) => (u.a + u.s / 2) - (v.a + v.s / 2))) {
@@ -9562,7 +9613,7 @@ class _Binder {
             if (last && c - last.c <= tol) { last.a = Math.min(last.a, x.a); last.b = Math.max(last.b, x.a + x.s); }
             else bands.push({ c, a: x.a, b: x.a + x.s, tol });
         }
-        return { bands, offs };
+        return { bands, offs, drawn };
     }
 
     // Every bar where it hangs, header then footer: its size in the bar

@@ -2675,10 +2675,15 @@ class CanvasRenderer {
                         // Clip to the raster in UNROTATED (screen) space first, so any
                         // rotated content that falls off-canvas simply isn't drawn -
                         // the same clip rule unrotated screens have always had.
+                        // A drawing the raster does not bound (the binder's
+                        // sheet of one screen, ignoreRasterBounds) keeps the
+                        // whole turned picture, as it keeps an unturned one.
                         this.ctx.save();
-                        this.ctx.beginPath();
-                        this.ctx.rect(-dx, -dy, this.rasterWidth, this.rasterHeight);
-                        this.ctx.clip();
+                        if (!this.ignoreRasterBounds) {
+                            this.ctx.beginPath();
+                            this.ctx.rect(-dx, -dy, this.rasterWidth, this.rasterHeight);
+                            this.ctx.clip();
+                        }
                         this._layerRotating = true;
                         // Angle used to keep specific labels upright (Data/Power
                         // technical labels only), see _fillText / _keepTextUpright.
@@ -2964,9 +2969,11 @@ class CanvasRenderer {
                         const _rot = (_deg === 90 || _deg === 180 || _deg === 270);
                         if (_rot) {
                             this.ctx.save();
-                            this.ctx.beginPath();
-                            this.ctx.rect(-dx, -dy, this.rasterWidth, this.rasterHeight);
-                            this.ctx.clip();
+                            if (!this.ignoreRasterBounds) {
+                                this.ctx.beginPath();
+                                this.ctx.rect(-dx, -dy, this.rasterWidth, this.rasterHeight);
+                                this.ctx.clip();
+                            }
                             this._layerRotating = true;
                             this._activeRotationRad = _deg * Math.PI / 180;
                             this._beginLayerRotation(layer);
