@@ -21,7 +21,8 @@ accept cat cables."
   never refused.
 - It prints wherever a TAC prints: the box's Fiber row (a "Ch 1" chip),
   the pull sheet once, the binder's Fiber connections, a CHANNEL map, the
-  Fiber page, the box summary and the Data Wiring inputs. No colors, no
+  Cat snake page (test_binder_cat_snake_page.py), the box summary and the
+  Data Wiring inputs. No colors, no
   polarity, no swap, no extension, and never the word "copper".
 - Shows with no snake load exactly as before.
 
@@ -572,9 +573,13 @@ BINDER_JS = """(ids) => {
     const conn = app._bFiberConnectionRows(sx, 'WALL SR')
         .filter(r => r.link && r.link.cable && r.link.cable.kind === 'cat-snake')
         .map(r => r.cells.slice(1));
-    const page = app.binderFiberPage();
+    // (the snake's links print on the Cat snake page, never the Fiber page)
+    const page = app.binderCatSnakePage();
+    const fiber = app.binderFiberPage();
     return {
         maps, conn,
+        fiberSnakes: fiber.procs.flatMap(p => p.links).filter(l => /snake/.test(l.cable)).length
+            + fiber.cables.filter(c => /snake/.test(c.title)).length,
         pageMaps: page.cables.map(c => c.title),
         pageLinks: page.procs.flatMap(p => p.links).filter(l => /snake/.test(l.cable))
             .map(l => [l.cable, l.atProcessor, l.atBreakout]),
@@ -588,10 +593,12 @@ BINDER_JS = """(ids) => {
 def test_the_binder_maps_each_channel_to_its_box_link(page):
     """The processor page's CHANNEL map puts each channel on its box and
     link; Fiber connections name the snake (its kind the first time) and
-    the channel at either end; the Fiber page, the box summary and the
-    Data Wiring inputs say the same, with no color anywhere."""
+    the channel at either end; the Cat snake page (never the Fiber page),
+    the box summary and the Data Wiring inputs say the same, with no color
+    anywhere."""
     pg, ids = page
     out = pg.evaluate(BINDER_JS, ids)
+    assert out['fiberSnakes'] == 0, out
     assert out['maps'] == [{
         'title': "Channel map · Cat6A snake A · 4 channel · 150'",
         'cols': ['channel', 'link', 'box ports'],

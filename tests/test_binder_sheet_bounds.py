@@ -26,6 +26,7 @@ Run locally (each session takes its own free port):
 
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -642,7 +643,12 @@ FACTS_JS = r"""(opts) => {
 }"""
 
 # (no AMPS 1φ column on a show on 3-phase distros only, as these shows are)
-FACTS_COLS = ['screen', 'size', 'panels', 'resolution', 'watts', 'amps 3φ', 'circuits', 'ports']
+FACTS_COLS = ['screen', 'size', 'panels', 'resolution', 'watts', 'amps 3φ', 'circuits', 'power in', 'ports']
+# A service's line under the table (owner, 2026-11-18): "Service: <name>",
+# then its size and its whole load against its limit, as its Service sheet
+# reads it (owner, 2026-11-19).
+SERVICE_NOTE = re.compile(r'[\d,.]+ A · 120/208V 3φ · load X [\d,.]+ · Y [\d,.]+ · Z [\d,.]+ A'
+                          r' · 3φ [\d,.]+ A · [\d,.]+ kW( · .+)?')
 
 
 def _num(s):
@@ -652,10 +658,12 @@ def _num(s):
 def test_the_facts_sheet_lists_every_screen_with_its_totals(page):
     """One FACTS sheet right after the overview: a row per screen in the
     order the screen sheets run (alphabetical here), its size, panels,
-    resolution, watts, amps 1φ and 3φ, circuits and ports, and a TOTAL row
-    that adds them up. No screen's power or data sheet carries a FACTS
-    block. A hidden screen prints no row; a screen with no power figure
-    prints no watts, is left out of the total and is named in the NOTES."""
+    resolution, watts, amps 1φ and 3φ, circuits, POWER IN (its distro and
+    the legs it draws on) and ports, and a TOTAL row that adds them up; the
+    NOTES carry the service's load against its limit. No screen's power or
+    data sheet carries a FACTS block. A hidden screen prints no row; a
+    screen with no power figure prints no watts, is left out of the total
+    and is named in the NOTES."""
     pg, errors = page
     _walls(pg)
     opts = _opts(sheet='letter')
@@ -673,10 +681,27 @@ def test_the_facts_sheet_lists_every_screen_with_its_totals(page):
     assert _num(tall[4]) == 144 * 180, tall
     # (on 3-phase distros: no 1φ figure anywhere, so no AMPS 1φ column)
     assert abs(_num(tall[5]) - 144 * 180 / (208 * 1.73)) < 0.06, tall
-    for col in (2, 4, 6, 7):
+    for col in (2, 4, 6, 8):
         assert abs(sum(_num(r[col]) for r in body) - _num(total[col])) < 1, (col, body, total)
-    assert all(int(r[6]) > 0 and int(r[7]) > 0 for r in body), body
-    assert out['notes'] == [], out['notes']
+    assert all(int(r[6]) > 0 and int(r[8]) > 0 for r in body), body
+    # POWER IN: the distro the screen's multis run from, a dot, and its legs
+    # (owner, 2026-11-19: "STAGE LEFT POWER DISTRO RACK A · X Y Z")
+    for r in body:
+        distro = 'UPSTAGE CENTER POWER DISTRO RACK B' if r[0].startswith('UPSTAGE') \
+            else 'STAGE LEFT POWER DISTRO RACK A'
+        assert re.fullmatch(re.escape(distro) + r' · [XYZ]( [XYZ])*', r[7]), r
+    assert total[7] == '', total
+    notes = [r['cells'] for r in out['notes']]
+    assert [n[0] for n in notes] == ['Service: HOUSE COMPANY SWITCH STAGE RIGHT 400A'], notes
+    assert SERVICE_NOTE.fullmatch(notes[0][1]), notes
+    # a single-phase distro (no legs to read) prints its name alone
+    pg.evaluate("() => { const a = window.app; a.__legs = a._bScreenLegsOn; a._bScreenLegsOn = () => null; }")
+    try:
+        one = pg.evaluate(FACTS_JS, opts)
+    finally:
+        pg.evaluate("() => { const a = window.app; a._bScreenLegsOn = a.__legs; delete a.__legs; }")
+    tall = next(r['cells'] for r in one['rows'] if r['cells'][0] == 'STAGE LEFT VERTICAL IMAG TOWER')
+    assert tall[7] == 'STAGE LEFT POWER DISTRO RACK A', tall
     # no FACTS block on any screen sheet; the FACTS sheet prints the table
     for n, s in out['sheets'].items():
         if s['kind'] == 'facts':
