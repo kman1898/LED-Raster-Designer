@@ -36,7 +36,9 @@
 //   3.n  the FIBER page (app-binder-fiber.js) - every processor to its
 //        breakout boxes, only where the show uses fiber and the Fiber
 //        tick is on, never for one screen (owner, 2026-11-04: "the fiber
-//        patch sheet also needs to come before the pull sheets")
+//        patch sheet also needs to come before the pull sheets"); then
+//        the CAT SNAKE page, the same for the XD links on a Cat snake, a
+//        channel each (owner, 2026-11-18), with fiber or without
 //   4.n  the PULL sheets - positions side by side, each position's
 //        sections flowing across the sheet in columns
 //   5.n  hardware - the services, then the distros side by side, then
@@ -356,7 +358,7 @@ const BINDER_MODES = ['full', 'simple'];
 // page, the pull sheets, the hardware: 3, 4, 5 with all three, pull 3 and
 // hardware 4 without the Fiber page - so the numbers never leave a hole.
 const SUBJECT = { overview: 'overview', contents: 'overview', facts: 'overview', power: 'screens', data: 'screens', wiring: 'screens', rigging: 'screens',
-                  fiber: 'fiber', pull: 'pull',
+                  fiber: 'fiber', catsnake: 'fiber', pull: 'pull',
                   service: 'hardware', distro: 'hardware', processor: 'hardware', totals: 'hardware',
                   network: 'hardware' };
 const SERIES = { overview: 1, screens: 2 };
@@ -533,10 +535,17 @@ class _Binder {
             this._binderSeedChoices = false;
             this._seedBinderChoices();
         }
-        // The Fiber tick is offered only to a show that uses fiber: the
-        // page prints for nothing else (app-binder-fiber.js).
+        // The Fiber tick is offered only to a show that uses fiber or a Cat
+        // snake: its pages print for nothing else (app-binder-fiber.js). It
+        // says what it prints: "Fiber", "Cat snake" or "Fiber, Cat snake".
         const fiberTick = document.getElementById('export-binder-fiber-label');
-        if (fiberTick) fiberTick.style.display = this.binderUsesFiber() ? 'flex' : 'none';
+        if (fiberTick) {
+            const words = [this.binderUsesFiber() ? 'Fiber' : '', this.binderUsesCatSnake() ? 'Cat snake' : '']
+                .filter(Boolean);
+            fiberTick.style.display = words.length ? 'flex' : 'none';
+            const text = [...fiberTick.childNodes].reverse().find(n => n.nodeType === 3);
+            if (text && words.length) text.textContent = ` ${words.join(', ')}`;
+        }
         // ...and the Network tick to a show where a processor has an IP:
         // the page prints for nothing else (app-network.js).
         const netTick = document.getElementById('export-binder-network-label');
@@ -1688,7 +1697,12 @@ class _Binder {
         // pull sheets (owner, 2026-11-04: "the fiber patch sheet also
         // needs to come before the pull sheets"), only where fiber is
         // used and only when asked (opts.fiber - the dialog's Fiber tick).
-        if (opts.fiber === true && !scopeLayer) this._bFiberSheets(book);
+        // The CAT SNAKE page follows it, on the same tick, where an XD link
+        // rides a Cat snake (owner, 2026-11-18: with fiber or without).
+        if (opts.fiber === true && !scopeLayer) {
+            this._bFiberSheets(book);
+            this._bFiberSheets(book, true);
+        }
         if (opts.pull) this._bPullSheets(book, positions);
         const hardware = [];
         if (opts.hardware) {
@@ -8527,8 +8541,11 @@ class _Binder {
     // screen sheets run (`sheets`, _bScreenRun: the screen order the
     // project keeps), hidden screens printing nothing (they are not in it):
     //   SCREEN · SIZE (columns x rows) · PANELS · RESOLUTION (px) · WATTS ·
-    //   AMPS 1φ · AMPS 3φ · CIRCUITS · PORTS
-    // and a TOTAL row. Amps never blend across voltages: one voltage sums
+    //   AMPS 1φ · AMPS 3φ · CIRCUITS · POWER IN · PORTS
+    // and a TOTAL row. POWER IN (owner, 2026-11-18: the facts the screen
+    // sheets' FACTS carried before this one sheet): each distro the
+    // screen's circuits come off and the legs they draw on, "D1 · X Y"
+    // (_bFactsPowerIn). Amps never blend across voltages: one voltage sums
     // into the TOTAL row, more than one gives a TOTAL row per voltage
     // naming it, and the TOTAL row keeps the rest. A screen on 3-phase
     // distros only prints no 1φ figure (owner, 2026-11-11), as it never
@@ -8537,8 +8554,12 @@ class _Binder {
     // named in the NOTES under the table - with every warning the screens'
     // FACTS carried: the circuits over their limit, a breaker over what
     // its circuits feed, a Soca two-fer pair over its breaker
-    // (_bPowerNotes). The table runs on to a second sheet only where one
-    // will not hold it, whole rows only (_bColumnSheets).
+    // (_bPowerNotes) - then the WALL LOAD of a grouped wall's circuits that
+    // carry a peer's panels (_bFactsWallNotes), and a line per SERVICE the
+    // screens draw from, its size and its whole load against its limit in
+    // the Service sheet's words (_bFactsServiceNotes). The table runs on
+    // to a second sheet only where one will not hold it, whole rows only
+    // (_bColumnSheets).
     _bFactsPage(book, sheets) {
         const items = [];
         const seen = new Set();
@@ -8559,7 +8580,11 @@ class _Binder {
         const hangs = (l) => (l.panels || []).some(p => p && !p.blank && !p.hidden);
         const rows = [], notes = [], said = new Set();
         const total = { panels: 0, watts: 0, circuits: 0, ports: 0, volts: new Map(), unvolted: false };
+        const powerSide = !!(book.opts.sides && book.opts.sides.power);
+        const used = new Set();
         for (const it of items) {
+            const powerIn = this._bFactsPowerIn(book, it.subject);
+            powerIn.ids.forEach(id => used.add(id));
             const f = it.layers.length > 1 ? this._bGroupFacts(it.layers) : this._bScreenFacts(it.layers[0]);
             const scrs = it.layers.map(l => list.byScreen[l.id]).filter(Boolean);
             const circuits = scrs.reduce((s, x) => s + (x.boxes || []).reduce((a, b) => a + (b.circuits || []).length, 0), 0);
@@ -8578,6 +8603,7 @@ class _Binder {
                 amps && !threeOnly ? this._bNum(f.amps1, 1) : '',
                 amps ? this._bNum(f.amps3, 1) : '',
                 String(circuits),
+                powerIn.text,
                 String(ports),
             ] });
             total.panels += f.active; total.watts += watts; total.circuits += circuits; total.ports += ports;
@@ -8596,8 +8622,9 @@ class _Binder {
                 note(`No power figure${it.layers.length > 1 ? ` for ${missing.map(l => l.name).join(', ')}` : ''}: `
                      + 'watts left out of the totals. Type them in Power Settings.');
             }
-            if (book.opts.sides && book.opts.sides.power) {
+            if (powerSide) {
                 for (const [k, text] of this._bPowerNotes(book, it.subject)) note(`${k}: ${text}`);
+                for (const text of this._bFactsWallNotes(book, it.subject)) note(text);
             }
         }
         // The breakout boxes fed straight off a distro (app-box-power.js):
@@ -8612,7 +8639,7 @@ class _Binder {
             const vs = [...new Set(fed.map(b => b.volts))];
             rows.push({ cells: [`${this._bPlural(fed.length, 'breakout box')} on distros`, '', '', '',
                                 this._bNum(w, 0), vs.length === 1 ? this._bNum(a1, 1) : '',
-                                vs.length === 1 ? this._bNum(a3, 1) : '', '', ''] });
+                                vs.length === 1 ? this._bNum(a3, 1) : '', '', '', ''] });
             total.watts += w;
             for (const b of fed) {
                 const v = total.volts.get(b.volts) || { watts: 0, amps1: 0, amps3: 0, threeOnly: false };
@@ -8627,30 +8654,35 @@ class _Binder {
             notes.push({ cells: ['Breakout boxes', `No power figure for ${unfigured.join(', ')}: `
                 + `${unfigured.length === 1 ? 'it adds' : 'they add'} nothing to the totals.`] });
         }
+        if (powerSide) notes.push(...this._bFactsServiceNotes(used));
         const volts = [...total.volts.entries()].sort((a, b) => b[0] - a[0]);
         const one = volts.length === 1 && !total.unvolted ? volts[0][1] : null;
         if (!one) {
             for (const [v, b] of volts) {
                 rows.push({ bold: true, cells: [`Total @ ${v} V`, '', '', '', this._bNum(b.watts, 0),
-                                                b.threeOnly ? '' : this._bNum(b.amps1, 1), this._bNum(b.amps3, 1), '', ''] });
+                                                b.threeOnly ? '' : this._bNum(b.amps1, 1), this._bNum(b.amps3, 1), '', '', ''] });
             }
         }
         rows.push({ bold: true, cells: ['Total', '', this._bNum(total.panels, 0), '',
                                         total.watts > 0 ? this._bNum(total.watts, 0) : '',
                                         one && !one.threeOnly ? this._bNum(one.amps1, 1) : '',
                                         one ? this._bNum(one.amps3, 1) : '',
-                                        String(total.circuits), String(total.ports)] });
+                                        String(total.circuits), '', String(total.ports)] });
         // The table as wide as it needs - every cell on one line where the
         // drawing area holds that - and never wider than the drawing area,
         // where the names wrap at their words. A show on 3-phase distros
-        // only has no 1φ figure anywhere: no AMPS 1φ column at all.
+        // only has no 1φ figure anywhere: no AMPS 1φ column at all; a show
+        // with no screen on a distro no POWER IN column (where it has
+        // several, a screen's distros wrap one to a line).
         const da = book.geo.da;
         let cols = [{ title: 'screen', w: 2.2 }, { title: 'size', w: 1 }, { title: 'panels', w: 0.8 },
                     { title: 'resolution', w: 1.3 }, { title: 'watts', w: 1 }, { title: 'amps 1φ', w: 0.9 },
-                    { title: 'amps 3φ', w: 0.9 }, { title: 'circuits', w: 0.9 }, { title: 'ports', w: 0.8 }];
-        if (rows.every(r => r.cells[5] === '')) {
-            cols = cols.filter((_c, i) => i !== 5);
-            rows.forEach(r => { r.cells = r.cells.filter((_c, i) => i !== 5); });
+                    { title: 'amps 3φ', w: 0.9 }, { title: 'circuits', w: 0.9 }, { title: 'power in', w: 1.2, list: 4, words: true },
+                    { title: 'ports', w: 0.8 }];
+        for (const at of [8, 5]) {
+            if (!rows.every(r => r.cells[at] === '')) continue;
+            cols = cols.filter((_c, i) => i !== at);
+            rows.forEach(r => { r.cells = r.cells.filter((_c, i) => i !== at); });
         }
         const spec = {
             title: this._bPlural(items.reduce((n, it) => n + it.layers.length, 0), 'screen'),
@@ -8674,6 +8706,82 @@ class _Binder {
                 return { kind: 'facts', title: label, sheetTitle: label.toUpperCase(), subject: book.meta.show };
             },
         }, [{ kind: 'facts', name: 'Facts', blocks }]);
+    }
+
+    // A FACTS row's POWER IN (owner, 2026-11-18): each distro the subject's
+    // circuits come off, in tray order, and the legs they draw on, a dot
+    // between the two (owner, 2026-11-19: "STAGE LEFT POWER DISTRO RACK A
+    // · X Y Z", the name free to wrap) - "D2 · L1 L2 L3" on an EU distro,
+    // the name alone on a single-phase one, distros apart by a comma - read as the screen sheets' FACTS read this screen's own legs
+    // (_bSubjectLegsOn: a grouped wall's carriers in one walk, a member
+    // only the circuits on its cabinets). { text, ids }: the cell, and
+    // the distros' ids.
+    _bFactsPowerIn(book, target) {
+        const s = this._bSubject(target);
+        const units = this._bSubjectBoxes(book, s);
+        const ids = new Set(units.map(u => u.box.distroId).filter(Boolean).map(String));
+        if (!ids.size) return { text: '', ids: [] };
+        const listed = s.kind === 'member'
+            ? new Set(units.flatMap(u => (u.box.circuits || []).map(c => `${u.carrier.id}:${c.num}`))) : null;
+        const distros = ((typeof this.getDistros === 'function' ? this.getDistros() : []) || [])
+            .filter(d => d && ids.has(String(d.id)));
+        const parts = distros.map(d => {
+            const legs = s.kind === 'layer' ? this._bScreenLegsOn(s.layers[0], d.id)
+                : this._bSubjectLegsOn(s.carriers, d.id, listed);
+            const on = legs ? this.distroLegNames(d).filter(k => (Number(legs[k]) || 0) > 0.05) : [];
+            const name = this.distroLabel(d);
+            return on.length ? `${name} · ${on.map(k => this.distroLegLabel(d, k)).join(' ')}` : name;
+        });
+        return { text: parts.join(', '), ids: distros.map(d => String(d.id)) };
+    }
+
+    // A subject's WALL LOAD notes (the screen sheets' FACTS carried them as
+    // a row): where a screen's circuits also carry a group peer's panels (a
+    // wall routed as one, every circuit on its first member), the load
+    // those circuits draw, every member's panels once, and the screens on
+    // them - "Wall load: 12.3 A 1φ · 7.1 A 3φ · 2.6 kW · WALL L + WALL R",
+    // with no 1φ figure on 3-phase distros (owner, 2026-11-11).
+    _bFactsWallNotes(book, target) {
+        if (typeof this.getCarriedPowerLoad !== 'function') return [];
+        const s = this._bSubject(target);
+        const units = this._bSubjectBoxes(book, s);
+        const carriers = s.kind === 'layer' ? [s.layers[0]]
+            : (s.carriers || []).filter(c => s.kind === 'group' || units.some(u => u.carrier === c));
+        const out = [];
+        for (const carrier of carriers) {
+            const c = this.getCarriedPowerLoad(carrier);
+            if (!c || !c.peers.length) continue;
+            const threeOnly = typeof this.screenOnThreePhase === 'function' && this.screenOnThreePhase(carrier);
+            out.push(`Wall load: ${threeOnly ? '' : `${this._bNum(c.amps1, 1)} A 1φ · `}`
+                + `${this._bNum(c.amps3, 1)} A 3φ · ${this._bNum(c.watts / 1000, 1)} kW · `
+                + [carrier, ...c.peers].map(l => l.name).join(' + '));
+        }
+        return out;
+    }
+
+    // The SERVICE notes: a line for each service a FACTS row's distro
+    // (`used`, their ids) counts on, as its Service sheet reads it - its
+    // size, then its whole load against its limit (_bDistroLoadText), OVER
+    // naming the leg - "Service: MAIN SERVICE" (owner, 2026-11-19), then
+    // "400 A · 120/208V 3φ · load X 87.1 · Y 81.4 · Z 81.4 A · 3φ 83.4 A ·
+    // 30.0 kW · limit 320 A (80% of 400 A)". A
+    // service none of whose distros prints is off the binder, as its sheet
+    // is (_bServiceGroup).
+    _bFactsServiceNotes(used) {
+        if (!used.size || typeof this.getServiceLoads !== 'function') return [];
+        const services = typeof this.getServices === 'function' ? this.getServices() : [];
+        const out = [];
+        for (const load of this.getServiceLoads()) {
+            const s = services.find(x => x.id === load.id);
+            if (!s) continue;
+            const printed = (load.distros || []).filter(r => this._bDistroPrints(r.distro));
+            if (!printed.some(r => used.has(String(r.distro.id)))) continue;
+            const rule = this.distroMainLimit(s);
+            out.push({ cells: [`Service: ${s.name || s.id}`,
+                `${this.serviceSizeText(s)}${rule.main100 ? ' · 100% rated' : ''}`
+                + ` · load ${this._bDistroLoadText(s, load)}`] });
+        }
+        return out;
     }
 
     // The warnings a screen's FACTS carried (now the FACTS sheet's NOTES):

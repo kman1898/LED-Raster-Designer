@@ -133,16 +133,20 @@ RUN_JS = """([ids, opts, setupSrc, what]) => {
                           .reduce((s, x) => s + x.legs.reduce((a, g) => a + g.amps, 0), 0)) };
         // the FACTS sheet's table, as the binder builds it
         const spied = [];
+        let notes = [];
         const origT = app._bTableLines;
         app._bTableLines = function (book, spec) {
             if (/^\d+ screens?$/.test(spec.title)) {
                 spied.push(spec.rows.filter(r => r.cells).map(r => r.cells.slice()));
+                notes = [];
             }
+            if (spec.title === 'Notes') notes = spec.rows.filter(r => r.cells).map(r => r.cells.slice());
             return origT.apply(this, arguments);
         };
         let plan;
         try { plan = app.planBinder(opts); } finally { app._bTableLines = origT; }
         out.facts = spied.length ? spied[spied.length - 1] : null;
+        out.factsNotes = notes;
         const render = (title) => {
             const idx = plan.findIndex(p => p.title === title);
             if (idx < 0) return null;
@@ -323,6 +327,24 @@ def test_screens_on_power_prints_each_member_with_its_own_load(page):
     assert 'WALL' not in facts, facts
     assert _figures(facts['WALL-L']) == _row(ol['watts'], ol['amps1'], ol['amps3']), facts
     assert _figures(facts['WALL-R']) == _row(orr['watts'], orr['amps1'], orr['amps3']), facts
+
+
+def test_the_facts_notes_say_the_wall_load_once(page):
+    """The WALL LOAD the screen sheets' FACTS carried (owner, 2026-11-18:
+    the facts dropped with the one FACTS sheet come back as its notes):
+    the load WALL-L's circuits carry, both members' panels once, naming
+    the two - one line, whether the wall prints as one row or a row per
+    member. No distro is placed here, so no POWER IN column."""
+    pg, ids, _e = page
+    for setup in (None, SCREENS_ON_BOTH):
+        out = _run(pg, ids, setup)
+        c = out['carried'][0]
+        want = 'Wall load: %.1f A 1φ · %.1f A 3φ · %.1f kW · WALL-L + WALL-R' % (
+            c['amps1'], c['amps3'], c['watts'] / 1000)
+        walls = [n for n in out['factsNotes'] if n[1].startswith('Wall load')]
+        assert walls == [[walls[0][0] if walls else '', want]], (setup is None, out['factsNotes'])
+        assert walls[0][0] in ('WALL', 'WALL-L'), walls
+        assert all(len(r) == len(FACTS_COLS) for r in out['facts']), out['facts']
 
 
 def test_the_show_totals_count_every_screen_once(page):

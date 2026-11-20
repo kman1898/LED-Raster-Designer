@@ -382,8 +382,10 @@ def test_the_facts_sheet_has_no_row_for_a_hidden_screen(binders):
     assert _table(hidden, '3 screens') == [] and _table(hidden, '2 screens') == []
     shown = rows(hidden, '1 screen')
     assert [r[0] for r in shown] == ['SHOWN', 'Total'], _table(hidden, '1 screen')
-    # the total is SHOWN's own row: its circuits and its four ports
-    assert shown[1][-2:] == shown[0][-2:] and shown[0][-1] == '4', shown
+    # the total is SHOWN's own row: its circuits and its four ports; its
+    # POWER IN its own distro, SHARED - never HID B's LONE
+    assert (shown[1][-3], shown[1][-1]) == (shown[0][-3], shown[0][-1]) and shown[0][-1] == '4', shown
+    assert shown[0][-2].startswith('SHARED') and shown[1][-2] == '', shown
 
 
 def test_the_shared_distro_and_service_print_only_the_shown_screen(binders):

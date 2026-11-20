@@ -98,13 +98,36 @@ const WARN = '#b00000';
 class _BinderFiber {
 
     // Whether the show uses fiber: a link of any box (or a QD-S's own) on
-    // a fiber cable. The page prints for nothing else, and the export
-    // dialog offers its tick only then.
+    // a fiber cable - a Cat snake is not one (binderUsesCatSnake). The page
+    // prints for nothing else, and the export dialog offers its tick only
+    // then (or for a Cat snake).
     binderUsesFiber() {
+        return this._bfUses(false);
+    }
+
+    // Whether a link of any box rides a Cat snake: the CAT SNAKE page's
+    // test, as binderUsesFiber is the Fiber page's.
+    binderUsesCatSnake() {
+        return this._bfUses(true);
+    }
+
+    _bfUses(snake) {
         if (typeof this._fiberAllBoxes !== 'function' || typeof this.fiberBoxLinks !== 'function') return false;
         // (a box off paper is not there: _bBoxPrints)
         return this._fiberAllBoxes().some(({ box, card, proc }) => this._bBoxPrints(box, card, proc)
-            && this.fiberBoxLinks(box).some(l => l.cable));
+            && this.fiberBoxLinks(box).some(l => l.cable && this._bfIsSnake(l.cable) === snake));
+    }
+
+    _bfIsSnake(cable) {
+        return !!cable && typeof this.fiberCableIsSnake === 'function' && this.fiberCableIsSnake(cable);
+    }
+
+    // Whether the Fiber page prints: a fiber link on a box that prints, and
+    // a processor that draws it. Where it does not, the Cat snake page also
+    // lists the links on a Cat cable of their own (owner, 2026-11-19: every
+    // data cable on some patch page).
+    _bfFiberPrints() {
+        return this.binderUsesFiber() && this._bfProcessors(false).length > 0;
     }
 
     // ---- the facts ----------------------------------------------------------
@@ -115,7 +138,12 @@ class _BinderFiber {
     // a row being _bFiberConnectionRows' - cells, parts, `link`, `fiber` -
     // with the box it lands on. An output nothing is plugged into is not a
     // link and is not drawn ("not used" stays the processor page's).
-    _bfProcessors() {
+    // THE TWO PAGES (owner, 2026-11-18): the Fiber page draws the links on
+    // fiber and on a Cat cable of their own; the CAT SNAKE page (`snake`)
+    // the links on a Cat snake, a channel each - a show with both prints
+    // both, each link on one of them. `copper` (the Cat snake page where no
+    // Fiber page prints): the links on a Cat cable of their own too.
+    _bfProcessors(snake = false, copper = false) {
         const out = [];
         for (const proc of this._processorsResolved || []) {
             // one off paper is not drawn (owner, 2026-11-17)
@@ -123,7 +151,9 @@ class _BinderFiber {
             const title = this._bProcessorTitle(proc);
             // (an input with nothing picked is the processor page's "no
             // fiber picked"; it is no link to draw)
-            const rows = this._bFiberConnectionRows(proc, title).filter(r => r.link && (r.link.cable || r.link.copper));
+            const rows = this._bFiberConnectionRows(proc, title).filter(r => r.link && (snake
+                ? this._bfIsSnake(r.link.cable) || (copper && !!r.link.copper)
+                : (r.link.copper || (r.link.cable && !this._bfIsSnake(r.link.cable)))));
             if (!rows.length) continue;
             const backup = (proc.backupUnit && proc.backupUnit.name) || '';
             out.push({ proc, title, backup, rows,
@@ -252,10 +282,15 @@ class _BinderFiber {
     //               links: [{ output, cable, atProcessor, breakout,
     //                         atBreakout, extension, box, input }] }],
     //     cables: [{ id, title, rows: [...], spare }], pull: [row] }
-    binderFiberPage(book) {
-        const procs = this._bfProcessors();
+    // `snake`: the Cat snake page's (binderCatSnakePage), with `catCables`:
+    // its CAT CABLES table's rows where no Fiber page prints.
+    binderFiberPage(book, snake = false) {
+        const procs = this._bfProcessors(snake, snake && !this._bfFiberPrints());
         const list = book && book.list ? book.list : this.buildPullSheet();
+        const cat = snake ? this._bfCatCableSpec(procs) : null;
         return {
+            ...(snake ? { catCables: cat ? cat.rows.map(r => (r.band !== undefined ? { band: r.band }
+                : { cells: r.cells })) : [] } : {}),
             procs: procs.map(p => ({
                 title: p.title, model: p.model, backup: p.backup, redundancy: p.redundancy,
                 links: p.rows.map(r => ({
@@ -273,8 +308,15 @@ class _BinderFiber {
                 id: s.cable.id, title: s.title, spare: s.spare,
                 rows: s.rows.map(r => (r.band !== undefined ? { band: r.band } : { cells: r.cells })),
             })),
-            pull: this._bfPullRows(list).map(r => ({ type: r.type, length: r.length, qty: r.qty, label: r.label || '' })),
+            pull: this._bfPullRows(list, snake).map(r => ({ type: r.type, length: r.length, qty: r.qty, label: r.label || '' })),
         };
+    }
+
+    // The Cat snake page's facts, as binderFiberPage reads the Fiber page's:
+    // its links, its CHANNEL maps (cells: channel, output, breakout box)
+    // and the snakes to pull.
+    binderCatSnakePage(book) {
+        return this.binderFiberPage(book, true);
     }
 
     // ---- the tables ---------------------------------------------------------
@@ -287,6 +329,9 @@ class _BinderFiber {
     // strands at the breakout - as the Fiber connections rows read them;
     // the strands no link takes as one line, "13 Blue/Black to 24
     // Aqua/Black · spare (12)".
+    // A Cat snake's is its CHANNEL map (`snake` on the spec): a row per
+    // link - its channel, the output, the breakout box input - the
+    // channel being the same at both ends; its spares "Ch 5 · spare (1)".
     _bfStrandMapSpecs(procs) {
         const out = [];
         // a pair on one line, as the compact page was picked ("i like the
@@ -295,11 +340,17 @@ class _BinderFiber {
         const pair = (list) => list.map(x => ({ text: x.text, swatch: x.swatch || null }));
         for (const cable of this.getFiberCables()) {
             const rows = [];
+            const snake = this._bfIsSnake(cable);
             for (const p of procs) {
                 const mine = p.rows.filter(r => r.fiber && r.link.cable && r.link.cable.id === cable.id);
                 if (!mine.length) continue;
                 rows.push({ band: [p.title, p.model].filter(Boolean).join(' · ') });
                 for (const r of mine) {
+                    if (snake) {
+                        rows.push({ cells: [((r.link.link && r.link.link.strands) || []).join(', '),
+                                            r.cells[0], r.cells[3]] });
+                        continue;
+                    }
                     const at = pair(r.fiber.atBreakout)
                         .concat(r.fiber.crosses ? [{ text: 'crosses inside', brk: true }] : []);
                     rows.push({ cells: [r.cells[2], r.cells[0], r.cells[3], at.map(x => x.text).join(' · ')],
@@ -318,12 +369,28 @@ class _BinderFiber {
             }
             const spare = [];
             for (const n of this.fiberStrandPositions(cable)) if (!used.has(n)) spare.push(n);
-            out.push({ cable, title: this._bStrandMapTitle(cable), rows, spare: this._bfSpareText(spare, cable) });
+            out.push({ cable, snake, title: this._bStrandMapTitle(cable), rows, spare: this._bfSpareText(spare, cable) });
         }
         const order = procs.flatMap(p => p.rows).map(r => r.link.cable && r.link.cable.id);
         const at = (spec) => order.indexOf(spec.cable.id);
         return out.map((spec, i) => ({ spec, i })).sort((a, b) => (at(a.spec) - at(b.spec)) || (a.i - b.i))
             .map(x => x.spec);
+    }
+
+    // THE CAT CABLES table (owner, 2026-11-19), on the Cat snake page where
+    // no Fiber page prints: each link on a Cat cable of its own, under a
+    // band per processor - OUTPUT | CABLE | BREAKOUT BOX, the cable in the
+    // processor page's words ("Cat6A 1 150'"). A spec the channel maps'
+    // three-column path lays out (`snake`, `cat`); null with none.
+    _bfCatCableSpec(procs) {
+        const rows = [];
+        for (const p of procs) {
+            const mine = p.rows.filter(r => r.link.copper);
+            if (!mine.length) continue;
+            rows.push({ band: [p.title, p.model].filter(Boolean).join(' · ') });
+            for (const r of mine) rows.push({ cells: [r.cells[0], r.cells[1], r.cells[3]] });
+        }
+        return rows.length ? { snake: true, cat: true, title: 'Cat cables', rows, spare: '' } : null;
     }
 
     // The spare strands as runs by name: "13 Blue/Black to 24 Aqua/Black ·
@@ -344,11 +411,12 @@ class _BinderFiber {
     // The show pull list's fiber rows: each fiber cable a link takes and
     // each extension, by the type the pull list gives them - its rows as
     // they stand, merged, counted and edited as the pull sheet has them.
-    _bfPullRows(list) {
+    // `snake`: the Cat snakes' rows instead (the Cat snake page's).
+    _bfPullRows(list, snake = false) {
         const types = new Set();
         for (const { box } of this._fiberAllBoxes()) {
             for (const l of this.fiberBoxLinks(box)) {
-                if (!l.cable) continue;
+                if (!l.cable || this._bfIsSnake(l.cable) !== snake) continue;
                 types.add(this.fiberCableTypeText(l.cable));
                 const ext = this.fiberLinkExtension(l);
                 if (ext) types.add(this.fiberExtensionType(ext, l.cable));
@@ -357,9 +425,9 @@ class _BinderFiber {
         return ((list && list.totals) || []).filter(r => r && types.has(r.type));
     }
 
-    // The tables as blocks, measured at `width`: the strand maps, then the
-    // pull list.
-    _bfTableBlocks(book, specs, pull, width) {
+    // The tables as blocks, measured at `width`: the strand maps (a Cat
+    // snake's channel maps), then the pull list (`snake`: the snakes').
+    _bfTableBlocks(book, specs, pull, width, snake = false) {
         // each column's share: its whole content's width; in a table
         // narrower than that, the strand columns give up the room first
         // (a pair goes onto two lines) and the output and the breakout
@@ -367,6 +435,7 @@ class _BinderFiber {
         const shares = (s) => {
             if (!s.need) return null;
             const w = s.need.slice();
+            if (s.snake) return w;
             let over = w.reduce((a, b) => a + b, 0) - width;
             for (const i of [0, 3]) {
                 if (over <= 0) break;
@@ -383,7 +452,8 @@ class _BinderFiber {
                 // each column's share its content's whole width
                 // (_bfTableNatural), so a pair and a breakout stay on one
                 // line wherever the table is that wide
-                cols: [{ title: 'at the processor', w: need(s, 0, 1.2), list: 3, parts: true },
+                cols: s.snake ? this._bfChannelCols(s, need)
+                    : [{ title: 'at the processor', w: need(s, 0, 1.2), list: 3, parts: true },
                        { title: 'output', w: need(s, 1, 0.7), list: 2 },
                        { title: 'breakout', w: need(s, 2, 1), list: 2, words: 'on' },
                        { title: 'at the breakout', w: need(s, 3, 1.2), list: 3, parts: true }],
@@ -393,11 +463,26 @@ class _BinderFiber {
         });
         const cols = this._bPullCableCols('gear').slice(1);
         blocks.push({ lines: this._bTableLines(book, {
-            title: 'Fiber cables · pull list', width, cols, whole: true,
+            title: snake ? 'Cat snakes · pull list' : 'Fiber cables · pull list', width, cols, whole: true,
             rows: pull.length ? pull.map(r => ({ cells: [...this._bPullCableCells(r), this._bQty(r.qty), r.label || ''] }))
                 : [{ cells: ['none', '', '', ''] }],
         }) });
         return blocks;
+    }
+
+    // A channel map's columns: CHANNEL | OUTPUT | BREAKOUT BOX (owner,
+    // 2026-11-18: "channel, processor output, breakout box input"), each
+    // its content's share (_bfTableNatural) where measured.
+    // The CAT CABLES table's (`s.cat`): OUTPUT | CABLE | BREAKOUT BOX.
+    _bfChannelCols(s, need) {
+        if (s.cat) {
+            return [{ title: 'output', w: need(s, 0, 0.8), list: 2 },
+                    { title: 'cable', w: need(s, 1, 1.2), list: 2, words: true },
+                    { title: 'breakout box', w: need(s, 2, 1.2), list: 2, words: 'on' }];
+        }
+        return [{ title: 'channel', w: need(s, 0, 0.6) },
+                { title: 'output', w: need(s, 1, 0.8), list: 2 },
+                { title: 'breakout box', w: need(s, 2, 1.2), list: 2, words: 'on' }];
     }
 
     // A muted line under a table (its spares), wrapped at its words.
@@ -432,6 +517,18 @@ class _BinderFiber {
         const textW = (t) => { ctx.font = this._bFont(SZ.cell, 400); return ctx.measureText(String(t || '')).width + padX * 2; };
         let need = 0;
         for (const s of specs) {
+            if (s.snake) {
+                // a channel map: its three columns' text, each on one line
+                const cell = this._bfChannelCols(s, (_s, _i, d) => d).map(c => head(c.title));
+                for (const r of s.rows) {
+                    if (r.band !== undefined) continue;
+                    r.cells.forEach((t, i) => { cell[i] = Math.max(cell[i], textW(t)); });
+                }
+                s.need = cell;
+                s.least = cell.slice();
+                need = Math.max(need, cell.reduce((a, b) => a + b, 0));
+                continue;
+            }
             const cell = [head('at the processor'), head('output'), head('breakout'), head('at the breakout')];
             const least = cell.slice();
             for (const r of s.rows) {
@@ -464,7 +561,8 @@ class _BinderFiber {
     // The drawing's columns, measured from everything they must hold - each
     // at least as wide as its heading - and every processor as a GROUP of
     // rows: { cols: { x: {...}, w }, groups: [{ p, rows, h, lines }] }.
-    _bfGeometry(book, procs) {
+    // `snake` (the Cat snake page): no EXTENSION column - a snake has none.
+    _bfGeometry(book, procs, snake = false) {
         const head = (t) => this._bfW(book, this._bCaps(t), SZ.th, 700) + 16;
         const max = (list, f) => list.reduce((m, x) => Math.max(m, f(x)), 0);
         const rows = procs.flatMap(p => p.rows);
@@ -485,8 +583,8 @@ class _BinderFiber {
                             max(rows, r => Math.max(plugW(r, 'p'), plugW(r, 'b'))));
         const pillW = max(rows, r => this._bfW(book, this._bfPill(r).text, DZ.pill, 700)) + PILL_PAD * 2;
         const CW = Math.max(head('cable'), pillW + RUN * 2);
-        const EW = Math.max(head('extension'), 130,
-                            max(rows, r => { const e = this._bfExtLabel(r); return e ? this._bfW(book, e.text, DZ.ext, e.warn ? 700 : 400) + 24 : 0; }));
+        const EW = snake ? 0 : Math.max(head('extension'), 130,
+                                        max(rows, r => { const e = this._bfExtLabel(r); return e ? this._bfW(book, e.text, DZ.ext, e.warn ? 700 : 400) + 24 : 0; }));
         const XW = Math.max(60, max(rows, r => this._bfW(book, r.link.title, DZ.tab)) + PAD * 2);
         // (a box is as wide as its name, its note a little past it at
         // most - a long list of screens wraps, never widens the drawing)
@@ -523,7 +621,7 @@ class _BinderFiber {
             const grow = sum < words ? (words - sum) / hs.length : 0;
             return { p, rows: p.rows, hs: hs.map(h => h + grow), h: Math.max(sum, words), name, red };
         });
-        return { x, w: x.B1, groups };
+        return { x, w: x.B1, groups, snake };
     }
 
     // A processor's rows by the box they land on, a run of rows each, in
@@ -587,14 +685,22 @@ class _BinderFiber {
     // splits into two side by side, and those two may stand a little
     // smaller than the base (TWO_MIN) to keep the page on one sheet - Matt's
     // two columns "of processors side by side". Past that it continues.
-    _bFiberSheets(book) {
-        if (!this.binderUsesFiber()) return;
-        const procs = this._bfProcessors();
+    // `snake`: the CAT SNAKE page instead (owner, 2026-11-18: a show whose
+    // XD links ride a Cat snake gets a page in this one's style, titled for
+    // the Cat snake, listing each channel - with no fiber at all, too; a
+    // show with both prints the Fiber page, then this one).
+    _bFiberSheets(book, snake = false) {
+        if (!(snake ? this.binderUsesCatSnake() : this.binderUsesFiber())) return;
+        // (where no Fiber page prints, the Cat snake page takes the links on
+        // a Cat cable of their own too, under CAT CABLES)
+        const copper = snake && !this._bfFiberPrints();
+        const procs = this._bfProcessors(snake, copper);
         if (!procs.length) return;
         const da = book.geo.da;
-        const geo = this._bfGeometry(book, procs);
-        const specs = this._bfStrandMapSpecs(procs);
-        const pull = this._bfPullRows(book.list);
+        const geo = this._bfGeometry(book, procs, snake);
+        const cat = copper ? this._bfCatCableSpec(procs) : null;
+        const specs = [...this._bfStrandMapSpecs(procs), ...(cat ? [cat] : [])];
+        const pull = this._bfPullRows(book.list, snake);
         const natural = this._bfTableNatural(book, specs, pull);
         const frame = GROUP_H + HEAD_H + HEAD_GAP;
         const under = BUBBLE_GAP + BUBBLE_H;
@@ -608,7 +714,7 @@ class _BinderFiber {
             const room = under_ ? da.w : da.w - drawW - COL_GAP * 2;
             const TW = Math.floor(Math.min(natural, (room - (t - 1) * COL_GAP) / t));
             if (TW < COL_W) return false;
-            const blocks = this._bfTableBlocks(book, specs, pull, TW);
+            const blocks = this._bfTableBlocks(book, specs, pull, TW, snake);
             if (t > blocks.length) return false;
             const tables = this._bSpread(blocks, t);
             const tablesH = tables ? Math.max(...tables.cols.map(c => c.h)) : 0;
@@ -638,7 +744,7 @@ class _BinderFiber {
         if (best) {
             this._bfPage(book, { scale: best.scale, extent: best.extent, cols: best.split.cols,
                                  tables: best.tables, tableCols: best.t, TW: best.TW, geo, cont: false, first: true,
-                                 under: best.under });
+                                 under: best.under, snake });
             return;
         }
         // Too much for one sheet: the drawing first - two columns at TWO_MIN
@@ -658,7 +764,7 @@ class _BinderFiber {
         const beside = Math.floor(da.w / S - (n * geo.w + (n - 1) * DRAW_GAP) - COL_GAP * 2);
         const TW = Math.min(natural, beside >= COL_W ? beside : DATA_COL_W);
         let groups = this._bfFitGroups(geo.groups, colH);
-        let rest = this._bfTableBlocks(book, specs, pull, TW);
+        let rest = this._bfTableBlocks(book, specs, pull, TW, snake);
         let first = true;
         while (groups.length || rest.length) {
             const cols = [];
@@ -698,7 +804,7 @@ class _BinderFiber {
             }
             this._bfPage(book, { scale, extent: { w: da.w / scale, h: da.h / scale }, cols, tables,
                                  tableCols: tables ? tables.cols.length : 0, TW, geo, cont: !first, first,
-                                 under: below });
+                                 under: below, snake });
             first = false;
             if (!cols.length && (!tables || !tables.cols.length)) break;
         }
@@ -715,9 +821,11 @@ class _BinderFiber {
         const tableX = da.x + (drawW && !L.under ? drawW + COL_GAP * 2 : 0);
         const fiber = { drawCols: L.cols.length, procs: L.cols.map(c => c.map(g => g.p.title + (g.cont ? ' (cont.)' : ''))),
                         tableCols: L.tableCols || 0, tableW: L.TW, drawW: L.geo.w, under: !!L.under };
+        // the Cat snake page is named for the snake as this one is for fiber
+        const name = L.snake ? 'Cat snake' : 'Fiber';
         this._bPage(book, {
-            kind: 'fiber', title: `Fiber${cont}`, sheetTitle: `FIBER${cont.toUpperCase()}`,
-            subject: 'Fiber', layout: 'fiber', cols: L.cols.length + (L.tableCols || 0),
+            kind: L.snake ? 'catsnake' : 'fiber', title: `${name}${cont}`, sheetTitle: `${name}${cont}`.toUpperCase(),
+            subject: name, layout: 'fiber', cols: L.cols.length + (L.tableCols || 0),
             scale: L.scale, extent: L.extent, names: titles, view, fiber,
         }, (page, scaled) => scaled(() => {
             // the head's rule over the drawing and the tables, as wide as
@@ -727,7 +835,7 @@ class _BinderFiber {
             const tablesW = L.tableCols ? L.tableCols * L.TW + (L.tableCols - 1) * COL_GAP : 0;
             const w = Math.max(drawW, tablesW ? tableX - da.x + tablesW : 0);
             let tableY = da.y + GROUP_H;
-            this._bGroupHead(book, `Fiber${cont}`, da.x, da.y, w);
+            this._bGroupHead(book, `${name}${cont}`, da.x, da.y, w);
             const top = da.y + GROUP_H;
             let low = top;
             L.cols.forEach((col, i) => {
@@ -735,8 +843,11 @@ class _BinderFiber {
                 low = Math.max(low, this._bfDrawColumn(book, L.geo, col, x, top));
             });
             if (view) {
-                this._bViewBubble(book, view, 'Fiber · processor to breakout box', da.x + 20, low + BUBBLE_GAP,
-                                  'One row per link. Dashed: the extension at the breakout box end. A TAC pair flips between its ends.',
+                this._bViewBubble(book, view, `${name} · processor to breakout box`, da.x + 20, low + BUBBLE_GAP,
+                                  L.snake ? 'One row per link, each on a channel of its snake: the same channel at both ends.'
+                                      + (L.geo.groups.some(g => g.rows.some(r => r.link.copper))
+                                          ? ' A Cat cable of its own reads its kind at each end.' : '')
+                                      : 'One row per link. Dashed: the extension at the breakout box end. A TAC pair flips between its ends.',
                                   Math.max(drawW, 900) - 20);
             }
             if (L.under) tableY = low + BUBBLE_GAP + BUBBLE_H + BUBBLE_GAP;
@@ -764,8 +875,8 @@ class _BinderFiber {
         const ctx = book.ctx;
         const X = geo.x;
         const heads = [['processor', X.P0, X.P1], ['output', X.T0, X.T1], ['at the processor', X.G0, X.G1],
-                       ['cable', X.C0, X.C1], ['extension', X.J, X.E1], ['at the breakout', X.Q0, X.Q1],
-                       ['breakout box', X.X0, X.B1]];
+                       ['cable', X.C0, X.C1], ...(geo.snake ? [] : [['extension', X.J, X.E1]]),
+                       ['at the breakout', X.Q0, X.Q1], ['breakout box', X.X0, X.B1]];
         for (const [t, a, b] of heads) {
             this._bText(book, t, x0 + (a + b) / 2, y0 + 28, { size: SZ.th, weight: 700, upper: true, align: 'center',
                                                             maxWidth: b - a + 12, shrink: true });

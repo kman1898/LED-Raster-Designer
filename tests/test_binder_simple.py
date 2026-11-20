@@ -170,6 +170,36 @@ def test_simple_sheets_carry_rulers_rows_and_no_facts(page):
     assert errors == []
 
 
+# The screen's power cables as the pull sheet lists them: each row's type.
+PULL_TYPES_JS = r"""(name) => {
+    const app = window.app;
+    app._circuitTailCache = null;
+    const l = app.project.layers.find(x => x.name === name);
+    const scr = app.buildPullSheet().byScreen[l.id] || {};
+    return (scr.rows || []).filter(r => (r.side || 'power') === 'power').map(r => r.type);
+}"""
+
+
+def test_the_simple_cables_table_says_multi_as_the_pull_sheet_does(page):
+    """The simple power sheet's CABLES THIS SCREEN names the multi cable
+    "Multi", the pull sheet's own word for it (owner, 2026-11-18: keep it
+    to match the pull sheet) - every cable in the pull sheet's words."""
+    pg, errors = page
+    _walls(pg)
+    sheets = pg.evaluate(SHEETS_JS, _simple(sheet='tabloid'))['sheets']
+    name = 'STAGE LEFT VERTICAL IMAG TOWER'
+    power = next(s for s in sheets if s['sheetTitle'] == name + ' · POWER WIRING · FRONT VIEW')
+    want = pg.evaluate(PULL_TYPES_JS, name)
+    assert 'Multi' in want, want
+    cables = [t for t in power['tables'] if t['title'] == 'Cables this screen'
+              and t['cols'] == ['cable', 'length', 'qty']]
+    mine = [t for t in cables if sorted({r[0] for r in t['rows']}) == sorted(set(want))]
+    assert mine, (want, [t['rows'] for t in cables])
+    assert [r for r in mine[0]['rows'] if r[0] == 'Multi'], mine[0]
+    assert 'Multi' in power['texts'], power['texts']
+    assert errors == []
+
+
 def test_the_simple_header_footer_sheet_lists_the_bars_and_their_totals(page):
     """The Header/Footer sheet: every bar where it hangs, then the header and
     footer totals - each size in the pull sheet's words, each side's total -
