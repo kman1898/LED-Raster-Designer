@@ -2518,8 +2518,8 @@ class _BinderWiring {
                 // a box fed from a run's last panel: no label there, so a
                 // dot marks where its line leaves (owner, 2026-11-19); its
                 // own overlay on the sheet's log line (app-binder-overlays.js)
-                this._bInkMark(book, 'box end dots', 'box power');
-                this._bInkCount(book, 'box end dots');
+                this._bInkMark(book, 'run end dots', 'powered at a run end');
+                this._bInkCount(book, 'run end dots');
                 this._bwSolid(ctx, d.x, d.y, d.r, printer ? INK : (d.hue || INK));
                 this._bInkMark(book, 'disc rings', wireWhy);
             } else if (!printer && !P.isData && d.hue && d.r > 0) {
