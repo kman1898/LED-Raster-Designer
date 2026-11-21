@@ -3002,6 +3002,13 @@ class _ScreenInfo {
         setCheckbox('show-offset-bl', getCommon(l => l.showOffsetBL || false));
         setCheckbox('show-offset-br', getCommon(l => l.showOffsetBR || false));
         
+        // Show Look's Screen Size and Coordinates (#124), off unless ticked.
+        if (document.getElementById('show-label-size-show-look')) {
+            setCheckbox('show-label-size-show-look', getCommon(l => l.showLabelSizePxShowLook || false));
+        }
+        if (document.getElementById('show-offset-show-look')) {
+            setCheckbox('show-offset-show-look', getCommon(l => l.showOffsetTLShowLook || false));
+        }
         // Update Screen Name checkboxes on other tabs, each reads its own per-tab property
         // with fallback to global showLabelName → true (backwards compat with old project files)
         if (document.getElementById('show-label-name-cabinet')) {

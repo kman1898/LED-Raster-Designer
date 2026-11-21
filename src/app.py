@@ -1865,6 +1865,9 @@ def create_layer(name, columns, rows, cabinet_width, cabinet_height, offset_x=0,
         'showOffsetTR': False,
         'showOffsetBL': False,
         'showOffsetBR': False,
+        # Show Look's Screen Size and Coordinates (#124): off until ticked
+        'showLabelSizePxShowLook': False,
+        'showOffsetTLShowLook': False,
         'panels': []
     }
     

@@ -302,6 +302,9 @@ class _Clipboard {
             showOffsetTR: layer.showOffsetTR,
             showOffsetBL: layer.showOffsetBL,
             showOffsetBR: layer.showOffsetBR,
+            // Show Look's Screen Size and Coordinates (#124).
+            showLabelSizePxShowLook: layer.showLabelSizePxShowLook,
+            showOffsetTLShowLook: layer.showOffsetTLShowLook,
             // Screen name sizes and per-view positions.
             screenNameSizeCabinet: layer.screenNameSizeCabinet,
             screenNameSizeDataFlow: layer.screenNameSizeDataFlow,

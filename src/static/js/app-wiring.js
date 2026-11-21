@@ -949,6 +949,27 @@ class _Wiring {
             }
         });
 
+        // Show Look's Screen Size and Coordinates (#124): each writes its
+        // own field on the selected screens (a group's peers follow, as
+        // they do for the Pixel Map's), one undo step per click.
+        const showLookLabelMap = {
+            'show-label-size-show-look': ['showLabelSizePxShowLook', 'Toggle Show Look Screen Size'],
+            'show-offset-show-look': ['showOffsetTLShowLook', 'Toggle Show Look Coordinates']
+        };
+        Object.entries(showLookLabelMap).forEach(([id, [prop, action]]) => {
+            const checkbox = document.getElementById(id);
+            if (!checkbox) return;
+            checkbox.addEventListener('change', () => {
+                if (!this.currentLayer) return;
+                const on = checkbox.checked;
+                this.applyToSelectedLayers(layer => {
+                    if ((layer.type || 'screen') === 'screen') layer[prop] = on;
+                });
+                this.updateLayers(this.getSelectedLayers(), true, action);
+                window.canvasRenderer.render();
+            });
+        });
+
     }
 
     // Data Settings: processor / bit depth / frame rate / low latency,

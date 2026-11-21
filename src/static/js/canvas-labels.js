@@ -914,6 +914,16 @@ Object.assign(CanvasRenderer.prototype, {
             if (cfg.showLabelWeight) {
                 centerLines.push(weighedNone ? noneLine : `Weight ${weightFigure}${leftOut}`);
             }
+        } else if (this.viewMode === 'show-look') {
+            // Show Look's Screen Size (#124): the Pixel Map's size line on
+            // the Show Look's own switch, so a Show Look export can serve
+            // as a content template. A group's label reads the whole
+            // wall's size, the way it does on Pixel Map.
+            if (cfg.showLabelSizePxShowLook) {
+                const text = `W ${layerWidth} X H ${layerHeight}`;
+                centerLines.push(text);
+                if (this.showLookLabelsDrawn) this.showLookLabelsDrawn.push({ layerId: cfg.id, kind: 'size', text });
+            }
         } else if (this.viewMode === 'data-flow') {
             if (cfg.showDataFlowPortInfo && groupTotals) {
                 // The wall's port line, from the roll-up (_groupCenterInfoLine).
@@ -1144,6 +1154,11 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.font = `bold ${fontSize}px ${projectFontFamily()}`;
         }
 
+        // Pixel Map and Show Look centre the name and the lines under it as
+        // one stack; the other tabs centre the name and hang their line
+        // beneath it.
+        const stacked = this.viewMode === 'pixel-map' || this.viewMode === 'show-look';
+
         // Calculate total height of ALL center labels (screen name + other labels)
         let totalCenterHeight = 0;
         let screenNameHeight = 0;
@@ -1156,7 +1171,7 @@ Object.assign(CanvasRenderer.prototype, {
             }
         }
         
-        if (centerLines.length > 0 && this.viewMode === 'pixel-map') {
+        if (centerLines.length > 0 && stacked) {
             totalCenterHeight += centerLines.length * lineHeight + padding * 2;
         }
         
@@ -1190,10 +1205,11 @@ Object.assign(CanvasRenderer.prototype, {
             const nameWidth = nameTextWidth + padding * 2;
             const nameHeight = nameLines.length * screenNameLineHeight + padding * 2;
 
-            // Baseline (un-offset) anchor for this view mode. Pixel Map stacks
-            // the name above the size/info lines; the other tabs center it.
+            // Baseline (un-offset) anchor for this view mode. Pixel Map (and
+            // Show Look) stack the name above the size/info lines; the other
+            // tabs center it.
             const baseX = centerX;
-            const baseY = (this.viewMode === 'pixel-map')
+            const baseY = stacked
                 ? (currentY + screenNameHeight / 2)
                 : centerY;
 
@@ -1299,7 +1315,7 @@ Object.assign(CanvasRenderer.prototype, {
             
             // Reset font for other labels
             this.ctx.font = `bold ${fontSize}px ${projectFontFamily()}`;
-            if (this.viewMode === 'pixel-map') {
+            if (stacked) {
                 currentY += screenNameHeight;
                 if (centerLines.length > 0) {
                     currentY += 5; // Gap before other labels
@@ -1384,7 +1400,7 @@ Object.assign(CanvasRenderer.prototype, {
             // Data / Power: the lines hang under the name plate; with no
             // name drawn (2026-09-23) the block is centred on the wall on
             // its own instead of hanging its top edge from the centre.
-            const bgY = (this.viewMode === 'pixel-map'
+            const bgY = (stacked
                 ? currentY + _labelGroupOffsetY
                 : (infoAnchorY ?? (centerY - bgHeight / 2)));
 
@@ -1470,8 +1486,9 @@ Object.assign(CanvasRenderer.prototype, {
     },
     
     renderLayerOffsets(layer) {
-        // Only render offsets in pixel-map mode
-        if (this.viewMode !== 'pixel-map') {
+        // Pixel Map's corner readouts, and Show Look's Coordinates (#124):
+        // the X, Y of each screen's top-left in the Show Look layout.
+        if (this.viewMode !== 'pixel-map' && this.viewMode !== 'show-look') {
             return;
         }
         
@@ -1481,26 +1498,34 @@ Object.assign(CanvasRenderer.prototype, {
         // its label is placed against, drawn once by the host with the
         // first member's choice of corners, size and colour. Both: each
         // screen's and the wall's, the wall leaving out a corner a screen
-        // already reads out on the same spot.
+        // already reads out on the same spot. Show Look follows the same
+        // switch, each figure read where its screen stands in the Show
+        // Look (its render offset: the frame here is the screen's own).
         const mode = this._groupNameMode(layer);
         const plan = mode === 'screens' ? null : this._groupLabelPlan(layer);
+        const off = (l) => this.getLayerRenderOffset(l);
         if (!plan || mode === 'both') {
             // v0.9.3: the rotated footprint, so the readouts sit at the
             // rotated screen's corners and report that orientation's
             // coordinates.
-            this._renderCornerReadouts(layer, this.getLayerFootprintBounds(layer));
+            this._renderCornerReadouts(layer, this.getLayerFootprintBounds(layer),
+                null, null, null, off(layer));
         }
         if (plan && plan.host === layer) {
             const shown = mode !== 'both' ? [] : plan.members.flatMap(m =>
-                this._cornerReadouts(m, this.getLayerFootprintBounds(m))
+                this._cornerReadouts(m, this.getLayerFootprintBounds(m), off(m))
                     .filter(c => c.show).map(c => c.align + c.baseline + c.text));
             this._renderCornerReadouts(plan.cfg, this._groupUnionBounds(plan.members, layer),
-                plan, layer, c => shown.includes(c.align + c.baseline + c.text));
+                plan, layer, c => shown.includes(c.align + c.baseline + c.text), off(layer));
         }
     },
 
-    // The four corner readouts of `bounds`, with `cfg`'s ticks.
-    _cornerReadouts(cfg, bounds) {
+    // The corner readouts of `bounds`, with `cfg`'s ticks. `off` is the
+    // frame's render offset ({dx, dy}, the Show Look shift): `x`/`y` are
+    // where a readout is drawn in the frame, `vx`/`vy` where that is on the
+    // canvas, and the text reads the canvas figures.
+    _cornerReadouts(cfg, bounds, off = null) {
+        if (this.viewMode === 'show-look') return this._showLookCoordReadouts(cfg, bounds, off);
         const layerWidth = bounds.width;
         const layerHeight = bounds.height;
 
@@ -1520,18 +1545,41 @@ Object.assign(CanvasRenderer.prototype, {
         const brY = bounds.y + layerHeight - 1;  // Account for zero-indexing
         
         return [
-            { x: tlX, y: tlY, text: `X ${tlX}, Y ${tlY}`, show: cfg.showOffsetTL, align: 'left', baseline: 'top', offsetX: 5, offsetY: 5 },
-            { x: trX, y: trY, text: `X ${trX}, Y ${trY}`, show: cfg.showOffsetTR, align: 'right', baseline: 'top', offsetX: -5, offsetY: 5 },
-            { x: blX, y: blY, text: `X ${blX}, Y ${blY}`, show: cfg.showOffsetBL, align: 'left', baseline: 'bottom', offsetX: 5, offsetY: -5 },
-            { x: brX, y: brY, text: `X ${brX}, Y ${brY}`, show: cfg.showOffsetBR, align: 'right', baseline: 'bottom', offsetX: -5, offsetY: -5 }
+            { x: tlX, y: tlY, vx: tlX, vy: tlY, text: `X ${tlX}, Y ${tlY}`, show: cfg.showOffsetTL, align: 'left', baseline: 'top', offsetX: 5, offsetY: 5 },
+            { x: trX, y: trY, vx: trX, vy: trY, text: `X ${trX}, Y ${trY}`, show: cfg.showOffsetTR, align: 'right', baseline: 'top', offsetX: -5, offsetY: 5 },
+            { x: blX, y: blY, vx: blX, vy: blY, text: `X ${blX}, Y ${blY}`, show: cfg.showOffsetBL, align: 'left', baseline: 'bottom', offsetX: 5, offsetY: -5 },
+            { x: brX, y: brY, vx: brX, vy: brY, text: `X ${brX}, Y ${brY}`, show: cfg.showOffsetBR, align: 'right', baseline: 'bottom', offsetX: -5, offsetY: -5 }
+        ];
+    },
+
+    // Show Look's Coordinates (#124): one readout, the X, Y of the top-left
+    // of `bounds` where it stands in the Show Look layout, the figure a
+    // content designer places artwork at. A screen hanging off the canvas's
+    // top or left edge still reads its true (negative) figure; the plate
+    // pins to the part of the screen that is on the canvas, so the template
+    // never loses it.
+    _showLookCoordReadouts(cfg, bounds, off = null) {
+        const dx = off ? off.dx : 0;
+        const dy = off ? off.dy : 0;
+        const vx = bounds.x + dx;
+        const vy = bounds.y + dy;
+        const ax = Math.max(vx, 0);
+        const ay = Math.max(vy, 0);
+        // Pinned past the screen's own right or bottom edge, the plate would
+        // stand on nothing: the screen is off the canvas, and says nothing.
+        const onScreen = ax < vx + bounds.width && ay < vy + bounds.height;
+        return [
+            { x: ax - dx, y: ay - dy, vx: onScreen ? ax : -1, vy: onScreen ? ay : -1,
+              text: `X ${vx}, Y ${vy}`, show: !!cfg.showOffsetTLShowLook,
+              align: 'left', baseline: 'top', offsetX: 5, offsetY: 5 }
         ];
     },
 
     // Draws `cfg`'s ticked readouts at the corners of `bounds`, leaving out
     // any corner `skip` picks. A group's (`plan`, drawn by `host`) goes under
-    // whatever covers the wall.
-    _renderCornerReadouts(cfg, bounds, plan = null, host = null, skip = null) {
-        const corners = this._cornerReadouts(cfg, bounds).filter(c => c.show && !(skip && skip(c)));
+    // whatever covers the wall. `off`: the frame's render offset.
+    _renderCornerReadouts(cfg, bounds, plan = null, host = null, skip = null, off = null) {
+        const corners = this._cornerReadouts(cfg, bounds, off).filter(c => c.show && !(skip && skip(c)));
         if (!corners.length) return;
 
         // Save context and clip to active raster bounds (translate-aware)
@@ -1546,12 +1594,19 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.font = `${fontSize}px ${projectFontFamily()}`;
         
         corners.forEach(corner => {
-            // Skip if corner is outside raster bounds
+            // Skip if corner is outside raster bounds (where it is on the
+            // canvas: the frame may carry a Show Look shift), unless the
+            // raster bounds nothing here (a binder sheet's one screen,
+            // ignoreRasterBounds)
             if (!this.ignoreRasterBounds
-                && (corner.x < 0 || corner.x >= this.rasterWidth || corner.y < 0 || corner.y >= this.rasterHeight)) {
+                && (corner.vx < 0 || corner.vx >= this.rasterWidth || corner.vy < 0 || corner.vy >= this.rasterHeight)) {
                 return;
             }
             
+            if (this.viewMode === 'show-look' && this.showLookLabelsDrawn) {
+                this.showLookLabelsDrawn.push({ layerId: cfg.id, kind: 'coords', text: corner.text });
+            }
+
             // Use world coordinates directly (transform is already applied)
             const worldX = corner.x + corner.offsetX;
             const worldY = corner.y + corner.offsetY;

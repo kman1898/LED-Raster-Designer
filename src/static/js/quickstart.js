@@ -7665,6 +7665,58 @@
                 return one.name + ' moved down and back on its own; ' + other.name + ' stayed, and both are still in ' + g.name + '.';
             }
         },
+        // Show Look's Screen Size and Coordinates (1.7.0, #124): a Show Look
+        // export handed to content designers as a template carries each
+        // screen's size and its Show Look X, Y. Both boxes are ticked on the
+        // grouped demo wall, which reads them the way its Names choice on
+        // Show Look says. Plays in the Pixel Map guide only, outside every
+        // BUILD run, so no other guide's demo show carries the labels.
+        showLookLabels: {
+            since: '1.7.0',
+            target: '#show-offset-show-look', place: 'right', title: 'Show Look size and coordinates',
+            ring: ['#show-label-size-show-look', '#show-offset-show-look'],
+            avoid: ['[data-mode="show-look"]', '#show-label-size-show-look', '#show-offset-show-look'],
+            body: 'Screen Size and Coordinates put each screen\'s size and its Show Look X, Y (top-left) on the canvas and in every Show Look export, a template for content. A group follows its Names choice.',
+            before: function () {
+                closePrefs(); hideMenus(); closePopover(); switchView('show-look'); frameWalls();
+                var a = A(), w = wall();
+                if (w) a.selectLayer(w);
+            },
+            act: function (t) {
+                var drawn = function (kind) {
+                    return ((R() && R().showLookLabelsDrawn) || []).some(function (d) { return d.kind === kind; });
+                };
+                var tick = function (sel, field) {
+                    var box = $(sel);
+                    var go = box && box.checked && !box.indeterminate ? Promise.resolve() : t.click(sel);
+                    return go.then(function () {
+                        return t.wait(function () {
+                            return [wall(), wall2()].every(function (l) { return l && l[field] === true; });
+                        });
+                    }).then(function (ok) {
+                        if (!ok) throw new Error(sel + ' did not reach both screens of the wall');
+                    });
+                };
+                return tick('#show-label-size-show-look', 'showLabelSizePxShowLook').then(function () {
+                    return tick('#show-offset-show-look', 'showOffsetTLShowLook');
+                }).then(function () {
+                    R().render();
+                    return t.wait(function () { return drawn('size') && drawn('coords'); });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Show Look did not draw the size and coordinates');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function () {
+                if (mode() !== 'show-look') return null;
+                if (![wall(), wall2()].every(function (l) { return l && l.showLabelSizePxShowLook && l.showOffsetTLShowLook; })) return null;
+                var d = (R() && R().showLookLabelsDrawn) || [];
+                var size = d.find(function (x) { return x.kind === 'size'; });
+                var at = d.find(function (x) { return x.kind === 'coords'; });
+                if (!size || !at) return null;
+                return 'The Show Look now reads ' + size.text + ' at ' + at.text + ', and its export carries the same.';
+            }
+        },
         exportBinder: {
             window: 'export:binder',
             target: '#btn-export', place: 'bottom', title: 'Export the binder',
@@ -10045,7 +10097,7 @@
     // its steps between its intro and its outro.
     var GUIDE_DEFS = [
         { name: 'pixelMap', title: 'Pixel Map', prep: [],
-          own: BUILD.pixelWall.concat(BUILD.pixelScreens, BUILD.pixelGroups, ['matchScreens', 'helpMenu', 'checkUpdates']),
+          own: BUILD.pixelWall.concat(BUILD.pixelScreens, BUILD.pixelGroups, ['showLookLabels', 'matchScreens', 'helpMenu', 'checkUpdates']),
           intro: 'This guide builds a wall on a scratch show: its cabinets, blanking and colors, Show Look, a second screen, beaches and groups. Your own project is put back when you leave.' },
         { name: 'data', title: 'Data', prep: BUILD.pixelWall,
           own: BUILD.data.concat(DATA_PRACTICE),

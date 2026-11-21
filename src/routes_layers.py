@@ -105,6 +105,8 @@ def add_layer():
         'showLabelSizePx', 'showLabelSizeM', 'showLabelSizeFt', 'showLabelWeight',
         'showLabelInfo', 'labelsColor', 'labelsFontSize', 'useFractionalInches',
         'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR',
+        # Show Look's Screen Size and Coordinates (#124).
+        'showLabelSizePxShowLook', 'showOffsetTLShowLook',
         'showDataFlowPortInfo', 'showDataFlowPortLoad',
         'portLabelTemplatePrimary', 'portLabelTemplateReturn',
         'portLabelOverridesPrimary', 'portLabelOverridesReturn',
@@ -484,6 +486,8 @@ def update_layer(layer_id):
                 'showLabelSizePx', 'showLabelSizeM', 'showLabelSizeFt', 'showLabelWeight', 'showLabelInfo',
                 'labelsColor', 'labelsFontSize', 'infoLabelSize', 'useFractionalInches',
                 'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR',
+                # Show Look's Screen Size and Coordinates (#124).
+                'showLabelSizePxShowLook', 'showOffsetTLShowLook',
                 'powerVoltage', 'powerVoltageCustom', 'powerAmperage', 'powerAmperageCustom', 'panelWatts',
                 'powerMaximize', 'powerOrganized', 'powerNumberOrder', 'powerCustomPath', 'powerFlowPattern', 'powerLineWidth',
                 'powerLineColor', 'powerArrowColor', 'powerRandomColors', 'powerColorCodedView', 'powerCircuitColors', 'riggingSizes', 'riggingBars', 'riggingFooterBars', 'riggingColor', 'riggingTextColor',
