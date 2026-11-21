@@ -8591,7 +8591,7 @@
         boxPower: {
             since: '1.7.0',
             target: '#main-canvas', place: 'top', title: 'Power a breakout box',
-            body: 'Power a breakout box: right-click the first or last panel of a circuit, or a free circuit in the Power tray, and pick the box. Its watts count on that circuit.',
+            body: 'Power a breakout box: right-click the first or last panel of a circuit, or a free circuit in the Power tray, and pick the box. Its watts count on that circuit. At the start of a circuit the box is fed from a TRUE1 2fer, as its pill says, and the pull sheet lists that 2fer.',
             before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
             act: function (t) {
                 var a = A(), w = wall();
@@ -8618,7 +8618,14 @@
                 var a = A();
                 var e = mem.boxes && a.boxPowerOf(mem.boxes[0]);
                 if (!e || e.at.kind !== 'start') return null;
-                return a.boxPowerTitle(e.box) + ' is powered from ' + a.boxPowerWhereText(e) + '.';
+                // a box at the start rides its own 2fer at the head of the
+                // circuit, the pill's "on a TRUE1 2fer" and the pull sheet's
+                // extra 2fer row (app-box-power.js boxPowerExtraTwofers)
+                var p = a._boxPowerPlacementOf(mem.boxes[0]);
+                var w = p && a.boxPowerStartWiring(p);
+                if (!w || !a.boxPowerExtraTwofers(p.layer, p.at.circuit).length) return null;
+                return a.boxPowerTitle(e.box) + ' is powered from ' + a.boxPowerWhereText(e) + ', ' + w.tag
+                    + ', and the pull sheet lists the ' + w.splitter + '.';
             },
             after: function () { $$('#context-menu .hw-bp-slot .menu-submenu').forEach(function (s) { s.style.display = ''; }); }
         },
@@ -8626,7 +8633,7 @@
         boxChain: {
             since: '1.7.0',
             target: '#main-canvas', place: 'top', title: 'Daisy chain boxes',
-            body: 'An XD or XD-T passes power on through its TRUE1 thru: right-click the powered box and pick Daisy chain to. Past 5 boxes or 2 A on one thru reads in gold.',
+            body: 'An XD or XD-T passes power on through its TRUE1 thru: right-click the powered box and pick Daisy chain to. Past 5 boxes in a chain, or past 2 A through an XD\'s thru, reads in gold.',
             before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
             act: function (t) {
                 var a = A();
@@ -9844,17 +9851,22 @@
             since: '1.7.0',
             target: '#idm-list', place: 'right', title: 'The marked modules',
             avoid: [function () { return idmRows()[0] || null; }],
-            body: 'Every mark is listed by screen and where it is: the cabinet\'s column and row, then the module\'s place, with its Cabinet ID and Module ID under it. Click one and that module is outlined in the view.',
+            body: 'Every mark is listed by screen and where it is: the cabinet\'s column and row, then the module\'s place, with its Cabinet ID and Module ID under it. Click one and the highlight moves to that module, in the view and on the wall, and stays there.',
             before: openIdm,
             act: function (t) {
                 var row = idmRows()[0];
                 if (!row) throw new Error('no marks in the list');
                 t.mem.text = row.title || row.textContent.trim();
+                t.mem.here = row.dataset.idmLayer + ':' + row.dataset.idmKey;
                 return t.click(row, { rest: PACE.acted });
             },
             check: function (mem) {
                 var n = idmRows().length;
-                return n >= 3 && mem.text ? n + ' marks. ' + mem.text + ' is outlined in the view.' : null;
+                // the click moved the live highlight there, and it stays
+                // (app-idm-locator.js _idmGoToRow)
+                var a = A();
+                if (!(n >= 3 && mem.text) || !a || a._idmListHere() !== mem.here) return null;
+                return n + ' marks. The highlight is on ' + mem.text + ', in the view and on the wall.';
             }
         },
         idmSwap: {
