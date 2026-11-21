@@ -302,6 +302,13 @@ def client():
     # format_version) so tests reflect real app state.
     app_module.current_project = _build_initial_project()
     app_module.next_layer_id = 1
+    # The page-log flood counts are module state too: a refusal counted in
+    # one test is reported on the next post as a client_log_dropped line,
+    # which a later test capturing the log would take for its own (CI
+    # 2026-11-21, test_log_browser_name after test_foreign_pages).
+    import routes_logs
+    with routes_logs._flood_lock:
+        routes_logs._clients.clear()
 
     with app.test_client() as client:
         yield client

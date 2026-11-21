@@ -49,10 +49,6 @@ def test_the_browser_is_named_plainly(ua, want):
 def test_each_page_log_line_carries_its_browser(client, monkeypatch):
     seen = []
     monkeypatch.setattr(routes_logs, 'log_event', lambda a, d, **k: seen.append((a, d, k)))
-    # The flood counts are module state: a refusal counted by an earlier
-    # module (test_foreign_pages posts as a foreign page) is reported on the
-    # next post, as one client_log_dropped line (CI 2026-11-21). Start clean.
-    monkeypatch.setattr(routes_logs, '_clients', {})
     r = client.post('/api/log', data=json.dumps({'action': 'client_ready', 'details': {'ua': SAFARI_MAC}}),
                     content_type='application/json', headers={'User-Agent': SAFARI_MAC})
     assert r.status_code == 200
