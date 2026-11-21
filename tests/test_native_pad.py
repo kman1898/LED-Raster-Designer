@@ -384,6 +384,28 @@ def test_only_our_own_reader_can_say_unavailable(fake_reader):
         sup.stop()
 
 
+def test_a_reader_that_said_unavailable_and_exited_before_the_accept_is_heard(fake_reader):
+    """A reader can connect, say "unavailable" and exit before the
+    supervisor gets round to accepting it (a slow machine: CI's Windows
+    runner, 2026-11-21). Its line is waiting in the listener's backlog; the
+    supervisor still reads it rather than seeing only a dead process and
+    starting the reader again."""
+    sup, msgs, logs = _sup(fake_reader('says_unavailable'))
+    accept = sup._accept
+
+    def late_accept(listener, proc):
+        proc.wait(15)   # the reader is gone before the first accept
+        return accept(listener, proc)
+
+    sup._accept = late_accept
+    try:
+        sup.start()
+        assert _wait(lambda: sup.state == 'unavailable')
+        assert sup.why == 'no SDL here' and sup.starts == 1
+    finally:
+        sup.stop()
+
+
 def test_the_reader_hears_whether_a_page_has_the_tab_open(tmp_path):
     script = tmp_path / 'listening_reader.py'
     script.write_text(textwrap.dedent('''

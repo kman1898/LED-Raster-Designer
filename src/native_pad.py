@@ -218,12 +218,28 @@ class PadReaderSupervisor:
             pass
 
     def _accept(self, listener, proc):
-        """The reader's connection, or None if it died or never called."""
+        """The reader's connection, or None if it died or never called.
+
+        A reader that ended before its connection was accepted may still
+        have called: one that says "unavailable" connects, sends and exits
+        at once, and on a slow machine all of that can happen before the
+        first accept. Its connection waits in the listener's backlog, so it
+        is taken (without waiting) before the reader is given up as dead,
+        or its line would be lost and the reader started again."""
         deadline = time.monotonic() + self.hello_timeout
         listener.settimeout(0.2)
         while not self._stop.is_set() and time.monotonic() < deadline:
             if proc.poll() is not None:
-                return None
+                listener.settimeout(0)
+                try:
+                    conn, addr = listener.accept()
+                except OSError:
+                    return None
+                if addr[0] not in ('127.0.0.1', '::1'):
+                    conn.close()
+                    return None
+                conn.setblocking(True)
+                return conn
             try:
                 conn, addr = listener.accept()
             except socket.timeout:
