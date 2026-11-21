@@ -8643,7 +8643,7 @@
         boxPower: {
             since: '1.7.0',
             target: '#main-canvas', place: 'top', title: 'Power a breakout box',
-            body: 'Power a breakout box: right-click the first or last panel of a circuit, or a free circuit in the Power tray, and pick the box. Its watts count on that circuit. At the start of a circuit the box is fed from a TRUE1 2fer, as its pill says, and the pull sheet lists that 2fer.',
+            body: 'Power a breakout box: right-click the first or last panel of a circuit, or a free circuit in the Power tray, and pick the box. Its watts count on that circuit. At the start of a circuit the box is fed from a TRUE1 2fer, as its pill says, and the pull sheet lists that 2fer with the box.',
             before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
             act: function (t) {
                 var a = A(), w = wall();
@@ -8671,13 +8671,14 @@
                 var e = mem.boxes && a.boxPowerOf(mem.boxes[0]);
                 if (!e || e.at.kind !== 'start') return null;
                 // a box at the start rides its own 2fer at the head of the
-                // circuit, the pill's "on a TRUE1 2fer" and the pull sheet's
-                // extra 2fer row (app-box-power.js boxPowerExtraTwofers)
+                // circuit: the pill's "on a TRUE1 2fer" (app-box-power.js
+                // boxPowerStartWiring). The pull sheet lists that 2fer once
+                // the box's processor feeds a screen; the practice SX40
+                // here feeds none, so its rows stay off the pull sheet.
                 var p = a._boxPowerPlacementOf(mem.boxes[0]);
                 var w = p && a.boxPowerStartWiring(p);
-                if (!w || !a.boxPowerExtraTwofers(p.layer, p.at.circuit).length) return null;
-                return a.boxPowerTitle(e.box) + ' is powered from ' + a.boxPowerWhereText(e) + ', ' + w.tag
-                    + ', and the pull sheet lists the ' + w.splitter + '.';
+                if (!w) return null;
+                return a.boxPowerTitle(e.box) + ' is powered from ' + a.boxPowerWhereText(e) + ', ' + w.tag + '.';
             },
             after: function () { $$('#context-menu .hw-bp-slot .menu-submenu').forEach(function (s) { s.style.display = ''; }); }
         },
