@@ -67,6 +67,12 @@ SEED_JS = """async () => {
     const proj = await j('GET', '/api/project');
     proj.layers = []; proj.groups = []; proj.processors = []; proj.distros = [];
     delete proj.port_assignments; delete proj.pullSheet; delete proj.binder;
+    // A canvas the whole wall stands on: a screen hanging past the canvas
+    // edge has its labels slid onto the canvas (test_labels_stay_on_canvas),
+    // and these checks are of the labels centred on a wall.
+    (proj.canvases || []).forEach(c => Object.assign(c, {raster_width: 2048, raster_height: 2304,
+        show_raster_width: 2048, show_raster_height: 2304}));
+    proj.raster_width = 2048; proj.raster_height = 2304;
     await j('PUT', '/api/project', proj);
     await j('POST', '/api/layer/add', {name: 'BIG', columns: %d, rows: %d,
                cabinet_width: %d, cabinet_height: %d, offset_x: 100, offset_y: 100,
@@ -80,6 +86,7 @@ SEED_JS = """async () => {
     const p = await j('GET', '/api/project');
     app.project = p;
     app.dedupeProjectLayers('label_wrap_seed');
+    if (app.syncRasterFromProject) app.syncRasterFromProject();
     const l = app.project.layers.find(l => l.name === 'BIG');
     app.selectLayer(l);
     await app.refreshProcessors();
