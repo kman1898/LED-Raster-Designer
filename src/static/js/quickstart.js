@@ -8643,7 +8643,7 @@
         boxPower: {
             since: '1.7.0',
             target: '#main-canvas', place: 'top', title: 'Power a breakout box',
-            body: 'Power a breakout box: right-click the first or last panel of a circuit, or a free circuit in the Power tray, and pick the box. Its watts count on that circuit. At the start of a circuit the box is fed from a TRUE1 2fer, as its pill says, and the pull sheet lists that 2fer with the box.',
+            body: 'Right-click a circuit&rsquo;s first or last panel, or a free circuit in the Power tray, and pick the box. At a circuit&rsquo;s start it is fed from a TRUE1 2fer, as its pill says, and the pull sheet lists that 2fer.',
             before: function () { closePrefs(); hideMenus(); closePopover(); switchView('power'); },
             act: function (t) {
                 var a = A(), w = wall();
@@ -9904,7 +9904,7 @@
             since: '1.7.0',
             target: '#idm-list', place: 'right', title: 'The marked modules',
             avoid: [function () { return idmRows()[0] || null; }],
-            body: 'Every mark is listed by screen and where it is: the cabinet\'s column and row, then the module\'s place, with its Cabinet ID and Module ID under it. Click one and the highlight moves to that module, in the view and on the wall, and stays there.',
+            body: 'Every mark is listed by screen and where it is, with its Cabinet ID and Module ID under it. Click one and the highlight moves to that module, in the view and on the wall, and stays there.',
             before: openIdm,
             act: function (t) {
                 var row = idmRows()[0];
