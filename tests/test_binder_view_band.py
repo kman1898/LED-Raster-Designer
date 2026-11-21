@@ -161,7 +161,12 @@ SHEETS_JS = r"""async ([opts, i]) => {
         const s = {n: p.number, kind: p.kind, title: p.sheetTitle, band: r.viewBand, stage: r.stage,
                    da: g.da, bandRect: false, bandText: false, bandWordsAnywhere: false, wall: null,
                    hits: [], ink: 0, bubble: r.bubble, badge: (r.mapTexts || []).filter(t => /^(BACK|FRONT)$/.test(t)),
-                   stageTexts: rec.ops.filter(o => o.op === 'text' && /STAGE (LEFT|RIGHT)( >)?$/.test(o.text)
+                   // (level text only: a multi's label stands on end along
+                   // its bracket, and a long name like "STAGE LEFT POWER
+                   // DISTRO RACK A1" wraps to a "STAGE LEFT" line of its
+                   // own beside a turned wall's short rows)
+                   stageTexts: rec.ops.filter(o => o.op === 'text' && !o.rotate
+                                               && /STAGE (LEFT|RIGHT)( >)?$/.test(o.text)
                                                && /^(< )?STAGE/.test(o.text)).map(o => o.text)};
         for (const o of rec.ops) {
             if (r.viewBand && o.op === 'rect' && o.fill === r.viewBand.fill && !o.stroke
