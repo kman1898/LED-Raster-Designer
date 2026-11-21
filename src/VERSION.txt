@@ -356,8 +356,8 @@ by module, at the speed set in the panel. The app reads the controller
 itself, so it works whenever the IDM Locator tab is open, even with the
 output or another app in front, and does nothing on the other tabs. The
 panel names the controller and its battery and lists the buttons while
-one is connected. On a Mac, the app asks once, the first time, for Input
-Monitoring, which a controller may need.
+one is connected. On a Mac, the app asks for Input Monitoring only if a
+controller that needs it connects, and only once.
 
 Walk the wall with a phone: Use a phone on the IDM Locator tab opens a
 dialog with a QR code of the phone page and its address beside it, with
@@ -378,7 +378,9 @@ to change.
 The list of marks is a swap list that counts down: tick Swapped once a
 module has been replaced and its mark clears from the wall, the row leaves
 the list on every computer and phone, and the count goes down. Undo brings
-the mark and the row back. Each row says where the module is first: the
+the mark and the row back. Click a row on the computer and the highlight
+moves to that module, in the view and on the wall, and stays there until
+you move it on. Each row says where the module is first: the
 cabinet's column and row in its screen, then the module's place in plain
 words, like "Col 1, Row 2 · Top left module", with its Cabinet ID and
 Module ID underneath. Front and Back above the list count from the top
@@ -482,9 +484,24 @@ DIFFERENT POWER ON ONE SCREEN
   right-click the first or last panel of a circuit, a 2fer or 3fer circuit,
   or a free circuit in the Power tray, and pick the box. Its watts count on
   that circuit, the distro and the totals, its cable and length go on the
-  pull sheet, and the binder's Power and Power Wiring sheets show it. An XD
-  or XD-T can daisy chain to the next one: right-click it and pick Daisy
-  chain to. Past 5 boxes, or past 2 A through one box's thru, reads in gold.
+  pull sheet, and the binder's Power and Power Wiring sheets show it. On
+  the Power Wiring sheet, a box at the end of a circuit is wired from the
+  run's last panel.
+- NEW: Every breakout box at the start of a circuit, an XD or XD-T too, is
+  fed from a TRUE1 2fer at the head of the circuit: one leg to the box, the
+  other to the panels. The 2fer is on the pull sheet. On a circuit that
+  already shares a 2fer, the box gets a 2fer of its own ahead of it, whose
+  other leg feeds the circuit's 2fer. A box's own 2fer counts in the
+  binder's Shared circuits table and in its screens' 2fer totals.
+- NEW: An XD or XD-T can daisy chain to the next one: right-click it and
+  pick Daisy chain to. A chain past the 5 boxes it is rated for reads in
+  gold, and so does any XD whose own thru carries more than 2 A on to the
+  boxes after it.
+- NEW: Off a distro, a breakout box is offered only a direct output or a
+  spare circuit of a multi that already runs to a screen.
+- NEW: A powered breakout box follows its panel whenever its circuit is
+  renumbered. If that panel no longer starts or ends a run, the box loses
+  its power, and the Power tab and the binder say so.
 
 POWER FIXES
 
@@ -530,16 +547,34 @@ POWER FIXES
   library no longer lists such a panel as 0kg. A show saved earlier keeps
   its weight.
 
+LOGS
+
+- NEW: Each line of the app log is one plain sentence, with its time, its
+  level and the part of the app it comes from. An edit says what it
+  changed, from the old value to the new one, and holding a spinner or
+  dragging is one line, not one for every step.
+- NEW: Help > Show Logs opens a viewer. Filter by level, area, text or
+  screen, open a line to see its details, see the file as written with
+  Raw, and Copy the lines for a bug report. The copy hides email
+  addresses, phone numbers, network addresses and your user name.
+- NEW: The log says what each view drew, and so do the 3D view, the
+  outputs, the IDM phone page, the binder and the exports, so a wrong
+  picture can be tracked down. It warns when a picture doesn't match the
+  screen's colors, and each binder map sheet logs what its map drew.
+- NEW: The log says why, too: where ports were placed, how circuits were
+  planned, phase balance, distro edits, power warnings, Header/Footer Auto
+  and the Curve, and each guide step.
+
 ALSO NEW
 
-- NEW: The app log notes what the 3D view draws for each screen, so a
-  wrong picture in 3D can be tracked down.
 - NEW: Set your own keys in Preferences > Controls. Every key is listed by
   area with a search box: click a key and press the new one, and Esc
   cancels. A key already in use asks before it moves, a key the browser or
   the system keeps is refused, and each action has a Reset, with Reset all
   to go back to the defaults. Keyboard Shortcuts, the menus and the
-  tooltips show your keys. Your keys stay with you, not the show.
+  tooltips show your keys. Your keys stay with you, not the show. Every
+  laptop joined to the show shares the same Controls, and a phone or
+  tablet keeps its touch gestures.
 - NEW: Set the 3D mouse and trackpad in Preferences > Controls. Standard is
   how the 3D view has worked; Orbit first makes a drag on empty space orbit
   the view, Shift+drag draw the selection box, and a drag on a selected
@@ -629,6 +664,10 @@ ALSO NEW
   960 × 540 makes the canvas 1920 × 1080. No screen moves, hidden screens
   don't count, the canvas ends at the last cabinet with pixels (hidden and
   blank cabinets are left out), and one undo puts the old size back.
+- NEW: Show Look has Screen Size and Coordinates checkboxes: each screen's
+  size and its Show Look X, Y, on the canvas and in every Show Look export,
+  so the export works as a content template. A grouped wall follows its
+  Names choice.
 - NEW: XD boxes can share a Cat snake, the way boxes share a TAC. Pick New
   Cat snake in an XD link's list, choose Cat6A, Cat6 or Cat5e, 2, 4 or 6
   channels or your own count, and a length. Other XDs pick the same snake
@@ -637,6 +676,11 @@ ALSO NEW
   box and link, and a snake longer than its kind's 10G run gets the same
   warning a single Cat cable does. Only the XD takes one: the XD-S, the
   XD-T and the CVTs run on fiber.
+- NEW: The binder prints a Cat snake page right after the Fiber page: a
+  row for each channel with its output and its breakout box input,
+  backups beside their mains, a channel map and the snakes to pull. A show
+  with no fiber gets the page too, and then it also lists the Cat cables
+  that run on their own.
 - NEW: The binder export has a Full or Simple choice, saved with the show.
   Simple gives each screen one Power Wiring and one Data Wiring sheet to
   hand a stagehand: the wiring drawing with its row and column numbers,
@@ -656,10 +700,31 @@ ALSO NEW
   theirs, and screens with no power figure are listed under it, and the
   room on the screen sheets goes to the drawings. A binder of one screen,
   or one with the Overview unticked, still gets its FACTS sheet, and a
-  show on 3-phase distros only has no amps 1φ column.
+  show on 3-phase distros only has no amps 1φ column. A POWER IN column
+  says what powers each screen and the legs it draws on, like "STAGE LEFT
+  DISTRO · X Y Z", and the notes under the table give each service's load
+  against its limit and a grouped wall's load.
 
 FIXES
 
+- FIX: Every binder map sheet names its side in a big colored band across
+  the top: red REAR VIEW · BEHIND THE WALL, or blue FRONT VIEW · AUDIENCE
+  SIDE, with STAGE LEFT and STAGE RIGHT under the drawing. The small BACK
+  badge no longer prints on binder maps. Stage hands could miss the small
+  REAR VIEW in the sheet's heading.
+- FIX: A screen past the processor's raster prints its circuits and labels
+  on its binder sheets. They printed as empty circles.
+- FIX: A screen turned on the Pixel Map prints in the binder the way its
+  tab shows it: the whole picture, its Header/Footer bars, the rulers, the
+  multi brackets and the wiring runs on the right cabinets, front and
+  rear. The binder used to cut it off and put the runs where the cabinets
+  stood before it was turned.
+- FIX: Wiring sheets with many breakout boxes never draw two runs on one
+  line, and the drawing never runs off the page: where it would, it
+  shrinks just enough to fit.
+- FIX: The thin gray line under a 2fer's runs is gone from the Power tab
+  and the binder. The 2fer tag by the circuit label and the Shared
+  circuits table say which runs share.
 - FIX: Quick fill on a data cable sheet now gives the backup ports their
   length too. With a looped XD pair, a backup box, or a box backing up the
   unit's own ports folded under its primary, or with the processor
@@ -771,6 +836,9 @@ FIXES
   labels are no longer crossed by the outline of selected cabinets, a
   group's circle and X or the canvas outline. A screen lying over another
   still covers it.
+- FIX: Labels on a screen that hangs past the canvas edge (its name, size,
+  info and coordinates) slide onto the canvas instead of being cut off, on
+  every tab and in every export.
 - FIX: Zoomed in to 1000% or more, the pixel grid covers every screen. It
   was missing over part or all of a wall on a canvas moved away from the
   top left of the workspace, in the Data and Power tabs' Back view, on a
@@ -913,6 +981,15 @@ FIXES
   line is held to 16 KB, and another device to 50 lines a second, so
   nothing on the network can flood the log. Lines turned away are
   counted in one warning, never written.
+- FIX: A web page from another site, open in a browser on the computer
+  running the app or on the network, could reach the app: open the logs
+  folder, write files, start a new show, quit the app or receive the whole
+  show over the live connection. Every request and the live connection now
+  answer only the app's own pages, on this computer or on a joined laptop,
+  tablet or phone.
+- FIX: A page that joined while another device was changing the show could
+  keep showing the old show until it was reloaded. It now reads the show
+  again and follows the change.
 - FIX: Holding a number field's spinner, or an arrow key in it, is one
   undo step from the value it started at to the one it ended on, like a
   drag on the canvas. It used to be a step for every tick, so one hold
