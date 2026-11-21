@@ -176,10 +176,10 @@ def test_mentions_layer():
 # ── redaction for a bug report ───────────────────────────────────────────
 
 def test_redaction_masks_contacts_addresses_and_user_names():
-    text = (r'C:\Users\Blue Iris\Shows\a.lrd /Users/matt/b.lrd /home/kim/c bob@example.com '
+    text = (r'C:\Users\Sam Lee\Shows\a.lrd /Users/alex/b.lrd /home/kim/c bob@example.com '
             r'10.0.0.42 (555) 123-4567 555-123-4567 +44 20 7946 0958')
     got = L.redact_text(text)
-    for gone in ('Blue Iris', 'matt', 'kim', 'bob@example.com', '10.0.0.42', '123-4567', '7946'):
+    for gone in ('Sam Lee', 'alex', 'kim', 'bob@example.com', '10.0.0.42', '123-4567', '7946'):
         assert gone not in got, got
     assert r'C:\Users\<user>\Shows' in got and '<email>' in got and '<ip>' in got and '<phone>' in got
 
