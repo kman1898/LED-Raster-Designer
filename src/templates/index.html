@@ -808,6 +808,18 @@
                                 <button type="button" class="btn btn-secondary name-display-btn" data-name-view="show-look" data-name-display="both" style="flex: 1; padding: 4px 6px; font-size: 11px;">Both</button>
                             </div>
                         </div>
+                        <!-- Size and position readouts for a content
+                             template (#124): drawn on the Show Look and in
+                             every Show Look export, per screen, in the
+                             Pixel Map's label size and colour. -->
+                        <div class="info-row checkbox-row" data-tooltip="Screen Size, Show each screen's size in pixels (W x H) on the Show Look and in its export.">
+                            <input type="checkbox" id="show-label-size-show-look">
+                            <label for="show-label-size-show-look">Screen Size</label>
+                        </div>
+                        <div class="info-row checkbox-row" data-tooltip="Coordinates, Show the X, Y of each screen's top-left corner in the Show Look layout, on the Show Look and in its export. A grouped wall follows its Names choice.">
+                            <input type="checkbox" id="show-offset-show-look">
+                            <label for="show-offset-show-look">Coordinates</label>
+                        </div>
                         <div style="margin-top: 12px;">
                             <button id="show-look-reset" class="btn" style="width:100%;" data-tooltip="Reset this screen's Show Look position to match its Pixel Map position. Also re-links its canvas's Show Look canvas size to its Pixel Map canvas size.">Reset to Pixel Map Position</button>
                         </div>

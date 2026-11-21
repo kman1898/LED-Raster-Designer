@@ -1560,14 +1560,17 @@ class CanvasRenderer {
             if (cfg.showLabelSizeFt) lines++;
             if (cfg.showLabelWeight) lines++;
             if (lines > 0) stackBelow = 5 + lines * (fontSize + 4) + padding * 2;
+        } else if (this.viewMode === 'show-look') {
+            // Show Look's Screen Size line (#124), stacked as on Pixel Map.
+            if (cfg.showLabelSizePxShowLook) stackBelow = 5 + (fontSize + 4) + padding * 2;
         } else if (infoLines > 0) {
             stackBelow = 5 + infoLines * (nameSize + 4) + padding * 2;
         }
-        // Pixel Map centres name + lines as one stack, so the name box sits
-        // above centre by half the lines' height. Every other tab centres
-        // the name itself and hangs the info line beneath it.
+        // Pixel Map (and Show Look) centre name + lines as one stack, so the
+        // name box sits above centre by half the lines' height. Every other
+        // tab centres the name itself and hangs the info line beneath it.
         let boxCenterY = centerY;
-        if (this.viewMode === 'pixel-map') {
+        if (this.viewMode === 'pixel-map' || this.viewMode === 'show-look') {
             boxCenterY = centerY - (nameHeight + stackBelow) / 2 + nameHeight / 2;
         }
 
@@ -2458,6 +2461,10 @@ class CanvasRenderer {
         this._labelPassLayers = [];
         this._labelPassDrawn = [];
         this._labelPassRects = new Map();
+        // What the Show Look's Screen Size and Coordinates (#124) wrote this
+        // frame, [{layerId, kind: 'size' | 'coords', text}]: the record a
+        // guide or a test reads to say what the template carries.
+        this.showLookLabelsDrawn = [];
         // v0.11.0: frame counter, so _powerCircuitForPanel can tell a peer's
         // circuit maps it built itself THIS frame from ones left over from the
         // last one. Without it a peer drawn after its owner would keep tinting

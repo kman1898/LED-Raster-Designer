@@ -150,6 +150,7 @@ class _ScreenGroups {
             'labelsColor', 'labelsFontSize', 'infoLabelSize',
             'useFractionalInches',
             'showOffsetTL', 'showOffsetTR', 'showOffsetBL', 'showOffsetBR',
+            'showLabelSizePxShowLook', 'showOffsetTLShowLook',
             'screenNameSize', 'screenNameSizeCabinet',
             'screenNameSizeDataFlow', 'screenNameSizePower',
             'show_numbers', 'number_size',
