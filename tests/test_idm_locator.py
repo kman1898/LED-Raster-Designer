@@ -744,7 +744,7 @@ def test_a_locked_screen_cannot_be_marked(page):
         l.locked = true;
         app.updateLayers([l], true, 'Lock');
     }""")
-    settled(page, lambda: served_layer(page, 'IdmB')['locked'], lambda v: v is True)
+    settled(page, lambda: served_layer(page, 'IdmB').get('locked'), lambda v: v is True)
     before = history_len(page)
     click_module(page, 'IdmB', 0, 0, 0, 0)
     page.wait_for_timeout(400)
@@ -768,7 +768,7 @@ def test_a_locked_screen_keeps_its_modules_and_marks_and_says_why(page):
         l.locked = true;
         app.updateLayers([l], true, 'Lock');
     }""")
-    settled(page, lambda: served_layer(page, 'IdmB')['locked'], lambda v: v is True)
+    settled(page, lambda: served_layer(page, 'IdmB').get('locked'), lambda v: v is True)
     said = 'IdmB is locked. Unlock it to change it.'
 
     page.evaluate("""() => { const a = window.app;
