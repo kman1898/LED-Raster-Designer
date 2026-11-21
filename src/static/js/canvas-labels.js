@@ -1177,6 +1177,15 @@ Object.assign(CanvasRenderer.prototype, {
         
         // Start Y position so that ALL labels are centered vertically
         let currentY = centerY - totalCenterHeight / 2;
+
+        // A screen hanging past the canvas edge: its labels slide onto the
+        // canvas (_labelHangFrame). Null for a screen wholly on the canvas,
+        // which draws exactly as it always has.
+        const _hang = this._labelHangFrame(bounds, !!gplan);
+        // The name plate is drawn with the lines under it, so the stack can
+        // slide as one: its box and its drawing, set in the name block.
+        let nameBox = null;
+        let drawName = null;
         
 
         
@@ -1270,48 +1279,65 @@ Object.assign(CanvasRenderer.prototype, {
             // Look translate (this._renderDx / this._renderDy) so the
             // rect lines up with where the label is actually drawn on
             // screen across multi-canvas / Show Look views.
-            if (!this.exportMode) {
-                const _wsOff = (typeof this._layerCanvasOffset === 'function')
-                    ? this._layerCanvasOffset(layer) : { wx: 0, wy: 0 };
-                const _ldx = (typeof this._renderDx === 'number') ? this._renderDx : 0;
-                const _ldy = (typeof this._renderDy === 'number') ? this._renderDy : 0;
-                // v0.11.0: cached on `cfg`, so a group's single label has a
-                // single owner for the plain-click drag hit-test. The 'both'
-                // headline gets its own key on the same owner: the ordinary
-                // key belongs to that member's own name in that display.
-                const _nameRect = {
-                    x1: _wsOff.wx + _ldx + nameX,
-                    y1: _wsOff.wy + _ldy + nameY,
-                    x2: _wsOff.wx + _ldx + nameX + nameWidth,
-                    y2: _wsOff.wy + _ldy + nameY + nameHeight,
-                    viewMode: this.viewMode,
-                };
-                if (groupLabelPass) cfg._groupNameHitRect = _nameRect;
-                else cfg._screenNameHitRect = _nameRect;
-            }
+            nameBox = { x1: nameX, y1: nameY, x2: nameX + nameWidth, y2: nameY + nameHeight };
+            // (sx, sy): the stack's slide onto the canvas, 0, 0 unless the
+            // screen hangs past its edge.
+            drawName = (sx, sy) => {
+                const plateX = nameX + sx;
+                const plateY = nameY + sy;
+                const textX = screenNameX + sx;
+                if (!this.exportMode) {
+                    const _wsOff = (typeof this._layerCanvasOffset === 'function')
+                        ? this._layerCanvasOffset(layer) : { wx: 0, wy: 0 };
+                    const _ldx = (typeof this._renderDx === 'number') ? this._renderDx : 0;
+                    const _ldy = (typeof this._renderDy === 'number') ? this._renderDy : 0;
+                    // v0.11.0: cached on `cfg`, so a group's single label has a
+                    // single owner for the plain-click drag hit-test. The 'both'
+                    // headline gets its own key on the same owner: the ordinary
+                    // key belongs to that member's own name in that display.
+                    const _nameRect = {
+                        x1: _wsOff.wx + _ldx + plateX,
+                        y1: _wsOff.wy + _ldy + plateY,
+                        x2: _wsOff.wx + _ldx + plateX + nameWidth,
+                        y2: _wsOff.wy + _ldy + plateY + nameHeight,
+                        viewMode: this.viewMode,
+                    };
+                    if (groupLabelPass) cfg._groupNameHitRect = _nameRect;
+                    else cfg._screenNameHitRect = _nameRect;
+                }
 
-            // Clip to layer bounds so labels don't overflow the screen edge
-            this.ctx.save();
-            this.ctx.beginPath();
-            this.ctx.rect(bounds.x, bounds.y, layerWidth, layerHeight);
-            this.ctx.clip();
+                this.ctx.font = `bold ${screenNameSize}px ${projectFontFamily()}`;
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.save();
+                // Clip to layer bounds so labels don't overflow the screen
+                // edge, except on a screen hanging past the canvas: there
+                // the plate was slid whole onto the canvas, and may stand
+                // past the screen's visible part when wider than it.
+                if (!_hang) {
+                    this.ctx.beginPath();
+                    this.ctx.rect(bounds.x, bounds.y, layerWidth, layerHeight);
+                    this.ctx.clip();
+                }
 
-            // Draw WHITE background
-            this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-            const snappedNameRect = this.snapRect(nameX, nameY, nameWidth, nameHeight);
-            this.ctx.fillRect(snappedNameRect.x, snappedNameRect.y, snappedNameRect.width, snappedNameRect.height);
+                // Draw WHITE background
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                const snappedNameRect = this.snapRect(plateX, plateY, nameWidth, nameHeight);
+                this.ctx.fillRect(snappedNameRect.x, snappedNameRect.y, snappedNameRect.width, snappedNameRect.height);
 
-            // Draw BLACK text - each of the name's lines centred on the
-            // plate; a single line sits at the plate's centre exactly as
-            // before the wrap existed.
-            this.ctx.fillStyle = '#000000';
-            let nameLineY = screenNameY - nameHeight / 2 + padding + screenNameLineHeight / 2;
-            nameLines.forEach(line => {
-                this._fillText(line, this.snap(screenNameX), this.snap(nameLineY));
-                nameLineY += screenNameLineHeight;
-            });
+                // Draw BLACK text - each of the name's lines centred on the
+                // plate; a single line sits at the plate's centre exactly as
+                // before the wrap existed.
+                this.ctx.fillStyle = '#000000';
+                let nameLineY = plateY + padding + screenNameLineHeight / 2;
+                nameLines.forEach(line => {
+                    this._fillText(line, this.snap(textX), this.snap(nameLineY));
+                    nameLineY += screenNameLineHeight;
+                });
 
-            this.ctx.restore();
+                this.ctx.restore();
+                this.ctx.font = `bold ${fontSize}px ${projectFontFamily()}`;
+            };
             
             // Reset font for other labels
             this.ctx.font = `bold ${fontSize}px ${projectFontFamily()}`;
@@ -1379,6 +1405,7 @@ Object.assign(CanvasRenderer.prototype, {
         }
         
         // Render other center labels with dark background (regular style)
+        let linesBox = null;
         if (centerLines.length > 0) {
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
@@ -1403,12 +1430,40 @@ Object.assign(CanvasRenderer.prototype, {
             const bgY = (stacked
                 ? currentY + _labelGroupOffsetY
                 : (infoAnchorY ?? (centerY - bgHeight / 2)));
+            linesBox = { x1: bgX, y1: bgY, x2: bgX + bgWidth, y2: bgY + bgHeight, bgWidth, bgHeight };
+        }
 
-            // Clip to layer bounds so labels don't bleed through higher layers
+        // The name and the lines under it slide onto the canvas as one
+        // stack when the screen hangs past its edge.
+        let _stackDx = 0;
+        let _stackDy = 0;
+        if (_hang && (nameBox || linesBox)) {
+            const boxes = [nameBox, linesBox].filter(Boolean);
+            const shift = this._labelHangShift(_hang, {
+                x1: Math.min(...boxes.map(b => b.x1)), y1: Math.min(...boxes.map(b => b.y1)),
+                x2: Math.max(...boxes.map(b => b.x2)), y2: Math.max(...boxes.map(b => b.y2)),
+            });
+            _stackDx = shift.dx;
+            _stackDy = shift.dy;
+        }
+        if (drawName) drawName(_stackDx, _stackDy);
+
+        if (linesBox) {
+            const bgX = linesBox.x1 + _stackDx;
+            const bgY = linesBox.y1 + _stackDy;
+            const { bgWidth, bgHeight } = linesBox;
+            this.ctx.textAlign = 'center';
+            this.ctx.textBaseline = 'middle';
+
+            // Clip to layer bounds so labels don't bleed through higher
+            // layers (not on a screen hanging past the canvas: its lines
+            // were slid whole onto the canvas)
             this.ctx.save();
-            this.ctx.beginPath();
-            this.ctx.rect(bounds.x, bounds.y, layerWidth, layerHeight);
-            this.ctx.clip();
+            if (!_hang) {
+                this.ctx.beginPath();
+                this.ctx.rect(bounds.x, bounds.y, layerWidth, layerHeight);
+                this.ctx.clip();
+            }
 
             // Draw dark background
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -1419,7 +1474,7 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.fillStyle = cfg.labelsColor || '#ffffff';
             let yPos = bgY + padding + lineHeight / 2;
             centerLines.forEach(line => {
-                this._fillText(line, this.snap(centerX + _labelGroupOffsetX), this.snap(yPos));
+                this._fillText(line, this.snap(centerX + _labelGroupOffsetX + _stackDx), this.snap(yPos));
                 yPos += lineHeight;
             });
 
@@ -1464,8 +1519,17 @@ Object.assign(CanvasRenderer.prototype, {
             // v0.8.7.7: bottom-anchored info bar follows the screen-name
             // offset so the whole label group moves together when the
             // user drags.
-            const bgX = (centerX + _labelGroupOffsetX) - bgWidth / 2;
-            const bgY = (bottomY + _labelGroupOffsetY) - bgHeight - padding;
+            let bgX = (centerX + _labelGroupOffsetX) - bgWidth / 2;
+            let bgY = (bottomY + _labelGroupOffsetY) - bgHeight - padding;
+            // On a screen hanging past the canvas it slides onto it too.
+            let _infoDx = 0;
+            if (_hang) {
+                const shift = this._labelHangShift(_hang,
+                    { x1: bgX, y1: bgY, x2: bgX + bgWidth, y2: bgY + bgHeight });
+                _infoDx = shift.dx;
+                bgX += shift.dx;
+                bgY += shift.dy;
+            }
 
             // Draw background
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -1476,7 +1540,7 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.fillStyle = cfg.labelsColor || '#ffffff';
             let yPos = bgY + padding + infoLineHeight;
             infoLines.forEach(line => {
-                this._fillText(line, this.snap(centerX + _labelGroupOffsetX), this.snap(yPos));
+                this._fillText(line, this.snap(centerX + _labelGroupOffsetX + _infoDx), this.snap(yPos));
                 yPos += infoLineHeight;
             });
         }
@@ -1485,6 +1549,63 @@ Object.assign(CanvasRenderer.prototype, {
         this.ctx.restore();
     },
     
+    // A label is never cut by the canvas edge (2026-11-20). When a screen
+    // hangs past the edge of the canvas it is drawn on, its centred labels
+    // (the name, the lines under it, the info bar) slide inward until they
+    // are whole on the canvas, inside the part of the screen on it. Returns
+    // that frame, in the current drawing frame (the Show Look shift taken
+    // off): `v` the screen's visible part, `c` the canvas, and per axis
+    // which edge the screen hangs past (`lo`: left / top, `hi`: right /
+    // bottom). Null for a screen wholly on the canvas, wholly off it (it
+    // draws nothing there), on a sheet not bounded by the canvas (the
+    // binder's one-screen sheets) or turned in its own frame (a rotated
+    // screen's frame is not the canvas's).
+    _labelHangFrame(bounds, grouped = false) {
+        if (this.ignoreRasterBounds) return null;
+        if (this._layerRotating && !grouped) return null;
+        const rw = this.rasterWidth;
+        const rh = this.rasterHeight;
+        if (!(rw > 0 && rh > 0)) return null;
+        const cx1 = -(this._renderDx || 0);
+        const cy1 = -(this._renderDy || 0);
+        const c = { x1: cx1, y1: cy1, x2: cx1 + rw, y2: cy1 + rh };
+        const bx2 = bounds.x + bounds.width;
+        const by2 = bounds.y + bounds.height;
+        const lo = { x: bounds.x < c.x1, y: bounds.y < c.y1 };
+        const hi = { x: bx2 > c.x2, y: by2 > c.y2 };
+        if (!lo.x && !lo.y && !hi.x && !hi.y) return null;
+        const v = {
+            x1: Math.max(bounds.x, c.x1), y1: Math.max(bounds.y, c.y1),
+            x2: Math.min(bx2, c.x2), y2: Math.min(by2, c.y2),
+        };
+        if (v.x2 <= v.x1 || v.y2 <= v.y1) return null;
+        return { v, c, lo, hi };
+    },
+
+    // How far `box` ({x1, y1, x2, y2}) slides for the frame `h`
+    // (_labelHangFrame): into the screen's visible part, or, when wider
+    // (taller) than that part, whole from the canvas edge the screen hangs
+    // past. Never past the canvas while the box fits on it.
+    _labelHangShift(h, box) {
+        const axis = (a1, a2, v1, v2, c1, c2, lo, hi) => {
+            const size = a2 - a1;
+            let s;
+            if (size <= v2 - v1) s = a1 < v1 ? v1 - a1 : (a2 > v2 ? v2 - a2 : 0);
+            else if (lo && !hi) s = v1 - a1;
+            else if (hi && !lo) s = v2 - a2;
+            else s = (v1 + v2) / 2 - (a1 + a2) / 2;
+            if (size <= c2 - c1) {
+                if (a1 + s < c1) s = c1 - a1;
+                if (a2 + s > c2) s = c2 - a2;
+            }
+            return s;
+        };
+        return {
+            dx: axis(box.x1, box.x2, h.v.x1, h.v.x2, h.c.x1, h.c.x2, h.lo.x, h.hi.x),
+            dy: axis(box.y1, box.y2, h.v.y1, h.v.y2, h.c.y1, h.c.y2, h.lo.y, h.hi.y),
+        };
+    },
+
     renderLayerOffsets(layer) {
         // Pixel Map's corner readouts, and Show Look's Coordinates (#124):
         // the X, Y of each screen's top-left in the Show Look layout.
@@ -1592,6 +1713,10 @@ Object.assign(CanvasRenderer.prototype, {
         const padding = 4;
         
         this.ctx.font = `${fontSize}px ${projectFontFamily()}`;
+        // A screen hanging past the canvas: each readout's plate slides
+        // whole onto the canvas (_labelHangFrame); null otherwise, and the
+        // readouts draw exactly as they always have.
+        const hang = this._labelHangFrame(bounds, !!plan);
         
         corners.forEach(corner => {
             // Skip if corner is outside raster bounds (where it is on the
@@ -1628,6 +1753,16 @@ Object.assign(CanvasRenderer.prototype, {
             } else {
                 bgY = worldY - textHeight - padding * 2;
             }
+            let slideX = 0;
+            let slideY = 0;
+            if (hang) {
+                const shift = this._labelHangShift(hang, { x1: bgX, y1: bgY,
+                    x2: bgX + textWidth + padding * 2, y2: bgY + textHeight + padding * 2 });
+                slideX = shift.dx;
+                slideY = shift.dy;
+                bgX += slideX;
+                bgY += slideY;
+            }
             
             // Draw background
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -1639,8 +1774,8 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.textAlign = corner.align;
             this.ctx.textBaseline = corner.baseline;
             
-            const textX = corner.align === 'left' ? worldX + padding : worldX - padding;
-            const textY = corner.baseline === 'top' ? worldY + padding : worldY - padding;
+            const textX = (corner.align === 'left' ? worldX + padding : worldX - padding) + slideX;
+            const textY = (corner.baseline === 'top' ? worldY + padding : worldY - padding) + slideY;
 
             this._fillText(corner.text, this.snap(textX), this.snap(textY));
         });
