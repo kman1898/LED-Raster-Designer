@@ -81,7 +81,8 @@ SPEED = 3
 # test_shared_window_runs_are_the_known_ones until it is named here (and so
 # covered by the drives below).
 GUIDE_RUNS = {
-    'pixelMap': [['sameAsLast', 'avgPower']],                        # picker:add
+    'pixelMap': [['sameAsLast', 'avgPower'],                         # picker:add
+                 ['logViewer', 'logSearch', 'logLine']],             # logs
     'data': [['redundancy', 'backupProcessor', 'processorIp']],      # gear:proc
     'power': [['distroPhase', 'distroRating', 'distroMain',
                'distroPreset', 'distroRows', 'edisonType'],          # gear:distro
@@ -91,7 +92,8 @@ GUIDE_RUNS = {
     'threeD': [['outputOpen', 'outputChoices']],                     # output
     'idm': [],
     'binder': [['exportBinder', 'screenOrder', 'wiringTick', 'binderMode',
-                'riggingSheet', 'fiberPage', 'titleBlock'],          # export:binder
+                'binderView', 'riggingSheet', 'fiberPage',
+                'titleBlock'],                                       # export:binder
                ['preferences', 'controls']],                         # prefs
 }
 # The guides whose steps share a window somewhere.
@@ -105,21 +107,25 @@ QUICK_RUNS = []
 # before 1.5.3 holds Preferences open between them; from 1.5.3 Cable stock
 # is not new and A list for each kind of cable runs alone.
 WHATS_NEW_RUNS = {
-    '1.5.0': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
+    '1.5.0': [['sameAsLast', 'avgPower'], ['logViewer', 'logSearch', 'logLine'],
+              ['edisonType', 'distroNeutral'],
               ['jumperNames', 'pullPanels'],
               ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
-              ['binderMode', 'riggingSheet', 'fiberPage']],
-    '1.5.1': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
+              ['binderMode', 'binderView', 'riggingSheet', 'fiberPage']],
+    '1.5.1': [['sameAsLast', 'avgPower'], ['logViewer', 'logSearch', 'logLine'],
+              ['edisonType', 'distroNeutral'],
               ['jumperNames', 'pullPanels'],
               ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
-              ['binderMode', 'riggingSheet', 'fiberPage']],
-    '1.5.2': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
+              ['binderMode', 'binderView', 'riggingSheet', 'fiberPage']],
+    '1.5.2': [['sameAsLast', 'avgPower'], ['logViewer', 'logSearch', 'logLine'],
+              ['edisonType', 'distroNeutral'],
               ['jumperNames', 'pullPanels'],
               ['cableStock', 'cableStockPerKind'], ['outputOpen', 'outputChoices'],
-              ['binderMode', 'riggingSheet', 'fiberPage']],
-    '1.5.3': [['sameAsLast', 'avgPower'], ['edisonType', 'distroNeutral'],
+              ['binderMode', 'binderView', 'riggingSheet', 'fiberPage']],
+    '1.5.3': [['sameAsLast', 'avgPower'], ['logViewer', 'logSearch', 'logLine'],
+              ['edisonType', 'distroNeutral'],
               ['jumperNames', 'pullPanels'],
-              ['outputOpen', 'outputChoices'], ['binderMode', 'riggingSheet', 'fiberPage']],
+              ['outputOpen', 'outputChoices'], ['binderMode', 'binderView', 'riggingSheet', 'fiberPage']],
 }
 
 # Each step's declared windows as a token the page can compare without
@@ -205,7 +211,8 @@ WATCH_JS = """(keys) => {
         : k === 'pull-sheet' ? 'pull-sheet-modal'
         : k.startsWith('gear:') ? 'hw-gear-popover'
         : k.startsWith('picker:') ? 'preset-picker-modal'
-        : k === 'output' ? 'output-display-modal' : null;
+        : k === 'output' ? 'output-display-modal'
+        : k === 'logs' ? 'logs-modal' : null;
     const isOpen = (k, el) => {
         if (!el || !el.isConnected || el.style.display !== 'block') return false;
         if (k.startsWith('gear:')) return !!(a._hwPopover && 'gear:' + a._hwPopover.id === k);
@@ -256,7 +263,7 @@ UNWATCH_JS = """() => {
     window.__qsWatch = null;
     const ids = {'export': 'export-modal', 'prefs': 'preferences-modal', 'pull-sheet': 'pull-sheet-modal',
                  'gear': 'hw-gear-popover', 'picker': 'preset-picker-modal',
-                 'output': 'output-display-modal'};
+                 'output': 'output-display-modal', 'logs': 'logs-modal'};
     const same = {};
     w.keys.forEach(k => {
         const el = document.getElementById(ids[k.split(':')[0]]);

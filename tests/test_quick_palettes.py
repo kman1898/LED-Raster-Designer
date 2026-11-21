@@ -1052,6 +1052,7 @@ def test_a_real_palette_source_pick_passes_the_field_guard(page):
 NEW_IN_1_7 = [
     # Pixel Map
     'quickPalettes', 'groupDrag', 'groupMove', 'showLookLabels', 'matchScreens', 'checkUpdates',
+    'logViewer', 'logSearch', 'logLine',
     # Data
     'processorIp', 'catSnake',
     # Power
@@ -1069,7 +1070,7 @@ NEW_IN_1_7 = [
     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
     'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap', 'notesChecklist',
     # Binder and Exports
-    'binderMode', 'riggingSheet', 'objExport', 'controls']
+    'binderMode', 'binderView', 'riggingSheet', 'factsSheet', 'objExport', 'controls', 'catSnakePage']
 
 
 def test_the_guide_step_shows_the_palettes(page):

@@ -723,6 +723,78 @@
         var m = $('#preferences-modal');
         if (m) m.style.display = 'none';
     }
+    // The log viewer (Help > Show Logs, app-logs-recent.js) as a step's
+    // window, 'logs'. The guide reads it on the viewer's first filters
+    // (errors, warnings and info, every area, no search, not Raw); the
+    // person's own filters, which the viewer keeps in localStorage, are
+    // captured with the world and put back on exit (captureWorld).
+    var LOG_VIEW_KEY = 'lrd_logs_viewer';   // app-logs-recent.js
+    function logsOpen() { var m = $('#logs-modal'); return !!m && m.style.display === 'block'; }
+    function closeLogs() {
+        if (held('logs')) return;
+        var a = A();
+        if (logsOpen() && a && typeof a.closeLogsModal === 'function') a.closeLogsModal();
+    }
+    function guideLogView() {
+        var a = A();
+        if (!a || typeof a._logView !== 'function') return;
+        var v = a._logView();
+        v.levels = ['error', 'warn', 'info'];
+        v.areas = [];
+        v.q = '';
+        v.raw = false;
+        v.thisScreen = false;
+        v.expanded = new Set();
+        var s = $('#logs-search'); if (s) s.value = '';
+        var only = $('#logs-this-screen'); if (only) only.checked = false;
+        // The lines a last opening left in the viewer are not this one's:
+        // a step waits for the rows the opening fetches, so its gesture
+        // never lands before them and is never overwritten by them.
+        var el = $('#logs-readable'); if (el) el.textContent = '';
+        a._logEntriesShown = null;
+    }
+    // The viewer up on the guide's filters, opened only when it is not up
+    // already (a step that shares it with the one before finds it as that
+    // step left it).
+    function openLogs() {
+        var a = A();
+        if (!a || logsOpen() || typeof a.openLogsModal !== 'function') return;
+        guideLogView();
+        a.openLogsModal();
+    }
+    function logRows() { return $$('#logs-readable .logs-row'); }
+    function logEntries() { var a = A(); return (a && a._logEntriesShown) || []; }
+    // A line the search for "guide" keeps: the server matches the word
+    // anywhere in the line as written (routes_logs.py _content_filter).
+    function logHasGuide(e) {
+        try { return JSON.stringify(e).toLowerCase().indexOf('guide') >= 0; } catch (err) { return false; }
+    }
+    // The details a row opened to, found by the row's key (the rows are
+    // built again on every fetch), or null.
+    function logDetails(key) {
+        var row = logRows().find(function (r) { return r.dataset.key === key; });
+        return row ? row.querySelector('.logs-row-details') : null;
+    }
+    // The person's filters back, in localStorage and in the viewer's own
+    // state object, changed in place: the viewer's chips, search and boxes
+    // were wired to that object when it first opened (app-logs-recent.js
+    // _wireLogViewFilters), so a new one would leave them writing to the
+    // old one and a later search would never reach the server.
+    function restoreLogView(v) {
+        var a = A();
+        lsPut(LOG_VIEW_KEY, v);
+        var st = a && a._logViewState;
+        if (!st) return;
+        var saved = null;
+        try { saved = JSON.parse(v || 'null'); } catch (e) { saved = null; }
+        st.levels = saved && Array.isArray(saved.levels) ? saved.levels.slice() : ['error', 'warn', 'info'];
+        st.areas = saved && Array.isArray(saved.areas) ? saved.areas.slice() : [];
+        st.raw = !!(saved && saved.raw);
+        st.q = saved && typeof saved.q === 'string' ? saved.q : '';
+        st.thisScreen = false;
+        st.expanded = new Set();
+        var s = $('#logs-search'); if (s) s.value = st.q;
+    }
     // Preferences on `tab`, opened only when it is not up on that tab
     // already: on a step that shares it with the one before (S.keep), the
     // window stays exactly as the earlier step left it.
@@ -3248,6 +3320,7 @@
             layout: window.LRD_LAYOUT ? window.LRD_LAYOUT.rings() : null,
             notes: notesCollapsed(),
             idm: captureIdm(),
+            logView: lsGet(LOG_VIEW_KEY),
             output: outputChoice(),
             // the Preferences tab the person had: the guide's steps open
             // other tabs, and the window reopened on the guide's last one
@@ -3265,7 +3338,7 @@
             localStorage.setItem(STASH_KEY, JSON.stringify({
                 project: w.project, mode: w.mode, sheets: w.sheets, prefs: w.prefs,
                 tray: w.tray, panels: w.panels, layout: w.layout, currentLayerId: w.currentLayerId,
-                notes: w.notes, idm: w.idm, at: Date.now()
+                notes: w.notes, idm: w.idm, logView: w.logView, at: Date.now()
             }));
             startStashBeat();
         } catch (e) { /* a project too big for the stash still restores on exit */ }
@@ -3339,6 +3412,7 @@
             if (typeof w.notes === 'boolean') setNotesCollapsed(w.notes);
             restorePanels(w.panels);
             restoreIdm(w.idm);
+            if ('logView' in w) restoreLogView(w.logView);
             a.resetHistory('Recovered');
             try { a.updateUI(); } catch (e) {}
             try { a.renderHardwareDock(); } catch (e) {}
@@ -3371,6 +3445,7 @@
         closePullSheet();
         closeExport();
         closeOutput();
+        closeLogs();
         if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     }
 
@@ -3443,6 +3518,7 @@
             setNotesCollapsed(w.notes);
             restorePanels(w.panels);
             restoreIdm(w.idm);
+            restoreLogView(w.logView);
             setOutputChoice(w.output || { view: 'pixel-map' });
             closeTransients();
             var em = $('#export-modal');
@@ -7817,6 +7893,204 @@
             },
             after: closeExport
         },
+        // The view band (1.7.0, app-binder.js _bViewBand and _bStageLine;
+        // owner, 2026-11-19: stage hands missed the small REAR VIEW in a
+        // sheet's heading): every map sheet wears a red REAR VIEW or blue
+        // FRONT VIEW band over its drawing and the stage line under it. Rear
+        // is picked, the first map sheet painted and its band and stage line
+        // read off what it drew, and Front picked back.
+        binderView: {
+            since: '1.7.0',
+            window: 'export:binder',
+            target: '#export-binder-view-row', place: 'left', title: 'Front or Rear view',
+            body: 'Pick Rear and every map sheet names its side in a band over the drawing, REAR VIEW in red or FRONT VIEW in blue, with stage left and stage right under it.',
+            before: openExport,
+            act: function (t) {
+                var a = A();
+                var view = function (v) { return function () { return a.getBinderInfo().view === v; }; };
+                return t.click('#export-binder-view-rear').then(function () {
+                    return t.wait(view('rear'));
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the binder did not take Rear');
+                    var opts = a.readBinderOptions();
+                    var plan = a.planBinder(opts);
+                    var i = plan.findIndex(function (p) { return p.kind === 'power' || p.kind === 'data'; });
+                    if (i < 0) throw new Error('the binder planned no map sheet');
+                    var r = a.renderBinderPage(opts, i);
+                    if (!r.viewBand || r.viewBand.side !== 'rear' || !r.stage) throw new Error('the map sheet wore no rear band');
+                    t.mem.rear = { number: plan[i].number, words: r.viewBand.words,
+                                   left: r.stage.left.text, right: r.stage.right.text };
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return t.click('#export-binder-view-front');
+                }).then(function () {
+                    return t.wait(view('front'));
+                });
+            },
+            check: function (mem) {
+                var front = $('#export-binder-view-front'), b = mem.rear;
+                if (!exportOpen() || !front || !front.checked || A().getBinderInfo().view !== 'front') return null;
+                if (!b || !/REAR VIEW/.test(b.words || '')) return null;
+                return 'On Rear, sheet ' + b.number + ' reads ' + b.words + ' over its drawing, with '
+                    + b.left + ' and ' + b.right + ' under it. Front is picked again.';
+            },
+            after: closeExport
+        },
+        // The FACTS sheet's POWER IN and its notes (1.7.0, app-binder.js
+        // _bFactsPage; owner, 2026-11-18): each screen's distro and the legs
+        // it draws on, then each service's load against its limit and a
+        // grouped wall's load. The Power guide's custom circuits took the
+        // wall off SL (custom on wipes its feeds), so the step's one action
+        // is the distro's header bar dragged onto the wall, its multis all
+        // landing on SL; the FACTS sheet is then painted and read off what
+        // it drew. It follows the Export dialog's run, and the sheets after
+        // it print the wall on SL.
+        factsSheet: {
+            since: '1.7.0',
+            target: function () { var d = distro(); return d ? '[data-lrd-distro="' + d.id + '"] > .hw-dock-head-row' : '[data-lrd-distro] > .hw-dock-head-row'; },
+            place: 'top', title: 'The FACTS sheet',
+            avoid: [function () { return multiDropPoint(); }],
+            body: 'Drag SL&rsquo;s header bar onto the wall. The FACTS sheet after the overview then names SL and its legs under POWER IN, and its notes give the service&rsquo;s load and a grouped wall&rsquo;s load.',
+            before: function () { closeExport(); closePrefs(); hideMenus(); closePopover(); switchView('power'); frameWalls(); },
+            act: function (t) {
+                var a = A(), d = distro();
+                if (!d) throw new Error('there is no distro to drag');
+                var fed = function () {
+                    var list = a.buildPullSheet();
+                    return screens().some(function (l) {
+                        return ((list.byScreen[l.id] || {}).boxes || []).some(function (b) { return b.distroId === d.id; });
+                    });
+                };
+                t.mem.distro = d.id;
+                return t.drag('[data-lrd-distro="' + d.id + '"] > .hw-dock-head-row', multiDropPoint()).then(function () {
+                    return t.wait(fed, 8000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the wall did not go on ' + (d.name || 'the distro'));
+                    var opts = a.readBinderOptions();
+                    var plan = a.planBinder(opts);
+                    var i = plan.findIndex(function (p) { return p.kind === 'facts'; });
+                    if (i < 0) throw new Error('the binder planned no FACTS sheet');
+                    var texts = a.renderBinderPage(opts, i).texts || [];
+                    var name = a.distroLabel(d);
+                    var all = texts.join(' ');
+                    t.mem.facts = {
+                        number: plan[i].number,
+                        powerIn: texts.find(function (x) { return x === name || x.indexOf(name + ' · ') === 0; }) || null,
+                        service: all.indexOf('Service: ') >= 0,
+                        wall: all.indexOf('Wall load: ') >= 0
+                    };
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var f = mem.facts, a = A();
+                if (!f || !f.powerIn || !f.service) return null;
+                var list = a.buildPullSheet();
+                var on = screens().some(function (l) {
+                    return ((list.byScreen[l.id] || {}).boxes || []).some(function (b) { return b.distroId === mem.distro; });
+                });
+                if (!on) return null;
+                return 'FACTS prints as sheet ' + f.number + ': POWER IN reads ' + f.powerIn
+                    + ', and the notes give the service’s load' + (f.wall ? ' and the wall load.' : '.');
+            }
+        },
+        // The Cat snake page (1.7.0, app-binder-fiber.js binderCatSnakePage;
+        // owner, 2026-11-18): XD links on a Cat snake print a page of their
+        // own, after the Fiber page, and the export dialog's tick names it.
+        // The guide's show has no XD, so an SX40 of its own feeding a small
+        // screen of its own, XD WALL, goes in, and XD A's X1 rides a 4
+        // channel Cat6A snake, 150 ft (the guide's picks, as in A Cat snake
+        // to the XDs). It closes the guide, so nothing it adds reaches
+        // another step. The tick goes off and on, and the set is planned
+        // until the page is in it.
+        catSnakePage: {
+            since: '1.7.0',
+            window: 'export:binder',
+            target: '#export-binder-fiber-label', place: 'left', title: 'The Cat snake page',
+            body: 'An XD on a Cat snake, put in here with a screen of its own, gets a Cat snake page after the Fiber page: a row per channel with its output and breakout box input. The tick now reads Fiber, Cat snake.',
+            before: function () { closePrefs(); hideMenus(); closePopover(); closeExport(); },
+            act: function (t) {
+                var a = A(), w = wall(), cardId = null, xd = null, layer = null;
+                return j('POST', '/api/processors', { deviceId: 'brompton-sx40' }).then(function (st) {
+                    var sx = st.resolved[st.resolved.length - 1];
+                    cardId = sx.slots[0].card.id;
+                    xd = sx.slots[0].card.cvts[0].id;
+                    t.mem.xd = xd;
+                    var bottom = screens().reduce(function (m, l) {
+                        return Math.max(m, (Number(l.offset_y) || 0) + l.rows * l.cabinet_height);
+                    }, 0);
+                    return j('POST', '/api/layer/add', {
+                        name: 'XD WALL', columns: 4, rows: 3,
+                        cabinet_width: w.cabinet_width, cabinet_height: w.cabinet_height,
+                        offset_x: Number(w.offset_x) || 0, offset_y: bottom + 200
+                    });
+                }).then(function (l) {
+                    practiceScreen(l);
+                    l.processorType = 'brompton';
+                    layer = l;
+                    // the platform on the server before the ports are placed
+                    return j('PUT', '/api/layer/' + l.id, { processorType: 'brompton', bitDepth: 8, frameRate: 60, lowLatency: false });
+                }).then(function () {
+                    a.upsertProjectLayer(layer);
+                    a.updateLayers([layer]);
+                    return a.refreshProcessors();
+                }).then(function () {
+                    return a._assignmentRequest('/api/port-assignments/place-overflow', 'POST',
+                        { layerId: String(layer.id), cardId: cardId }, null, 'Place Ports');
+                }).then(function () {
+                    return t.wait(function () {
+                        var scr = ((a._assignment && a._assignment.screens) || []).find(function (s) { return s.layerId === String(layer.id); });
+                        return scr && scr.ports.some(function (p) { return p.cardId === cardId; });
+                    });
+                }).then(function (placed) {
+                    if (!placed) throw new Error('XD WALL did not go on the SX40');
+                    a.saveState('Add Layer');
+                    return a.createFiberCable({ kind: 'cat-snake', copper: 'Cat6A', strands: 4, ft: 150,
+                                                link: { boxId: xd, key: 'p1' } }, 'New Cat snake');
+                }).then(function () {
+                    return a.refreshProcessors();
+                }).then(function () {
+                    a._circuitTailCache = null;
+                    return t.wait(function () { return a.binderUsesCatSnake(); }, 6000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Cat snake did not reach the binder');
+                    a.openExportModal('binder');
+                    return t.wait(function () {
+                        var l = $('#export-binder-fiber-label');
+                        return exportOpen() && l && l.style.display !== 'none' && /Cat snake/.test(l.textContent) ? l : null;
+                    });
+                }).then(function (l) {
+                    if (!l) throw new Error('the tick does not read Cat snake');
+                    return t.spot($('#export-modal .modal-content')).then(function () { return t.pause(PACE.opened); });
+                }).then(function () {
+                    var box = $('#export-binder-fiber');
+                    return box.checked ? t.click(box).then(function () { return t.pause(500); }) : null;
+                }).then(function () {
+                    t.mem.mid = $('#export-binder-fiber').checked;
+                    return t.click('#export-binder-fiber');
+                }).then(function () {
+                    return t.wait(function () {
+                        if (!$('#export-binder-fiber').checked) return null;
+                        var plan = a.planBinder(a.readBinderOptions());
+                        var snake = plan.find(function (p) { return p.kind === 'catsnake'; });
+                        var fiber = plan.find(function (p) { return p.kind === 'fiber'; });
+                        if (snake) t.mem.pages = { snake: snake.number, fiber: fiber ? fiber.number : null };
+                        return snake || null;
+                    }, 4000);
+                }).then(function (hit) {
+                    if (!hit) throw new Error('the binder planned no Cat snake page');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var box = $('#export-binder-fiber'), l = $('#export-binder-fiber-label');
+                if (!exportOpen() || !box || !box.checked || mem.mid || !mem.pages) return null;
+                if (!l || !/Cat snake/.test(l.textContent)) return null;
+                return 'The tick reads ' + l.textContent.trim() + ', and the Cat snake page prints as sheet ' + mem.pages.snake
+                    + (mem.pages.fiber ? ', right after the Fiber page, ' + mem.pages.fiber + '.' : '.');
+            },
+            after: closeExport
+        },
         // The Fiber page (1.6.0, app-binder-fiber.js): one sheet right after
         // the screens, before the pull sheets, for a show that uses fiber -
         // the guide's breakout box took a TAC in Fiber to the box - every
@@ -9170,6 +9444,117 @@
             },
             after: function () { hideMenus(); }
         },
+        // The app log's viewer (1.7.0, app-logs-recent.js; the 2026-11-19
+        // logging audit): Help > Show Logs, one readable line an event. The
+        // three steps share the window ('logs'). The guide reads it on the
+        // viewer's first filters (guideLogView); the person's own come back
+        // on exit (captureWorld). Nothing is copied or cleared: Copy for a
+        // bug report is pointed at, never pressed, so the clipboard is the
+        // person's own.
+        logViewer: {
+            since: '1.7.0',
+            window: 'logs',
+            target: '[data-menu="help"]', place: 'bottom', title: 'Show Logs',
+            avoid: ['#logs-modal .modal-content'],
+            body: 'Help &rsaquo; Show Logs opens the app log: one plain line for each thing the app did, with its time, level and area. Warnings read amber and errors red.',
+            before: function () { closePrefs(); hideMenus(); closeLogs(); },
+            act: function (t) {
+                // Up already on a Back from the next step, which shares it.
+                var open = logsOpen() ? Promise.resolve() : t.click('[data-menu="help"]').then(function () {
+                    return t.wait(function () {
+                        var m = $('#menu-help');
+                        return m && m.style.display === 'block' ? $('#menu-help [data-action="show-logs"]') : null;
+                    });
+                }).then(function (opt) {
+                    if (!opt) throw new Error('the Help menu did not open');
+                    guideLogView();
+                    return t.click('#menu-help [data-action="show-logs"]');
+                }).then(function () {
+                    return t.wait(logsOpen);
+                }).then(function (up) {
+                    if (!up) throw new Error('Show Logs did not open');
+                });
+                return open.then(function () {
+                    return t.wait(function () { return logRows().length && logEntries().length ? true : null; }, 6000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the log showed no lines');
+                    return t.spot($('#logs-modal .modal-content')).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var e = logEntries();
+                if (!logsOpen() || !e.length || !logRows().length) return null;
+                var last = e[e.length - 1];
+                return e.length + ' lines, the newest at the bottom: '
+                    + String(last.msg || last.action || '').slice(0, 90).replace(/\.$/, '') + '.';
+            },
+            after: closeLogs
+        },
+        logSearch: {
+            since: '1.7.0',
+            window: 'logs',
+            target: '#logs-view-filters', place: 'left', title: 'Find a line',
+            avoid: ['#logs-view-filters', '#logs-readable'],
+            body: 'The level and area chips, the search box and Only this screen narrow the lines down. Type guide in the search to find the lines this guide wrote.',
+            before: openLogs,
+            act: function (t) {
+                var a = A();
+                return t.wait(function () { return logsOpen() && logRows().length ? true : null; }, 6000).then(function (ok) {
+                    if (!ok) throw new Error('the log viewer is not up');
+                    return t.spot($('#logs-view-filters')).then(function () { return t.pause(PACE.opened); });
+                }).then(function () {
+                    return t.type('#logs-search', 'guide');
+                }).then(function () {
+                    // the search goes to the server (GET /api/logs q=):
+                    // every line shown now carries the word
+                    return t.wait(function () {
+                        var v = a._logView(), e = logEntries();
+                        return v.q === 'guide' && e.length && e.every(logHasGuide) ? true : null;
+                    }, 6000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the search found no lines with guide in them');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function () {
+                var a = A(), v = a && a._logView ? a._logView() : null, e = logEntries(), box = $('#logs-search');
+                if (!logsOpen() || !v || v.q !== 'guide' || !box || box.value !== 'guide') return null;
+                if (!e.length || !e.every(logHasGuide)) return null;
+                var last = e[e.length - 1];
+                return 'The search leaves ' + e.length + ' line' + (e.length === 1 ? '' : 's') + ', the newest: '
+                    + String(last.msg || last.action || '').slice(0, 90).replace(/\.$/, '') + '.';
+            },
+            after: closeLogs
+        },
+        logLine: {
+            since: '1.7.0',
+            window: 'logs',
+            target: '#logs-copy-report', place: 'left', title: 'Details, and a copy for a bug report',
+            avoid: ['#logs-readable', '#logs-copy-report'],
+            body: 'Click a line to open its details. Copy for a bug report copies the lines shown with emails, phone numbers, addresses and your user name hidden.',
+            before: openLogs,
+            act: function (t) {
+                return t.wait(function () { var r = logRows(); return logsOpen() && r.length ? r[r.length - 1] : null; }, 6000).then(function (row) {
+                    if (!row) throw new Error('the log showed no lines');
+                    t.mem.key = row.dataset.key;
+                    return t.click(row.querySelector('.logs-row-head') || row);
+                }).then(function () {
+                    return t.wait(function () { return logDetails(t.mem.key); });
+                }).then(function (det) {
+                    if (!det) throw new Error('the line did not open to its details');
+                    return t.hover('#logs-copy-report', { hover: 700 });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function (mem) {
+                var det = logsOpen() ? logDetails(mem.key) : null;
+                var d = null;
+                try { d = det ? JSON.parse(det.textContent) : null; } catch (e) { d = null; }
+                if (!d || !d.action) return null;
+                return 'The line opened to its details, ' + d.action
+                    + '. Copy for a bug report sits beside Copy; nothing was copied.';
+            },
+            after: closeLogs
+        },
         // The 1.7 tabs and windows, shown after Cabinets across screens: the
         // steps need the second wall and run before the two are grouped.
         // Each sets up the view and the selection it needs in before(), so
@@ -10081,8 +10466,8 @@
         // Pixel Map: groups
         pixelGroups: ['groupScreens', 'groupNames', 'groupDrag', 'groupMove'],
         // Binder and Exports
-        binder: ['exportBinder', 'screenOrder', 'wiringTick', 'binderMode', 'riggingSheet', 'fiberPage', 'titleBlock',
-                 'fileExports', 'objExport', 'preferences', 'controls']
+        binder: ['exportBinder', 'screenOrder', 'wiringTick', 'binderMode', 'binderView', 'riggingSheet',
+                 'fiberPage', 'titleBlock', 'factsSheet', 'fileExports', 'objExport', 'preferences', 'controls']
     };
     // Steps that put in practice hardware or screens of their own: they
     // close their guide, after its runs, so nothing they add reaches a
@@ -10093,12 +10478,14 @@
     var POWER_PRACTICE = ['powerZPattern', 'circuitNumbers', 'mixedSources', 'resetHole', 'redrawCircuits',
                           'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun',
                           'boxPower', 'boxChain'];
+    var BINDER_PRACTICE = ['catSnakePage'];
     var GUIDE_SEED = { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } };
     // Help > Guides, in this order. `prep` is the guide's demo show, `own`
     // its steps between its intro and its outro.
     var GUIDE_DEFS = [
         { name: 'pixelMap', title: 'Pixel Map', prep: [],
-          own: BUILD.pixelWall.concat(BUILD.pixelScreens, BUILD.pixelGroups, ['showLookLabels', 'matchScreens', 'helpMenu', 'checkUpdates']),
+          own: BUILD.pixelWall.concat(BUILD.pixelScreens, BUILD.pixelGroups, ['showLookLabels', 'matchScreens', 'helpMenu', 'checkUpdates',
+                                                                              'logViewer', 'logSearch', 'logLine']),
           intro: 'This guide builds a wall on a scratch show: its cabinets, blanking and colors, Show Look, a second screen, beaches and groups. Your own project is put back when you leave.' },
         { name: 'data', title: 'Data', prep: BUILD.pixelWall,
           own: BUILD.data.concat(DATA_PRACTICE),
@@ -10117,8 +10504,8 @@
           intro: 'On a demo show with two screens, this guide marks bad modules with the IDM Locator, points at them on the wall and keeps a checklist in the Notes. Your own project is put back when you leave.' },
         { name: 'binder', title: 'Binder and Exports',
           prep: BUILD.pixelWall.concat(BUILD.data, BUILD.power, BUILD.headerFooter, BUILD.pixelScreens, BUILD.threeD, BUILD.idm, BUILD.pixelGroups),
-          own: BUILD.binder,
-          intro: 'On a finished demo show, this guide exports the binder and its sheets, then the other exports and Preferences. Your own project is put back when you leave.' }
+          own: BUILD.binder.concat(BINDER_PRACTICE),
+          intro: 'On a finished demo show, this guide exports the binder and its sheets, then the other exports and Preferences, and ends on a Cat snake page. Your own project is put back when you leave.' }
     ];
     var GUIDES = GUIDE_DEFS.map(function (g) { return g.name; });
     var TOURS = {
