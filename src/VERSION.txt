@@ -547,7 +547,7 @@ POWER FIXES
   library no longer lists such a panel as 0kg. A show saved earlier keeps
   its weight.
 
-LOGS
+THE APP LOG
 
 - NEW: Each line of the app log is one plain sentence, with its time, its
   level and the part of the app it comes from. An edit says what it
