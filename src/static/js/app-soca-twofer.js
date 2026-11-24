@@ -505,6 +505,11 @@ class _SocaTwofer {
             + 'Right-click for Remove Soca two-fer.';
         strip.appendChild(head);
         const body = this._dockSectionBody(strip, head, `hwdock-twofer-${d.id}-${output}`);
+        // the distro's open cable list lists the splitter's home run, then
+        // its legs (app-dock-cable-sheets.js _dockBuildDistroList)
+        if (this._dockDistroListParts) {
+            this._dockDistroListParts.push({ kind: 'twofer', output, name, homeRun: tw.rec.homeRun || '' });
+        }
         const legA = this._dockBuildMulti(d, tw.a, a);
         legA.classList.add('hw-dock-loop-row');
         const legB = this._dockBuildMulti(d, tw.b, b);

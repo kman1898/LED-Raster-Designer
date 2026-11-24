@@ -575,6 +575,24 @@
         return p ? $('#hardware-dock-body .hw-dock-cablebtn-proc[data-lrd-field="data-cable-sheet-' + p.id + '"]') : null;
     }
     function procList() { var p = proc(); return p ? $('[data-lrd-proc-sheet="' + p.id + '"]') : null; }
+    // Every processor's list at once (1.7.0, app-dock.js
+    // _setAllProcSheetsOpen): the tray header's ≡ beside Add. Closed here
+    // by each processor's own key, the way each one's ≡ would close it.
+    function closeAllProcLists() {
+        var a = A();
+        if (!a || typeof a._procSheetOwners !== 'function') return;
+        a._procSheetOwners().forEach(function (o) { a._setDataCableSheetOpen(o, false); });
+        if (mode() === 'data-flow') a.renderHardwareDock();
+    }
+    // The distro's ≡ (1.7.0, app-dock-cable-sheets.js
+    // _dockBuildDistroList): one list of every cable on the distro.
+    function distroList() { var d = distro(); return d ? $('[data-lrd-distro-list="' + d.id + '"]') : null; }
+    function closeDistroList() {
+        var d = distro(), a = A();
+        if (!d || !a || typeof a._setDistroListOpen !== 'function') return;
+        a._setDistroListOpen(d.id, false);
+        if (mode() === 'power') a.renderHardwareDock();
+    }
     function closeProcList() {
         var p = proc();
         if (!p || !A()._setDataCableSheetOpen) return;
@@ -5390,6 +5408,31 @@
             },
             after: function () { closeProcList(); }
         },
+        // Every processor's list at once (1.7.0, owner 2026-11-24): the
+        // tray header's ≡ beside Add opens each processor's list as its own
+        // ≡ would, and pressed in it closes them all.
+        allProcLists: {
+            since: '1.7.0',
+            target: '#hw-dock-proc-sheets', place: 'bottom', title: 'Every processor at once',
+            body: 'The &#8801; at the top of the tray, beside Add, opens every processor&rsquo;s cable list at once. Pressed in, it closes them all.',
+            before: function () { switchView('data-flow'); closePopover(); closeBoxSheet(); closeAllProcLists(); },
+            act: function (t) {
+                return t.click('#hw-dock-proc-sheets').then(function () {
+                    return t.wait(function () { return A()._allProcSheetsOpen() ? procList() : null; }, 4000);
+                }).then(function (l) {
+                    if (!l) throw new Error('the lists did not open');
+                    return t.spot(l).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var a = A();
+                if (!a._allProcSheetsOpen()) return null;
+                var n = a._procSheetOwners().length;
+                return 'Every processor’s cable list is open' + (n > 1 ? ' (' + n + ')' : '')
+                    + '; each one’s own \u2261 still opens or closes it alone.';
+            },
+            after: function () { closeAllProcLists(); }
+        },
         // Jumpers, link by link (1.3.4, app-jumpers.js): the screen's own
         // vertical and horizontal lengths on the Data sidebar, and the same
         // pair on the Power sidebar.
@@ -5916,6 +5959,38 @@
                 var d = distro();
                 if (d && A()._setCableSheetOpen) { A()._setCableSheetOpen(d.id, 1, false); if (mode() === 'power') A().renderHardwareDock(); }
             }
+        },
+        // The distro's cable list (1.7.0, owner 2026-11-24: "the distro
+        // thing is just a window that allows the lists of all cable lengths
+        // and extensions"): the processor's list on the power side, one
+        // section per cable the distro carries; the tray header's ≡ opens
+        // every distro's at once.
+        distroCableList: {
+            since: '1.7.0',
+            target: function () { var d = distro(); return d ? '[data-lrd-field="power-distro-list-' + d.id + '"]' : '#hardware-dock-body .hw-dock-cablebtn-distro'; },
+            place: 'top', title: 'Every cable on the distro',
+            body: 'The &#8801; on the distro&rsquo;s header opens one list of its cables: power in, home runs and circuit cables. The &#8801; at the top of the tray opens every distro&rsquo;s list at once.',
+            before: function () { switchView('power'); closePopover(); closeDistroList(); },
+            act: function (t) {
+                var d = distro();
+                return t.click('[data-lrd-field="power-distro-list-' + d.id + '"]').then(function () {
+                    return t.wait(function () {
+                        var l = distroList();
+                        return l && l.querySelector('[data-lrd-distro-list-sec="multi:1"]') ? l : null;
+                    }, 4000);
+                }).then(function (l) {
+                    if (!l) throw new Error('the list did not open with the multi in it');
+                    return t.spot(l).then(function () { return t.pause(PACE.opened); });
+                });
+            },
+            check: function () {
+                var d = distro(), l = distroList();
+                if (!d || !l || !l.querySelector('[data-lrd-distro-list-sec="multi:1"]')) return null;
+                var n = l.querySelectorAll('[data-lrd-distro-list-sec^="multi:"]').length;
+                return 'One list holds the power in and every multi’s cables on ' + (d.name || 'SL')
+                    + (n > 1 ? ' (' + n + ' multis)' : '') + '.';
+            },
+            after: function () { closeDistroList(); }
         },
         // Feet or meters (1.5, app-cable-units.js): the Unit select beside
         // the jumper fields sets the show's one cable unit. Its own change
@@ -10441,13 +10516,14 @@
                'backupProcessor', 'processorIp', 'mixedRedundancy', 'cardNames', 'dropProcessor', 'releasePort',
                'attachmentFlag', 'pinPort', 'clearPortByMenu', 'clearCard', 'dropProcessorAgain',
                'snakePorts', 'cableSheet', 'snakeHomeRun', 'loosePortLength', 'dataJumpers', 'dataCableTags',
-               'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'procCableList'],
+               'overrideRun', 'addBreakoutBox', 'fiberMode', 'boxFiber', 'fiberStrands', 'fiberExtension', 'procCableList',
+               'allProcLists'],
         // Power: the distro, its multis, jumpers, cable stock, custom
         // circuits, balance and the service
         power: ['panelWatts', 'panelInput', 'breakoutType', 'breakerOver', 'addDistro', 'nameDistro',
                 'distroPhase', 'distroRating', 'distroMain', 'distroPreset', 'distroRows', 'edisonType',
                 'dropMulti', 'clearCircuit', 'clearMultiByMenu', 'dropMultiAgain', 'distroNeutral',
-                'multiCableSheet', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPerKind',
+                'multiCableSheet', 'distroCableList', 'powerJumpers', 'jumperNames', 'pullPanels', 'cableUnit', 'cableStock', 'cableStockPerKind',
                 'cableStockPieces', 'powerCableTags', 'powerColumns', 'splitters', 'takeOver', 'customPower', 'customDraw',
                 'sweepShare', 'balance', 'addService', 'serviceRating', 'serviceDistro', 'feederLength'],
         // Header/Footer and Curves

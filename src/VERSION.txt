@@ -704,6 +704,11 @@ ALSO NEW
   says what powers each screen and the legs it draws on, like "STAGE LEFT
   DISTRO · X Y Z", and the notes under the table give each service's load
   against its limit and a grouped wall's load.
+- NEW: The ≡ at the top of the hardware tray opens every processor's cable
+  list at once, or on the Power tab every distro's, and closes them all
+  again. Each distro has a ≡ of its own now, like a processor's: one list
+  of every cable on it, its power in, home runs and circuit cables, with
+  the lengths typed right there.
 
 FIXES
 
