@@ -1054,9 +1054,9 @@ NEW_IN_1_7 = [
     'quickPalettes', 'groupDrag', 'groupMove', 'showLookLabels', 'matchScreens', 'checkUpdates',
     'logViewer', 'logSearch', 'logLine',
     # Data
-    'processorIp', 'catSnake',
+    'processorIp', 'allProcLists', 'catSnake',
     # Power
-    'breakerOver', 'edisonType', 'distroNeutral', 'mixedSources', 'resetHole', 'redrawCircuits',
+    'breakerOver', 'edisonType', 'distroNeutral', 'distroCableList', 'mixedSources', 'resetHole', 'redrawCircuits',
     'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun',
     'boxPower', 'boxChain',
     # Header/Footer and Curves
