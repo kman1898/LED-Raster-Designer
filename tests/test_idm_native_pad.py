@@ -12,8 +12,9 @@ bridge is handed the reader's messages, as the real reader's would be):
   battery, the touchpad and its speed show, and the note says it works
   with another window in front. It acts with the window unfocused and
   with no animation frames at all (a window behind another may get none).
-  A slide glides the highlight; A held while sliding paints; the speed
-  setting is kept. LB or RB held while sliding moves by whole cabinets.
+  A held D-pad repeats, speeding up, and stops when let go (owner,
+  2026-11-24). A slide glides the highlight; A held while sliding paints;
+  the speed setting is kept. LB or RB held while sliding moves by whole cabinets.
 * A page that loads (or reloads) with a pad already connected takes it in
   silence: only a connect or disconnect after that is toasted.
 * A press never acts twice: the browser seeing the same pad changes
@@ -186,6 +187,21 @@ def test_the_host_page_names_the_pad_and_acts_behind_another_window(page, bridge
             page.wait_for_timeout(35)
         state(bridge, [])
         assert hl(page) != start
+        # held longer, it speeds up as a held arrow does (owner,
+        # 2026-11-24), and stops the moment it is let go
+        page.evaluate("""() => { const app = window.app; window.__steps = [];
+            if (!app.__stepSpy) { const real = app._idmStep.bind(app); app.__stepSpy = true;
+                app._idmStep = function (...a) { window.__steps.push(performance.now()); return real(...a); }; } }""")
+        for _ in range(36):
+            state(bridge, [15])                 # D-pad right, held
+            page.wait_for_timeout(35)
+        released = page.evaluate("() => performance.now()")
+        state(bridge, [])
+        page.wait_for_timeout(400)
+        steps = page.evaluate("() => window.__steps.slice()")
+        gaps = [round(b - a) for a, b in zip(steps, steps[1:])]
+        assert [t for t in steps if t > released + 50] == [], (steps, released)
+        assert len(steps) >= 10 and gaps[0] >= 300 and max(gaps[-3:]) <= 80, gaps
     finally:
         frames_back(page)
     assert not page._errors, page._errors

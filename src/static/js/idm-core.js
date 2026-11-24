@@ -16,6 +16,10 @@ export const FIELD_DEFAULT = { color: '#ffffff', border: 'shade', moduleIds: fal
 // and how many saved mark colours a show may keep.
 export const COLOUR_KEYS = ['labelColor', 'moduleEdgeColor', 'cabinetEdgeColor'];
 export const PRESETS_MAX = 12;
+// How the swap list counts a screen's rows (app.IDM_ROWS_FROM), and how
+// many screens' picks a show keeps.
+export const ROWS_FROM = ['top', 'bottom'];
+export const ROWS_FROM_MAX = 2000;
 export const ARROWS = {
     ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
 };
@@ -84,6 +88,21 @@ export function idmMarkPresets(value) {
     return out;
 }
 
+// The Rows from picks held to their shape (app.idm_rows_from):
+// {"<screen id>": 'top' | 'bottom'}, or null when not an object.
+export function idmRowsFromPicks(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const out = {};
+    let n = 0;
+    for (const key of Object.keys(value)) {
+        const text = String(key).trim();
+        if (!/^[0-9]+$/.test(text) || !ROWS_FROM.includes(value[key])) continue;
+        out[String(parseInt(text, 10))] = value[key];
+        if (++n >= ROWS_FROM_MAX) break;
+    }
+    return out;
+}
+
 // The field block held to its shape (the client's copy of
 // app.sanitize_idm_field): the defaults for anything unusable, and a
 // Colours key only when it holds something usable (missing = Auto).
@@ -102,6 +121,8 @@ export function idmFieldSanitize(value) {
     if (shade !== null) out.shade = shade;
     const presets = idmMarkPresets(v.markPresets);
     if (presets) out.markPresets = presets;
+    const rows = idmRowsFromPicks(v.rowsFrom);
+    if (rows && Object.keys(rows).length) out.rowsFrom = rows;
     return out;
 }
 
@@ -140,6 +161,25 @@ function layersOf(project) {
 export function idmMarkCount(layer) {
     const marks = layer && layer.idm && layer.idm.marks;
     return (marks && typeof marks === 'object') ? Object.keys(marks).length : 0;
+}
+
+// How many modules of a screen are on its Swapped list.
+export function idmSwappedCount(layer) {
+    const swapped = layer && layer.idm && layer.idm.swapped;
+    return (swapped && typeof swapped === 'object' && !Array.isArray(swapped)) ? Object.keys(swapped).length : 0;
+}
+
+// The highest order number a Swapped entry keeps (app.IDM_SWAPPED_N_MAX).
+export const SWAPPED_N_MAX = 2147483647;
+
+// One Swapped entry held to its shape (app.sanitize_idm): the mark's style
+// and colour and its order number `n`, a whole number from 1.
+export function idmSwappedOf(entry) {
+    const n = entry && entry.n;
+    return {
+        ...idmMarkOf(entry),
+        n: (typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= SWAPPED_N_MAX) ? n : 1,
+    };
 }
 
 // ── where the highlight is, and where it goes ─────────────────────────────
@@ -305,6 +345,35 @@ export function idmNextCanvasFrom(r, project, canvasId) {
 // column 1 is the front's rightmost and a module on the front's left is
 // on the right. The Cabinet ID and Module ID follow as a hint, as the
 // cabinet is called whichever side it is read from.
+//
+// Rows from (owner, 2026-11-24): a ground-stacked wall is counted up from
+// the floor, so each screen counts its rows from the top or the bottom.
+// From the bottom, row 1 is the bottom row of cabinets, and past 3 x 3 a
+// module's row in its cabinet counts up too; the words ("Top left
+// module") never change. Each screen keeps its pick with the show
+// (project.idmField.rowsFrom); a screen nobody switched reads it from its
+// Header/Footer side (idmRowsFromDefault).
+
+// A screen's Rows from with no pick: a footer (a ground-stacked wall)
+// counts from the bottom, a header (flown) or neither from the top. A
+// screen set to Footer with no bars laid yet counts from the bottom; an
+// old show's screen with both counts from the top (owner, 2026-11-24).
+export function idmRowsFromDefault(layer) {
+    if (!layer) return 'top';
+    const has = (v) => Array.isArray(v) && v.length > 0;
+    const header = has(layer.riggingBars);
+    const footer = has(layer.riggingFooterBars);
+    if (header) return 'top';
+    if (footer) return 'bottom';
+    return layer.riggingSide === 'footer' ? 'bottom' : 'top';
+}
+
+// A screen's Rows from: its pick, else its default.
+export function idmRowsFrom(project, layer) {
+    const picks = idmRowsFromPicks(project && project.idmField && project.idmField.rowsFrom);
+    const pick = picks && layer ? picks[String(layer.id)] : null;
+    return ROWS_FROM.includes(pick) ? pick : idmRowsFromDefault(layer);
+}
 
 const ACROSS = { 2: ['left', 'right'], 3: ['left', 'middle', 'right'] };
 const DOWN = { 2: ['top', 'bottom'], 3: ['top', 'middle', 'bottom'] };
@@ -312,9 +381,10 @@ const DOWN = { 2: ['top', 'bottom'], 3: ['top', 'middle', 'bottom'] };
 // A module's place in a cabinet `across` x `down` modules, at column `ci`
 // and row `ri` (0 = the top-left as the viewer sees it): "Top left module",
 // "Right module", "Center module", "Whole cabinet" for a cabinet of one;
-// past 3 either way, "Module row 2, col 3".
-export function idmModuleSpot(ci, ri, across, down) {
-    if (across > 3 || down > 3) return `Module row ${ri + 1}, col ${ci + 1}`;
+// past 3 either way, "Module row 2, col 3", its row counted up from the
+// bottom when `bottom`.
+export function idmModuleSpot(ci, ri, across, down, bottom = false) {
+    if (across > 3 || down > 3) return `Module row ${bottom ? down - ri : ri + 1}, col ${ci + 1}`;
     const h = across > 1 ? ACROSS[across][ci] : '';
     const v = down > 1 ? DOWN[down][ri] : '';
     if (!h && !v) return 'Whole cabinet';
@@ -329,26 +399,34 @@ function columnsOf(layer) {
     return Math.max(n, 1);
 }
 
-// Where a module is, read from the front or (back) from behind the wall:
-// {col, row (the cabinet's, from 1), spot, place: "Col 1, Row 2 · Top
-// left module"}.
-function placeOf(layer, panel, cell, cells, back) {
+// How many cabinet rows a screen has (its cabinets' own grid).
+function rowCountOf(layer) {
+    let n = 0;
+    (layer.panels || []).forEach(p => { if (p) n = Math.max(n, (p.row || 0) + 1); });
+    return Math.max(n, 1);
+}
+
+// Where a module is, read from the front or (back) from behind the wall,
+// its rows counted from the top or (bottom) up from the bottom: {col, row
+// (the cabinet's, from 1), spot, place: "Col 1, Row 2 · Top left module"}.
+function placeOf(layer, panel, cell, cells, back, bottom = false) {
     const xs = [...new Set(cells.map(c => c.mx))].sort((a, b) => a - b);
     const ys = [...new Set(cells.map(c => c.my))].sort((a, b) => a - b);
     let ci = xs.indexOf(cell.mx);
     if (back) ci = xs.length - 1 - ci;
-    const spot = idmModuleSpot(ci, ys.indexOf(cell.my), xs.length, ys.length);
+    const spot = idmModuleSpot(ci, ys.indexOf(cell.my), xs.length, ys.length, bottom);
     const col = back ? columnsOf(layer) - (panel.col || 0) : (panel.col || 0) + 1;
-    const row = (panel.row || 0) + 1;
+    const row = bottom ? rowCountOf(layer) - (panel.row || 0) : (panel.row || 0) + 1;
     return { col, row, spot, place: `Col ${col}, Row ${row} · ${spot}` };
 }
 
 // One module, as the readouts print it: its screen, Cabinet ID and Module
 // ID (the Cabinet ID view's naming, canvas-idm idmModuleLabeler), the
 // module's row and column inside its cabinet (from the front), and where
-// it is (placeOf, from the front or `back`). `ids` is "Cabinet A1 · Module
-// B1", `text` "Screen · A1 · Module B1". Null when the module is not there.
-export function idmDescribe(r, layer, key, { back = false } = {}) {
+// it is (placeOf, from the front or `back`, rows from the top or
+// `bottom`). `ids` is "Cabinet A1 · Module B1", `text` "Screen · A1 ·
+// Module B1". Null when the module is not there.
+export function idmDescribe(r, layer, key, { back = false, bottom = false } = {}) {
     if (!r || !layer) return null;
     const parts = String(key).split(',').map(n => parseInt(n, 10));
     const panel = (layer.panels || []).find(p => p && (p.col || 0) === parts[0] && (p.row || 0) === parts[1]);
@@ -365,49 +443,77 @@ export function idmDescribe(r, layer, key, { back = false } = {}) {
     return {
         screen, cabinet, module,
         row: ys.indexOf(parts[3]) + 1, col: xs.indexOf(parts[2]) + 1,
-        place: placeOf(layer, panel, cell, cells, back).place,
+        place: placeOf(layer, panel, cell, cells, back, bottom).place,
         ids: `Cabinet ${cabinet} · Module ${module}`,
         text: `${screen} · ${cabinet} · Module ${module}`,
     };
 }
 
-// Every mark, screen by screen: [{layer, rows}], each row {key, panel,
-// index, cabinet, module, place, ids, style, color}: `place` where the
-// module is from the front or (back) from behind the wall, `ids` its
-// Cabinet ID and Module ID. Rows run in reading order from the front,
-// cabinet by cabinet, so a row never moves when the side changes.
+// The rows of one screen's `map` (its marks or its Swapped entries), each
+// {key, panel, index, cabinet, module, place, ids, style, color, n}: `place`
+// where the module is from the front or (back) from behind the wall, its
+// rows from the top or (bottom) the bottom, `ids` its Cabinet ID and
+// Module ID, `n` a Swapped entry's order number.
+function rowsOf(r, layer, map, back, bottom) {
+    const labelOf = r.cabinetIdLabeler(layer);
+    const moduleOf = r.idmModuleLabeler(layer);
+    const counts = r.idmCounts(layer);
+    const seen = r._idmVisibleLookup(layer);
+    const byCell = new Map();
+    (layer.panels || []).forEach(p => { if (p) byCell.set(`${p.col || 0},${p.row || 0}`, p); });
+    const rows = [];
+    Object.keys(map).forEach(key => {
+        const parts = key.split(',').map(n => parseInt(n, 10));
+        const panel = byCell.get(`${parts[0]},${parts[1]}`);
+        if (!panel) return;
+        const cells = r.idmModuleCells(layer, panel, counts.x, counts.y, seen);
+        const cell = cells.find(c => c.mx === parts[2] && c.my === parts[3]);
+        if (!cell) return;
+        const mark = idmSwappedOf(map[key]);
+        const cabinet = labelOf(panel);
+        const module = moduleOf(cell, cells);
+        rows.push({
+            key, panel, index: cells.indexOf(cell), cabinet, module,
+            place: placeOf(layer, panel, cell, cells, back, bottom).place,
+            ids: `Cabinet ${cabinet} · Module ${module}`,
+            style: mark.style, color: mark.color, n: mark.n,
+        });
+    });
+    return rows;
+}
+
+// Every mark, screen by screen: [{layer, rows, rowsFrom}] (rowsOf), each
+// screen's rows counted as its Rows from says. Rows run in reading order
+// from the front, cabinet by cabinet, so a row never moves when the side
+// or the Rows from changes. A module ticked Swapped is not here: it is on
+// the Swapped list (idmSwappedGroups).
 export function idmMarkGroups(r, project, { back = false } = {}) {
     const groups = [];
     if (!r || !project) return groups;
     for (const layer of layersOf(project)) {
         if (!isScreen(layer) || idmMarkCount(layer) === 0) continue;
-        const labelOf = r.cabinetIdLabeler(layer);
-        const moduleOf = r.idmModuleLabeler(layer);
-        const counts = r.idmCounts(layer);
-        const seen = r._idmVisibleLookup(layer);
-        const byCell = new Map();
-        (layer.panels || []).forEach(p => { if (p) byCell.set(`${p.col || 0},${p.row || 0}`, p); });
-        const rows = [];
-        Object.keys(layer.idm.marks).forEach(key => {
-            const parts = key.split(',').map(n => parseInt(n, 10));
-            const panel = byCell.get(`${parts[0]},${parts[1]}`);
-            if (!panel) return;
-            const cells = r.idmModuleCells(layer, panel, counts.x, counts.y, seen);
-            const cell = cells.find(c => c.mx === parts[2] && c.my === parts[3]);
-            if (!cell) return;
-            const mark = idmMarkOf(layer.idm.marks[key]);
-            const cabinet = labelOf(panel);
-            const module = moduleOf(cell, cells);
-            rows.push({
-                key, panel, index: cells.indexOf(cell), cabinet, module,
-                place: placeOf(layer, panel, cell, cells, back).place,
-                ids: `Cabinet ${cabinet} · Module ${module}`,
-                style: mark.style, color: mark.color,
-            });
-        });
+        const rowsFrom = idmRowsFrom(project, layer);
+        const rows = rowsOf(r, layer, layer.idm.marks, back, rowsFrom === 'bottom');
         rows.sort((a, b) => (a.panel.row - b.panel.row) || (a.panel.col - b.panel.col) || (a.index - b.index));
-        if (rows.length) groups.push({ layer, rows });
+        if (rows.length) groups.push({ layer, rows, rowsFrom });
     }
+    return groups;
+}
+
+// The Swapped list (owner, 2026-11-24): every module ticked Swapped,
+// screen by screen as idmMarkGroups, newest first: each screen's rows by
+// the order they were ticked, the screen ticked last on top.
+export function idmSwappedGroups(r, project, { back = false } = {}) {
+    const groups = [];
+    if (!r || !project) return groups;
+    for (const layer of layersOf(project)) {
+        if (!isScreen(layer) || idmSwappedCount(layer) === 0) continue;
+        const rowsFrom = idmRowsFrom(project, layer);
+        const rows = rowsOf(r, layer, layer.idm.swapped, back, rowsFrom === 'bottom');
+        rows.sort((a, b) => (b.n - a.n) || (a.panel.row - b.panel.row) || (a.panel.col - b.panel.col) || (a.index - b.index));
+        if (rows.length) groups.push({ layer, rows, rowsFrom, newest: rows[0].n });
+    }
+    groups.sort((a, b) => b.newest - a.newest);
     return groups;
 }
 
@@ -463,33 +569,64 @@ export function idmLockedMessage(layers) {
 
 // ── edits ─────────────────────────────────────────────────────────────────
 
-// `layer.idm` as a fresh, whole block (its own marks, each its own copy),
-// so an edit never writes into an object an earlier state still holds.
+// `layer.idm` as a fresh, whole block (its own marks and Swapped entries,
+// each its own copy), so an edit never writes into an object an earlier
+// state still holds. `swapped` only when one is there (app.sanitize_idm).
 export function idmBlockOf(r, layer) {
     const counts = r ? r.idmCounts(layer) : { x: 1, y: 1 };
-    const raw = (layer && layer.idm && layer.idm.marks && typeof layer.idm.marks === 'object' && !Array.isArray(layer.idm.marks))
-        ? layer.idm.marks : {};
+    const map = (v) => ((v && typeof v === 'object' && !Array.isArray(v)) ? v : {});
+    const raw = map(layer && layer.idm && layer.idm.marks);
     const marks = {};
     Object.keys(raw).forEach(k => { marks[k] = { ...raw[k] }; });
-    return { modulesX: counts.x, modulesY: counts.y, marks };
+    const block = { modulesX: counts.x, modulesY: counts.y, marks };
+    const rawS = map(layer && layer.idm && layer.idm.swapped);
+    const keys = Object.keys(rawS);
+    if (keys.length) {
+        block.swapped = {};
+        keys.forEach(k => { block.swapped[k] = { ...rawS[k] }; });
+    }
+    return block;
 }
 
 // One module of a stroke: marked in `style` and `color` ('mark') or
-// cleared ('clear').
+// cleared ('clear'). A new mark on a module on the Swapped list takes it
+// off that list: the new module is bad too, and it is never on both.
 export function idmApplyMark(block, key, mode, style, color) {
     if (mode === 'clear') {
         delete block.marks[key];
         return;
     }
     block.marks[key] = { style: style === 'x' ? 'x' : 'color', color: idmColor(color) || DEFAULT_COLOR };
+    if (block.swapped && block.swapped[key]) {
+        delete block.swapped[key];
+        if (!Object.keys(block.swapped).length) delete block.swapped;
+    }
 }
 
-// A module ticked Swapped on the swap list (owner, 2026-11-17: "count
-// down as they are checked off and remove"): its mark is cleared, so the
-// row leaves the list and the module leaves the wall. True when the
-// block changed.
+// A module ticked Swapped on the swap list (owner, 2026-11-24, after
+// 2026-11-17's "count down as they are checked off"): its mark leaves the
+// wall and the open list for the Swapped list, kept as it was with the
+// next order number, so the count of what is left goes down and an untick
+// can put it back. True when the block changed.
 export function idmApplySwapped(block, key) {
-    if (!block.marks[key]) return false;
+    const mark = block.marks[key];
+    if (!mark) return false;
+    const swapped = block.swapped || {};
+    let n = 0;
+    Object.keys(swapped).forEach(k => { n = Math.max(n, idmSwappedOf(swapped[k]).n); });
+    swapped[key] = { ...idmMarkOf(mark), n: Math.min(SWAPPED_N_MAX, n + 1) };
+    block.swapped = swapped;
     delete block.marks[key];
+    return true;
+}
+
+// A row unticked on the Swapped list: the mark goes back on the wall and
+// the row back on the open list, as it was. True when the block changed.
+export function idmApplyUnswapped(block, key) {
+    const entry = block.swapped && block.swapped[key];
+    if (!entry) return false;
+    block.marks[key] = idmMarkOf(entry);
+    delete block.swapped[key];
+    if (!Object.keys(block.swapped).length) delete block.swapped;
     return true;
 }

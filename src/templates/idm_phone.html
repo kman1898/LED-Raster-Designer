@@ -11,8 +11,11 @@
          modules exactly as the tab does, and nothing else of the designer.
 
          The main screen is the controls alone, sized to fill a phone held
-         upright with no scrolling; the swap list and the controller's
-         button list are sheets of their own over it. Dark unless this phone
+         upright with no scrolling; the menu (Next screen, Change canvas
+         and the field colors, owner 2026-11-24), the swap list and the
+         controller's button list are sheets of their own over it. A held
+         arrow repeats, faster the longer it is held. Dark
+         unless this phone
          picked light (owner, 2026-11-17), whatever the phone's own setting. -->
     <title>IDM Locator</title>
     <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg">
@@ -122,30 +125,42 @@
         .ph-pad { flex: 1 1 auto; min-height: 168px; display: grid; grid-template-columns: repeat(3, 1fr);
             grid-template-rows: repeat(3, 1fr); gap: 8px; }
         .ph-pad .ph-btn { min-height: 0; border-radius: 16px; }
-        .ph-pad .ph-arrow { font-size: 34px; }
+        .ph-pad .ph-arrow { font-size: 44px; }
         .ph-up { grid-column: 2; grid-row: 1; }
         .ph-left { grid-column: 1; grid-row: 2; }
         .ph-mark { grid-column: 2; grid-row: 2; background: var(--accent) !important; color: var(--on-accent) !important;
-            border-color: var(--accent) !important; font-size: 22px; font-weight: 700; }
+            border-color: var(--accent) !important; font-size: 26px; font-weight: 700; }
         .ph-right { grid-column: 3; grid-row: 2; }
         .ph-down { grid-column: 2; grid-row: 3; }
-        .ph-actions { flex: 0 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-        .ph-actions .ph-btn { min-height: 52px; font-size: 16px; line-height: 1.15; }
-        .ph-field { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
-        .ph-field-label { font-size: 15px; color: var(--dim); flex: 0 0 auto; }
-        .ph-swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; flex: 1 1 auto; }
-        .ph-swatch { min-height: 48px; border-radius: 12px; border: 2px solid var(--line); background: var(--sw); cursor: pointer; }
-        .ph-swatch[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-        /* The canvas: its name, and a tap goes to the next one. */
-        .ph-canvas { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 52px; text-align: left; }
-        .ph-canvas-label { flex: 0 0 auto; font-size: 15px; color: var(--dim); }
-        .ph-canvas-name { flex: 1 1 auto; min-width: 0; font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .ph-canvas-go { flex: 0 0 auto; font-size: 15px; font-weight: 600; color: var(--accent); }
-        .ph-canvas:disabled { opacity: 1; cursor: default; }
-        .ph-canvas:disabled .ph-canvas-go { display: none; }
+        .ph-actions { flex: 0 0 auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+        .ph-actions .ph-btn { min-height: 52px; font-size: 17px; line-height: 1.15; }
+        /* A held arrow repeats: no long-press menu, no text picked up, no
+           scroll taking the touch from a finger resting on it. */
+        .ph-pad .ph-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
 
-        /* A sheet: the swap list or the controller's buttons, over the
-           whole screen, with Back to the controls. */
+        /* The menu: Next screen, Change canvas and the field colors, each
+           a big button with what it does in plain words under it. */
+        .ph-menu { display: flex; flex-direction: column; gap: 10px; }
+        .ph-menu-where { margin: 0; font-size: 15px; color: var(--dim); min-height: 20px; overflow-wrap: anywhere; }
+        .ph-menu-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 64px;
+            padding: 10px 14px; text-align: left; }
+        .ph-menu-main { font-size: 19px; font-weight: 700; }
+        .ph-menu-sub { font-size: 14px; color: var(--dim); }
+        .ph-menu-item:disabled { opacity: 1; cursor: default; }
+        .ph-menu-item:disabled .ph-menu-main { color: var(--faint); }
+        .ph-canvas-name { font-weight: 700; color: var(--text); }
+        .ph-menu-label { font-size: 15px; font-weight: 700; color: var(--dim); margin: 8px 0 0; }
+        .ph-swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+        .ph-swatch { display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 76px; padding: 6px 2px;
+            border-radius: 12px; border: 2px solid var(--line); background: var(--btn); cursor: pointer; }
+        .ph-sw-chip { flex: 0 0 auto; width: 100%; max-width: 48px; height: 36px; border-radius: 8px; background: var(--sw);
+            border: 1px solid var(--line); }
+        .ph-sw-name { font-size: 13px; color: var(--text); }
+        .ph-swatch[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+        .ph-swatch[aria-pressed="true"] .ph-sw-name { font-weight: 700; }
+
+        /* A sheet: the menu, the swap list or the controller's buttons,
+           over the whole screen, with Back to the controls. */
         .ph-sheet { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; background: var(--sheet);
             padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
                 0 max(12px, env(safe-area-inset-left)); }
@@ -157,7 +172,13 @@
         .ph-side-label { flex: 0 0 auto; font-size: 14px; color: var(--faint); margin: 0; }
         .ph-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
             padding-bottom: max(16px, env(safe-area-inset-bottom)); }
-        .ph-group { font-size: 15px; font-weight: 700; color: var(--dim); margin: 12px 0 4px; }
+        .ph-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 15px; font-weight: 700;
+            color: var(--dim); margin: 14px 0 6px; }
+        .ph-group-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+        /* a screen's Rows from switch, beside its name */
+        .ph-rows { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; font-weight: 400; }
+        .ph-rows-label { font-size: 14px; color: var(--faint); }
+        .ph-rows .ph-seg button { flex: 0 0 auto; min-width: 72px; min-height: 44px; font-size: 16px; padding: 0 10px; }
         .ph-row { display: flex; align-items: stretch; gap: 6px; border-top: 1px solid var(--line); }
         .ph-row-go { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left;
             background: transparent; border: 0; padding: 10px 2px; min-height: 60px; cursor: pointer; }
@@ -172,6 +193,8 @@
             font-size: 16px; color: var(--dim); cursor: pointer; }
         .ph-swap input { width: 32px; height: 32px; margin: 0; accent-color: var(--accent); cursor: pointer; }
         .ph-row.here .ph-row-go { font-weight: 700; }
+        .ph-swapped-head { font-size: 20px; margin: 22px 0 0; padding-top: 12px; border-top: 2px solid var(--line); }
+        .ph-row.done .ph-row-text { color: var(--dim); }
         .ph-empty { color: var(--faint); font-size: 17px; padding: 8px 0; }
         .ph-help dl { margin: 6px 0 0; font-size: 17px; }
         .ph-help dt { font-weight: 700; margin-top: 10px; }
@@ -193,7 +216,7 @@
             <button type="button" id="ph-theme" class="ph-btn ph-icon" aria-label="Light mode">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2v16a8 8 0 0 1 0-16z"/></svg>
             </button>
-            <button type="button" id="ph-pad-open" class="ph-btn ph-open" hidden>Controller</button>
+            <button type="button" id="ph-menu-open" class="ph-btn ph-open" hidden>Menu</button>
             <button type="button" id="ph-swap-open" class="ph-btn ph-open" hidden>Swap list</button>
         </header>
         <div id="ph-message" class="ph-message" role="status" hidden></div>
@@ -220,26 +243,43 @@
             </div>
             <div class="ph-actions">
                 <button type="button" id="ph-undo" class="ph-btn">Undo</button>
-                <button type="button" id="ph-next-screen" class="ph-btn">Next screen</button>
                 <button type="button" id="ph-clear" class="ph-btn">Clear highlight</button>
             </div>
-            <div class="ph-field">
-                <span class="ph-field-label">Field</span>
-                <div class="ph-swatches" role="group" aria-label="Field color">
-                    <button type="button" class="ph-swatch" data-ph-field="#ffffff" style="--sw: #ffffff" aria-label="White" aria-pressed="false"></button>
-                    <button type="button" class="ph-swatch" data-ph-field="#ff0000" style="--sw: #ff0000" aria-label="Red" aria-pressed="false"></button>
-                    <button type="button" class="ph-swatch" data-ph-field="#00ff00" style="--sw: #00ff00" aria-label="Green" aria-pressed="false"></button>
-                    <button type="button" class="ph-swatch" data-ph-field="#0000ff" style="--sw: #0000ff" aria-label="Blue" aria-pressed="false"></button>
-                    <button type="button" class="ph-swatch" data-ph-field="#000000" style="--sw: #000000" aria-label="Black" aria-pressed="false"></button>
-                </div>
-            </div>
-            <button type="button" id="ph-canvas-next" class="ph-btn ph-canvas" aria-label="Canvas">
-                <span class="ph-canvas-label">Canvas</span>
-                <span id="ph-canvas-name" class="ph-canvas-name"></span>
-                <span class="ph-canvas-go">Next &#8250;</span>
-            </button>
         </section>
     </div>
+    <!-- The menu (owner, 2026-11-24): what jumps the highlight or repaints
+         the wall, away from the arrows so a thumb never hits it by accident. -->
+    <section id="ph-menu-sheet" class="ph-sheet" role="dialog" aria-labelledby="ph-menu-title" hidden>
+        <div class="ph-sheet-in">
+            <div class="ph-sheet-head">
+                <button type="button" id="ph-menu-close" class="ph-btn ph-back">&#8249; Back</button>
+                <h2 id="ph-menu-title">Menu</h2>
+            </div>
+            <div class="ph-scroll ph-menu">
+                <p id="ph-menu-where" class="ph-menu-where"></p>
+                <button type="button" id="ph-next-screen" class="ph-btn ph-menu-item">
+                    <span class="ph-menu-main">Next screen</span>
+                    <span class="ph-menu-sub">The first module of the next screen on this canvas</span>
+                </button>
+                <button type="button" id="ph-canvas-next" class="ph-btn ph-menu-item ph-canvas" aria-label="Canvas">
+                    <span class="ph-menu-main">Change canvas</span>
+                    <span class="ph-menu-sub">Now on <span id="ph-canvas-name" class="ph-canvas-name"></span><span id="ph-canvas-one" class="ph-canvas-one" hidden>, the only canvas with screens</span></span>
+                </button>
+                <div class="ph-menu-label" id="ph-field-label">Field color</div>
+                <div class="ph-swatches" role="group" aria-labelledby="ph-field-label">
+                    <button type="button" class="ph-swatch" data-ph-field="#ffffff" style="--sw: #ffffff" aria-label="White" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">White</span></button>
+                    <button type="button" class="ph-swatch" data-ph-field="#ff0000" style="--sw: #ff0000" aria-label="Red" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Red</span></button>
+                    <button type="button" class="ph-swatch" data-ph-field="#00ff00" style="--sw: #00ff00" aria-label="Green" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Green</span></button>
+                    <button type="button" class="ph-swatch" data-ph-field="#0000ff" style="--sw: #0000ff" aria-label="Blue" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Blue</span></button>
+                    <button type="button" class="ph-swatch" data-ph-field="#000000" style="--sw: #000000" aria-label="Black" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Black</span></button>
+                </div>
+                <button type="button" id="ph-pad-open" class="ph-btn ph-menu-item" hidden>
+                    <span class="ph-menu-main">Controller buttons</span>
+                    <span class="ph-menu-sub">What each button does on the controller paired with this phone</span>
+                </button>
+            </div>
+        </div>
+    </section>
     <section id="ph-swap-sheet" class="ph-sheet" role="dialog" aria-labelledby="ph-swap-title" hidden>
         <div class="ph-sheet-in">
             <div class="ph-sheet-head">
@@ -251,7 +291,14 @@
                 <button type="button" data-ph-side="back" aria-pressed="false">Back</button>
             </div>
             <p id="ph-side-label" class="ph-side-label">Counted from the top left as you face the front of the wall.</p>
-            <div class="ph-scroll"><div id="ph-list"></div></div>
+            <div class="ph-scroll">
+                <div id="ph-list"></div>
+                <!-- the rows ticked Swapped, newest first (owner, 2026-11-24) -->
+                <div id="ph-swapped" class="ph-swapped" hidden>
+                    <h3 class="ph-swapped-head">Swapped <span id="ph-swapped-count" class="ph-count"></span></h3>
+                    <div id="ph-swapped-list"></div>
+                </div>
+            </div>
         </div>
     </section>
     <section id="ph-pad-sheet" class="ph-sheet" role="dialog" aria-labelledby="ph-pad-title" hidden>

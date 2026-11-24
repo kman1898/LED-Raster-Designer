@@ -12,6 +12,10 @@
 // canvas); only the next-canvas button takes it to another canvas. The
 // keyboard's arrows keep to their canvas as they always did.
 //
+// A held D-pad or stick repeats the move, faster the longer it is held
+// (idm-pad.js idmPadFrame, the phone's arrows and the arrow keys alike),
+// and stops the frame it is let go.
+//
 // Every move, mark, undo and field change goes through the very calls the
 // keyboard and the pad in the panel use (app-idm-locator.js), so locked
 // screens, undo and every other rule hold the same. The pad is read once a
@@ -25,7 +29,7 @@
 import { LEDRasterApp } from './app-core.js';
 import { sendClientLog } from './helpers.js';
 import {
-    PAD_BUTTONS, PAD_ACTIONS, REPEAT_DELAY_MS, REPEAT_EVERY_MS, DEADZONE, FIELD_CYCLE,
+    PAD_BUTTONS, PAD_ACTIONS, REPEAT_DELAY_MS, DEADZONE, FIELD_CYCLE,
     idmPadDirection, idmPadFrame, idmPadName, idmPadDispatch, idmPadFillHelp, idmPadActionOf,
 } from './idm-pad.js';
 
@@ -36,7 +40,7 @@ import {
 } from './idm-core.js';
 
 // The tests read these from here, as they always have.
-export { PAD_BUTTONS, REPEAT_DELAY_MS, REPEAT_EVERY_MS, DEADZONE, idmPadDirection, idmPadFrame, idmPadName };
+export { PAD_BUTTONS, REPEAT_DELAY_MS, DEADZONE, idmPadDirection, idmPadFrame, idmPadName };
 
 class _IdmGamepad {
     _idmPadState() {

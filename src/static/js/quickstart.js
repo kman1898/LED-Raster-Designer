@@ -4002,6 +4002,13 @@
     // one the arrow keys reach (right three times, then down) and Space marks.
     var MARK_COLOR = '1,1,0,0', MARK_X = '3,2,1,1', MARK_KEYS = '1,0,0,1';
     function idmRows() { return $$('#idm-list .idm-row'); }
+    // The rows on the Swapped list under it (owner, 2026-11-24).
+    function idmSwappedRows() { return $$('#idm-swapped-list .idm-row'); }
+    // A screen's Rows from, as its heading's switch shows it.
+    function idmRowsOn(layerId) {
+        var b = $('#idm-list [data-idm-rows][data-idm-layer="' + layerId + '"][aria-pressed="true"]');
+        return b ? b.dataset.idmRows : null;
+    }
     function idmPhoneOpen() { var m = $('#idm-phone-modal'); return !!m && m.style.display !== 'none'; }
     function closeIdmPhone() {
         var a = A();
@@ -10294,7 +10301,7 @@
             since: '1.7.0',
             target: '#idm-hl-readout', ring: ['#idm-hl-readout', '#idm-pad'], place: 'right', title: 'Point with the arrow keys',
             avoid: [function () { return modulePoint(wall2(), MARK_KEYS); }],
-            body: 'The arrow keys move an outline from module to module, in the view and on the wall. Tap Space to mark it; hold Space and drag to pan.',
+            body: 'The arrow keys move an outline from module to module, in the view and on the wall; hold one to speed along. Tap Space to mark it; hold Space and drag to pan.',
             before: function () {
                 openIdm();
                 var a = A();
@@ -10378,7 +10385,7 @@
             since: '1.7.0',
             target: '#idm-phone-open', place: 'right', title: 'Walk the wall with a phone',
             avoid: ['#idm-phone-open', '#idm-phone-modal .modal-content'],
-            body: 'Use a phone shows a QR code of the phone page. Scan it with a phone on the same network: big buttons move the highlight and Mark marks, Swap list opens the list on its own screen, and Canvas goes to the next canvas.',
+            body: 'Use a phone shows a QR code of the phone page. Scan it with a phone on the same network: big buttons move the highlight and Mark marks, and Menu holds Next screen, Change canvas and the field colors.',
             before: function () { openIdm(); closeIdmPhone(); },
             act: function (t) {
                 return t.click('#idm-phone-open').then(function () {
@@ -10425,7 +10432,7 @@
             since: '1.7.0',
             target: '#idm-list', ring: ['#idm-list', '.idm-side-bar'], place: 'right', title: 'Tick off the swaps',
             avoid: [function () { return idmRows()[0] || null; }, '[data-idm-side="back"]'],
-            body: 'Back counts each row from behind the wall, where left and right swap. Tick Swapped once a module is replaced: its mark clears, the row leaves the list and the count goes down.',
+            body: 'Back counts each row from behind the wall, where left and right swap. Tick Swapped once a module is replaced: its mark leaves the wall and the row moves down to Swapped.',
             before: function () {
                 openIdm();
                 var a = A();
@@ -10464,8 +10471,65 @@
             check: function (mem) {
                 var l = screens().find(function (x) { return x.id === mem.layerId; });
                 if (!l || idmMarks(l)[mem.key] || $('#idm-list .idm-row[data-idm-key="' + mem.key + '"]')) return null;
+                if (!$('#idm-swapped-list .idm-row[data-idm-key="' + mem.key + '"]')) return null;
                 if (idmSide() !== 'front' || !mem.back || idmRows().length !== mem.before - 1) return null;
-                return 'Swapped: ' + idmRows().length + ' marks left. From behind the wall it was ' + mem.back + '.';
+                return 'Swapped: ' + idmRows().length + ' marks left to swap. From behind the wall it was ' + mem.back + '.';
+            }
+        },
+        idmUnswap: {
+            since: '1.7.0',
+            // the row lands back on the open list, and the Swapped list
+            // goes once it is empty: the ring holds both
+            target: '#idm-list', ring: ['#idm-list', '#idm-swapped'], place: 'right', title: 'Put a swap back',
+            avoid: [function () { return idmSwappedRows()[0] || null; }],
+            body: 'Untick a row on the Swapped list if that module still needs swapping. Its mark goes back on the wall and the row back on the list above.',
+            before: openIdm,
+            act: function (t) {
+                var row = idmSwappedRows()[0];
+                if (!row) throw new Error('nothing on the Swapped list');
+                var layerId = Number(row.dataset.idmLayer), key = row.dataset.idmKey;
+                t.mem.key = key;
+                t.mem.layerId = layerId;
+                // the box by its id: found again if the list is rebuilt on the way
+                var boxId = row.querySelector('input[data-idm-swap]').id;
+                return t.click('#' + CSS.escape(boxId)).then(function () {
+                    return t.wait(function () {
+                        var l = screens().find(function (x) { return x.id === layerId; });
+                        return !!idmMarks(l)[key];
+                    });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function (mem) {
+                var l = screens().find(function (x) { return x.id === mem.layerId; });
+                if (!l || !idmMarks(l)[mem.key] || !$('#idm-list .idm-row[data-idm-key="' + mem.key + '"]')) return null;
+                if ($('#idm-swapped-list .idm-row[data-idm-key="' + mem.key + '"]')) return null;
+                return 'Back on the list and the wall: ' + idmRows().length + ' marks to swap.';
+            }
+        },
+        idmRowsFrom: {
+            since: '1.7.0',
+            target: '#idm-list .idm-rows', place: 'right', title: 'Count rows from the floor',
+            avoid: ['#idm-list .idm-rows', function () { return idmRows()[0] || null; }],
+            body: 'Rows from beside each screen counts its rows from the top, or up from the bottom for a wall stacked on the ground. A screen with a footer starts on Bottom.',
+            before: openIdm,
+            act: function (t) {
+                var row = idmRows()[0];
+                if (!row) throw new Error('no marks in the list');
+                var layerId = row.dataset.idmLayer, key = row.dataset.idmKey;
+                var was = idmRowsOn(layerId) || 'top';
+                var to = was === 'bottom' ? 'top' : 'bottom';
+                t.mem.layerId = layerId;
+                t.mem.to = to;
+                t.mem.before = row.querySelector('.idm-row-text').textContent;
+                t.mem.key = key;
+                return t.click('#idm-list [data-idm-rows="' + to + '"][data-idm-layer="' + layerId + '"]').then(function () {
+                    return t.wait(function () { return idmRowsOn(layerId) === to; });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function (mem) {
+                if (!mem.to || idmRowsOn(mem.layerId) !== mem.to) return null;
+                var text = $('#idm-list .idm-row[data-idm-key="' + mem.key + '"][data-idm-layer="' + mem.layerId + '"] .idm-row-text');
+                return 'Rows counted from the ' + mem.to + ': ' + mem.before + ' now reads ' + (text ? text.textContent : '') + '.';
             }
         },
         notesChecklist: {
@@ -10576,7 +10640,7 @@
         // IDM, and the checklist in the Notes
         idm: ['idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
               'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap',
-              'notesChecklist'],
+              'idmUnswap', 'idmRowsFrom', 'notesChecklist'],
         // Pixel Map: groups
         pixelGroups: ['groupScreens', 'groupNames', 'groupDrag', 'groupMove'],
         // Binder and Exports

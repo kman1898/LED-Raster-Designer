@@ -733,3 +733,81 @@ def test_a_mark_saved_before_the_fix_stays_on_its_module(page, e2e_server):
         assert pixel(out, 96, 32) != [0, 255, 0]
     finally:
         out.close()
+
+
+# ── a held arrow key (owner, 2026-11-24: hold to repeat, speeding up) ─────
+
+STEP_SPY_JS = """() => {
+    const app = window.app;
+    window.__steps = [];
+    if (!app.__stepSpy) {
+        const real = app._idmStep.bind(app);
+        app._idmStep = function (...args) { window.__steps.push(performance.now()); return real(...args); };
+        app.__stepSpy = true;
+    }
+}"""
+
+
+def test_a_held_arrow_key_speeds_up_and_stops_on_release(page):
+    """The arrow key held: one step at once, the next after a wait, then
+    sooner each step (the system's own repeat only keeps the hold alive);
+    let go, nothing more. A hold also ends when the window loses focus,
+    another key is pressed or the system stops repeating it."""
+    reset_project(page)
+    set_layout(page, 'IdmA', 4, 4)
+    page.evaluate(STEP_SPY_JS)
+    page.evaluate("() => { const a = window.app.project.layers.find(x => x.name === 'IdmA'); window.app._idmSetHighlight(a.id, '0,0,0,0'); }")
+    page.mouse.move(5, 5)
+    page.keyboard.down('ArrowRight')
+    # the system's repeat, every 100 ms (Playwright marks a second down of a
+    # held key as a repeat)
+    for _ in range(12):
+        page.wait_for_timeout(100)
+        page.keyboard.down('ArrowRight')
+    page.keyboard.up('ArrowRight')
+    released = page.evaluate("() => performance.now()")
+    page.wait_for_timeout(600)
+    steps = page.evaluate("() => window.__steps.slice()")
+    after = [t for t in steps if t > released + 5]
+    assert after == [], (steps, released)
+    gaps = [round(b - a) for a, b in zip(steps, steps[1:])]
+    # about 1.3 s held: far more steps than the system's 13 key presses would
+    # give at a steady rate after its wait, the first after the wait, the
+    # last ones the fastest
+    assert len(steps) >= 12, gaps
+    assert gaps[0] >= 300, gaps
+    assert max(gaps[-3:]) <= 70 and gaps[1] > gaps[-1], gaps
+    # one quick press is still one step
+    page.evaluate("() => { window.__steps = []; }")
+    page.keyboard.press('ArrowLeft')
+    page.wait_for_timeout(500)
+    assert len(page.evaluate("() => window.__steps")) == 1
+    # held, then the window loses focus: it stops at once
+    page.evaluate("() => { window.__steps = []; }")
+    page.keyboard.down('ArrowDown')
+    page.wait_for_timeout(450)
+    page.evaluate("() => window.dispatchEvent(new Event('blur'))")
+    n = len(page.evaluate("() => window.__steps"))
+    page.wait_for_timeout(500)
+    assert len(page.evaluate("() => window.__steps")) == n and n >= 2
+    page.keyboard.up('ArrowDown')
+    # held, then another key: it stops
+    page.evaluate("() => { window.__steps = []; }")
+    page.keyboard.down('ArrowUp')
+    page.wait_for_timeout(450)
+    page.keyboard.down('Shift')
+    n = len(page.evaluate("() => window.__steps"))
+    page.wait_for_timeout(500)
+    assert len(page.evaluate("() => window.__steps")) == n
+    page.keyboard.up('Shift')
+    page.keyboard.up('ArrowUp')
+    # held with no system repeat at all (its release never reached the
+    # page): it gives up within a second and a half
+    page.evaluate("() => { window.__steps = []; }")
+    page.keyboard.down('ArrowLeft')
+    page.wait_for_timeout(1600)
+    n = len(page.evaluate("() => window.__steps"))
+    page.wait_for_timeout(500)
+    assert len(page.evaluate("() => window.__steps")) == n
+    page.keyboard.up('ArrowLeft')
+    assert not page._errors, page._errors

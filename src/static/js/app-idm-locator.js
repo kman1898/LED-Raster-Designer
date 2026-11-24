@@ -5,13 +5,17 @@
 // every cabinet's module grid and the marks over it (canvas-idm.js).
 //
 // Each screen keeps its block on the layer:
-//   idm: {modulesX, modulesY, marks: {"col,row,mx,my": {style, color}}}
+//   idm: {modulesX, modulesY, marks: {"col,row,mx,my": {style, color}},
+//         swapped: {"col,row,mx,my": {style, color, n}}}
 // modulesX / modulesY are one cabinet's modules across and down (1 x 1 by
 // default - the whole cabinet one module); a mark is keyed by the cabinet's
 // grid column and row and the module's column and row inside the full
 // cabinet, and keeps its own style ('color' fills the module, 'x' draws an
-// X corner to corner) and colour. The server's app.sanitize_idm holds the
-// shape (and drops marks a geometry change leaves on nothing); idmSanitize
+// X corner to corner) and colour. `swapped` holds the modules ticked
+// Swapped on the swap list (owner, 2026-11-24): the mark as it was, off the
+// wall, with its order number `n` (newest the highest); unticked, it is a
+// mark again. It is there only when something is swapped. The server's
+// app.sanitize_idm holds the shape (and drops marks a geometry change leaves on nothing); idmSanitize
 // below is its twin, so a restore never comes back "repaired".
 //
 // Every edit - a click, a drag stroke, a module count, a clear - goes
@@ -60,7 +64,9 @@
 // step or Mark button picks up from the module it left. A highlight from
 // the keys, the pad, a controller or a tablet stays until Esc or Clear
 // highlight. Any highlight goes when its screen or module does. A tap of Space marks it; Space held with a
-// drag pans the view like every other tab and marks nothing.
+// drag pans the view like every other tab and marks nothing. A held arrow
+// key repeats, faster the longer it is held, and stops the moment it is
+// let go, another key is pressed or the window loses focus (_idmHoldKey).
 //
 // The MOUSE ON THE WALL: while the mouse is over a canvas of this view, an
 // arrow sits at the same point on every IDM output of that canvas, laid on
@@ -71,9 +77,11 @@ import { sendClientLog, isTypingTarget } from './helpers.js';
 import {
     idmCount, idmColor, idmKey, idmMarkOf, idmShadeLevel, idmFieldSanitize, idmHighlightOf,
     idmMarkCount as markCount, idmTargetOf, idmStepFrom, idmStartModule, idmDescribe, idmMarkGroups,
-    idmBlockOf, idmApplyMark, idmApplySwapped, idmCanvasIdOf,
+    idmBlockOf, idmApplyMark, idmApplySwapped, idmApplyUnswapped, idmCanvasIdOf,
+    idmSwappedGroups, idmSwappedOf, idmSwappedCount as swappedCount, idmRowsFromPicks, ROWS_FROM,
     DEFAULT_COLOR, FIELD_BORDERS, COLOUR_KEYS, PRESETS_MAX, ARROWS,
 } from './idm-core.js';
+import { idmHoldStart } from './idm-pad.js';
 
 // The tests and the other modules read these from here, as they always have.
 export { idmColor, idmFieldSanitize };
@@ -93,6 +101,12 @@ const PRESETS_DEFAULT = ['#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000'];
 // The live highlight: the least time between two sends to the other
 // clients (25 a second).
 const SEND_MS = 40;
+// A held arrow key (owner, 2026-11-24): the hold steps on its own timer,
+// speeding up (idm-pad.js idmHoldStart), not at the system's key repeat.
+// The system repeats a held key at least every second or so, so a hold
+// that hears nothing of its key for this long was let go where the page
+// could not see it, and stops.
+const HOLD_LOST_MS = 1250;
 // The tablet layout: the IDM Locator tab on a narrow window or a touch
 // screen (style.css carries the same query).
 const COMPACT_QUERY = '(max-width: 1100px), (pointer: coarse)';
@@ -118,15 +132,29 @@ export function idmSanitize(value, layer) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     if (!layer || (layer.type || 'screen') !== 'screen') return null;
     const out = { modulesX: idmCount(value.modulesX), modulesY: idmCount(value.modulesY), marks: {} };
+    const isMap = (v) => !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
+    let valid = null;
     const raw = value.marks;
-    if (raw && typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length) {
-        const valid = idmValidKeys(layer, out.modulesX, out.modulesY);
+    if (isMap(raw)) {
+        valid = idmValidKeys(layer, out.modulesX, out.modulesY);
         Object.keys(raw).forEach(key => {
             const k = idmKey(key);
             const mark = raw[key];
             if (!k || !valid.has(k) || !mark || typeof mark !== 'object' || Array.isArray(mark)) return;
             out.marks[k] = idmMarkOf(mark);
         });
+    }
+    const rawS = value.swapped;
+    if (isMap(rawS)) {
+        if (!valid) valid = idmValidKeys(layer, out.modulesX, out.modulesY);
+        const swapped = {};
+        Object.keys(rawS).forEach(key => {
+            const k = idmKey(key);
+            const entry = rawS[key];
+            if (!k || !valid.has(k) || out.marks[k] || !entry || typeof entry !== 'object' || Array.isArray(entry)) return;
+            swapped[k] = idmSwappedOf(entry);
+        });
+        if (Object.keys(swapped).length) out.swapped = swapped;
     }
     return out;
 }
@@ -199,19 +227,30 @@ class _IdmLocator {
         on('idm-clear-all', 'click', () => this._idmClearAll());
         on('idm-modules-x', 'change', () => this._idmCommitModules());
         on('idm-modules-y', 'change', () => this._idmCommitModules());
-        on('idm-list', 'click', (e) => {
-            // the Swapped tick is its own (the change below)
-            if (e.target.closest('.idm-swap')) return;
-            const row = e.target.closest('[data-idm-key]');
-            if (!row) return;
-            this._idmGoToRow(Number(row.dataset.idmLayer), row.dataset.idmKey);
-        });
-        on('idm-list', 'change', (e) => {
-            const box = e.target.closest('[data-idm-swap]');
-            const row = box && box.closest('[data-idm-key]');
-            if (!row) return;
-            if (box.checked) this._idmSetSwapped(Number(row.dataset.idmLayer), row.dataset.idmKey);
-            this._idmBlurButton(box);
+        // The swap list and the Swapped list under it: a row's words find
+        // the module, its tick moves it from one list to the other.
+        ['idm-list', 'idm-swapped-list'].forEach(id => {
+            on(id, 'click', (e) => {
+                // a screen's Rows from switch, in its heading
+                const rows = e.target.closest('[data-idm-rows]');
+                if (rows) {
+                    this._idmSetRowsFrom(Number(rows.dataset.idmLayer), rows.dataset.idmRows);
+                    this._idmBlurButton(rows);
+                    return;
+                }
+                // the Swapped tick is its own (the change below)
+                if (e.target.closest('.idm-swap')) return;
+                const row = e.target.closest('[data-idm-key]');
+                if (!row) return;
+                this._idmGoToRow(Number(row.dataset.idmLayer), row.dataset.idmKey);
+            });
+            on(id, 'change', (e) => {
+                const box = e.target.closest('[data-idm-swap]');
+                const row = box && box.closest('[data-idm-key]');
+                if (!row) return;
+                this._idmSetSwapped(Number(row.dataset.idmLayer), row.dataset.idmKey, box.checked);
+                this._idmBlurButton(box);
+            });
         });
         document.querySelectorAll('[data-idm-side]').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -308,6 +347,22 @@ class _IdmLocator {
             this._idmSetPointerOn(!this._idmState().pointerOn);
             this._idmBlurButton(e.currentTarget);
         });
+        // A held arrow key (_idmHoldKey): its release, any other key, the
+        // window losing focus or the page hidden ends the hold at once.
+        window.addEventListener('keyup', (e) => {
+            const h = st.hold;
+            if (h && (e.key === h.key || e.code === h.code)) this._idmHoldStop();
+        }, true);
+        window.addEventListener('keydown', (e) => {
+            const h = st.hold;
+            if (!h) return;
+            if (e.key === h.key && e.repeat) h.seen = Date.now();
+            else if (e.key !== h.key) this._idmHoldStop();
+        }, true);
+        window.addEventListener('blur', () => this._idmHoldStop());
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') this._idmHoldStop();
+        });
         // What kind of pointer pressed last: a tap on a touch screen moves
         // the highlight, it never marks (_idmPointerDown).
         document.addEventListener('pointerdown', (e) => {
@@ -355,6 +410,7 @@ class _IdmLocator {
         document.body.classList.toggle('idm-tab', st.active);
         if (was !== st.active) this._idmRelayout();
         if (!st.active) {
+            this._idmHoldStop();
             st.stroke = null;
             st.spaceTap = null;
             if (window.canvasRenderer) window.canvasRenderer.isIdmPainting = false;
@@ -430,6 +486,7 @@ class _IdmLocator {
             else if (p.shade === null) delete next.shade;
         }
         if (Array.isArray(p.markPresets)) next.markPresets = p.markPresets;
+        if (p.rowsFrom && typeof p.rowsFrom === 'object') next.rowsFrom = p.rowsFrom;
         const clean = idmFieldSanitize(next);
         const stored = this.project.idmField;
         const same = !!stored && JSON.stringify(idmFieldSanitize(stored)) === JSON.stringify(clean);
@@ -897,7 +954,15 @@ class _IdmLocator {
         if (e.metaKey || e.ctrlKey || e.altKey) return false;
         if (modalOpen) return false;
         if (ARROWS[e.key]) {
-            this._idmStep(e.key, e.shiftKey);
+            // The system's own repeat of a held key: the hold steps on its
+            // own timer instead. A repeat with no hold (one ended by a
+            // dialog, say, with the key still down) is one step, as before.
+            if (e.repeat && st.hold && st.hold.key === e.key) return true;
+            if (e.repeat) {
+                this._idmStep(e.key, e.shiftKey);
+                return true;
+            }
+            this._idmHoldKey(e);
             return true;
         }
         // Space is the pan every tab has: held with a drag it moves the
@@ -925,6 +990,33 @@ class _IdmLocator {
             return true;
         }
         return false;
+    }
+
+    // An arrow key pressed: one step at once, the way it always was, then
+    // while it is held a repeat that speeds up (idm-pad.js idmHoldStart),
+    // each repeat the same single step (_idmStep), so the highlight, the
+    // wall and the other devices follow it step by step (the sends are
+    // throttled, _idmSendHighlight). Shift as pressed: a cabinet a step.
+    _idmHoldKey(e) {
+        const st = this._idmState();
+        this._idmHoldStop();
+        const key = e.key;
+        const cabinet = !!e.shiftKey;
+        const hold = { key, code: e.code || '', seen: Date.now(), run: null };
+        st.hold = hold;
+        hold.run = idmHoldStart(() => this._idmStep(key, cabinet), {
+            still: () => st.hold === hold && st.active && Date.now() - hold.seen < HOLD_LOST_MS
+                && !isTypingTarget(document.activeElement)
+                && !Array.from(document.querySelectorAll('.modal')).some(m => getComputedStyle(m).display !== 'none'),
+        });
+    }
+
+    _idmHoldStop() {
+        const st = this._idmS;
+        const hold = st && st.hold;
+        if (!hold) return;
+        st.hold = null;
+        if (hold.run) hold.run.stop();
     }
 
     // Delete / Backspace: the highlighted module's mark cleared, one undo
@@ -1354,6 +1446,7 @@ class _IdmLocator {
                 return;
             }
         }
+        // a new module grid starts with no marks and an empty Swapped list
         changes.forEach(c => {
             c.layer.idm = { modulesX: c.nx, modulesY: c.ny, marks: {} };
         });
@@ -1363,12 +1456,15 @@ class _IdmLocator {
         r.render();
     }
 
+    // A screen's marks and its Swapped list cleared together (owner,
+    // 2026-11-24: Clear clears both lists).
     _idmClearLayers(layers, action) {
-        const open = this._writableLayers(layers.filter(l => markCount(l) > 0));
+        const open = this._writableLayers(layers.filter(l => markCount(l) + swappedCount(l) > 0));
         if (!open.length) return 0;
         open.forEach(layer => {
             this._idmEnsureBlock(layer);
             layer.idm.marks = {};
+            delete layer.idm.swapped;
         });
         sendClientLog('idm_clear', { action, ids: open.map(l => l.id) });
         this.updateLayers(open, true, action);
@@ -1378,7 +1474,7 @@ class _IdmLocator {
 
     _idmClearSelected() {
         const screens = this._idmSelectedScreens();
-        if (!screens.some(l => markCount(l) > 0)) {
+        if (!screens.some(l => markCount(l) + swappedCount(l) > 0)) {
             this._toast(screens.length ? 'The selected screens have no marks.' : 'Select a screen first.');
             return;
         }
@@ -1387,13 +1483,15 @@ class _IdmLocator {
 
     async _idmClearAll() {
         const screens = ((this.project && this.project.layers) || [])
-            .filter(l => l && (l.type || 'screen') === 'screen' && markCount(l) > 0);
+            .filter(l => l && (l.type || 'screen') === 'screen' && markCount(l) + swappedCount(l) > 0);
         if (!screens.length) {
             this._toast('There are no marks to clear.');
             return;
         }
         const total = screens.reduce((n, l) => n + markCount(l), 0);
-        const msg = `Clear all ${plural(total, 'mark')} on ${plural(screens.length, 'screen')}?`;
+        const swapped = screens.reduce((n, l) => n + swappedCount(l), 0);
+        const what = [total ? plural(total, 'mark') : '', swapped ? plural(swapped, 'swapped module') : ''].filter(Boolean).join(' and ');
+        const msg = `Clear all ${what} on ${plural(screens.length, 'screen')}?`;
         const yes = await this.appConfirm(msg, {
             id: 'idm-clear-all-confirm', title: 'Clear all marks', okLabel: 'Clear', danger: true,
         });
@@ -1429,7 +1527,10 @@ class _IdmLocator {
         const r = window.canvasRenderer;
         const cur = r ? r.idmCounts(layer) : { x: 1, y: 1 };
         const keep = cur.x === nx && cur.y === ny && layer.idm && layer.idm.marks;
+        // the Swapped list stays with the marks, and goes with them
+        const swapped = keep && swappedCount(layer) ? idmBlockOf(r, layer).swapped : undefined;
         layer.idm = { modulesX: nx, modulesY: ny, marks: keep ? { ...layer.idm.marks } : {} };
+        if (swapped) layer.idm.swapped = swapped;
     }
 
     // ── the panel ─────────────────────────────────────────────────────────
@@ -1506,8 +1607,16 @@ class _IdmLocator {
         return idmMarkGroups(window.canvasRenderer, this.project, { back: this._idmState().side === 'back' });
     }
 
-    // The swap list: one row per mark with its Swapped tick. A tick clears
-    // the mark, so the row leaves the list and the count goes down.
+    // The Swapped list (owner, 2026-11-24): every module ticked Swapped,
+    // newest first, under the open list (idm-core idmSwappedGroups).
+    _idmSwappedGroups() {
+        return idmSwappedGroups(window.canvasRenderer, this.project, { back: this._idmState().side === 'back' });
+    }
+
+    // The swap list: one row per mark with its Swapped tick, and under it
+    // the Swapped list. A tick moves the row down there and takes the mark
+    // off the wall, and the count (what is left to swap) goes down; an
+    // untick down there puts the row and the mark back.
     _idmRenderList() {
         const st = this._idmState();
         const host = document.getElementById('idm-list');
@@ -1515,89 +1624,154 @@ class _IdmLocator {
         this._idmSyncSide();
         if (!host) return;
         const groups = this._idmMarkGroups();
+        const done = this._idmSwappedGroups();
         const here = this._idmListHere();
         // The highlighted module's row is a class on the rows as they
         // stand: the highlight moving never rebuilds the list, so a tick
         // box being reached for is never swapped out from under the pointer.
-        const key = JSON.stringify([st.side, groups.map(g => [g.layer.id, g.layer.name,
-            g.rows.map(x => [x.key, x.place, x.ids, x.style, x.color])])]);
+        const shape = (list) => list.map(g => [g.layer.id, g.layer.name, g.rowsFrom,
+            g.rows.map(x => [x.key, x.place, x.ids, x.style, x.color, x.n])]);
+        const key = JSON.stringify([st.side, shape(groups), shape(done)]);
         if (key === st.listKey) {
             this._idmSyncListHere();
             return;
         }
         st.listKey = key;
         const total = groups.reduce((n, g) => n + g.rows.length, 0);
+        const swapped = done.reduce((n, g) => n + g.rows.length, 0);
         if (count) count.textContent = total ? `(${total})` : '';
         host.innerHTML = '';
         if (!groups.length) {
             const empty = document.createElement('div');
             empty.className = 'idm-empty';
-            empty.textContent = 'No marks. Click a module in the view to mark it.';
+            empty.textContent = swapped ? 'Nothing left to swap.' : 'No marks. Click a module in the view to mark it.';
             host.appendChild(empty);
-            return;
         }
-        groups.forEach(g => {
-            const name = g.layer.name || 'Screen';
-            const head = document.createElement('div');
-            head.className = 'idm-group';
-            head.textContent = `${name} · ${plural(g.rows.length, 'mark')}`;
-            host.appendChild(head);
-            g.rows.forEach(x => {
-                const words = `${name} · ${x.place}`;
-                const row = document.createElement('div');
-                row.className = 'idm-row';
-                if (here === `${g.layer.id}:${x.key}`) row.classList.add('active');
-                row.dataset.idmLayer = String(g.layer.id);
-                row.dataset.idmKey = x.key;
-                row.title = `${words} (${x.ids})`;
-                const go = document.createElement('button');
-                go.type = 'button';
-                go.className = 'idm-row-go';
-                const chip = document.createElement('span');
-                chip.className = 'idm-chip' + (x.style === 'x' ? ' idm-chip-x' : '');
-                if (x.style === 'x') chip.style.setProperty('--idm-chip', x.color);
-                else chip.style.background = x.color;
-                // where it is first (from the side the switch reads), then
-                // the Cabinet ID and Module ID as a hint
-                const words2 = document.createElement('span');
-                words2.className = 'idm-row-words';
-                const text = document.createElement('span');
-                text.className = 'idm-row-text';
-                text.textContent = x.place;
-                const ids = document.createElement('span');
-                ids.className = 'idm-row-id';
-                ids.textContent = x.ids;
-                words2.appendChild(text);
-                words2.appendChild(ids);
-                go.appendChild(chip);
-                go.appendChild(words2);
-                const tick = document.createElement('label');
-                tick.className = 'idm-swap';
-                tick.dataset.tooltip = 'Swapped, Tick it when this module has been replaced: its mark is cleared and it leaves the list. Undo brings it back.';
-                const box = document.createElement('input');
-                box.type = 'checkbox';
-                box.dataset.idmSwap = '1';
-                // its own id, so a rebuild hands a pointer on its way to it
-                // the new box (the guides find it again by id)
-                box.id = `idm-swap-${g.layer.id}-${x.key.replace(/,/g, '-')}`;
-                box.setAttribute('aria-label', `Swapped: ${words}`);
-                tick.appendChild(box);
-                tick.appendChild(document.createTextNode('Swapped'));
-                row.appendChild(go);
-                row.appendChild(tick);
-                host.appendChild(row);
-            });
+        groups.forEach(g => this._idmListGroup(host, g, here, false));
+        const box = document.getElementById('idm-swapped');
+        const list = document.getElementById('idm-swapped-list');
+        const n = document.getElementById('idm-swapped-count');
+        if (n) n.textContent = swapped ? `(${swapped})` : '';
+        if (box) box.hidden = !swapped;
+        if (list) {
+            list.innerHTML = '';
+            done.forEach(g => this._idmListGroup(list, g, here, true));
+        }
+    }
+
+    // One screen's rows in a list: its name and its Rows from switch, then
+    // a row per module, each with its Swapped tick (ticked on the Swapped
+    // list).
+    _idmListGroup(host, g, here, swapped) {
+        const name = g.layer.name || 'Screen';
+        const head = document.createElement('div');
+        head.className = 'idm-group';
+        const label = document.createElement('span');
+        label.className = 'idm-group-name';
+        label.textContent = swapped ? `${name} · ${g.rows.length} swapped` : `${name} · ${plural(g.rows.length, 'mark')}`;
+        head.appendChild(label);
+        head.appendChild(this._idmRowsSwitch(g));
+        host.appendChild(head);
+        g.rows.forEach(x => {
+            const words = `${name} · ${x.place}`;
+            const row = document.createElement('div');
+            row.className = 'idm-row' + (swapped ? ' idm-row-swapped' : '');
+            if (here === `${g.layer.id}:${x.key}`) row.classList.add('active');
+            row.dataset.idmLayer = String(g.layer.id);
+            row.dataset.idmKey = x.key;
+            row.title = `${words} (${x.ids})`;
+            const go = document.createElement('button');
+            go.type = 'button';
+            go.className = 'idm-row-go';
+            const chip = document.createElement('span');
+            chip.className = 'idm-chip' + (x.style === 'x' ? ' idm-chip-x' : '');
+            if (x.style === 'x') chip.style.setProperty('--idm-chip', x.color);
+            else chip.style.background = x.color;
+            // where it is first (from the side the switch reads), then
+            // the Cabinet ID and Module ID as a hint
+            const words2 = document.createElement('span');
+            words2.className = 'idm-row-words';
+            const text = document.createElement('span');
+            text.className = 'idm-row-text';
+            text.textContent = x.place;
+            const ids = document.createElement('span');
+            ids.className = 'idm-row-id';
+            ids.textContent = x.ids;
+            words2.appendChild(text);
+            words2.appendChild(ids);
+            go.appendChild(chip);
+            go.appendChild(words2);
+            const tick = document.createElement('label');
+            tick.className = 'idm-swap';
+            tick.dataset.tooltip = swapped
+                ? 'Swapped, Untick it if this module still needs swapping: its mark goes back on the wall and the row back on the list above.'
+                : 'Swapped, Tick it when this module has been replaced: its mark leaves the wall and the row moves to Swapped below. Untick it there to bring it back.';
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = swapped;
+            box.dataset.idmSwap = '1';
+            // its own id, so a rebuild hands a pointer on its way to it
+            // the new box (the guides find it again by id)
+            box.id = `idm-${swapped ? 'swapped' : 'swap'}-${g.layer.id}-${x.key.replace(/,/g, '-')}`;
+            box.setAttribute('aria-label', `Swapped: ${words}`);
+            tick.appendChild(box);
+            tick.appendChild(document.createTextNode('Swapped'));
+            row.appendChild(go);
+            row.appendChild(tick);
+            host.appendChild(row);
         });
     }
 
-    // A row's Swapped tick: the module's mark cleared, so its row leaves
-    // the list on every device and the module leaves the wall; one undo
-    // step brings both back. A locked screen refuses it.
-    _idmSetSwapped(layerId, key) {
+    // A screen's Rows from switch (owner, 2026-11-24): its rows counted
+    // from the top, or up from the bottom for a ground-stacked wall.
+    _idmRowsSwitch(g) {
+        const wrap = document.createElement('span');
+        wrap.className = 'idm-rows';
+        const word = document.createElement('span');
+        word.className = 'idm-rows-label';
+        word.textContent = 'Rows from';
+        wrap.appendChild(word);
+        const seg = document.createElement('span');
+        seg.className = 'idm-seg idm-rows-seg';
+        seg.setAttribute('role', 'group');
+        seg.setAttribute('aria-label', `${g.layer.name || 'Screen'}: rows counted from the`);
+        ROWS_FROM.forEach(v => {
+            const on = g.rowsFrom === v;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn idm-seg-btn' + (on ? ' active' : '');
+            btn.dataset.idmRows = v;
+            btn.dataset.idmLayer = String(g.layer.id);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.textContent = v === 'bottom' ? 'Bottom' : 'Top';
+            btn.dataset.tooltip = v === 'bottom'
+                ? "Bottom, Count this screen's rows up from the bottom row, as for a wall stacked on the ground. A screen with a footer starts here."
+                : "Top, Count this screen's rows down from the top row, as for a flown wall.";
+            seg.appendChild(btn);
+        });
+        wrap.appendChild(seg);
+        return wrap;
+    }
+
+    // A screen's Rows from picked here: kept with the show for that screen,
+    // on every device at once, never an undo step (it rides in the field,
+    // project.idmField.rowsFrom).
+    _idmSetRowsFrom(layerId, value) {
+        if (!this.project || !Number.isInteger(layerId) || !ROWS_FROM.includes(value)) return;
+        const picks = { ...(idmRowsFromPicks(this._idmFieldNow().rowsFrom) || {}), [String(layerId)]: value };
+        sendClientLog('idm_rows_from', { id: layerId, rowsFrom: value });
+        this._idmSetField({ rowsFrom: picks });
+        this._idmRenderList();
+    }
+
+    // A row's Swapped tick (`on`) or untick: the module moves to the
+    // Swapped list and its mark leaves the wall, or back, on every device;
+    // one undo step either way. A locked screen refuses it.
+    _idmSetSwapped(layerId, key, on = true) {
         const st = this._idmState();
         const layer = ((this.project && this.project.layers) || []).find(l => l && l.id === layerId);
-        const marks = layer && layer.idm && layer.idm.marks;
-        if (!layer || !marks || !marks[key]) return false;
+        const map = layer && layer.idm && (on ? layer.idm.marks : layer.idm.swapped);
+        if (!layer || !map || !map[key]) return false;
         if (this._layerLocked(layer)) {
             this._showLockedError([layer]);
             // the tick goes back to what the screen holds
@@ -1606,10 +1780,10 @@ class _IdmLocator {
             return false;
         }
         const block = idmBlockOf(window.canvasRenderer, layer);
-        if (!idmApplySwapped(block, key)) return false;
+        if (!(on ? idmApplySwapped(block, key) : idmApplyUnswapped(block, key))) return false;
         layer.idm = block;
-        sendClientLog('idm_swapped', { id: layer.id, key });
-        this.updateLayers([layer], true, 'Module Swapped');
+        sendClientLog(on ? 'idm_swapped' : 'idm_unswapped', { id: layer.id, key });
+        this.updateLayers([layer], true, on ? 'Module Swapped' : 'Module Not Swapped');
         if (window.canvasRenderer) window.canvasRenderer.render();
         return true;
     }
@@ -1661,14 +1835,12 @@ class _IdmLocator {
         return hl ? `${hl.layerId}:${hl.key}` : '';
     }
 
-    // The row of the highlighted module is marked (the phone's list marks
-    // it the same way); the list is not rebuilt.
+    // The row of the highlighted module is marked, on either list (the
+    // phone's lists mark it the same way); the lists are not rebuilt.
     _idmSyncListHere() {
         if (!this._idmState().active) return;
-        const host = document.getElementById('idm-list');
-        if (!host) return;
         const here = this._idmListHere();
-        host.querySelectorAll('.idm-row').forEach(row => {
+        document.querySelectorAll('#idm-list .idm-row, #idm-swapped-list .idm-row').forEach(row => {
             row.classList.toggle('active', here === `${row.dataset.idmLayer}:${row.dataset.idmKey}`);
         });
     }

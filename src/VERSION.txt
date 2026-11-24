@@ -336,8 +336,9 @@ each of them, the shade level and a row of mark colors. It lists only
 the colors on the wall right now, one line each, a change shows in the
 app at once, and Default puts a color back.
 
-Point at a module, step with the arrow keys (Shift jumps a cabinet) or
-tap it on a tablet, and a steady outline goes round the module in the
+Point at a module, step with the arrow keys (Shift jumps a cabinet; hold
+an arrow and it keeps going, faster the longer you hold it) or tap it on
+a tablet, and a steady outline goes round the module in the
 app and on the wall output; a tap of Space or the Mark button marks it.
 Move the mouse off the panels and the wall shows nothing until you point
 again. The highlight follows from any computer or tablet connected to
@@ -353,7 +354,8 @@ every tab.
 
 Find bad modules with a game controller: pair a PlayStation or Xbox
 controller with the computer running the app and the D-pad steps the
-highlight one module at a time (hold LB or RB for a cabinet), A or Cross
+highlight one module at a time (held, it keeps going and speeds up; hold
+LB or RB for a cabinet), A or Cross
 marks or clears, held while moving it paints, B or Circle undoes, X or
 Square changes the field color, Y or Triangle goes to the next screen and
 View or Share goes to the next canvas. The controller stays on the canvas
@@ -370,22 +372,34 @@ Walk the wall with a phone: Use a phone on the IDM Locator tab opens a
 dialog with a QR code of the phone page and its address beside it, with
 Copy address. Scan it with a phone on the same network as the computer
 and the phone's whole screen becomes big buttons: move the highlight a
-module or a cabinet at a time, Mark, Undo, Next screen, Clear highlight
-and the field color. The arrows and Next screen stay on the canvas you
-are on; Canvas at the bottom names it, and a tap goes to the next canvas.
-Swap list at the top opens the swap list on its own screen, and Back
-returns to the buttons. The page is dark, with a switch for light that
+module or a cabinet at a time (hold an arrow and it keeps going, faster
+the longer you hold it, and stops the moment you let go), Mark, Undo and
+Clear highlight. Menu at
+the top holds Next screen, Change canvas and the field color, away from
+the arrows so a thumb never hits them by accident. The arrows and Next
+screen stay on the canvas you are on, and Change canvas names it and goes
+to the next one. Swap list at the top opens the swap list on its own
+screen, and Back returns to the buttons. The page is dark, with a switch for light that
 the phone remembers. What the phone does shows on the computer and on the
 wall at once, a locked screen stays locked, and the computer can undo it
 like its own edits; Undo on the phone takes back that phone's own last
 change. A controller paired with the phone works there with the same
-buttons. If the app is set to this computer only, the dialog says what
+buttons, and the menu lists them. If the app is set to this computer only, the dialog says what
 to change.
 
 The list of marks is a swap list that counts down: tick Swapped once a
-module has been replaced and its mark clears from the wall, the row leaves
-the list on every computer and phone, and the count goes down. Undo brings
-the mark and the row back. Click a row on the computer and the highlight
+module has been replaced and its mark clears from the wall, the row moves
+to a Swapped list under the open one, newest first, on every computer and
+phone, and the count of what is left goes down. Untick a row on the
+Swapped list and the row and its mark come back. Undo takes back either.
+Marking a swapped module again puts it back on the open list, and Clear
+all marks clears both lists.
+
+Rows from beside each screen's name on the swap list, on the computer and
+the phone, counts that screen's rows from the top, or up from the bottom
+for a wall stacked on the ground: Row 1 is then the bottom row. A screen
+with a footer starts on Bottom, any other on Top, and each screen keeps
+its choice with the show, on every computer and phone at once. Click a row on the computer and the highlight
 moves to that module, in the view and on the wall, and stays there until
 you move it on. Each row says where the module is first: the
 cabinet's column and row in its screen, then the module's place in plain

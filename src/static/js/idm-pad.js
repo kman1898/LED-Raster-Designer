@@ -11,8 +11,8 @@
 // button list and the phone's are built from the table.
 //
 //   D-pad, left stick      move one module (held: a short wait, then a
-//                          steady repeat); with LB / L1 or RB / R1 held,
-//                          one cabinet
+//                          repeat that speeds up while held); with LB / L1
+//                          or RB / R1 held, one cabinet
 //   A / Cross              mark or clear the highlighted module; held while
 //                          moving, every module passed takes the first
 //                          module's change (mark or clear, never both)
@@ -29,11 +29,48 @@ export const PAD_BUTTONS = {
     A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, VIEW: 8, MENU: 9,
     LS: 10, RS: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, HOME: 16,
 };
-// A held direction: the first step at once, the next after REPEAT_DELAY_MS,
-// then one every REPEAT_EVERY_MS. The stick counts past DEADZONE.
+// A held direction, on a controller, a phone's arrow or the computer's
+// arrow keys (owner, 2026-11-24: hold to repeat, speeding up): the first
+// step at once, the next after REPEAT_DELAY_MS, then each a little sooner
+// than the last (REPEAT_SPEEDUP), from REPEAT_START_MS down to
+// REPEAT_FASTEST_MS, held there; let go and it stops. The stick counts
+// past DEADZONE.
 export const REPEAT_DELAY_MS = 350;
-export const REPEAT_EVERY_MS = 90;
+export const REPEAT_START_MS = 150;
+export const REPEAT_FASTEST_MS = 40;
+export const REPEAT_SPEEDUP = 0.8;
 export const DEADZONE = 0.5;
+
+// The wait after the `n`th repeat of a hold (0: the first repeat).
+export function idmRepeatGap(n) {
+    const k = Math.max(0, Math.floor(Number(n) || 0));
+    return Math.max(REPEAT_FASTEST_MS, Math.round(REPEAT_START_MS * Math.pow(REPEAT_SPEEDUP, k)));
+}
+
+// A hold on a button or a key, by timer: `step()` at once, then again
+// after REPEAT_DELAY_MS and sooner each time (idmRepeatGap) until stop().
+// Before each repeat `still()` (when given) is asked; false ends the hold,
+// for a release that never reached the page. Every step is the caller's
+// own single step, so a hold is only single steps in a row. The timers can
+// be handed in (the tests' clock). Returns {stop, live()}.
+export function idmHoldStart(step, { still = null, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+    let timer = null, reps = 0, live = true;
+    const stop = () => {
+        live = false;
+        if (timer !== null) clearTimer(timer);
+        timer = null;
+    };
+    const tick = () => {
+        timer = null;
+        if (!live) return;
+        if (still && !still()) { stop(); return; }
+        step();
+        if (live) timer = setTimer(tick, idmRepeatGap(reps++));
+    };
+    step();
+    if (live) timer = setTimer(tick, REPEAT_DELAY_MS);
+    return { stop, live: () => live };
+}
 // X / Square walks the field through the quick colors.
 export const FIELD_CYCLE = ['#ffffff', '#ff0000', '#00ff00', '#0000ff', '#000000'];
 
@@ -98,8 +135,9 @@ export function idmPadDirection(pad) {
 }
 
 // One frame of one pad: what it asks for, from what it held last frame
-// (`prev`, {buttons: [bool], dir, nextAt} or null) and the time `now` in
-// ms. Returns {state, actions}; each action is {type: 'move', dir, cabinet}
+// (`prev`, {buttons: [bool], dir, nextAt, reps} or null) and the time
+// `now` in ms. A held direction speeds up as a held arrow does
+// (idmRepeatGap); a new direction starts over. Returns {state, actions}; each action is {type: 'move', dir, cabinet}
 // or {type: 'press' | 'release', button}. Pure, so the repeat and the
 // button edges are tested apart from the app.
 export function idmPadFrame(prev, pad, now) {
@@ -118,15 +156,19 @@ export function idmPadFrame(prev, pad, now) {
     const dir = idmPadDirection(pad);
     const cabinet = buttons[PAD_BUTTONS.LB] || buttons[PAD_BUTTONS.RB];
     let nextAt = was.nextAt;
+    let reps = was.reps || 0;
     if (dir && dir !== was.dir) {
         actions.push({ type: 'move', dir, cabinet });
         nextAt = now + REPEAT_DELAY_MS;
+        reps = 0;
     } else if (dir && now >= was.nextAt) {
         actions.push({ type: 'move', dir, cabinet });
         // a late frame never fires a burst: the next step is a beat on
-        nextAt = Math.max(was.nextAt + REPEAT_EVERY_MS, now + REPEAT_EVERY_MS / 2);
+        const gap = idmRepeatGap(reps);
+        nextAt = Math.max(was.nextAt + gap, now + gap / 2);
+        reps += 1;
     }
-    return { state: { buttons, dir, nextAt: dir ? nextAt : 0 }, actions };
+    return { state: { buttons, dir, nextAt: dir ? nextAt : 0, reps: dir ? reps : 0 }, actions };
 }
 
 // One action from idmPadFrame run on a host: `host.move(dir, cabinet)` for

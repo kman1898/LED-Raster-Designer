@@ -1068,7 +1068,8 @@ NEW_IN_1_7 = [
     's3dCamera', 's3dFocus', 's3dBars', 's3dCorner', 's3dGroupMember', 's3dPng', 'outputOpen', 'outputChoices',
     # IDM
     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
-    'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap', 'notesChecklist',
+    'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap', 'idmUnswap',
+    'idmRowsFrom', 'notesChecklist',
     # Binder and Exports
     'binderMode', 'binderView', 'riggingSheet', 'factsSheet', 'objExport', 'controls', 'catSnakePage']
 

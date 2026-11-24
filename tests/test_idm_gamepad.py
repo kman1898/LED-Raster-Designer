@@ -10,9 +10,13 @@ What this file pins:
   screen on the canvas, View / Share to the next canvas (owner, 2026-11-17;
   tests/test_idm_phone.py walks two canvases). The map is idm-pad.js's one
   table, re-exported here.
-* The repeat: a held direction steps at once, again after 350 ms, then
-  every 90 ms; a late frame never fires a burst; let go and pressed again,
-  it steps at once.
+* The repeat (owner, 2026-11-24: hold to repeat, speeding up): a held
+  direction steps at once, again after 350 ms, then sooner each step
+  (150, 120, 96 ... ms) down to one every 40 ms; a late frame never fires
+  a burst; let go, it stops that frame; pressed again or turned, it steps
+  at once and starts slow again. The same schedule drives a held phone
+  arrow and a held arrow key (idm-pad.js idmHoldStart, checked here on a
+  fake clock).
 * In the app, with a fake pad: the connect toast names the pad and the help
   card shows while it is connected; moves, the cabinet jump, a mark toggle
   (one undo step), a paint while A is held (the first module decides mark
@@ -75,10 +79,18 @@ def test_the_direction_from_the_d_pad_and_the_stick(page):
     assert got == ['up', 'down', 'left', 'right', None, None, 'right', 'up', 'down', 'right']
 
 
-def test_a_held_direction_repeats_after_a_wait_and_never_bursts(page):
-    got = page.evaluate("""async () => { """ + MOD + """
-        const pad = (pressed) => ({axes: [0, 0],
-            buttons: Array.from({length: 17}, (_, i) => ({pressed: pressed.includes(i), value: 0}))});
+PAD_JS = """const pad = (pressed) => ({axes: [0, 0],
+    buttons: Array.from({length: 17}, (_, i) => ({pressed: pressed.includes(i), value: 0}))});"""
+
+
+def test_the_repeat_speeds_up_to_its_fastest(page):
+    got = page.evaluate("""async () => { const p = await import('/static/js/idm-pad.js');
+        return [p.REPEAT_DELAY_MS, p.REPEAT_FASTEST_MS, Array.from({length: 12}, (_, n) => p.idmRepeatGap(n))]; }""")
+    assert got == [350, 40, [150, 120, 96, 77, 61, 49, 40, 40, 40, 40, 40, 40]], got
+
+
+def test_a_held_direction_repeats_faster_and_never_bursts(page):
+    got = page.evaluate("""async () => { """ + MOD + PAD_JS + """
         let st = null; const out = [];
         const at = (t, p) => { const r = m.idmPadFrame(st, p, t); st = r.state;
             out.push([t, r.actions.filter(a => a.type === 'move').map(a => a.dir + (a.cabinet ? '+cab' : '')).join(',')]); };
@@ -86,20 +98,69 @@ def test_a_held_direction_repeats_after_a_wait_and_never_bursts(page):
         at(16, pad([15]));
         at(349, pad([15]));     // still waiting
         at(350, pad([15]));     // the first repeat
-        at(400, pad([15]));
-        at(440, pad([15]));     // 90 ms on
+        at(480, pad([15]));     // 150 ms on: not yet
+        at(500, pad([15]));     // the second
+        at(620, pad([15]));     // 120 ms on: the third
+        at(716, pad([15]));     // 96 ms on
+        at(793, pad([15]));     // 77
+        at(854, pad([15]));     // 61
+        at(903, pad([15]));     // 49
+        at(943, pad([15]));     // 40, the fastest
+        at(983, pad([15]));     // and 40 from then on
         at(1500, pad([15]));    // a late frame: one step, not a burst
-        at(1520, pad([15]));
-        at(1600, pad([]));      // let go
-        at(1610, pad([15]));    // pressed again: at once
-        at(1620, pad([15, 4])); // LB held: a cabinet (on the next step)
-        at(1960, pad([15, 4]));
+        at(1510, pad([15]));
+        at(1520, pad([]));      // let go: nothing more
+        at(1600, pad([]));
+        at(1610, pad([15]));    // pressed again: at once, and slow again
+        at(1900, pad([15, 4])); // LB held: still waiting the first repeat
+        at(1960, pad([15, 4])); // a cabinet
         at(1970, pad([12]));    // another direction: at once
+        at(2200, pad([12]));    // and the slow start again
+        at(2320, pad([12]));
         return out;
     }""")
-    assert got == [[0, 'right'], [16, ''], [349, ''], [350, 'right'], [400, ''], [440, 'right'],
-                   [1500, 'right'], [1520, ''], [1600, ''], [1610, 'right'], [1620, ''],
-                   [1960, 'right+cab'], [1970, 'up']], got
+    assert got == [[0, 'right'], [16, ''], [349, ''], [350, 'right'], [480, ''], [500, 'right'],
+                   [620, 'right'], [716, 'right'], [793, 'right'], [854, 'right'], [903, 'right'],
+                   [943, 'right'], [983, 'right'], [1500, 'right'], [1510, ''], [1520, ''], [1600, ''],
+                   [1610, 'right'], [1900, ''], [1960, 'right+cab'], [1970, 'up'], [2200, ''],
+                   [2320, 'up']], got
+
+
+def test_a_timer_hold_speeds_up_and_stops_on_release(page):
+    """idmHoldStart on a fake clock: a step at once, the repeats at the
+    schedule's times, nothing after stop(), and still() false ends it."""
+    got = page.evaluate("""async () => { const p = await import('/static/js/idm-pad.js');
+        const clock = {now: 0, timers: []};
+        const setTimer = (fn, ms) => { const t = {at: clock.now + ms, fn}; clock.timers.push(t); return t; };
+        const clearTimer = (t) => { clock.timers = clock.timers.filter(x => x !== t); };
+        const run = (until) => {
+            for (;;) {
+                clock.timers.sort((a, b) => a.at - b.at);
+                const t = clock.timers[0];
+                if (!t || t.at > until) break;
+                clock.timers.shift(); clock.now = t.at; t.fn();
+            }
+            clock.now = until;
+        };
+        const steps = [];
+        const h = p.idmHoldStart(() => steps.push(clock.now), {setTimer, clearTimer});
+        run(1000);
+        const live = h.live();
+        h.stop();
+        run(3000);
+        const after = steps.length;
+        // still() false: the hold ends before its next step
+        let ok = true; const steps2 = [];
+        clock.now = 0; clock.timers = [];
+        const h2 = p.idmHoldStart(() => steps2.push(clock.now), {setTimer, clearTimer, still: () => ok});
+        run(600); ok = false; run(2000);
+        return {steps, live, after, pending: clock.timers.length, steps2, live2: h2.live()};
+    }""")
+    assert got['steps'][:9] == [0, 350, 500, 620, 716, 793, 854, 903, 943], got
+    gaps = [b - a for a, b in zip(got['steps'][8:], got['steps'][9:])]
+    assert gaps and all(g == 40 for g in gaps), got
+    assert got['live'] is True and got['after'] == len(got['steps']) and got['pending'] == 0, got
+    assert got['steps2'] == [0, 350, 500] and got['live2'] is False, got
 
 
 def test_button_presses_and_releases_are_edges(page):

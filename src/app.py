@@ -1174,13 +1174,23 @@ def sanitize_stage3d_camera(value):
 # ── IDM Locator (app-idm-locator.js) ──────────────────────────────────────
 # A cabinet is built from modules; the crew marks the bad one and the mark
 # shows on the wall through Output to Display. Each screen keeps it as
-#   idm: {modulesX, modulesY, marks: {"col,row,mx,my": {style, color}}}
+#   idm: {modulesX, modulesY, marks: {"col,row,mx,my": {style, color}},
+#         swapped: {"col,row,mx,my": {style, color, n}}}
 # modulesX / modulesY  modules across and down in ONE cabinet, 1..64 each
 #                      (1 x 1, the default: the whole cabinet is one module)
 # marks                keyed by the cabinet's grid column and row and the
 #                      module's column and row inside the FULL cabinet;
 #                      style 'color' (a fill) or 'x' (corner to corner),
 #                      color '#rrggbb'
+# swapped              the modules ticked Swapped on the swap list (owner,
+#                      2026-11-24): the mark as it was, off the wall and off
+#                      the open list, with `n` its place in the order they
+#                      were ticked (the newest the highest), so the Swapped
+#                      list runs newest first and an untick puts the very
+#                      mark back. A module is never in both: a new mark on
+#                      it takes it off the Swapped list. The key is there
+#                      only when something is swapped, so a show from
+#                      before it loads (and saves) exactly as it was.
 # A module is cabinet px / modules, the remainder spread so no module is a
 # fractional pixel (edges at floor(k * px / n)). A half cabinet keeps the
 # modules that fall inside it, laid from the side that meets the wall. A
@@ -1190,6 +1200,9 @@ def sanitize_stage3d_camera(value):
 # never comes back "repaired".
 IDM_MAX_MODULES = 64
 IDM_DEFAULT_COLOR = '#ff1a1a'
+# The highest order number a Swapped entry keeps (a whole number the
+# browser holds exactly).
+IDM_SWAPPED_N_MAX = 2 ** 31 - 1
 _IDM_HEX6 = re.compile(r'^#?([0-9a-fA-F]{6})$')
 _IDM_HEX3 = re.compile(r'^#?([0-9a-fA-F]{3})$')
 
@@ -1315,10 +1328,11 @@ def sanitize_idm(value, layer):
     """The `idm` block held to its shape against `layer`'s cabinets: module
     counts as integers 1..64, every mark on a module that exists (inside the
     cabinet grid, inside the module grid, not on a blanked cabinet), style
-    'color' or 'x', colour '#rrggbb' (a module ticked off the swap list has
-    its mark cleared, so nothing else is kept). None when `value` is not a
-    dict or the layer is not a screen (the key is then removed).
-    Idempotent."""
+    'color' or 'x', colour '#rrggbb' and nothing else. The Swapped entries
+    the same, each with its order number `n` (a whole number from 1), never
+    on a module that is marked, and the key only when one is left. None
+    when `value` is not a dict or the layer is not a screen (the key is then
+    removed). Idempotent."""
     if not isinstance(value, dict) or not isinstance(layer, dict):
         return None
     if (layer.get('type') or 'screen') != 'screen':
@@ -1326,6 +1340,7 @@ def sanitize_idm(value, layer):
     modules_x = _idm_count(value.get('modulesX'))
     modules_y = _idm_count(value.get('modulesY'))
     marks = {}
+    valid = None
     raw = value.get('marks')
     if isinstance(raw, dict) and raw:
         valid = idm_module_keys(layer, modules_x, modules_y)
@@ -1337,7 +1352,26 @@ def sanitize_idm(value, layer):
                 'style': 'x' if mark.get('style') == 'x' else 'color',
                 'color': idm_color(mark.get('color')) or IDM_DEFAULT_COLOR,
             }
-    return {'modulesX': modules_x, 'modulesY': modules_y, 'marks': marks}
+    swapped = {}
+    raw = value.get('swapped')
+    if isinstance(raw, dict) and raw:
+        if valid is None:
+            valid = idm_module_keys(layer, modules_x, modules_y)
+        for key, entry in raw.items():
+            k = _idm_key(key)
+            if k is None or k not in valid or k in marks or not isinstance(entry, dict):
+                continue
+            n = entry.get('n')
+            n = n if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= IDM_SWAPPED_N_MAX else 1
+            swapped[k] = {
+                'style': 'x' if entry.get('style') == 'x' else 'color',
+                'color': idm_color(entry.get('color')) or IDM_DEFAULT_COLOR,
+                'n': n,
+            }
+    out = {'modulesX': modules_x, 'modulesY': modules_y, 'marks': marks}
+    if swapped:
+        out['swapped'] = swapped
+    return out
 
 
 def normalize_idm_layer(layer):
@@ -1400,11 +1434,20 @@ def strip_copied_idm_marks(layer):
 #   markPresets       ['#rrggbb', ...] the saved mark colours beside the
 #                     mark swatch (missing = IDM_MARK_PRESETS_DEFAULT; an
 #                     empty list is the crew's own choice and stays empty)
+#   rowsFrom          {"<screen id>": 'top' | 'bottom'}: how the swap list
+#                     counts each screen's cabinet rows (owner, 2026-11-24:
+#                     a ground-stacked wall is counted up from the floor).
+#                     Only the screens someone switched; any other screen
+#                     reads its default from its Header/Footer side (a
+#                     footer, ground stacked: bottom; a header or neither:
+#                     top), so an older show opens on the defaults.
 IDM_FIELD_BORDERS = ('shade', 'lines', 'ticks', 'none')
 IDM_FIELD_DEFAULT = {'color': '#ffffff', 'border': 'shade', 'moduleIds': False}
 IDM_FIELD_COLOUR_KEYS = ('labelColor', 'moduleEdgeColor', 'cabinetEdgeColor')
 IDM_MARK_PRESETS_DEFAULT = ('#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000')
 IDM_MARK_PRESETS_MAX = 12
+IDM_ROWS_FROM = ('top', 'bottom')
+IDM_ROWS_FROM_MAX = 2000
 
 
 def idm_shade_level(value):
@@ -1417,6 +1460,23 @@ def idm_shade_level(value):
             return None
         return int(math.floor(value + 0.5))
     return idm_color(value)
+
+
+def idm_rows_from(value):
+    """The swap list's Rows from picks: {"<screen id>": 'top' | 'bottom'},
+    a key a whole number (as text), anything else dropped, at most
+    IDM_ROWS_FROM_MAX. None when `value` is not a dict."""
+    if not isinstance(value, dict):
+        return None
+    out = {}
+    for key, pick in value.items():
+        text = str(key).strip()
+        if not (text.isascii() and text.isdigit()) or pick not in IDM_ROWS_FROM:
+            continue
+        out[str(int(text))] = pick
+        if len(out) >= IDM_ROWS_FROM_MAX:
+            break
+    return out
 
 
 def idm_mark_presets(value):
@@ -1458,6 +1518,9 @@ def sanitize_idm_field(value):
     presets = idm_mark_presets(value.get('markPresets'))
     if presets is not None:
         out['markPresets'] = presets
+    rows = idm_rows_from(value.get('rowsFrom'))
+    if rows:
+        out['rowsFrom'] = rows
     return out
 
 
