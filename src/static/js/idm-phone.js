@@ -30,17 +30,23 @@
 // Undo here takes back this phone's own last change (a mark, a paint, a
 // tick), and only while the screen still holds what the phone left: a
 // screen changed since by another device is left alone, with a note.
+// Redo (owner, 2026-11-24) puts back what this phone's Undo took back, the
+// same way: a PUT of the screen's block, one step on the computer. It is
+// there only while the screen still holds what the Undo left, so it goes
+// grey the moment another device changes that screen (an undo or a redo
+// on the computer too) and comes back if that change is taken back. A new
+// change here ends the redo steps, as it does on the computer.
 //
 // The controls keep to the canvas the highlight is on (owner, 2026-11-17);
 // Change canvas in the menu (and View / Share on a controller) takes it to
 // the next one.
 //
 // The main screen is the controls alone: the step switch, the arrows, Mark,
-// Undo and Clear highlight. The swap list opens as a sheet over it (owner,
+// Undo and Redo. The swap list opens as a sheet over it (owner,
 // 2026-11-17), and so does the menu (owner, 2026-11-24), which holds what
-// jumps the highlight or repaints the wall, so a thumb on the arrows never
-// hits it: Next screen, Change canvas, the field colors and, while one is
-// paired, the controller's button list. The phone's own back gesture
+// jumps the highlight, takes it off or repaints the wall, so a thumb on
+// the arrows never hits it: Next screen, Change canvas, Clear highlight,
+// the field colors and, while one is paired, the controller's button list. The phone's own back gesture
 // closes a sheet. The page is dark unless this
 // phone picked light (owner, 2026-11-17), kept per device.
 import {
@@ -129,6 +135,7 @@ const S = {
     sheet: null,                  // 'menu' | 'swap' | 'pad' while one is open
     stroke: null,                 // a paint under way (A held)
     undo: [],                     // this phone's own changes: {layerId, before, after, action}
+    redo: [],                     // the changes its Undo took back, newest last
     seq: 0,
     pads: new Map(), padNames: new Map(), frame: 0,
     toastTimer: null,
@@ -274,6 +281,7 @@ const jobs = {
         release() { endMark(); },
     },
     undo() { undo(); },
+    redo() { redo(); },
     fieldColor() {
         const cur = fieldNow().color;
         const i = FIELD_CYCLE.indexOf(cur);
@@ -382,6 +390,8 @@ function commit(layer, before, after, action) {
         if (!saved) return;
         S.undo.push({ layerId: layer.id, before, after: saved.idm === undefined ? null : saved.idm, action });
         if (S.undo.length > UNDO_MAX) S.undo.shift();
+        // a new change ends the redo steps, as it does on the computer
+        S.redo = [];
         render();
     });
     render();
@@ -427,10 +437,49 @@ function undo() {
         return;
     }
     layer.idm = entry.before;
-    putLayer(layer, entry.before);
+    S.redo.push(entry);
+    putLayer(layer, entry.before).then(saved => {
+        // what the screen holds now, as the computer keeps it, is what
+        // Redo looks for
+        if (saved) entry.before = saved.idm === undefined ? null : saved.idm;
+        render();
+    });
     plog('idm_phone_undo', { layerId: layer.id, action: entry.action },
         { msg: `Phone undid ${entry.action} on ${layer.name || 'Screen'} (#${layer.id})` });
     toast(`Undone: ${entry.action}`);
+    render();
+}
+
+// The redo step at hand, while its screen still holds what this phone's
+// Undo left there; otherwise null.
+function redoNext() {
+    const entry = S.redo[S.redo.length - 1];
+    const layer = entry && layerById(entry.layerId);
+    if (!layer) return null;
+    return idmCanonical(layer.idm === undefined ? null : layer.idm) === idmCanonical(entry.before) ? entry : null;
+}
+
+function redo() {
+    if (S.stroke) return;
+    const entry = redoNext();
+    if (!entry) {
+        toast(S.redo.length ? 'That screen was changed on another device since, so it was left as it is.'
+            : 'Nothing to redo from this phone.');
+        render();
+        return;
+    }
+    const layer = layerById(entry.layerId);
+    if (lockedNote(layer)) return;
+    S.redo.pop();
+    layer.idm = entry.after;
+    S.undo.push(entry);
+    putLayer(layer, entry.after).then(saved => {
+        if (saved) entry.after = saved.idm === undefined ? null : saved.idm;
+        render();
+    });
+    plog('idm_phone_redo', { layerId: layer.id, action: entry.action },
+        { msg: `Phone redid ${entry.action} on ${layer.name || 'Screen'} (#${layer.id})` });
+    toast(`Redone: ${entry.action}`);
     render();
 }
 
@@ -654,6 +703,7 @@ function renderReadout() {
         b.setAttribute('aria-pressed', (b.dataset.phStep === 'cabinet') === S.cabinet ? 'true' : 'false');
     });
     $('ph-undo').disabled = !S.undo.length;
+    $('ph-redo').disabled = !redoNext();
     $('ph-clear').disabled = !hl();
 }
 
@@ -874,6 +924,7 @@ function wire() {
     window.addEventListener('pagehide', holdStop);
     $('ph-mark').addEventListener('click', () => { startMark(); endMark(); });
     $('ph-undo').addEventListener('click', () => jobs.undo());
+    $('ph-redo').addEventListener('click', () => jobs.redo());
     $('ph-next-screen').addEventListener('click', () => jobs.nextScreen());
     $('ph-canvas-next').addEventListener('click', () => jobs.nextCanvas());
     $('ph-clear').addEventListener('click', () => jobs.clearHighlight());
