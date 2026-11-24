@@ -619,6 +619,11 @@ ALSO NEW
 - NEW: With one screen of a group picked in the Screens list, a click on
   any cabinet of that group on the canvas, on any tab, picks the whole
   group again. Drags and X and Y then move every screen of it.
+- NEW: The 3D tab follows that pick too. With one screen of a group
+  picked in the Screens list, its X, Y and Z, its turn and a drag in the
+  view move that screen alone, with the same note under the figures.
+  Click the wall in the view to move the whole group again. A group that
+  curves as one wall keeps its screens together and says why.
 - NEW: A Windows copy installed with the setup file updates itself:
   Update downloads the new version, checks it and installs it, then
   reopens the app.

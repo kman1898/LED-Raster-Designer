@@ -1094,6 +1094,85 @@ class _Stage3D {
         return (p.layers || []).filter(l => l !== layer && ids.has(l.id) && this._s3dIsScreen(l));
     }
 
+    // 3D FOLLOWS THE LIST PICK (the owner, 2026-11-24, #125). One screen of
+    // a group picked on its own in the Screens list (app-screen-groups.js
+    // _listPickedMember) moves and turns on its own here too, as its X / Y
+    // do on Pixel Map and Show Look: the panel's figures, a drag on the
+    // stage, the handles, the arrow keys and G / R all carry that screen
+    // alone, and nothing else in the group moves. A click on the wall in
+    // the view ends the pick (_s3dClick), and the group moves as one again.
+    // Any other pick moves the whole group, as before.
+    //
+    // A group that CURVES AS ONE WALL (app-curve.js, 2026-11-17) is the
+    // exception (the owner, 2026-11-24, "refuse, say why"): its screens are
+    // chained along one Curve, which the next lay would put a moved screen
+    // back onto, so a screen of that wall picked in the list cannot move or
+    // turn on its own. The note under the fields says so up front, and an
+    // edit or a drag is refused in a red toast naming the way out
+    // (_s3dCurvedPick); the screen stays where it stands.
+    _s3dMovesAlone(layer) {
+        const picked = typeof this._listPickedMember === 'function' ? this._listPickedMember() : null;
+        return !!layer && picked === layer && !this._s3dCurvedPick(layer);
+    }
+
+    // The screens that go with `layer` when it moves or turns: the rest of
+    // its group, or none when it is picked alone in the list. A screen
+    // picked off a curved wall carries none either: it is refused alone
+    // (_s3dHeld), and the rest of its wall stays where it stands.
+    _s3dMovesWith(layer) {
+        const picked = typeof this._listPickedMember === 'function' ? this._listPickedMember() : null;
+        return layer && picked === layer ? [] : this._s3dGroupPeers(layer);
+    }
+
+    // The curved wall (app-curve.js _curveRow) a screen picked alone in the
+    // Screens list stands on, which holds it in place; null when it is not
+    // picked so, or its group does not curve as one wall.
+    _s3dCurvedPick(layer) {
+        const picked = typeof this._listPickedMember === 'function' ? this._listPickedMember() : null;
+        if (!layer || picked !== layer || typeof this._curveRow !== 'function') return null;
+        const row = this._curveRow(layer);
+        if (!this._curveMulti(row) || !this.riggingCurveRowCurved(row)) return null;
+        return row;
+    }
+
+    // Why a screen picked off a curved wall stays put, in plain words.
+    _s3dCurvedWords(layer, row) {
+        const name = layer.name || 'This screen';
+        return `${this._curveWallName(row)} curves as one wall, so ${name} cannot move or turn on its own. Turn the Curve off on the Header/Footer tab, or ungroup it, to move it alone.`;
+    }
+
+    // A screen a move cannot carry: a locked one, or one picked off a
+    // curved wall.
+    _s3dHeld(layer) {
+        return this._layerLocked(layer) || !!this._s3dCurvedPick(layer);
+    }
+
+    // Says why `layers` stayed put: the locked ones in the locked error,
+    // a screen picked off a curved wall in its own red toast.
+    _s3dShowHeld(layers) {
+        const list = (layers || []).filter(Boolean);
+        const locked = list.filter(l => this._layerLocked(l));
+        if (locked.length) {
+            this._showLockedError(locked);
+            return;
+        }
+        const curved = list.find(l => this._s3dCurvedPick(l));
+        if (curved) {
+            const words = this._s3dCurvedWords(curved, this._s3dCurvedPick(curved));
+            sendClientLog('stage3d_curved_pick_refused', { id: curved.id });
+            if (typeof this._toast === 'function') this._toast(words, true, 7000);
+        }
+    }
+
+    // True when an edit of `layer` is refused (locked, or picked off a
+    // curved wall), said in plain words.
+    _s3dRefused(layer) {
+        if (this._lockedRefused(layer)) return true;
+        if (!this._s3dCurvedPick(layer)) return false;
+        this._s3dShowHeld([layer]);
+        return true;
+    }
+
     _s3dCurrentScreen() {
         const l = this.currentLayer;
         return (l && (l.type || 'screen') === 'screen') ? l : null;
@@ -1126,7 +1205,7 @@ class _Stage3D {
         const out = new Map([[layer.id, { layer, placed }]]);
         const turned = placed.pitch !== prev.pitch || placed.yaw !== prev.yaw || placed.roll !== prev.roll;
         const dq = turned ? quatMul(quatFromPlacement(placed), quatInv(quatFromPlacement(prev))) : null;
-        for (const peer of this._s3dGroupPeers(layer)) {
+        for (const peer of this._s3dMovesWith(layer)) {
             const mp = this._s3dPlacementOf(peer, lay);
             const rel = [mp.x - prev.x, mp.y - prev.y, mp.z - prev.z];
             const moved = dq ? quatRotate(dq, rel) : rel;
@@ -1150,7 +1229,7 @@ class _Stage3D {
     // are named and the panel goes back to its figures.
     _s3dCommit(layer, next, action) {
         if (!layer) return;
-        if (this._lockedRefused(layer)) {
+        if (this._s3dRefused(layer)) {
             this._s3dRefreshPanel(true);
             return;
         }
@@ -1193,7 +1272,11 @@ class _Stage3D {
     _s3dReset() {
         const layer = this._s3dCurrentScreen();
         if (!layer) return;
-        const all = this._writableLayers([layer, ...this._s3dGroupPeers(layer)].filter(l => l.stage3d));
+        if (this._s3dCurvedPick(layer)) {
+            this._s3dShowHeld([layer]);
+            return;
+        }
+        const all = this._writableLayers([layer, ...this._s3dMovesWith(layer)].filter(l => l.stage3d));
         if (!all.length) return;
         const layout = this._s3dLayout();
         const back = () => all.forEach(l => {
@@ -1304,8 +1387,18 @@ class _Stage3D {
         const note = byId('s3d-group-note');
         if (note) {
             const group = peers.length ? (this.project.groups || []).find(g => g && g.id === layer.group_id) : null;
-            note.hidden = !group;
-            note.textContent = group ? `Moves and turns with its group, ${group.name || 'Group'}. The group's screens standing together share one Curve, built from its Build from point; the corners are each screen's own.` : '';
+            // A screen picked alone in the Screens list: the words Pixel Map
+            // and Show Look show under their X / Y (_groupMoveOneWords), or
+            // why a screen of a curved wall stays put (_s3dCurvedPick).
+            const curved = group ? this._s3dCurvedPick(layer) : null;
+            const alone = group && !curved && this._s3dMovesAlone(layer);
+            let text = '';
+            if (curved) text = this._s3dCurvedWords(layer, curved);
+            else if (alone) text = `${this._groupMoveOneWords(layer)}. Click the wall in the view to move the whole group again.`;
+            else if (group) text = `Moves and turns with its group, ${group.name || 'Group'}. The group's screens standing together share one Curve, built from its Build from point; the corners are each screen's own.`;
+            note.hidden = !text;
+            note.textContent = text;
+            note.dataset.groupMove = curved ? 'held' : (alone ? 'one' : (group ? 'group' : ''));
         }
         this._s3dPanelFigures(shown, force);
         this._s3dPanelReadouts(layer, p);
@@ -2796,7 +2889,7 @@ class _Stage3D {
             const layer = layers.find(l => l.id === id);
             if (!this._s3dIsScreen(layer)) continue;
             out.set(layer.id, layer);
-            this._s3dGroupPeers(layer).forEach(p => out.set(p.id, p));
+            this._s3dMovesWith(layer).forEach(p => out.set(p.id, p));
         }
         return [...out.values()];
     }

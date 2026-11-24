@@ -200,11 +200,14 @@ class _ScreenGroups {
     // select the screen via the side tab specifically"). Expanding a group
     // in the Screens list and clicking one member's row is the one way to
     // move that member on its own: its Offset X / Y (Pixel Map) and Show
-    // Offset X / Y (Show Look) then show and edit that screen alone. Every
+    // Offset X / Y (Show Look) then show and edit that screen alone, and
+    // on the 3D tab (the owner, 2026-11-24) its X / Y / Z, its turn, a drag
+    // and the arrow keys carry it alone too (app-stage3d.js _s3dMovesAlone;
+    // a screen of a group that curves as one wall is refused there). Every
     // other way of getting there still moves the whole group as one, as
     // ruled 2026-09-22: the group's own row, a click on the canvas (which
     // selects the whole group, canvas.js _selectLayerFromCanvas), a canvas
-    // drag (_addGroupPeersToDrag) and the 3D arrow keys (_s3dMoveSet).
+    // drag (_addGroupPeersToDrag) and a click on the wall in 3D.
     //
     // The row click marks the screen (app-layers-panel.js); every other way
     // of selecting clears the mark (selectLayer for another screen, the
@@ -239,13 +242,23 @@ class _ScreenGroups {
         const picked = this._listPickedMember();
         const grouped = !picked && (layers || []).some(l => l && (l.type || 'screen') === 'screen'
             && this.groupMembersOf(l).length > 1);
-        const text = picked ? `Moves only ${picked.name || 'this screen'} in its group`
+        const text = picked ? this._groupMoveOneWords(picked)
             : (grouped ? 'Moves the whole group' : '');
         notes.forEach(el => {
             el.textContent = text;
             el.hidden = !text;
             el.dataset.groupMove = picked ? 'one' : (grouped ? 'group' : '');
         });
+        // The 3D panel says the same under its figures (app-stage3d.js
+        // _s3dRefreshPanel); a list click that changes no selection (so
+        // draws nothing) still has to reach it.
+        if (typeof this._s3dSchedule === 'function') this._s3dSchedule();
+    }
+
+    // The words for a screen picked alone in the Screens list, the same on
+    // Pixel Map, Show Look and 3D.
+    _groupMoveOneWords(layer) {
+        return `Moves only ${(layer && layer.name) || 'this screen'} in its group`;
     }
 
     // Where a grouped screen's group STANDS: the top-left of its members'

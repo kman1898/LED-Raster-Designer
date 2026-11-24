@@ -3040,6 +3040,8 @@ body.lrd-panel-dragging, body.lrd-panel-dragging * { cursor: grabbing !important
     color: var(--ps-text, #f0f0f0); background: var(--ps-panel, #2e2e2e); border: 1px solid var(--ps-dark, #131313); }
 #s3d-message[hidden] { display: none; }
 .s3d-note { font-size: 11px; line-height: 1.4; color: var(--ps-faint, #969696); margin: 0 0 8px; }
+.s3d-note[data-group-move="one"] { color: #f5a623; }
+.s3d-note[data-group-move="held"] { color: #ff6b6b; }
 .s3d-name { font-size: 13px; font-weight: 600; color: var(--ps-text, #f0f0f0); margin: 0;
     min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .s3d-sub { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ps-faint, #969696);
