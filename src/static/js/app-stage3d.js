@@ -62,6 +62,13 @@ const NEAR_MIN = 0.05, NEAR_MAX = 20;
 const SYNC_MS = 120;             // edits settle this long before a rebuild
 export const DEG = Math.PI / 180;
 
+// The view buttons' directions, from the stage's middle towards the camera
+// (_s3dPreset; the 3D PNG's preset views, app-stage3d-png.js).
+export const S3D_VIEW_DIRS = {
+    front: [0, 0, 1], back: [0, 0, -1], left: [-1, 0, 0], right: [1, 0, 0],
+    top: [0, 1, 0.0001], iso: [0.7, 0.55, 0.9],
+};
+
 // ── The placement block ─────────────────────────────────────────────────
 
 function finite(v, fallback) {
@@ -1666,35 +1673,40 @@ class _Stage3D {
             if (st.T) st.needsFit = true;
             return;
         }
-        const T = st.T;
         this._s3dEndCameraMove(false);
-        const box = this._s3dWorldBox(opts.ids || null);
+        const pose = this._s3dFitPose(dir, st.persp.aspect || 1, opts.ids || null);
+        st.camera.up.set(0, 1, 0);
+        this._s3dCameraTo(pose, { animate: !!opts.animate, save });
+    }
+
+    // Where _s3dFit puts the camera for a view `aspect` wide (width over
+    // height): every screen (or only `ids`) in frame, looking along `dir`
+    // (the current direction when none is given). The 3D PNG frames its
+    // preset views with this too (app-stage3d-png.js), so a picture of the
+    // Front view is the Front view.
+    _s3dFitPose(dir, aspect, ids = null) {
+        const st = this._s3dState();
+        const T = st.T;
+        const box = this._s3dWorldBox(ids);
         const centre = box.getCenter(new T.Vector3());
         const radius = Math.max(500, box.getSize(new T.Vector3()).length() / 2);
         let look = dir ? dir.clone() : st.camera.position.clone().sub(st.controls.target);
         if (look.lengthSq() < 1e-6) look = new T.Vector3(0.35, 0.3, 1);
         look.normalize();
         const fov = st.persp.fov * DEG;
-        const aspect = st.persp.aspect || 1;
-        const fit = radius / Math.sin(Math.min(fov, 2 * Math.atan(Math.tan(fov / 2) * aspect)) / 2);
-        const pose = {
+        const fit = radius / Math.sin(Math.min(fov, 2 * Math.atan(Math.tan(fov / 2) * (aspect || 1))) / 2);
+        return {
             target: centre.clone(),
             position: centre.clone().add(look.multiplyScalar(fit * 0.9)),
             orthoHalf: radius * 0.95, zoom: 1,
         };
-        st.camera.up.set(0, 1, 0);
-        this._s3dCameraTo(pose, { animate: !!opts.animate, save });
     }
 
     _s3dPreset(name) {
         const st = this._s3dState();
         if (!st.T || !st.controls) return;
         const T = st.T;
-        const dirs = {
-            front: [0, 0, 1], back: [0, 0, -1], left: [-1, 0, 0], right: [1, 0, 0],
-            top: [0, 1, 0.0001], iso: [0.7, 0.55, 0.9],
-        };
-        const d = dirs[name];
+        const d = S3D_VIEW_DIRS[name];
         if (!d) return;
         sendClientLog('stage3d_view', { view: name });
         this._s3dFit(true, new T.Vector3(d[0], d[1], d[2]), { animate: true });

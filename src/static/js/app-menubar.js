@@ -375,6 +375,9 @@ class _MenuBar {
             case 'export-obj':
                 this.openExportModal('obj');
                 break;
+            case 'export-3d-png':
+                this.openExportModal('png-3d');
+                break;
             case 'pull-sheet':
                 // The in-app editor over the pull list (app-pull-sheet-editor.js).
                 this.openPullSheetEditor();

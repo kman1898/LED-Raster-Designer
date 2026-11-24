@@ -2570,6 +2570,10 @@ class _Wiring {
         if (typeof this.initPullSheetEditor === 'function') this.initPullSheetEditor();
         // The binder's own section (scope, palette, maps, pages) - app-binder.js.
         if (typeof this.initBinderControls === 'function') this.initBinderControls();
+        // 3D PNG's own section (view, size, background) and the 3D tab's
+        // Export PNG button - app-stage3d-png.js. After the binder's, so its
+        // sync has the last word on which sections show.
+        if (typeof this.initStage3dPngControls === 'function') this.initStage3dPngControls();
         
         document.getElementById('export-cancel').addEventListener('click', () => {
             document.getElementById('export-modal').style.display = 'none';
@@ -2642,6 +2646,13 @@ class _Wiring {
                     sendClientLog('export_failed', { message: error.message, format: 'obj' });
                     if (typeof this._toast === 'function') this._toast(error.message, true, 6000);
                 }
+                return;
+            }
+
+            // 3D PNG: a picture of the 3D stage (app-stage3d-png.js). A size
+            // the graphics card cannot draw is refused with the dialog up.
+            if (format === 'png-3d') {
+                await this.exportStage3dPngFromDialog(projectName);
                 return;
             }
 

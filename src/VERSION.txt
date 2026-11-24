@@ -168,6 +168,13 @@ other edit.
   Header/Footer tab sets it, like 7.5 degrees per joint, and Curve
   settings takes you there. Gentle bends come only from the Curve, and
   only between columns.
+- NEW: File > Export 3D PNG, or Export pressed on the 3D tab, saves a
+  picture of the stage as the 3D view draws it, without the selection, the
+  handles or the corner marks. Pick the current view or Front, Back, Left,
+  Right, Top or Iso, which frame every screen and leave your own view
+  where it was; the view's own size, HD, 4K or 8K; and the 3D view's
+  background or a transparent one. A size too big for the computer's
+  graphics card is refused, and the dialog stays open to pick another.
 
 CURVED WALLS
 

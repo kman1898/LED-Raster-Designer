@@ -110,6 +110,7 @@
             <div class="menu-option" data-action="export-pdf" data-label="Export PDF"></div>
             <div class="menu-option" data-action="export-resolume-xml" data-label="Export Resolume XML"></div>
             <div class="menu-option" data-action="export-obj" data-label="Export OBJ"></div>
+            <div class="menu-option" data-action="export-3d-png" data-label="Export 3D PNG"></div>
             <div class="menu-option" data-action="pull-sheet" data-label="Pull Sheet…"></div>
             <div class="menu-option" data-action="export-pull-sheet" data-label="Export Pull Sheet"></div>
             <div class="menu-option" data-action="export-binder" data-label="Export Binder"></div>
@@ -376,7 +377,7 @@
                 <button id="btn-new" class="btn" data-tooltip="Create a new project">New</button>
                 <button id="btn-open" class="btn" data-tooltip="Open a saved project">Open</button>
                 <button id="btn-save" class="btn" data-tooltip="Save current project">Save</button>
-                <button id="btn-export" class="btn" data-tooltip="Export PNG, PSD, SVG, PDF, Resolume XML, the pull sheet or the binder">Export</button>
+                <button id="btn-export" class="btn" data-tooltip="Export, Save PNG, PSD, SVG, PDF, Resolume XML, OBJ, the pull sheet or the binder. On the 3D tab it opens on 3D PNG, a picture of the stage.">Export</button>
                 <button id="btn-preferences" class="btn" data-tooltip="Open Preferences (Cmd/Ctrl+,)" data-control-tip="Open Preferences ({key:preferences})">Preferences</button>
                 <!-- View > Output to Display, one click away (Matt,
                      2026-11-17); shown and enabled as that item is. -->
@@ -2954,6 +2955,7 @@
                     <option value="pull-sheet">Pull Sheet (Excel workbook, gear list by position)</option>
                     <option value="binder">Binder (PDF)</option>
                     <option value="obj">OBJ (3D model of each screen, mapped to its canvas)</option>
+                    <option value="png-3d">3D PNG (picture of the 3D stage)</option>
                     <!-- NovaStar SCR export is parked, not gone: the .scr file
                          layer lives in src/scr_project.py / scr_encoder.py /
                          scr_decoder.py with a working CLI in
@@ -2963,6 +2965,45 @@
                          scr_project.build_sections. -->
                 </select>
                 <div id="export-obj-note" style="display: none; margin-top: 6px; font-size: 11px; color: #888;" data-tooltip="OBJ, a 3D model of every screen on the 3D stage in meters, bent and curved as it stands there, with each cabinet mapped to where it sits in its canvas, the canvas's Pixel Map PNG and the .mtl that points at it. A group is one model; set its Names switch on Show Look to Screens to get a model per screen.">One model per screen as it stands on the 3D stage, in meters. A group is one model unless its Names switch on Show Look is Screens.</div>
+            </div>
+
+            <!-- 3D PNG (format png-3d only): a picture of the 3D stage, from
+                 the tab's camera or one of its view buttons, at the view's
+                 size or a bigger one (app-stage3d-png.js; shown and hidden
+                 by syncStage3dPngControls). -->
+            <div id="export-3d-png-section" style="margin-bottom: 18px; display: none;">
+                <label style="display: block; margin-bottom: 8px; color: #ccc; font-size: 13px;">3D PNG:</label>
+                <div class="export-views" style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 128px; white-space: nowrap;">View</span>
+                        <select id="export-3d-png-view" data-tooltip="View, Current view is the 3D tab's camera as it stands. Front, Back, Left, Right, Top and Iso frame every screen the way the tab's view buttons do, and leave the tab's camera where it is." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                            <option value="current">Current view</option>
+                            <option value="front">Front</option>
+                            <option value="back">Back</option>
+                            <option value="left">Left</option>
+                            <option value="right">Right</option>
+                            <option value="top">Top</option>
+                            <option value="iso">Iso</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 128px; white-space: nowrap;">Size</span>
+                        <select id="export-3d-png-size" data-tooltip="Size, The picture's width and height in pixels. A size this computer's graphics card cannot draw is refused, and the dialog stays open." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                            <option value="view">Same as the 3D view</option>
+                            <option value="1920x1080">1920 x 1080 (HD)</option>
+                            <option value="3840x2160">3840 x 2160 (4K)</option>
+                            <option value="7680x4320">7680 x 4320 (8K)</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; color: #aaa;">
+                        <span style="flex: none; width: 128px; white-space: nowrap;">Background</span>
+                        <select id="export-3d-png-background" data-tooltip="Background, As the 3D view keeps the stage's dark background; Transparent leaves only the screens, the bars and the grid, for laying over other pictures." style="flex: 1; min-width: 60px; padding: 4px 6px; background: #1a1a1a; border: 1px solid #3a3a3a; color: #fff; border-radius: 3px;">
+                            <option value="view">As the 3D view</option>
+                            <option value="transparent">Transparent</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top: 6px; font-size: 11px; color: #777;">The stage as the 3D tab draws it, with its Grid and Bars switches, but no selection, handles or corner marks.</div>
             </div>
 
             <!-- Pull Sheet (format pull-sheet only): the project's jumper names

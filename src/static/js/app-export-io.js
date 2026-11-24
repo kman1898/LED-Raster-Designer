@@ -27,7 +27,8 @@ class _ExportIo {
         // views) and for the pull sheet (a workbook, not a picture).
         const viewSection = document.getElementById('export-views-section');
         if (viewSection) {
-            const geometryOnly = (format === 'resolume-xml' || format === 'pull-sheet' || format === 'binder' || format === 'obj');
+            const geometryOnly = (format === 'resolume-xml' || format === 'pull-sheet' || format === 'binder' || format === 'obj'
+                || format === 'png-3d');
             viewSection.style.display = geometryOnly ? 'none' : '';
         }
         // OBJ's note under the format. Which sections show is each format's
@@ -52,6 +53,15 @@ class _ExportIo {
                 if (i) preview.appendChild(document.createElement('br'));
                 preview.appendChild(document.createTextNode(n));
             });
+            return;
+        }
+
+        if (format === 'png-3d') {
+            // One picture of the 3D stage (app-stage3d-png.js).
+            const o = this.stage3dPngOptions();
+            preview.classList.add('value-accent');
+            preview.style.color = '';
+            preview.textContent = `${this.stage3dPngFileName(projectName, o.view)} (${o.width} x ${o.height})`;
             return;
         }
 
@@ -332,6 +342,7 @@ class _ExportIo {
         // was ticked in this dialog (app-binder.js binderChoices).
         this._binderSeedChoices = true;
         if (typeof this.syncBinderControls === 'function') this.syncBinderControls();
+        if (typeof this.syncStage3dPngControls === 'function') this.syncStage3dPngControls();
         this.updateExportPreview();
     }
 
