@@ -26,7 +26,7 @@ window.WHATS_NEW_CONTENT = {
             { h: 'Header and footer bars',
               d: 'The new Header/Footer tab, right of Power, builds the bars above or below each wall. Light the sizes you stock and Auto fits the fewest bars across it, or pick Custom and click or drag along the edge to lay them yourself. Grouped screens share one row across the seam, and the counts go on the pull sheet and the binder.' },
             { h: 'Curves and 90 degree corners',
-              d: 'Tick Curve on the Header/Footer tab and the app lays the bars you have and sets the angle at every join for the curve you ask. Add corner folds a screen 90 degrees, Interior or Exterior, on a seam or down the middle of a panel, and lays its corner bar. With both, each side of a corner curves as its own wall.' },
+              d: 'Turn on Curve this wall on the Header/Footer tab, pick Concave or Convex and how much, and the app lays the bars you have and tells you which angle to lock at every joint. Add corner folds a screen 90 degrees, Interior or Exterior, on a seam or down the middle of a panel, and lays its corner bar. With both, each side of a corner curves as its own wall.' },
             { h: 'Screens on a stage in 3D',
               d: 'The 3D tab builds every Show Look screen from its cabinets with its Pixel Map on the front, curved and cornered as the Header/Footer tab sets it. Drag a figure in the panel to move or turn a screen, the way 3D software does, and with Add corners on, click a seam or a panel\'s middle for a 90 degree corner. The bars stand above and below each wall, and File > Export OBJ saves each screen as a 3D model mapped to its canvas.' },
             { h: 'A canvas on a second display',

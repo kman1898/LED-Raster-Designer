@@ -682,6 +682,23 @@ _PREPARE_JS = {
     }""",
 }
 
+# The Curve's settings show only with the Curve on (owner, 2026-11-24),
+# Close enough and the unit under More: the screen's panel is given lock
+# positions, the Curve turned on and More opened, through the app's own
+# calls, before the field is swept.
+_CURVE_ON_JS = """async () => {
+    const app = window.app;
+    const l = app.getSelectedLayers()[0] || app.currentLayer;
+    app.setPanelCurveLocks(app.curveLockKey(l), [-5, 0, 5]);
+    if (!app.riggingCurveOn(l)) app.setRiggingCurveOn(true);
+    for (let i = 0; i < 400 && app.riggingCurveBusy(); i++) await new Promise(r => setTimeout(r, 25));
+    const more = document.getElementById('rigging-curve-more');
+    if (more) more.open = true;
+    app.refreshRiggingPanel();
+}"""
+for _key in ('rigging-curve-value', 'rigging-curve-unit', 'rigging-curve-tol'):
+    _PREPARE_JS[_key] = _CURVE_ON_JS
+
 
 def _reach(page, ids, field):
     """Select a layer and open the tab that makes this field reachable.

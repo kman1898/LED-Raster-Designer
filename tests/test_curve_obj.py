@@ -179,9 +179,24 @@ def act(page, fn):
     idle(page)
 
 
+def open_more(page):
+    """More, under the Curve's answer: Ways to build it, the lock
+    positions, the fit rule and Close enough (shut until opened)."""
+    page.evaluate("() => { const d = document.getElementById('rigging-curve-more'); if (d && !d.open) d.open = true; }")
+
+
 def edit_locks(page, text):
     """Edit on the Curve's lock positions: every position but flat taken
-    off, `text` typed, and Save."""
+    off, `text` typed, and Save. With the Curve on they are under More;
+    with it off they show only for a panel that has none (under the
+    switch), so a panel that has some is edited through the same calls
+    Edit, the box and Save make."""
+    if not page.is_visible('#rigging-curve-lock-edit'):
+        open_more(page)
+    if not page.is_visible('#rigging-curve-lock-edit'):
+        page.evaluate("""(t) => { const a = window.app; a.openCurveLockEditor();
+            a._curveLockEdit.draft = [0]; a.addCurveLockDraft(t); a.saveCurveLockDraft(); }""", text)
+        return
     page.click('#rigging-curve-lock-edit')
     remove = page.locator('#rigging-curve-lock-draft [data-remove-lock]')
     while remove.count():
@@ -209,10 +224,11 @@ def test_the_curve_checkbox_lays_the_bars_and_the_angles(page):
     singles_only(page)
     before = history_len(page)
     assert page.is_visible('#rigging-curve-on')
-    # off, the settings show (and save) but nothing is laid or worked out
-    assert page.is_visible('#rigging-curve-fields')
+    # off, only the switch shows (owner, 2026-11-24): nothing is laid or
+    # worked out
+    assert not page.is_visible('#rigging-curve-fields')
     assert not page.is_visible('#rigging-curve-result')
-    assert 'Tick Curve' in page.inner_text('#rigging-curve-note')
+    assert not page.is_visible('#rigging-curve-note')
     page.check('#rigging-curve-on')
     idle(page)
     lay = layer(page, ids[0])
@@ -228,9 +244,9 @@ def test_the_curve_checkbox_lays_the_bars_and_the_angles(page):
     assert history_len(page) == before + 1
     # the form and the result show; the readouts read the built wall
     assert page.is_visible('#rigging-curve-fields')
-    assert page.inner_text('#rigging-curve-head') == '7.5° at 9 joints, 6 flat'
+    assert page.inner_text('#rigging-curve-head') == 'Lock 9 joints at 7.5°, 6 stay flat'
     read = page.inner_text('#rigging-curve-readouts')
-    assert '19.8% of a circle' in read and 'Off the drawing' in read
+    assert '71.3° of arc, 19.8%' in read and 'Off the drawing' in read
     assert page.locator('#rigging-curve-sheet svg rect[data-bar]').count() == 16
     assert page.locator('#rigging-curve-sheet svg text[data-angle]').count() == 9
     # the server holds the same
@@ -253,13 +269,14 @@ def test_each_edit_lays_it_again_and_undoes_one_step_at_a_time(page):
     assert convex['riggingCurve']['bend'] == 'convex'
     assert joints_of(convex) == [-a if a else 0 for a in joints_of(first)]
 
+    open_more(page)
     act(page, lambda: page.click('#rigging-curve-goal [data-value="even"]'))
     even = layer(page, ids[0])
     bent = [a for a in joints_of(even) if a]
     assert len(set(bent)) == 1, joints_of(even)
 
     # % to degrees says the same curve: 20% is 72 degrees, nothing moves
-    act(page, lambda: page.click('#rigging-curve-entry [data-value="degrees"]'))
+    act(page, lambda: page.select_option('#rigging-curve-unit', 'degrees'))
     deg = layer(page, ids[0])
     assert deg['riggingCurve']['value'] == 72
     assert joints_of(deg) == joints_of(even)
@@ -303,6 +320,7 @@ def test_a_reload_keeps_the_curve_and_the_tab_shows_it(page, e2e_server):
     open_rigging(page)
     singles_only(page)
     act(page, lambda: page.check('#rigging-curve-on'))
+    open_more(page)
     act(page, lambda: page.click('#rigging-curve-goal [data-value="tightest"]'))
     # The goal is saved at once and the answer's bars and angles in a second
     # save when it lands: wait for the server to hold what the app holds,
@@ -334,7 +352,7 @@ def test_custom_on_a_curved_screen_lays_by_hand_auto_hands_it_back_and_clear_tur
     lay = layer(page, ids[0])
     n = history_len(page)
     page.click('#rigging-tool-picker [data-tool="custom"]')
-    assert 'Custom: lay bars by hand' in page.inner_text('#rigging-curve-note')
+    assert 'Lay bars with Custom' in page.inner_text('#rigging-curve-hint')
     # a press is taken, not refused; let go without a change, nothing moves
     taken = page.evaluate("""(id) => { const a = window.app;
         const d = a.riggingBeginPlace(a.project.layers.find(l => l.id === id), 'header', 3);
@@ -510,6 +528,9 @@ def test_ways_to_build_it_lists_every_build_and_a_pick_holds_until_the_curve_cha
     assert '2.5+7.5' in shown
     # the closest even build is always offered
     assert any(w.endswith(' even') for w in shown), shown
+    # under More, shut until opened
+    assert not page.is_visible('#rigging-curve-ways')
+    open_more(page)
     assert page.is_visible('#rigging-curve-ways')
     assert 'in use' in page.inner_text('#rigging-curve-ways [data-way="7.5"]')
     # Use this: the wall is built that way, one undo step
@@ -557,6 +578,7 @@ def test_the_math_runs_in_a_worker_and_the_newest_edit_wins(page):
     assert not page.is_visible('#rigging-curve-working')
     # two edits close together: only the newest lands, as one step
     n = history_len(page)
+    open_more(page)
     page.click('#rigging-curve-goal [data-value="even"]')
     page.click('#rigging-curve-goal [data-value="tightest"]')
     idle(page, 60000)
@@ -919,20 +941,19 @@ def test_every_export_format_shows_its_own_sections(page):
 
 
 def test_settings_edited_with_the_curve_off_are_kept_and_lay_nothing(page):
-    """Every field that shows writes the screen (test_all_fields_sweep's
-    rule): with Curve off the settings are kept for when it is ticked, and
-    no bar or joint changes; focus stays in the form after Tab."""
+    """With the Curve off only its switch shows (owner, 2026-11-24), but a
+    setting written while it is off (a guide, a preset) is kept for when it
+    goes on, and no bar or joint changes."""
     ids = reset(page)
     open_rigging(page)
     singles_only(page)
+    assert not page.is_visible('#rigging-curve-value')
     n = history_len(page)
-    page.fill('#rigging-curve-value', '30')
-    page.press('#rigging-curve-value', 'Tab')
+    page.evaluate("window.app.setRiggingCurveField('value', '30')")
     lay = settled(page, lambda: layer(page, ids[0]), lambda l: (l.get('riggingCurve') or {}).get('value') == 30)
     assert lay['riggingCurve']['on'] is False and lay['riggingCurve']['value'] == 30
     assert not lay.get('stage3d') and not lay.get('riggingBars')
     assert history_len(page) == n + 1
-    assert page.evaluate('document.activeElement && document.activeElement !== document.body')
     # the panel's lock positions save with the show, one step, nothing laid
     edit_locks(page, '-10 -5 5 10')
     assert settled(page, lambda: locks_of(page, ids[0]), lambda a: a == [-10, -5, 0, 5, 10]) == [-10, -5, 0, 5, 10]
@@ -959,8 +980,7 @@ def test_the_curves_angles_over_15_reach_3d_and_the_obj_unchanged(page):
     ids = reset(page, [dict(WALL, columns=9)], locks=[-20, 0, 20])
     open_rigging(page)
     singles_only(page)
-    page.fill('#rigging-curve-value', '40')
-    page.press('#rigging-curve-value', 'Tab')
+    page.evaluate("window.app.setRiggingCurveField('value', '40')")
     settled(page, lambda: layer(page, ids[0])['riggingCurve'], lambda c: c and c.get('value') == 40)
     act(page, lambda: page.check('#rigging-curve-on'))
     want = expected(page, ids[0])
@@ -994,7 +1014,10 @@ def test_lock_positions_past_20_are_refused_and_the_list_stays(page):
     ids = reset(page)
     open_rigging(page)
     singles_only(page)
-    edit_locks(page, '-5, 20')
+    # (the lock positions are under More, with the Curve on)
+    act(page, lambda: page.check('#rigging-curve-on'))
+    open_more(page)
+    act(page, lambda: edit_locks(page, '-5, 20'))
     assert settled(page, lambda: locks_of(page, ids[0]), lambda a: a == [-5, 0, 20]) == [-5, 0, 20]
     page.click('#rigging-curve-lock-edit')
     draft = "[...document.querySelectorAll('#rigging-curve-lock-draft [data-draft-lock]')].map(e => Number(e.dataset.draftLock))"
@@ -1021,8 +1044,7 @@ def test_a_curve_needing_more_than_20_a_joint_is_refused_and_says_how_much_fits(
     ids = reset(page, [dict(WALL, columns=9)], locks=[-20, -10, 0, 10, 20])
     open_rigging(page)
     singles_only(page)
-    page.fill('#rigging-curve-value', '55')
-    page.press('#rigging-curve-value', 'Tab')
+    page.evaluate("window.app.setRiggingCurveField('value', '55')")
     settled(page, lambda: layer(page, ids[0])['riggingCurve'], lambda c: c.get('value') == 55)
     act(page, lambda: page.check('#rigging-curve-on'))
     want = expected(page, ids[0])

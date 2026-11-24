@@ -865,7 +865,7 @@ def test_the_curve_step_says_what_the_demo_wall_builds(guide_page):
     got = pg.evaluate("""() => {
         const rows = [...document.querySelectorAll('#rigging-curve-readouts > div')]
             .map(r => [...r.children].map(c => c.textContent));
-        const sweep = (rows.find(r => r[0] === 'Sweep') || [])[1] || '';
+        const sweep = (rows.find(r => r[0] === 'Builds') || [])[1] || '';
         const warn = document.getElementById('rigging-curve-warnings');
         const w = window.app.project.layers.find(l => l.name === 'DEMO WALL');
         return { sweep, note: document.querySelector('#qs-callout .qs-result').textContent,
@@ -876,7 +876,7 @@ def test_the_curve_step_says_what_the_demo_wall_builds(guide_page):
     pg.wait_for_function("() => !window.QuickStart.state().visible && !window.QuickStart.state().running")
     assert got['sweep'] and got['sweep'] in got['note'], got
     assert f"asked for {got['asked']:g}% of a circle" in got['note'], got
-    pct = float(re.search(r'([\d.]+)% of a circle', got['sweep']).group(1))
+    pct = float(re.search(r'([\d.]+)%$', got['sweep']).group(1))
     assert abs(pct - got['asked']) <= 0.5, got
     assert 'Out of range' not in got['warnings'] and 'Off the drawing' not in got['warnings'], got
     assert 'fall short' not in got['warnings'] and 'falls short' not in got['warnings'], got

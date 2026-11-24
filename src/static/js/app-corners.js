@@ -480,7 +480,7 @@ class _Corners {
                 ? `${cornerAnchorWords(s3dCornerAnchor({ riggingCurve: this.riggingCurveFor(primary) }, row.width), row.width)} of the group`
                 : cornerAnchorWords(s3dCornerAnchor(primary, cols), cols);
             const text = `In 3D, ${words} stays put and the rest folds away from it`
-                + (curved ? ' (the Curve\'s Build from).' : '.');
+                + (curved ? ' (where the Curve\'s build starts).' : '.');
             if (hold.textContent !== text) hold.textContent = text;
         }
         this._cornerDrawPlan(document.getElementById('rigging-corner-plan'), primary);

@@ -497,7 +497,7 @@ def test_a_two_row_stack_curves_as_one_wall(page):
         assert math.dist(a, b) < 0.01, (a, b)
     for a, b in zip(turns(low_edge), turns(top_edge)[2:5]):
         assert abs(a - b) < 1e-3, (a, b)
-    assert 'Group 1\'s 2 screens' in page.inner_text('#rigging-curve-note')
+    assert page.inner_text('#rigging-curve-group') == 'Group 1 curves as one wall across its 2 screens. A change here sets both.'
     assert 'not this curve' not in page.inner_text('#rigging-curve-note')
     assert page.errors == []
 
@@ -553,7 +553,7 @@ def test_a_grid_group_curves_as_one_wall(page):
     assert len(pts) == 9
     for j, (a, b) in enumerate(zip(turns(pts), want['joints'])):
         assert abs(a - b) < 1e-3, (j, a, b)
-    assert 'Group 1\'s 4 screens' in page.inner_text('#rigging-curve-note')
+    assert page.inner_text('#rigging-curve-group') == 'Group 1 curves as one wall across its 4 screens. A change here sets all four.'
     # the 3D panel reads the wall's joints from a lower screen too
     text = page.evaluate(f"""() => {{ const app = window.app; const l = app.project.layers.find(x => x.id === {ids[2]});
         return app._s3dCurveText(l, app._s3dPlacementOf(l)); }}""")
@@ -621,10 +621,9 @@ def test_the_group_builds_from_the_point_picked(page, pick, at):
     open_rigging(page)
     select(page, [ids[1]])
     singles_only(page)
-    if isinstance(pick, str):
-        page.click(f'#rigging-curve-from [data-value="{pick}"]')
-    else:
-        page.evaluate(f"window.app.setRiggingCurveField('from', {pick})")
+    # (set with the Curve off, when only its switch shows: the setting is
+    # kept for when it goes on)
+    page.evaluate("(p) => window.app.setRiggingCurveField('from', p)", pick)
     idle(page)
     assert all(layer(page, i)['riggingCurve']['from'] == pick for i in ids)
     flat = joined(wall_edges(page, ids))
@@ -672,7 +671,7 @@ def test_a_grid_builds_from_its_right_end(page):
     select(page, [ids[0]])
     singles_only(page)
     page.evaluate("window.app.setRiggingCurveField('value', 10)")
-    page.click('#rigging-curve-from [data-value="right"]')
+    page.evaluate("window.app.setRiggingCurveField('from', 'right')")
     idle(page)
     flat_up, flat_low = joined(wall_edges(page, ids[:2])), joined(wall_edges(page, ids[2:]))
     act(page, lambda: page.check('#rigging-curve-on'))

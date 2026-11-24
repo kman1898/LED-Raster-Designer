@@ -284,6 +284,8 @@ def test_with_the_curve_on_each_side_of_a_corner_curves_as_its_own_wall(page):
     assert 'stays put' in page.inner_text('#rigging-corner-hold')
     # Use this on the right side builds that side that way, the left side
     # and the corner bar as they were
+    # (Ways to build it is under More)
+    page.evaluate("() => { document.getElementById('rigging-curve-more').open = true; }")
     use = page.locator('#rigging-curve-ways [data-side="1"] [data-pick]').first
     pick = use.get_attribute('data-pick')
     use.click()

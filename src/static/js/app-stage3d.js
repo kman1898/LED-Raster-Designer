@@ -1402,7 +1402,7 @@ class _Stage3D {
             let text = '';
             if (curved) text = this._s3dCurvedWords(layer, curved);
             else if (alone) text = `${this._groupMoveOneWords(layer)}. Click the wall in the view to move the whole group again.`;
-            else if (group) text = `Moves and turns with its group, ${group.name || 'Group'}. The group's screens standing together share one Curve, built from its Build from point; the corners are each screen's own.`;
+            else if (group) text = `Moves and turns with its group, ${group.name || 'Group'}. The group's screens standing together share one Curve, built from where its build starts; the corners are each screen's own.`;
             note.hidden = !text;
             note.textContent = text;
             note.dataset.groupMove = curved ? 'held' : (alone ? 'one' : (group ? 'group' : ''));

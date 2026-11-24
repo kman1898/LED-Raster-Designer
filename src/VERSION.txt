@@ -178,63 +178,73 @@ other edit.
 
 CURVED WALLS
 
-Tick Curve on the Header/Footer tab and the app works out how to curve the
-selected screen with the bars you have. Say how much of a circle the wall
-covers, as a % or in degrees of sweep, concave or convex. The sizes you
-have lit are the stock: the Curve decides where each bar goes and the
-angle to set at every join between bars, then lays them as the screen's
-real bars, so the totals, the pull sheet and the binder count them, and
-the 3D view bends the wall to match. A joint inside a bar never bends, and
-any joint can stay flat. A curve that needs more than 20 degrees at each
-joint is refused, with how much curve the wall can take.
+Turn on Curve this wall on the Header/Footer tab and the app works out how
+to curve the selected screen with the bars you have. With the Curve off,
+the switch is all there is. Turned on, it asks three things in order:
+Concave or Convex, how much, and where the build starts. Say how much in
+degrees of arc, as a % of a circle or as the radius to the front face,
+picked from a list, and the line under the box says the same curve in the
+other two. The sizes you have lit are the stock: the Curve decides where
+each bar goes and the angle to set at every joint between bars, then lays
+them as the screen's real bars, so the totals, the pull sheet and the
+binder count them, and the 3D view bends the wall to match. A joint inside
+a bar never bends, and any joint can stay flat. A curve that needs more
+than 20 degrees at each joint is refused, with how much curve the wall can
+take.
 
 A panel's curve locks set at fixed positions, and the Curve lays only
 those: a ROE Graphite GP2.6 (4 in 1) locks at -5, 0 and +5 degrees, and
 the other Graphite tiles at the positions on ROE's own sheet. The panel
-library carries the positions makers publish, and they show as chips
-above the form, with where they came from: the panel library or set by
-you.
+library carries the positions makers publish, and they show under More as
+This panel locks at, with where they came from: the panel library or set
+by you.
 
 - NEW: Edit sets a panel's lock positions, up to 20 degrees either way,
   for every screen of that panel in the show. They save with the show and
   in panel presets, Undo takes them back, and every curved screen of that
   panel is laid again from them.
-- NEW: A panel with no lock positions can't be curved until they are set,
-  and the Curve says so.
+- NEW: A panel with no lock positions can't be curved until they are set.
+  The Curve says so, and shows the lock positions right under its switch
+  so you can set them there.
 - NEW: A curve saved at an angle its panel doesn't lock at opens as it was
   and says so; Auto or Use this lays it again from the panel's positions.
 
-Under the form, a strip shows the bars left to right with the angle on
-every join that bends, a small plan shows the wall from above against the
-drawn curve, and the readouts give the sweep, the radius to the front
-face, the width, the depth and how far off the drawing it lands at worst.
-Simplest uses the fewest different angles that land close enough, Even
-sets one angle at a regular spacing, and Tightest gets as close as the
-angles allow. Close enough is 25 mm, about an inch, unless you change it.
+The answer reads as an instruction to the crew, like Lock 11 joints at 5°
+and 4 at 2.5°. Under it, a strip shows the bars left to right with the
+angle on every joint that bends, a small plan shows the wall from above
+against the drawn curve, and the readouts give the arc it builds, the
+radius to the front face, the width and depth, and how far off the drawing
+it lands at worst. The rest sits under More. When the app picks, prefer
+Fewest angles to use the fewest different angles that land close enough,
+Same spacing to set one angle at a regular spacing, or Closest to get as
+close as the angles allow. Close enough to the drawing is 25 mm, about an
+inch, unless you change it.
 
 - NEW: Change any setting, or the lit sizes, and the curve is laid again
   in one undo step. Auto lays it again too, and Clear takes the bars off
   and turns the Curve off.
-- NEW: Curve by hand. With Curve on, Custom lays bars with the same click
-  and drag as a straight wall, and the Curve sets the angles where the
-  bars meet. Click any joint on the build sheet to set its angle yourself
-  from the panel's lock positions, and the Curve fills in the rest. What
-  you set shows in blue and saves with the show, and Auto hands it all
-  back to the Curve. Bars you laid stay when you turn the Curve off.
-- NEW: A group whose screens stand edge to edge curves as one wall. Tick
-  Curve on any of its screens and one curve runs across all of them, the
-  seams between screens bending like any other joint. The % is of the
-  whole wall, Build from counts its panels end to end, and the bars, the
+- NEW: Curve by hand. With the Curve on, Custom lays bars with the same
+  click and drag as a straight wall, and the Curve sets the angles where
+  the bars meet. Click any joint on the strip to set its angle yourself
+  from the panel's lock positions, or App sets it to hand it back, and the
+  Curve fills in the rest. What you set shows in blue and saves with the
+  show, a line counts the joints you set, and Undo mine (or Auto) hands it
+  all back to the Curve. Bars you laid stay when you turn the Curve off.
+- NEW: A group whose screens stand edge to edge curves as one wall, and
+  the Curve says so across the top. Turn on Curve this wall on any of its
+  screens and one curve runs across all of them, the seams between screens
+  bending like any other joint. The % is of the whole wall, where the build
+  starts counts its panels end to end, and the bars, the
   pull sheet, the 3D view and Export OBJ follow, the screens meeting at
   every seam. A group whose panels are different widths or share no lock
   position, or with a screen standing beside the row out of line, can't
   be curved, and the Curve says why.
-- NEW: Build from the center or either end, or drag the red dot on the
-  plan onto any panel or the joint between two.
-- NEW: Ways to build it lists every way the lock positions can make the
-  curve, best first, with how many joints bend, the % it builds and how
-  far off the drawing it lands. Use this builds the wall that way until
-  you change the curve, the bars or the wall.
+- NEW: Start the build at the left end, the center or the right end, or
+  drag the red dot on the plan onto any panel or the joint between two.
+- NEW: Ways to build it, under More, lists every way the lock positions
+  can make the curve, best first, with how many joints bend, the % it
+  builds and how far off the drawing it lands. Use this builds the wall
+  that way until you change the curve, the bars or the wall.
 - NEW: The Curve works it out in the background, so the app never stops
   while it does; the tab says Working until the bars land.
 - NEW: If the sizes you have lit can't cover the wall exactly, the Curve
@@ -256,7 +266,7 @@ angles allow. Close enough is 25 mm, about an inch, unless you change it.
   middle of a panel is one screen. The 3D tab and Export OBJ build every
   corner, with the picture running on around it. Interior folds the sides
   toward the audience and Exterior folds them away.
-- NEW: The side at the Curve's Build from point stays where it stood in 3D
+- NEW: The side where the Curve's build starts stays where it stood in 3D
   and the rest of the screen folds away from it; without a Curve, the
   middle stays put. The Corners block says which.
 - NEW: A corner is the edge of the wall, so its seam takes no curve angle.
@@ -814,11 +824,12 @@ FIXES
 - FIX: A group stacked in rows, one screen above another or a grid, curves
   as one wall: every screen takes the angles of the columns it hangs
   under, and the bars run along the top row only (the bottom row for a
-  footer). Build from works across the whole group too: Left, Center,
-  Right or the red dot dragged anywhere along the wall stays where it
-  stood in 3D and in Export OBJ, and the rest of the wall bends away from
-  it. A screen whose seams don't line up with the row the bars run along,
-  or that reaches past its ends, is named and the Curve says why.
+  footer). Where the build starts works across the whole group too: Left
+  end, Center, Right end or the red dot dragged anywhere along the wall
+  stays where it stood in 3D and in Export OBJ, and the rest of the wall
+  bends away from it. A screen whose seams don't line up with the row the
+  bars run along, or that reaches past its ends, is named and the Curve
+  says why.
 - FIX: 1:1 (Zoom to Selection) on a grouped screen frames the whole group,
   also when its screens sit on different canvases. A screen picked on its
   own in the Screens list is still framed alone, and several screens
