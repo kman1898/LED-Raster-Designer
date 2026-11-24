@@ -142,6 +142,25 @@ export function idmMarkCount(layer) {
     return (marks && typeof marks === 'object') ? Object.keys(marks).length : 0;
 }
 
+// How many modules of a screen are on its Swapped list.
+export function idmSwappedCount(layer) {
+    const swapped = layer && layer.idm && layer.idm.swapped;
+    return (swapped && typeof swapped === 'object' && !Array.isArray(swapped)) ? Object.keys(swapped).length : 0;
+}
+
+// The highest order number a Swapped entry keeps (app.IDM_SWAPPED_N_MAX).
+export const SWAPPED_N_MAX = 2147483647;
+
+// One Swapped entry held to its shape (app.sanitize_idm): the mark's style
+// and colour and its order number `n`, a whole number from 1.
+export function idmSwappedOf(entry) {
+    const n = entry && entry.n;
+    return {
+        ...idmMarkOf(entry),
+        n: (typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= SWAPPED_N_MAX) ? n : 1,
+    };
+}
+
 // ── where the highlight is, and where it goes ─────────────────────────────
 
 // The canvas a screen stands on in this view ('' for a show with none).
@@ -371,43 +390,67 @@ export function idmDescribe(r, layer, key, { back = false } = {}) {
     };
 }
 
-// Every mark, screen by screen: [{layer, rows}], each row {key, panel,
-// index, cabinet, module, place, ids, style, color}: `place` where the
-// module is from the front or (back) from behind the wall, `ids` its
-// Cabinet ID and Module ID. Rows run in reading order from the front,
-// cabinet by cabinet, so a row never moves when the side changes.
+// The rows of one screen's `map` (its marks or its Swapped entries), each
+// {key, panel, index, cabinet, module, place, ids, style, color, n}: `place`
+// where the module is from the front or (back) from behind the wall, `ids`
+// its Cabinet ID and Module ID, `n` a Swapped entry's order number.
+function rowsOf(r, layer, map, back) {
+    const labelOf = r.cabinetIdLabeler(layer);
+    const moduleOf = r.idmModuleLabeler(layer);
+    const counts = r.idmCounts(layer);
+    const seen = r._idmVisibleLookup(layer);
+    const byCell = new Map();
+    (layer.panels || []).forEach(p => { if (p) byCell.set(`${p.col || 0},${p.row || 0}`, p); });
+    const rows = [];
+    Object.keys(map).forEach(key => {
+        const parts = key.split(',').map(n => parseInt(n, 10));
+        const panel = byCell.get(`${parts[0]},${parts[1]}`);
+        if (!panel) return;
+        const cells = r.idmModuleCells(layer, panel, counts.x, counts.y, seen);
+        const cell = cells.find(c => c.mx === parts[2] && c.my === parts[3]);
+        if (!cell) return;
+        const mark = idmSwappedOf(map[key]);
+        const cabinet = labelOf(panel);
+        const module = moduleOf(cell, cells);
+        rows.push({
+            key, panel, index: cells.indexOf(cell), cabinet, module,
+            place: placeOf(layer, panel, cell, cells, back).place,
+            ids: `Cabinet ${cabinet} · Module ${module}`,
+            style: mark.style, color: mark.color, n: mark.n,
+        });
+    });
+    return rows;
+}
+
+// Every mark, screen by screen: [{layer, rows}] (rowsOf). Rows run in
+// reading order from the front, cabinet by cabinet, so a row never moves
+// when the side changes. A module ticked Swapped is not here: it is on
+// the Swapped list (idmSwappedGroups).
 export function idmMarkGroups(r, project, { back = false } = {}) {
     const groups = [];
     if (!r || !project) return groups;
     for (const layer of layersOf(project)) {
         if (!isScreen(layer) || idmMarkCount(layer) === 0) continue;
-        const labelOf = r.cabinetIdLabeler(layer);
-        const moduleOf = r.idmModuleLabeler(layer);
-        const counts = r.idmCounts(layer);
-        const seen = r._idmVisibleLookup(layer);
-        const byCell = new Map();
-        (layer.panels || []).forEach(p => { if (p) byCell.set(`${p.col || 0},${p.row || 0}`, p); });
-        const rows = [];
-        Object.keys(layer.idm.marks).forEach(key => {
-            const parts = key.split(',').map(n => parseInt(n, 10));
-            const panel = byCell.get(`${parts[0]},${parts[1]}`);
-            if (!panel) return;
-            const cells = r.idmModuleCells(layer, panel, counts.x, counts.y, seen);
-            const cell = cells.find(c => c.mx === parts[2] && c.my === parts[3]);
-            if (!cell) return;
-            const mark = idmMarkOf(layer.idm.marks[key]);
-            const cabinet = labelOf(panel);
-            const module = moduleOf(cell, cells);
-            rows.push({
-                key, panel, index: cells.indexOf(cell), cabinet, module,
-                place: placeOf(layer, panel, cell, cells, back).place,
-                ids: `Cabinet ${cabinet} · Module ${module}`,
-                style: mark.style, color: mark.color,
-            });
-        });
+        const rows = rowsOf(r, layer, layer.idm.marks, back);
         rows.sort((a, b) => (a.panel.row - b.panel.row) || (a.panel.col - b.panel.col) || (a.index - b.index));
         if (rows.length) groups.push({ layer, rows });
     }
+    return groups;
+}
+
+// The Swapped list (owner, 2026-11-24): every module ticked Swapped,
+// screen by screen as idmMarkGroups, newest first: each screen's rows by
+// the order they were ticked, the screen ticked last on top.
+export function idmSwappedGroups(r, project, { back = false } = {}) {
+    const groups = [];
+    if (!r || !project) return groups;
+    for (const layer of layersOf(project)) {
+        if (!isScreen(layer) || idmSwappedCount(layer) === 0) continue;
+        const rows = rowsOf(r, layer, layer.idm.swapped, back);
+        rows.sort((a, b) => (b.n - a.n) || (a.panel.row - b.panel.row) || (a.panel.col - b.panel.col) || (a.index - b.index));
+        if (rows.length) groups.push({ layer, rows, newest: rows[0].n });
+    }
+    groups.sort((a, b) => b.newest - a.newest);
     return groups;
 }
 
@@ -463,33 +506,64 @@ export function idmLockedMessage(layers) {
 
 // ── edits ─────────────────────────────────────────────────────────────────
 
-// `layer.idm` as a fresh, whole block (its own marks, each its own copy),
-// so an edit never writes into an object an earlier state still holds.
+// `layer.idm` as a fresh, whole block (its own marks and Swapped entries,
+// each its own copy), so an edit never writes into an object an earlier
+// state still holds. `swapped` only when one is there (app.sanitize_idm).
 export function idmBlockOf(r, layer) {
     const counts = r ? r.idmCounts(layer) : { x: 1, y: 1 };
-    const raw = (layer && layer.idm && layer.idm.marks && typeof layer.idm.marks === 'object' && !Array.isArray(layer.idm.marks))
-        ? layer.idm.marks : {};
+    const map = (v) => ((v && typeof v === 'object' && !Array.isArray(v)) ? v : {});
+    const raw = map(layer && layer.idm && layer.idm.marks);
     const marks = {};
     Object.keys(raw).forEach(k => { marks[k] = { ...raw[k] }; });
-    return { modulesX: counts.x, modulesY: counts.y, marks };
+    const block = { modulesX: counts.x, modulesY: counts.y, marks };
+    const rawS = map(layer && layer.idm && layer.idm.swapped);
+    const keys = Object.keys(rawS);
+    if (keys.length) {
+        block.swapped = {};
+        keys.forEach(k => { block.swapped[k] = { ...rawS[k] }; });
+    }
+    return block;
 }
 
 // One module of a stroke: marked in `style` and `color` ('mark') or
-// cleared ('clear').
+// cleared ('clear'). A new mark on a module on the Swapped list takes it
+// off that list: the new module is bad too, and it is never on both.
 export function idmApplyMark(block, key, mode, style, color) {
     if (mode === 'clear') {
         delete block.marks[key];
         return;
     }
     block.marks[key] = { style: style === 'x' ? 'x' : 'color', color: idmColor(color) || DEFAULT_COLOR };
+    if (block.swapped && block.swapped[key]) {
+        delete block.swapped[key];
+        if (!Object.keys(block.swapped).length) delete block.swapped;
+    }
 }
 
-// A module ticked Swapped on the swap list (owner, 2026-11-17: "count
-// down as they are checked off and remove"): its mark is cleared, so the
-// row leaves the list and the module leaves the wall. True when the
-// block changed.
+// A module ticked Swapped on the swap list (owner, 2026-11-24, after
+// 2026-11-17's "count down as they are checked off"): its mark leaves the
+// wall and the open list for the Swapped list, kept as it was with the
+// next order number, so the count of what is left goes down and an untick
+// can put it back. True when the block changed.
 export function idmApplySwapped(block, key) {
-    if (!block.marks[key]) return false;
+    const mark = block.marks[key];
+    if (!mark) return false;
+    const swapped = block.swapped || {};
+    let n = 0;
+    Object.keys(swapped).forEach(k => { n = Math.max(n, idmSwappedOf(swapped[k]).n); });
+    swapped[key] = { ...idmMarkOf(mark), n: Math.min(SWAPPED_N_MAX, n + 1) };
+    block.swapped = swapped;
     delete block.marks[key];
+    return true;
+}
+
+// A row unticked on the Swapped list: the mark goes back on the wall and
+// the row back on the open list, as it was. True when the block changed.
+export function idmApplyUnswapped(block, key) {
+    const entry = block.swapped && block.swapped[key];
+    if (!entry) return false;
+    block.marks[key] = idmMarkOf(entry);
+    delete block.swapped[key];
+    if (!Object.keys(block.swapped).length) delete block.swapped;
     return true;
 }

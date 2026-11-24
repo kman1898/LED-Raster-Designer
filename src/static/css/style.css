@@ -3210,6 +3210,12 @@ body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
 .idm-row-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .idm-row-words { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
 .idm-row-id { font-size: 10px; color: var(--ps-faint, #969696); overflow-wrap: anywhere; }
+/* The Swapped list under the open one: the same rows, quieter. */
+.idm-swapped[hidden] { display: none; }
+.idm-swapped-head { font-size: 11px; font-weight: 600; color: var(--ps-dim, #c0c0c0); margin: 10px 0 2px; padding-top: 6px;
+    border-top: 1px solid var(--ps-dark, #131313); }
+.idm-swapped-list { max-height: 30vh; }
+.idm-row-swapped .idm-row-text { color: var(--ps-dim, #c0c0c0); }
 
 /* The field, the live highlight and its pad (app-idm-locator.js). The pad
    is what a tablet at the wall drives, so its buttons are finger sized. */

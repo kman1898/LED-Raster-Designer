@@ -187,6 +187,8 @@
             font-size: 16px; color: var(--dim); cursor: pointer; }
         .ph-swap input { width: 32px; height: 32px; margin: 0; accent-color: var(--accent); cursor: pointer; }
         .ph-row.here .ph-row-go { font-weight: 700; }
+        .ph-swapped-head { font-size: 20px; margin: 22px 0 0; padding-top: 12px; border-top: 2px solid var(--line); }
+        .ph-row.done .ph-row-text { color: var(--dim); }
         .ph-empty { color: var(--faint); font-size: 17px; padding: 8px 0; }
         .ph-help dl { margin: 6px 0 0; font-size: 17px; }
         .ph-help dt { font-weight: 700; margin-top: 10px; }
@@ -283,7 +285,14 @@
                 <button type="button" data-ph-side="back" aria-pressed="false">Back</button>
             </div>
             <p id="ph-side-label" class="ph-side-label">Counted from the top left as you face the front of the wall.</p>
-            <div class="ph-scroll"><div id="ph-list"></div></div>
+            <div class="ph-scroll">
+                <div id="ph-list"></div>
+                <!-- the rows ticked Swapped, newest first (owner, 2026-11-24) -->
+                <div id="ph-swapped" class="ph-swapped" hidden>
+                    <h3 class="ph-swapped-head">Swapped <span id="ph-swapped-count" class="ph-count"></span></h3>
+                    <div id="ph-swapped-list"></div>
+                </div>
+            </div>
         </div>
     </section>
     <section id="ph-pad-sheet" class="ph-sheet" role="dialog" aria-labelledby="ph-pad-title" hidden>

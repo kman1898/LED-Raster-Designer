@@ -4,9 +4,11 @@ qr-code.js, app-idm-phone.js, app-idm-locator.js, app-idm-gamepad.js).
 
 What this file pins:
 
-* The server: a mark is its style and colour alone (a module ticked off
-  the swap list has its mark cleared, so nothing else is kept, through the
-  layer route and both project funnels); the phone page is served with the
+* The server: a mark is its style and colour alone, through the layer
+  route and both project funnels; a module ticked Swapped is kept apart
+  (idm.swapped: the mark as it was and its order number), only on a module
+  that is there and never on a marked one, and a show from before it loads
+  and saves unchanged; the phone page is served with the
   renderer's geometry and none of the designer; the address route names
   this computer's LAN addresses with the port it was reached on, the one
   a launcher bound to alone, or none (and why) for a server set to this
@@ -31,12 +33,16 @@ What this file pins:
   change is one undo step on the computer, its own Undo takes back its
   own change); it follows the show live and says so plainly when there is
   no show or no screen.
-* The swap list (owner, 2026-11-17: "count down as they are checked off
-  and remove"): a Swapped tick, on the tab or on a phone, clears that
-  module's mark live everywhere (the server, the tab, a second device, the
-  wall output), its row leaves every list and the count goes down; it is
-  one undo step on the computer, and Undo (or the phone's own Undo) brings
-  the mark and the row back; a reload keeps it. A row leads with where the
+* The swap list (owner, 2026-11-24, after 2026-11-17's "count down as
+  they are checked off"): a Swapped tick, on the tab or on a phone, takes
+  that module's mark off the wall live everywhere (the server, the tab, a
+  second device, the wall output) and moves its row to the Swapped list
+  under the open one, newest first, on every device; the count counts only
+  what is left. Unticking a row there, on either device, puts the row back
+  on the open list and the mark back on the wall. Each is one undo step on
+  the computer, and Undo (or the phone's own Undo) takes it back; a reload
+  keeps both lists; a new mark on a swapped module takes it off the
+  Swapped list; clearing the marks clears both lists. A row leads with where the
   module is (the cabinet's Col and Row in its screen, then the module's
   place in words), counted from the top-left of the side Front / Back
   picks, on 1 x 1 to 3 x 3, 4 x 4 and half cabinets; the Cabinet ID and
@@ -80,8 +86,8 @@ def _layer(client, **extra):
 
 
 def test_a_mark_is_its_style_and_colour_alone(client):
-    """A tick clears the mark, so no mark carries anything but its style
-    and colour; a key left by an earlier build is dropped."""
+    """No mark carries anything but its style and colour; a key left by an
+    earlier build is dropped."""
     layer = {'type': 'screen', 'columns': 2, 'rows': 1, 'cabinet_width': 128, 'cabinet_height': 128,
              'panels': [{'id': 1, 'row': 0, 'col': 0, 'x': 0, 'y': 0, 'width': 128, 'height': 128},
                         {'id': 2, 'row': 0, 'col': 1, 'x': 128, 'y': 0, 'width': 128, 'height': 128}]}
@@ -103,6 +109,57 @@ def test_a_mark_is_its_style_and_colour_alone(client):
     restored = client.put('/api/project', json=project).get_json()
     mine = next(x for x in restored['layers'] if x['id'] == lay['id'])
     assert mine['idm']['marks'] == {'1,0,1,1': {'style': 'color', 'color': '#ff1a1a'}}
+
+
+def test_the_swapped_list_is_kept_apart_and_old_shows_are_unchanged(client):
+    """Owner, 2026-11-24: a module ticked Swapped is kept under idm.swapped
+    with its mark's style and colour and its order number, so the Swapped
+    list runs newest first and an untick puts the mark back. Only modules
+    that are there, never one that is marked (the mark wins), the order a
+    whole number from 1; no key when nothing is swapped, so a show from
+    before it is the same after a load and a save."""
+    layer = {'type': 'screen', 'columns': 2, 'rows': 1, 'cabinet_width': 128, 'cabinet_height': 128,
+             'panels': [{'id': 1, 'row': 0, 'col': 0, 'x': 0, 'y': 0, 'width': 128, 'height': 128},
+                        {'id': 2, 'row': 0, 'col': 1, 'x': 128, 'y': 0, 'width': 128, 'height': 128}]}
+    got = app_module.sanitize_idm({'modulesX': 2, 'modulesY': 2,
+                                   'marks': {'0,0,0,0': {'style': 'color', 'color': '#ff0000'}},
+                                   'swapped': {
+                                       '1,0,1,1': {'style': 'x', 'color': '#00FF00', 'n': 3, 'extra': 1},
+                                       '0,0,1,0': {'style': 'color', 'color': 'nope', 'n': 'x'},
+                                       '0,0,0,0': {'style': 'color', 'color': '#ff0000', 'n': 4},
+                                       '5,0,0,0': {'style': 'color', 'color': '#ff0000', 'n': 5},
+                                       '1,0,0,1': {'style': 'color', 'color': '#ff0000', 'n': True},
+                                   }}, layer)
+    assert got == {'modulesX': 2, 'modulesY': 2,
+                   'marks': {'0,0,0,0': {'style': 'color', 'color': '#ff0000'}},
+                   'swapped': {'1,0,1,1': {'style': 'x', 'color': '#00ff00', 'n': 3},
+                               '0,0,1,0': {'style': 'color', 'color': '#ff1a1a', 'n': 1},
+                               '1,0,0,1': {'style': 'color', 'color': '#ff0000', 'n': 1}}}, got
+    assert app_module.sanitize_idm(got, layer) == got      # idempotent
+    # nothing swapped: no key at all
+    assert 'swapped' not in app_module.sanitize_idm({'modulesX': 2, 'modulesY': 2, 'marks': {}, 'swapped': {}}, layer)
+    # a module count that loses the module drops its entry
+    assert 'swapped' not in app_module.sanitize_idm(dict(got, modulesX=1, modulesY=1), layer)
+    # through the layer route and both project funnels
+    lay = _layer(client)
+    idm = {'modulesX': 2, 'modulesY': 2, 'marks': {}, 'swapped': {'1,0,1,1': {'style': 'color', 'color': '#ff1a1a', 'n': 2}}}
+    saved = client.put(f"/api/layer/{lay['id']}", json={'idm': idm}).get_json()
+    assert saved['idm'] == idm, saved['idm']
+    project = client.get('/api/project').get_json()
+    mine = next(x for x in project['layers'] if x['id'] == lay['id'])
+    assert mine['idm'] == idm
+    assert client.post('/api/project', json=project).status_code == 200
+    restored = client.put('/api/project', json=project).get_json()
+    assert next(x for x in restored['layers'] if x['id'] == lay['id'])['idm'] == idm
+    # an old show's block (no swapped key) loads exactly as it was
+    old = {'modulesX': 2, 'modulesY': 2, 'marks': {'0,0,1,1': {'style': 'x', 'color': '#ff1a1a'}}}
+    mine['idm'] = old
+    restored = client.put('/api/project', json=project).get_json()
+    assert next(x for x in restored['layers'] if x['id'] == lay['id'])['idm'] == old
+    # a copy of the screen starts with neither list
+    copy = {'type': 'screen', 'idm': dict(idm, marks={'0,0,0,0': {'style': 'color', 'color': '#ff1a1a'}})}
+    app_module.strip_copied_idm_marks(copy)
+    assert copy['idm'] == {'modulesX': 2, 'modulesY': 2, 'marks': {}}
 
 
 def test_the_phone_page_is_served_without_the_designer(client):
@@ -614,13 +671,29 @@ def test_the_phone_follows_the_show_and_says_when_there_is_none(page, e2e_server
         ctx.close()
 
 
-def test_a_swapped_tick_clears_the_mark_live_and_undoes(page, e2e_server, pw_browser):
+def swapped_tab(pg):
+    return pg.evaluate("""() => Array.from(document.querySelectorAll('#idm-swapped-list .idm-row')).map(r => ({
+        key: r.dataset.idmKey, text: r.querySelector('.idm-row-text').textContent,
+        ticked: r.querySelector('input[data-idm-swap]').checked}))""")
+
+
+def swapped_phone(ph):
+    return ph.evaluate("""() => Array.from(document.querySelectorAll('#ph-swapped-list .ph-row')).map(r => ({
+        key: r.dataset.phKey, text: r.querySelector('.ph-row-text').firstChild.textContent,
+        ticked: r.querySelector('input').checked}))""")
+
+
+def keys(rows):
+    return [r['key'] for r in rows]
+
+
+def test_a_swapped_tick_moves_the_row_and_an_untick_puts_it_back(page, e2e_server, pw_browser):
     cid = reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
     page.evaluate("""() => { const app = window.app, a = app.project.layers.find(x => x.name === 'IdmA');
         a.idm = {modulesX: 2, modulesY: 2, marks: {'0,0,0,0': {style: 'color', color: '#ff1a1a'},
                                                   '1,0,1,1': {style: 'color', color: '#ff1a1a'},
-                                                  '2,1,0,0': {style: 'color', color: '#ff1a1a'}}};
+                                                  '2,1,0,0': {style: 'x', color: '#00ff00'}}};
         app.updateLayers([a], true, 'Marks'); window.canvasRenderer.render(); }""")
     settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and len(v['marks']) == 3)
     out = open_output(page, cid)
@@ -629,73 +702,114 @@ def test_a_swapped_tick_clears_the_mark_live_and_undoes(page, e2e_server, pw_bro
     red = lambda v: v and v[0] > 200 and v[1] < 60 and v[2] < 60  # noqa: E731
     try:
         rows = tab_rows(page)
-        assert [r['key'] for r in rows] == ['0,0,0,0', '1,0,1,1', '2,1,0,0'], rows
+        assert keys(rows) == ['0,0,0,0', '1,0,1,1', '2,1,0,0'], rows
         assert not any(r['ticked'] for r in rows)
         assert page.inner_text('#idm-count') == '(3)'
+        assert not page.is_visible('#idm-swapped') and swapped_tab(page) == []
         # module (1,0,1,1) is x 192..256, y 64..128 on the wall: red, marked
         settled(out, lambda: pixel(out, 224, 96), red)
-        # tick on the tab: the mark is gone on the server, the tab, both
-        # phones and the wall; the row leaves; one undo step
+        # tick on the tab: the mark leaves the server's marks, the tab, both
+        # phones and the wall; the row moves to Swapped; one undo step
         h0 = history_index(page)
         page.click('#idm-list .idm-row[data-idm-key="1,0,1,1"] input[data-idm-swap]')
         got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' not in v['marks'])
         assert sorted(got['marks']) == ['0,0,0,0', '2,1,0,0'], got
-        assert settled(page, lambda: [r['key'] for r in tab_rows(page)], lambda v: len(v) == 2) == ['0,0,0,0', '2,1,0,0']
-        assert page.inner_text('#idm-count') == '(2)'
+        assert got['swapped'] == {'1,0,1,1': {'style': 'color', 'color': '#ff1a1a', 'n': 1}}, got
+        assert settled(page, lambda: keys(tab_rows(page)), lambda v: len(v) == 2) == ['0,0,0,0', '2,1,0,0']
+        assert swapped_tab(page) == [{'key': '1,0,1,1', 'text': 'Col 2, Row 1 · Bottom right module', 'ticked': True}]
+        assert page.is_visible('#idm-swapped')
+        assert page.inner_text('#idm-count') == '(2)' and page.inner_text('#idm-swapped-count') == '(1)'
         assert history_index(page) == h0 + 1
         assert settled(ph, lambda: ph.inner_text('#ph-swap-open'), lambda v: v == 'Swap list (2)') == 'Swap list (2)'
-        assert settled(ph2, lambda: [r['key'] for r in phone_rows(ph2)], lambda v: len(v) == 2) == ['0,0,0,0', '2,1,0,0']
+        assert settled(ph2, lambda: keys(phone_rows(ph2)), lambda v: len(v) == 2) == ['0,0,0,0', '2,1,0,0']
+        assert keys(swapped_phone(ph2)) == ['1,0,1,1'] and swapped_phone(ph2)[0]['ticked'] is True
         assert not red(settled(out, lambda: pixel(out, 224, 96), lambda v: v and not red(v)))
         # Undo on the computer: the mark and its row come back everywhere
         page.evaluate("() => window.app.undo()")
         got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' in v['marks'])
-        assert got['marks']['1,0,1,1'] == {'style': 'color', 'color': '#ff1a1a'}
-        assert settled(page, lambda: [r['key'] for r in tab_rows(page)], lambda v: len(v) == 3) == ['0,0,0,0', '1,0,1,1', '2,1,0,0']
-        assert page.inner_text('#idm-count') == '(3)'
+        assert got['marks']['1,0,1,1'] == {'style': 'color', 'color': '#ff1a1a'} and 'swapped' not in got, got
+        assert settled(page, lambda: keys(tab_rows(page)), lambda v: len(v) == 3) == ['0,0,0,0', '1,0,1,1', '2,1,0,0']
+        assert page.inner_text('#idm-count') == '(3)' and not page.is_visible('#idm-swapped')
         assert settled(ph2, lambda: len(phone_rows(ph2)), lambda v: v == 3) == 3
         settled(out, lambda: pixel(out, 224, 96), red)
         page.evaluate("() => window.app.redo()")
         settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' not in v['marks'])
-        # tick on the phone: gone on the server, the tab and the other phone,
-        # the count goes down on both; one undo step on the computer
+        # tick on the phone: gone from the server's marks, the tab and the
+        # other phone, onto Swapped on top (the newest), the counts go down
         assert settled(ph, lambda: ph.inner_text('#ph-swap-open'), lambda v: v == 'Swap list (2)') == 'Swap list (2)'
         open_swap(ph)
-        assert ph.inner_text('#ph-count') == '(2)'
+        assert ph.inner_text('#ph-count') == '(2)' and ph.inner_text('#ph-swapped-count') == '(1)'
         h1 = history_index(page)
         ph.tap('#ph-list .ph-row[data-ph-key="2,1,0,0"] input')
         got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '2,1,0,0' not in v['marks'])
         assert sorted(got['marks']) == ['0,0,0,0'], got
-        assert settled(ph, lambda: [r['key'] for r in phone_rows(ph)], lambda v: len(v) == 1) == ['0,0,0,0']
-        assert ph.inner_text('#ph-count') == '(1)'
+        assert got['swapped']['2,1,0,0'] == {'style': 'x', 'color': '#00ff00', 'n': 2}, got
+        assert settled(ph, lambda: keys(phone_rows(ph)), lambda v: len(v) == 1) == ['0,0,0,0']
+        assert keys(swapped_phone(ph)) == ['2,1,0,0', '1,0,1,1']
+        assert ph.inner_text('#ph-count') == '(1)' and ph.inner_text('#ph-swapped-count') == '(2)'
         assert settled(ph2, lambda: ph2.inner_text('#ph-swap-open'), lambda v: v == 'Swap list (1)') == 'Swap list (1)'
-        assert settled(page, lambda: [r['key'] for r in tab_rows(page)], lambda v: len(v) == 1) == ['0,0,0,0']
-        assert page.inner_text('#idm-count') == '(1)'
+        assert settled(page, lambda: keys(swapped_tab(page)), lambda v: len(v) == 2) == ['2,1,0,0', '1,0,1,1']
+        assert keys(tab_rows(page)) == ['0,0,0,0'] and page.inner_text('#idm-count') == '(1)'
         assert settled(page, lambda: history_index(page), lambda v: v == h1 + 1) == h1 + 1
-        # the phone's own Undo brings it back
+        # untick on the computer: the row and the mark come back, on the
+        # phones and on the wall; one undo step
+        h2 = history_index(page)
+        page.click('#idm-swapped-list .idm-row[data-idm-key="1,0,1,1"] input[data-idm-swap]')
+        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' in v['marks'])
+        assert got['marks']['1,0,1,1'] == {'style': 'color', 'color': '#ff1a1a'}, got
+        assert list(got['swapped']) == ['2,1,0,0'], got
+        assert settled(page, lambda: history_index(page), lambda v: v == h2 + 1) == h2 + 1
+        assert keys(tab_rows(page)) == ['0,0,0,0', '1,0,1,1'] and keys(swapped_tab(page)) == ['2,1,0,0']
+        settled(out, lambda: pixel(out, 224, 96), red)
+        assert settled(ph, lambda: keys(phone_rows(ph)), lambda v: len(v) == 2) == ['0,0,0,0', '1,0,1,1']
+        assert keys(swapped_phone(ph)) == ['2,1,0,0']
+        assert settled(ph2, lambda: ph2.inner_text('#ph-swap-open'), lambda v: v == 'Swap list (2)') == 'Swap list (2)'
+        # untick on the phone: the X mark is back as it was, on the tab too
+        ph.tap('#ph-swapped-list .ph-row[data-ph-key="2,1,0,0"] input')
+        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '2,1,0,0' in v['marks'])
+        assert got['marks']['2,1,0,0'] == {'style': 'x', 'color': '#00ff00'} and 'swapped' not in got, got
+        assert settled(page, lambda: keys(tab_rows(page)), lambda v: len(v) == 3) == ['0,0,0,0', '1,0,1,1', '2,1,0,0']
+        assert settled(page, lambda: page.is_visible('#idm-swapped'), lambda v: not v) is False
+        assert settled(ph, lambda: ph.is_visible('#ph-swapped'), lambda v: not v) is False
+        # the phone's own Undo takes the untick back
         close_swap(ph)
         ph.tap('#ph-undo')
-        assert 'Undone: Module Swapped' in toast_text(ph)
-        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '2,1,0,0' in v['marks'])
-        assert got['marks']['2,1,0,0'] == {'style': 'color', 'color': '#ff1a1a'}
-        assert settled(ph2, lambda: [r['key'] for r in phone_rows(ph2)], lambda v: len(v) == 2) == ['0,0,0,0', '2,1,0,0']
-        # the last tick empties the list
-        open_swap(ph)
-        ph.tap('#ph-list .ph-row[data-ph-key="0,0,0,0"] input')
-        ph.tap('#ph-list .ph-row[data-ph-key="2,1,0,0"] input')
-        settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and v['marks'] == {})
-        assert settled(ph, lambda: ph.inner_text('#ph-list'), lambda v: 'No marks yet' in v)
-        assert ph.inner_text('#ph-count') == ''
-        assert settled(ph2, lambda: ph2.inner_text('#ph-swap-open'), lambda v: v == 'Swap list') == 'Swap list'
-        assert settled(page, lambda: page.inner_text('#idm-count'), lambda v: v == '') == ''
-        # a reload keeps it
+        assert 'Undone: Module Not Swapped' in toast_text(ph)
+        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '2,1,0,0' not in v['marks'])
+        assert list(got.get('swapped', {})) == ['2,1,0,0'], got
+        assert settled(ph2, lambda: keys(swapped_phone(ph2)), lambda v: v == ['2,1,0,0']) == ['2,1,0,0']
+        # a reload keeps both lists, and the server's file
         page.reload(wait_until='domcontentloaded')
         page.wait_for_function("() => window.app && window.app.project && window.app.history"
                                " && window.app.socket && window.app.socket.connected", timeout=15000)
         page.wait_for_timeout(600)
         open_tab(page)
-        assert tab_rows(page) == []
-        assert served_idm(page, 'IdmA')['marks'] == {}
-        assert not ph._errors and not ph2._errors, (ph._errors, ph2._errors)
+        assert keys(tab_rows(page)) == ['0,0,0,0', '1,0,1,1'] and keys(swapped_tab(page)) == ['2,1,0,0']
+        # the module marked again (a new one went bad): off the Swapped list
+        page.evaluate("""() => { const a = window.app.project.layers.find(x => x.name === 'IdmA');
+            window.app._idmSetHighlight(a.id, '2,1,0,0'); window.app._idmMarkHighlight(); }""")
+        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '2,1,0,0' in v['marks'])
+        assert 'swapped' not in got, got
+        assert settled(page, lambda: page.is_visible('#idm-swapped'), lambda v: not v) is False
+        assert settled(ph2, lambda: len(phone_rows(ph2)), lambda v: v == 3) == 3
+        # the last ticks empty the open list; Clear all marks clears both
+        open_swap(ph)
+        for k in ('0,0,0,0', '1,0,1,1', '2,1,0,0'):
+            ph.tap(f'#ph-list .ph-row[data-ph-key="{k}"] input')
+            settled(page, lambda: served_idm(page, 'IdmA'), lambda v, k=k: v and k not in v['marks'])
+        assert settled(ph, lambda: ph.inner_text('#ph-list'), lambda v: 'Nothing left to swap' in v)
+        assert ph.inner_text('#ph-count') == '' and keys(swapped_phone(ph)) == ['2,1,0,0', '1,0,1,1', '0,0,0,0']
+        assert settled(ph2, lambda: ph2.inner_text('#ph-swap-open'), lambda v: v == 'Swap list') == 'Swap list'
+        assert settled(page, lambda: page.inner_text('#idm-count'), lambda v: v == '') == ''
+        assert settled(page, lambda: page.inner_text('#idm-list'), lambda v: 'Nothing left to swap' in v)
+        page.click('#idm-clear-all')
+        assert 'Clear all 3 swapped modules on 1 screen?' in page.inner_text('#idm-clear-all-confirm')
+        page.click('#idm-clear-all-confirm .btn-primary')
+        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and 'swapped' not in v)
+        assert got['marks'] == {} and 'swapped' not in got, got
+        assert settled(ph, lambda: ph.is_visible('#ph-swapped'), lambda v: not v) is False
+        assert 'No marks yet' in ph.inner_text('#ph-list')
+        assert not ph._errors and not ph2._errors and not page._errors, (ph._errors, ph2._errors, page._errors)
     finally:
         ctx.close()
         ctx2.close()
@@ -1251,6 +1365,12 @@ def test_screenshots(page, e2e_server, pw_browser):
     reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
     put_marks(page, 'IdmA', 2, 2, ['0,0,0,0', '1,0,1,1', '2,1,0,0'])
+    set_layout(page, 'IdmB', 2, 2)
+    put_marks(page, 'IdmB', 2, 2, ['0,0,1,1', '1,1,0,0'])
+    # two ticked Swapped, so the Swapped list shows under the open one
+    for name, key in (('IdmA', '0,0,0,0'), ('IdmB', '1,1,0,0')):
+        page.click(f'#idm-list .idm-row[data-idm-key="{key}"] input[data-idm-swap]')
+        settled(page, lambda name=name, key=key: served_idm(page, name), lambda v, key=key: v and key in v.get('swapped', {}))
     page.evaluate("""() => { const a = window.app.project.layers.find(x => x.name === 'IdmA');
         window.app._idmSetHighlight(a.id, '1,0,1,1'); }""")
     for size in ((390, 844), (375, 667)):
@@ -1290,5 +1410,7 @@ def test_screenshots(page, e2e_server, pw_browser):
         page.evaluate("() => document.getElementById('idm-list').scrollIntoView({block: 'center'})")
         page.wait_for_timeout(200)
         page.screenshot(path=os.path.join(SHOTS, 'idm-tab-swap-list.png'))
+        # the panel alone: the open list, its count and the Swapped list
+        page.locator('#idm-list').locator('xpath=..').screenshot(path=os.path.join(SHOTS, 'idm-tab-swap-list-panel.png'))
     finally:
         rp._lan_addresses, app_module.BOUND_HOST = keep

@@ -10,8 +10,9 @@
 // canvas-idm.js), on a renderer that never draws.
 //
 // Every change goes the way the tab sends it: a mark, or a Swapped tick
-// (which clears the module's mark, so the row leaves the list), is a
-// PUT of the screen's idm block (PUT /api/layer/<id>, the page named as
+// (the module's mark leaves the wall and its row moves to the Swapped list
+// under the open one, newest first; an untick puts both back), is a PUT of
+// the screen's idm block (PUT /api/layer/<id>, the page named as
 // ?client=, so each computer keeps it as one undo step of its own), the
 // field is PUT /api/project/idm-field, the highlight the `idm_highlight`
 // socket event. All of it is saved with the show and reaches every device
@@ -45,7 +46,8 @@
 import {
     idmHighlightOf, idmTargetOf, idmStepFrom, idmStartModule, idmNextScreenFrom, idmNextCanvasFrom,
     idmCanvasList, idmActiveCanvas, idmCanvasIdOf, idmDescribe, idmMarkGroups, idmLockedBy, idmLockedMessage,
-    idmBlockOf, idmApplyMark, idmApplySwapped, idmCanonical, idmFieldSanitize, idmColor, DEFAULT_COLOR,
+    idmBlockOf, idmApplyMark, idmApplySwapped, idmApplyUnswapped, idmSwappedGroups, idmCanonical,
+    idmFieldSanitize, idmColor, DEFAULT_COLOR,
 } from './idm-core.js';
 import {
     FIELD_CYCLE, PAD_BUTTONS, idmPadFrame, idmPadDispatch, idmPadName, idmPadFillHelp, idmHoldStart,
@@ -385,18 +387,20 @@ function commit(layer, before, after, action) {
     render();
 }
 
-// A Swapped tick: the module's mark cleared, its row gone from every
-// device's list and the module from the wall; Undo brings both back.
-function setSwapped(layerId, key) {
+// A Swapped tick (`on`): the module's mark leaves the wall and its row
+// moves to the Swapped list on every device; an untick there puts both
+// back. Undo takes either back.
+function setSwapped(layerId, key, on = true) {
     if (blocked()) { render(); return; }
     const layer = layerById(layerId);
-    if (!layer || !layer.idm || !layer.idm.marks || !layer.idm.marks[key]) { render(); return; }
+    const map = layer && layer.idm && (on ? layer.idm.marks : layer.idm.swapped);
+    if (!layer || !map || !map[key]) { render(); return; }
     if (lockedNote(layer)) { render(); return; }
     const before = idmBlockOf(r, layer);
     const after = idmBlockOf(r, layer);
-    if (!idmApplySwapped(after, key)) return;
+    if (!(on ? idmApplySwapped(after, key) : idmApplyUnswapped(after, key))) return;
     layer.idm = after;
-    commit(layer, before, after, 'Module Swapped');
+    commit(layer, before, after, on ? 'Module Swapped' : 'Module Not Swapped');
 }
 
 function undo() {
@@ -641,6 +645,7 @@ function renderField() {
 function renderList() {
     const host = $('ph-list');
     const groups = idmMarkGroups(r, app.project, { back: S.side === 'back' });
+    const done = idmSwappedGroups(r, app.project, { back: S.side === 'back' });
     const h = hl();
     document.querySelectorAll('[data-ph-side]').forEach(b => {
         b.setAttribute('aria-pressed', b.dataset.phSide === S.side ? 'true' : 'false');
@@ -648,60 +653,71 @@ function renderList() {
     $('ph-side-label').textContent = S.side === 'back'
         ? 'Counted from the top left as you face the back of the wall.'
         : 'Counted from the top left as you face the front of the wall.';
+    // the count is what is left to swap; the Swapped list counts its own
     const total = groups.reduce((n, g) => n + g.rows.length, 0);
+    const swapped = done.reduce((n, g) => n + g.rows.length, 0);
     $('ph-count').textContent = total ? `(${total})` : '';
     $('ph-swap-open').textContent = total ? `Swap list (${total})` : 'Swap list';
     host.innerHTML = '';
     if (!groups.length) {
         const empty = document.createElement('div');
         empty.className = 'ph-empty';
-        empty.textContent = 'No marks yet. Mark a bad module and it is listed here.';
+        empty.textContent = swapped ? 'Nothing left to swap.' : 'No marks yet. Mark a bad module and it is listed here.';
         host.appendChild(empty);
-        return;
     }
-    groups.forEach(g => {
-        const name = g.layer.name || 'Screen';
-        const head = document.createElement('div');
-        head.className = 'ph-group';
-        head.textContent = name;
-        host.appendChild(head);
-        g.rows.forEach(x => {
-            const words = `${name} · ${x.place}`;
-            const row = document.createElement('div');
-            row.className = 'ph-row'
-                + (h && h.layerId === g.layer.id && h.key === x.key ? ' here' : '');
-            row.dataset.phLayer = String(g.layer.id);
-            row.dataset.phKey = x.key;
-            const go = document.createElement('button');
-            go.type = 'button';
-            go.className = 'ph-row-go';
-            const chip = document.createElement('span');
-            chip.className = 'ph-chip' + (x.style === 'x' ? ' x' : '');
-            if (x.style === 'x') chip.style.setProperty('--chip', x.color);
-            else chip.style.background = x.color;
-            const text = document.createElement('span');
-            text.className = 'ph-row-text';
-            // where it is first, then its Cabinet ID and Module ID
-            text.textContent = x.place;
-            const where = document.createElement('span');
-            where.className = 'ph-row-where';
-            where.textContent = x.ids;
-            text.appendChild(where);
-            go.appendChild(chip);
-            go.appendChild(text);
-            go.setAttribute('aria-label', `Go to ${words}`);
-            const tick = document.createElement('label');
-            tick.className = 'ph-swap';
-            const box = document.createElement('input');
-            box.type = 'checkbox';
-            box.dataset.phSwap = '1';
-            box.setAttribute('aria-label', `Swapped: ${words}`);
-            tick.appendChild(box);
-            tick.appendChild(document.createTextNode('Swapped'));
-            row.appendChild(go);
-            row.appendChild(tick);
-            host.appendChild(row);
-        });
+    groups.forEach(g => listGroup(host, g, h, false));
+    $('ph-swapped').hidden = !swapped;
+    $('ph-swapped-count').textContent = swapped ? `(${swapped})` : '';
+    const list = $('ph-swapped-list');
+    list.innerHTML = '';
+    done.forEach(g => listGroup(list, g, h, true));
+}
+
+// One screen's rows in a list: its name, then a row per module with its
+// Swapped tick (ticked on the Swapped list).
+function listGroup(host, g, h, swapped) {
+    const name = g.layer.name || 'Screen';
+    const head = document.createElement('div');
+    head.className = 'ph-group';
+    head.textContent = name;
+    host.appendChild(head);
+    g.rows.forEach(x => {
+        const words = `${name} · ${x.place}`;
+        const row = document.createElement('div');
+        row.className = 'ph-row' + (swapped ? ' done' : '')
+            + (h && h.layerId === g.layer.id && h.key === x.key ? ' here' : '');
+        row.dataset.phLayer = String(g.layer.id);
+        row.dataset.phKey = x.key;
+        const go = document.createElement('button');
+        go.type = 'button';
+        go.className = 'ph-row-go';
+        const chip = document.createElement('span');
+        chip.className = 'ph-chip' + (x.style === 'x' ? ' x' : '');
+        if (x.style === 'x') chip.style.setProperty('--chip', x.color);
+        else chip.style.background = x.color;
+        const text = document.createElement('span');
+        text.className = 'ph-row-text';
+        // where it is first, then its Cabinet ID and Module ID
+        text.textContent = x.place;
+        const where = document.createElement('span');
+        where.className = 'ph-row-where';
+        where.textContent = x.ids;
+        text.appendChild(where);
+        go.appendChild(chip);
+        go.appendChild(text);
+        go.setAttribute('aria-label', `Go to ${words}`);
+        const tick = document.createElement('label');
+        tick.className = 'ph-swap';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = swapped;
+        box.dataset.phSwap = '1';
+        box.setAttribute('aria-label', `Swapped: ${words}`);
+        tick.appendChild(box);
+        tick.appendChild(document.createTextNode('Swapped'));
+        row.appendChild(go);
+        row.appendChild(tick);
+        host.appendChild(row);
     });
 }
 
@@ -843,18 +859,22 @@ function wire() {
             render();
         });
     });
-    const list = $('ph-list');
-    list.addEventListener('click', (e) => {
-        if (e.target.closest('.ph-swap')) return;
-        const row = e.target.closest('[data-ph-key]');
-        if (!row || blocked()) return;
-        setHighlight({ layerId: Number(row.dataset.phLayer), key: row.dataset.phKey });
-    });
-    list.addEventListener('change', (e) => {
-        const box = e.target.closest('[data-ph-swap]');
-        const row = box && box.closest('[data-ph-key]');
-        if (!row) return;
-        if (box.checked) setSwapped(Number(row.dataset.phLayer), row.dataset.phKey);
+    // the open list and the Swapped list: a row's words find the module,
+    // its tick moves it from one list to the other
+    ['ph-list', 'ph-swapped-list'].forEach(id => {
+        const list = $(id);
+        list.addEventListener('click', (e) => {
+            if (e.target.closest('.ph-swap')) return;
+            const row = e.target.closest('[data-ph-key]');
+            if (!row || blocked()) return;
+            setHighlight({ layerId: Number(row.dataset.phLayer), key: row.dataset.phKey });
+        });
+        list.addEventListener('change', (e) => {
+            const box = e.target.closest('[data-ph-swap]');
+            const row = box && box.closest('[data-ph-key]');
+            if (!row) return;
+            setSwapped(Number(row.dataset.phLayer), row.dataset.phKey, box.checked);
+        });
     });
     idmPadFillHelp($('ph-pad-map'));
 

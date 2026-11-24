@@ -5,13 +5,17 @@
 // every cabinet's module grid and the marks over it (canvas-idm.js).
 //
 // Each screen keeps its block on the layer:
-//   idm: {modulesX, modulesY, marks: {"col,row,mx,my": {style, color}}}
+//   idm: {modulesX, modulesY, marks: {"col,row,mx,my": {style, color}},
+//         swapped: {"col,row,mx,my": {style, color, n}}}
 // modulesX / modulesY are one cabinet's modules across and down (1 x 1 by
 // default - the whole cabinet one module); a mark is keyed by the cabinet's
 // grid column and row and the module's column and row inside the full
 // cabinet, and keeps its own style ('color' fills the module, 'x' draws an
-// X corner to corner) and colour. The server's app.sanitize_idm holds the
-// shape (and drops marks a geometry change leaves on nothing); idmSanitize
+// X corner to corner) and colour. `swapped` holds the modules ticked
+// Swapped on the swap list (owner, 2026-11-24): the mark as it was, off the
+// wall, with its order number `n` (newest the highest); unticked, it is a
+// mark again. It is there only when something is swapped. The server's
+// app.sanitize_idm holds the shape (and drops marks a geometry change leaves on nothing); idmSanitize
 // below is its twin, so a restore never comes back "repaired".
 //
 // Every edit - a click, a drag stroke, a module count, a clear - goes
@@ -73,7 +77,8 @@ import { sendClientLog, isTypingTarget } from './helpers.js';
 import {
     idmCount, idmColor, idmKey, idmMarkOf, idmShadeLevel, idmFieldSanitize, idmHighlightOf,
     idmMarkCount as markCount, idmTargetOf, idmStepFrom, idmStartModule, idmDescribe, idmMarkGroups,
-    idmBlockOf, idmApplyMark, idmApplySwapped, idmCanvasIdOf,
+    idmBlockOf, idmApplyMark, idmApplySwapped, idmApplyUnswapped, idmCanvasIdOf,
+    idmSwappedGroups, idmSwappedOf, idmSwappedCount as swappedCount,
     DEFAULT_COLOR, FIELD_BORDERS, COLOUR_KEYS, PRESETS_MAX, ARROWS,
 } from './idm-core.js';
 import { idmHoldStart } from './idm-pad.js';
@@ -127,15 +132,29 @@ export function idmSanitize(value, layer) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     if (!layer || (layer.type || 'screen') !== 'screen') return null;
     const out = { modulesX: idmCount(value.modulesX), modulesY: idmCount(value.modulesY), marks: {} };
+    const isMap = (v) => !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
+    let valid = null;
     const raw = value.marks;
-    if (raw && typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length) {
-        const valid = idmValidKeys(layer, out.modulesX, out.modulesY);
+    if (isMap(raw)) {
+        valid = idmValidKeys(layer, out.modulesX, out.modulesY);
         Object.keys(raw).forEach(key => {
             const k = idmKey(key);
             const mark = raw[key];
             if (!k || !valid.has(k) || !mark || typeof mark !== 'object' || Array.isArray(mark)) return;
             out.marks[k] = idmMarkOf(mark);
         });
+    }
+    const rawS = value.swapped;
+    if (isMap(rawS)) {
+        if (!valid) valid = idmValidKeys(layer, out.modulesX, out.modulesY);
+        const swapped = {};
+        Object.keys(rawS).forEach(key => {
+            const k = idmKey(key);
+            const entry = rawS[key];
+            if (!k || !valid.has(k) || out.marks[k] || !entry || typeof entry !== 'object' || Array.isArray(entry)) return;
+            swapped[k] = idmSwappedOf(entry);
+        });
+        if (Object.keys(swapped).length) out.swapped = swapped;
     }
     return out;
 }
@@ -208,19 +227,23 @@ class _IdmLocator {
         on('idm-clear-all', 'click', () => this._idmClearAll());
         on('idm-modules-x', 'change', () => this._idmCommitModules());
         on('idm-modules-y', 'change', () => this._idmCommitModules());
-        on('idm-list', 'click', (e) => {
-            // the Swapped tick is its own (the change below)
-            if (e.target.closest('.idm-swap')) return;
-            const row = e.target.closest('[data-idm-key]');
-            if (!row) return;
-            this._idmGoToRow(Number(row.dataset.idmLayer), row.dataset.idmKey);
-        });
-        on('idm-list', 'change', (e) => {
-            const box = e.target.closest('[data-idm-swap]');
-            const row = box && box.closest('[data-idm-key]');
-            if (!row) return;
-            if (box.checked) this._idmSetSwapped(Number(row.dataset.idmLayer), row.dataset.idmKey);
-            this._idmBlurButton(box);
+        // The swap list and the Swapped list under it: a row's words find
+        // the module, its tick moves it from one list to the other.
+        ['idm-list', 'idm-swapped-list'].forEach(id => {
+            on(id, 'click', (e) => {
+                // the Swapped tick is its own (the change below)
+                if (e.target.closest('.idm-swap')) return;
+                const row = e.target.closest('[data-idm-key]');
+                if (!row) return;
+                this._idmGoToRow(Number(row.dataset.idmLayer), row.dataset.idmKey);
+            });
+            on(id, 'change', (e) => {
+                const box = e.target.closest('[data-idm-swap]');
+                const row = box && box.closest('[data-idm-key]');
+                if (!row) return;
+                this._idmSetSwapped(Number(row.dataset.idmLayer), row.dataset.idmKey, box.checked);
+                this._idmBlurButton(box);
+            });
         });
         document.querySelectorAll('[data-idm-side]').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -1415,6 +1438,7 @@ class _IdmLocator {
                 return;
             }
         }
+        // a new module grid starts with no marks and an empty Swapped list
         changes.forEach(c => {
             c.layer.idm = { modulesX: c.nx, modulesY: c.ny, marks: {} };
         });
@@ -1424,12 +1448,15 @@ class _IdmLocator {
         r.render();
     }
 
+    // A screen's marks and its Swapped list cleared together (owner,
+    // 2026-11-24: Clear clears both lists).
     _idmClearLayers(layers, action) {
-        const open = this._writableLayers(layers.filter(l => markCount(l) > 0));
+        const open = this._writableLayers(layers.filter(l => markCount(l) + swappedCount(l) > 0));
         if (!open.length) return 0;
         open.forEach(layer => {
             this._idmEnsureBlock(layer);
             layer.idm.marks = {};
+            delete layer.idm.swapped;
         });
         sendClientLog('idm_clear', { action, ids: open.map(l => l.id) });
         this.updateLayers(open, true, action);
@@ -1439,7 +1466,7 @@ class _IdmLocator {
 
     _idmClearSelected() {
         const screens = this._idmSelectedScreens();
-        if (!screens.some(l => markCount(l) > 0)) {
+        if (!screens.some(l => markCount(l) + swappedCount(l) > 0)) {
             this._toast(screens.length ? 'The selected screens have no marks.' : 'Select a screen first.');
             return;
         }
@@ -1448,13 +1475,15 @@ class _IdmLocator {
 
     async _idmClearAll() {
         const screens = ((this.project && this.project.layers) || [])
-            .filter(l => l && (l.type || 'screen') === 'screen' && markCount(l) > 0);
+            .filter(l => l && (l.type || 'screen') === 'screen' && markCount(l) + swappedCount(l) > 0);
         if (!screens.length) {
             this._toast('There are no marks to clear.');
             return;
         }
         const total = screens.reduce((n, l) => n + markCount(l), 0);
-        const msg = `Clear all ${plural(total, 'mark')} on ${plural(screens.length, 'screen')}?`;
+        const swapped = screens.reduce((n, l) => n + swappedCount(l), 0);
+        const what = [total ? plural(total, 'mark') : '', swapped ? plural(swapped, 'swapped module') : ''].filter(Boolean).join(' and ');
+        const msg = `Clear all ${what} on ${plural(screens.length, 'screen')}?`;
         const yes = await this.appConfirm(msg, {
             id: 'idm-clear-all-confirm', title: 'Clear all marks', okLabel: 'Clear', danger: true,
         });
@@ -1490,7 +1519,10 @@ class _IdmLocator {
         const r = window.canvasRenderer;
         const cur = r ? r.idmCounts(layer) : { x: 1, y: 1 };
         const keep = cur.x === nx && cur.y === ny && layer.idm && layer.idm.marks;
+        // the Swapped list stays with the marks, and goes with them
+        const swapped = keep && swappedCount(layer) ? idmBlockOf(r, layer).swapped : undefined;
         layer.idm = { modulesX: nx, modulesY: ny, marks: keep ? { ...layer.idm.marks } : {} };
+        if (swapped) layer.idm.swapped = swapped;
     }
 
     // ── the panel ─────────────────────────────────────────────────────────
@@ -1567,8 +1599,16 @@ class _IdmLocator {
         return idmMarkGroups(window.canvasRenderer, this.project, { back: this._idmState().side === 'back' });
     }
 
-    // The swap list: one row per mark with its Swapped tick. A tick clears
-    // the mark, so the row leaves the list and the count goes down.
+    // The Swapped list (owner, 2026-11-24): every module ticked Swapped,
+    // newest first, under the open list (idm-core idmSwappedGroups).
+    _idmSwappedGroups() {
+        return idmSwappedGroups(window.canvasRenderer, this.project, { back: this._idmState().side === 'back' });
+    }
+
+    // The swap list: one row per mark with its Swapped tick, and under it
+    // the Swapped list. A tick moves the row down there and takes the mark
+    // off the wall, and the count (what is left to swap) goes down; an
+    // untick down there puts the row and the mark back.
     _idmRenderList() {
         const st = this._idmState();
         const host = document.getElementById('idm-list');
@@ -1576,89 +1616,107 @@ class _IdmLocator {
         this._idmSyncSide();
         if (!host) return;
         const groups = this._idmMarkGroups();
+        const done = this._idmSwappedGroups();
         const here = this._idmListHere();
         // The highlighted module's row is a class on the rows as they
         // stand: the highlight moving never rebuilds the list, so a tick
         // box being reached for is never swapped out from under the pointer.
-        const key = JSON.stringify([st.side, groups.map(g => [g.layer.id, g.layer.name,
-            g.rows.map(x => [x.key, x.place, x.ids, x.style, x.color])])]);
+        const shape = (list) => list.map(g => [g.layer.id, g.layer.name,
+            g.rows.map(x => [x.key, x.place, x.ids, x.style, x.color, x.n])]);
+        const key = JSON.stringify([st.side, shape(groups), shape(done)]);
         if (key === st.listKey) {
             this._idmSyncListHere();
             return;
         }
         st.listKey = key;
         const total = groups.reduce((n, g) => n + g.rows.length, 0);
+        const swapped = done.reduce((n, g) => n + g.rows.length, 0);
         if (count) count.textContent = total ? `(${total})` : '';
         host.innerHTML = '';
         if (!groups.length) {
             const empty = document.createElement('div');
             empty.className = 'idm-empty';
-            empty.textContent = 'No marks. Click a module in the view to mark it.';
+            empty.textContent = swapped ? 'Nothing left to swap.' : 'No marks. Click a module in the view to mark it.';
             host.appendChild(empty);
-            return;
         }
-        groups.forEach(g => {
-            const name = g.layer.name || 'Screen';
-            const head = document.createElement('div');
-            head.className = 'idm-group';
-            head.textContent = `${name} · ${plural(g.rows.length, 'mark')}`;
-            host.appendChild(head);
-            g.rows.forEach(x => {
-                const words = `${name} · ${x.place}`;
-                const row = document.createElement('div');
-                row.className = 'idm-row';
-                if (here === `${g.layer.id}:${x.key}`) row.classList.add('active');
-                row.dataset.idmLayer = String(g.layer.id);
-                row.dataset.idmKey = x.key;
-                row.title = `${words} (${x.ids})`;
-                const go = document.createElement('button');
-                go.type = 'button';
-                go.className = 'idm-row-go';
-                const chip = document.createElement('span');
-                chip.className = 'idm-chip' + (x.style === 'x' ? ' idm-chip-x' : '');
-                if (x.style === 'x') chip.style.setProperty('--idm-chip', x.color);
-                else chip.style.background = x.color;
-                // where it is first (from the side the switch reads), then
-                // the Cabinet ID and Module ID as a hint
-                const words2 = document.createElement('span');
-                words2.className = 'idm-row-words';
-                const text = document.createElement('span');
-                text.className = 'idm-row-text';
-                text.textContent = x.place;
-                const ids = document.createElement('span');
-                ids.className = 'idm-row-id';
-                ids.textContent = x.ids;
-                words2.appendChild(text);
-                words2.appendChild(ids);
-                go.appendChild(chip);
-                go.appendChild(words2);
-                const tick = document.createElement('label');
-                tick.className = 'idm-swap';
-                tick.dataset.tooltip = 'Swapped, Tick it when this module has been replaced: its mark is cleared and it leaves the list. Undo brings it back.';
-                const box = document.createElement('input');
-                box.type = 'checkbox';
-                box.dataset.idmSwap = '1';
-                // its own id, so a rebuild hands a pointer on its way to it
-                // the new box (the guides find it again by id)
-                box.id = `idm-swap-${g.layer.id}-${x.key.replace(/,/g, '-')}`;
-                box.setAttribute('aria-label', `Swapped: ${words}`);
-                tick.appendChild(box);
-                tick.appendChild(document.createTextNode('Swapped'));
-                row.appendChild(go);
-                row.appendChild(tick);
-                host.appendChild(row);
-            });
+        groups.forEach(g => this._idmListGroup(host, g, here, false));
+        const box = document.getElementById('idm-swapped');
+        const list = document.getElementById('idm-swapped-list');
+        const n = document.getElementById('idm-swapped-count');
+        if (n) n.textContent = swapped ? `(${swapped})` : '';
+        if (box) box.hidden = !swapped;
+        if (list) {
+            list.innerHTML = '';
+            done.forEach(g => this._idmListGroup(list, g, here, true));
+        }
+    }
+
+    // One screen's rows in a list: its name, then a row per module, each
+    // with its Swapped tick (ticked on the Swapped list).
+    _idmListGroup(host, g, here, swapped) {
+        const name = g.layer.name || 'Screen';
+        const head = document.createElement('div');
+        head.className = 'idm-group';
+        head.textContent = swapped ? `${name} · ${g.rows.length} swapped` : `${name} · ${plural(g.rows.length, 'mark')}`;
+        host.appendChild(head);
+        g.rows.forEach(x => {
+            const words = `${name} · ${x.place}`;
+            const row = document.createElement('div');
+            row.className = 'idm-row' + (swapped ? ' idm-row-swapped' : '');
+            if (here === `${g.layer.id}:${x.key}`) row.classList.add('active');
+            row.dataset.idmLayer = String(g.layer.id);
+            row.dataset.idmKey = x.key;
+            row.title = `${words} (${x.ids})`;
+            const go = document.createElement('button');
+            go.type = 'button';
+            go.className = 'idm-row-go';
+            const chip = document.createElement('span');
+            chip.className = 'idm-chip' + (x.style === 'x' ? ' idm-chip-x' : '');
+            if (x.style === 'x') chip.style.setProperty('--idm-chip', x.color);
+            else chip.style.background = x.color;
+            // where it is first (from the side the switch reads), then
+            // the Cabinet ID and Module ID as a hint
+            const words2 = document.createElement('span');
+            words2.className = 'idm-row-words';
+            const text = document.createElement('span');
+            text.className = 'idm-row-text';
+            text.textContent = x.place;
+            const ids = document.createElement('span');
+            ids.className = 'idm-row-id';
+            ids.textContent = x.ids;
+            words2.appendChild(text);
+            words2.appendChild(ids);
+            go.appendChild(chip);
+            go.appendChild(words2);
+            const tick = document.createElement('label');
+            tick.className = 'idm-swap';
+            tick.dataset.tooltip = swapped
+                ? 'Swapped, Untick it if this module still needs swapping: its mark goes back on the wall and the row back on the list above.'
+                : 'Swapped, Tick it when this module has been replaced: its mark leaves the wall and the row moves to Swapped below. Untick it there to bring it back.';
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = swapped;
+            box.dataset.idmSwap = '1';
+            // its own id, so a rebuild hands a pointer on its way to it
+            // the new box (the guides find it again by id)
+            box.id = `idm-${swapped ? 'swapped' : 'swap'}-${g.layer.id}-${x.key.replace(/,/g, '-')}`;
+            box.setAttribute('aria-label', `Swapped: ${words}`);
+            tick.appendChild(box);
+            tick.appendChild(document.createTextNode('Swapped'));
+            row.appendChild(go);
+            row.appendChild(tick);
+            host.appendChild(row);
         });
     }
 
-    // A row's Swapped tick: the module's mark cleared, so its row leaves
-    // the list on every device and the module leaves the wall; one undo
-    // step brings both back. A locked screen refuses it.
-    _idmSetSwapped(layerId, key) {
+    // A row's Swapped tick (`on`) or untick: the module moves to the
+    // Swapped list and its mark leaves the wall, or back, on every device;
+    // one undo step either way. A locked screen refuses it.
+    _idmSetSwapped(layerId, key, on = true) {
         const st = this._idmState();
         const layer = ((this.project && this.project.layers) || []).find(l => l && l.id === layerId);
-        const marks = layer && layer.idm && layer.idm.marks;
-        if (!layer || !marks || !marks[key]) return false;
+        const map = layer && layer.idm && (on ? layer.idm.marks : layer.idm.swapped);
+        if (!layer || !map || !map[key]) return false;
         if (this._layerLocked(layer)) {
             this._showLockedError([layer]);
             // the tick goes back to what the screen holds
@@ -1667,10 +1725,10 @@ class _IdmLocator {
             return false;
         }
         const block = idmBlockOf(window.canvasRenderer, layer);
-        if (!idmApplySwapped(block, key)) return false;
+        if (!(on ? idmApplySwapped(block, key) : idmApplyUnswapped(block, key))) return false;
         layer.idm = block;
-        sendClientLog('idm_swapped', { id: layer.id, key });
-        this.updateLayers([layer], true, 'Module Swapped');
+        sendClientLog(on ? 'idm_swapped' : 'idm_unswapped', { id: layer.id, key });
+        this.updateLayers([layer], true, on ? 'Module Swapped' : 'Module Not Swapped');
         if (window.canvasRenderer) window.canvasRenderer.render();
         return true;
     }
@@ -1722,14 +1780,12 @@ class _IdmLocator {
         return hl ? `${hl.layerId}:${hl.key}` : '';
     }
 
-    // The row of the highlighted module is marked (the phone's list marks
-    // it the same way); the list is not rebuilt.
+    // The row of the highlighted module is marked, on either list (the
+    // phone's lists mark it the same way); the lists are not rebuilt.
     _idmSyncListHere() {
         if (!this._idmState().active) return;
-        const host = document.getElementById('idm-list');
-        if (!host) return;
         const here = this._idmListHere();
-        host.querySelectorAll('.idm-row').forEach(row => {
+        document.querySelectorAll('#idm-list .idm-row, #idm-swapped-list .idm-row').forEach(row => {
             row.classList.toggle('active', here === `${row.dataset.idmLayer}:${row.dataset.idmKey}`);
         });
     }

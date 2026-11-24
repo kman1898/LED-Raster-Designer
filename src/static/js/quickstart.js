@@ -4002,6 +4002,8 @@
     // one the arrow keys reach (right three times, then down) and Space marks.
     var MARK_COLOR = '1,1,0,0', MARK_X = '3,2,1,1', MARK_KEYS = '1,0,0,1';
     function idmRows() { return $$('#idm-list .idm-row'); }
+    // The rows on the Swapped list under it (owner, 2026-11-24).
+    function idmSwappedRows() { return $$('#idm-swapped-list .idm-row'); }
     function idmPhoneOpen() { var m = $('#idm-phone-modal'); return !!m && m.style.display !== 'none'; }
     function closeIdmPhone() {
         var a = A();
@@ -10311,7 +10313,7 @@
             since: '1.7.0',
             target: '#idm-list', ring: ['#idm-list', '.idm-side-bar'], place: 'right', title: 'Tick off the swaps',
             avoid: [function () { return idmRows()[0] || null; }, '[data-idm-side="back"]'],
-            body: 'Back counts each row from behind the wall, where left and right swap. Tick Swapped once a module is replaced: its mark clears, the row leaves the list and the count goes down.',
+            body: 'Back counts each row from behind the wall, where left and right swap. Tick Swapped once a module is replaced: its mark leaves the wall and the row moves down to Swapped.',
             before: function () {
                 openIdm();
                 var a = A();
@@ -10350,8 +10352,39 @@
             check: function (mem) {
                 var l = screens().find(function (x) { return x.id === mem.layerId; });
                 if (!l || idmMarks(l)[mem.key] || $('#idm-list .idm-row[data-idm-key="' + mem.key + '"]')) return null;
+                if (!$('#idm-swapped-list .idm-row[data-idm-key="' + mem.key + '"]')) return null;
                 if (idmSide() !== 'front' || !mem.back || idmRows().length !== mem.before - 1) return null;
-                return 'Swapped: ' + idmRows().length + ' marks left. From behind the wall it was ' + mem.back + '.';
+                return 'Swapped: ' + idmRows().length + ' marks left to swap. From behind the wall it was ' + mem.back + '.';
+            }
+        },
+        idmUnswap: {
+            since: '1.7.0',
+            // the row lands back on the open list, and the Swapped list
+            // goes once it is empty: the ring holds both
+            target: '#idm-list', ring: ['#idm-list', '#idm-swapped'], place: 'right', title: 'Put a swap back',
+            avoid: [function () { return idmSwappedRows()[0] || null; }],
+            body: 'Untick a row on the Swapped list if that module still needs swapping. Its mark goes back on the wall and the row back on the list above.',
+            before: openIdm,
+            act: function (t) {
+                var row = idmSwappedRows()[0];
+                if (!row) throw new Error('nothing on the Swapped list');
+                var layerId = Number(row.dataset.idmLayer), key = row.dataset.idmKey;
+                t.mem.key = key;
+                t.mem.layerId = layerId;
+                // the box by its id: found again if the list is rebuilt on the way
+                var boxId = row.querySelector('input[data-idm-swap]').id;
+                return t.click('#' + CSS.escape(boxId)).then(function () {
+                    return t.wait(function () {
+                        var l = screens().find(function (x) { return x.id === layerId; });
+                        return !!idmMarks(l)[key];
+                    });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function (mem) {
+                var l = screens().find(function (x) { return x.id === mem.layerId; });
+                if (!l || !idmMarks(l)[mem.key] || !$('#idm-list .idm-row[data-idm-key="' + mem.key + '"]')) return null;
+                if ($('#idm-swapped-list .idm-row[data-idm-key="' + mem.key + '"]')) return null;
+                return 'Back on the list and the wall: ' + idmRows().length + ' marks to swap.';
             }
         },
         notesChecklist: {
@@ -10462,7 +10495,7 @@
         // IDM, and the checklist in the Notes
         idm: ['idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
               'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap',
-              'notesChecklist'],
+              'idmUnswap', 'notesChecklist'],
         // Pixel Map: groups
         pixelGroups: ['groupScreens', 'groupNames', 'groupDrag', 'groupMove'],
         // Binder and Exports
