@@ -10162,6 +10162,7 @@
                 if (JSON.stringify(a._s3dPlacementOf(other)) !== mem.otherAt) return null;
                 return one.name + ' moved 2 ft toward the audience and back on its own; ' + other.name + ' stayed where it stood.';
             }
+        },
         // Export pressed on the 3D tab (1.7.0, app-stage3d-png.js): the
         // Export dialog on 3D PNG, Front picked, the file named in the
         // preview, then Cancel. Nothing is saved.
