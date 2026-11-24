@@ -1,7 +1,7 @@
 // app-history: feature methods for LEDRasterApp (verbatim from the old
 // monolithic app.js), attached to the prototype via the carrier class.
 import { LEDRasterApp } from './app-core.js';
-import { sendClientLog, clientLogLastAction } from './helpers.js';
+import { sendClientLog, clientLogLastAction, isSingleLineField } from './helpers.js';
 
 class _History {
     // ===== HISTORY SYSTEM =====
@@ -411,13 +411,20 @@ class _History {
     }
 
     undo() {
+        // A field typed in and not yet committed commits first, so Ctrl+Z
+        // steps back over that edit like any other (see below).
+        this._commitFieldBeingTyped();
         // A delete still landing has not taken its step yet: the screen is
         // gone from the page as soon as the server answers the DELETE, and
         // its 'Delete Layer' entry is taken only once the project read that
         // follows comes back. An undo in that gap stepped back over the edit
         // before the delete (or did nothing), and the delete's entry then
         // cut the redo off. Held, it plays once the delete has its step
-        // (1.7.0 CI, caught on a Linux runner with the page's log).
+        // (1.7.0 CI, caught on a Linux runner with the page's log). An edit
+        // the server is still answering (_processorRequest) is the same
+        // gap: its step is taken when the reply lands, so an undo before
+        // then stepped over the edit before it, and the reply then took
+        // its step on top of the undo.
         if (this._holdHistoryKey('undo')) return;
         // A guide running on another page holds the show (routes_project).
         if (typeof this._refuseWhileGuideElsewhere === 'function' && this._refuseWhileGuideElsewhere('undo')) return;
@@ -721,6 +728,7 @@ class _History {
     }
 
     redo() {
+        this._commitFieldBeingTyped();
         if (this._holdHistoryKey('redo')) return;
         if (typeof this._refuseWhileGuideElsewhere === 'function' && this._refuseWhileGuideElsewhere('redo')) return;
         this._numberHoldCheckpoint();
@@ -912,8 +920,9 @@ class _History {
                             if (this.deletionInProgress) this._deletesQueued = held - 1;
                         }
                         // Undo and redo pressed meanwhile play now, in the
-                        // order pressed, once no delete is left landing.
-                        if (!this.deletionInProgress) this._playHeldHistoryKeys();
+                        // order pressed, once no delete or edit is left
+                        // landing.
+                        if (!this._historyStepLanding()) this._playHeldHistoryKeys();
                     });
                 return;
             }
@@ -941,13 +950,52 @@ class _History {
         deleteNext([...idsToDelete]);
     }
     
-    // Undo or redo pressed while a delete lands waits for it (see undo()).
+    // A step still on its way: a delete landing, or an edit the server has
+    // not answered yet (its step is taken when the reply lands).
+    _historyStepLanding() {
+        return !!this.deletionInProgress || (this._historyWritesOut || 0) > 0;
+    }
+
+    // Undo or redo pressed while a step lands waits for it (see undo()).
     // True when the key was held.
     _holdHistoryKey(key) {
-        if (!this.deletionInProgress) return false;
+        if (!this._historyStepLanding()) return false;
         (this._heldHistoryKeys || (this._heldHistoryKeys = [])).push(key);
-        sendClientLog('history_key_held_for_delete', { key, held: this._heldHistoryKeys.length });
+        if (this.deletionInProgress) {
+            sendClientLog('history_key_held_for_delete', { key, held: this._heldHistoryKeys.length });
+        } else {
+            sendClientLog('history_key_held_for_edit', {
+                key, held: this._heldHistoryKeys.length, out: this._historyWritesOut,
+            });
+        }
         return true;
+    }
+
+    // Ctrl+Z works in a field too (canvas-input.js). Pressed while text is
+    // typed and not yet committed, the restore rebuilt the panel under the
+    // field, and the browser commits a removed field's typing as it goes:
+    // the stale text was written AFTER the undo, as a new step that cut the
+    // redo. So the field lets go first, the way Enter or a click away ends
+    // an edit; its write goes out, the undo waits for it (_holdHistoryKey)
+    // and then steps back over it.
+    _commitFieldBeingTyped() {
+        if (typeof document === 'undefined') return;
+        const el = document.activeElement;
+        const draft = this._editorDraft;
+        if (!el || !draft || !el.dataset || el.dataset.lrdField !== draft.key) return;
+        if (!isSingleLineField(el)) return;
+        el.blur();
+    }
+
+    // An edit that takes its step when the server answers (_processorRequest)
+    // is out from the request until its reply is applied, or it fails.
+    _historyWriteOut() {
+        this._historyWritesOut = (this._historyWritesOut || 0) + 1;
+    }
+
+    _historyWriteLanded() {
+        this._historyWritesOut = Math.max(0, (this._historyWritesOut || 0) - 1);
+        if (!this._historyStepLanding()) this._playHeldHistoryKeys();
     }
 
     _playHeldHistoryKeys() {

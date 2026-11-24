@@ -871,7 +871,7 @@ function escapeLayerOpen(event) {
     return _escapeRead(event).open;
 }
 
-export { evaluateMathExpression, isMacOS, sendClientLog, sendClientLogOnChange, setClientLogPage, clientLogLastAction, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress,
+export { evaluateMathExpression, isMacOS, sendClientLog, sendClientLogOnChange, setClientLogPage, clientLogLastAction, registerGlobalClientLogging, setupColorPickerWithHex, normalizeHex, refreshAllColorSwatches, isTypingTarget, installEnterEndsEdit, installNameDragSelects, installFieldGuard, commitEditOnPress, isSingleLineField,
     FLOW_SNAKE_PATTERNS, FLOW_Z_PATTERNS, FLOW_AUTO_PATTERNS, isZFlowPattern, isVerticalFlowPattern, holdDragOff, nameFieldEnter, escapeCovered, escapeLayerOpen };
 
 // Classic (non-module) scripts call these by name at runtime

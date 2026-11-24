@@ -778,3 +778,119 @@ def test_a_backup_link_on_the_snake_prints_beside_its_main(page):
     assert settled(pg, lambda: pg.evaluate("(id) => window.app.getFiberCable(id).strands", snake),
                    lambda v: v == 4, 5000) == 4
     assert ids['errors'] == []
+
+
+# ── an undo while an edit is still landing (1.7.0 CI) ────────────────────
+#
+# A field's write takes its history step when the server's reply lands
+# (_processorRequest). On a Linux runner an undo ran while a length write
+# was still out: it stepped back over the channel step instead, and the
+# reply then took a new "Set Cat Snake Length" step on top of the undo, so
+# the next undo took that back and the channels were never undone. Held
+# here by holding the reply, so neither test leans on timing.
+
+def _snake_editor(pg, ids):
+    a = ids['xds'][0]
+    snake = pg.evaluate("() => window.app.getFiberCables()[0].id")
+    pg.evaluate(ROW_JS, [a, 'p1'])
+    if not pg.locator(f'[data-lrd-field="fiber-cable-strands-{snake}"]').count():
+        pg.locator(f'[data-lrd-field="fiber-edit-{a}-p1"]').click()
+    pg.locator(f'[data-lrd-field="fiber-cable-strands-{snake}"]').wait_for()
+    return snake
+
+
+def _snake_now(pg, snake):
+    return pg.evaluate("(id) => { const c = window.app.getFiberCable(id); "
+                       "return {strands: c.strands, ft: c.ft}; }", snake)
+
+
+def _channels_typed(pg, snake, value):
+    """Type the channel count and press Enter, the way a user commits it."""
+    n = pg.locator(f'[data-lrd-field="fiber-cable-strands-{snake}"]')
+    n.fill(str(value))
+    n.press('Enter')
+    settled(pg, lambda: _snake_now(pg, snake), lambda v: v['strands'] == value, 5000)
+    assert settled(pg, lambda: pg.evaluate(HISTORY_JS),
+                   lambda h: h['action'] == 'Set Cat Snake Channels', 5000)['action'] == 'Set Cat Snake Channels'
+
+
+REDO_ACTION_JS = """() => ({redo: (window.app.history[window.app.historyIndex + 1] || {}).action,
+    index: window.app.historyIndex, actions: window.app.history.map(h => h.action)})"""
+
+
+def test_an_undo_pressed_before_the_length_lands_waits_for_it(page):
+    """Channels to 6, then a length of 120 typed and committed; Undo is
+    pressed while the server has not answered the length yet. The undo
+    waits for the reply, then steps back over the length: 6 channels at
+    150', the length the redo. Played at once, it stepped back over the
+    channels and the reply wrote 120' as a new step after it."""
+    pg, ids = page
+    snake = _snake_editor(pg, ids)
+    start = _snake_now(pg, snake)
+    assert start == {'strands': 4, 'ft': 150}, start
+    _channels_typed(pg, snake, 6)
+    before = pg.evaluate(HISTORY_JS)
+    held = []
+
+    def hold(route):
+        if route.request.method == 'PUT' and '"ft"' in (route.request.post_data or ''):
+            held.append(route)
+            return
+        route.continue_()
+
+    pg.route('**/api/fiber-cables/*', hold)
+    try:
+        ft = pg.locator(f'[data-lrd-field="fiber-cable-ft-{snake}"]')
+        ft.fill('120')
+        ft.press('Enter')
+        assert settled(pg, lambda: len(held), lambda n: n == 1, 5000) == 1
+        pg.evaluate('() => window.app.undo()')
+        # nothing stepped yet: the undo waits for the length's step
+        assert pg.evaluate(HISTORY_JS) == before
+        held.pop().continue_()
+        # the length's reply lands, takes its step, and the held undo
+        # steps back over it: 6 channels at 150', the length the redo
+        got = settled(pg, lambda: (_snake_now(pg, snake), pg.evaluate(HISTORY_JS),
+                                   pg.evaluate(REDO_ACTION_JS)['redo']),
+                      lambda v: v[2] is not None, 5000)
+        assert got == ({'strands': 6, 'ft': 150}, before, 'Set Cat Snake Length'), (
+            got, pg.evaluate(REDO_ACTION_JS))
+    finally:
+        # a reply still held goes on before the route comes off
+        for r in held:
+            r.continue_()
+        pg.unroute('**/api/fiber-cables/*')
+    pg.evaluate('() => window.app.undo()')
+    assert settled(pg, lambda: _snake_now(pg, snake), lambda v: v == start, 5000) == start
+    assert ids['errors'] == []
+
+
+def test_ctrl_z_in_a_length_being_typed_steps_back_over_it(page):
+    """A length typed and not yet committed, then Ctrl+Z in the field: the
+    typed length commits and the undo steps back over it, so the snake is
+    6 channels at 150' with the length the redo. Before, the undo stepped
+    back over the channels and the rebuilt tray committed the typed 120'
+    after it, as a new step that cut the redo."""
+    pg, ids = page
+    snake = _snake_editor(pg, ids)
+    start = _snake_now(pg, snake)
+    assert start == {'strands': 4, 'ft': 150}, start
+    _channels_typed(pg, snake, 6)
+    before = pg.evaluate(HISTORY_JS)
+    ft = pg.locator(f'[data-lrd-field="fiber-cable-ft-{snake}"]')
+    ft.click()
+    pg.keyboard.press('ControlOrMeta+a')
+    pg.keyboard.type('120')
+    pg.keyboard.press('ControlOrMeta+z')
+    got = settled(pg, lambda: (_snake_now(pg, snake), pg.evaluate(HISTORY_JS),
+                               pg.evaluate(REDO_ACTION_JS)['redo']),
+                  lambda v: v[2] is not None, 5000)
+    assert got == ({'strands': 6, 'ft': 150}, before, 'Set Cat Snake Length'), (
+        got, pg.evaluate(REDO_ACTION_JS))
+    # and no write lands after it
+    pg.wait_for_timeout(500)
+    assert (_snake_now(pg, snake), pg.evaluate(HISTORY_JS)) == ({'strands': 6, 'ft': 150}, before)
+    assert pg.locator(f'[data-lrd-field="fiber-cable-ft-{snake}"]').input_value() == '150'
+    pg.evaluate('() => window.app.undo()')
+    assert settled(pg, lambda: _snake_now(pg, snake), lambda v: v == start, 5000) == start
+    assert ids['errors'] == []
