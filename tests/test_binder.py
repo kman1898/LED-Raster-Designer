@@ -1257,32 +1257,75 @@ def test_every_sheet_record_is_a_display_list_of_its_texts(page):
     assert out['record']['dataUrl'] == 'data:image/png;base64,'
 
 
-def test_the_map_carries_no_screen_name_plate_but_the_export_still_does(page):
-    """"the main label is over the circuits so that is bad": the binder's
-    map draws no screen-name plate - the title block names the screen - on
-    the power and the data sheet alike, and the ordinary export (exportMode
-    without the binder's flag) paints the name exactly as before."""
+# Where the binder's map bitmap drew a screen's name: WALL-A's Power tab
+# set as given for the one render (and put back), each line of `name` the
+# renderer wrote on the map canvas, read in the bitmap's own pixels.
+NAME_ON_MAP_JS = """([opts, title, a, set, name]) => {
+    const app = window.app;
+    const l = app.project.layers.find(x => x.id === a);
+    const keep = Object.keys(set).map(k => [k, l[k]]);
+    Object.assign(l, set);
+    // the renderer's own text call (the binder wraps the map context's
+    // fillText for its log, so the context is not the place to listen)
+    const r = window.canvasRenderer, had = Object.prototype.hasOwnProperty.call(r, '_fillText');
+    const fill = r._fillText;
+    const hits = [];
+    r._fillText = function (t, x, y, ...rest) {
+        if (String(t) === name && this.ctx && this.ctx.canvas === app._binderMapCanvas) {
+            const m = this.ctx.getTransform();
+            hits.push({ y: m.d * y + m.f, sy: m.d });
+        }
+        return fill.call(this, t, x, y, ...rest);
+    };
+    try {
+        const idx = app.planBinder(opts).findIndex(p => p.title === title);
+        app.renderBinderPage(opts, idx);
+    } finally {
+        if (had) r._fillText = fill; else delete r._fillText;
+        keep.forEach(([k, v]) => { if (v === undefined) delete l[k]; else l[k] = v; });
+    }
+    return { hits, h: window.canvasRenderer.getLayerBounds(l).height };
+}"""
+
+
+def test_the_data_and_power_maps_carry_the_screen_name_as_the_app_draws_it(page):
+    """Crews asked for the screen's name on the wall itself (2026-11-21):
+    the Data and Power sheets print the name plate the app draws on that
+    tab, under that tab's own Name switch, where the user dragged it. The
+    renderer's flag is back off after the page, so the canvas is untouched."""
     pg, ids = page
     for title in ('WALL-A - Power - Front View', 'WALL-A - Data - Front View'):
         out = _render(pg, SHOW, title)
-        assert not _on_map(out['mapTexts'], 'WALL-A'), (title, out['mapTexts'])
-        assert 'WALL-A · POWER · FRONT VIEW' in out['texts'] or 'WALL-A · DATA · FRONT VIEW' in out['texts']
+        assert _on_map(out['mapTexts'], 'WALL-A'), (title, out['mapTexts'][:40])
         assert _on_map(out['mapTexts'], 'SR1-1') or _on_map(out['mapTexts'], 'SR-1'), out['mapTexts']
-    # the same exportMode render with the binder's flag pinned off is the
-    # ordinary export, and it paints the name
-    export = pg.evaluate("""([opts, title]) => {
-        const app = window.app, r = window.canvasRenderer;
-        const idx = app.planBinder(opts).findIndex(p => p.title === title);
-        Object.defineProperty(r, 'hideScreenNames', { get: () => false, set: () => {}, configurable: true });
-        try {
-            return { mapTexts: app.renderBinderPage(opts, idx).mapTexts };
-        } finally {
-            delete r.hideScreenNames;
-            r.hideScreenNames = false;
-        }
-    }""", [json.loads(_SHOW_JSON), 'WALL-A - Power - Front View'])
-    assert _on_map(export['mapTexts'], 'WALL-A'), export['mapTexts'][:40]
     assert pg.evaluate("() => window.canvasRenderer.hideScreenNames") is False
+    power = 'WALL-A - Power - Front View'
+    base = pg.evaluate(NAME_ON_MAP_JS, [json.loads(_SHOW_JSON), power, ids['a'], {}, 'WALL-A'])
+    assert len(base['hits']) == 1, base
+    # dragged down a quarter of the wall on the Power tab: the sheet's plate
+    # moves down with it, by that quarter at the map's zoom
+    step = base['h'] / 4
+    moved = pg.evaluate(NAME_ON_MAP_JS, [json.loads(_SHOW_JSON), power, ids['a'],
+                                         {'screenNameOffsetYPower': step}, 'WALL-A'])
+    assert len(moved['hits']) == 1, moved
+    b, m = base['hits'][0], moved['hits'][0]
+    assert abs((m['y'] - b['y']) - step * b['sy']) < 2, (m, b, step)
+    # that tab's Name switch off: no name on the Power sheet, still on Data
+    off = pg.evaluate("""([opts, a]) => {
+        const app = window.app;
+        const l = app.project.layers.find(x => x.id === a);
+        const keep = l.showLabelNamePower;
+        l.showLabelNamePower = false;
+        try {
+            const plan = app.planBinder(opts);
+            const at = (t) => app.renderBinderPage(opts, plan.findIndex(p => p.title === t)).mapTexts;
+            return { power: at('WALL-A - Power - Front View'), data: at('WALL-A - Data - Front View') };
+        } finally {
+            if (keep === undefined) delete l.showLabelNamePower; else l.showLabelNamePower = keep;
+        }
+    }""", [json.loads(_SHOW_JSON), ids['a']])
+    assert not _on_map(off['power'], 'WALL-A'), off['power'][:40]
+    assert _on_map(off['data'], 'WALL-A'), off['data'][:40]
 
 
 def test_no_sheet_says_box_breakout_or_palette(page):
@@ -3226,9 +3269,10 @@ def test_smoke_live_show_b(page):
     # the left side's first: _bBoxBrackets)
     assert ["SR3 · 125'", "SR4 · 100'", "SR1 · 125'", "SR2 · 100'"] == [t for t in main['texts'] if re.fullmatch(r"SR\d · \d+'", t)]
     # the map: every label, and the typed cables as tags (the screen's switch is on);
-    # no screen-name plate over them - the title block names the screen
+    # and the screen's name plate where the app draws it on the Power tab
+    # (2026-11-21: crews asked for the name on the wall)
     assert _on_map(main['mapTexts'], 'SR1-1') and "10' TRUE1" in main['mapTexts'], main['mapTexts'][:20]
-    assert not _on_map(main['mapTexts'], 'SR - MAIN')
+    assert _on_map(main['mapTexts'], 'SR - MAIN'), main['mapTexts'][:40]
     # the band rule: every band is followed straight by its headings and
     # then its first circuit (2026-09-26: the band above the headings)
     for band in bands:
@@ -3270,7 +3314,7 @@ def test_smoke_live_show_b(page):
     assert ret.count('2fer') == 5
     assert "SR5 · Multi 208 TRUE1 breakout · 125' · 6 circuits" in ret
     dpage = _render(pg, SHOW, 'SR - MAIN - Data - Front View')
-    assert not _on_map(dpage['mapTexts'], 'SR - MAIN')
+    assert _on_map(dpage['mapTexts'], 'SR - MAIN'), dpage['mapTexts'][:40]
     _title_block(dpage['texts'], 'SR - MAIN · DATA · FRONT VIEW', '2.3', show=project['name'])
     # the same wall over its four ports: the Ports table (two halves of
     # whole names) and the cables in one wide column, the facts in the

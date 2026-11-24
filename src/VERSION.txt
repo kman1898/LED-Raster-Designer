@@ -630,6 +630,10 @@ ALSO NEW
   the computer running it, asking first and offering to save unsaved
   changes. The tray and menu bar icon's Quit asks about unsaved changes
   too.
+- NEW: The binder's Data and Power sheets print the screen's name on the
+  wall itself, where you placed it on that tab, with the port or circuit
+  line under it as the app shows it. Untick that tab's Screen Name to
+  keep a wall clear on paper.
 - NEW: The binder export's warning names the screens with no power
   figure, along with the screens that cannot fit a circuit, so you can
   type the missing watts first.

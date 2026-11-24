@@ -65,10 +65,15 @@
 // arrowheads, label discs sized to their text, the cable tags where the
 // screen's Show Cable Tags switch is on, the 2fer / 3fer pills where its 2fer
 // switch is on. Those switches are the user's documentation choices and
-// the binder follows them; it forces nothing on. The one thing the sheet
-// takes off the wall is the screen-name plate (hideScreenNames): the title
-// block names the screen, and on a wall of circuits the plate landed on
-// top of the labels ("the main label is over the circuits").
+// the binder follows them; it forces nothing on. The screen-name plate
+// prints on the Data and Power sheets exactly as the app draws it on that
+// tab: where the user placed it, under the screen's own Name switch for
+// the tab, the group's name or the members' by the sheet's Names choice
+// (2026-11-21, crews asked for the name on the wall itself). Every other
+// sheet still takes it off (hideScreenNames, binderHidesNames): its title
+// block names the screen. It was off on Data and Power too from 2026-09-06
+// ("the main label is over the circuits") until crews asked for it back;
+// a user who wants a wall clear turns that tab's Name switch off.
 //
 // Layout inside the drawing area - COVERAGE DECIDES (_bMapLayout, 2026-
 // 09-08: "there is still a ton of wasted space … screens can enlarge and
@@ -177,6 +182,11 @@ const WRAP_WHOLE = 12;                // a wrap layout never splits a block this
 // a member's edge (_bAstride).
 const NO_OVERHANG = Object.freeze({ left: 0, right: 0, top: 0, bottom: 0 });
 const NOT_ASTRIDE = new Set(['wallEdge', 'cabinet', 'cabinetId', 'band', 'rulerTick', 'rulerLabel']);
+
+// Whether a map render takes the screen-name plate off the wall: every
+// view but Data and Power, whose sheets print it as the app draws it on
+// that tab (see the map note at the head of this file).
+const binderHidesNames = (view) => view !== 'data-flow' && view !== 'power';
 const OVERHANG_PROBE_PX = 1600;       // the probe's longest side, in bitmap pixels
 const WRAP_GAIN = 1.1;                // wrap wins only with a wall this much larger than side's or stack's
 const NARROW_GAIN = 1.03;             // tables at their own width win only with a wall this much larger (_bMapLayout)
@@ -6109,6 +6119,12 @@ class _Binder {
                 off.width = Math.max(1, Math.round(used.w * S));
                 off.height = Math.max(1, Math.round(used.h * S));
                 const offCtx = off.getContext('2d', { alpha: true });
+                // One canvas, one context for every sheet: drop the last
+                // sheet's listeners first, or each sheet's wrapped the one
+                // before it and an earlier sheet's log went on collecting
+                // every later sheet's lettering.
+                delete offCtx.fillText;
+                delete offCtx.setLineDash;
                 if (book.log) {
                     const oT = offCtx.fillText.bind(offCtx), oD = offCtx.setLineDash.bind(offCtx);
                     offCtx.fillText = (t, x, y, w) => { book.log.mapTexts.push(String(t)); return oT(t, x, y, w); };
@@ -6118,7 +6134,7 @@ class _Binder {
                 r.ctx = offCtx;
                 r.exportMode = true;
                 r.exportTransparentBg = true;
-                r.hideScreenNames = true;
+                r.hideScreenNames = binderHidesNames(view);
                 // no BACK badge on the map: the sheet's VIEW BAND says it
                 r.binderNoBadge = true;
                 // This sheet is ONE screen on its own page: the processor's
@@ -6288,7 +6304,7 @@ class _Binder {
             r.ctx = c.getContext('2d', { alpha: true });
             r.exportMode = true;
             r.exportTransparentBg = true;
-            r.hideScreenNames = true;
+            r.hideScreenNames = binderHidesNames(view);
             r.ignoreRasterBounds = true;
             r.printerMode = book.meta.palette === 'printer';
             r.zoom = z;

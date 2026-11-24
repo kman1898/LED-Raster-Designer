@@ -134,7 +134,9 @@ SHEETS_JS = """([ids, deg, opts, names]) => {
             let picture = null, strips = null;
             if (m) {
                 const at = (fx, fy) => inked(m.x + m.w * fx, m.y + m.h * fy);
-                picture = [at(0.04, 0.04), at(0.96, 0.04), at(0.04, 0.96), at(0.96, 0.96), at(0.45, 0.45)];
+                // the middle sampled above the centre: the Data and Power
+                // sheets print the screen's name plate (white) on the centre
+                picture = [at(0.04, 0.04), at(0.96, 0.04), at(0.04, 0.96), at(0.96, 0.96), at(0.45, 0.15)];
                 // ink in the strip just past each edge of the wall, along
                 // its middle half
                 const strip = (side) => {

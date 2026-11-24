@@ -386,9 +386,9 @@ def test_every_view_and_the_export_wrap_the_same_way(page, view):
 
 
 def test_the_binders_map_wraps_the_port_line_too(page):
-    """The binder paints its map with the same renderer (hideScreenNames
-    on: the title block names the screen), so its Data sheet carries the
-    port line wrapped and never the one-line form."""
+    """The binder paints its map with the same renderer, so its Data sheet
+    carries the port line wrapped and never the one-line form, under the
+    screen's name plate as the Data tab draws it."""
     pg, seed = page
     keep = pg.evaluate("""() => {
         const l = window.app.project.layers.find(l => l.name === 'BIG');
@@ -417,7 +417,7 @@ def test_the_binders_map_wraps_the_port_line_too(page):
     assert '%d Mains, %d Backups | %d Ports' % (n, n, 2 * n) not in texts, texts
     assert '%d Mains, %d Backups' % (n, n) in texts, texts
     assert '%d Ports' % (2 * n) in texts, texts
-    assert 'BIG' not in texts, texts
+    assert 'BIG' in texts, texts
     assert seed['errors'] == []
 
 
