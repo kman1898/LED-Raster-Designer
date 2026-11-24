@@ -10264,7 +10264,7 @@
             since: '1.7.0',
             target: '#idm-phone-open', place: 'right', title: 'Walk the wall with a phone',
             avoid: ['#idm-phone-open', '#idm-phone-modal .modal-content'],
-            body: 'Use a phone shows a QR code of the phone page. Scan it with a phone on the same network: big buttons move the highlight and Mark marks, Swap list opens the list on its own screen, and Canvas goes to the next canvas.',
+            body: 'Use a phone shows a QR code of the phone page. Scan it with a phone on the same network: big buttons move the highlight and Mark marks, and Menu holds Next screen, Change canvas and the field colors.',
             before: function () { openIdm(); closeIdmPhone(); },
             act: function (t) {
                 return t.click('#idm-phone-open').then(function () {

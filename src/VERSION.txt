@@ -363,16 +363,17 @@ Walk the wall with a phone: Use a phone on the IDM Locator tab opens a
 dialog with a QR code of the phone page and its address beside it, with
 Copy address. Scan it with a phone on the same network as the computer
 and the phone's whole screen becomes big buttons: move the highlight a
-module or a cabinet at a time, Mark, Undo, Next screen, Clear highlight
-and the field color. The arrows and Next screen stay on the canvas you
-are on; Canvas at the bottom names it, and a tap goes to the next canvas.
-Swap list at the top opens the swap list on its own screen, and Back
-returns to the buttons. The page is dark, with a switch for light that
+module or a cabinet at a time, Mark, Undo and Clear highlight. Menu at
+the top holds Next screen, Change canvas and the field color, away from
+the arrows so a thumb never hits them by accident. The arrows and Next
+screen stay on the canvas you are on, and Change canvas names it and goes
+to the next one. Swap list at the top opens the swap list on its own
+screen, and Back returns to the buttons. The page is dark, with a switch for light that
 the phone remembers. What the phone does shows on the computer and on the
 wall at once, a locked screen stays locked, and the computer can undo it
 like its own edits; Undo on the phone takes back that phone's own last
 change. A controller paired with the phone works there with the same
-buttons. If the app is set to this computer only, the dialog says what
+buttons, and the menu lists them. If the app is set to this computer only, the dialog says what
 to change.
 
 The list of marks is a swap list that counts down: tick Swapped once a

@@ -21,9 +21,12 @@ What this file pins:
   storage blocked or not); the main screen is the controls alone and fills
   390 x 844 and 375 x 667 with no scrolling either way and finger sized
   buttons; the swap list opens as a screen of its own (Back or the
-  phone's back gesture returns), and so does the controller's button
-  list. Its arrows, the cabinet step, Mark, Undo, Next screen,
-  the field and the swap list reach the tab, the wall output and a second
+  phone's back gesture returns), and so does the menu (owner, 2026-11-24:
+  Next screen, Change canvas and the field colors, none of them on the
+  main screen, so nothing that jumps or repaints the wall sits by the
+  arrows) and, from the menu, the controller's button list. Its arrows,
+  the cabinet step, Mark, Undo, Next screen, the field and the swap list
+  reach the tab, the wall output and a second
   phone, through the same routes and rules (a locked screen refuses, each
   change is one undo step on the computer, its own Undo takes back its
   own change); it follows the show live and says so plainly when there is
@@ -270,6 +273,17 @@ def close_swap(ph):
     ph.wait_for_selector('#ph-swap-sheet', state='hidden')
 
 
+def open_menu(ph):
+    """The menu's own screen, from the header's button."""
+    ph.tap('#ph-menu-open')
+    ph.wait_for_selector('#ph-menu-sheet', state='visible')
+
+
+def close_menu(ph):
+    ph.tap('#ph-menu-close')
+    ph.wait_for_selector('#ph-menu-sheet', state='hidden')
+
+
 def test_the_phone_page_fits_a_phone_and_drives_the_wall(page, e2e_server, pw_browser):
     cid = reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
@@ -338,12 +352,14 @@ def test_the_phone_page_fits_a_phone_and_drives_the_wall(page, e2e_server, pw_br
         # then the phone's Undo leaves the screen alone: it changed elsewhere
         ph.tap('#ph-undo')
         assert 'changed on another device' in toast_text(ph)
-        # the field from the phone reaches the server and the tab
+        # the field from the phone's menu reaches the server and the tab
+        open_menu(ph)
         ph.tap('[data-ph-field="#00ff00"]')
         assert settled(page, lambda: (served_field(page) or {}).get('color'), lambda v: v == '#00ff00') == '#00ff00'
         settled(page, lambda: page.evaluate("() => window.app._idmFieldNow().color"), lambda v: v == '#00ff00')
         assert settled(ph2, lambda: ph2.get_attribute('[data-ph-field="#00ff00"]', 'aria-pressed'),
                        lambda v: v == 'true') == 'true'
+        close_menu(ph)
         # Clear highlight
         ph.tap('#ph-clear')
         assert settled(page, lambda: hl(page), lambda v: v is None) is None
@@ -393,8 +409,11 @@ def test_the_main_screen_fills_a_phone_in_dark_with_the_swap_list_on_its_own(pag
         assert fit['outside'] == [] and fit['small'] == [], fit
         # the arrows and Mark take the room the rest leaves
         assert len(fit['pad']) == 5 and all(w >= 100 and h >= 80 for w, h in fit['pad']), fit
-        # the canvas control is there, naming the canvas
+        # the canvas control is in the menu, naming the canvas
+        assert not ph.is_visible('#ph-canvas-next')
+        open_menu(ph)
         assert ph.is_visible('#ph-canvas-next') and ph.inner_text('#ph-canvas-name')
+        close_menu(ph)
         # the swap list is not on the main screen; its button counts the marks
         assert not ph.is_visible('#ph-list')
         assert ph.inner_text('#ph-swap-open') == 'Swap list (2)'
@@ -427,6 +446,85 @@ def test_the_main_screen_fills_a_phone_in_dark_with_the_swap_list_on_its_own(pag
         assert ph.evaluate("() => localStorage.getItem('lrdIdmPhoneTheme')") == 'dark'
         assert not ph._errors, ph._errors
     finally:
+        ctx.close()
+
+
+MENU_JS = """() => {
+    const inside = (sel, host) => !!document.querySelector(host + ' ' + sel);
+    const jumps = ['#ph-next-screen', '#ph-canvas-next', '[data-ph-field]'];
+    const box = (el) => { const r = el.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+    return {
+        main: jumps.filter(sel => inside(sel, '#ph-app')),
+        menu: jumps.filter(sel => inside(sel, '#ph-menu-sheet')),
+        colors: Array.from(document.querySelectorAll('#ph-menu-sheet [data-ph-field]')).map(b => b.getAttribute('aria-label')),
+        mainButtons: Array.from(document.querySelectorAll('#ph-controls button')).map(b => (b.getAttribute('aria-label') || b.textContent).trim()),
+        top: Array.from(document.querySelectorAll('.ph-top button')).filter(b => !b.hidden).map(b => b.id),
+        pad: Array.from(document.querySelectorAll('.ph-pad button')).map(box),
+    };
+}"""
+
+
+def test_the_menu_holds_what_jumps_or_repaints_the_wall(page, e2e_server, pw_browser):
+    """Owner, 2026-11-24: the main screen keeps the step switch, the
+    arrows, Mark, Undo and Clear highlight; Next screen, Change canvas and
+    the field colors (Black among them) move to a menu opened from the top
+    bar beside Swap list, so a thumb on the arrows never hits them, and the
+    room they leave goes to the arrows and Mark."""
+    two_canvases(page)
+    ctx, ph = open_phone(pw_browser, e2e_server)
+    try:
+        got = ph.evaluate(MENU_JS)
+        assert got['main'] == [] and got['menu'] == ['#ph-next-screen', '#ph-canvas-next', '[data-ph-field]'], got
+        assert got['colors'] == ['White', 'Red', 'Green', 'Blue', 'Black'], got
+        assert got['mainButtons'] == ['One module', 'One cabinet', 'Up', 'Left', 'Mark', 'Right', 'Down',
+                                      'Undo', 'Clear highlight'], got
+        # Menu sits beside Swap list in the top bar
+        assert got['top'][-2:] == ['ph-menu-open', 'ph-swap-open'], got
+        assert ph.inner_text('#ph-menu-open') == 'Menu'
+        # the arrows and Mark are bigger than the 1.7.0 betas' (about 120 x 96)
+        assert len(got['pad']) == 5 and all(w >= 110 and h >= 120 for w, h in got['pad']), got
+        assert not ph.is_visible('#ph-menu-sheet')
+        open_menu(ph)
+        assert ph.get_attribute('#ph-app', 'aria-hidden') == 'true'
+        assert ph.inner_text('#ph-menu-where') == 'No module highlighted'
+        # each control in the menu is finger sized and works from there
+        sizes = ph.evaluate("""() => Array.from(document.querySelectorAll('#ph-menu-sheet button'))
+            .filter(b => b.offsetParent).map(b => { const r = b.getBoundingClientRect(); return [b.id || b.getAttribute('aria-label'), r.width, r.height]; })""")
+        assert all(w >= 44 and h >= 44 for _, w, h in sizes), sizes
+        ph.tap('#ph-next-screen')
+        assert settled(page, lambda: hl(page), lambda v: v and v[0] == 'IdmA')[0] == 'IdmA'
+        assert settled(ph, lambda: ph.inner_text('#ph-menu-where'), lambda v: 'IdmA' in v)\
+            == 'Highlight on IdmA · Col 1, Row 1 · Whole cabinet'
+        assert ph.inner_text('#ph-canvas-name') == 'Main'
+        ph.tap('#ph-canvas-next')
+        assert settled(page, lambda: hl(page), lambda v: v and v[0] == 'IdmC') == ['IdmC', '0,0,0,0']
+        assert settled(ph, lambda: ph.inner_text('#ph-canvas-name'), lambda v: v == 'Side') == 'Side'
+        ph.tap('[data-ph-field="#000000"]')
+        assert settled(page, lambda: (served_field(page) or {}).get('color'), lambda v: v == '#000000') == '#000000'
+        assert ph.get_attribute('[data-ph-field="#000000"]', 'aria-pressed') == 'true'
+        # Back returns to the controls; so does the phone's back gesture
+        close_menu(ph)
+        assert ph.is_visible('#ph-controls') and ph.get_attribute('#ph-app', 'aria-hidden') is None
+        open_menu(ph)
+        ph.go_back()
+        ph.wait_for_selector('#ph-menu-sheet', state='hidden')
+        assert ph.is_visible('#ph-controls') and ph.url.endswith('/idm-phone')
+        # one canvas: Change canvas only names it
+        reset_project(page)
+        set_layout(page, 'IdmA', 2, 2)
+        settled(ph, lambda: ph.evaluate("() => window.idmPhone.app.project.layers.length"), lambda v: v == 1)
+        open_menu(ph)
+        assert settled(ph, lambda: ph.is_enabled('#ph-canvas-next'), lambda v: v is False) is False
+        assert ph.is_visible('#ph-canvas-one')
+        # a message (no show reachable) closes the menu with the controls
+        ph.evaluate("() => window.idmPhone.socket().disconnect()")
+        ph.wait_for_selector('#ph-menu-sheet', state='hidden')
+        assert not ph.is_visible('#ph-menu-open')
+        ph.evaluate("() => window.idmPhone.socket().connect()")
+        settled(ph, lambda: ph.is_visible('#ph-menu-open'), lambda v: v, 10000)
+        assert not ph._errors, ph._errors
+    finally:
+        page.evaluate("() => window.app._idmSetField({color: '#ffffff'})")
         ctx.close()
 
 
@@ -915,6 +1013,7 @@ def test_the_phone_keeps_to_its_canvas_and_a_controller_drives_it(page, e2e_serv
     ctx, ph = open_phone(pw_browser, e2e_server)
     try:
         settled(ph, lambda: ph.is_enabled('#ph-canvas-next'), lambda v: v)
+        open_menu(ph)
         assert ph.inner_text('#ph-canvas-name') == 'Main'
         ph.tap('#ph-next-screen')
         assert settled(page, lambda: hl(page), lambda v: v and v[0] == 'IdmA')[0] == 'IdmA'
@@ -928,16 +1027,21 @@ def test_the_phone_keeps_to_its_canvas_and_a_controller_drives_it(page, e2e_serv
         ph.tap('#ph-next-screen')
         ph.wait_for_timeout(200)
         assert hl(page) == ['IdmC', '0,0,0,0']
+        # no controller: the menu has no controller line
+        assert not ph.is_visible('#ph-pad-open')
         # a controller paired to the phone: the same map
         ph.evaluate(FAKE_PAD_JS)
         ph.wait_for_function("() => !!window.idmPhone.S.frame")
-        # its button list is a screen of its own, from the header
+        # its button list is a screen of its own, from the menu; Back
+        # returns to the menu, and the menu's Back to the controls
         ph.wait_for_selector('#ph-pad-open', state='visible')
         ph.tap('#ph-pad-open')
         assert ph.is_visible('#ph-pad-help') and 'View / Share' in ph.inner_text('#ph-pad-help')
         assert 'Clear the highlight' not in ph.inner_text('#ph-pad-help')
         ph.tap('#ph-pad-close')
         ph.wait_for_selector('#ph-pad-sheet', state='hidden')
+        ph.wait_for_selector('#ph-menu-sheet', state='visible')
+        close_menu(ph)
         tap = lambda *b: pad_tap(ph, 'phone', *b)  # noqa: E731
         tap(15)                       # D-pad right: one module
         assert settled(page, lambda: hl(page), lambda v: v == ['IdmC', '0,0,1,0']) == ['IdmC', '0,0,1,0']
@@ -1078,6 +1182,10 @@ def test_screenshots(page, e2e_server, pw_browser):
         try:
             ph.wait_for_timeout(500)
             ph.screenshot(path=os.path.join(SHOTS, f'idm-phone-main-dark-{tag}.png'))
+            open_menu(ph)
+            ph.wait_for_timeout(300)
+            ph.screenshot(path=os.path.join(SHOTS, f'idm-phone-menu-dark-{tag}.png'))
+            close_menu(ph)
             open_swap(ph)
             ph.wait_for_timeout(300)
             ph.screenshot(path=os.path.join(SHOTS, f'idm-phone-swap-list-dark-{tag}.png'))

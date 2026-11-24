@@ -24,12 +24,16 @@
 // screen changed since by another device is left alone, with a note.
 //
 // The controls keep to the canvas the highlight is on (owner, 2026-11-17);
-// the Canvas button (and View / Share on a controller) takes it to the
-// next one.
+// Change canvas in the menu (and View / Share on a controller) takes it to
+// the next one.
 //
-// The main screen is the controls alone; the swap list and the
-// controller's button list open as sheets over it (owner, 2026-11-17), and
-// the phone's own back gesture closes them. The page is dark unless this
+// The main screen is the controls alone: the step switch, the arrows, Mark,
+// Undo and Clear highlight. The swap list opens as a sheet over it (owner,
+// 2026-11-17), and so does the menu (owner, 2026-11-24), which holds what
+// jumps the highlight or repaints the wall, so a thumb on the arrows never
+// hits it: Next screen, Change canvas, the field colors and, while one is
+// paired, the controller's button list. The phone's own back gesture
+// closes a sheet. The page is dark unless this
 // phone picked light (owner, 2026-11-17), kept per device.
 import {
     idmHighlightOf, idmTargetOf, idmStepFrom, idmStartModule, idmNextScreenFrom, idmNextCanvasFrom,
@@ -110,7 +114,7 @@ const S = {
     cabinet: readStore(STEP_KEY) === 'cabinet',
     side: readStore(SIDE_KEY) === 'back' ? 'back' : 'front',
     theme: readStore(THEME_KEY) === 'light' ? 'light' : 'dark',
-    sheet: null,                  // 'swap' | 'pad' while one is open
+    sheet: null,                  // 'menu' | 'swap' | 'pad' while one is open
     stroke: null,                 // a paint under way (A held)
     undo: [],                     // this phone's own changes: {layerId, before, after, action}
     seq: 0,
@@ -456,8 +460,9 @@ function render() {
     $('ph-message').hidden = !msg;
     $('ph-controls').hidden = !!msg;
     $('ph-swap-open').hidden = !!msg;
-    // the swap list waits behind a message like the controls do
-    if (msg && S.sheet === 'swap') closeSheet();
+    $('ph-menu-open').hidden = !!msg;
+    // the swap list and the menu wait behind a message like the controls do
+    if (msg && (S.sheet === 'swap' || S.sheet === 'menu')) closeSheet();
     renderSheets();
     if (msg) return;
     renderReadout();
@@ -484,9 +489,10 @@ function setTheme(theme) {
     renderTheme();
 }
 
+const SHEETS = { menu: 'ph-menu-sheet', swap: 'ph-swap-sheet', pad: 'ph-pad-sheet' };
+
 function renderSheets() {
-    $('ph-swap-sheet').hidden = S.sheet !== 'swap';
-    $('ph-pad-sheet').hidden = S.sheet !== 'pad';
+    Object.keys(SHEETS).forEach(name => { $(SHEETS[name]).hidden = S.sheet !== name; });
     // the controls underneath are out of reach while a sheet covers them
     const app = $('ph-app');
     if (S.sheet) app.setAttribute('aria-hidden', 'true');
@@ -495,16 +501,18 @@ function renderSheets() {
 
 // A sheet opens as a step of the phone's history, so its own back
 // gesture (or the browser's Back) closes it, as Back on the sheet does.
+// The controller's list opens from the menu as a step past it: Back
+// returns to the menu.
 function openSheet(name) {
-    if (S.sheet === name) return;
-    const wasOpen = !!S.sheet;
+    if (S.sheet === name || !SHEETS[name]) return;
+    const replace = !!S.sheet && !(S.sheet === 'menu' && name === 'pad');
     S.sheet = name;
     try {
-        if (wasOpen) history.replaceState({ phSheet: name }, '');
+        if (replace) history.replaceState({ phSheet: name }, '');
         else history.pushState({ phSheet: name }, '');
     } catch (_) { /* no history: Back on the sheet still closes it */ }
     render();
-    const sheet = $(name === 'swap' ? 'ph-swap-sheet' : 'ph-pad-sheet');
+    const sheet = $(SHEETS[name]);
     const back = sheet && sheet.querySelector('.ph-back');
     if (back) back.focus({ preventScroll: true });
 }
@@ -562,16 +570,20 @@ function renderReadout() {
     state.textContent = mark ? 'Marked' : '';
     state.classList.toggle('marked', !!mark);
     $('ph-mark').textContent = mark ? 'Clear mark' : 'Mark';
-    // The canvas the controls are on; a tap goes to the next one. With
-    // one canvas it only names it.
+    // The menu: where the highlight is, and the canvas the controls are
+    // on; Change canvas goes to the next one. With one canvas it only
+    // names it.
+    $('ph-menu-where').textContent = d ? `Highlight on ${d.screen} · ${d.place}` : 'No module highlighted';
     const canvases = idmCanvasList(r, app.project);
     const cid = activeCanvas();
     const c = canvases.find(x => x.id === cid);
     const name = (c && c.name) || 'Canvas';
     $('ph-canvas-name').textContent = name;
+    $('ph-canvas-one').hidden = canvases.length >= 2;
     const canvasBtn = $('ph-canvas-next');
     canvasBtn.disabled = canvases.length < 2;
-    canvasBtn.setAttribute('aria-label', canvases.length < 2 ? `Canvas: ${name}` : `Canvas: ${name}. Tap for the next canvas.`);
+    canvasBtn.setAttribute('aria-label', canvases.length < 2
+        ? `Canvas: ${name}, the only canvas with screens` : `Change canvas. Now on ${name}.`);
     document.querySelectorAll('[data-ph-step]').forEach(b => {
         b.setAttribute('aria-pressed', (b.dataset.phStep === 'cabinet') === S.cabinet ? 'true' : 'false');
     });
@@ -662,8 +674,8 @@ function padList() {
     } catch (_) { return []; }
 }
 
-// The Controller button shows while one is connected; it opens the
-// button list.
+// The menu's Controller buttons shows while one is connected; it opens
+// the button list.
 function padHelp() {
     const none = S.padNames.size === 0;
     $('ph-pad-open').hidden = none;
@@ -754,6 +766,8 @@ function wire() {
     });
     $('ph-theme').addEventListener('click', () => setTheme(S.theme === 'light' ? 'dark' : 'light'));
     $('ph-swap-open').addEventListener('click', () => openSheet('swap'));
+    $('ph-menu-open').addEventListener('click', () => openSheet('menu'));
+    $('ph-menu-close').addEventListener('click', () => closeSheet());
     $('ph-swap-close').addEventListener('click', () => closeSheet());
     $('ph-pad-open').addEventListener('click', () => openSheet('pad'));
     $('ph-pad-close').addEventListener('click', () => closeSheet());
@@ -763,7 +777,7 @@ function wire() {
     window.addEventListener('popstate', (e) => {
         const want = e.state && e.state.phSheet;
         if (want === S.sheet) return;
-        S.sheet = want === 'swap' || want === 'pad' ? want : null;
+        S.sheet = SHEETS[want] ? want : null;
         render();
     });
     document.querySelectorAll('[data-ph-side]').forEach(b => {
