@@ -24,15 +24,16 @@ What this file pins:
   390 x 844 and 375 x 667 with no scrolling either way and finger sized
   buttons; the swap list opens as a screen of its own (Back or the
   phone's back gesture returns), and so does the menu (owner, 2026-11-24:
-  Next screen, Change canvas and the field colors, none of them on the
-  main screen, so nothing that jumps or repaints the wall sits by the
-  arrows) and, from the menu, the controller's button list. Its arrows,
-  the cabinet step, Mark, Undo, Next screen, the field and the swap list
-  reach the tab, the wall output and a second
+  Next screen, Change canvas, Clear highlight and the field colors, none
+  of them on the main screen, so nothing that jumps, clears or repaints
+  the wall sits by the arrows) and, from the menu, the controller's button
+  list. Its arrows, the cabinet step, Mark, Undo, Redo, Next screen, the
+  field and the swap list reach the tab, the wall output and a second
   phone, through the same routes and rules (a locked screen refuses, each
   change is one undo step on the computer, its own Undo takes back its
-  own change); it follows the show live and says so plainly when there is
-  no show or no screen.
+  own change and its Redo puts it back, greyed while the screen holds
+  anything else, live); it follows the show live and says so plainly when
+  there is no show or no screen.
 * The swap list (owner, 2026-11-24, after 2026-11-17's "count down as
   they are checked off"): a Swapped tick, on the tab or on a phone, takes
   that module's mark off the wall live everywhere (the server, the tab, a
@@ -443,10 +444,10 @@ def test_the_phone_page_fits_a_phone_and_drives_the_wall(page, e2e_server, pw_br
         settled(page, lambda: page.evaluate("() => window.app._idmFieldNow().color"), lambda v: v == '#00ff00')
         assert settled(ph2, lambda: ph2.get_attribute('[data-ph-field="#00ff00"]', 'aria-pressed'),
                        lambda v: v == 'true') == 'true'
-        close_menu(ph)
-        # Clear highlight
+        # Clear highlight, in the menu too
         ph.tap('#ph-clear')
         assert settled(page, lambda: hl(page), lambda v: v is None) is None
+        close_menu(ph)
         assert not ph._errors and not ph2._errors, (ph._errors, ph2._errors)
     finally:
         page.evaluate("() => window.app._idmSetField({color: '#ffffff'})")
@@ -535,7 +536,7 @@ def test_the_main_screen_fills_a_phone_in_dark_with_the_swap_list_on_its_own(pag
 
 MENU_JS = """() => {
     const inside = (sel, host) => !!document.querySelector(host + ' ' + sel);
-    const jumps = ['#ph-next-screen', '#ph-canvas-next', '[data-ph-field]'];
+    const jumps = ['#ph-next-screen', '#ph-canvas-next', '#ph-clear', '[data-ph-field]'];
     const box = (el) => { const r = el.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
     return {
         main: jumps.filter(sel => inside(sel, '#ph-app')),
@@ -550,18 +551,18 @@ MENU_JS = """() => {
 
 def test_the_menu_holds_what_jumps_or_repaints_the_wall(page, e2e_server, pw_browser):
     """Owner, 2026-11-24: the main screen keeps the step switch, the
-    arrows, Mark, Undo and Clear highlight; Next screen, Change canvas and
-    the field colors (Black among them) move to a menu opened from the top
-    bar beside Swap list, so a thumb on the arrows never hits them, and the
-    room they leave goes to the arrows and Mark."""
+    arrows, Mark, Undo and Redo; Next screen, Change canvas, Clear
+    highlight and the field colors (Black among them) move to a menu
+    opened from the top bar beside Swap list, so a thumb on the arrows
+    never hits them, and the room they leave goes to the arrows and Mark."""
     two_canvases(page)
     ctx, ph = open_phone(pw_browser, e2e_server)
     try:
         got = ph.evaluate(MENU_JS)
-        assert got['main'] == [] and got['menu'] == ['#ph-next-screen', '#ph-canvas-next', '[data-ph-field]'], got
+        assert got['main'] == [] and got['menu'] == ['#ph-next-screen', '#ph-canvas-next', '#ph-clear', '[data-ph-field]'], got
         assert got['colors'] == ['White', 'Red', 'Green', 'Blue', 'Black'], got
         assert got['mainButtons'] == ['One module', 'One cabinet', 'Up', 'Left', 'Mark', 'Right', 'Down',
-                                      'Undo', 'Clear highlight'], got
+                                      'Undo', 'Redo'], got
         # Menu sits beside Swap list in the top bar
         assert got['top'][-2:] == ['ph-menu-open', 'ph-swap-open'], got
         assert ph.inner_text('#ph-menu-open') == 'Menu'
@@ -571,6 +572,8 @@ def test_the_menu_holds_what_jumps_or_repaints_the_wall(page, e2e_server, pw_bro
         open_menu(ph)
         assert ph.get_attribute('#ph-app', 'aria-hidden') == 'true'
         assert ph.inner_text('#ph-menu-where') == 'No module highlighted'
+        # nothing highlighted: Clear highlight is grey
+        assert ph.is_disabled('#ph-clear')
         # each control in the menu is finger sized and works from there
         sizes = ph.evaluate("""() => Array.from(document.querySelectorAll('#ph-menu-sheet button'))
             .filter(b => b.offsetParent).map(b => { const r = b.getBoundingClientRect(); return [b.id || b.getAttribute('aria-label'), r.width, r.height]; })""")
@@ -579,6 +582,14 @@ def test_the_menu_holds_what_jumps_or_repaints_the_wall(page, e2e_server, pw_bro
         assert settled(page, lambda: hl(page), lambda v: v and v[0] == 'IdmA')[0] == 'IdmA'
         assert settled(ph, lambda: ph.inner_text('#ph-menu-where'), lambda v: 'IdmA' in v)\
             == 'Highlight on IdmA · Col 1, Row 1 · Whole cabinet'
+        # Clear highlight takes it off the wall, then is grey again
+        assert ph.is_enabled('#ph-clear')
+        ph.tap('#ph-clear')
+        assert settled(page, lambda: hl(page), lambda v: v is None) is None
+        assert settled(ph, lambda: ph.is_disabled('#ph-clear'), lambda v: v) is True
+        assert ph.inner_text('#ph-menu-where') == 'No module highlighted'
+        ph.tap('#ph-next-screen')
+        assert settled(page, lambda: hl(page), lambda v: v and v[0] == 'IdmA')[0] == 'IdmA'
         assert ph.inner_text('#ph-canvas-name') == 'Main'
         ph.tap('#ph-canvas-next')
         assert settled(page, lambda: hl(page), lambda v: v and v[0] == 'IdmC') == ['IdmC', '0,0,0,0']
@@ -1049,6 +1060,87 @@ PRESS_JS = """([dir, type]) => {
                                             bubbles: true, cancelable: true}));
     return performance.now();
 }"""
+
+
+def test_redo_puts_back_what_the_phones_undo_took_back(page, e2e_server, pw_browser):
+    """Owner, 2026-11-24: Undo and Redo share the main screen's bottom row.
+    Redo puts back what this phone's Undo took back (a mark, an untick),
+    the way Undo goes, and the computer's history follows it (the phone's
+    changes are one step of their own there, 2026-11-18: an Undo here that
+    takes the screen back takes that step away, a Redo here brings it
+    back); grey when there is nothing to redo, and live: when the computer
+    undoes the phone's changes it greys, when the computer redoes them it
+    comes back. A new change here ends the redo steps."""
+    reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    put_marks(page, 'IdmA', 2, 2, ['0,0,0,0'])
+    page.click('#idm-list .idm-row[data-idm-key="0,0,0,0"] input[data-idm-swap]')
+    settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '0,0,0,0' in v.get('swapped', {}))
+    ctx, ph = open_phone(pw_browser, e2e_server)
+    marked = lambda key: lambda v: v and key in v['marks']  # noqa: E731
+    unmarked = lambda key: lambda v: v and key not in v['marks']  # noqa: E731
+    swapped = lambda key: lambda v: v and key in v.get('swapped', {})  # noqa: E731
+    try:
+        assert ph.is_visible('#ph-redo') and ph.inner_text('#ph-redo') == 'Redo'
+        assert ph.is_disabled('#ph-redo') and ph.is_disabled('#ph-undo')
+        # a mark, undone, redone
+        page.evaluate("""() => { const a = window.app.project.layers.find(x => x.name === 'IdmA');
+            window.app._idmSetHighlight(a.id, '1,0,1,1'); }""")
+        settled(ph, lambda: phone_hl(ph), lambda v: v == ['IdmA', '1,0,1,1'])
+        ph.tap('#ph-mark')
+        settled(page, lambda: served_idm(page, 'IdmA'), marked('1,0,1,1'))
+        settled(ph, lambda: ph.is_enabled('#ph-undo'), lambda v: v)
+        assert ph.is_disabled('#ph-redo')
+        settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '1,0,1,1' in v)
+        h0 = history_index(page)
+        ph.tap('#ph-undo')
+        settled(page, lambda: served_idm(page, 'IdmA'), unmarked('1,0,1,1'))
+        assert settled(ph, lambda: ph.is_enabled('#ph-redo'), lambda v: v) is True
+        # the computer's step for the phone's change goes with it
+        assert settled(page, lambda: history_index(page), lambda v: v == h0 - 1) == h0 - 1
+        ph.tap('#ph-redo')
+        got = settled(page, lambda: served_idm(page, 'IdmA'), marked('1,0,1,1'))
+        assert got['marks']['1,0,1,1'] == {'style': 'color', 'color': '#ff1a1a'}, got
+        assert 'Redone: Mark Module' in toast_text(ph)
+        assert settled(ph, lambda: ph.is_disabled('#ph-redo'), lambda v: v) is True
+        # and comes back with the Redo
+        assert settled(page, lambda: history_index(page), lambda v: v == h0) == h0
+        settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '1,0,1,1' in v)
+        # an untick on the Swapped list, undone, redone
+        open_swap(ph)
+        ph.tap('#ph-swapped-list .ph-row[data-ph-key="0,0,0,0"] input')
+        settled(page, lambda: served_idm(page, 'IdmA'), marked('0,0,0,0'))
+        close_swap(ph)
+        ph.tap('#ph-undo')
+        settled(page, lambda: served_idm(page, 'IdmA'), swapped('0,0,0,0'))
+        assert 'Undone: Module Not Swapped' in toast_text(ph)
+        assert settled(ph, lambda: ph.is_enabled('#ph-redo'), lambda v: v) is True
+        ph.tap('#ph-redo')
+        got = settled(page, lambda: served_idm(page, 'IdmA'), marked('0,0,0,0'))
+        assert 'swapped' not in got, got
+        assert 'Redone: Module Not Swapped' in toast_text(ph)
+        # the end of the redo steps: grey
+        assert settled(ph, lambda: ph.is_disabled('#ph-redo'), lambda v: v) is True
+        # live: the phone undoes; the computer undoes the phone's changes
+        # (the mark goes too), so Redo greys; the computer redoes them, so
+        # Redo is back
+        ph.tap('#ph-undo')
+        settled(page, lambda: served_idm(page, 'IdmA'), swapped('0,0,0,0'))
+        assert settled(ph, lambda: ph.is_enabled('#ph-redo'), lambda v: v) is True
+        settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '0,0,0,0' not in v)
+        page.evaluate("() => window.app.undo()")
+        settled(page, lambda: served_idm(page, 'IdmA'), unmarked('1,0,1,1'))
+        assert settled(ph, lambda: ph.is_disabled('#ph-redo'), lambda v: v) is True
+        page.evaluate("() => window.app.redo()")
+        settled(page, lambda: served_idm(page, 'IdmA'), marked('1,0,1,1'))
+        assert settled(ph, lambda: ph.is_enabled('#ph-redo'), lambda v: v) is True
+        # a new change here ends the redo steps
+        ph.tap('#ph-mark')
+        settled(page, lambda: served_idm(page, 'IdmA'), unmarked('1,0,1,1'))
+        assert settled(ph, lambda: ph.is_disabled('#ph-redo'), lambda v: v) is True
+        assert not ph._errors, ph._errors
+    finally:
+        ctx.close()
 
 
 def test_holding_a_phone_arrow_speeds_up_and_stops_on_release(page, e2e_server, pw_browser):

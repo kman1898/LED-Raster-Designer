@@ -10,9 +10,10 @@
          (canvas.js, canvas-labels.js, canvas-idm.js) to name and step
          modules exactly as the tab does, and nothing else of the designer.
 
-         The main screen is the controls alone, sized to fill a phone held
-         upright with no scrolling; the menu (Next screen, Change canvas
-         and the field colors, owner 2026-11-24), the swap list and the
+         The main screen is the controls alone (the step switch, the
+         arrows, Mark, Undo and Redo), sized to fill a phone held upright
+         with no scrolling; the menu (Next screen, Change canvas, Clear
+         highlight and the field colors, owner 2026-11-24), the swap list and the
          controller's button list are sheets of their own over it. A held
          arrow repeats, faster the longer it is held. Dark
          unless this phone
@@ -243,12 +244,13 @@
             </div>
             <div class="ph-actions">
                 <button type="button" id="ph-undo" class="ph-btn">Undo</button>
-                <button type="button" id="ph-clear" class="ph-btn">Clear highlight</button>
+                <button type="button" id="ph-redo" class="ph-btn">Redo</button>
             </div>
         </section>
     </div>
-    <!-- The menu (owner, 2026-11-24): what jumps the highlight or repaints
-         the wall, away from the arrows so a thumb never hits it by accident. -->
+    <!-- The menu (owner, 2026-11-24): what jumps the highlight, takes it
+         off or repaints the wall, away from the arrows so a thumb never
+         hits it by accident. -->
     <section id="ph-menu-sheet" class="ph-sheet" role="dialog" aria-labelledby="ph-menu-title" hidden>
         <div class="ph-sheet-in">
             <div class="ph-sheet-head">
@@ -264,6 +266,10 @@
                 <button type="button" id="ph-canvas-next" class="ph-btn ph-menu-item ph-canvas" aria-label="Canvas">
                     <span class="ph-menu-main">Change canvas</span>
                     <span class="ph-menu-sub">Now on <span id="ph-canvas-name" class="ph-canvas-name"></span><span id="ph-canvas-one" class="ph-canvas-one" hidden>, the only canvas with screens</span></span>
+                </button>
+                <button type="button" id="ph-clear" class="ph-btn ph-menu-item">
+                    <span class="ph-menu-main">Clear highlight</span>
+                    <span class="ph-menu-sub">Takes the outline off the wall until you move it again</span>
                 </button>
                 <div class="ph-menu-label" id="ph-field-label">Field color</div>
                 <div class="ph-swatches" role="group" aria-labelledby="ph-field-label">
