@@ -118,4 +118,38 @@ describe('the joints set by hand are kept with the Curve', () => {
     });
 });
 
+describe('a joint set by hand: every build in Ways to build it has its own id', () => {
+    // (review, 2026-11-24) the 5 degree build took the hand joint's 2.5
+    // and was named "2.5+5" like the build that uses both, and the tab
+    // said "in use" on both rows.
+    const bars = Array.from({ length: 16 }, (_, i) => ({ start: i, size: 1 }));
+    const out = screenCurve({ panels: 16, panelWidthM: 0.5, sizes: [1, 2], locks: [-5, -2.5, 0, 2.5, 5],
+                              settings: on({ value: 20, handJoints: { 3: 2.5 } }), hand: { bars, joints: { 3: 2.5 } } });
+    const ids = out.result.options.map((o) => o.id);
+    it('names no two builds alike', () => {
+        expect(out.errors).toEqual([]);
+        expect(new Set(ids).size).toBe(ids.length);
+    });
+    it('marks exactly one build as the one laid, and it is the one laid', () => {
+        const used = out.result.options.filter((o) => o.id === out.result.chosen_option_id);
+        expect(used).toHaveLength(1);
+        expect(used[0].joints).toEqual(out.result.joints.map((j) => j.angle_deg));
+    });
+    it('keeps the name for the best of two builds using the same angles, the other numbered', () => {
+        const same = out.result.options.filter((o) => o.used_angles_deg.join('+') === '2.5+5');
+        expect(same.length >= 2).toBe(true);
+        expect(same[0].id).toBe('2.5+5');
+        expect(same[1].id).toBe('2.5+5 #2');
+    });
+    it('a pick of the numbered build lays it', () => {
+        const other = out.result.options.find((o) => o.id === '2.5+5 #2');
+        const key = out.pickKey;
+        const picked = screenCurve({ panels: 16, panelWidthM: 0.5, sizes: [1, 2], locks: [-5, -2.5, 0, 2.5, 5],
+                                     settings: on({ value: 20, handJoints: { 3: 2.5 }, pick: { id: other.id, key } }),
+                                     hand: { bars, joints: { 3: 2.5 } } });
+        expect(picked.result.chosen_option_id).toBe('2.5+5 #2');
+        expect(picked.joints).toEqual(other.joints);
+    });
+});
+
 report();

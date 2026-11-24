@@ -2106,14 +2106,20 @@ class _Curve {
     // side of a screen with corners, its list headed with its name.
     _curveDrawWays(host, groups, system) {
         if (!host) return;
+        // Two builds using the same angles (a joint set by hand can give a
+        // build its angle) are told apart by how many joints take each.
+        const said = (o) => (o.used_angles_deg.length ? o.used_angles_deg.map(a => formatAngle(a)).join(' + ') : 'All flat');
+        const counted = (o) => o.used_angles_deg.slice().reverse()
+            .map(a => `${formatAngle(a)} at ${o.joints.filter(x => Math.abs(x - a) < 1e-9).length}`).join(', ');
         const lists = groups.map(g => {
             const r = g.r;
+            const twice = new Set(r.options.map(said).filter((t, i, all) => all.indexOf(t) !== i));
             return {
                 side: g.side, name: g.name,
                 manual: r.config.pattern_choice !== 'auto' && r.chosen_option_id !== r.recommended_option_id,
                 rows: r.options.map(o => ({
                     id: o.id,
-                    angles: o.used_angles_deg.length ? o.used_angles_deg.map(a => formatAngle(a)).join(' + ') : 'All flat',
+                    angles: twice.has(said(o)) && o.used_angles_deg.length ? counted(o) : said(o),
                     even: o.even && o.used_angles_deg.length > 0,
                     joints: `${o.curved_joints} bent, ${o.flat_joints} flat`,
                     builds: `${o.percent_circle.toFixed(1)}%`,

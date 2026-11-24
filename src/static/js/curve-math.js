@@ -2194,6 +2194,18 @@ export function solveCurve(config, system = 'metric') {
   // a guard, not a case anyone meets).
   if (!ranked.length) return zeroed(config, ['These bar sizes cannot be laid around the corners. Light another size.']);
   if (seamJoints) ranked.forEach((o) => { o.flat_joints = seamJoints.size - o.curved_joints; });
+  // Every build has its own id (review, 2026-11-24: with a joint set by
+  // hand, the 5 degree build took the hand joint's 2.5 too and was named
+  // "2.5+5" like the build that uses both, so Ways to build it said "in
+  // use" on two different builds). The first of a name, best first, keeps
+  // it, so the build laid and a pick saved by that name are the same as
+  // before; a later one is told apart by a number.
+  const named = new Map();
+  ranked.forEach((o) => {
+    const n = (named.get(o.id) || 0) + 1;
+    named.set(o.id, n);
+    if (n > 1) o.id = `${o.id} #${n}`;
+  });
   const recommended = ranked[0];
   const manualPick =
     config.pattern_choice !== 'auto' ? ranked.find((o) => o.id === config.pattern_choice) : undefined;
