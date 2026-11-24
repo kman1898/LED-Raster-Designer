@@ -189,6 +189,13 @@ class _Processors {
         // its reply before it is rebuilt (app-dock.js _hwPopoverHold).
         const out = typeof this._hwPopoverRequestOut === 'function'
             ? (p) => this._hwPopoverRequestOut(p) : (p) => p;
+        // An edit's step is taken when its reply lands, so an undo or redo
+        // pressed before then waits for it (app-history.js _holdHistoryKey):
+        // played at once, it stepped over the edit before this one and the
+        // reply then took its step on top of the undo.
+        const steps = !!action && typeof this._historyWriteOut === 'function';
+        if (steps) this._historyWriteOut();
+        const landed = () => { if (steps) this._historyWriteLanded(); };
         return out(fetch(url, {
             method,
             headers: { 'Content-Type': 'application/json' },
@@ -242,7 +249,8 @@ class _Processors {
                 }
             })
             .catch(err => sendClientLog('processor_request_failed',
-                                        { url, method, error: String(err) })));
+                                        { url, method, error: String(err) }))
+            .finally(landed));
     }
 
     // The panel is rebuilt wholesale on every change, so any field the user is

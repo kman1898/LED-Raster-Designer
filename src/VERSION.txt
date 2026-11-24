@@ -763,6 +763,11 @@ FIXES
 - FIX: Undo pressed right after deleting a screen brings the screen back.
   It used to undo the change made before the delete instead, and leave the
   screen deleted.
+- FIX: Undo pressed right after an edit in the Hardware tray, before the
+  edit has finished saving, undoes that edit. It used to undo the change
+  before it, and the edit then came back as a new step. Undo pressed while
+  still typing in a tray field undoes the typing too, instead of saving it
+  again after the undo.
 - FIX: Delete removes a screen only on the Pixel Map tab, so a stray key
   never costs a screen. On other tabs it does nothing to screens. The
   canvas right-click
