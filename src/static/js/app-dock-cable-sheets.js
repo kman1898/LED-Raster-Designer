@@ -64,6 +64,7 @@ class _DockCableSheets {
         }
         const patterns = [
             /^lrd_cable_sheet_(.+)_\d+$/,
+            /^lrd_distro_cable_list_(.+)$/,
             /^ledRasterPanelCollapsed_hwdock-distro-(.+)$/,
             /^ledRasterPanelCollapsed_hwdock-multi-(.+)-\d+$/,
             /^ledRasterPanelCollapsed_hwdock-twofer-(.+)-\d+$/,
@@ -99,6 +100,286 @@ class _DockCableSheets {
             this.renderHardwareDock();
         });
         return btn;
+    }
+
+    // ── the distro's cable list ───────────────────────────────────────────
+    //
+    // "the distro thing is just a window that allows the lists of all cable
+    // lengths and extensions" (owner, 2026-11-24): the processor's cable
+    // list (_dockBuildProcCableSheet) on the power side. A ≡ on the distro's
+    // header opens ONE list under it, outside every fold: its power in, a
+    // two-fer's home run, each multi's home run and its circuit cables (the
+    // multi's own sheet, built by the same builder from the same rows, so
+    // the two cannot drift), and each direct output's cable. A length typed
+    // here is the same stored entry the multi's header, its sheet or the
+    // chip types. Nothing else changes: the chips stay chips and each
+    // multi's own ≡ stays as it is. Which lists are open is a viewing
+    // choice, remembered per distro in localStorage and never in the
+    // project, the same doctrine as the processor's list; it goes with the
+    // distro (_forgetDistroViews).
+
+    _distroListKey(distroId) {
+        return `lrd_distro_cable_list_${distroId}`;
+    }
+
+    _distroListOpen(distroId) {
+        try {
+            return localStorage.getItem(this._distroListKey(distroId)) === '1';
+        } catch (_) {
+            return false;
+        }
+    }
+
+    _setDistroListOpen(distroId, open) {
+        try {
+            if (open) localStorage.setItem(this._distroListKey(distroId), '1');
+            else localStorage.removeItem(this._distroListKey(distroId));
+        } catch (_) { /* no storage: the list lasts the render */ }
+    }
+
+    // The distro's ≡: the processor ≡'s look (the multi's keycap), its
+    // own class so nothing reading "a multi's ≡" finds it.
+    _dockBuildDistroListButton(d) {
+        const open = this._distroListOpen(d.id);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'hw-dock-cablebtn hw-dock-cablebtn-distro'
+            + (open ? ' hw-dock-cablebtn-on' : '');
+        btn.textContent = '≡';
+        btn.title = open
+            ? 'Cable list of every cable on this distro. Click to close it.'
+            : 'Cable list of every cable on this distro: power in, home runs '
+                + 'and circuit cables, folded or open. Click to open it.';
+        btn.setAttribute('aria-pressed', String(open));
+        btn.dataset.lrdField = `power-distro-list-${d.id}`;
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._setDistroListOpen(d.id, !open);
+            this.renderHardwareDock();
+        });
+        return btn;
+    }
+
+    // A rebuild that lands a beat after the write, so the Tab or the Enter
+    // the change rode lands on a real element (the sheets' own rule).
+    _distroListCommitted() {
+        this.saveClientSideProperties();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        this._rebuildAfterGesture(() => this.renderHardwareDock());
+    }
+
+    // One length field of the list: the show's unit after it, the commit
+    // on change (Enter releases the field, so it lands as a change too).
+    _distroListLength(key, value, title, commit) {
+        const td = document.createElement('td');
+        const ft = document.createElement('input');
+        ft.type = 'text';
+        ft.inputMode = 'decimal';
+        ft.className = 'hw-dock-cable-ft';
+        ft.value = value == null ? '' : String(value);
+        ft.dataset.lrdField = key;
+        ft.title = title;
+        ft.addEventListener('change', () => commit(ft.value.trim()));
+        td.appendChild(ft);
+        td.appendChild(document.createTextNode(` ${this.cableUnitAbbr()}`));
+        return td;
+    }
+
+    // A small sheet of `cols` headings and `rows`: { cells: [text], len:
+    // { key, value, title, commit } } - the length is the last column.
+    _distroListTable(cols, rows) {
+        const sheet = document.createElement('div');
+        sheet.className = 'hw-dock-cablesheet';
+        const table = document.createElement('table');
+        const head = document.createElement('tr');
+        cols.forEach(h => {
+            const th = document.createElement('th');
+            th.textContent = h;
+            head.appendChild(th);
+        });
+        table.appendChild(head);
+        rows.forEach(r => {
+            const tr = document.createElement('tr');
+            r.cells.forEach(text => {
+                const td = document.createElement('td');
+                td.textContent = text == null ? '' : String(text);
+                tr.appendChild(td);
+            });
+            tr.appendChild(this._distroListLength(r.len.key, r.len.value,
+                                                  r.len.title, r.len.commit));
+            table.appendChild(tr);
+        });
+        sheet.appendChild(table);
+        return sheet;
+    }
+
+    // The list itself, from what the distro's render collected in the
+    // tray's order (`parts`: _dockBuildMulti, _dockBuildDirectRow and
+    // _dockBuildTwofer each note what they drew). Every data-lrd-* key in
+    // it is prefixed with the distro's, so a field has ONE key on the page
+    // while the multi's own sheet is open too (focus restore and the
+    // guides find a field by its key).
+    _dockBuildDistroList(d, parts) {
+        const wrap = document.createElement('div');
+        wrap.className = 'hw-dock-proc-sheet hw-dock-distro-list';
+        wrap.dataset.lrdDistroList = d.id;
+        const section = (heading, id, content) => {
+            const sec = document.createElement('div');
+            sec.className = 'hw-dock-proc-sheet-sec';
+            sec.dataset.lrdDistroListSec = id;
+            const head = document.createElement('div');
+            head.className = 'hw-dock-proc-sheet-head';
+            head.textContent = heading;
+            sec.appendChild(head);
+            content.forEach(c => sec.appendChild(c));
+            wrap.appendChild(sec);
+        };
+        const unitWord = this.cableUnitWord();
+        // the power in: the cable that powers the distro (app-services.js)
+        if (typeof this.feederTypeOf === 'function') {
+            const t = this.feederTypeOf(d);
+            const src = typeof this.feederSourceText === 'function' ? this.feederSourceText(d) : null;
+            section('Power in', 'power-in', [this._distroListTable(['cable', 'from', 'length'], [{
+                cells: [t.type, src || ''],
+                len: {
+                    key: `distro-feeder-ft-${d.id}`,
+                    value: d.feeder && d.feeder.ft != null ? d.feeder.ft : '',
+                    title: `The power in's length in ${unitWord}. Blank = no length.`
+                        + this.cableStockHint(d.feeder && d.feeder.ft, 'feeder'),
+                    commit: (val) => {
+                        if (this.setDistroFeeder(d.id, { ft: val })) this._distroListCommitted();
+                        else this._rebuildAfterGesture(() => this.renderHardwareDock());
+                    },
+                },
+            }])]);
+        }
+        parts.forEach(p => {
+            if (p.kind === 'twofer') {
+                section(`${p.name} two-fer`, `twofer:${p.output}`, [this._distroListTable(
+                    ['cable', 'length'], [{
+                        cells: [`home run, ${this.distroLabel(d)} to the splitter`],
+                        len: {
+                            key: `twofer-home-run-${d.id}-${p.output}`,
+                            value: p.homeRun || '',
+                            title: `The home run from ${this.distroLabel(d)} to the two-fer, `
+                                + `one Socapex, in ${unitWord}.`
+                                + this.cableStockHint(p.homeRun, 'multi'),
+                            commit: (val) => {
+                                if (this.setTwoferHomeRun(d.id, p.output, val)) {
+                                    this._distroListCommitted();
+                                }
+                            },
+                        },
+                    }])]);
+            } else if (p.kind === 'multi') {
+                const first = p.memberRecs[0];
+                const typed = (first.layer.powerSocaNames || {})[first.m.soca];
+                const name = typed || (first.s && first.s.name) || this.distroBoxName(d, p.n);
+                const value = (first.layer.powerSocaLengths || {})[first.m.soca]
+                    || (first.s && first.s.length) || '';
+                const home = this._distroListTable(['cable', 'length'], [{
+                    cells: ['home run'],
+                    len: {
+                        key: `power-soca-length-${first.layer.id}-${first.m.soca}`,
+                        value,
+                        title: `The home-run length of this ${p.typeName}, one run for every `
+                            + `screen sharing it, in ${unitWord}.`
+                            + this.cableStockHint(value, p.homeKind),
+                        // every member at once, as the multi's header writes it
+                        commit: (val) => {
+                            const took = p.memberRecs.map(({ layer, m }) =>
+                                this.setSocaLength(layer, m.soca, val, false));
+                            if (took.length && took.every(t => t === false)) {
+                                this._rebuildAfterGesture(() => this.renderHardwareDock());
+                                return;
+                            }
+                            this.updateLayers(p.memberRecs.map(r => r.layer), true,
+                                              'Set Multi Home Run');
+                            this._distroListCommitted();
+                        },
+                    },
+                }]);
+                section(`${name} · ${p.typeName}`, `multi:${p.n}`, [
+                    home, this._dockBuildCableSheet(d, p.n, p.boxSize, p.byTail)]);
+            } else if (p.kind === 'direct') {
+                const rows = [];
+                p.perBox.forEach(({ box, holders }) => holders.forEach(h => {
+                    const l = (this.project.layers || []).find(x => x.id === h.layerId);
+                    if (!l) return;
+                    const value = (l.powerSocaLengths || {})[h.soca] || '';
+                    rows.push({
+                        cells: [String(box.number), h.label, h.who],
+                        len: {
+                            key: `direct-length-${l.id}-${h.soca}`,
+                            value,
+                            title: `The cable from ${this.distroBoxName(d, box.number)} to `
+                                + `${l.name}, in ${unitWord}.`
+                                + this.cableStockHint(value, 'direct'),
+                            commit: (val) => {
+                                if (this.setSocaLength(l, h.soca, val)) this._distroListCommitted();
+                                else this._rebuildAfterGesture(() => this.renderHardwareDock());
+                            },
+                        },
+                    });
+                }));
+                if (rows.length) {
+                    section(p.heading, `direct:${p.rowId}`, [this._distroListTable(
+                        ['no.', 'circuit', 'screen', 'cable'], rows)]);
+                }
+            }
+        });
+        const ns = `distrolist-${d.id}-`;
+        [wrap, ...wrap.querySelectorAll('*')].forEach(el => {
+            Object.keys(el.dataset || {}).forEach(k => {
+                if (/^lrd[A-Z]/.test(k) && k !== 'lrdDistroList'
+                        && k !== 'lrdDistroListSec') {
+                    el.dataset[k] = ns + el.dataset[k];
+                }
+            });
+        });
+        return wrap;
+    }
+
+    // EVERY DISTRO'S ≡ AT ONCE (owner, 2026-11-24: "We can do the same
+    // thing on distros"): the tray header's ≡ in the Power view. It writes
+    // each distro's own key (_setDistroListOpen), so a click here is
+    // exactly a click on each distro's ≡ and each one agrees after. It
+    // reads pressed in while every list is open, and then closes them;
+    // otherwise it opens the ones still closed.
+    _allDistroListsOpen() {
+        const ds = this.getDistros ? this.getDistros() : [];
+        return ds.length > 0 && ds.every(d => this._distroListOpen(d.id));
+    }
+
+    _setAllDistroListsOpen(open) {
+        const ds = this.getDistros ? this.getDistros() : [];
+        ds.forEach(d => this._setDistroListOpen(d.id, open));
+        sendClientLog('distro_cable_lists_all', { open, distros: ds.map(d => d.id) });
+        this.renderHardwareDock();
+    }
+
+    _renderDistroListsAllButton() {
+        const btn = document.getElementById('hw-dock-distro-lists');
+        if (!btn) return;
+        const any = (this.getDistros ? this.getDistros() : []).length > 0;
+        const open = any && this._allDistroListsOpen();
+        // never hidden, so nothing on the header shifts as distros come
+        // and go; with no distro it is simply off
+        btn.disabled = !any;
+        btn.classList.toggle('hw-dock-cablebtn-on', open);
+        btn.setAttribute('aria-pressed', String(open));
+        btn.setAttribute('aria-label', open
+            ? 'Close every distro\'s cable list'
+            : 'Open every distro\'s cable list');
+        btn.dataset.tooltip = !any
+            ? 'Cable lists, Opens every distro\'s cable list at once. Add a '
+                + 'distro and there is one to open.'
+            : open
+                ? 'Cable lists, Every distro\'s cable list is open. Click to close '
+                    + 'them all. Each distro\'s own ≡ still opens or closes one.'
+                : 'Cable lists, Open every distro\'s cable list at once: power in, '
+                    + 'home runs and circuit cables. Each distro\'s own ≡ still '
+                    + 'opens or closes one.';
     }
 
     // One box's sheet: the quick fills on top, then tail · circuit ·

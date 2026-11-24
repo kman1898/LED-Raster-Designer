@@ -2783,6 +2783,8 @@ button.hw-dock-typechip:focus-visible { outline: 1px solid var(--ps-accent, #ef3
     flex: 0 0 auto; margin-left: auto; max-width: 100%;
 }
 .hw-dock-head-acts > .hw-dock-unit-info { margin-left: 0; }
+/* the distro's ≡ (its cable list) sits in the group, not pushed apart */
+.hw-dock-head-acts > .hw-dock-cablebtn { margin-left: 0; }
 /* The distro header bar's hover hint (app-dock.js _dockBuildDistro): it
    takes the free stretch before the group and never pushes anything to a
    new line (zero basis); narrower than its words, it hides rather than

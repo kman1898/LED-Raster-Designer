@@ -2769,10 +2769,18 @@
                         <span id="hw-dock-data-controls" class="hw-dock-ctl view-hidden">
                             <select id="processor-add-device" data-lrd-field="processor-add-device" data-tooltip="Add a processor, Pick a model and press Add. Its cards, boxes and ports appear in this tray to drag onto screens."></select>
                             <button id="processor-add-btn" class="btn" data-lrd-field="processor-add-btn">Add</button>
+                            <!-- Every processor's ≡ at once (owner, 2026-11-24): the
+                                 processor header's own ≡ key, set on each processor
+                                 (app-dock.js _setAllProcSheetsOpen). -->
+                            <button type="button" id="hw-dock-proc-sheets" class="hw-dock-cablebtn hw-dock-cablebtn-all" data-lrd-field="hw-dock-proc-sheets" aria-label="Open every processor's cable list">≡</button>
                         </span>
                         <span id="hw-dock-power-controls" class="hw-dock-ctl view-hidden">
                             <button id="power-distro-add" class="btn" data-lrd-field="power-distro-add" data-tooltip="Add a power distro, A project-level power source. Its multis appear in this tray to drag onto circuits, and the load rolls up on its header.">+ Add distro</button>
                             <button id="power-service-add" class="btn" data-lrd-field="power-service-add" data-tooltip="Add a service, the house power several distros draw from. Drag a distro's header bar onto its card to put the distro on it; the card adds up their leg loads against the service.">+ Add service</button>
+                            <!-- Every distro's ≡ at once (owner, 2026-11-24): each
+                                 distro's own ≡ key, set on every distro (app-dock.js
+                                 _setAllDistroListsOpen). -->
+                            <button type="button" id="hw-dock-distro-lists" class="hw-dock-cablebtn hw-dock-cablebtn-all" data-lrd-field="hw-dock-distro-lists" aria-label="Open every distro's cable list">≡</button>
                         </span>
                         <span class="hw-dock-head-sp"></span>
                         <button type="button" id="hw-dock-flag" class="view-hidden" data-lrd-field="hw-dock-flag" aria-label="Attachment flag"></button>

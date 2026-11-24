@@ -875,6 +875,12 @@ select, .info-select {
 .hw-dock-cablebtn-data.hw-dock-cablebtn-on { color:#cfeaff; border-color:#8fd0ff; }
 /* the processor's ≡ (its cable list of every box on it) reads the same */
 .hw-dock-cablebtn-proc.hw-dock-cablebtn-on { color:#cfeaff; border-color:#8fd0ff; }
+/* the tray header's ≡ (every processor's or every distro's list at once,
+   app-dock.js): the same keycap beside Add, the Data one in data blue;
+   off while there is no list to open */
+.hw-dock-ctl > .hw-dock-cablebtn-all { margin-left:0; align-self:center; padding:1px 6px; }
+#hw-dock-proc-sheets.hw-dock-cablebtn-on { color:#cfeaff; border-color:#8fd0ff; }
+.hw-dock-cablebtn:disabled { opacity:0.4; cursor:default; transform:none; }
 .hw-dock-cablebtn:focus-visible { outline:1px solid var(--ps-accent); outline-offset:1px; }
 
 /* ---- gear popover: a Preferences card that floats ---- */

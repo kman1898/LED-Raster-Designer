@@ -368,6 +368,22 @@ class _HardwareDock {
                                       { deviceId: picker.value },
                                       'Add Processor');
         });
+        // The header's ≡ opens every processor's cable list, or closes
+        // them all once every one is open (_setAllProcSheetsOpen).
+        const allSheets = document.getElementById('hw-dock-proc-sheets');
+        if (allSheets) allSheets.addEventListener('click', () => {
+            if (allSheets.disabled) return;
+            // a press on the header anchors no unit: every list moves
+            this._dockTouched = null;
+            this._setAllProcSheetsOpen(!this._allProcSheetsOpen());
+        });
+        // ...and the Power view's, every distro's (_setAllDistroListsOpen)
+        const allLists = document.getElementById('hw-dock-distro-lists');
+        if (allLists) allLists.addEventListener('click', () => {
+            if (allLists.disabled) return;
+            this._dockTouched = null;
+            this._setAllDistroListsOpen(!this._allDistroListsOpen());
+        });
         // The flag pill toggles its rows open and closed - view state, no
         // undo entry, no localStorage: only the session remembers, and only
         // until the next load. Opening or closing moves the canvas's bottom
@@ -603,6 +619,7 @@ class _HardwareDock {
         }
         if (mode === 'data-flow') {
             this._refillProcessorPicker(mode);
+            this._renderProcSheetsAllButton();
             // The strip narrates the assignment; that render owns it.
             if (typeof this.renderPortAssignmentPanel === 'function') {
                 this.renderPortAssignmentPanel();
@@ -612,6 +629,7 @@ class _HardwareDock {
                 strip.innerHTML = '';
                 if (mode === 'power') this._dockPowerStrip(strip);
             }
+            if (mode === 'power') this._renderDistroListsAllButton();
         }
         // The flag reads both views' attachment (and hides itself anywhere
         // else), so it paints after whichever side just rendered.
@@ -2401,6 +2419,59 @@ class _HardwareDock {
         return btn;
     }
 
+    // EVERY PROCESSOR'S ≡ AT ONCE (owner, 2026-11-24: "Having another one
+    // of those buttons at the very top for all of hardware to expand all
+    // of them would be nice"). The tray header's ≡ acts on the processors
+    // that have a ≡ of their own (a cable list to show), and writes each
+    // one's own key (_setDataCableSheetOpen, kind 'proc'), so a click here
+    // is exactly a click on each processor's ≡ and each one agrees after.
+    // It reads pressed in while every list is open, and then closes them;
+    // otherwise it opens the ones still closed.
+    _procSheetOwners() {
+        return (this._processorsResolved || [])
+            .filter(p => this._dockProcSheetSections(p).length)
+            .map(p => ({ kind: 'proc', id: p.id }));
+    }
+
+    _allProcSheetsOpen() {
+        const owners = this._procSheetOwners();
+        return owners.length > 0
+            && owners.every(o => this._dataCableSheetOpen(o));
+    }
+
+    _setAllProcSheetsOpen(open) {
+        const owners = this._procSheetOwners();
+        owners.forEach(o => this._setDataCableSheetOpen(o, open));
+        sendClientLog('processor_cable_lists_all', {
+            open, processors: owners.map(o => o.id),
+        });
+        this.renderHardwareDock();
+    }
+
+    _renderProcSheetsAllButton() {
+        const btn = document.getElementById('hw-dock-proc-sheets');
+        if (!btn) return;
+        const any = this._procSheetOwners().length > 0;
+        const open = any && this._allProcSheetsOpen();
+        // never hidden, so nothing on the header shifts as processors
+        // come and go; with no list to open it is simply off
+        btn.disabled = !any;
+        btn.classList.toggle('hw-dock-cablebtn-on', open);
+        btn.setAttribute('aria-pressed', String(open));
+        btn.setAttribute('aria-label', open
+            ? 'Close every processor\'s cable list'
+            : 'Open every processor\'s cable list');
+        btn.dataset.tooltip = !any
+            ? 'Cable lists, Opens every processor\'s cable list at once. '
+                + 'Add a breakout box or cable a port and there is one to open.'
+            : open
+                ? 'Cable lists, Every processor\'s cable list is open. Click to '
+                    + 'close them all. Each processor\'s own ≡ still opens or closes one.'
+                : 'Cable lists, Open every processor\'s cable list at once: snakes, '
+                    + 'home runs and fiber of every box. Each processor\'s own ≡ still '
+                    + 'opens or closes one.';
+    }
+
     // The list itself: each section under its heading, built by the box
     // sheet's own builder (_dockBuildDataCableSheet) from the same rows,
     // so the two cannot drift; a length typed here is the same stored
@@ -3239,7 +3310,10 @@ class _HardwareDock {
         acts.className = 'hw-dock-head-acts';
         const info = head.querySelector(':scope > .hw-dock-unit-info');
         const gearBtn = head.querySelector(':scope > .hw-dock-gear');
-        [info, bal, gearBtn].forEach(el => { if (el) acts.appendChild(el); });
+        // the distro's ≡ (its cable list, _dockBuildDistroList) rides
+        // before the gear, where the processor's ≡ rides on its strip
+        const listBtn = this._dockBuildDistroListButton(d);
+        [info, bal, listBtn, gearBtn].forEach(el => { if (el) acts.appendChild(el); });
         // The hint fills the free stretch before the group and shows only
         // where it fits whole (style.css); its words ride an attribute, so
         // the header's own text stays the name and the figures.
@@ -3270,6 +3344,14 @@ class _HardwareDock {
         // minimized"). It stays where it sits, between LEGS and the body,
         // and .lrd-sec-folds hides it with the body (style.css), so a
         // folded card offers no plug chip to drag or tab to.
+        // The distro's cable list, open: under the strip and its lines,
+        // above the outputs and multis, outside every fold (the
+        // processor's list's seat). Its rows are what the multis below
+        // draw, so the slot is filled once they are built
+        // (_dockFinishDistro); the render collects them meanwhile.
+        const listSlot = this._distroListOpen(d.id) ? document.createElement('div') : null;
+        if (listSlot) unit.appendChild(listSlot);
+        this._dockDistroListParts = listSlot ? [] : null;
         const outs = this._dockDistroOutputsRow(d);
         if (outs) {
             outs.classList.add('lrd-sec-folds');
@@ -3309,7 +3391,7 @@ class _HardwareDock {
             }
             [...inUse.keys()].filter(n => n > face.boxes.length && !legB(n)).sort((a, b) => a - b)
                 .forEach(n => body.appendChild(this._dockBuildMulti(d, n, inUse.get(n))));
-            return unit;
+            return this._dockFinishDistro(d, unit, listSlot);
         }
         const own = [...inUse.keys()].filter(n => !legB(n));
         const pairs = typeof this.distroTwoferOutputs === 'function' ? this.distroTwoferOutputs(d) : [];
@@ -3319,6 +3401,15 @@ class _HardwareDock {
         // a leg B whose splitter is gone still shows, past the rest
         own.filter(n => n > maxN).sort((a, b) => a - b)
             .forEach(n => body.appendChild(this._dockBuildMulti(d, n, inUse.get(n))));
+        return this._dockFinishDistro(d, unit, listSlot);
+    }
+
+    // The distro's open cable list goes in its slot, from what the
+    // multis, direct rows and two-fers just drew.
+    _dockFinishDistro(d, unit, listSlot) {
+        const parts = this._dockDistroListParts || [];
+        this._dockDistroListParts = null;
+        if (listSlot) listSlot.replaceWith(this._dockBuildDistroList(d, parts));
         return unit;
     }
 
@@ -3350,6 +3441,12 @@ class _HardwareDock {
             amps += holders.reduce((t, h) => t + (h.amps || 0), 0);
             return { box, holders };
         });
+        if (this._dockDistroListParts && perBox.some(x => x.holders.length)) {
+            this._dockDistroListParts.push({
+                kind: 'direct', rowId: info.row.id, perBox,
+                heading: `${type.name} × ${info.row.count}`,
+            });
+        }
         const paired = info.row.pairedWith
             ? ` · paired with ${this._faceRowSummary(d, info.row.pairedWith)}, the same circuits` : '';
         const tip = `${info.row.count} × ${type.name} on ${name}, one circuit each with its own `
@@ -3902,6 +3999,12 @@ class _HardwareDock {
         if (!memberRecs.length) {
             const label = head.querySelector('.hw-dock-unit-name');
             head.insertBefore(typeChip, label ? label.nextSibling : null);
+        }
+        if (memberRecs.length && this._dockDistroListParts) {
+            this._dockDistroListParts.push({
+                kind: 'multi', n, boxSize, byTail, memberRecs,
+                typeName: boxType.name, homeKind: this.pullHomeRunKind(boxType),
+            });
         }
         if (memberRecs.length) {
             const namesRow = document.createElement('span');
