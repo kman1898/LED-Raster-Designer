@@ -1065,7 +1065,7 @@ NEW_IN_1_7 = [
     'riggingCornerSide', 'groupCurve', 'curveCustom',
     # 3D and Output
     's3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',
-    's3dCamera', 's3dFocus', 's3dBars', 's3dCorner', 'outputOpen', 'outputChoices',
+    's3dCamera', 's3dFocus', 's3dBars', 's3dCorner', 's3dPng', 'outputOpen', 'outputChoices',
     # IDM
     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
     'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap', 'notesChecklist',

@@ -873,20 +873,22 @@ def test_the_dialog_lists_the_files_and_saves_them_to_a_folder(page):
 # Which sections of the Export dialog each format shows. Recorded off the
 # app before OBJ came in (8c6f7b87), every format opened and switched to,
 # and OBJ's own row added: its screens come off the 3D stage, so no views
-# and no canvas list, the background option kept, its note shown.
+# and no canvas list, the background option kept, its note shown. 3D PNG
+# (app-stage3d-png.js) shows its own section alone: view, size, background.
 EXPORT_SECTIONS = ['export-canvases-section', 'export-views-section', 'export-options-section',
                    'export-pull-sheet-section', 'export-binder-section', 'export-obj-note',
-                   'export-scale-row', 'export-psd-layers-row']
-_PICTURE = (True, True, True, False, False, False, False, False)
+                   'export-scale-row', 'export-psd-layers-row', 'export-3d-png-section']
+_PICTURE = (True, True, True, False, False, False, False, False, False)
 EXPORT_SHOWS = {
     'png': _PICTURE,
     'svg': _PICTURE,
     'pdf': _PICTURE,
-    'psd': (True, True, True, False, False, False, True, True),
-    'resolume-xml': (True, False, True, False, False, False, False, False),
-    'pull-sheet': (False, False, False, True, False, False, False, False),
-    'binder': (False, False, False, False, True, False, False, False),
-    'obj': (False, False, True, False, False, True, False, False),
+    'psd': (True, True, True, False, False, False, True, True, False),
+    'resolume-xml': (True, False, True, False, False, False, False, False, False),
+    'pull-sheet': (False, False, False, True, False, False, False, False, False),
+    'binder': (False, False, False, False, True, False, False, False, False),
+    'obj': (False, False, True, False, False, True, False, False, False),
+    'png-3d': (False, False, False, False, False, False, False, False, True),
 }
 
 

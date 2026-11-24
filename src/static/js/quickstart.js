@@ -10001,6 +10001,41 @@
                     ? 'With Add corners on, ' + w2.name + ' took an Interior 90° corner between panels 3 and 4, and None took it off again.' : null;
             }
         },
+        // Export pressed on the 3D tab (1.7.0, app-stage3d-png.js): the
+        // Export dialog on 3D PNG, Front picked, the file named in the
+        // preview, then Cancel. Nothing is saved.
+        s3dPng: {
+            since: '1.7.0',
+            target: '#btn-export', place: 'bottom', title: 'A picture of the stage',
+            avoid: ['#btn-export', '#export-3d-png-section', '#export-preview', '#export-cancel'],
+            body: 'On the 3D tab, Export opens on 3D PNG: a picture of the stage from the current view or a preset like Front or Top, at the size you pick. The selection and the handles are left out.',
+            before: function () { closeExport(); return open3d(); },
+            act: function (t) {
+                return t.click('#btn-export').then(function () {
+                    return t.wait(function () { var f = $('#export-format'); return exportOpen() && f && f.value === 'png-3d'; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Export dialog did not open on 3D PNG');
+                    return t.spot($('#export-3d-png-section')).then(function () { return t.pause(PACE.opened); });
+                }).then(function () {
+                    return t.select('#export-3d-png-view', 'front');
+                }).then(function () {
+                    return t.wait(function () { var p = $('#export-preview'); return p && /_3D_Front\.png/.test(p.textContent) ? p : null; });
+                }).then(function (p) {
+                    if (!p) throw new Error('the preview did not name the Front picture');
+                    t.mem.file = p.textContent;
+                    return t.spot(p).then(function () { return t.pause(PACE.opened); });
+                }).then(function () {
+                    return t.click('#export-cancel');
+                }).then(function () {
+                    return t.wait(function () { return !exportOpen(); });
+                });
+            },
+            check: function (mem) {
+                return mem.file && !exportOpen()
+                    ? 'The Front view would save as ' + mem.file + '; Cancel closed the dialog and nothing was saved.' : null;
+            },
+            after: function () { closeExport(); }
+        },
         outputOpen: {
             since: '1.7.0',
             window: 'output',
@@ -10458,7 +10493,7 @@
         pixelScreens: ['addBeach', 'screenBeach', 'addScreen', 'beachByMenu', 'crossScreens'],
         // 3D and Output
         threeD: ['s3dOpen', 's3dSelect', 's3dHeight', 's3dDrag', 's3dLook', 's3dHandles', 's3dKeys', 's3dCurve', 's3dYaw',
-                 's3dCamera', 's3dFocus', 's3dBars', 's3dCorner', 'outputOpen', 'outputChoices'],
+                 's3dCamera', 's3dFocus', 's3dBars', 's3dCorner', 's3dPng', 'outputOpen', 'outputChoices'],
         // IDM, and the checklist in the Notes
         idm: ['idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
               'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap',

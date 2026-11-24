@@ -672,7 +672,7 @@ def test_save_and_every_export_do_nothing_behind_the_start_page(e2e_server, pw_b
                 pg.keyboard.press(key)
             pg.evaluate("""() => { const app = window.app;
                 ['save', 'export-png', 'export-psd', 'export-svg', 'export-pdf', 'export-resolume-xml',
-                 'export-obj', 'pull-sheet', 'export-pull-sheet', 'export-binder']
+                 'export-obj', 'export-3d-png', 'pull-sheet', 'export-pull-sheet', 'export-binder']
                     .forEach(a => app.handleMenuAction(a));
                 app.openScreenBinderExport(app.project.layers[0]);
                 document.getElementById('btn-export').click(); }""")
