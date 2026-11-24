@@ -13,7 +13,8 @@
          The main screen is the controls alone, sized to fill a phone held
          upright with no scrolling; the menu (Next screen, Change canvas
          and the field colors, owner 2026-11-24), the swap list and the
-         controller's button list are sheets of their own over it. Dark
+         controller's button list are sheets of their own over it. A held
+         arrow repeats, faster the longer it is held. Dark
          unless this phone
          picked light (owner, 2026-11-17), whatever the phone's own setting. -->
     <title>IDM Locator</title>
@@ -133,6 +134,9 @@
         .ph-down { grid-column: 2; grid-row: 3; }
         .ph-actions { flex: 0 0 auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
         .ph-actions .ph-btn { min-height: 52px; font-size: 17px; line-height: 1.15; }
+        /* A held arrow repeats: no long-press menu, no text picked up, no
+           scroll taking the touch from a finger resting on it. */
+        .ph-pad .ph-btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
 
         /* The menu: Next screen, Change canvas and the field colors, each
            a big button with what it does in plain words under it. */

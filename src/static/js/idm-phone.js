@@ -19,6 +19,13 @@
 // highlight, marks and field, a screen added or removed, a show opened or
 // replaced.
 //
+// Holding an arrow repeats it, faster the longer it is held (owner,
+// 2026-11-24; idm-pad.js idmHoldStart, the computer's arrow keys and a
+// held D-pad alike): every repeat is the single step a tap makes, and it
+// stops the moment the finger lifts, the touch is cancelled or the page
+// is put away. The highlight goes to the computer at most every SEND_MS,
+// the newest last.
+//
 // Undo here takes back this phone's own last change (a mark, a paint, a
 // tick), and only while the screen still holds what the phone left: a
 // screen changed since by another device is left alone, with a note.
@@ -41,7 +48,7 @@ import {
     idmBlockOf, idmApplyMark, idmApplySwapped, idmCanonical, idmFieldSanitize, idmColor, DEFAULT_COLOR,
 } from './idm-core.js';
 import {
-    FIELD_CYCLE, PAD_BUTTONS, idmPadFrame, idmPadDispatch, idmPadName, idmPadFillHelp,
+    FIELD_CYCLE, PAD_BUTTONS, idmPadFrame, idmPadDispatch, idmPadName, idmPadFillHelp, idmHoldStart,
 } from './idm-pad.js';
 
 // The page id: the one its log lines carry (idm_phone.html lrdPhonePage).
@@ -53,6 +60,9 @@ const STEP_KEY = 'lrdIdmPhoneStep';
 const THEME_KEY = 'lrdIdmPhoneTheme';
 const UNDO_MAX = 50;
 const TOAST_MS = 3200;
+// The live highlight: the least time between two sends to the computer
+// (25 a second, the tab's own rate), so a held arrow never floods it.
+const SEND_MS = 40;
 
 const $ = (id) => document.getElementById(id);
 
@@ -120,6 +130,8 @@ const S = {
     seq: 0,
     pads: new Map(), padNames: new Map(), frame: 0,
     toastTimer: null,
+    hold: null,                   // a held arrow: {stop, live}
+    sendTimer: null, lastSend: 0,
 };
 
 // ── the show ──────────────────────────────────────────────────────────────
@@ -207,8 +219,35 @@ function setHighlight(next) {
         const l = layerById(value.layerId);
         if (l) S.canvas = idmCanvasIdOf(r, l);
     }
-    if (socket) socket.emit('idm_highlight', { layerId: value ? value.layerId : null, key: value ? value.key : null, origin: ORIGIN });
+    sendHighlight();
     render();
+}
+
+// Throttled: at most one send per SEND_MS, the newest position last.
+function sendHighlight() {
+    if (!socket || S.sendTimer) return;
+    const flush = () => {
+        S.sendTimer = null;
+        S.lastSend = Date.now();
+        if (!socket) return;
+        const h = app.project ? idmHighlightOf(app.project.idmHighlight) : null;
+        socket.emit('idm_highlight', { layerId: h ? h.layerId : null, key: h ? h.key : null, origin: ORIGIN });
+    };
+    const wait = SEND_MS - (Date.now() - S.lastSend);
+    if (wait <= 0) flush();
+    else S.sendTimer = setTimeout(flush, wait);
+}
+
+// A finger on an arrow: one step at once, then the repeat while it stays.
+function holdArrow(dir) {
+    holdStop();
+    S.hold = idmHoldStart(() => jobs.move(dir, false), { still: () => !blocked() && !S.sheet });
+}
+
+function holdStop() {
+    const h = S.hold;
+    S.hold = null;
+    if (h) h.stop();
 }
 
 function blocked() {
@@ -459,6 +498,7 @@ function render() {
     $('ph-message').textContent = msg;
     $('ph-message').hidden = !msg;
     $('ph-controls').hidden = !!msg;
+    if (msg) holdStop();
     $('ph-swap-open').hidden = !!msg;
     $('ph-menu-open').hidden = !!msg;
     // the swap list and the menu wait behind a message like the controls do
@@ -739,7 +779,10 @@ window.addEventListener('gamepaddisconnected', (e) => {
     padHelp();
     padRun();
 });
-document.addEventListener('visibilitychange', () => padRun());
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') holdStop();
+    padRun();
+});
 
 // ── wiring ────────────────────────────────────────────────────────────────
 
@@ -747,8 +790,21 @@ let socket = null;
 
 function wire() {
     document.querySelectorAll('[data-ph-move]').forEach(b => {
-        b.addEventListener('click', () => jobs.move(b.dataset.phMove, false));
+        // A press starts the hold; the finger lifting, the touch being
+        // cancelled (a scroll, a call) or the button losing it ends it.
+        b.addEventListener('pointerdown', (e) => {
+            if (e.button !== undefined && e.button !== 0) return;
+            e.preventDefault();
+            try { b.setPointerCapture(e.pointerId); } catch (_) { /* an older phone: the ends below still fire */ }
+            holdArrow(b.dataset.phMove);
+        });
+        ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => b.addEventListener(ev, holdStop));
+        // the keyboard's Enter or Space on a focused arrow: one step
+        b.addEventListener('click', (e) => { if (e.detail === 0) jobs.move(b.dataset.phMove, false); });
+        b.addEventListener('contextmenu', (e) => e.preventDefault());
     });
+    window.addEventListener('blur', holdStop);
+    window.addEventListener('pagehide', holdStop);
     $('ph-mark').addEventListener('click', () => { startMark(); endMark(); });
     $('ph-undo').addEventListener('click', () => jobs.undo());
     $('ph-next-screen').addEventListener('click', () => jobs.nextScreen());
@@ -869,7 +925,7 @@ function wire() {
 
 // For the tests: the page's state and its jobs.
 window.idmPhone = {
-    S, jobs, app, renderer: r, origin: ORIGIN, render, setSwapped, padTick, openSheet, closeSheet,
+    S, jobs, app, renderer: r, origin: ORIGIN, render, setSwapped, padTick, openSheet, closeSheet, holdStop,
     socket: () => socket,
 };
 

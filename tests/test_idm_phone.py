@@ -42,6 +42,11 @@ What this file pins:
   picks, on 1 x 1 to 3 x 3, 4 x 4 and half cabinets; the Cabinet ID and
   Module ID follow, the same from either side. The phone's readout reads
   the same way. Nothing of it prints in the binder or any export.
+* Holding an arrow on the phone (owner, 2026-11-24) repeats the step,
+  faster the longer it is held, and stops the moment the finger lifts, the
+  touch is cancelled or the page loses focus; a tap is one step; the
+  highlight goes to the computer at most every 40 ms however fast it
+  moves.
 * The canvas: a game controller (on the computer and on the phone) and
   the phone's buttons step and go to the next screen only on the canvas
   the highlight is on; View / Share (the phone's Next canvas) goes to the
@@ -886,6 +891,78 @@ def test_front_and_back_name_the_place_then_the_ids(page, e2e_server, pw_browser
                      '1,0,0,1': ['Col 2, Row 1 · Bottom left module', 'Cabinet B1 · Module A2']}, front
     assert back == {'0,0,1,1': ['Col 3, Row 1 · Bottom module', 'Cabinet A1 · Module A2'],
                     '1,0,0,1': ['Col 2, Row 1 · Bottom right module', 'Cabinet B1 · Module A2']}, back
+
+
+# ── holding an arrow ──────────────────────────────────────────────────────
+
+HOLD_SPY_JS = """() => {
+    const p = window.idmPhone;
+    window.__moves = []; window.__sends = [];
+    if (!window.__holdSpy) {
+        window.__holdSpy = true;
+        const move = p.jobs.move;
+        p.jobs.move = function (...a) { window.__moves.push(performance.now()); return move.apply(this, a); };
+        const s = p.socket(), emit = s.emit.bind(s);
+        s.emit = (ev, ...a) => { if (ev === 'idm_highlight') window.__sends.push(performance.now()); return emit(ev, ...a); };
+    }
+}"""
+
+PRESS_JS = """([dir, type]) => {
+    const b = document.querySelector(`[data-ph-move="${dir}"]`);
+    b.dispatchEvent(new PointerEvent(type, {pointerId: 7, button: 0, isPrimary: true, pointerType: 'touch',
+                                            bubbles: true, cancelable: true}));
+    return performance.now();
+}"""
+
+
+def test_holding_a_phone_arrow_speeds_up_and_stops_on_release(page, e2e_server, pw_browser):
+    reset_project(page)
+    set_layout(page, 'IdmA', 4, 4)
+    ctx, ph = open_phone(pw_browser, e2e_server)
+    try:
+        ph.evaluate(HOLD_SPY_JS)
+        # held 1.3 s: a step at once, the next after a wait, then sooner
+        # each step; let go, nothing more
+        ph.evaluate(PRESS_JS, ['right', 'pointerdown'])
+        ph.wait_for_timeout(1300)
+        released = ph.evaluate(PRESS_JS, ['right', 'pointerup'])
+        ph.wait_for_timeout(600)
+        moves = ph.evaluate("() => window.__moves.slice()")
+        sends = ph.evaluate("() => window.__sends.slice()")
+        assert [t for t in moves if t > released + 5] == [], (moves, released)
+        gaps = [round(b - a) for a, b in zip(moves, moves[1:])]
+        assert len(moves) >= 12 and gaps[0] >= 300 and max(gaps[-3:]) <= 70 and gaps[1] > gaps[-1], gaps
+        # the highlight travelled: right along IdmA's top row of modules
+        assert settled(page, lambda: hl(page), lambda v: v and v[1] != '0,0,0,0' and v[1].endswith(',0'))
+        # never more than one send each 40 ms (a timer's slack aside)
+        send_gaps = [b - a for a, b in zip(sends, sends[1:])]
+        assert sends and len(sends) <= len(moves) and all(g >= 35 for g in send_gaps), send_gaps
+        # a tap is one step
+        ph.evaluate("() => { window.__moves = []; }")
+        ph.tap('[data-ph-move="left"]')
+        ph.wait_for_timeout(500)
+        assert len(ph.evaluate("() => window.__moves")) == 1
+        # the touch cancelled (a scroll, a call), or the page losing focus:
+        # it stops
+        for end in ('pointercancel', 'blur'):
+            ph.evaluate("() => { window.__moves = []; }")
+            ph.evaluate(PRESS_JS, ['down', 'pointerdown'])
+            ph.wait_for_timeout(450)
+            if end == 'pointercancel':
+                ph.evaluate(PRESS_JS, ['down', 'pointercancel'])
+            else:
+                ph.evaluate("() => window.dispatchEvent(new Event('blur'))")
+            n = len(ph.evaluate("() => window.__moves"))
+            ph.wait_for_timeout(500)
+            assert len(ph.evaluate("() => window.__moves")) == n and n >= 2, end
+        # the main screen's controls stay put: no text picked up, no
+        # long-press menu on a held arrow
+        css = ph.evaluate("""() => { const s = getComputedStyle(document.querySelector('[data-ph-move="up"]'));
+            return [s.userSelect || s.webkitUserSelect, s.touchAction]; }""")
+        assert css == ['none', 'none'], css
+        assert not ph._errors, ph._errors
+    finally:
+        ctx.close()
 
 
 # ── the controls kept to one canvas ───────────────────────────────────────

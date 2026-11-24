@@ -60,7 +60,9 @@
 // step or Mark button picks up from the module it left. A highlight from
 // the keys, the pad, a controller or a tablet stays until Esc or Clear
 // highlight. Any highlight goes when its screen or module does. A tap of Space marks it; Space held with a
-// drag pans the view like every other tab and marks nothing.
+// drag pans the view like every other tab and marks nothing. A held arrow
+// key repeats, faster the longer it is held, and stops the moment it is
+// let go, another key is pressed or the window loses focus (_idmHoldKey).
 //
 // The MOUSE ON THE WALL: while the mouse is over a canvas of this view, an
 // arrow sits at the same point on every IDM output of that canvas, laid on
@@ -74,6 +76,7 @@ import {
     idmBlockOf, idmApplyMark, idmApplySwapped, idmCanvasIdOf,
     DEFAULT_COLOR, FIELD_BORDERS, COLOUR_KEYS, PRESETS_MAX, ARROWS,
 } from './idm-core.js';
+import { idmHoldStart } from './idm-pad.js';
 
 // The tests and the other modules read these from here, as they always have.
 export { idmColor, idmFieldSanitize };
@@ -93,6 +96,12 @@ const PRESETS_DEFAULT = ['#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000'];
 // The live highlight: the least time between two sends to the other
 // clients (25 a second).
 const SEND_MS = 40;
+// A held arrow key (owner, 2026-11-24): the hold steps on its own timer,
+// speeding up (idm-pad.js idmHoldStart), not at the system's key repeat.
+// The system repeats a held key at least every second or so, so a hold
+// that hears nothing of its key for this long was let go where the page
+// could not see it, and stops.
+const HOLD_LOST_MS = 1250;
 // The tablet layout: the IDM Locator tab on a narrow window or a touch
 // screen (style.css carries the same query).
 const COMPACT_QUERY = '(max-width: 1100px), (pointer: coarse)';
@@ -308,6 +317,22 @@ class _IdmLocator {
             this._idmSetPointerOn(!this._idmState().pointerOn);
             this._idmBlurButton(e.currentTarget);
         });
+        // A held arrow key (_idmHoldKey): its release, any other key, the
+        // window losing focus or the page hidden ends the hold at once.
+        window.addEventListener('keyup', (e) => {
+            const h = st.hold;
+            if (h && (e.key === h.key || e.code === h.code)) this._idmHoldStop();
+        }, true);
+        window.addEventListener('keydown', (e) => {
+            const h = st.hold;
+            if (!h) return;
+            if (e.key === h.key && e.repeat) h.seen = Date.now();
+            else if (e.key !== h.key) this._idmHoldStop();
+        }, true);
+        window.addEventListener('blur', () => this._idmHoldStop());
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') this._idmHoldStop();
+        });
         // What kind of pointer pressed last: a tap on a touch screen moves
         // the highlight, it never marks (_idmPointerDown).
         document.addEventListener('pointerdown', (e) => {
@@ -355,6 +380,7 @@ class _IdmLocator {
         document.body.classList.toggle('idm-tab', st.active);
         if (was !== st.active) this._idmRelayout();
         if (!st.active) {
+            this._idmHoldStop();
             st.stroke = null;
             st.spaceTap = null;
             if (window.canvasRenderer) window.canvasRenderer.isIdmPainting = false;
@@ -897,7 +923,15 @@ class _IdmLocator {
         if (e.metaKey || e.ctrlKey || e.altKey) return false;
         if (modalOpen) return false;
         if (ARROWS[e.key]) {
-            this._idmStep(e.key, e.shiftKey);
+            // The system's own repeat of a held key: the hold steps on its
+            // own timer instead. A repeat with no hold (one ended by a
+            // dialog, say, with the key still down) is one step, as before.
+            if (e.repeat && st.hold && st.hold.key === e.key) return true;
+            if (e.repeat) {
+                this._idmStep(e.key, e.shiftKey);
+                return true;
+            }
+            this._idmHoldKey(e);
             return true;
         }
         // Space is the pan every tab has: held with a drag it moves the
@@ -925,6 +959,33 @@ class _IdmLocator {
             return true;
         }
         return false;
+    }
+
+    // An arrow key pressed: one step at once, the way it always was, then
+    // while it is held a repeat that speeds up (idm-pad.js idmHoldStart),
+    // each repeat the same single step (_idmStep), so the highlight, the
+    // wall and the other devices follow it step by step (the sends are
+    // throttled, _idmSendHighlight). Shift as pressed: a cabinet a step.
+    _idmHoldKey(e) {
+        const st = this._idmState();
+        this._idmHoldStop();
+        const key = e.key;
+        const cabinet = !!e.shiftKey;
+        const hold = { key, code: e.code || '', seen: Date.now(), run: null };
+        st.hold = hold;
+        hold.run = idmHoldStart(() => this._idmStep(key, cabinet), {
+            still: () => st.hold === hold && st.active && Date.now() - hold.seen < HOLD_LOST_MS
+                && !isTypingTarget(document.activeElement)
+                && !Array.from(document.querySelectorAll('.modal')).some(m => getComputedStyle(m).display !== 'none'),
+        });
+    }
+
+    _idmHoldStop() {
+        const st = this._idmS;
+        const hold = st && st.hold;
+        if (!hold) return;
+        st.hold = null;
+        if (hold.run) hold.run.stop();
     }
 
     // Delete / Backspace: the highlighted module's mark cleared, one undo

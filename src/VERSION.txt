@@ -329,8 +329,9 @@ each of them, the shade level and a row of mark colors. It lists only
 the colors on the wall right now, one line each, a change shows in the
 app at once, and Default puts a color back.
 
-Point at a module, step with the arrow keys (Shift jumps a cabinet) or
-tap it on a tablet, and a steady outline goes round the module in the
+Point at a module, step with the arrow keys (Shift jumps a cabinet; hold
+an arrow and it keeps going, faster the longer you hold it) or tap it on
+a tablet, and a steady outline goes round the module in the
 app and on the wall output; a tap of Space or the Mark button marks it.
 Move the mouse off the panels and the wall shows nothing until you point
 again. The highlight follows from any computer or tablet connected to
@@ -346,7 +347,8 @@ every tab.
 
 Find bad modules with a game controller: pair a PlayStation or Xbox
 controller with the computer running the app and the D-pad steps the
-highlight one module at a time (hold LB or RB for a cabinet), A or Cross
+highlight one module at a time (held, it keeps going and speeds up; hold
+LB or RB for a cabinet), A or Cross
 marks or clears, held while moving it paints, B or Circle undoes, X or
 Square changes the field color, Y or Triangle goes to the next screen and
 View or Share goes to the next canvas. The controller stays on the canvas
@@ -363,7 +365,9 @@ Walk the wall with a phone: Use a phone on the IDM Locator tab opens a
 dialog with a QR code of the phone page and its address beside it, with
 Copy address. Scan it with a phone on the same network as the computer
 and the phone's whole screen becomes big buttons: move the highlight a
-module or a cabinet at a time, Mark, Undo and Clear highlight. Menu at
+module or a cabinet at a time (hold an arrow and it keeps going, faster
+the longer you hold it, and stops the moment you let go), Mark, Undo and
+Clear highlight. Menu at
 the top holds Next screen, Change canvas and the field color, away from
 the arrows so a thumb never hits them by accident. The arrows and Next
 screen stay on the canvas you are on, and Change canvas names it and goes

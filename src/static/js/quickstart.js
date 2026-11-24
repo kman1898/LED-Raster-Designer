@@ -10180,7 +10180,7 @@
             since: '1.7.0',
             target: '#idm-hl-readout', ring: ['#idm-hl-readout', '#idm-pad'], place: 'right', title: 'Point with the arrow keys',
             avoid: [function () { return modulePoint(wall2(), MARK_KEYS); }],
-            body: 'The arrow keys move an outline from module to module, in the view and on the wall. Tap Space to mark it; hold Space and drag to pan.',
+            body: 'The arrow keys move an outline from module to module, in the view and on the wall; hold one to speed along. Tap Space to mark it; hold Space and drag to pan.',
             before: function () {
                 openIdm();
                 var a = A();
