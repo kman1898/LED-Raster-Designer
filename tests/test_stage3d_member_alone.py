@@ -424,7 +424,7 @@ def test_the_guide_step_plays_on_its_own(page, run):
     p.evaluate("""() => {
         const q = window.QuickStart, keys = q.tours().threeD
             .map(s => Object.keys(q.steps()).find(k => q.steps()[k] === s));
-        if (keys[keys.indexOf('s3dCorner') + 1] !== 's3dGroupMember') throw new Error('out of place');
+        if (keys[keys.indexOf('s3dPng') + 1] !== 's3dGroupMember') throw new Error('out of place');
         if (keys[keys.indexOf('s3dGroupMember') + 1] !== 'outputOpen') throw new Error('out of place');
         if (q.steps().s3dGroupMember.since !== '1.7.0') throw new Error('since');
         // never in a later guide's demo show
