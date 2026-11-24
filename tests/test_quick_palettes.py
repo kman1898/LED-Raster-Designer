@@ -1069,7 +1069,7 @@ NEW_IN_1_7 = [
     # IDM
     'idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
     'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap', 'idmUnswap',
-    'notesChecklist',
+    'idmRowsFrom', 'notesChecklist',
     # Binder and Exports
     'binderMode', 'binderView', 'riggingSheet', 'factsSheet', 'objExport', 'controls', 'catSnakePage']
 

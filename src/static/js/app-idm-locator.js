@@ -78,7 +78,7 @@ import {
     idmCount, idmColor, idmKey, idmMarkOf, idmShadeLevel, idmFieldSanitize, idmHighlightOf,
     idmMarkCount as markCount, idmTargetOf, idmStepFrom, idmStartModule, idmDescribe, idmMarkGroups,
     idmBlockOf, idmApplyMark, idmApplySwapped, idmApplyUnswapped, idmCanvasIdOf,
-    idmSwappedGroups, idmSwappedOf, idmSwappedCount as swappedCount,
+    idmSwappedGroups, idmSwappedOf, idmSwappedCount as swappedCount, idmRowsFromPicks, ROWS_FROM,
     DEFAULT_COLOR, FIELD_BORDERS, COLOUR_KEYS, PRESETS_MAX, ARROWS,
 } from './idm-core.js';
 import { idmHoldStart } from './idm-pad.js';
@@ -231,6 +231,13 @@ class _IdmLocator {
         // the module, its tick moves it from one list to the other.
         ['idm-list', 'idm-swapped-list'].forEach(id => {
             on(id, 'click', (e) => {
+                // a screen's Rows from switch, in its heading
+                const rows = e.target.closest('[data-idm-rows]');
+                if (rows) {
+                    this._idmSetRowsFrom(Number(rows.dataset.idmLayer), rows.dataset.idmRows);
+                    this._idmBlurButton(rows);
+                    return;
+                }
                 // the Swapped tick is its own (the change below)
                 if (e.target.closest('.idm-swap')) return;
                 const row = e.target.closest('[data-idm-key]');
@@ -479,6 +486,7 @@ class _IdmLocator {
             else if (p.shade === null) delete next.shade;
         }
         if (Array.isArray(p.markPresets)) next.markPresets = p.markPresets;
+        if (p.rowsFrom && typeof p.rowsFrom === 'object') next.rowsFrom = p.rowsFrom;
         const clean = idmFieldSanitize(next);
         const stored = this.project.idmField;
         const same = !!stored && JSON.stringify(idmFieldSanitize(stored)) === JSON.stringify(clean);
@@ -1621,7 +1629,7 @@ class _IdmLocator {
         // The highlighted module's row is a class on the rows as they
         // stand: the highlight moving never rebuilds the list, so a tick
         // box being reached for is never swapped out from under the pointer.
-        const shape = (list) => list.map(g => [g.layer.id, g.layer.name,
+        const shape = (list) => list.map(g => [g.layer.id, g.layer.name, g.rowsFrom,
             g.rows.map(x => [x.key, x.place, x.ids, x.style, x.color, x.n])]);
         const key = JSON.stringify([st.side, shape(groups), shape(done)]);
         if (key === st.listKey) {
@@ -1651,13 +1659,18 @@ class _IdmLocator {
         }
     }
 
-    // One screen's rows in a list: its name, then a row per module, each
-    // with its Swapped tick (ticked on the Swapped list).
+    // One screen's rows in a list: its name and its Rows from switch, then
+    // a row per module, each with its Swapped tick (ticked on the Swapped
+    // list).
     _idmListGroup(host, g, here, swapped) {
         const name = g.layer.name || 'Screen';
         const head = document.createElement('div');
         head.className = 'idm-group';
-        head.textContent = swapped ? `${name} · ${g.rows.length} swapped` : `${name} · ${plural(g.rows.length, 'mark')}`;
+        const label = document.createElement('span');
+        label.className = 'idm-group-name';
+        label.textContent = swapped ? `${name} · ${g.rows.length} swapped` : `${name} · ${plural(g.rows.length, 'mark')}`;
+        head.appendChild(label);
+        head.appendChild(this._idmRowsSwitch(g));
         host.appendChild(head);
         g.rows.forEach(x => {
             const words = `${name} · ${x.place}`;
@@ -1707,6 +1720,48 @@ class _IdmLocator {
             row.appendChild(tick);
             host.appendChild(row);
         });
+    }
+
+    // A screen's Rows from switch (owner, 2026-11-24): its rows counted
+    // from the top, or up from the bottom for a ground-stacked wall.
+    _idmRowsSwitch(g) {
+        const wrap = document.createElement('span');
+        wrap.className = 'idm-rows';
+        const word = document.createElement('span');
+        word.className = 'idm-rows-label';
+        word.textContent = 'Rows from';
+        wrap.appendChild(word);
+        const seg = document.createElement('span');
+        seg.className = 'idm-seg idm-rows-seg';
+        seg.setAttribute('role', 'group');
+        seg.setAttribute('aria-label', `${g.layer.name || 'Screen'}: rows counted from the`);
+        ROWS_FROM.forEach(v => {
+            const on = g.rowsFrom === v;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn idm-seg-btn' + (on ? ' active' : '');
+            btn.dataset.idmRows = v;
+            btn.dataset.idmLayer = String(g.layer.id);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+            btn.textContent = v === 'bottom' ? 'Bottom' : 'Top';
+            btn.dataset.tooltip = v === 'bottom'
+                ? "Bottom, Count this screen's rows up from the bottom row, as for a wall stacked on the ground. A screen with a footer starts here."
+                : "Top, Count this screen's rows down from the top row, as for a flown wall.";
+            seg.appendChild(btn);
+        });
+        wrap.appendChild(seg);
+        return wrap;
+    }
+
+    // A screen's Rows from picked here: kept with the show for that screen,
+    // on every device at once, never an undo step (it rides in the field,
+    // project.idmField.rowsFrom).
+    _idmSetRowsFrom(layerId, value) {
+        if (!this.project || !Number.isInteger(layerId) || !ROWS_FROM.includes(value)) return;
+        const picks = { ...(idmRowsFromPicks(this._idmFieldNow().rowsFrom) || {}), [String(layerId)]: value };
+        sendClientLog('idm_rows_from', { id: layerId, rowsFrom: value });
+        this._idmSetField({ rowsFrom: picks });
+        this._idmRenderList();
     }
 
     // A row's Swapped tick (`on`) or untick: the module moves to the

@@ -1434,11 +1434,20 @@ def strip_copied_idm_marks(layer):
 #   markPresets       ['#rrggbb', ...] the saved mark colours beside the
 #                     mark swatch (missing = IDM_MARK_PRESETS_DEFAULT; an
 #                     empty list is the crew's own choice and stays empty)
+#   rowsFrom          {"<screen id>": 'top' | 'bottom'}: how the swap list
+#                     counts each screen's cabinet rows (owner, 2026-11-24:
+#                     a ground-stacked wall is counted up from the floor).
+#                     Only the screens someone switched; any other screen
+#                     reads its default from its Header/Footer side (a
+#                     footer, ground stacked: bottom; a header or neither:
+#                     top), so an older show opens on the defaults.
 IDM_FIELD_BORDERS = ('shade', 'lines', 'ticks', 'none')
 IDM_FIELD_DEFAULT = {'color': '#ffffff', 'border': 'shade', 'moduleIds': False}
 IDM_FIELD_COLOUR_KEYS = ('labelColor', 'moduleEdgeColor', 'cabinetEdgeColor')
 IDM_MARK_PRESETS_DEFAULT = ('#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000')
 IDM_MARK_PRESETS_MAX = 12
+IDM_ROWS_FROM = ('top', 'bottom')
+IDM_ROWS_FROM_MAX = 2000
 
 
 def idm_shade_level(value):
@@ -1451,6 +1460,23 @@ def idm_shade_level(value):
             return None
         return int(math.floor(value + 0.5))
     return idm_color(value)
+
+
+def idm_rows_from(value):
+    """The swap list's Rows from picks: {"<screen id>": 'top' | 'bottom'},
+    a key a whole number (as text), anything else dropped, at most
+    IDM_ROWS_FROM_MAX. None when `value` is not a dict."""
+    if not isinstance(value, dict):
+        return None
+    out = {}
+    for key, pick in value.items():
+        text = str(key).strip()
+        if not (text.isascii() and text.isdigit()) or pick not in IDM_ROWS_FROM:
+            continue
+        out[str(int(text))] = pick
+        if len(out) >= IDM_ROWS_FROM_MAX:
+            break
+    return out
 
 
 def idm_mark_presets(value):
@@ -1492,6 +1518,9 @@ def sanitize_idm_field(value):
     presets = idm_mark_presets(value.get('markPresets'))
     if presets is not None:
         out['markPresets'] = presets
+    rows = idm_rows_from(value.get('rowsFrom'))
+    if rows:
+        out['rowsFrom'] = rows
     return out
 
 

@@ -48,6 +48,13 @@ What this file pins:
   picks, on 1 x 1 to 3 x 3, 4 x 4 and half cabinets; the Cabinet ID and
   Module ID follow, the same from either side. The phone's readout reads
   the same way. Nothing of it prints in the binder or any export.
+* Rows from (owner, 2026-11-24): each screen's heading on both lists, on
+  the tab and the phone, has a Top / Bottom switch; Bottom counts its
+  cabinet rows up from the bottom (and, past 3 x 3, a module's row in its
+  cabinet too), the words never change. A screen with a footer starts on
+  Bottom, a header or neither on Top. A pick is that screen's, kept with
+  the show (the field's rowsFrom): live on every device, through a reload,
+  never an undo step; the phone's readout and its counting line follow.
 * Holding an arrow on the phone (owner, 2026-11-24) repeats the step,
   faster the longer it is held, and stops the moment the finger lifts, the
   touch is cancelled or the page loses focus; a tap is one step; the
@@ -160,6 +167,21 @@ def test_the_swapped_list_is_kept_apart_and_old_shows_are_unchanged(client):
     copy = {'type': 'screen', 'idm': dict(idm, marks={'0,0,0,0': {'style': 'color', 'color': '#ff1a1a'}})}
     app_module.strip_copied_idm_marks(copy)
     assert copy['idm'] == {'modulesX': 2, 'modulesY': 2, 'marks': {}}
+
+
+def test_rows_from_picks_are_kept_in_the_field(client):
+    """The field's rowsFrom: a screen id (a whole number, as text) to 'top'
+    or 'bottom', junk dropped, no key when empty; through the route."""
+    clean = app_module.sanitize_idm_field({'rowsFrom': {'3': 'bottom', 12: 'top', ' 7 ': 'bottom', 'x': 'top',
+                                                        '4': 'up', '-1': 'top', '\u00b2': 'top'}})
+    assert clean['rowsFrom'] == {'3': 'bottom', '12': 'top', '7': 'bottom'}, clean
+    assert app_module.sanitize_idm_field(clean) == clean
+    assert 'rowsFrom' not in app_module.sanitize_idm_field({'rowsFrom': {}})
+    assert 'rowsFrom' not in app_module.sanitize_idm_field({'rowsFrom': ['top']})
+    resp = client.put('/api/project/idm-field', json={'field': {'color': '#ffffff', 'rowsFrom': {'5': 'bottom'}}})
+    assert resp.status_code == 200
+    assert client.get('/api/project').get_json()['idmField']['rowsFrom'] == {'5': 'bottom'}
+    client.put('/api/project/idm-field', json={'field': {'color': '#ffffff'}})
 
 
 def test_the_phone_page_is_served_without_the_designer(client):
@@ -1079,6 +1101,127 @@ def test_holding_a_phone_arrow_speeds_up_and_stops_on_release(page, e2e_server, 
         ctx.close()
 
 
+# ── Rows from ─────────────────────────────────────────────────────────────
+
+ROWS_TAB_JS = """() => Array.from(document.querySelectorAll('#idm-list .idm-group, #idm-swapped-list .idm-group')).map(h => [
+    h.querySelector('.idm-group-name').textContent,
+    h.querySelector('[data-idm-rows][aria-pressed="true"]').dataset.idmRows])"""
+
+ROWS_PHONE_JS = """() => Array.from(document.querySelectorAll('#ph-list .ph-group, #ph-swapped-list .ph-group')).map(h => [
+    h.querySelector('.ph-group-name').textContent,
+    h.querySelector('[data-ph-rows][aria-pressed="true"]').dataset.phRows])"""
+
+
+def rows_of(pg, name, bottom):
+    return pg.evaluate("""async ([name, bottom]) => {
+        const core = await import('/static/js/idm-core.js');
+        const app = window.app, l = app.project.layers.find(x => x.name === name);
+        const field = Object.assign({}, app.project.idmField || {});
+        const keep = app.project.idmField;
+        app.project.idmField = Object.assign({}, field, {rowsFrom: Object.assign({}, field.rowsFrom || {}, {[l.id]: bottom ? 'bottom' : 'top'})});
+        const g = core.idmMarkGroups(window.canvasRenderer, app.project, {}).find(x => x.layer === l);
+        const back = core.idmMarkGroups(window.canvasRenderer, app.project, {back: true}).find(x => x.layer === l);
+        app.project.idmField = keep;
+        return [Object.fromEntries(g.rows.map(r => [r.key, r.place])), Object.fromEntries(back.rows.map(r => [r.key, r.place]))];
+    }""", [name, bottom])
+
+
+def test_rows_count_from_the_top_or_the_bottom_per_screen(page, e2e_server, pw_browser):
+    reset_project(page)
+    # the defaults, from the Header/Footer side
+    got = page.evaluate("""async () => { const c = await import('/static/js/idm-core.js');
+        return [{}, {riggingBars: [2]}, {riggingFooterBars: [2, 2]}, {riggingSide: 'footer'},
+                {riggingSide: 'footer', riggingFooterBars: []}, {riggingBars: [1], riggingFooterBars: [1]},
+                {riggingSide: 'header'}].map(l => c.idmRowsFromDefault(l)); }""")
+    assert got == ['top', 'top', 'bottom', 'bottom', 'bottom', 'top', 'top'], got
+    # the words: IdmA is 3 x 2 cabinets; from the bottom, row 1 is the
+    # bottom row; a module's place in words never changes
+    set_layout(page, 'IdmA', 2, 2)
+    put_marks(page, 'IdmA', 2, 2, ['0,0,0,0', '2,1,1,0'])
+    top, top_back = rows_of(page, 'IdmA', False)
+    bottom, bottom_back = rows_of(page, 'IdmA', True)
+    assert top == {'0,0,0,0': 'Col 1, Row 1 · Top left module', '2,1,1,0': 'Col 3, Row 2 · Top right module'}, top
+    assert bottom == {'0,0,0,0': 'Col 1, Row 2 · Top left module', '2,1,1,0': 'Col 3, Row 1 · Top right module'}, bottom
+    assert bottom_back == {'0,0,0,0': 'Col 3, Row 2 · Top right module', '2,1,1,0': 'Col 1, Row 1 · Top left module'}, bottom_back
+    # past 3 x 3 the module's row in its cabinet counts up too
+    set_layout(page, 'IdmB', 4, 4)
+    put_marks(page, 'IdmB', 4, 4, ['0,0,0,0', '1,1,2,3'])
+    top, _ = rows_of(page, 'IdmB', False)
+    bottom, bottom_back = rows_of(page, 'IdmB', True)
+    assert top == {'0,0,0,0': 'Col 1, Row 1 · Module row 1, col 1', '1,1,2,3': 'Col 2, Row 2 · Module row 4, col 3'}, top
+    assert bottom == {'0,0,0,0': 'Col 1, Row 2 · Module row 4, col 1', '1,1,2,3': 'Col 2, Row 1 · Module row 1, col 3'}, bottom
+    assert bottom_back == {'0,0,0,0': 'Col 2, Row 2 · Module row 4, col 4', '1,1,2,3': 'Col 1, Row 1 · Module row 1, col 2'}, bottom_back
+    # IdmB gets a footer (ground stacked): it starts on Bottom, IdmA on Top
+    page.evaluate("""() => { const app = window.app, b = app.project.layers.find(x => x.name === 'IdmB');
+        b.riggingFooterBars = [2]; b.riggingSide = 'footer'; app.updateLayers([b], true, 'Footer'); }""")
+    page.click('[data-idm-side="front"]')
+    assert settled(page, lambda: page.evaluate(ROWS_TAB_JS),
+                   lambda v: v == [['IdmA · 2 marks', 'top'], ['IdmB · 2 marks', 'bottom']]) \
+        == [['IdmA · 2 marks', 'top'], ['IdmB · 2 marks', 'bottom']]
+    texts = [r['text'] for r in tab_rows(page)]
+    assert texts == ['Col 1, Row 1 · Top left module', 'Col 3, Row 2 · Top right module',
+                     'Col 1, Row 2 · Module row 4, col 1', 'Col 2, Row 1 · Module row 1, col 3'], texts
+    ctx, ph = open_phone(pw_browser, e2e_server)
+    try:
+        open_swap(ph)
+        assert ph.evaluate(ROWS_PHONE_JS) == [['IdmA', 'top'], ['IdmB', 'bottom']]
+        assert [r['text'] for r in phone_rows(ph)] == texts
+        assert ph.inner_text('#ph-side-label') == ('Columns counted from the left as you face the front of the wall; '
+                                                   'rows from the top or bottom, as set beside each screen.')
+        # IdmA to Bottom on the tab: the phone follows live; never an undo step
+        h0 = history_index(page)
+        a_id = page.evaluate("() => window.app.project.layers.find(x => x.name === 'IdmA').id")
+        page.click(f'#idm-list [data-idm-rows="bottom"][data-idm-layer="{a_id}"]')
+        assert settled(page, lambda: (served_field(page) or {}).get('rowsFrom'), lambda v: v == {str(a_id): 'bottom'}) \
+            == {str(a_id): 'bottom'}
+        assert settled(ph, lambda: ph.evaluate(ROWS_PHONE_JS), lambda v: v[0] == ['IdmA', 'bottom'])[0] == ['IdmA', 'bottom']
+        assert [r['text'] for r in phone_rows(ph)][:2] == ['Col 1, Row 2 · Top left module', 'Col 3, Row 1 · Top right module']
+        assert ph.inner_text('#ph-side-label') == 'Counted from the bottom left as you face the front of the wall.'
+        page.wait_for_timeout(300)
+        assert history_index(page) == h0
+        # the phone flips IdmB to Top: the tab follows live
+        ph.tap('#ph-list [data-ph-rows="top"][data-ph-layer="%d"]' % page.evaluate(
+            "() => window.app.project.layers.find(x => x.name === 'IdmB').id"))
+        assert settled(page, lambda: page.evaluate(ROWS_TAB_JS), lambda v: v[1] == ['IdmB · 2 marks', 'top'])[1] \
+            == ['IdmB · 2 marks', 'top']
+        assert [r['text'] for r in tab_rows(page)][2:] == ['Col 1, Row 1 · Module row 1, col 1',
+                                                           'Col 2, Row 2 · Module row 4, col 3']
+        # the Swapped list counts the same way, with its own switch
+        ph.tap('#ph-list .ph-row[data-ph-key="2,1,1,0"] input')
+        assert settled(page, lambda: [r['text'] for r in swapped_tab(page)], lambda v: len(v) == 1) \
+            == ['Col 3, Row 1 · Top right module']
+        assert settled(ph, lambda: [r['text'] for r in swapped_phone(ph)], lambda v: len(v) == 1) \
+            == ['Col 3, Row 1 · Top right module']
+        page.click(f'#idm-swapped-list [data-idm-rows="top"][data-idm-layer="{a_id}"]')
+        assert settled(ph, lambda: [r['text'] for r in swapped_phone(ph)], lambda v: v and 'Row 2' in v[0]) \
+            == ['Col 3, Row 2 · Top right module']
+        assert [r['text'] for r in tab_rows(page)][0] == 'Col 1, Row 1 · Top left module'
+        page.click(f'#idm-list [data-idm-rows="bottom"][data-idm-layer="{a_id}"]')
+        settled(ph, lambda: ph.evaluate(ROWS_PHONE_JS), lambda v: v and v[0] == ['IdmA', 'bottom'])
+        # the phone's readout reads the same way, and says so
+        close_swap(ph)
+        page.evaluate(f"() => window.app._idmSetHighlight({a_id}, '0,0,0,0')")
+        assert settled(ph, lambda: ph.inner_text('#ph-place'), lambda v: v.startswith('Col 1, Row 2')) \
+            == 'Col 1, Row 2 · Top left module'
+        assert ph.inner_text('#ph-ids') == 'Rows from the bottom · IdmA · Cabinet A1 · Module A1'
+        # Undo on the computer leaves the picks as they are
+        page.evaluate("() => window.app.undo()")
+        page.wait_for_timeout(500)
+        assert (served_field(page) or {}).get('rowsFrom', {}).get(str(a_id)) == 'bottom'
+        page.evaluate("() => window.app.redo()")
+        # a reload keeps them
+        page.reload(wait_until='domcontentloaded')
+        page.wait_for_function("() => window.app && window.app.project && window.app.history"
+                               " && window.app.socket && window.app.socket.connected", timeout=15000)
+        page.wait_for_timeout(600)
+        open_tab(page)
+        assert page.evaluate(ROWS_TAB_JS)[0] == ['IdmA · 1 mark', 'bottom']
+        assert not ph._errors and not page._errors, (ph._errors, page._errors)
+    finally:
+        page.evaluate("() => window.app._idmSetField({rowsFrom: {}})")
+        ctx.close()
+
+
 # ── the controls kept to one canvas ───────────────────────────────────────
 
 # Two canvases: IdmA and IdmB on the first, IdmC on the second (beside it in
@@ -1367,6 +1510,9 @@ def test_screenshots(page, e2e_server, pw_browser):
     put_marks(page, 'IdmA', 2, 2, ['0,0,0,0', '1,0,1,1', '2,1,0,0'])
     set_layout(page, 'IdmB', 2, 2)
     put_marks(page, 'IdmB', 2, 2, ['0,0,1,1', '1,1,0,0'])
+    # IdmB stands on the ground (a footer): its rows count from the bottom
+    page.evaluate("""() => { const app = window.app, b = app.project.layers.find(x => x.name === 'IdmB');
+        b.riggingFooterBars = [2]; b.riggingSide = 'footer'; app.updateLayers([b], true, 'Footer'); }""")
     # two ticked Swapped, so the Swapped list shows under the open one
     for name, key in (('IdmA', '0,0,0,0'), ('IdmB', '1,1,0,0')):
         page.click(f'#idm-list .idm-row[data-idm-key="{key}"] input[data-idm-swap]')
@@ -1410,7 +1556,5 @@ def test_screenshots(page, e2e_server, pw_browser):
         page.evaluate("() => document.getElementById('idm-list').scrollIntoView({block: 'center'})")
         page.wait_for_timeout(200)
         page.screenshot(path=os.path.join(SHOTS, 'idm-tab-swap-list.png'))
-        # the panel alone: the open list, its count and the Swapped list
-        page.locator('#idm-list').locator('xpath=..').screenshot(path=os.path.join(SHOTS, 'idm-tab-swap-list-panel.png'))
     finally:
         rp._lan_addresses, app_module.BOUND_HOST = keep

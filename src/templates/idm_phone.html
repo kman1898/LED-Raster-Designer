@@ -172,7 +172,13 @@
         .ph-side-label { flex: 0 0 auto; font-size: 14px; color: var(--faint); margin: 0; }
         .ph-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
             padding-bottom: max(16px, env(safe-area-inset-bottom)); }
-        .ph-group { font-size: 15px; font-weight: 700; color: var(--dim); margin: 12px 0 4px; }
+        .ph-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 15px; font-weight: 700;
+            color: var(--dim); margin: 14px 0 6px; }
+        .ph-group-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+        /* a screen's Rows from switch, beside its name */
+        .ph-rows { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; font-weight: 400; }
+        .ph-rows-label { font-size: 14px; color: var(--faint); }
+        .ph-rows .ph-seg button { flex: 0 0 auto; min-width: 72px; min-height: 44px; font-size: 16px; padding: 0 10px; }
         .ph-row { display: flex; align-items: stretch; gap: 6px; border-top: 1px solid var(--line); }
         .ph-row-go { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left;
             background: transparent; border: 0; padding: 10px 2px; min-height: 60px; cursor: pointer; }

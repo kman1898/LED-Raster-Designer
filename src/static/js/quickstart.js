@@ -4004,6 +4004,11 @@
     function idmRows() { return $$('#idm-list .idm-row'); }
     // The rows on the Swapped list under it (owner, 2026-11-24).
     function idmSwappedRows() { return $$('#idm-swapped-list .idm-row'); }
+    // A screen's Rows from, as its heading's switch shows it.
+    function idmRowsOn(layerId) {
+        var b = $('#idm-list [data-idm-rows][data-idm-layer="' + layerId + '"][aria-pressed="true"]');
+        return b ? b.dataset.idmRows : null;
+    }
     function idmPhoneOpen() { var m = $('#idm-phone-modal'); return !!m && m.style.display !== 'none'; }
     function closeIdmPhone() {
         var a = A();
@@ -10387,6 +10392,32 @@
                 return 'Back on the list and the wall: ' + idmRows().length + ' marks to swap.';
             }
         },
+        idmRowsFrom: {
+            since: '1.7.0',
+            target: '#idm-list .idm-rows', place: 'right', title: 'Count rows from the floor',
+            avoid: ['#idm-list .idm-rows', function () { return idmRows()[0] || null; }],
+            body: 'Rows from beside each screen counts its rows from the top, or up from the bottom for a wall stacked on the ground. A screen with a footer starts on Bottom.',
+            before: openIdm,
+            act: function (t) {
+                var row = idmRows()[0];
+                if (!row) throw new Error('no marks in the list');
+                var layerId = row.dataset.idmLayer, key = row.dataset.idmKey;
+                var was = idmRowsOn(layerId) || 'top';
+                var to = was === 'bottom' ? 'top' : 'bottom';
+                t.mem.layerId = layerId;
+                t.mem.to = to;
+                t.mem.before = row.querySelector('.idm-row-text').textContent;
+                t.mem.key = key;
+                return t.click('#idm-list [data-idm-rows="' + to + '"][data-idm-layer="' + layerId + '"]').then(function () {
+                    return t.wait(function () { return idmRowsOn(layerId) === to; });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function (mem) {
+                if (!mem.to || idmRowsOn(mem.layerId) !== mem.to) return null;
+                var text = $('#idm-list .idm-row[data-idm-key="' + mem.key + '"][data-idm-layer="' + mem.layerId + '"] .idm-row-text');
+                return 'Rows counted from the ' + mem.to + ': ' + mem.before + ' now reads ' + (text ? text.textContent : '') + '.';
+            }
+        },
         notesChecklist: {
             since: '1.7.0',
             target: '#notes-panel', place: 'left', title: 'A checklist in the Notes',
@@ -10495,7 +10526,7 @@
         // IDM, and the checklist in the Notes
         idm: ['idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
               'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap',
-              'idmUnswap', 'notesChecklist'],
+              'idmUnswap', 'idmRowsFrom', 'notesChecklist'],
         // Pixel Map: groups
         pixelGroups: ['groupScreens', 'groupNames', 'groupDrag', 'groupMove'],
         // Binder and Exports

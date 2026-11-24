@@ -47,7 +47,7 @@ import {
     idmHighlightOf, idmTargetOf, idmStepFrom, idmStartModule, idmNextScreenFrom, idmNextCanvasFrom,
     idmCanvasList, idmActiveCanvas, idmCanvasIdOf, idmDescribe, idmMarkGroups, idmLockedBy, idmLockedMessage,
     idmBlockOf, idmApplyMark, idmApplySwapped, idmApplyUnswapped, idmSwappedGroups, idmCanonical,
-    idmFieldSanitize, idmColor, DEFAULT_COLOR,
+    idmFieldSanitize, idmColor, DEFAULT_COLOR, idmRowsFrom, idmRowsFromPicks, ROWS_FROM,
 } from './idm-core.js';
 import {
     FIELD_CYCLE, PAD_BUTTONS, idmPadFrame, idmPadDispatch, idmPadName, idmPadFillHelp, idmHoldStart,
@@ -457,6 +457,25 @@ function setField(color) {
     render();
 }
 
+// A screen's Rows from picked on the swap list (owner, 2026-11-24): kept
+// with the show for that screen, on every device, never an undo step (it
+// rides in the field, as the tab sends it).
+function setRowsFrom(layerId, value) {
+    if (blocked() || !Number.isInteger(layerId) || !ROWS_FROM.includes(value)) return;
+    const cur = fieldNow();
+    const field = { ...cur, rowsFrom: { ...(idmRowsFromPicks(cur.rowsFrom) || {}), [String(layerId)]: value } };
+    const layer = layerById(layerId);
+    plog('idm_phone_rows_from', { layerId, rowsFrom: value },
+        { msg: `Phone counts the rows of ${(layer && layer.name) || 'Screen'} (#${layerId}) from the ${value}` });
+    app.project.idmField = field;
+    fetch('/api/project/idm-field', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field, origin: ORIGIN }),
+    }).catch(() => toast('The change did not reach the computer. Check the connection.'));
+    render();
+}
+
 // ── the page ──────────────────────────────────────────────────────────────
 
 function toast(text) {
@@ -605,11 +624,14 @@ function renderReadout() {
     // Where it is first, read from the side the swap list is set to, then
     // its screen, Cabinet ID and Module ID.
     const back = S.side === 'back';
-    const d = t ? idmDescribe(r, t.layer, t.key, { back }) : null;
+    const bottom = !!t && idmRowsFrom(app.project, t.layer) === 'bottom';
+    const d = t ? idmDescribe(r, t.layer, t.key, { back, bottom }) : null;
     const mark = t && t.layer.idm && t.layer.idm.marks ? t.layer.idm.marks[t.key] : null;
     $('ph-place').textContent = d ? d.place : 'No module highlighted';
     fitPlace();
-    $('ph-ids').textContent = d ? `${back ? 'From the back · ' : ''}${d.screen} · ${d.ids}` : 'Tap an arrow to start.';
+    $('ph-ids').textContent = d
+        ? `${back ? 'From the back · ' : ''}${bottom ? 'Rows from the bottom · ' : ''}${d.screen} · ${d.ids}`
+        : 'Tap an arrow to start.';
     const state = $('ph-state');
     state.textContent = mark ? 'Marked' : '';
     state.classList.toggle('marked', !!mark);
@@ -650,9 +672,12 @@ function renderList() {
     document.querySelectorAll('[data-ph-side]').forEach(b => {
         b.setAttribute('aria-pressed', b.dataset.phSide === S.side ? 'true' : 'false');
     });
-    $('ph-side-label').textContent = S.side === 'back'
-        ? 'Counted from the top left as you face the back of the wall.'
-        : 'Counted from the top left as you face the front of the wall.';
+    // how the rows read: one way for every screen listed, or each its own
+    const ways = new Set(groups.concat(done).map(g => g.rowsFrom));
+    const face = S.side === 'back' ? 'back' : 'front';
+    $('ph-side-label').textContent = ways.size > 1
+        ? `Columns counted from the left as you face the ${face} of the wall; rows from the top or bottom, as set beside each screen.`
+        : `Counted from the ${ways.has('bottom') ? 'bottom' : 'top'} left as you face the ${face} of the wall.`;
     // the count is what is left to swap; the Swapped list counts its own
     const total = groups.reduce((n, g) => n + g.rows.length, 0);
     const swapped = done.reduce((n, g) => n + g.rows.length, 0);
@@ -679,7 +704,33 @@ function listGroup(host, g, h, swapped) {
     const name = g.layer.name || 'Screen';
     const head = document.createElement('div');
     head.className = 'ph-group';
-    head.textContent = name;
+    const label = document.createElement('span');
+    label.className = 'ph-group-name';
+    label.textContent = name;
+    head.appendChild(label);
+    // the screen's Rows from switch: Top, or Bottom for a wall
+    // stacked on the ground
+    const rows = document.createElement('div');
+    rows.className = 'ph-rows';
+    const word = document.createElement('span');
+    word.className = 'ph-rows-label';
+    word.textContent = 'Rows from';
+    const seg = document.createElement('div');
+    seg.className = 'ph-seg';
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', `${name}: rows counted from the`);
+    ROWS_FROM.forEach(v => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.dataset.phRows = v;
+        b.dataset.phLayer = String(g.layer.id);
+        b.setAttribute('aria-pressed', g.rowsFrom === v ? 'true' : 'false');
+        b.textContent = v === 'bottom' ? 'Bottom' : 'Top';
+        seg.appendChild(b);
+    });
+    rows.appendChild(word);
+    rows.appendChild(seg);
+    head.appendChild(rows);
     host.appendChild(head);
     g.rows.forEach(x => {
         const words = `${name} · ${x.place}`;
@@ -864,6 +915,11 @@ function wire() {
     ['ph-list', 'ph-swapped-list'].forEach(id => {
         const list = $(id);
         list.addEventListener('click', (e) => {
+            const rows = e.target.closest('[data-ph-rows]');
+            if (rows) {
+                setRowsFrom(Number(rows.dataset.phLayer), rows.dataset.phRows);
+                return;
+            }
             if (e.target.closest('.ph-swap')) return;
             const row = e.target.closest('[data-ph-key]');
             if (!row || blocked()) return;

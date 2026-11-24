@@ -386,7 +386,13 @@ to a Swapped list under the open one, newest first, on every computer and
 phone, and the count of what is left goes down. Untick a row on the
 Swapped list and the row and its mark come back. Undo takes back either.
 Marking a swapped module again puts it back on the open list, and Clear
-all marks clears both lists. Click a row on the computer and the highlight
+all marks clears both lists.
+
+Rows from beside each screen's name on the swap list, on the computer and
+the phone, counts that screen's rows from the top, or up from the bottom
+for a wall stacked on the ground: Row 1 is then the bottom row. A screen
+with a footer starts on Bottom, any other on Top, and each screen keeps
+its choice with the show, on every computer and phone at once. Click a row on the computer and the highlight
 moves to that module, in the view and on the wall, and stays there until
 you move it on. Each row says where the module is first: the
 cabinet's column and row in its screen, then the module's place in plain
