@@ -678,6 +678,44 @@ export function convertCurveEntry(value, from, to) {
   return to === 'sweep_deg' ? sweepForPercent(value) : percentForSweep(value);
 }
 
+/**
+ * The Curve's third way to say it (owner, 2026-11-24): the radius to the
+ * front face, in meters. A wall of `panels` panels `panelWidthM` wide spans
+ * `panels` times the angle at each joint (idealAngle), and the face of a
+ * panel turned by that angle stands at faceRadiusForAngle from the middle:
+ * the calculator's own `radius` target, read the other way. The face
+ * radius a sweep in degrees gives on that wall (Infinity when straight).
+ */
+export function radiusForSweep(sweepDeg, panels, panelWidthM) {
+  if (!(panels > 0) || !(panelWidthM > 0) || !(sweepDeg > 0)) return Infinity;
+  return faceRadiusForAngle(panelWidthM, sweepDeg / panels);
+}
+
+/** The sweep in degrees a face radius in meters gives on that wall. */
+export function sweepForRadius(radiusM, panels, panelWidthM) {
+  if (!(panels > 0) || !(panelWidthM > 0) || !Number.isFinite(radiusM)) return 0;
+  if (!(radiusM > 0)) return 180 * panels;
+  return 2 * deg(Math.atan(panelWidthM / (2 * radiusM))) * panels;
+}
+
+/**
+ * A Curve setting's value as degrees of sweep on a wall of `panels` panels
+ * `panelWidthM` wide: `entry` 'degrees', 'percent' of a circle, or
+ * 'radius' to the face in meters.
+ */
+export function curveSweep(entry, value, panels, panelWidthM) {
+  if (entry === 'radius') return sweepForRadius(value, panels, panelWidthM);
+  return entry === 'degrees' ? value : sweepForPercent(value);
+}
+
+/** The same curve said in another of the Curve's three entries, on that wall. */
+export function convertCurveValue(value, from, to, panels, panelWidthM) {
+  if (from === to) return value;
+  const sweep = curveSweep(from, value, panels, panelWidthM);
+  if (to === 'radius') return radiusForSweep(sweep, panels, panelWidthM);
+  return to === 'degrees' ? sweep : percentForSweep(sweep);
+}
+
 /** Radius through the joints implied by an ideal angle, meters. */
 export function targetRadius(angleDeg, widthM) {
   return radiusForAngle(widthM, angleDeg);
@@ -1532,7 +1570,7 @@ export function explainChoice(
   }
 
   if (goal === 'tightest') {
-    return `Tightest fit: uses ${describeAngles(chosen)} to land ${formatSmall(chosen.deviation_m, system)} off the drawing, the closest these angles can get.`;
+    return `Closest fit: uses ${describeAngles(chosen)} to land ${formatSmall(chosen.deviation_m, system)} off the drawing, the closest these angles can get.`;
   }
 
   if (goal === 'even') {
@@ -1548,7 +1586,7 @@ export function explainChoice(
           ? `${formatAngle(chosen.max_angle_deg, 2)} at every joint`
           : `a ${formatAngle(chosen.max_angle_deg, 2)} bend after every ${run} panels`;
     return (
-      `Even curve: ${spacing}, which builds ${chosen.percent_circle.toFixed(1)}%. ` +
+      `Same spacing: ${spacing}, which builds ${chosen.percent_circle.toFixed(1)}%. ` +
       (closest.id !== chosen.id
         ? `Leaving some joints flat would land closer to the drawing (${formatSmall(closest.deviation_m, system)} against ${formatSmall(chosen.deviation_m, system)}), but the curve would not be even.`
         : `It is also the closest fit, ${formatSmall(chosen.deviation_m, system)} off the drawing.`)
@@ -1743,7 +1781,7 @@ export function warnings(ctx) {
         `It builds ${formatPercent(achieved.percent_circle)} against ${formatPercent(target.percent_circle)} asked for.` +
         (isClosest
           ? ' This is the closest these angles can get.'
-          : ` Tightest uses ${describeAngles(closest)} and gets to ${formatSmall(closest.deviation_m, system)}.`),
+          : ` The closest build uses ${describeAngles(closest)} and gets to ${formatSmall(closest.deviation_m, system)}.`),
 );
   }
 
@@ -2416,8 +2454,9 @@ export const CURVE_MAX_JOINT_DEG = 20;
 
 export const CURVE_DEFAULTS = Object.freeze({
   on: false,
-  entry: 'percent',      // 'percent' of a full circle, or 'degrees' of sweep
-  value: 20,             // in the entry's unit
+  entry: 'percent',      // 'percent' of a full circle, 'degrees' of sweep,
+                         // or 'radius' to the front face (owner, 2026-11-24)
+  value: 20,             // in the entry's unit (meters for a radius)
   bend: 'concave',       // 'concave' | 'convex'
   goal: 'simplest',      // 'simplest' | 'even' | 'tightest'
   toleranceMm: 25,       // close enough to the drawing
@@ -2454,7 +2493,7 @@ export function cleanCurve(raw) {
     : [];
   return {
     on: src.on === true,
-    entry: pick(src.entry, ['percent', 'degrees'], CURVE_DEFAULTS.entry),
+    entry: pick(src.entry, ['percent', 'degrees', 'radius'], CURVE_DEFAULTS.entry),
     value: Math.max(0, finiteOr(src.value, CURVE_DEFAULTS.value)),
     bend: pick(src.bend, ['concave', 'convex'], CURVE_DEFAULTS.bend),
     goal: pick(src.goal, ['simplest', 'even', 'tightest'], CURVE_DEFAULTS.goal),
@@ -2844,12 +2883,17 @@ function solveWall(count, panelWidthM, sizes, s, system, pick, pickKey, where, s
   // a curve past CURVE_MAX_JOINT_DEG a joint is refused, saying how much
   // curve the wall can take (owner, 2026-11-10).
   const panelsHere = count * unit;
-  const sweep = s.entry === 'degrees' ? finiteOr(s.value, 0) : finiteOr(s.value, 0) * 3.6;
+  // (a radius is the same circle on any wall: its sweep is the arc it spans
+  // across these panels)
+  const sweep = s.entry === 'radius' ? sweepForRadius(finiteOr(s.value, 0), panelsHere, finiteOr(panelWidthM, 0))
+    : s.entry === 'degrees' ? finiteOr(s.value, 0) : finiteOr(s.value, 0) * 3.6;
   if (panelsHere >= 2 && sweep / panelsHere > CURVE_MAX_JOINT_DEG + 1e-9) {
     const most = CURVE_MAX_JOINT_DEG * panelsHere;
-    const ask = s.entry === 'degrees' ? formatAngle(Math.floor(most * 10) / 10) : `${Math.floor(most / 3.6 * 10) / 10}%`;
+    const tightest = faceRadiusForAngle(finiteOr(panelWidthM, 0), CURVE_MAX_JOINT_DEG);
+    const ask = s.entry === 'radius' ? `a radius of ${formatLength(Math.ceil(tightest * 1000) / 1000, system)} or more`
+      : `${s.entry === 'degrees' ? formatAngle(Math.floor(most * 10) / 10) : `${Math.floor(most / 3.6 * 10) / 10}%`} or less`;
     return {
-      errors: [`This curve needs ${formatAngle(sweep / panelsHere)} at each joint on ${where}, past the ${CURVE_MAX_JOINT_DEG}° a curve lock takes. Ask for ${ask} or less.`],
+      errors: [`This curve needs ${formatAngle(sweep / panelsHere)} at each joint on ${where}, past the ${CURVE_MAX_JOINT_DEG}° a curve lock takes. Ask for ${ask}.`],
       warnings: [], result: null, bars: [], starts: [], joints: [], pickKey,
     };
   }
@@ -2860,9 +2904,11 @@ function solveWall(count, panelWidthM, sizes, s, system, pick, pickKey, where, s
   const stock = [...new Set((sizes || []).map((n) => Math.round(finiteOr(n, 0))).filter((n) => n >= 1))].sort((a, b) => a - b);
   config.hardware.footer_widths_m = stock.map((n) => n * panelM);
   config.hardware.detents_deg = [...s.angles];
-  config.target = s.entry === 'degrees'
-    ? { mode: 'sweep_deg', value: s.value, radius_ref: 'face' }
-    : { mode: 'percent_circle', value: s.value, radius_ref: 'face' };
+  config.target = s.entry === 'radius'
+    ? { mode: 'radius', value: s.value, radius_ref: 'face' }
+    : s.entry === 'degrees'
+      ? { mode: 'sweep_deg', value: s.value, radius_ref: 'face' }
+      : { mode: 'percent_circle', value: s.value, radius_ref: 'face' };
   config.direction = s.bend;
   config.build_from = typeof s.from === 'number' ? snapDatum(s.from, config.panel.count) : s.from;
   config.fit_goal = s.goal;

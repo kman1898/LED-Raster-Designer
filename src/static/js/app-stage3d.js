@@ -1305,7 +1305,7 @@ class _Stage3D {
         if (note) {
             const group = peers.length ? (this.project.groups || []).find(g => g && g.id === layer.group_id) : null;
             note.hidden = !group;
-            note.textContent = group ? `Moves and turns with its group, ${group.name || 'Group'}. The group's screens standing together share one Curve, built from its Build from point; the corners are each screen's own.` : '';
+            note.textContent = group ? `Moves and turns with its group, ${group.name || 'Group'}. The group's screens standing together share one Curve, built from where its build starts; the corners are each screen's own.` : '';
         }
         this._s3dPanelFigures(shown, force);
         this._s3dPanelReadouts(layer, p);

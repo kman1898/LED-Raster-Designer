@@ -155,7 +155,8 @@ def test_a_custom_drag_on_a_curved_screen_keeps_its_bars_and_fits_the_angles(pag
     assert want['errors'] == [] and want['hand'] is True
     assert want['joints'] == joints
     assert history_len(page) == n + 1
-    assert 'Laid by hand' in page.inner_text('#rigging-curve-note')
+    assert page.inner_text('#rigging-curve-hand-count') == 'Bars laid by you (blue)'
+    assert page.is_visible('#rigging-curve-undo-mine')
     assert page.locator('#rigging-curve-sheet rect[data-hand-bar]').count() == len(placed(lay))
     assert not page.evaluate("() => (document.querySelector('#app-toast-host') || {}).innerText || ''").count('laid by the Curve')
     # one undo takes the gesture and its angles back
@@ -180,7 +181,8 @@ def test_a_joint_set_by_hand_keeps_its_angle_saves_and_auto_hands_it_back(page, 
     assert placed(lay) == bars
     assert history_len(page) == n + 1
     assert page.locator(f'#rigging-curve-sheet [data-hand-angle="{j}"]').count() == 1
-    assert 'set by hand' in page.inner_text('#rigging-curve-joint')
+    assert page.locator(f'#rigging-curve-joint [data-joint-angle="10"].active').count() == 1
+    assert page.inner_text('#rigging-curve-hand-count') == '1 joint set by you (blue)'
     # the other joints are the Curve's, fitted around it
     assert solve(page, wid)['joints'] == joints_of(lay)
     # saved with the show, and back after a reload

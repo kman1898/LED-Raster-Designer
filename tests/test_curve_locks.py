@@ -38,7 +38,7 @@ pytest.importorskip("playwright.sync_api", reason="playwright not installed")
 from conftest import settled  # noqa: E402
 from test_curve_obj import (  # noqa: E402
     act, edit_locks, expected, face_corners_xz, history_len, idle, joints_of, layer, locks_of, obj_files,
-    open_rigging, read_obj, reset, served, singles_only, toast_says,
+    open_more, open_rigging, read_obj, reset, served, singles_only, toast_says,
 )
 
 
@@ -103,6 +103,7 @@ def test_a_graphite_screen_only_gets_minus_5_0_and_plus_5(page):
     assert len(joints) == 15 and set(joints) <= {0, 5} and 5 in joints, joints
     assert joints == expected(page, ids[0])['joints']
     # Ways to build it offers only 5 degree builds, whatever the goal
+    open_more(page)
     for goal in ('simplest', 'even', 'tightest'):
         act(page, lambda: page.click(f'#rigging-curve-goal [data-value="{goal}"]'))
         shown = ways(page)
@@ -230,6 +231,10 @@ def test_a_user_list_is_saved_with_the_show_used_by_every_screen_of_the_panel_an
     assert chips(page) == ['-5°', '-2.5°', '0°', '+2.5°', '+5°']
     assert source(page) == 'Set by you'
     # back to the library's list: the button says which list applies again
+    # (the lock positions are under More, with the Curve on)
+    singles_only(page)
+    act(page, lambda: page.check('#rigging-curve-on'))
+    open_more(page)
     page.click('#rigging-curve-lock-edit')
     assert page.inner_text('#rigging-curve-lock-reset') == 'Use the panel library list'
     act(page, lambda: page.click('#rigging-curve-lock-reset'))
@@ -314,7 +319,9 @@ def test_a_library_curve_locks_value_is_used_when_present(page):
         assert locks_of(page, ids[1]) == [-10, -5, 0, 5, 10]
         assert source(page) == 'From the panel library'
         # the user's list wins over the library's, and going back offers the library's
-        edit_locks(page, '-3 3')
+        act(page, lambda: page.check('#rigging-curve-on'))
+        open_more(page)
+        act(page, lambda: edit_locks(page, '-3 3'))
         settled(page, lambda: locks_of(page, ids[1]), lambda a: a == [-3, 0, 3])
         page.click('#rigging-curve-lock-edit')
         assert page.inner_text('#rigging-curve-lock-reset') == 'Use the panel library list'

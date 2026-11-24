@@ -184,12 +184,14 @@ input[type="radio"] { accent-color:var(--ps-accent) !important; }
 /* v0.11.0: .text-style-btn (Bold/Italic/Underline) joined the group - it was
    the only toggle left hard-coded blue instead of following the accent. */
 .perspective-btn, .name-display-btn, .binder-group-btn, .mapping-mode-btn, .flow-pattern-btn, .color-mode-btn,
-.pref-flow-pattern-btn, .power-flow-pattern-btn, .text-style-btn, .rigging-size-btn, .rigging-mode-btn, .rigging-tool-btn {
+.pref-flow-pattern-btn, .power-flow-pattern-btn, .text-style-btn, .rigging-size-btn, .rigging-mode-btn, .rigging-tool-btn,
+.rigging-curve-btn {
   font-family:var(--font-ps) !important; background:linear-gradient(#3e3e3e,#343434) !important;
   color:var(--ps-dim) !important; border:1px solid var(--ps-dark) !important; box-shadow:inset 0 1px 0 #4d4d4d !important; }
 .perspective-btn.active, .name-display-btn.active, .binder-group-btn.active, .mapping-mode-btn.active, .color-mode-btn.active,
 .flow-pattern-btn.active, .pref-flow-pattern-btn.active, .power-flow-pattern-btn.active,
-.text-style-btn.active, .rigging-size-btn.active, .rigging-mode-btn.active, .rigging-tool-btn.active {
+.text-style-btn.active, .rigging-size-btn.active, .rigging-mode-btn.active, .rigging-tool-btn.active,
+.rigging-curve-btn.active {
   background:linear-gradient(var(--ps-accent-hi),var(--ps-accent)) !important; color:var(--ps-on-accent) !important;
   border-color:var(--ps-accent-deep) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,0.2) !important; }
 
@@ -1268,3 +1270,46 @@ select, .info-select {
    the over-capacity line red, the lock note amber ---- */
 #crowd-modal .crowd-cap { color:#e05050 !important; }
 #crowd-modal .crowd-locked { color:#dcb968 !important; }
+
+/* ---- the Header/Footer tab's Curve (app-curve.js): a switch, three
+   questions, the answer card and More ---- */
+.rigging-curve-switch, .panel-content label.rigging-curve-switch { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 8px;
+  background:var(--ps-tile); border:1px solid var(--ps-dark); border-radius:3px; box-shadow:inset 0 1px 0 var(--ps-tile-hi);
+  font-size:12px !important; font-weight:600; color:var(--ps-text) !important; cursor:pointer; user-select:none;
+  text-transform:none !important; letter-spacing:normal !important; margin:0 !important; }
+input[type="checkbox"].rigging-curve-toggle { width:30px !important; height:16px !important; border-radius:9px !important; flex:none;
+  margin:0; background-color:var(--ps-inset) !important; border:1px solid var(--ps-dark) !important;
+  background-image:radial-gradient(circle at 7px 50%, #9a9a9a 5px, transparent 5.5px) !important;
+  background-size:100% 100% !important; background-position:0 0 !important; }
+input[type="checkbox"].rigging-curve-toggle:checked { background-color:var(--ps-accent) !important; border-color:var(--ps-accent-deep) !important;
+  background-image:radial-gradient(circle at calc(100% - 7px) 50%, #fff 5px, transparent 5.5px) !important; }
+input[type="checkbox"].rigging-curve-toggle:indeterminate { background-image:radial-gradient(circle at 50% 50%, #ddd 5px, transparent 5.5px) !important; }
+input[type="checkbox"].rigging-curve-toggle:disabled { opacity:0.45; cursor:default; }
+.rigging-curve-note { color:var(--ps-dim); font-size:11px; line-height:1.4; margin-top:5px; }
+.rigging-curve-banner { margin-top:6px; background:#24303a; border:1px solid #35506a; color:#cfe6f7; border-radius:3px;
+  padding:4px 6px; font-size:11px; line-height:1.35; }
+.rigging-curve-q { color:var(--ps-text); font-size:12px; font-weight:600; margin:10px 0 5px; }
+.rigging-curve-label { color:var(--ps-dim); text-transform:uppercase; font-size:10.5px; letter-spacing:.04em; margin:8px 0 4px; }
+.rigging-curve-faint { color:var(--ps-faint); font-size:11px; line-height:1.4; margin-top:4px; }
+.rigging-curve-seg { display:flex; gap:2px; }
+.rigging-curve-seg .btn.rigging-curve-btn { flex:1 1 0; min-width:0; padding:4px 3px !important; font-size:11px !important; line-height:1.2; }
+.rigging-curve-seg .btn.rigging-curve-dir { display:flex; flex-direction:column; align-items:center; gap:1px; padding:3px 2px 5px !important; }
+.rigging-curve-dir svg { display:block; color:#ddd; }
+.rigging-curve-dir.active svg { color:#fff; }
+.rigging-curve-amount { display:flex; gap:6px; align-items:center; }
+.rigging-curve-amount input { width:70px; flex:none; padding:4px 6px; font-size:12px; }
+.rigging-curve-amount select { flex:1 1 auto; min-width:0; padding:3px 22px 3px 5px; font-size:12px; }
+.rigging-curve-card { margin-top:8px; background:#1d1d1d; border:1px solid #3f3f3f; border-radius:3px; padding:7px; }
+.rigging-curve-head { font-weight:600; font-size:12.5px; color:#fff; line-height:1.35; margin-bottom:4px; white-space:pre-line; }
+.rigging-curve-pop { background:#1a1a1a; border:1px solid #4fc3f7; border-radius:3px; padding:6px; margin:4px 0 6px; }
+.rigging-curve-hand { display:flex; align-items:center; gap:6px; margin:2px 0 6px; font-size:11px; color:#4fc3f7; }
+.rigging-curve-hand span { flex:1; min-width:0; }
+.rigging-curve-hand .btn { flex:none; padding:2px 8px !important; font-size:11px !important; }
+.rigging-curve-readouts { display:flex; flex-direction:column; gap:1px; font-size:11px; }
+.rigging-curve-more { margin-top:8px; border-top:1px solid #3a3a3a; padding-top:2px; }
+.rigging-curve-more > summary { color:var(--ps-dim); font-size:11.5px; padding:5px 0 4px; cursor:pointer; user-select:none; }
+.rigging-curve-more > summary:hover { color:var(--ps-text); }
+.rigging-curve-locks .rigging-curve-lock.on { border-color:var(--ps-accent) !important; color:#fff !important; }
+.rigging-curve-tol { display:flex; gap:6px; align-items:center; margin-top:8px; font-size:11px; color:var(--ps-dim); }
+.rigging-curve-tol > span:first-child { flex:1; min-width:0; }
+.rigging-curve-tol input { width:46px; flex:none; padding:3px 5px; }

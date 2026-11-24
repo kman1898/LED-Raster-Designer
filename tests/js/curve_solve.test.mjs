@@ -80,7 +80,7 @@ describe('tightest fit, the old always-mix behavior, kept as a setting', () => {
     expect(result.max_arc_deviation_m).toBeCloseTo(0.00916, 5);
     const closest = Math.min(...result.options.map((o) => o.deviation_m));
     expect(result.max_arc_deviation_m).toBeCloseTo(closest, 9);
-    expect(result.choice_reason).toContain('Tightest fit');
+    expect(result.choice_reason).toContain('Closest fit');
   });
 });
 

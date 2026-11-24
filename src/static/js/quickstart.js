@@ -394,18 +394,18 @@
         var w = wall();
         return w && Array.isArray(w.riggingBars) ? w.riggingBars.join(',') : '';
     }
-    // The Curve's Sweep readout as the Header/Footer tab shows it:
-    // "27.4°, 7.6% of a circle", or '' when it shows none.
+    // The Curve's Builds readout as the Header/Footer tab shows it:
+    // "27.4° of arc, 7.6%", or '' when it shows none.
     function sweepShown() {
         var rows = document.querySelectorAll('#rigging-curve-readouts > div');
         for (var i = 0; i < rows.length; i++) {
             var cells = rows[i].children;
-            if (cells.length === 2 && cells[0].textContent === 'Sweep') return cells[1].textContent;
+            if (cells.length === 2 && cells[0].textContent === 'Builds') return cells[1].textContent;
         }
         return '';
     }
-    // Each side's Sweep on a screen with corners, as the tab shows it:
-    // ['left side 10°, 2.8% of a circle', ...], or [] without sides.
+    // Each side's Builds on a screen with corners, as the tab shows it:
+    // ['left side 10° of arc, 2.8%', ...], or [] without sides.
     function sideSweepsShown() {
         var rows = document.querySelectorAll('#rigging-curve-readouts > div');
         var out = [], side = '';
@@ -415,7 +415,7 @@
             var k = cells[0].textContent;
             var named = /^((?:Left|Right) side|Side \d+), /.exec(k);
             if (named) side = named[1].toLowerCase();
-            else if (k === 'Sweep' && side) out.push(side + ' ' + cells[1].textContent);
+            else if (k === 'Builds' && side) out.push(side + ' ' + cells[1].textContent);
         }
         return out;
     }
@@ -6742,7 +6742,7 @@
         riggingCurve: {
             since: '1.7.0',
             target: '#rigging-curve', place: 'right', title: 'Curve a wall',
-            body: 'Type how much of a circle and tick Curve: it lays the lit bar sizes and sets the angle at every join. Drag the red dot on the plan to build from any panel, or pick another way below.',
+            body: 'Turn on Curve this wall, pick Concave or Convex, type how much and pick where the build starts. The card says how to lock each joint; drag the red dot on the plan to start anywhere.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -6752,25 +6752,30 @@
             act: function (t) {
                 var asked = 4;
                 var curve = function () { var w = wall(); return (w && w.riggingCurve) || {}; };
-                return t.type('#rigging-curve-value', String(asked), { enter: true }).then(function () {
+                // the questions show once the Curve is on
+                return Promise.resolve(curve().on ? null : t.click('#rigging-curve-on')).then(function () {
+                    return t.wait(function () { return curve().on && !A().riggingCurveBusy(); }, 10000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the Curve did not go on');
+                    if (curve().entry !== 'percent') A().setRiggingCurveField('entry', 'percent');
+                    return t.type('#rigging-curve-value', String(asked), { enter: true });
+                }).then(function () {
                     return t.wait(function () { return Number(curve().value) === asked; });
                 }).then(function (ok) {
                     if (!ok) throw new Error('the curve asked for was not kept');
-                    if (!curve().on) return t.click('#rigging-curve-on');
-                }).then(function () {
                     // laid, and the tab drawn from the answer it laid
                     return t.wait(function () {
                         var a = A(), w = wall();
                         var out = w && curve().on && !a.riggingCurveBusy() && a.riggingCurveCached(w);
                         if (!out || out.errors.length || !out.result || !a._curveLaidMatches(w, out)) return false;
-                        return sweepShown().indexOf(out.result.achieved.percent_circle.toFixed(1) + '% of a circle') >= 0;
+                        return sweepShown().indexOf(', ' + out.result.achieved.percent_circle.toFixed(1) + '%') >= 0;
                     }, 10000);
                 }).then(function (ok) {
                     if (!ok) throw new Error('the curve was not laid');
                     return t.spot($('#rigging-curve-result')).then(function () { return t.pause(PACE.opened); });
                 });
             },
-            // What the tab says it built: its Sweep row, its headline and
+            // What the tab says it built: its Builds row, its headline and
             // the bars, and no warning that the build falls short.
             check: function () {
                 var w = wall();
@@ -6796,7 +6801,7 @@
         riggingCorner: {
             since: '1.7.0',
             target: '#rigging-corners', place: 'right', title: 'Bend a corner',
-            body: 'Add corner folds the screen 90 degrees, on a seam or down a panel&rsquo;s middle, and the side at Build from stays put in 3D. Every corner is 90&deg;, so a gentler bend comes from the Curve.',
+            body: 'Add corner folds the screen 90 degrees, on a seam or down a panel&rsquo;s middle, and the side where the build starts stays put in 3D. Every corner is 90&deg;, so a gentler bend comes from the Curve.',
             before: function () {
                 switchView('rigging');
                 var w = wall();
@@ -6941,7 +6946,7 @@
         groupCurve: {
             since: '1.7.0',
             target: '#rigging-curve', place: 'right', title: 'Curve a group',
-            body: 'A group whose screens stand together, side by side or stacked, curves as one wall. Tick Curve on any of its screens: one curve runs across them all, the seams bend like any joint, and Build from spans the wall.',
+            body: 'A group whose screens stand together, side by side or stacked, curves as one wall. Turn on Curve this wall on any of its screens: one curve runs across them all and the seams bend like any joint.',
             before: function () { closePrefs(); hideMenus(); closePopover(); switchView('rigging'); },
             act: function (t) {
                 var a = A(), w = wall();
@@ -7029,7 +7034,7 @@
         curveCustom: {
             since: '1.7.0',
             target: '#rigging-curve-result', place: 'right', title: 'Curve by hand',
-            body: 'With Curve on, lay bars in Custom or click a joint on the build sheet to set its angle, and the Curve fits the rest. What you set shows in blue, and Auto hands it back.',
+            body: 'With the Curve on, lay bars in Custom or click a joint on the strip to set its angle, and the Curve fits the rest. What you set shows in blue, and Undo mine hands it back.',
             before: function () {
                 closePrefs(); hideMenus(); closePopover(); switchView('rigging');
                 var m = curveMiddle();

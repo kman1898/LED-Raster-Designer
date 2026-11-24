@@ -1,11 +1,16 @@
-// app-curve: the Header/Footer tab's Curve. A Curve checkbox on the
-// selected screens; ticked, a compact form (the curve as a % of a full
-// circle or degrees of sweep, concave or convex, Simplest / Even /
-// Tightest, how close is close enough, the angles the locks have, and
-// where the build starts) and the result: a build sheet strip of the bars
-// with the angle at every join between them, a small plan of the wall
-// from above against the drawn arc, the readouts, and every way to build
-// it, ranked, each with Use this.
+// app-curve: the Header/Footer tab's Curve. A "Curve this wall" switch on
+// the selected screens; off, nothing else shows (owner, 2026-11-24). On,
+// three questions in the order a crew thinks them: Concave or Convex, how
+// much (one box, its unit picked from a list: degrees of arc, % of a
+// circle or the radius to the face, the line under it saying the same
+// curve in the other two), and where the build starts (Left end, Center,
+// Right end, or the red dot dragged on the plan). Then the answer card:
+// the instruction ("Lock 11 joints at 5° and 4 at 2.5°"), a build sheet
+// strip of the bars with the angle at every joint, the joints set by hand
+// counted with Undo mine, a small plan of the wall from above against the
+// drawn arc, and the readouts. Under More: every way to build it, ranked,
+// each with Use this; the panel's lock positions; which build the app
+// prefers (Fewest angles, Same spacing, Closest); and Close enough.
 //
 // The math is the curve calculator's own (curve-math.js). The bar sizes
 // are the tab's lit sizes (the stock on the truck), in panel widths; the
@@ -140,10 +145,34 @@ import {
     s3dCornerSeams, s3dCornersOn, s3dCornerTurn, s3dResolve, s3dSanitize, wrap180, DEG, PIVOT,
 } from './app-stage3d.js';
 import {
-    cleanCurve, cleanLocks, convertCurveEntry, datumLabel, formatAngle, formatLength, formatLock, formatSmall,
-    hasLockPositions, ownerCurveLocks, parseLocks, screenCurve, snapDatum, toleranceField,
-    CURVE_MAX_JOINT_DEG, NO_LOCKS_MESSAGE,
+    cleanCurve, cleanLocks, convertCurveValue, curveSweep, datumLabel, feetInches, formatAngle, formatLength, formatLock,
+    formatSmall, fromDisplay, hasLockPositions, ownerCurveLocks, parseLocks, percentForSweep, radiusForSweep, screenCurve,
+    snapDatum, toleranceField, CURVE_MAX_JOINT_DEG, NO_LOCKS_MESSAGE,
 } from './curve-math.js';
+
+// The Curve's three units, as the unit list and the line under the box say
+// them.
+const UNIT_WORDS = { degrees: 'degrees of arc', percent: '% of a circle', radius: 'radius' };
+
+// A number trimmed for a line of words: 72, 19.8, 6.36.
+const trim = (v, places) => String(Number(v.toFixed(places)));
+
+// A radius typed in the show's unit, in meters, or null: meters on a meter
+// show; on a feet show feet, or feet and inches the way a tape reads
+// (20' 10 1/2", the way the box shows it), a bare number being feet.
+function parseRadiusField(raw, system) {
+    if (typeof raw === 'number') return Number.isFinite(raw) ? fromDisplay(raw, system) : null;
+    const t = String(raw || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (system === 'imperial') {
+        if (/^\d+(\.\d+)?$/.test(t)) return Number(t) * 0.3048;
+        const m = /^(?:(\d+(?:\.\d+)?) ?(?:'|ft|feet))? ?(?:(\d+(?:\.\d+)?)?(?: ?(\d+)\/(\d+))? ?(?:"|in))?$/.exec(t);
+        if (!m || (!m[1] && !m[2] && !m[3])) return null;
+        const inches = (m[2] ? Number(m[2]) : 0) + (m[3] && Number(m[4]) ? Number(m[3]) / Number(m[4]) : 0);
+        return ((m[1] ? Number(m[1]) : 0) * 12 + inches) * 0.0254;
+    }
+    const m = /^(\d+(?:\.\d+)?) ?m?$/.exec(t);
+    return m ? Number(m[1]) : null;
+}
 
 // Where a panel's lock positions came from, as the tab says it.
 const LOCK_SOURCE_WORDS = {
@@ -238,7 +267,6 @@ class _Curve {
         const group = (sel, key) => document.querySelectorAll(sel).forEach(btn => {
             btn.addEventListener('click', () => this.setRiggingCurveField(key, btn.dataset.value));
         });
-        group('#rigging-curve-entry .rigging-curve-btn', 'entry');
         group('#rigging-curve-bend .rigging-curve-btn', 'bend');
         group('#rigging-curve-goal .rigging-curve-btn', 'goal');
         group('#rigging-curve-from .rigging-curve-btn', 'from');
@@ -247,7 +275,16 @@ class _Curve {
             if (el) el.addEventListener('change', () => this.setRiggingCurveField(key, el.value));
         };
         field('rigging-curve-value', 'value');
+        field('rigging-curve-unit', 'entry');
         field('rigging-curve-tol', 'tolerance');
+        const undo = document.getElementById('rigging-curve-undo-mine');
+        if (undo) undo.addEventListener('click', () => this.riggingCurveUndoMine());
+        // More says what it holds while it is shut.
+        const more = document.getElementById('rigging-curve-more');
+        const title = document.getElementById('rigging-curve-more-title');
+        if (more && title) more.addEventListener('toggle', () => {
+            title.textContent = more.open ? 'More' : 'More: other builds, lock positions, fit';
+        });
         this._wireCurveLockEditor();
         const ways = document.getElementById('rigging-curve-ways');
         if (ways) ways.addEventListener('click', (e) => {
@@ -495,19 +532,26 @@ class _Curve {
         }
         const { key, draft } = ed;
         this._curveLockEdit = null;
+        // set under the switch (the Curve off): the row stays there until
+        // the Curve goes on (refreshRiggingCurve)
+        const locksEl = document.getElementById('rigging-curve-locks');
+        const offHome = document.getElementById('rigging-curve-locks-off');
+        this._curveLocksOffKey = locksEl && offHome && locksEl.parentNode === offHome ? key : null;
         if (!this.setPanelCurveLocks(key, draft)) this.refreshRiggingCurve();
         return true;
     }
 
     // The chips, where they came from, and the editor when it is open.
-    _curveDrawLocks(primary, locks) {
-        const chip = (text, extra = '') => `<span class="rigging-curve-lock" style="display: inline-flex; align-items: center; justify-content: center; gap: 3px; padding: 1px 6px; border: 1px solid #4a4a4a; border-radius: 9px; background: #1d1d1d; color: #ddd; font-size: 11px;"${extra}>${text}</span>`;
+    _curveDrawLocks(primary, locks, s = null) {
+        // (the positions the curve bends to, for the way it bends, ringed)
+        const ways = (a) => !!s && s.on && (s.bend === 'convex' ? a < 0 : a > 0);
+        const chip = (text, extra = '', on = false) => `<span class="rigging-curve-lock${on ? ' on' : ''}" style="display: inline-flex; align-items: center; justify-content: center; gap: 3px; padding: 1px 6px; border: 1px solid #4a4a4a; border-radius: 9px; background: #1d1d1d; color: #ddd; font-size: 11px;"${extra}>${text}</span>`;
         const chipsEl = document.getElementById('rigging-curve-lock-chips');
         const srcEl = document.getElementById('rigging-curve-lock-source');
         const noneEl = document.getElementById('rigging-curve-lock-none');
         const has = hasLockPositions(locks.list);
         if (chipsEl) {
-            const html = has ? locks.list.map(a => chip(formatLock(a), ` data-lock="${a}"`)).join('') : '';
+            const html = has ? locks.list.map(a => chip(formatLock(a), ` data-lock="${a}"`, ways(a))).join('') : '';
             if (chipsEl.innerHTML !== html) chipsEl.innerHTML = html;
         }
         if (srcEl) {
@@ -1002,7 +1046,7 @@ class _Curve {
         const r = out && out.result;
         const a = r && r.achieved;
         const sides = Array.isArray(out && out.sides) ? out.sides.length : 0;
-        const asked = `${s.value}${s.entry === 'degrees' ? ' deg' : '%'} ${s.bend || ''}, ${s.goal || ''}`;
+        const asked = `${s.value}${s.entry === 'degrees' ? ' deg' : s.entry === 'radius' ? ' m radius' : '%'} ${s.bend || ''}, ${s.goal || ''}`;
         const details = {
             name, action, asked: { entry: s.entry, value: s.value, bend: s.bend, goal: s.goal, from: s.from },
             panels: input && input.panels, sizes: input && input.sizes,
@@ -1600,7 +1644,7 @@ class _Curve {
         const base = this.riggingCurveFor(primary);
         const patch = {};
         if (key === 'entry') {
-            if (raw !== 'percent' && raw !== 'degrees') return;
+            if (!['percent', 'degrees', 'radius'].includes(raw)) return;
             patch.entry = raw;
         } else if (key === 'bend') {
             if (raw !== 'concave' && raw !== 'convex') return;
@@ -1630,6 +1674,17 @@ class _Curve {
                 list[side] = pick;
                 patch.sidePicks = list;
             }
+        } else if (key === 'value' && base.entry === 'radius') {
+            // a radius, in the show's unit, kept in meters as typed
+            const v = parseRadiusField(raw, this._curveSystem());
+            if (v === null || !(v > 0)) {
+                sendClientLog('curve_field_refused', { key, value: String(raw).slice(0, 20), why: 'not a radius over 0' },
+                    { area: 'rigging', level: 'warn', msg: `Curve radius ${String(raw).slice(0, 20)} refused: type a radius over 0` });
+                this._toast(`Curve, type a radius greater than 0, in ${this._curveSystem() === 'metric' ? 'meters' : 'feet'}.`, true, 5000);
+                this.refreshRiggingPanel();
+                return;
+            }
+            patch.value = Math.round(v * 1e6) / 1e6;
         } else if (key === 'value') {
             const v = Number(String(raw).replace(/[%°\s]/g, ''));
             const max = base.entry === 'degrees' ? 360 : 100;
@@ -1649,17 +1704,20 @@ class _Curve {
             return;
         }
         const changed = [];
+        let straight = false;
         for (const row of rows) {
             const s = row.kind === 'both' ? this.riggingCurveOf(row.layers[0]) : this._curveRowSettings(row);
             const next = cleanCurve({ ...s, ...patch });
             // the datum is in the row's panels: a group's spans its screens
             if (typeof next.from === 'number') next.from = snapDatum(next.from, row.width || 1);
-            // Switching % and degrees says the same curve the other way:
-            // the wall does not change.
+            // Switching the unit says the same curve the other way: the
+            // wall does not change. A radius is of the row's wall (its
+            // first side on a screen with corners).
             if (patch.entry && patch.entry !== s.entry) {
-                next.value = Math.round(convertCurveEntry(s.value,
-                    s.entry === 'degrees' ? 'sweep_deg' : 'percent_circle',
-                    patch.entry === 'degrees' ? 'sweep_deg' : 'percent_circle') * 1e6) / 1e6;
+                const wall = this._curveWalls(row.layers[0], row)[0];
+                const v = convertCurveValue(s.value, s.entry, patch.entry, wall.steps, wall.stepM);
+                // (a straight wall has no radius: it keeps what it had)
+                if (!Number.isFinite(v)) { next.entry = s.entry; straight = true; } else next.value = Math.round(v * 1e6) / 1e6;
             }
             const sized = row.kind !== 'both' && this._curveSyncSizes(row, primary);
             if (!sized && this._curveAll(row).every(m => JSON.stringify(next) === JSON.stringify(this.riggingCurveOf(m)))) continue;
@@ -1672,6 +1730,7 @@ class _Curve {
                 msg: `Curve ${key} set to ${JSON.stringify(patch[key] !== undefined ? patch[key] : patch)} on ${changed.map(l => l.name).slice(0, 6).join(', ')}`,
             });
         }
+        if (straight) this._toast('Curve, a straight wall has no radius. Type how much it curves first.', true, 5000);
         if (changed.length && !this.riggingCurveRelayLater(changed, 'Curve', changed)) {
             this.updateLayers(changed, true, 'Curve');
         }
@@ -1879,10 +1938,10 @@ class _Curve {
         host.innerHTML = '';
         const words = document.createElement('div');
         words.style.cssText = 'color: #aaa; font-size: 11px; margin-bottom: 3px;';
-        words.textContent = `Joint after panel ${j + 1}: ${set ? 'set by hand' : 'set by the Curve'}.`;
+        words.textContent = `Joint after panel ${j + 1}`;
         host.appendChild(words);
         const line = document.createElement('div');
-        line.style.cssText = 'display: flex; flex-wrap: wrap; gap: 4px;';
+        line.className = 'rigging-curve-seg';
         const button = (value, text, on, tip) => {
             const b = document.createElement('button');
             b.type = 'button';
@@ -1890,18 +1949,90 @@ class _Curve {
             b.dataset.jointAngle = value;
             b.textContent = text;
             b.setAttribute('data-tooltip', tip);
-            b.style.setProperty('padding', '2px 6px', 'important');
-            b.style.setProperty('font-size', '11px', 'important');
             line.appendChild(b);
         };
-        button('auto', 'Auto', !set, 'Let the Curve set this joint.');
+        button('auto', 'App sets it', !set, 'App sets it, the Curve picks the angle at this joint.');
         choices.forEach(a => button(String(a), a ? formatAngle(Math.abs(a)) : 'Flat', set && Math.abs(now - a) < 1e-6,
             a ? `Set this joint to ${formatAngle(Math.abs(a))} by hand.` : 'Set this joint flat by hand.'));
         host.appendChild(line);
     }
 
+    // The wall a curve's units are worked on: the row (a screen, or a
+    // group's row), or each side of a screen with corners as the answer
+    // splits it. Each { name, panels, steps, stepM }: a side ending in half
+    // a panel is worked in half panels, as the calculator works it.
+    _curveWalls(layer, row = this._curveRow(layer)) {
+        const lead = (row && row.layers && row.layers[0]) || layer;
+        const w = (Number(lead.panel_width_mm) || 500) / 1000;
+        const wall = (name, panels) => {
+            const half = !Number.isInteger(panels);
+            return { name, panels, steps: half ? panels * 2 : panels, stepM: half ? w / 2 : w };
+        };
+        const out = this.riggingCurveCached(layer);
+        if (out && Array.isArray(out.sides) && out.sides.length) return out.sides.map(sd => wall(sd.name, sd.panels));
+        return [wall('', this._curveMulti(row) ? row.width : Number(layer.columns) || 0)];
+    }
+
+    // The line under How much: the same curve in the other two units, so
+    // nothing is converted out of sight. "Same as 20% of a circle, or a
+    // 6.36 m radius". A screen with corners says each side's.
+    _curveSameLine(s, walls, system) {
+        const radius = (m) => (system === 'imperial' ? feetInches(m) : `${trim(m, 2)} m`);
+        const say = (wall) => {
+            const sweep = curveSweep(s.entry, s.value, wall.steps, wall.stepM);
+            const degrees = `${trim(sweep, 1)} degrees of arc`;
+            const pct = `${trim(percentForSweep(sweep), 1)}% of a circle`;
+            const r = radiusForSweep(sweep, wall.steps, wall.stepM);
+            const rad = Number.isFinite(r) ? `a ${radius(r)} radius` : 'no radius (straight)';
+            if (s.entry === 'radius') return `${degrees}, or ${pct}`;
+            return s.entry === 'degrees' ? `${pct}, or ${rad}` : `${degrees}, or ${rad}`;
+        };
+        if (s.entry !== 'radius' && !(s.value > 0)) return '0 is a straight wall.';
+        const said = walls.map(say);
+        if (said.length === 1) return `Same as ${said[0]}`;
+        if (said.every(t => t === said[0])) return `Same as ${said[0]}, on each side`;
+        return `Same as ${walls.map((wl, i) => `${said[i]} on the ${wl.name}`).join('; ')}`;
+    }
+
+    // The by hand line on the answer card: how many joints are yours, and
+    // Undo mine. Hidden when the Curve lays the row on its own.
+    _curveDrawHand(out, s) {
+        const host = document.getElementById('rigging-curve-hand');
+        const count = document.getElementById('rigging-curve-hand-count');
+        if (!host || !count) return;
+        const n = Object.keys(s.handJoints || {}).length;
+        host.style.display = out && out.hand ? '' : 'none';
+        count.textContent = !out || !out.hand ? ''
+            : n ? `${n} joint${n === 1 ? '' : 's'} set by you (blue)` : 'Bars laid by you (blue)';
+    }
+
+    // Undo mine: every joint set and bar laid by hand on the row the tab
+    // shows handed back to the Curve, as Auto does. One undo step.
+    riggingCurveUndoMine() {
+        const primary = this._riggingPrimary(this._riggingScreens());
+        const row = primary ? this._curveRow(primary) : null;
+        if (!row || !this.riggingCurveRowCurved(row)) return false;
+        const all = this._curveAll(row);
+        const locked = all.filter(m => this._layerLocked(m));
+        if (locked.length) { this._showLockedError(locked); return false; }
+        if (!all.some(m => m.riggingCustom === true || (m.riggingCurve && m.riggingCurve.handJoints))) return false;
+        this.riggingCurveHandOff(all);
+        this._curveJointPick = null;
+        sendClientLog('curve_undo_mine', { screens: all.map(l => l.name) }, {
+            area: 'rigging', msg: `Curve Undo mine on ${all.map(l => l.name).slice(0, 6).join(', ')}: the joints and bars set by hand go back to the Curve`,
+        });
+        if (!this.riggingCurveRelayLater(all, 'Curve Undo Mine', all)) this.updateLayers(all, true, 'Curve Undo Mine');
+        this.refreshRiggingPanel();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+        return true;
+    }
+
     // ---- the panel --------------------------------------------------------
 
+    // Off, the Curve shows only its switch (owner, 2026-11-24), and a line
+    // when something stands in its way. A panel with no lock positions
+    // shows them under the switch, so they can be set before it goes on.
+    // On, the three questions, the answer card and More.
     refreshRiggingCurve() {
         const block = document.getElementById('rigging-curve');
         const box = document.getElementById('rigging-curve-on');
@@ -1930,62 +2061,96 @@ class _Curve {
         const locks = this._curveLocksShown(primary, row);
         const hasLocks = hasLockPositions(locks.list);
         box.disabled = !s.on && onCount === 0 && !hasLocks;
-        this._curveDrawLocks(primary, locks);
-        // The settings always show and always save, Curve on or off: set
-        // the curve up, then tick Curve to lay it.
-        const fields = document.getElementById('rigging-curve-fields');
-        if (fields) fields.style.display = '';
-        const note = document.getElementById('rigging-curve-note');
-        // "Group 1's 3 screens": the wall a grouped row's curve runs across
-        const across = multi ? `${this._curveWallName(row)}'s ${this._curveAll(row).length} screens` : '';
-        if (note) {
-            note.style.display = '';
-            note.textContent = cannot
-                ? `${this._curveWho(primary)} cannot take a Curve: ${cannot}.`
-                : !s.on
-                    ? (hasLocks ? (multi ? `Tick Curve to lay these bars and angles across ${across} as one wall.` : 'Tick Curve to lay these bars and angles on the screen.')
-                        : 'Set this panel\'s lock positions below, then tick Curve.')
-                    : !hasLocks
-                        ? 'This screen keeps the angles it was laid at until its panel\'s lock positions are set.'
-                        : this._riggingToolNow() === 'custom'
-                            ? 'Custom: lay bars by hand and the Curve sets the angles where they meet. Click a joint on the build sheet to set it yourself.'
-                            : multi
-                                ? `The Curve lays the bars across ${across} from the lit sizes, as one wall. Auto lays it again.`
-                                : 'The Curve lays this screen\'s bars from the lit sizes. Auto lays it again.';
+        this._curveDrawLocks(primary, locks, s);
+        // The lock positions sit under More, or under the switch while the
+        // Curve is off and the panel has none. Set there, they stay there
+        // until the Curve goes on, so the row the crew just filled in does
+        // not vanish under them.
+        const locksEl = document.getElementById('rigging-curve-locks');
+        const offHome = document.getElementById('rigging-curve-locks-off');
+        const moreHome = document.getElementById('rigging-curve-goal-label');
+        if (s.on || cannot || this._curveLocksOffKey !== locks.key) this._curveLocksOffKey = null;
+        const lockOff = !s.on && !cannot && (!hasLocks || this._curveLocksOffKey === locks.key);
+        if (locksEl && offHome && moreHome) {
+            if (lockOff && locksEl.parentNode !== offHome) offHome.appendChild(locksEl);
+            if (!lockOff && locksEl.nextElementSibling !== moreHome) moreHome.parentNode.insertBefore(locksEl, moreHome);
         }
+        const more = document.getElementById('rigging-curve-more');
+        // On with no positions: More opens on them.
+        if (more && s.on && !hasLocks && !more.open) more.open = true;
+        const fields = document.getElementById('rigging-curve-fields');
+        if (fields) fields.style.display = s.on ? '' : 'none';
+        // A group says once, plainly, that it curves as one wall.
+        const banner = document.getElementById('rigging-curve-group');
+        if (banner) {
+            const n = this._curveAll(row).length;
+            const every = ['', 'it', 'both', 'all three', 'all four', 'all five', 'all six', 'all seven', 'all eight', 'all nine', 'all ten'][n] || `all ${n}`;
+            const text = multi && !cannot ? `${this._curveWallName(row)} curves as one wall across its ${n} screens. A change here sets ${every}.` : '';
+            banner.style.display = text ? '' : 'none';
+            if (banner.textContent !== text) banner.textContent = text;
+        }
+        // The note under the switch: only what stands in the way.
+        const note = document.getElementById('rigging-curve-note');
+        let said = cannot
+            ? `${this._curveWho(primary)} cannot take a Curve: ${cannot}.`
+            : !hasLocks
+                ? (s.on ? 'This screen keeps the angles it was laid at until its panel\'s lock positions are set.'
+                    : 'This panel has no curve lock positions yet. Set them here, then turn the Curve on.')
+                : '';
         // A saved curve laid at angles its panel does not lock at opens as
         // it was, flagged, until Auto or Use this lays it from the list.
         const offList = s.on && hasLocks && !cannot ? this._curveOffList(primary, locks.list) : [];
-        if (note && offList.length) {
-            note.textContent = `This screen is laid at ${listWords(offList.map(a => formatLock(a)))}, which this panel does not lock at. Press Auto to lay it again from its lock positions.`;
+        if (offList.length) {
+            said = `This screen is laid at ${listWords(offList.map(a => formatLock(a)))}, which this panel does not lock at. Press Auto to lay it again from its lock positions.`;
         }
+        const setNote = (text) => {
+            if (!note) return;
+            note.style.display = text ? '' : 'none';
+            if (note.textContent !== text) note.textContent = text;
+        };
+        setNote(said);
         if (note) note.dataset.offList = offList.length ? '1' : '';
         const working = document.getElementById('rigging-curve-working');
 
         const lit = (sel, value) => document.querySelectorAll(sel).forEach(btn => {
             btn.classList.toggle('active', btn.dataset.value === value);
         });
-        lit('#rigging-curve-entry .rigging-curve-btn', s.entry);
         lit('#rigging-curve-bend .rigging-curve-btn', s.bend);
         lit('#rigging-curve-goal .rigging-curve-btn', s.goal);
         lit('#rigging-curve-from .rigging-curve-btn', typeof s.from === 'string' ? s.from : '');
         const fromLabel = document.getElementById('rigging-curve-from-label');
         if (fromLabel) {
+            // (Left end, Center or Right end lit says it; a spot dragged
+            // on the plan says where)
+            fromLabel.style.display = typeof s.from === 'number' ? '' : 'none';
             fromLabel.textContent = typeof s.from === 'number'
                 ? `From ${datumLabel(snapDatum(s.from, (multi ? row.width : Number(primary.columns)) || 1))}. Drag the red dot on the plan to move it.`
-                : 'Or drag the red dot on the plan onto any panel or joint.';
+                : '';
         }
         const system = this._curveSystem();
         const set = (id, value) => {
             const el = document.getElementById(id);
             if (el && document.activeElement !== el && el.value !== value) el.value = value;
         };
-        set('rigging-curve-value', String(Math.round(s.value * 1000) / 1000));
+        // (a radius as the line under the box says one: meters, or feet
+        // and inches the way a tape reads)
+        set('rigging-curve-value', s.entry !== 'radius' ? String(Math.round(s.value * 1000) / 1000)
+            : system === 'imperial' ? feetInches(s.value) : trim(s.value, 2));
+        const unit = document.getElementById('rigging-curve-unit');
+        if (unit) {
+            const radiusOpt = unit.querySelector('option[value="radius"]');
+            const words = system === 'metric' ? 'radius, m' : 'radius, ft';
+            if (radiusOpt && radiusOpt.textContent !== words) radiusOpt.textContent = words;
+            if (unit.value !== s.entry) unit.value = s.entry;
+        }
         set('rigging-curve-tol', toleranceField(s.toleranceMm, system));
         const tolUnit = document.getElementById('rigging-curve-tol-unit');
         if (tolUnit) tolUnit.textContent = system === 'metric' ? 'mm' : 'in';
-        const valueUnit = document.getElementById('rigging-curve-value-unit');
-        if (valueUnit) valueUnit.textContent = s.entry === 'degrees' ? 'degrees of sweep' : '% of a circle';
+        const same = document.getElementById('rigging-curve-same');
+        if (same) {
+            const text = s.on ? this._curveSameLine(s, this._curveWalls(primary, row), system) : '';
+            if (same.textContent !== text) same.textContent = text;
+        }
         if (!s.on || cannot) {
             ['rigging-curve-working', 'rigging-curve-errors', 'rigging-curve-result'].forEach(id => {
                 const el = document.getElementById(id);
@@ -2009,23 +2174,17 @@ class _Curve {
             return;
         }
         if (errorsEl) {
-            // (no lock positions is said once, by the lock positions row)
-            const said = out.errors.filter(e => e !== NO_LOCKS_MESSAGE);
-            errorsEl.style.display = said.length ? '' : 'none';
-            errorsEl.textContent = said.join('\n');
+            // (no lock positions is said once, by the note)
+            const errs = out.errors.filter(e => e !== NO_LOCKS_MESSAGE);
+            errorsEl.style.display = errs.length ? '' : 'none';
+            errorsEl.textContent = errs.join('\n');
         }
         if (result) result.style.display = out.errors.length ? 'none' : '';
         if (out.errors.length) return;
-        // A row laid by hand: say so, and that Auto hands it back.
-        if (note && out.hand && !offList.length) {
-            note.textContent = this._riggingToolNow() === 'custom'
-                ? 'Laid by hand (blue): lay bars with Custom and the Curve sets the angles where they meet. Click a joint on the build sheet to set it yourself. Auto hands it all back to the Curve.'
-                : 'Laid by hand (blue): the Curve sets the angles where the bars meet. Click a joint on the build sheet to set it yourself. Auto hands it all back to the Curve.';
-        }
         // A redo can bring back an edit whose answer never landed: say so
         // rather than show a curve the screen does not carry.
-        if (note && !offList.length && !this.riggingCurveBusy() && !this._curveLaidMatches(primary, out)) {
-            note.textContent = 'These bars and angles are not this curve\'s yet. Press Auto to lay it.';
+        if (!offList.length && !this.riggingCurveBusy() && !this._curveLaidMatches(primary, out)) {
+            setNote('These bars and angles are not this curve\'s yet. Press Auto to lay it.');
         }
         // The seams a corner takes over (app-corners.js): no curve angle.
         // Across a group, the row's joints: a seam corner's piece starts on
@@ -2036,6 +2195,7 @@ class _Curve {
         const picked = this._curvePickedJoint(primary, row);
         this._curveDrawSheet(document.getElementById('rigging-curve-sheet'), out, cornerSeams, s.handJoints || {}, picked);
         this._curveDrawJointPick(document.getElementById('rigging-curve-joint'), primary, row, out);
+        this._curveDrawHand(out, s);
         if (out.sides) this._curveDrawCornerPlan(document.getElementById('rigging-curve-plan'), this._curveWallOf(primary, row), out);
         else this._curveDrawPlan(document.getElementById('rigging-curve-plan'), out);
         // One group per side on a screen with corners, each named; the
@@ -2043,20 +2203,20 @@ class _Curve {
         const groups = out.sides
             ? out.sides.map((sd, i) => ({ side: i, name: cap(sd.name), panels: sd.panels, r: sd.out.result }))
             : [{ side: null, name: '', panels: 0, r: out.result }];
-        const named = (g, text) => (g.name ? `${g.name}: ${text}` : text);
+        // "Left side: lock 5 joints at 5°"
+        const named = (g, text) => (g.name ? `${g.name}: ${text.charAt(0).toLowerCase()}${text.slice(1)}` : text);
         const head = document.getElementById('rigging-curve-head');
         // (a side that is only its corner bar's arm has no joint to bend)
-        if (head) head.textContent = groups.map(g => named(g, g.r ? this._curveHeadline(g.r) : 'only the corner bar, flat')).join('\n');
+        if (head) head.textContent = groups.map(g => named(g, g.r ? this._curveHeadline(g.r) : 'Only the corner bar, flat')).join('\n');
         const len = (m) => formatLength(m, system);
         const rows = [];
         groups.forEach(g => {
             if (g.name) rows.push([`${g.name}, ${g.panels} panel${g.panels === 1 ? '' : 's'}`, g.r ? '' : 'flat', true]);
             if (!g.r) return;
             const a = g.r.achieved;
-            rows.push(['Sweep', `${formatAngle(a.sweep_deg, 1)}, ${a.percent_circle.toFixed(1)}% of a circle`]);
+            rows.push(['Builds', `${formatAngle(a.sweep_deg, 1)} of arc, ${a.percent_circle.toFixed(1)}%`]);
             rows.push(['Radius', Number.isFinite(a.radius_face_m) ? `${len(a.radius_face_m)} to the face` : 'straight']);
-            rows.push(['Width', len(a.chord_m)]);
-            rows.push(['Depth', len(a.depth_m)]);
+            rows.push(['Width, depth', `${len(a.chord_m)}, ${len(a.depth_m)}`]);
             rows.push(['Off the drawing', `${formatSmall(g.r.max_arc_deviation_m, system)} at worst`]);
         });
         const read = document.getElementById('rigging-curve-readouts');
@@ -2066,18 +2226,25 @@ class _Curve {
                 read.dataset.sig = sig;
                 read.innerHTML = '';
                 rows.forEach(([k, v, title]) => {
-                    const row = document.createElement('div');
-                    row.style.cssText = `display: flex; justify-content: space-between; gap: 8px;${title ? ' margin-top: 4px;' : ''}`;
+                    const line = document.createElement('div');
+                    line.style.cssText = `display: flex; justify-content: space-between; gap: 8px;${title ? ' margin-top: 4px;' : ''}`;
                     const kEl = document.createElement('span');
                     kEl.style.cssText = title ? 'color: #fff; font-weight: 600;' : 'color: #aaa;';
                     kEl.textContent = k;
                     const vEl = document.createElement('span');
                     vEl.textContent = v;
                     vEl.style.textAlign = 'right';
-                    row.append(kEl, vEl);
-                    read.appendChild(row);
+                    line.append(kEl, vEl);
+                    read.appendChild(line);
                 });
             }
+        }
+        const hint = document.getElementById('rigging-curve-hint');
+        if (hint) {
+            const text = this._riggingToolNow() === 'custom'
+                ? 'Lay bars with Custom and the Curve sets the angles where they meet. Click a joint on the strip to set it yourself.'
+                : 'Click a joint on the strip to set it yourself. Drag the red dot to start anywhere.';
+            if (hint.textContent !== text) hint.textContent = text;
         }
         const reason = document.getElementById('rigging-curve-reason');
         if (reason) reason.textContent = groups.filter(g => g.r).map(g => named(g, g.r.choice_reason)).join('\n');
@@ -2091,12 +2258,13 @@ class _Curve {
         this._curveDrawWays(document.getElementById('rigging-curve-ways'), groups.filter(g => g.r), system);
     }
 
-    // "7.5° at 9 joints, 6 flat"
+    // The answer as an instruction to the crew: "Lock 11 joints at 5° and
+    // 4 at 2.5°", "Lock 13 joints at 5°, 4 stay flat".
     _curveHeadline(r) {
         if (!r.angle_usage.length) return 'Every joint flat: a straight wall';
-        const parts = r.angle_usage.map(u => `${formatAngle(u.angle_deg)} at ${u.count} joint${u.count === 1 ? '' : 's'}`);
-        if (r.flat_joints) parts.push(`${r.flat_joints} flat`);
-        return parts.join(', ');
+        const parts = r.angle_usage.map((u, i) => `${u.count}${i ? '' : ` joint${u.count === 1 ? '' : 's'}`} at ${formatAngle(u.angle_deg)}`);
+        const flat = r.flat_joints ? `, ${r.flat_joints} ${r.flat_joints === 1 ? 'stays' : 'stay'} flat` : '';
+        return `Lock ${listWords(parts)}${flat}`;
     }
 
     // Ways to build it: every candidate build, ranked as the calculator
