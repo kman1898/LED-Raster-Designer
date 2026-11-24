@@ -217,8 +217,8 @@ class _Stage3DNav {
         const layout = this._s3dLayout();
         const sel = this._s3dSelectedIds();
         const moveSet = this._s3dMoveSet(sel.size ? [...sel] : [hit.layerId]);
-        const movers = moveSet.filter(l => !this._layerLocked(l));
-        const held = moveSet.filter(l => this._layerLocked(l));
+        const movers = moveSet.filter(l => !this._s3dHeld(l));
+        const held = moveSet.filter(l => this._s3dHeld(l));
         const starts = new Map(movers.map(l => [l.id, this._s3dPlacementOf(l, layout)]));
         let normal;
         if (vertical) {
@@ -313,7 +313,7 @@ class _Stage3DNav {
         const st = this._s3dState();
         const d = st.drag;
         if (!d || d.kind !== 'move') return;
-        if (!d.active && d.held.length) this._showLockedError(d.held);
+        if (!d.active && d.held.length) this._s3dShowHeld(d.held);
         d.active = true;
         const ray = this._s3dRayAt(ev.clientX, ev.clientY);
         const at = ray ? ray.intersectPlane(d.plane, new st.T.Vector3()) : null;

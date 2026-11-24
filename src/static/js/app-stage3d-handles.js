@@ -130,7 +130,9 @@ class _Stage3DHandles {
     }
 
     // The screens that carry the handles: the selection on the stage and
-    // the rest of each one's group. Called on every stage sync.
+    // the rest of each one's group, but for one screen picked alone in
+    // the Screens list (app-stage3d.js _s3dMovesWith). Called on every
+    // stage sync.
     _s3dHandlesSync() {
         const st = this._s3dState();
         const h = this._s3dHandlesBuild();
@@ -350,9 +352,9 @@ class _Stage3DHandles {
         const pose = this._s3dHandlesPose();
         if (!h || !pose) return;
         const layers = ((this.project && this.project.layers) || []).filter(l => pose.ids.includes(l.id));
-        const movers = layers.filter(l => !this._layerLocked(l));
-        const held = layers.filter(l => this._layerLocked(l));
-        if (held.length) this._showLockedError(held);
+        const movers = layers.filter(l => !this._s3dHeld(l));
+        const held = layers.filter(l => this._s3dHeld(l));
+        if (held.length) this._s3dShowHeld(held);
         const layout = this._s3dLayout();
         const starts = new Map(movers.map(l => [l.id, this._s3dPlacementOf(l, layout)]));
         const handle = n.handle;
@@ -792,9 +794,9 @@ class _Stage3DHandles {
         if (!d) {
             const layout = this._s3dLayout();
             const moveSet = this._s3dMoveSet(sel);
-            const movers = moveSet.filter(l => !this._layerLocked(l));
-            const held = moveSet.filter(l => this._layerLocked(l));
-            if (held.length) this._showLockedError(held);
+            const movers = moveSet.filter(l => !this._s3dHeld(l));
+            const held = moveSet.filter(l => this._s3dHeld(l));
+            if (held.length) this._s3dShowHeld(held);
             d = {
                 kind: 'nudge', active: true, movers, held, delta: [0, 0, 0],
                 starts: new Map(movers.map(l => [l.id, this._s3dPlacementOf(l, layout)])),

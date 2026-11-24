@@ -10001,6 +10001,86 @@
                     ? 'With Add corners on, ' + w2.name + ' took an Interior 90° corner between panels 3 and 4, and None took it off again.' : null;
             }
         },
+        // One screen of a group moves alone in 3D when it is picked in the
+        // Screens list, as on Pixel Map (1.7.0, #125; the owner, 2026-11-24:
+        // "3D follows the list pick"). The demo walls are grouped for the
+        // step, DEMO WALL 2's row is clicked and Z takes it 2 ft toward the
+        // audience and back while DEMO WALL stays. The walls stay grouped,
+        // the note in view: only Output to Display follows in this guide,
+        // and no later guide's demo show is built with this step
+        // (THREED_ONLY).
+        s3dGroupMember: {
+            since: '1.7.0',
+            target: '#s3d-group-note', ring: ['#s3d-group-note', '#s3d-z'], place: 'right', title: 'Move one screen of a group',
+            avoid: ['#layers-list', '#s3d-z'],
+            body: 'Open a group in the Screens list and click one of its screens: X, Y, Z, the turn and a drag then move that screen alone. Click the wall in the view to move the whole group.',
+            before: function () {
+                return open3d().then(function () {
+                    var a = A(), w = wall(), w2 = wall2();
+                    if (!w || !w2) return null;
+                    if (a.getGroupOfLayer(w2) && a.getGroupOfLayer(w2) === a.getGroupOfLayer(w)) return null;
+                    a.setSelectedLayersByIds([w.id, w2.id], w.id);
+                    return a.groupSelectedLayers();
+                }).then(function () {
+                    only(wall());
+                });
+            },
+            act: function (t) {
+                var a = A();
+                var w = wall(), w2 = wall2(), g = w2 ? a.getGroupOfLayer(w2) : null;
+                if (!w || !g) return Promise.reject(new Error('the demo walls are not grouped'));
+                var byId = function (id) { return screens().find(function (l) { return l.id === id; }) || null; };
+                var z = function (l) { return l ? a._s3dShownOf(l, a._s3dPlacementOf(l)).z : null; };
+                t.mem.group = g.id;
+                t.mem.one = w2.id;
+                t.mem.other = w.id;
+                t.mem.otherAt = JSON.stringify(a._s3dPlacementOf(w));
+                t.mem.home = z(w2);
+                var picked = function () {
+                    var l = a._listPickedMember ? a._listPickedMember() : null;
+                    return l && l.id === t.mem.one;
+                };
+                var open = a.isGroupExpanded(g.id) ? Promise.resolve()
+                    : t.click('#layers-list .screen-group[data-group-id="' + g.id + '"] .screen-group-toggle');
+                return open.then(function () {
+                    return t.wait(function () { return $(layerRow(byId(t.mem.one))); });
+                }).then(function (row) {
+                    if (!row) throw new Error('the group did not open in the list');
+                    return t.click(layerRow(byId(t.mem.one)));
+                }).then(function () {
+                    return t.wait(function () {
+                        var n = $('#s3d-group-note');
+                        return picked() && n && !n.hidden && n.dataset.groupMove === 'one';
+                    }, 2000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the screen was not picked on its own');
+                    t.mem.note = $('#s3d-group-note').textContent;
+                    t.mem.text = $('#s3d-z').value;
+                    return t.type('#s3d-z', (Number(t.mem.text) + 2).toFixed(2));
+                }).then(function () {
+                    return t.wait(function () { return Math.abs(z(byId(t.mem.one)) - t.mem.home - 609.6) < 2; }, 2000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the screen did not move');
+                    t.mem.moved = JSON.stringify(a._s3dPlacementOf(byId(t.mem.other))) === t.mem.otherAt;
+                    return t.pause(PACE.acted);
+                }).then(function () {
+                    return t.type('#s3d-z', t.mem.text);
+                }).then(function () {
+                    return t.wait(function () { return Math.abs(z(byId(t.mem.one)) - t.mem.home) < 2; }, 2000);
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the screen did not go back');
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var a = A();
+                var one = screens().find(function (l) { return l.id === mem.one; });
+                var other = screens().find(function (l) { return l.id === mem.other; });
+                if (!one || !other || !mem.moved || !mem.note) return null;
+                if (JSON.stringify(a._s3dPlacementOf(other)) !== mem.otherAt) return null;
+                return one.name + ' moved 2 ft toward the audience and back on its own; ' + other.name + ' stayed where it stood.';
+            }
+        },
         outputOpen: {
             since: '1.7.0',
             window: 'output',
@@ -10479,6 +10559,11 @@
                           'edisonOutlet', 'pluggedBreaker', 'socaTwofer', 'socaTwoferLeg', 'socaTwoferHomeRun',
                           'boxPower', 'boxChain'];
     var BINDER_PRACTICE = ['catSnakePage'];
+    // The 3D guide's own steps that no later guide's demo show is built
+    // with: s3dGroupMember groups the demo walls, and the IDM
+    // and Binder demo shows take BUILD.threeD without it. It plays after
+    // the corner, before Output to Display opens its window.
+    var THREED_ONLY = ['s3dGroupMember'];
     var GUIDE_SEED = { name: 'New Show', layer: { panelWatts: 100, powerBreakoutType: 'soca-powercon' } };
     // Help > Guides, in this order. `prep` is the guide's demo show, `own`
     // its steps between its intro and its outro.
@@ -10497,7 +10582,8 @@
           own: BUILD.headerFooter.concat(HEADER_PRACTICE),
           intro: 'On a demo show with a wired wall, this guide lays its header and footer bars, then curves the wall and bends a corner. Your own project is put back when you leave.' },
         { name: 'threeD', title: '3D and Output', prep: BUILD.pixelWall.concat(BUILD.data, BUILD.power, BUILD.headerFooter, BUILD.pixelScreens),
-          own: BUILD.threeD,
+          own: BUILD.threeD.slice(0, BUILD.threeD.indexOf('outputOpen'))
+              .concat(THREED_ONLY, BUILD.threeD.slice(BUILD.threeD.indexOf('outputOpen'))),
           intro: 'On a demo show with two screens, this guide stands them on a stage in 3D and sends a canvas full screen to a second display. Your own project is put back when you leave.' },
         { name: 'idm', title: 'IDM', prep: BUILD.pixelWall.concat(BUILD.data, BUILD.power, BUILD.headerFooter, BUILD.pixelScreens, BUILD.threeD),
           own: BUILD.idm,

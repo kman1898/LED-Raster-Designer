@@ -13,7 +13,8 @@ select the screen via the side tab specifically."
     Offset X / Y, Show Look Show Offset X / Y) show and edit that screen
     alone, and a note under the fields says so.
   * Everything else still moves the whole group as one: the group's own
-    row, a member picked on the canvas, a canvas drag, the 3D arrow keys.
+    row, a member picked on the canvas, a canvas drag. (3D follows the
+    list pick since 2026-11-24: tests/test_stage3d_member_alone.py.)
 
 The owner's ruling (2026-11-12): "Cabinet click is whole group." After a
 list pick, a click on a cabinet of that group on the canvas, on any tab,
@@ -312,7 +313,10 @@ def test_a_canvas_drag_after_a_list_pick_moves_the_whole_group(pg):
     assert note(p, 'group-move-note')[0] == 'Moves the whole group'
 
 
-def test_the_3d_arrow_keys_after_a_list_pick_move_the_whole_group(pg):
+def test_the_3d_arrow_keys_after_a_list_pick_move_only_that_screen(pg):
+    """3D follows the list pick (the owner, 2026-11-24): the arrow keys
+    carry the picked screen alone, and the rest of the group stays (the
+    rest of 3D's gestures: tests/test_stage3d_member_alone.py)."""
     p = pg
     tab(p, '3d')
     p.wait_for_function("() => { const d = window.app._s3dDebug(); return d.loaded && d.screens.length === 3; }",
@@ -324,14 +328,16 @@ def test_the_3d_arrow_keys_after_a_list_pick_move_the_whole_group(pg):
                         ids)
     p.mouse.move(5, 5)
     p.keyboard.press('ArrowRight')
-    p.wait_for_function("""(ids) => ids.every(id => {
-        const l = window.app.project.layers.find(x => x.id === id); return !!(l && l.stage3d); })""",
-                        arg=ids, timeout=5000)
-    after = p.evaluate("(ids) => ids.map(id => window.app.project.layers.find(x => x.id === id).stage3d)", ids)
-    # both moved, by the same step: the wall keeps its shape
-    moved = [[after[i][k] - before[i][k] for k in 'xyz'] for i in range(2)]
-    assert max(abs(v) for v in moved[0]) == pytest.approx(25.4, abs=0.01), (before, after)
-    assert moved[1] == pytest.approx(moved[0], abs=0.01), (before, after)
+    p.wait_for_function("""(id) => { const l = window.app.project.layers.find(x => x.id === id);
+        return !!(l && l.stage3d); }""", arg=p.ids['R'], timeout=5000)
+    p.wait_for_timeout(900)
+    after = p.evaluate("(ids) => ids.map(id => window.app.project.layers.find(x => x.id === id).stage3d || null)", ids)
+    # R moved a step; L stands where it stood, with no 3D place of its own
+    moved = [after[1][k] - before[1][k] for k in 'xyz']
+    assert max(abs(v) for v in moved) == pytest.approx(25.4, abs=0.01), (before, after)
+    assert after[0] is None, after
+    assert p.evaluate("(id) => window.app._s3dDebug().screens.find(s => s.id === id).placement",
+                      p.ids['L']) == before[0]
     tab(p, 'pixel-map')
 
 

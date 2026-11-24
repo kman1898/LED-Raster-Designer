@@ -307,7 +307,7 @@ class _Stage3DPanel {
                 return;
             }
             const layer = this._s3dFieldLayer(f);
-            if (!layer || this._lockedRefused(layer)) {
+            if (!layer || this._s3dRefused(layer)) {
                 f.refused = true;
                 this._s3dGatherShow(null);
                 return;
@@ -468,7 +468,7 @@ class _Stage3DPanel {
         ev.stopPropagation();
         const layer = this._s3dCurrentScreen();
         if (!layer) return;
-        if (this._lockedRefused(layer)) {
+        if (this._s3dRefused(layer)) {
             this._s3dRefreshPanel(true);
             return;
         }
