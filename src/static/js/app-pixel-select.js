@@ -851,13 +851,9 @@ class _PixelSelect {
         let applied = 0;
         for (const g of groups) {
             try {
-                const res = await fetch(`/api/layer/${g.layer.id}/panels/${route}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(bodyOf(g)),
-                });
-                const data = await res.json();
-                if (data && data.layer && this.applyServerLayer(data.layer, reason)) applied++;
+                // In the screen's order of writes (app-core _postLayerPanels).
+                if (await this._postLayerPanels(g.layer.id, route, bodyOf(g),
+                    data => !!(data && data.layer && this.applyServerLayer(data.layer, reason)))) applied++;
             } catch (err) {
                 console.error(`${reason} failed`, err);
             }

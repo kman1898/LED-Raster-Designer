@@ -818,6 +818,10 @@ FIXES
   before it, and the edit then came back as a new step. Undo pressed while
   still typing in a tray field undoes the typing too, instead of saving it
   again after the undo.
+- FIX: A change made right after blanking a cabinet or setting a half
+  cabinet, like a Quick Palette or a Hue turn, stays on the screen on a
+  busy computer. The screen could go back to the colors it had before,
+  while the saved show kept the new ones.
 - FIX: Delete removes a screen only on the Pixel Map tab, so a stray key
   never costs a screen. On other tabs it does nothing to screens. The
   canvas right-click

@@ -1429,20 +1429,16 @@ Object.assign(CanvasRenderer.prototype, {
                     // nothing is sent.
                     const refused = typeof window.app._canvasGuardEdit === 'function'
                         && !window.app._canvasGuardEdit();
-                    if (!refused) fetch(`/api/layer/${this.altPaintLayerId}/panels/set_hidden`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ panels })
+                    // In the screen's order of writes (app-core
+                    // _postLayerPanels): a save made after it goes after it.
+                    if (!refused) window.app._postLayerPanels(layer.id, 'set_hidden', { panels }, data => {
+                        if (data && data.layer && window.app) {
+                            const applied = window.app.applyServerLayer(
+                                data.layer, 'alt_paint_set_hidden');
+                            this.render();
+                            if (applied) window.app.saveState('Toggle Panel Visibility');
+                        }
                     })
-                        .then(res => res.json())
-                        .then(data => {
-                            if (data && data.layer && window.app) {
-                                const applied = window.app.applyServerLayer(
-                                    data.layer, 'alt_paint_set_hidden');
-                                this.render();
-                                if (applied) window.app.saveState('Toggle Panel Visibility');
-                            }
-                        })
                         .catch(err => console.error('Alt-paint set_hidden failed', err));
                     if (typeof sendClientLog === 'function') {
                         sendClientLog('bulk_toggle_panels', {

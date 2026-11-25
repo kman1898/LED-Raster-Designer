@@ -397,6 +397,24 @@ def _log_layer_edit(layer, before):
     log_event('update_layer', details, fold=f"layer:{layer.get('id')}:{client}:{what}")
 
 
+def _emit_layer_echo(layer):
+    """layer_updated for a write of one screen. The echo names the write it
+    answers (?seq=&client=, query only, never stored): a page drops the
+    echo of its own older write, which on a laggy socket could land after
+    a newer edit and put the older copy back (app-core.js
+    _onSocketLayerUpdated). A screen's PUTs and its panel POSTs (set_hidden,
+    set_half_tile) are numbered in one sequence per screen (app-core.js
+    _queueLayerWrite). Other windows apply it as before."""
+    seq, client = request.args.get('seq'), request.args.get('client')
+    if seq and client:
+        try:
+            socketio.emit('layer_updated', dict(layer, _echo={'seq': int(seq), 'client': str(client)}))
+            return
+        except ValueError:
+            pass
+    socketio.emit('layer_updated', layer)
+
+
 @layers_bp.route('/api/layer/<int:layer_id>', methods=['PUT'])
 def update_layer(layer_id):
     data = dict(request.json or {})
@@ -763,18 +781,7 @@ def update_layer(layer_id):
     if mirrors:
         log_event('mirror_maps_copied', {'at': 'update_layer', 'source': layer_id,
                                          'mirrors': [m.get('id') for m in mirrors]})
-    # The echo names the PUT it answers (?seq=&client=, query only, never
-    # stored): a page drops the echo of its own older PUT, which on a laggy
-    # socket could land after a newer edit and put the older copy back
-    # (app-core.js _layerHasNewerPut). Other windows apply it as before.
-    seq, client = request.args.get('seq'), request.args.get('client')
-    if seq and client:
-        try:
-            socketio.emit('layer_updated', dict(layer, _echo={'seq': int(seq), 'client': str(client)}))
-        except ValueError:
-            socketio.emit('layer_updated', layer)
-    else:
-        socketio.emit('layer_updated', layer)
+    _emit_layer_echo(layer)
     for mirror in mirrors:
         socketio.emit('layer_updated', mirror)
     return jsonify(layer)
@@ -1112,7 +1119,7 @@ def set_panels_hidden(layer_id):
     # the modules inside it (app.sanitize_idm).
     app.normalize_idm_layer(layer)
     log_event('bulk_set_panels_hidden', {'layer_id': layer_id, 'count': len(updated)})
-    socketio.emit('layer_updated', layer)
+    _emit_layer_echo(layer)
     # Return the rebuilt layer so the client can merge it before snapshotting,
     # the same contract as set_panels_half_tile below.
     return jsonify({'updated': len(updated), 'layer': layer})
@@ -1173,7 +1180,7 @@ def set_panels_half_tile(layer_id):
     # the modules inside it (app.sanitize_idm).
     app.normalize_idm_layer(layer)
     log_event('bulk_set_panels_half_tile', {'layer_id': layer_id, 'count': updated})
-    socketio.emit('layer_updated', layer)
+    _emit_layer_echo(layer)
     # v0.10.8: return the rebuilt layer alongside the count. The rebuild
     # above resizes every panel, so a client that only gets `updated` holds
     # new halfTile flags on stale geometry until the socket event lands -

@@ -2400,22 +2400,9 @@ export class LEDRasterApp {
         if (this._followingHolds('layer', { id, keys: body && typeof body === 'object' ? Object.keys(body) : [] })) {
             return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
         }
-        // One screen's PUTs go to the server one after another, in the
-        // order they were made. Each carries the WHOLE layer as it stood
-        // when it was made, and the threaded server can finish two of them
-        // out of order, so a busy machine let an older copy land last and
-        // undo a newer edit: three quick edits to one screen (distro,
-        // number, length) came back without the length (binder test under
-        // a parallel run, 2026-09-24). The body and the edit marker are
-        // taken now; only the send waits for the one before it.
-        // Numbered per screen so its echo can be told from an older one's
-        // (the socket handler; routes_layers update_layer stamps `_echo`).
-        if (!this._layerPutSeq) this._layerPutSeq = new Map();
-        if (!this._echoClientId) this._echoClientId = PAGE_CLIENT_ID;
-        const seq = (this._layerPutSeq.get(id) || 0) + 1;
-        this._layerPutSeq.set(id, seq);
-        const marker = (this._layerPutIsAnEdit() ? '?edited=1&' : '?')
-            + `seq=${seq}&client=${this._echoClientId}`;
+        // The body and the edit marker are taken now; only the send waits
+        // for the write before it (_queueLayerWrite).
+        const edit = this._layerPutIsAnEdit() ? '?edited=1&' : '?';
         const payload = this._noteLayerSent(id, body);
         const logLabel = encodeURIComponent(typeof this._putLogLabel === 'function' ? this._putLogLabel() : '');
         // A save of the whole screen carries what it followed.
@@ -2435,13 +2422,11 @@ export class LEDRasterApp {
         const sentProject = this.project;
         const retired = () => !!(this._retiredProjects && (this._retiredProjects.has(sentProject)
             || (body && typeof body === 'object' && this._retiredLayers.has(body))));
-        if (!this._layerPutChains) this._layerPutChains = new Map();
-        const prev = this._layerPutChains.get(id) || Promise.resolve();
-        const sent = prev.then(() => undefined, () => undefined).then(() => (
+        return this._queueLayerWrite(id, (marker) => (
             (this.project !== sentProject || retired())
                 ? (retired() && sendClientLog('layer_put_dropped_show_replaced', { id }),
                    new Response(payload, { status: 200, headers: { 'Content-Type': 'application/json' } }))
-                : fetch(`/api/layer/${id}${marker}`, {
+                : fetch(`/api/layer/${id}${edit + marker}`, {
                     method: 'PUT',
                     // The server's log line names what the person did
                     // (app-history _putLogLabel); a header, so the body
@@ -2449,14 +2434,37 @@ export class LEDRasterApp {
                     headers: { 'Content-Type': 'application/json', 'X-LRD-Action': logLabel },
                     body: payload
                 })));
+    }
+
+    // One write of screen `id` (a PUT, or a panel POST), sent in its turn:
+    // `send(marker)` is called once every write of the screen made before
+    // it has been answered, and returns the request's promise. One
+    // screen's writes go to the server one after another, in the order
+    // they were made. A PUT carries the WHOLE layer as it stood when it
+    // was made, and the threaded server can finish two of them out of
+    // order, so a busy machine let an older copy land last and undo a
+    // newer edit: three quick edits to one screen (distro, number, length)
+    // came back without the length (binder test under a parallel run,
+    // 2026-09-24). Numbered per screen (the `marker`, seq=&client=) so its
+    // echo can be told from an older one's (the socket handler;
+    // routes_layers _emit_layer_echo stamps `_echo`).
+    _queueLayerWrite(id, send) {
+        if (!this._layerPutSeq) this._layerPutSeq = new Map();
+        if (!this._echoClientId) this._echoClientId = PAGE_CLIENT_ID;
+        const seq = (this._layerPutSeq.get(id) || 0) + 1;
+        this._layerPutSeq.set(id, seq);
+        const marker = `seq=${seq}&client=${this._echoClientId}`;
+        if (!this._layerPutChains) this._layerPutChains = new Map();
+        const prev = this._layerPutChains.get(id) || Promise.resolve();
+        const sent = prev.then(() => undefined, () => undefined).then(() => send(marker));
         this._layerPutChains.set(id, sent);
         const clear = () => {
             if (this._layerPutChains.get(id) === sent) this._layerPutChains.delete(id);
         };
         sent.then(clear, clear);
-        // How many of this screen's PUTs are still out. Settled before any
-        // caller's own .then runs, so a reply's handler sees only the PUTs
-        // queued after it (see _layerHasNewerPut).
+        // How many of this screen's writes are still out. Settled before
+        // any caller's own .then runs, so a reply's handler sees only the
+        // writes queued after it (see _layerHasNewerPut).
         if (!this._layerPutsPending) this._layerPutsPending = new Map();
         this._layerPutsPending.set(id, (this._layerPutsPending.get(id) || 0) + 1);
         const settle = () => {
@@ -2466,6 +2474,69 @@ export class LEDRasterApp {
         };
         sent.then(settle, settle);
         return sent;
+    }
+
+    // A screen's cabinets written through their own endpoint: `route` is
+    // 'set_hidden' or 'set_half_tile' (POST /api/layer/<id>/panels/...),
+    // whose answer is {updated, layer}, the screen rebuilt around the new
+    // flags. `onReply(data)` takes it in; what it returns is what this
+    // resolves to.
+    //
+    // A write of the screen like any PUT, so in the screen's one order of
+    // writes (_queueLayerWrite): it goes after the saves made before it,
+    // a save made after it goes after it, its echo is known for this
+    // page's own (an older one is dropped), and its reply is taken in
+    // before _layerSavesSettled resolves. Its answer holds the screen as
+    // the server had it then, so every field the page has changed on the
+    // screen since the POST went keeps the page's value.
+    //
+    // Sent on its own (a bare fetch, until 2026-11-25), a blanked
+    // cabinet's echo was taken as a change from another page and its
+    // reply as the server's word on every field: on a busy machine both
+    // landed after the next edit, a Quick Palette and a Hue turn, and put
+    // the screen's colors back to the ones before them. The Data guide's
+    // demo show stopped at Quick Palettes.
+    _postLayerPanels(id, route, body, onReply) {
+        const liveOf = () => this.project && (this.project.layers || []).find(l => l.id === id);
+        const at = liveOf();
+        const sentAs = at ? new Map(Object.keys(at).map(key => [key, JSON.stringify(at[key])])) : null;
+        const sentProject = this.project;
+        const done = this._queueLayerWrite(id, (marker) => (this.project !== sentProject
+            // the show was replaced while it waited its turn: dropped
+            ? new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+            : fetch(`/api/layer/${id}/panels/${route}?${marker}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            })))
+            .then(res => res.json())
+            .then(data => {
+                if (this.project !== sentProject) return onReply({});
+                const layer = data && data.layer;
+                const live = liveOf();
+                if (layer && live && sentAs) {
+                    new Set([...sentAs.keys(), ...Object.keys(live)]).forEach(key => {
+                        if (key === 'id' || JSON.stringify(live[key]) === sentAs.get(key)) return;
+                        if (live[key] === undefined) delete layer[key];
+                        else layer[key] = live[key];
+                    });
+                }
+                const out = onReply(data);
+                // The page follows the rebuilt screen the way it follows a
+                // change from elsewhere (FOLLOWING: shown, nothing
+                // written): the port assignment (a mirror whose cabinets
+                // no longer match its source's) and Screen Info. Its echo
+                // did this when it was taken as another page's.
+                if (layer && this.project === sentProject) {
+                    this._asFollower(() => {
+                        this.updateUI();
+                        this._showFollowedScreen(id, this._typingInScreenInfo());
+                    });
+                }
+                return out;
+            });
+        this._trackProjectSync(done);
+        return done;
     }
 
     // True while a later PUT of this screen is still on its way. The server
