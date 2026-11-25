@@ -552,7 +552,7 @@ MENU_JS = """() => {
 def test_the_menu_holds_what_jumps_or_repaints_the_wall(page, e2e_server, pw_browser):
     """Owner, 2026-11-24: the main screen keeps the step switch, the
     arrows, Mark, Undo and Redo; Next screen, Change canvas, Clear
-    highlight and the field colors (Black among them) move to a menu
+    highlight and the field colors (no Black since Swap mode) move to a menu
     opened from the top bar beside Swap list, so a thumb on the arrows
     never hits them, and the room they leave goes to the arrows and Mark."""
     two_canvases(page)
@@ -560,7 +560,7 @@ def test_the_menu_holds_what_jumps_or_repaints_the_wall(page, e2e_server, pw_bro
     try:
         got = ph.evaluate(MENU_JS)
         assert got['main'] == [] and got['menu'] == ['#ph-next-screen', '#ph-canvas-next', '#ph-clear', '[data-ph-field]'], got
-        assert got['colors'] == ['White', 'Red', 'Green', 'Blue', 'Black'], got
+        assert got['colors'] == ['White', 'Red', 'Green', 'Blue'], got
         assert got['mainButtons'] == ['One module', 'One cabinet', 'Up', 'Left', 'Mark', 'Right', 'Down',
                                       'Undo', 'Redo'], got
         # Menu sits beside Swap list in the top bar
@@ -594,9 +594,9 @@ def test_the_menu_holds_what_jumps_or_repaints_the_wall(page, e2e_server, pw_bro
         ph.tap('#ph-canvas-next')
         assert settled(page, lambda: hl(page), lambda v: v and v[0] == 'IdmC') == ['IdmC', '0,0,0,0']
         assert settled(ph, lambda: ph.inner_text('#ph-canvas-name'), lambda v: v == 'Side') == 'Side'
-        ph.tap('[data-ph-field="#000000"]')
-        assert settled(page, lambda: (served_field(page) or {}).get('color'), lambda v: v == '#000000') == '#000000'
-        assert ph.get_attribute('[data-ph-field="#000000"]', 'aria-pressed') == 'true'
+        ph.tap('[data-ph-field="#0000ff"]')
+        assert settled(page, lambda: (served_field(page) or {}).get('color'), lambda v: v == '#0000ff') == '#0000ff'
+        assert ph.get_attribute('[data-ph-field="#0000ff"]', 'aria-pressed') == 'true'
         # Back returns to the controls; so does the phone's back gesture
         close_menu(ph)
         assert ph.is_visible('#ph-controls') and ph.get_attribute('#ph-app', 'aria-hidden') is None

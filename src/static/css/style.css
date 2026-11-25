@@ -3189,6 +3189,18 @@ body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
     color: var(--ps-dim, #c0c0c0); cursor: pointer; white-space: nowrap; }
 .idm-swap input { margin: 0; cursor: pointer; }
 .idm-side-bar { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; }
+/* Swap mode: its switch and its color, at the top of the swap list, and
+   the tag at the top of the panel while it is on. */
+.idm-swapmode-bar { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; }
+.idm-swapmode-bar .idm-swap-mode { flex: 1 1 auto; min-width: 0; margin: 0; padding: 4px 6px; }
+.idm-swap-swatch { flex: 0 0 28px; width: 28px; height: 28px; }
+.idm-swap-swatch input[type="color"] { width: 22px; height: 22px; }
+.idm-swap-tag { display: block; width: 100%; margin: 0 0 8px; padding: 5px 8px; font-size: 12px; font-weight: 600; text-align: left;
+    color: var(--ps-on-accent, #fff); background: var(--ps-accent, #e22330); border: 1px solid var(--ps-accent-deep, #8f1218);
+    border-radius: 4px; cursor: pointer; }
+.idm-swap-tag[hidden] { display: none; }
+.idm-swap-mode.idm-flash { animation: idm-flash 0.9s ease-out 1; }
+@keyframes idm-flash { 0% { box-shadow: 0 0 0 3px var(--ps-accent-hi, #ef3340); } 100% { box-shadow: 0 0 0 0 transparent; } }
 .idm-side-label { flex: 1 1 auto; min-width: 0; font-size: 11px; color: var(--ps-faint, #969696); }
 .idm-side-bar .idm-seg { flex: 0 0 auto; margin: 0; }
 .idm-side-bar .idm-seg .idm-seg-btn { padding: 4px 10px; }
@@ -3231,7 +3243,7 @@ body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
 /* The field, the live highlight and its pad (app-idm-locator.js). The pad
    is what a tablet at the wall drives, so its buttons are finger sized. */
 .idm-sub.idm-sub-first { margin-top: 0; padding-top: 0; border-top: none; }
-.idm-swatches { display: grid; grid-template-columns: repeat(6, minmax(0, 32px)); gap: 6px; margin-bottom: 8px; }
+.idm-swatches { display: grid; grid-template-columns: repeat(5, minmax(0, 32px)); gap: 6px; margin-bottom: 8px; }
 .idm-swatch { width: 100%; aspect-ratio: 1; min-height: 0; padding: 0; border-radius: 4px; cursor: pointer; box-sizing: border-box;
     background: var(--idm-sw, #ffffff); color: transparent; font-size: 0; border: 1px solid var(--ps-dark, #131313);
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15); }
@@ -3333,7 +3345,10 @@ body.s3d-scrubbing .s3d-field { border-color: var(--ps-accent, #e22330); }
     body.idm-tab #canvas-controls { flex-wrap: wrap; row-gap: 6px; }
     body.idm-tab #idm-toolbar { margin-left: 0; }
     body.idm-tab #idm-toolbar .idm-bar-hint { display: none; }
-    body.idm-tab .idm-swatches { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    body.idm-tab .idm-swatches { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    body.idm-tab .idm-swap-mode, body.idm-tab .idm-swap-tag { min-height: 40px; font-size: 13px !important; }
+    body.idm-tab .idm-swap-swatch { flex-basis: 40px; width: 40px; height: 40px; }
+    body.idm-tab .idm-swap-swatch input[type="color"] { width: 30px; height: 30px; }
     body.idm-tab .idm-swatch-custom input[type="color"] { width: 28px; height: 28px; }
     body.idm-tab .idm-seg .idm-seg-btn { min-height: 40px; font-size: 13px !important; }
     body.idm-tab .idm-module-ids, body.idm-tab .idm-pointer { min-height: 40px; font-size: 13px !important; }

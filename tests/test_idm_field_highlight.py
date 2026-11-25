@@ -12,7 +12,8 @@ at. What this file pins:
   the output window shows (white, the shade checker at 85% with the cabinet
   ring at 65%, lines and corner ticks in the field's own hue at 70% / 50% -
   never black - a uniform field with none,
-  the lifted levels on black), the designer's on-screen grid never reaches
+  the lifted levels on a near black: the Black field colour is gone since
+  Swap mode, tests/test_idm_swap_mode.py), the designer's on-screen grid never reaches
   the output, a mark the colour of the field is drawn in the contrasting
   colour (its stored colour unchanged), the field reaches a second client,
   is never an undo step, and survives save and load; an older project draws
@@ -31,7 +32,7 @@ at. What this file pins:
   and white inside that, both on the module, in the view and on the wall:
   the module's field and mark stay in view in its middle, two frames apart
   are the same pixels, nothing redraws while it stands still, and it leaves
-  both when the mouse leaves the panels. It reads on a black field, all
+  both when the mouse leaves the panels. It reads on a near black field, all
   four sides of a corner module show on a white one, a row clicked in the
   swap list moves the highlight there and keeps it, on the wall too
   (owner, 2026-11-18, as the phone's list does), and the wall's log
@@ -339,9 +340,18 @@ def wait_pixel(out, x, y, want, tol=3, timeout=6000):
     return got
 
 
+# The panel's quick field colours. Any other colour goes in the way the
+# custom swatch puts it: a near black (NEAR_BLACK) since the Black swatch
+# went (owner, 2026-11-24: Swap mode is the black wall now).
+QUICK_FIELDS = ('#ffffff', '#ff0000', '#00ff00', '#0000ff')
+NEAR_BLACK = '#0a0a0a'
+
+
 def click_field(pg, colour=None, border=None):
-    if colour:
+    if colour in QUICK_FIELDS:
         pg.click(f'[data-idm-field="{colour}"]')
+    elif colour:
+        pg.evaluate("(c) => window.app._idmSetField({color: c})", colour)
     if border:
         pg.click(f'[data-idm-border="{border}"]')
     pg.wait_for_timeout(100)
@@ -377,11 +387,11 @@ def test_the_field_buttons_change_the_output_pixels(page):
         wait_pixel(out, 32, 32, (0, 255, 0))
         click_field(page, '#0000ff')
         wait_pixel(out, 32, 32, (0, 0, 255))
-        # Black: the levels go up - very dark grey modules, a lighter ring.
-        click_field(page, '#000000')
-        wait_pixel(out, 32, 32, (0, 0, 0))
-        wait_pixel(out, 96, 32, (26, 26, 26))
-        wait_pixel(out, 0, 32, (52, 52, 52))
+        # A near black: the levels go up - dark grey modules, a lighter ring.
+        click_field(page, NEAR_BLACK)
+        wait_pixel(out, 32, 32, (10, 10, 10))
+        wait_pixel(out, 96, 32, (36, 36, 36))
+        wait_pixel(out, 0, 32, (62, 62, 62))
         # Lines on white: never black - module edges the field at 70%,
         # cabinet edges at 50%, the modules themselves white.
         click_field(page, '#ffffff', 'lines')
@@ -397,8 +407,8 @@ def test_the_field_buttons_change_the_output_pixels(page):
         wait_pixel(out, 64, 32, (0, 0, 179))
         click_field(page, '#ff0000')
         wait_pixel(out, 0, 32, (128, 0, 0))
-        # ... and lit greys on black.
-        click_field(page, '#000000')
+        # ... and lit greys on a near black.
+        click_field(page, NEAR_BLACK)
         wait_pixel(out, 0, 32, (102, 102, 102))
         wait_pixel(out, 64, 32, (51, 51, 51))
         # Ticks on white: an L in each module corner (10 px for a 64 px
@@ -848,17 +858,17 @@ def set_hl(pg, name, key):
 
 
 def test_the_outline_reads_on_a_black_field_on_the_wall(page):
-    """On a black field the black band is lost in the field; the white band
-    inside it shows on all four sides of the module, and the module's
+    """On a near black field the black band is lost in the field; the white
+    band inside it shows on all four sides of the module, and the module's
     middle stays the field."""
     cid = reset_project(page)
     set_layout(page, 'IdmA', 2, 2)
-    click_field(page, '#000000', 'shade')
+    click_field(page, NEAR_BLACK, 'shade')
     page.evaluate("() => window.app._idmSetPointerOn(false)")
     out = open_output(page, cid)
     try:
-        # module (1,1) of cabinet (1,0): x 192..256, y 64..128, black
-        wait_pixel(out, 224, 96, (0, 0, 0))
+        # module (1,1) of cabinet (1,0): x 192..256, y 64..128, the field
+        wait_pixel(out, 224, 96, (10, 10, 10))
         set_hl(page, 'IdmA', '1,0,1,1')
         # white 5 px in from each edge (left, right, top, bottom), black at
         # each edge, the middle the field
@@ -866,7 +876,7 @@ def test_the_outline_reads_on_a_black_field_on_the_wall(page):
         white = [(199, 96), (248, 96), (224, 71), (224, 120)]
         black = [(194, 96), (253, 96), (224, 66), (224, 125)]
         assert steady(out, white + black + [(224, 96)]) \
-            == [[255, 255, 255]] * 4 + [[0, 0, 0]] * 4 + [[0, 0, 0]]
+            == [[255, 255, 255]] * 4 + [[0, 0, 0]] * 4 + [[10, 10, 10]]
         assert not page._errors, page._errors
     finally:
         page.evaluate("() => { window.app._idmSetPointerOn(true); window.app._idmClearHighlight(); }")

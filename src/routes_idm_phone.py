@@ -14,8 +14,9 @@ list from it.
                                   so the page can say plainly when none is
 
 Everything the page changes goes through the routes and the socket events
-the tab uses (PUT /api/layer/<id>, PUT /api/project/idm-field, the
-`idm_highlight` event), so it is saved with the show and reaches every
+the tab uses (PUT /api/layer/<id>, PUT /api/project/idm-field, PUT
+/api/project/idm-swap for Swap mode, the `idm_highlight` event), so it is
+saved with the show and reaches every
 device and the wall output the same way.
 """
 import ipaddress

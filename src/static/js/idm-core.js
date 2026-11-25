@@ -12,6 +12,12 @@ export const DEFAULT_COLOR = '#ff1a1a';
 // The field's border styles; white with shaded borders when unset.
 export const FIELD_BORDERS = ['shade', 'lines', 'ticks', 'none'];
 export const FIELD_DEFAULT = { color: '#ffffff', border: 'shade', moduleIds: false };
+// The one colour the field never takes (app.IDM_FIELD_NO_BLACK): the Black
+// field colour went when Swap mode came (owner, 2026-11-24), and a show
+// saved with it opens on the default field.
+export const FIELD_NO_BLACK = '#000000';
+// Swap mode (app.sanitize_idm_swap): off, lit in white, when a show has none.
+export const SWAP_DEFAULT = { on: false, color: '#ffffff' };
 // The Colours (app.sanitize_idm_field): the three plain colour settings,
 // and how many saved mark colours a show may keep.
 export const COLOUR_KEYS = ['labelColor', 'moduleEdgeColor', 'cabinetEdgeColor'];
@@ -108,8 +114,9 @@ export function idmRowsFromPicks(value) {
 // Colours key only when it holds something usable (missing = Auto).
 export function idmFieldSanitize(value) {
     const v = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
+    const color = idmColor(v.color);
     const out = {
-        color: idmColor(v.color) || FIELD_DEFAULT.color,
+        color: (color && color !== FIELD_NO_BLACK) ? color : FIELD_DEFAULT.color,
         border: FIELD_BORDERS.includes(v.border) ? v.border : FIELD_DEFAULT.border,
         moduleIds: v.moduleIds === true,
     };
@@ -124,6 +131,14 @@ export function idmFieldSanitize(value) {
     const rows = idmRowsFromPicks(v.rowsFrom);
     if (rows && Object.keys(rows).length) out.rowsFrom = rows;
     return out;
+}
+
+// Swap mode held to its shape (the client's copy of app.sanitize_idm_swap):
+// {on, color}, off and white for anything unusable. While it is on the
+// wall is black and only the modules still to swap are lit, in `color`.
+export function idmSwapOf(value) {
+    const v = (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
+    return { on: v.on === true, color: idmColor(v.color) || SWAP_DEFAULT.color };
 }
 
 // The stored highlight held to its shape: {layerId, key} or null.

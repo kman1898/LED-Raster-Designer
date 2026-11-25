@@ -1443,6 +1443,8 @@ def strip_copied_idm_marks(layer):
 #                     top), so an older show opens on the defaults.
 IDM_FIELD_BORDERS = ('shade', 'lines', 'ticks', 'none')
 IDM_FIELD_DEFAULT = {'color': '#ffffff', 'border': 'shade', 'moduleIds': False}
+# The one colour the field never takes: pure black (see sanitize_idm_field).
+IDM_FIELD_NO_BLACK = '#000000'
 IDM_FIELD_COLOUR_KEYS = ('labelColor', 'moduleEdgeColor', 'cabinetEdgeColor')
 IDM_MARK_PRESETS_DEFAULT = ('#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000')
 IDM_MARK_PRESETS_MAX = 12
@@ -1503,8 +1505,14 @@ def sanitize_idm_field(value):
     if not isinstance(value, dict):
         return None
     border = value.get('border')
+    color = idm_color(value.get('color'))
+    # A pure black field was the Black field colour, held only for what
+    # Swap mode does now (owner, 2026-11-24): it is gone, and a show saved
+    # with it opens on the default field.
+    if color == IDM_FIELD_NO_BLACK:
+        color = None
     out = {
-        'color': idm_color(value.get('color')) or IDM_FIELD_DEFAULT['color'],
+        'color': color or IDM_FIELD_DEFAULT['color'],
         'border': border if border in IDM_FIELD_BORDERS else IDM_FIELD_DEFAULT['border'],
         'moduleIds': value.get('moduleIds') is True,
     }
@@ -1673,6 +1681,45 @@ def prune_idm_highlight_on(layer):
         return False
     project['idmHighlight'] = None
     return True
+
+
+# Swap mode (owner, 2026-11-24): while the crew swaps modules, the IDM
+# Locator's wall goes black and only the modules still to swap (marked and
+# not ticked Swapped) are lit, all in one colour. The project keeps it as
+#   idmSwap: {on: bool, color: '#rrggbb'}
+# on its own route (routes_project.py PUT /api/project/idm-swap), told to
+# every page through `idm_swap_updated`. Unlike the field it is an edit: a
+# toggle or a colour is an undo step on every computer, so undo and redo
+# carry it in the snapshot and the load funnels hold it to its shape. A
+# show without the key is off, lit in white.
+IDM_SWAP_DEFAULT = {'on': False, 'color': '#ffffff'}
+
+
+def sanitize_idm_swap(value):
+    """Swap mode held to its shape: on a bool (only a real true turns it
+    on), color '#rrggbb' (white when it is not a colour). None when `value`
+    is not a dict. Idempotent."""
+    if not isinstance(value, dict):
+        return None
+    return {
+        'on': value.get('on') is True,
+        'color': idm_color(value.get('color')) or IDM_SWAP_DEFAULT['color'],
+    }
+
+
+def normalize_idm_swap(project):
+    """sanitize_idm_swap on the project's block, in place (the load and save
+    funnels). A block that is not a dict is removed. True when it changed."""
+    if not isinstance(project, dict) or 'idmSwap' not in project:
+        return False
+    clean = sanitize_idm_swap(project.get('idmSwap'))
+    if clean is None:
+        project.pop('idmSwap', None)
+        return True
+    if clean != project.get('idmSwap'):
+        project['idmSwap'] = clean
+        return True
+    return False
 
 
 def normalize_power_breakouts(project, at=None):

@@ -860,6 +860,8 @@ class _OutputDisplay {
             const t0 = performance.now();
             r.render();
             entry.frameMs = Math.round((performance.now() - t0) * 10) / 10;
+            // what Swap mode lit on this frame (canvas-idm.js), for its log
+            entry.swapLit = idm && r._idmSwapDrawn ? r._idmSwapDrawn.lit : 0;
         } finally {
             r._idmNoHighlight = false;
             canvases.forEach((c, i) => { c.visible = visibility[i]; });
@@ -876,7 +878,7 @@ class _OutputDisplay {
         }
         if (idm) {
             const shown = this._outputDisplayCompose(entry, page);
-            if (shown) this._outputDisplayLogFrame(entry, { canvas: target });
+            if (shown) this._outputDisplayLogFrame(entry, { canvas: target, swapLit: entry.swapLit || 0 });
             return shown;
         }
         try {
@@ -939,6 +941,17 @@ class _OutputDisplay {
             details.field = field;
             details.marked = marked;
             extra = `, field ${field || '?'}, ${marked} module${marked === 1 ? '' : 's'} marked`;
+            // Swap mode: the wall black but for the modules still to swap
+            // (canvas-idm.js idmSwapSpec), as many as this frame lit.
+            let swap = null;
+            try { swap = r && typeof r.idmSwapSpec === 'function' ? r.idmSwapSpec() : null; } catch (_) { swap = null; }
+            if (swap && swap.on) {
+                delete details.field;
+                details.swapMode = 'on';
+                details.swapColor = swap.color;
+                details.lit = f.swapLit || 0;
+                extra = `, Swap mode on: ${details.lit} module${details.lit === 1 ? '' : 's'} lit in ${swap.color}, the rest black`;
+            }
         }
         sendClientLog('output_frame', details, { area: 'output',
             msg: `Output ${entry.id} showed ${RL.viewWord(entry.view)} of ${details.canvas || 'the show'} ${w}x${h}`

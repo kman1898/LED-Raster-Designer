@@ -24,7 +24,7 @@ from guide_suite import (page, _restore_server_project, _guide_closed,  # noqa: 
 GUIDE = 'idm'
 # The guide's steps, its intro and outro among them. A step added or taken
 # away changes this; the parametrized Go to below covers every one.
-STEPS = 18
+STEPS = 20
 DEMO_SHOW = dict(name='Demo Show', screens=['DEMO WALL', 'DEMO WALL 2'], processors=2, distros=1, services=1, beaches=1, groups=0)
 
 

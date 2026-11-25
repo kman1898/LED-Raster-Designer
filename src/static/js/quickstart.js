@@ -4032,6 +4032,8 @@
         var a = A();
         if (idmPhoneOpen() && a && typeof a.closeIdmPhoneDialog === 'function') a.closeIdmPhoneDialog();
     }
+    // Swap mode, as the project holds it (app-idm-locator.js _idmSwapNow).
+    function idmSwap() { var a = A(); return a && typeof a._idmSwapNow === 'function' ? a._idmSwapNow() : { on: false }; }
     // The swap list's Front / Back switch, read off the tab.
     function idmSide() { var st = idmState(); return st ? st.side : 'front'; }
     function checklist() { var a = A(); return (a && a.project && a.project.notesChecklist) || []; }
@@ -10328,7 +10330,7 @@
             since: '1.7.0',
             target: '.idm-swatches', ring: ['.idm-swatches', '.idm-seg'], place: 'right', title: 'The field and its borders',
             avoid: ['[data-idm-field="#ff0000"]', '[data-idm-border="lines"]'],
-            body: 'Pick the field: white, red, green, blue, black or your own. Lines draws every module edge as a thin line in the field&rsquo;s own color, never black.',
+            body: 'Pick the field: white, red, green, blue or your own. Lines draws every module edge as a thin line in the field&rsquo;s own color, never black.',
             before: openIdm,
             act: function (t) {
                 return t.click('[data-idm-field="#ff0000"]').then(function () {
@@ -10613,6 +10615,41 @@
                 return 'Rows counted from the ' + mem.to + ': ' + mem.before + ' now reads ' + (text ? text.textContent : '') + '.';
             }
         },
+        idmSwapMode: {
+            since: '1.7.0',
+            target: '.idm-swapmode-bar', ring: ['.idm-swapmode-bar', '#idm-list'], place: 'right', title: 'Swap mode',
+            avoid: ['#idm-swap-mode'],
+            body: 'Turn on Swap mode and the wall goes black but for the modules still to swap, lit in the swatch&rsquo;s color; tick one Swapped and it goes dark. It stays on until you turn it off, and a tag at the top of the panel says so.',
+            before: openIdm,
+            act: function (t) {
+                return t.click('#idm-swap-mode').then(function () {
+                    return t.wait(function () { return idmSwap().on; });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function () {
+                var tag = $('#idm-swap-tag');
+                if (!idmSwap().on || !tag || tag.hidden) return null;
+                var n = idmRows().length;
+                return 'Swap mode is on: ' + n + (n === 1 ? ' module' : ' modules') + ' still to swap, lit on a black wall.';
+            }
+        },
+        idmSwapModeOff: {
+            since: '1.7.0',
+            target: '#idm-swap-mode', ring: ['#idm-swap-mode', '#idm-swap-tag'], place: 'right', title: 'Turn Swap mode off',
+            avoid: ['#idm-swap-mode'],
+            body: 'Click Swap mode again when the swaps are done. The field, the marks and the highlight come back on the wall, and the tag goes.',
+            before: openIdm,
+            act: function (t) {
+                return t.click('#idm-swap-mode').then(function () {
+                    return t.wait(function () { return !idmSwap().on; });
+                }).then(function () { return t.pause(PACE.acted); });
+            },
+            check: function () {
+                var tag = $('#idm-swap-tag');
+                if (idmSwap().on || !tag || !tag.hidden) return null;
+                return 'Swap mode is off: the wall shows the field and the marks again.';
+            }
+        },
         notesChecklist: {
             since: '1.7.0',
             target: '#notes-panel', place: 'left', title: 'A checklist in the Notes',
@@ -10722,7 +10759,7 @@
         // IDM, and the checklist in the Notes
         idm: ['idmOpen', 'idmModules', 'idmMarkColor', 'idmMarkX', 'idmField', 'idmModuleIds',
               'idmColors', 'idmHighlight', 'idmPointer', 'idmController', 'idmPhone', 'idmList', 'idmSwap',
-              'idmUnswap', 'idmRowsFrom', 'notesChecklist'],
+              'idmUnswap', 'idmRowsFrom', 'idmSwapMode', 'idmSwapModeOff', 'notesChecklist'],
         // Pixel Map: groups
         pixelGroups: ['groupScreens', 'groupNames', 'groupDrag', 'groupMove'],
         // Binder and Exports

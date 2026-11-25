@@ -580,6 +580,8 @@ def save_project():
     app.normalize_idm(app.current_project)
     # The IDM Locator's field colour and border style held to their shape.
     app.normalize_idm_field(app.current_project)
+    # ... and its Swap mode.
+    app.normalize_idm_swap(app.current_project)
     # ... and its stored highlight to a module the screens still have.
     app.normalize_idm_highlight(app.current_project)
     # A whole-layers save (the Screens list's order) can carry a mirror
@@ -798,6 +800,8 @@ def restore_project():
     # ... and the tab's field colour and border style (a file without the
     # key loads without it and draws white with shaded borders).
     app.normalize_idm_field(app.current_project)
+    # ... and its Swap mode (a file without the key opens with it off).
+    app.normalize_idm_swap(app.current_project)
     # ... and its live highlight, kept as the file (or the undo snapshot,
     # which carries the one on screen) has it, on a module that is there.
     app.normalize_idm_highlight(app.current_project)
@@ -908,6 +912,31 @@ def put_idm_field():
         'origin': str(data.get('origin') or '')[:64],
     })
     return jsonify({'idmField': field})
+
+
+@project_bp.route('/api/project/idm-swap', methods=['PUT'])
+def put_idm_swap():
+    """The IDM Locator's Swap mode (app.sanitize_idm_swap): on, the wall goes
+    black and only the modules still to swap are lit, in its colour. An
+    edit, not view state: each page that sent or heard it keeps it as an
+    undo step, so it ends a pristine project. Saved with the show and told
+    to every page on the LAN through `idm_swap_updated`, the sender's own
+    echo carrying its `origin` so it can be skipped."""
+    data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'expected an object'}), 400
+    swap = app.sanitize_idm_swap(data.get('swap'))
+    if swap is None:
+        return jsonify({'error': 'swap must be an object'}), 400
+    origin = str(data.get('origin') or '')[:64]
+    was = app.sanitize_idm_swap(app.current_project.get('idmSwap')) or dict(app.IDM_SWAP_DEFAULT)
+    app.current_project['idmSwap'] = swap
+    if swap != was:
+        app.current_project['is_pristine'] = False
+    log_event('idm_swap', {**swap, 'origin': origin}, level='info',
+              msg=f"Swap mode {'on' if swap['on'] else 'off'}, modules to swap lit in {swap['color']}")
+    socketio.emit('idm_swap_updated', {'swap': swap, 'origin': origin})
+    return jsonify({'idmSwap': swap})
 
 
 # ── Beaches ──────────────────────────────────────────────────────────────

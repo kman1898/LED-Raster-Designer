@@ -37,6 +37,14 @@
 // on the computer too) and comes back if that change is taken back. A new
 // change here ends the redo steps, as it does on the computer.
 //
+// Swap mode (owner, 2026-11-24) is switched at the top of the swap list,
+// with its colour on the chip beside it: the wall goes black but for the
+// modules still to swap (PUT /api/project/idm-swap, `idm_swap_updated`,
+// one undo step on the computer and on this phone's Undo). It stays on
+// until it is switched off, wherever the phone goes: a tag on the main
+// screen says so (a tap opens the swap list), and the arrows, Mark, Next
+// screen, Change canvas and a tap on a row move and mark nothing.
+//
 // The controls keep to the canvas the highlight is on (owner, 2026-11-17);
 // Change canvas in the menu (and View / Share on a controller) takes it to
 // the next one.
@@ -53,7 +61,7 @@ import {
     idmHighlightOf, idmTargetOf, idmStepFrom, idmStartModule, idmNextScreenFrom, idmNextCanvasFrom,
     idmCanvasList, idmActiveCanvas, idmCanvasIdOf, idmDescribe, idmMarkGroups, idmLockedBy, idmLockedMessage,
     idmBlockOf, idmApplyMark, idmApplySwapped, idmApplyUnswapped, idmSwappedGroups, idmCanonical,
-    idmFieldSanitize, idmColor, DEFAULT_COLOR, idmRowsFrom, idmRowsFromPicks, ROWS_FROM,
+    idmFieldSanitize, idmColor, DEFAULT_COLOR, idmRowsFrom, idmRowsFromPicks, ROWS_FROM, idmSwapOf,
 } from './idm-core.js';
 import {
     FIELD_CYCLE, PAD_BUTTONS, idmPadFrame, idmPadDispatch, idmPadName, idmPadFillHelp, idmHoldStart,
@@ -134,12 +142,14 @@ const S = {
     theme: readStore(THEME_KEY) === 'light' ? 'light' : 'dark',
     sheet: null,                  // 'menu' | 'swap' | 'pad' while one is open
     stroke: null,                 // a paint under way (A held)
-    undo: [],                     // this phone's own changes: {layerId, before, after, action}
+    undo: [],                     // this phone's own changes: {layerId, before, after, action}, or
+                                  // {kind: 'swap', before, after, action} for Swap mode
     redo: [],                     // the changes its Undo took back, newest last
     seq: 0,
     pads: new Map(), padNames: new Map(), frame: 0,
     toastTimer: null,
     hold: null,                   // a held arrow: {stop, live}
+    swapColors: false,            // Swap mode's colors open under its switch
     sendTimer: null, lastSend: 0,
 };
 
@@ -265,7 +275,7 @@ function blocked() {
 
 const jobs = {
     move(dir, cabinet) {
-        if (blocked()) return;
+        if (blocked() || swapRefuses()) return;
         const t = target();
         if (!t) {
             const start = idmStartModule(r, { canvasId: activeCanvas() });
@@ -288,12 +298,12 @@ const jobs = {
         setField(FIELD_CYCLE[(i + 1) % FIELD_CYCLE.length]);
     },
     nextScreen() {
-        if (blocked()) return;
+        if (blocked() || swapRefuses()) return;
         const next = idmNextScreenFrom(r, hl(), activeCanvas());
         if (next) setHighlight(next);
     },
     nextCanvas() {
-        if (blocked()) return;
+        if (blocked() || swapRefuses()) return;
         const next = idmNextCanvasFrom(r, app.project, activeCanvas());
         if (!next) {
             toast('This show has one canvas with screens.');
@@ -322,7 +332,7 @@ function lockedNote(layer) {
 // A press of Mark (or A / Cross): the highlighted module marked or cleared,
 // the paint begun. With no highlight, it starts one.
 function startMark() {
-    if (blocked() || S.stroke) return;
+    if (blocked() || S.stroke || swapRefuses()) return;
     const t = target();
     if (!t) {
         jobs.move('right', false);
@@ -420,6 +430,10 @@ function undo() {
         toast('Nothing to undo from this phone.');
         return;
     }
+    if (entry.kind === 'swap') {
+        undoSwap(entry);
+        return;
+    }
     const layer = layerById(entry.layerId);
     if (!layer) {
         toast('That screen is gone, so there is nothing to undo there.');
@@ -454,6 +468,7 @@ function undo() {
 // Undo left there; otherwise null.
 function redoNext() {
     const entry = S.redo[S.redo.length - 1];
+    if (entry && entry.kind === 'swap') return idmCanonical(swapNow()) === idmCanonical(entry.before) ? entry : null;
     const layer = entry && layerById(entry.layerId);
     if (!layer) return null;
     return idmCanonical(layer.idm === undefined ? null : layer.idm) === idmCanonical(entry.before) ? entry : null;
@@ -465,6 +480,18 @@ function redo() {
     if (!entry) {
         toast(S.redo.length ? 'That screen was changed on another device since, so it was left as it is.'
             : 'Nothing to redo from this phone.');
+        render();
+        return;
+    }
+    if (entry.kind === 'swap') {
+        S.redo.pop();
+        S.undo.push(entry);
+        putSwap(entry.after).then(saved => {
+            if (saved) entry.after = saved;
+            render();
+        });
+        plog('idm_phone_redo', { action: entry.action }, { msg: `Phone redid ${entry.action}` });
+        toast(`Redone: ${entry.action}`);
         render();
         return;
     }
@@ -480,6 +507,83 @@ function redo() {
     plog('idm_phone_redo', { layerId: layer.id, action: entry.action },
         { msg: `Phone redid ${entry.action} on ${layer.name || 'Screen'} (#${layer.id})` });
     toast(`Redone: ${entry.action}`);
+    render();
+}
+
+// ── Swap mode ─────────────────────────────────────────────────────────────
+
+function swapNow() {
+    return idmSwapOf(app.project && app.project.idmSwap);
+}
+
+// A move or a mark tried while Swap mode is on: refused, with a note.
+function swapRefuses() {
+    if (!swapNow().on) return false;
+    toast('Swap mode is on. Turn it off on the swap list to move or mark.');
+    return true;
+}
+
+// Swap mode as `swap`, on the computer and every device. The answer is
+// the server's copy, or null when it did not get there.
+function putSwap(swap) {
+    app.project.idmSwap = swap;
+    render();
+    return fetch('/api/project/idm-swap', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ swap, origin: ORIGIN }),
+    }).then(res => (res.ok ? res.json() : null)).then(data => {
+        const saved = data && data.idmSwap ? idmSwapOf(data.idmSwap) : null;
+        if (saved && app.project) app.project.idmSwap = saved;
+        return saved;
+    }).catch((err) => {
+        toast('The change did not reach the computer. Check the connection.');
+        plog('idm_phone_save_failed', { what: 'swap mode', error: String((err && err.message) || err) },
+            { level: 'warn', msg: 'Phone Swap mode change did not reach the computer' });
+        return null;
+    });
+}
+
+// The switch or a color from the swap list: one change, one undo step here
+// and on the computer.
+function setSwap(patch) {
+    if (blocked()) { render(); return; }
+    const before = swapNow();
+    const after = idmSwapOf({
+        on: typeof patch.on === 'boolean' ? patch.on : before.on,
+        color: idmColor(patch.color) || before.color,
+    });
+    if (idmCanonical(before) === idmCanonical(after)) { render(); return; }
+    const action = after.color !== before.color ? 'Swap Mode Color' : (after.on ? 'Swap Mode On' : 'Swap Mode Off');
+    plog('idm_phone_swap', { on: after.on, color: after.color },
+        { msg: `Phone turned Swap mode ${after.on ? 'on' : 'off'}, modules to swap lit in ${after.color}` });
+    putSwap(after).then(saved => {
+        if (!saved) return;
+        S.undo.push({ kind: 'swap', before, after: saved, action });
+        if (S.undo.length > UNDO_MAX) S.undo.shift();
+        S.redo = [];
+        render();
+    });
+}
+
+// This phone's Undo of its own Swap mode change, while Swap mode still is
+// what it left.
+function undoSwap(entry) {
+    if (idmCanonical(swapNow()) !== idmCanonical(entry.after)) {
+        S.undo = [];
+        toast('Swap mode was changed on another device since, so it was left as it is.');
+        plog('idm_phone_undo_refused', { action: entry.action, why: 'changed on another device' },
+            { level: 'warn', msg: `Phone undo of ${entry.action} refused: Swap mode changed on another device` });
+        render();
+        return;
+    }
+    S.redo.push(entry);
+    putSwap(entry.before).then(saved => {
+        if (saved) entry.before = saved;
+        render();
+    });
+    plog('idm_phone_undo', { action: entry.action }, { msg: `Phone undid ${entry.action}` });
+    toast(`Undone: ${entry.action}`);
     render();
 }
 
@@ -573,13 +677,36 @@ function render() {
     if (msg) holdStop();
     $('ph-swap-open').hidden = !!msg;
     $('ph-menu-open').hidden = !!msg;
+    if (msg) $('ph-swap-tag').hidden = true;
     // the swap list and the menu wait behind a message like the controls do
     if (msg && (S.sheet === 'swap' || S.sheet === 'menu')) closeSheet();
     renderSheets();
     if (msg) return;
     renderReadout();
     renderField();
+    renderSwap();
     renderList();
+}
+
+// Swap mode: the switch and its chip on the swap list, the tag on the main
+// screen, and the arrows and Mark waiting while it is on.
+function renderSwap() {
+    const sw = swapNow();
+    document.querySelectorAll('[data-ph-swap]').forEach(b => {
+        b.setAttribute('aria-pressed', (b.dataset.phSwap === 'on') === sw.on ? 'true' : 'false');
+    });
+    const chip = $('ph-swap-color');
+    const named = document.querySelector(`[data-ph-swap-color="${sw.color}"]`);
+    chip.querySelector('.ph-sw-chip').style.setProperty('--sw', sw.color);
+    chip.setAttribute('aria-label', `Swap mode color: ${named ? named.getAttribute('aria-label') : sw.color}`);
+    chip.setAttribute('aria-expanded', S.swapColors ? 'true' : 'false');
+    $('ph-swap-colors').hidden = !S.swapColors;
+    document.querySelectorAll('[data-ph-swap-color]').forEach(b => {
+        b.setAttribute('aria-pressed', b.dataset.phSwapColor === sw.color ? 'true' : 'false');
+    });
+    $('ph-swap-tag').hidden = !sw.on;
+    document.querySelectorAll('[data-ph-move], #ph-mark, [data-ph-step]').forEach(b => { b.disabled = sw.on; });
+    if (sw.on) holdStop();
 }
 
 // ── the theme and the sheets ──────────────────────────────────────────────
@@ -954,6 +1081,22 @@ function wire() {
         S.sheet = SHEETS[want] ? want : null;
         render();
     });
+    // Swap mode: its switch, its chip (the colors open under it), a color,
+    // and the main screen's tag, which opens the swap list.
+    document.querySelectorAll('[data-ph-swap]').forEach(b => {
+        b.addEventListener('click', () => setSwap({ on: b.dataset.phSwap === 'on' }));
+    });
+    $('ph-swap-color').addEventListener('click', () => {
+        S.swapColors = !S.swapColors;
+        render();
+    });
+    document.querySelectorAll('[data-ph-swap-color]').forEach(b => {
+        b.addEventListener('click', () => {
+            S.swapColors = false;
+            setSwap({ color: b.dataset.phSwapColor });
+        });
+    });
+    $('ph-swap-tag').addEventListener('click', () => openSheet('swap'));
     document.querySelectorAll('[data-ph-side]').forEach(b => {
         b.addEventListener('click', () => {
             S.side = b.dataset.phSide === 'back' ? 'back' : 'front';
@@ -973,7 +1116,7 @@ function wire() {
             }
             if (e.target.closest('.ph-swap')) return;
             const row = e.target.closest('[data-ph-key]');
-            if (!row || blocked()) return;
+            if (!row || blocked() || swapRefuses()) return;
             setHighlight({ layerId: Number(row.dataset.phLayer), key: row.dataset.phKey });
         });
         list.addEventListener('change', (e) => {
@@ -1038,6 +1181,11 @@ function wire() {
         app.project.idmHighlight = idmHighlightOf(data);
         render();
     });
+    socket.on('idm_swap_updated', (data) => {
+        if (!data || data.origin === ORIGIN || !app.project) return;
+        app.project.idmSwap = idmSwapOf(data.swap);
+        render();
+    });
     socket.on('idm_field_updated', (data) => {
         if (!data || data.origin === ORIGIN || !app.project) return;
         app.project.idmField = idmFieldSanitize(data.field);
@@ -1052,7 +1200,7 @@ function wire() {
 
 // For the tests: the page's state and its jobs.
 window.idmPhone = {
-    S, jobs, app, renderer: r, origin: ORIGIN, render, setSwapped, padTick, openSheet, closeSheet, holdStop,
+    S, jobs, app, renderer: r, origin: ORIGIN, render, setSwapped, setSwap, padTick, openSheet, closeSheet, holdStop,
     socket: () => socket,
 };
 

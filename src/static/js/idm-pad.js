@@ -72,7 +72,7 @@ export function idmHoldStart(step, { still = null, setTimer = setTimeout, clearT
     return { stop, live: () => live };
 }
 // X / Square walks the field through the quick colors.
-export const FIELD_CYCLE = ['#ffffff', '#ff0000', '#00ff00', '#0000ff', '#000000'];
+export const FIELD_CYCLE = ['#ffffff', '#ff0000', '#00ff00', '#0000ff'];
 
 // Every job a button can be given, with the words the button list shows.
 // One that no row of PAD_MAP names is built and waits for a button.

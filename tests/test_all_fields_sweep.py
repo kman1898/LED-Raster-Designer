@@ -210,6 +210,11 @@ SKIP = {
             'the layer; driven end-to-end by tests/test_idm_colours.py'
        for key in ('idm-label-color', 'idm-module-edge-color', 'idm-cabinet-edge-color',
                    'idm-shade-color', 'idm-shade-percent')},
+    # Swap mode's colour (app-idm-locator.js): the PROJECT's idmSwap, the
+    # same for every screen, through its own route - not layer state.
+    'idm-swap-color':
+        'writes project.idmSwap through PUT /api/project/idm-swap, not the '
+        'layer; driven end-to-end by tests/test_idm_swap_mode.py',
     # The controller's touchpad speed (app-idm-native-pad.js): how far a
     # slide on THIS computer's controller moves the highlight. A setting
     # of the viewer, kept in the browser (localStorage lrdIdmTouchSpeed),

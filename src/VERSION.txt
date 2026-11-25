@@ -334,8 +334,8 @@ screen's modules across and down, 2 x 2, 4 x 4 or whatever the panel
 has. Click or drag to mark a module with a color or an X; the list
 beside the wall names each mark by screen, cabinet ID and module.
 
-The wall shows one solid field color, white, red, green, blue, black
-or your own, so a dead pixel stands out. Module edges show as an
+The wall shows one solid field color, white, red, green, blue or your
+own, so a dead pixel stands out. Module edges show as an
 alternating shade, so every pixel stays lit, or as thin lines, corner
 ticks or nothing. Module ID labels each module in the Cabinet ID
 style, A1 B1 / A2 B2, starting again in each cabinet, a half cabinet
@@ -405,6 +405,14 @@ phone, and the count of what is left goes down. Untick a row on the
 Swapped list and the row and its mark come back. Undo takes back either.
 Marking a swapped module again puts it back on the open list, and Clear
 all marks clears both lists.
+
+Swap mode, at the top of the swap list on the computer and the phone,
+turns the wall black and lights only the modules still to swap, in white
+or a color you pick beside it. Tick a module Swapped and it goes dark;
+untick it and it lights again. Nothing else shows on the wall while it is
+on, and the arrows and Mark wait. It stays on until you turn it off, with
+a Swap mode tag in the panel and on the phone's main screen so nobody
+forgets, and Undo takes it back.
 
 Rows from beside each screen's name on the swap list, on the computer and
 the phone, counts that screen's rows from the top, or up from the bottom

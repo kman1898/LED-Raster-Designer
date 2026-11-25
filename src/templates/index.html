@@ -2212,13 +2212,16 @@
                         <h2>IDM Locator</h2>
                     </div>
                     <div class="panel-content">
+                        <!-- Swap mode's tag (app-idm-locator.js _idmSyncSwap):
+                             there while Swap mode is on, so nobody forgets
+                             it; a click takes you to its switch. -->
+                        <button type="button" id="idm-swap-tag" class="idm-swap-tag" hidden data-tooltip="Swap mode is on, The wall is black but for the modules still to swap. Click to go to the switch above the swap list and turn it off.">Swap mode is on</button>
                         <div class="idm-sub idm-sub-first">Field</div>
                         <div class="idm-swatches" role="group" aria-label="Field color">
                             <button type="button" class="idm-swatch" data-idm-field="#ffffff" style="--idm-sw: #ffffff" aria-label="White" data-tooltip="White, Every screen full white.">W</button>
                             <button type="button" class="idm-swatch" data-idm-field="#ff0000" style="--idm-sw: #ff0000" aria-label="Red" data-tooltip="Red, Every screen full red.">R</button>
                             <button type="button" class="idm-swatch" data-idm-field="#00ff00" style="--idm-sw: #00ff00" aria-label="Green" data-tooltip="Green, Every screen full green.">G</button>
                             <button type="button" class="idm-swatch" data-idm-field="#0000ff" style="--idm-sw: #0000ff" aria-label="Blue" data-tooltip="Blue, Every screen full blue.">B</button>
-                            <button type="button" class="idm-swatch" data-idm-field="#000000" style="--idm-sw: #000000" aria-label="Black" data-tooltip="Black, Every screen black, to find pixels stuck on.">K</button>
                             <span class="idm-swatch idm-swatch-custom" data-tooltip="Custom color, Any color for every screen.">
                                 <input type="color" id="idm-field-custom" value="#ffffff" aria-label="Custom field color">
                             </span>
@@ -2330,6 +2333,16 @@
                             <div id="idm-module-size" class="idm-note"></div>
                         </div>
                         <div class="idm-sub">Marked modules <span id="idm-count" class="idm-count"></span></div>
+                        <!-- Swap mode (owner, 2026-11-24; app-idm-locator.js,
+                             project.idmSwap): the wall black but for the
+                             modules still to swap, lit in the swatch's
+                             color. The phone has the same switch. -->
+                        <div class="idm-swapmode-bar">
+                            <button type="button" id="idm-swap-mode" class="btn idm-toggle idm-swap-mode" aria-pressed="false" data-tooltip="Swap mode, Turn the wall black and light only the modules still to swap, in one color. Tick a row Swapped and that module goes dark. It stays on until you turn it off.">Swap mode</button>
+                            <span class="idm-swatch idm-swatch-custom idm-swap-swatch" data-tooltip="Swap mode color, The color the modules still to swap are lit in. White unless you pick another.">
+                                <input type="color" id="idm-swap-color" value="#ffffff" aria-label="Swap mode color">
+                            </span>
+                        </div>
                         <!-- The swap list's Front / Back switch (per viewer):
                              each row counted from the side the crew stands on. -->
                         <div class="idm-side-bar">

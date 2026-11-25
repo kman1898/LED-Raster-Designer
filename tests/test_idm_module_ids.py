@@ -381,10 +381,10 @@ def test_the_labels_are_on_the_output_when_on_and_never_black(page):
         # blue: 0, 0, 128
         click_field(page, '#0000ff')
         settled_ink(out, (16, 16, 32, 32), lambda v: v['hit'] > 20, ink_rgb=(0, 0, 128), field=(0, 0, 255))
-        # black: half of black is still dark, so a lit grey
-        click_field(page, '#000000')
+        # a near black: half of it is still dark, so a lit grey
+        click_field(page, '#0a0a0a')
         settled_ink(out, (16, 16, 32, 32), lambda v: v['hit'] > 20,
-                    ink_rgb=(102, 102, 102), field=(0, 0, 0))
+                    ink_rgb=(102, 102, 102), field=(10, 10, 10))
         # the shade's alternate module (85% white): still the field at 50%
         click_field(page, '#ffffff', 'shade')
         settled_ink(out, (64 + 16, 16, 32, 32), lambda v: v['hit'] > 20 and v['dark'] == 0,

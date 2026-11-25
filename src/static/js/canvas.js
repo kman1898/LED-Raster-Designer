@@ -2373,11 +2373,17 @@ class CanvasRenderer {
             const _rlIdm = this._rlBegin ? this._rlBegin() : 0;
             this._idmPass = true;
             this.viewMode = 'pixel-map';
+            // Swap mode's count of what it lit, screen by screen
+            // (canvas-idm.js _idmRenderSwapLayer): this pass's, kept as
+            // _idmSwapDrawn for the output's log line.
+            this._idmSwapStat = null;
             try {
                 this.render();
             } finally {
                 this.viewMode = 'idm';
                 this._idmPass = false;
+                this._idmSwapDrawn = this._idmSwapStat;
+                this._idmSwapStat = null;
             }
             if (_rlIdm) this._rlEnd(_rlIdm, 'idm');
             if (!this.exportMode && window.app && typeof window.app._idmOnRender === 'function') {

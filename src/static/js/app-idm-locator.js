@@ -44,7 +44,26 @@
 // toolbar's mark swatch (labelColor, moduleEdgeColor, cabinetEdgeColor,
 // shade, markPresets). Each key is there only when the crew set it: missing
 // is Auto, drawn exactly as before (canvas-idm idmBorderInks). A chosen
-// colour is drawn as chosen; pure black gets a note in the panel.
+// colour is drawn as chosen; pure black gets a note in the panel. The
+// field itself is never pure black (owner, 2026-11-24): the Black field
+// colour went when Swap mode came, and a show saved with it opens on the
+// default field (idm-core idmFieldSanitize, app.sanitize_idm_field).
+//
+// SWAP MODE (owner, 2026-11-24): a switch at the top of the swap list, on
+// the computer and on the phone, with a swatch beside it (the app's colour
+// picker opens on it). On, the wall goes black and only the modules still
+// to swap - marked and not ticked Swapped - are lit, filled solid in its
+// one colour (white unless picked); a tick turns that module dark, an
+// untick lights it again. Nothing else draws (canvas-idm.js idmSwapSpec):
+// no field, borders, labels, highlight or mouse arrow, and the arrows, the
+// pad, a controller, a click and Space move and mark nothing - they say
+// so instead. It stays on until it is switched off, wherever the app
+// goes, with a Swap mode tag at the top of this panel (a click takes you
+// to the switch). The project keeps it as idmSwap = {on, color}, saved
+// with the show and sent to every page (PUT /api/project/idm-swap,
+// `idm_swap_updated`). Unlike the field it is an edit: switching it and
+// picking its colour are undo steps, here and (as another page's change)
+// on every other computer.
 //
 // The LIVE HIGHLIGHT: the module the crew is pointing at - by mouse (hover),
 // by the arrow keys, or from a tablet at the wall (a tap, or the arrow pad in
@@ -79,7 +98,7 @@ import {
     idmMarkCount as markCount, idmTargetOf, idmStepFrom, idmStartModule, idmDescribe, idmMarkGroups,
     idmBlockOf, idmApplyMark, idmApplySwapped, idmApplyUnswapped, idmCanvasIdOf,
     idmSwappedGroups, idmSwappedOf, idmSwappedCount as swappedCount, idmRowsFromPicks, ROWS_FROM,
-    DEFAULT_COLOR, FIELD_BORDERS, COLOUR_KEYS, PRESETS_MAX, ARROWS,
+    DEFAULT_COLOR, FIELD_BORDERS, COLOUR_KEYS, PRESETS_MAX, ARROWS, idmSwapOf,
 } from './idm-core.js';
 import { idmHoldStart } from './idm-pad.js';
 
@@ -101,6 +120,11 @@ const PRESETS_DEFAULT = ['#ff1a1a', '#ffff00', '#00ffff', '#ff00ff', '#ff8000'];
 // The live highlight: the least time between two sends to the other
 // clients (25 a second).
 const SEND_MS = 40;
+// Swap mode's colour, dragged in the picker: the save waits this long
+// after the last move, and the drag is one undo step.
+const SWAP_PUT_MS = 150;
+// Swap mode refuses a move or a mark with a note, at most this often.
+const SWAP_NOTE_MS = 2500;
 // A held arrow key (owner, 2026-11-24): the hold steps on its own timer,
 // speeding up (idm-pad.js idmHoldStart), not at the system's key repeat.
 // The system repeats a held key at least every second or so, so a hold
@@ -187,6 +211,9 @@ class _IdmLocator {
                 active: false, wired: false, style, color, side,
                 stroke: null,
                 fieldsKey: '', listKey: '', fieldUiKey: '', readoutKey: '', presetsKey: '',
+                // Swap mode: what its switch shows, its colour's save held
+                // back while it is dragged, its last note (_idmSwapRefuses)
+                swapUiKey: '', swapTimer: null, swapPending: null, swapNoteAt: 0,
                 // the field's PUT, held back while a colour is dragged
                 fieldTimer: null, fieldPending: null,
                 // the one-off look that drops a highlight whose module has
@@ -257,6 +284,19 @@ class _IdmLocator {
                 this._idmSetSide(btn.dataset.idmSide);
                 this._idmBlurButton(btn);
             });
+        });
+        // Swap mode: its switch, its swatch (the app's colour picker opens
+        // on it) and the tag at the top of the panel, which takes you to
+        // the switch.
+        on('idm-swap-mode', 'click', (e) => {
+            this._idmSetSwap({ on: !this._idmSwapNow().on });
+            this._idmBlurButton(e.currentTarget);
+        });
+        on('idm-swap-color', 'input', (e) => this._idmSetSwap({ color: e.target.value }, { soon: true }));
+        on('idm-swap-color', 'change', (e) => this._idmSetSwap({ color: e.target.value }));
+        on('idm-swap-tag', 'click', (e) => {
+            this._idmBlurButton(e.currentTarget);
+            this._idmShowSwapSwitch();
         });
         // The field: the quick colours, the custom swatch (the app's colour
         // picker opens on it), the border styles.
@@ -374,6 +414,10 @@ class _IdmLocator {
                 if (!data || data.origin === st.origin) return;
                 this._idmAdoptField(idmFieldSanitize(data.field));
             });
+            this.socket.on('idm_swap_updated', (data) => {
+                if (!data || data.origin === st.origin) return;
+                this._idmAdoptSwap(data.swap);
+            });
             this.socket.on('idm_highlight', (data) => {
                 if (!data || data.origin === st.origin) return;
                 const id = data.layerId;
@@ -424,6 +468,7 @@ class _IdmLocator {
         st.listKey = '';
         st.fieldUiKey = '';
         st.readoutKey = '';
+        st.swapUiKey = '';
         this._idmSyncToolbar();
         this._idmSyncPad();
         if (typeof this._idmPadRun === 'function') this._idmPadRun();
@@ -718,6 +763,150 @@ class _IdmLocator {
         if (add) add.disabled = list.length >= PRESETS_MAX;
     }
 
+    // ── Swap mode ─────────────────────────────────────────────────────────
+
+    // Swap mode as the project holds it: {on, color}.
+    _idmSwapNow() {
+        return idmSwapOf(this.project && this.project.idmSwap);
+    }
+
+    _idmSwapOn() {
+        return this._idmSwapNow().on;
+    }
+
+    // The switch or the swatch from this page: drawn at once, one undo
+    // step (a colour dragged in the picker is one step, and its save waits
+    // for the drag to rest: `soon`), sent to the server, which tells every
+    // other page.
+    _idmSetSwap(patch, { soon = false } = {}) {
+        const st = this._idmState();
+        if (!this.project) return;
+        const p = (patch && typeof patch === 'object') ? patch : {};
+        const cur = this._idmSwapNow();
+        const next = idmSwapOf({
+            on: typeof p.on === 'boolean' ? p.on : cur.on,
+            color: idmColor(p.color) || cur.color,
+        });
+        const stored = this.project.idmSwap;
+        const same = !!stored && JSON.stringify(idmSwapOf(stored)) === JSON.stringify(next);
+        if (same && !st.swapPending) return;
+        if (!same) {
+            this.project.idmSwap = next;
+            const colour = next.color !== cur.color;
+            const action = colour ? 'Swap Mode Color' : (next.on ? 'Swap Mode On' : 'Swap Mode Off');
+            if (colour && typeof this.debouncedSaveState === 'function') {
+                this.debouncedSaveState(action, 500, 'idm-swap-color');
+            } else if (typeof this.saveState === 'function') {
+                this.saveState(action);
+            }
+            this._idmSwapChanged();
+        }
+        // a colour let go: the drag's one step is taken now
+        if (!soon && typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
+        st.swapPending = next;
+        clearTimeout(st.swapTimer);
+        st.swapTimer = null;
+        const send = () => {
+            st.swapTimer = null;
+            const swap = st.swapPending;
+            st.swapPending = null;
+            if (!swap) return;
+            sendClientLog('idm_swap', swap, {
+                area: 'idm',
+                msg: `Swap mode ${swap.on ? 'on' : 'off'}, modules to swap lit in ${swap.color}`,
+            });
+            const put = fetch('/api/project/idm-swap', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ swap, origin: st.origin }),
+            }).catch(() => {});
+            // an undo's restore waits for it, so it never lands after one
+            if (typeof this._trackProjectSync === 'function') this._trackProjectSync(put);
+        };
+        if (soon) st.swapTimer = setTimeout(send, SWAP_PUT_MS);
+        else send();
+    }
+
+    // Another page's Swap mode (a phone, another computer): taken in, and
+    // kept here as one undo step of its own, the way another page's edit
+    // of a screen is (app-core _recordForeignStep).
+    _idmAdoptSwap(value) {
+        if (!this.project || !value || typeof value !== 'object') return;
+        const next = idmSwapOf(value);
+        const stored = this.project.idmSwap;
+        if (stored && JSON.stringify(idmSwapOf(stored)) === JSON.stringify(next)) {
+            this._idmSyncSwap();
+            return;
+        }
+        if (typeof this._flushPendingSaveState === 'function') this._flushPendingSaveState();
+        if (typeof this._numberHoldCheckpoint === 'function') this._numberHoldCheckpoint();
+        this.project.idmSwap = next;
+        sendClientLog('idm_swap_followed', next, {
+            area: 'idm',
+            msg: `Swap mode ${next.on ? 'on' : 'off'} from another device, modules to swap lit in ${next.color}`,
+        });
+        if (typeof this._recordForeignStep === 'function') this._recordForeignStep();
+        this._idmSwapChanged();
+    }
+
+    // Swap mode changed: the panel says so, the view and the wall redraw.
+    _idmSwapChanged() {
+        const st = this._idmState();
+        if (this._idmSwapOn()) {
+            // nothing of the hold or a paint goes on under it
+            this._idmHoldStop();
+            if (st.stroke) this._idmCancelStroke();
+        }
+        this._idmSyncSwap();
+        if (window.canvasRenderer) window.canvasRenderer.render();
+    }
+
+    // The switch, the swatch and the tag say what the project holds.
+    _idmSyncSwap() {
+        const st = this._idmState();
+        const sw = this._idmSwapNow();
+        const key = JSON.stringify(sw);
+        if (key === st.swapUiKey) return;
+        st.swapUiKey = key;
+        const btn = document.getElementById('idm-swap-mode');
+        if (btn) {
+            btn.classList.toggle('active', sw.on);
+            btn.setAttribute('aria-pressed', sw.on ? 'true' : 'false');
+            const word = btn.querySelector('.idm-swap-state');
+            if (word) word.textContent = sw.on ? 'On' : 'Off';
+        }
+        const input = document.getElementById('idm-swap-color');
+        if (input && input.value.toLowerCase() !== sw.color) input.value = sw.color;
+        const tag = document.getElementById('idm-swap-tag');
+        if (tag) tag.hidden = !sw.on;
+    }
+
+    // The tag at the top of the panel: the switch brought into view and
+    // given the focus, so turning it off is one more click.
+    _idmShowSwapSwitch() {
+        const btn = document.getElementById('idm-swap-mode');
+        if (!btn) return;
+        try { btn.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) { btn.scrollIntoView(); }
+        try { btn.focus({ preventScroll: true }); } catch (_) { /* no focus */ }
+        btn.classList.remove('idm-flash');
+        void btn.offsetWidth;
+        btn.classList.add('idm-flash');
+    }
+
+    // A move or a mark tried while Swap mode is on: refused (true), with a
+    // note that says why, at most every SWAP_NOTE_MS.
+    _idmSwapRefuses() {
+        if (!this._idmSwapOn()) return false;
+        const st = this._idmState();
+        const now = Date.now();
+        if (!st.swapNoteAt || now - st.swapNoteAt > SWAP_NOTE_MS) {
+            st.swapNoteAt = now;
+            this._toast('Swap mode is on. Turn it off to move the highlight or mark modules.');
+            sendClientLog('idm_swap_refused', {}, { area: 'idm', msg: 'Swap mode is on: a move or a mark was refused' });
+        }
+        return true;
+    }
+
     // ── the live highlight ────────────────────────────────────────────────
 
     // The highlight as the project holds it: {layerId, key} or null.
@@ -772,6 +961,9 @@ class _IdmLocator {
     // (false for a move that came from one of them).
     _idmSetHighlight(layerId, key, { send = true } = {}) {
         const next = idmHighlightOf({ layerId, key });
+        // Swap mode moves no highlight from here (a glide, a guide, a
+        // script): it is not drawn, and stays where it was for after.
+        if (send && next && this._idmSwapOn()) return;
         const cur = this._idmHl();
         const same = (!next && !cur)
             || (next && cur && cur.layerId === next.layerId && cur.key === next.key);
@@ -825,7 +1017,7 @@ class _IdmLocator {
     _idmHover(worldX, worldY) {
         const st = this._idmState();
         const r = window.canvasRenderer;
-        if (!st.active || !r || st.stroke) return;
+        if (!st.active || !r || st.stroke || this._idmSwapOn()) return;
         const hit = r.idmHitAt(worldX, worldY);
         if (!hit || !hit.cell) {
             this._idmHoverOff();
@@ -842,6 +1034,8 @@ class _IdmLocator {
     // pad step or Mark button carries on from it.
     _idmHoverOff() {
         const st = this._idmState();
+        // Swap mode leaves the hidden highlight where it is
+        if (this._idmSwapOn()) return;
         const h = st.hover;
         st.hover = null;
         if (!h) return;
@@ -881,6 +1075,7 @@ class _IdmLocator {
     _idmStep(dir, cabinet = false, { canvasId = null } = {}) {
         const r = window.canvasRenderer;
         if (!r || !this.project) return false;
+        if (this._idmSwapRefuses()) return false;
         let t = this._idmHighlightTarget();
         if (!t) {
             // the module the mouse left, one step on; else the first one
@@ -909,6 +1104,7 @@ class _IdmLocator {
     // A Space tap or the Mark button: the highlighted module marked or cleared,
     // the same rules and the same single undo step a click makes.
     _idmMarkHighlight() {
+        if (this._idmSwapRefuses()) return true;
         if (!this._idmHighlightTarget()) this._idmResumeHover();
         const t = this._idmHighlightTarget();
         if (!t) {
@@ -954,6 +1150,8 @@ class _IdmLocator {
         if (e.metaKey || e.ctrlKey || e.altKey) return false;
         if (modalOpen) return false;
         if (ARROWS[e.key]) {
+            // Swap mode: the arrows move nothing, and say so.
+            if (this._idmSwapRefuses()) return true;
             // The system's own repeat of a held key: the hold steps on its
             // own timer instead. A repeat with no hold (one ended by a
             // dialog, say, with the key still down) is one step, as before.
@@ -1022,6 +1220,7 @@ class _IdmLocator {
     // Delete / Backspace: the highlighted module's mark cleared, one undo
     // step. Nothing when no module is highlighted or it has no mark.
     _idmDeleteMark() {
+        if (this._idmSwapRefuses()) return true;
         if (!this._idmHighlightTarget()) this._idmResumeHover();
         const t = this._idmHighlightTarget();
         const marks = t && t.layer.idm && t.layer.idm.marks;
@@ -1085,6 +1284,7 @@ class _IdmLocator {
         const layer = hit.layer;
         const key = r.idmCellKey(hit.panel, hit.cell);
         if (!(layer.idm && layer.idm.marks && layer.idm.marks[key])) return false;
+        if (this._idmSwapRefuses()) return true;
         if (this._layerLocked(layer)) {
             this._showLockedError([layer]);
             return true;
@@ -1166,7 +1366,7 @@ class _IdmLocator {
     // coordinates, or null (app-output-display.js _outputDisplayCompose).
     _idmPointerFor(canvasId) {
         const st = this._idmS;
-        const p = st && st.active && st.pointerOn ? st.pointer : null;
+        const p = st && st.active && st.pointerOn && !this._idmSwapOn() ? st.pointer : null;
         if (!p) return null;
         const canvases = (this.project && Array.isArray(this.project.canvases)) ? this.project.canvases : [];
         if (canvases.length && p.canvasId !== canvasId) return null;
@@ -1197,6 +1397,7 @@ class _IdmLocator {
     // the deleted screen's module, with no highlight left, until the
     // redraw (1.7.0 CI). The canvas is left to its own timing.
     _idmFollowProject() {
+        this._idmSyncSwap();
         this._idmRefreshReadout();
         if (this._idmState().active) this._idmRenderList();
     }
@@ -1291,6 +1492,14 @@ class _IdmLocator {
         if (!r || typeof r.idmHitAt !== 'function') return false;
         const hit = r.idmHitAt(worldX, worldY);
         if (!hit) return false;
+        // Swap mode: a press on a screen selects it and marks nothing.
+        if (this._idmSwapOn()) {
+            if (!this._idmTouchPress() && (!this.currentLayer || this.currentLayer.id !== hit.layer.id)) {
+                r._selectLayerFromCanvas(hit.layer);
+            }
+            this._idmSwapRefuses();
+            return true;
+        }
         // A finger on a touch screen (a tablet at the wall) moves the
         // highlight; the pad's Mark button marks.
         if (this._idmTouchPress()) {
@@ -1541,6 +1750,7 @@ class _IdmLocator {
         this._idmRefreshFields();
         this._idmRenderList();
         this._idmSyncField();
+        this._idmSyncSwap();
         this._idmRefreshReadout();
     }
 
@@ -1818,6 +2028,9 @@ class _IdmLocator {
         const st = this._idmState();
         const layer = ((this.project && this.project.layers) || []).find(l => l && l.id === layerId);
         if (!layer || typeof key !== 'string') return;
+        // Swap mode: the module is lit on the wall already; the highlight
+        // stays where it is.
+        if (this._idmSwapRefuses()) return;
         if (!this.currentLayer || this.currentLayer.id !== layer.id
                 || (this.selectedLayerIds && this.selectedLayerIds.size > 1)) {
             this.selectLayer(layer);

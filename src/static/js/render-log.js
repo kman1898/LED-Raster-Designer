@@ -348,7 +348,10 @@
             const proj = app && app.project;
             const groups = proj && proj.groups ? hash(JSON.stringify(proj.groups)) : '';
             const stages = this.renderStages ? [...this.renderStages].sort().join(',') : '';
-            return [f.view, f.canvasId, this._rlPerspective(f), stages, groups,
+            // the IDM Locator's field and Swap mode are the show's, not a
+            // screen's: a change of either is a new picture
+            const idm = f.view === 'idm' && proj ? hash(JSON.stringify([proj.idmField || null, proj.idmSwap || null])) : '';
+            return [f.view, f.canvasId, this._rlPerspective(f), stages, groups, idm,
                 shown.map(l => l.id + ':' + layerHash(l)).join(',')].join('|');
         },
 
@@ -402,6 +405,20 @@
                 if (typeof this.idmFieldSpec === 'function') {
                     try { c.field = this.idmFieldSpec().color; } catch (_) { /* default field */ }
                 }
+                // Swap mode (canvas-idm.js idmSwapSpec): the wall black and
+                // `lit` (counted as drawn, _rlCount) the modules still to
+                // swap, in its colour; no field.
+                if (typeof this.idmSwapSpec === 'function') {
+                    try {
+                        const sw = this.idmSwapSpec();
+                        if (sw.on) {
+                            delete c.field;
+                            c.swapMode = 'on';
+                            c.swapColor = sw.color;
+                            c.lit = c.lit || 0;
+                        }
+                    } catch (_) { /* no Swap mode */ }
+                }
             }
             if (f.errors.size) c.errors = f.errors.size;
             return c;
@@ -421,9 +438,11 @@
                 screens: { n: shown.length, names: names(shown) },
                 counts, colours, ms: f.ms, n,
             };
-            const parts = Object.entries(counts).filter(([k]) => k !== 'field' && k !== 'errors')
+            const words = ['field', 'errors', 'swapMode', 'swapColor', 'lit'];
+            const parts = Object.entries(counts).filter(([k]) => !words.includes(k))
                 .map(([k, v]) => `${v} ${k}`);
             if (counts.field) parts.push(`field ${counts.field}`);
+            if (counts.swapMode) parts.push(`Swap mode on, ${counts.lit} lit in ${counts.swapColor}, the rest black`);
             let msg = `${viewWord(f.view)} drew ${shown.length} screen${shown.length === 1 ? '' : 's'}`
                 + (canvas ? ` on ${canvas.name || canvas.id}` : '')
                 + (parts.length ? ` (${parts.join(', ')})` : '');

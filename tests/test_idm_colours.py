@@ -250,10 +250,10 @@ def test_the_shade_level_as_a_percent_or_a_colour_and_auto_puts_it_back(page):
         wait_pixel(out, 96, 32, (217, 217, 217), tol=0)
         wait_pixel(out, 0, 32, (166, 166, 166), tol=0)
         assert auto_pressed(page)['shade'] is True
-        # and on black Auto still lifts the levels
-        click_field(page, '#000000')
-        wait_pixel(out, 96, 32, (26, 26, 26), tol=0)
-        wait_pixel(out, 0, 32, (52, 52, 52), tol=0)
+        # and on a near black Auto still lifts the levels
+        click_field(page, '#0a0a0a')
+        wait_pixel(out, 96, 32, (36, 36, 36), tol=0)
+        wait_pixel(out, 0, 32, (62, 62, 62), tol=0)
     finally:
         out.close()
     assert not page._errors, page._errors

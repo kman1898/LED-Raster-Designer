@@ -15,7 +15,9 @@
          with no scrolling; the menu (Next screen, Change canvas, Clear
          highlight and the field colors, owner 2026-11-24), the swap list and the
          controller's button list are sheets of their own over it. A held
-         arrow repeats, faster the longer it is held. Dark
+         arrow repeats, faster the longer it is held. Swap mode (owner,
+         2026-11-24) is switched at the top of the swap list; while it is on
+         a tag on the main screen says so and the arrows and Mark wait. Dark
          unless this phone
          picked light (owner, 2026-11-17), whatever the phone's own setting. -->
     <title>IDM Locator</title>
@@ -151,7 +153,7 @@
         .ph-menu-item:disabled .ph-menu-main { color: var(--faint); }
         .ph-canvas-name { font-weight: 700; color: var(--text); }
         .ph-menu-label { font-size: 15px; font-weight: 700; color: var(--dim); margin: 8px 0 0; }
-        .ph-swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+        .ph-swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
         .ph-swatch { display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 76px; padding: 6px 2px;
             border-radius: 12px; border: 2px solid var(--line); background: var(--btn); cursor: pointer; }
         .ph-sw-chip { flex: 0 0 auto; width: 100%; max-width: 48px; height: 36px; border-radius: 8px; background: var(--sw);
@@ -194,6 +196,20 @@
             font-size: 16px; color: var(--dim); cursor: pointer; }
         .ph-swap input { width: 32px; height: 32px; margin: 0; accent-color: var(--accent); cursor: pointer; }
         .ph-row.here .ph-row-go { font-weight: 700; }
+        /* Swap mode: its switch and its color at the top of the swap list,
+           and the tag on the main screen while it is on. */
+        .ph-swapmode { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; }
+        .ph-swapmode-label { flex: 0 0 auto; font-size: 17px; font-weight: 700; }
+        .ph-swapmode .ph-seg { flex: 1 1 auto; }
+        .ph-swap-chip { flex: 0 0 56px; width: 56px; padding: 6px; display: flex; align-items: center; justify-content: center; }
+        .ph-swap-chip .ph-sw-chip { height: 32px; }
+        .ph-swap-chip[aria-expanded="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+        .ph-swap-colors { flex: 0 0 auto; }
+        .ph-swap-tag { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%;
+            min-height: 56px; padding: 8px 14px; text-align: left; background: var(--accent) !important; color: var(--on-accent) !important;
+            border-color: var(--accent) !important; }
+        .ph-swap-tag-main { font-size: 18px; font-weight: 700; }
+        .ph-swap-tag-sub { font-size: 14px; }
         .ph-swapped-head { font-size: 20px; margin: 22px 0 0; padding-top: 12px; border-top: 2px solid var(--line); }
         .ph-row.done .ph-row-text { color: var(--dim); }
         .ph-empty { color: var(--faint); font-size: 17px; padding: 8px 0; }
@@ -221,6 +237,12 @@
             <button type="button" id="ph-swap-open" class="ph-btn ph-open" hidden>Swap list</button>
         </header>
         <div id="ph-message" class="ph-message" role="status" hidden></div>
+        <!-- Swap mode's tag: there while it is on, so nobody forgets it; a
+             tap opens the swap list, where its switch is. -->
+        <button type="button" id="ph-swap-tag" class="ph-btn ph-swap-tag" hidden>
+            <span class="ph-swap-tag-main">Swap mode is on</span>
+            <span class="ph-swap-tag-sub">Only the modules still to swap are lit. Tap to open the swap list.</span>
+        </button>
         <section id="ph-controls" class="ph-controls" hidden>
             <div class="ph-readout" id="ph-readout">
                 <!-- where it is gets the whole first line; the IDs and the
@@ -277,7 +299,6 @@
                     <button type="button" class="ph-swatch" data-ph-field="#ff0000" style="--sw: #ff0000" aria-label="Red" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Red</span></button>
                     <button type="button" class="ph-swatch" data-ph-field="#00ff00" style="--sw: #00ff00" aria-label="Green" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Green</span></button>
                     <button type="button" class="ph-swatch" data-ph-field="#0000ff" style="--sw: #0000ff" aria-label="Blue" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Blue</span></button>
-                    <button type="button" class="ph-swatch" data-ph-field="#000000" style="--sw: #000000" aria-label="Black" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Black</span></button>
                 </div>
                 <button type="button" id="ph-pad-open" class="ph-btn ph-menu-item" hidden>
                     <span class="ph-menu-main">Controller buttons</span>
@@ -291,6 +312,23 @@
             <div class="ph-sheet-head">
                 <button type="button" id="ph-swap-close" class="ph-btn ph-back">&#8249; Back</button>
                 <h2 id="ph-swap-title">Swap list <span id="ph-count" class="ph-count"></span></h2>
+            </div>
+            <!-- Swap mode (owner, 2026-11-24): the wall black but for the
+                 modules still to swap, lit in one color; the computer has the
+                 same switch. The chip opens the colors. -->
+            <div class="ph-swapmode">
+                <span class="ph-swapmode-label" id="ph-swapmode-label">Swap mode</span>
+                <div class="ph-seg" role="group" aria-labelledby="ph-swapmode-label">
+                    <button type="button" data-ph-swap="off" aria-pressed="true">Off</button>
+                    <button type="button" data-ph-swap="on" aria-pressed="false">On</button>
+                </div>
+                <button type="button" id="ph-swap-color" class="ph-btn ph-swap-chip" aria-expanded="false" aria-controls="ph-swap-colors" aria-label="Swap mode color: White"><span class="ph-sw-chip" style="--sw: #ffffff"></span></button>
+            </div>
+            <div id="ph-swap-colors" class="ph-swatches ph-swap-colors" role="group" aria-label="Swap mode color" hidden>
+                <button type="button" class="ph-swatch" data-ph-swap-color="#ffffff" style="--sw: #ffffff" aria-label="White" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">White</span></button>
+                <button type="button" class="ph-swatch" data-ph-swap-color="#ff0000" style="--sw: #ff0000" aria-label="Red" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Red</span></button>
+                <button type="button" class="ph-swatch" data-ph-swap-color="#00ff00" style="--sw: #00ff00" aria-label="Green" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Green</span></button>
+                <button type="button" class="ph-swatch" data-ph-swap-color="#0000ff" style="--sw: #0000ff" aria-label="Blue" aria-pressed="false"><span class="ph-sw-chip"></span><span class="ph-sw-name">Blue</span></button>
             </div>
             <div class="ph-seg ph-side" role="group" aria-label="Count from the">
                 <button type="button" data-ph-side="front" aria-pressed="true">Front</button>

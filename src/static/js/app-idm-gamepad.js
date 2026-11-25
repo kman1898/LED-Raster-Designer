@@ -258,6 +258,8 @@ class _IdmGamepad {
     // A / Cross down: the highlighted module marked or cleared - the click's
     // rules - and the paint begun; with no highlight, it starts one.
     _idmPadStartPaint() {
+        // Swap mode marks nothing (app-idm-locator.js _idmSwapRefuses).
+        if (this._idmSwapRefuses()) return;
         const st = this._idmState();
         const t = this._idmHighlightTarget();
         if (!t) {
@@ -303,6 +305,7 @@ class _IdmGamepad {
     // Y / Triangle: the highlight to the first module of the next screen
     // ON THIS CANVAS (the Screens order), round to the first after the last.
     _idmNextScreen() {
+        if (this._idmSwapRefuses()) return false;
         const r = window.canvasRenderer;
         const next = idmNextScreenFrom(r, this._idmHl(), this._idmPadCanvas());
         if (!next) return false;
@@ -314,6 +317,7 @@ class _IdmGamepad {
     // View / Share: the highlight to the first module of the next canvas
     // that has modules, round to the first; its name in a toast.
     _idmNextCanvas() {
+        if (this._idmSwapRefuses()) return false;
         const r = window.canvasRenderer;
         const from = this._idmPadCanvas();
         const next = idmNextCanvasFrom(r, this.project, from);

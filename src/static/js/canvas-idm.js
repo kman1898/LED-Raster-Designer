@@ -20,6 +20,11 @@
 // none. The geometry here is the server's idm_module_cells line for line.
 const IDM_MAX_MODULES = 64;
 const IDM_FIELD_DEFAULT_COLOR = '#ffffff';
+// The Black field colour is gone (owner, 2026-11-24: Swap mode is the black
+// wall now): a pure black field draws the default (idm-core FIELD_NO_BLACK).
+const IDM_FIELD_NO_BLACK = '#000000';
+// Swap mode's colour when a show has none (idm-core SWAP_DEFAULT).
+const IDM_SWAP_DEFAULT_COLOR = '#ffffff';
 const IDM_FIELD_BORDERS = ['shade', 'lines', 'ticks', 'none'];
 // The shade style: alternate modules at 85% of the field, the cabinet's
 // outer pixel ring at 65%.
@@ -194,7 +199,8 @@ Object.assign(CanvasRenderer.prototype, {
         const app = window.app;
         const raw = (app && app.project && app.project.idmField && typeof app.project.idmField === 'object')
             ? app.project.idmField : {};
-        const hex = this._idmHexOrNull(raw.color) || IDM_FIELD_DEFAULT_COLOR;
+        const given = this._idmHexOrNull(raw.color);
+        const hex = (given && given !== IDM_FIELD_NO_BLACK) ? given : IDM_FIELD_DEFAULT_COLOR;
         const border = IDM_FIELD_BORDERS.includes(raw.border) ? raw.border : 'shade';
         return {
             color: hex, border, rgb: this._idmRgb(hex), moduleIds: raw.moduleIds === true,
@@ -203,6 +209,63 @@ Object.assign(CanvasRenderer.prototype, {
             cabinetEdgeColor: this._idmHexOrNull(raw.cabinetEdgeColor),
             shade: this._idmShadeOrNull(raw.shade),
         };
+    },
+
+    // ── Swap mode ───────────────────────────────────────────────────────
+    //
+    // While the crew swaps modules (owner, 2026-11-24) the project's
+    //   idmSwap: {on, color}
+    // turns the wall black and lights only the modules still to swap - the
+    // open marks, the ones not ticked Swapped - each filled solid in the one
+    // colour, whatever its own style or colour. Nothing else is drawn: no
+    // field, borders, Module IDs, highlight or mouse arrow, on the wall or
+    // in the view (the view keeps a faint line round each screen, never on
+    // the wall, so the walls can be found on screen). A tick takes a module
+    // off the open marks, so it goes dark; an untick lights it again.
+    // {on, color, rgb}; off and white when the show has none.
+    idmSwapSpec() {
+        const app = window.app;
+        const raw = (app && app.project && app.project.idmSwap && typeof app.project.idmSwap === 'object')
+            ? app.project.idmSwap : {};
+        const color = this._idmHexOrNull(raw.color) || IDM_SWAP_DEFAULT_COLOR;
+        return { on: raw.on === true, color, rgb: this._idmRgb(color) };
+    },
+
+    // One screen in Swap mode (renderIdmLayer): every cabinet black, the
+    // open marks lit. The count lit is kept for the render's log line
+    // (canvas.js _idmSwapStat, render-log.js).
+    _idmRenderSwapLayer(layer, marks, swap, onScreen, unit) {
+        const ctx = this.ctx;
+        let lit = 0;
+        let box = null;
+        ctx.save();
+        this._clipToActiveRaster();
+        for (const { panel, cells } of this.idmLayerCells(layer)) {
+            if (!cells.length) continue;
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(panel.x, panel.y, panel.width, panel.height);
+            ctx.fillStyle = swap.color;
+            for (const c of cells) {
+                if (!marks[this.idmCellKey(panel, c)]) continue;
+                ctx.fillRect(c.x, c.y, c.w, c.h);
+                lit += 1;
+            }
+            box = box
+                ? { x0: Math.min(box.x0, panel.x), y0: Math.min(box.y0, panel.y),
+                    x1: Math.max(box.x1, panel.x + panel.width), y1: Math.max(box.y1, panel.y + panel.height) }
+                : { x0: panel.x, y0: panel.y, x1: panel.x + panel.width, y1: panel.y + panel.height };
+        }
+        if (onScreen && box) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+            ctx.lineWidth = unit;
+            ctx.strokeRect(box.x0 + unit / 2, box.y0 + unit / 2,
+                Math.max(0, box.x1 - box.x0 - unit), Math.max(0, box.y1 - box.y0 - unit));
+        }
+        ctx.restore();
+        const stat = this._idmSwapStat || (this._idmSwapStat = { color: swap.color, lit: 0, screens: 0 });
+        stat.lit += lit;
+        stat.screens += 1;
+        if (typeof this._rlCount === 'function') this._rlCount('lit', lit);
     },
 
     // The shade setting held to its shape: '#rrggbb', a whole percent
@@ -596,6 +659,13 @@ Object.assign(CanvasRenderer.prototype, {
         const field = this.idmFieldSpec();
         const counts = this.idmCounts(layer);
         const unit = onScreen ? Math.max(1, 1 / (this.zoom || 1)) : 1;
+        // Swap mode: the wall black, the modules still to swap lit, nothing
+        // else (idmSwapSpec).
+        const swap = this.idmSwapSpec();
+        if (swap.on) {
+            this._idmRenderSwapLayer(layer, marks, swap, onScreen, unit);
+            return;
+        }
         // The on-screen grid sits over the wall's own 1 px edges, so an edge
         // colour the crew CHOSE colours the grid's light core where the
         // border draws that edge (module edges in Lines and Ticks, cabinet
@@ -679,7 +749,7 @@ Object.assign(CanvasRenderer.prototype, {
     renderIdmModuleIds(layer) {
         if (!layer || (layer.type || 'screen') !== 'screen' || !Array.isArray(layer.panels)) return;
         const field = this.idmFieldSpec();
-        if (!field.moduleIds) return;
+        if (!field.moduleIds || this.idmSwapSpec().on) return;
         const ctx = this.ctx;
         ctx.save();
         this._clipToActiveRaster();
@@ -743,6 +813,8 @@ Object.assign(CanvasRenderer.prototype, {
     // outer, inner}, in workspace units - or null.
     renderIdmHighlight(ctx = this.ctx, opts = {}) {
         const app = window.app;
+        // Swap mode draws no highlight (idmSwapSpec).
+        if (this.idmSwapSpec().on) return null;
         const t = (app && typeof app._idmHighlightTarget === 'function') ? app._idmHighlightTarget() : null;
         if (!t || !t.layer.visible) return null;
         const canvases = (app.project && Array.isArray(app.project.canvases)) ? app.project.canvases : [];
@@ -769,6 +841,8 @@ Object.assign(CanvasRenderer.prototype, {
     // edged in white on a light field, white edged in black on a dark one,
     // so it reads on the field, on a mark and on the highlight's outline.
     renderIdmPointer(ctx, x, y, size) {
+        // Swap mode puts no arrow on the wall (idmSwapSpec).
+        if (this.idmSwapSpec().on) return;
         const rgb = this.idmFieldSpec().rgb || [255, 255, 255];
         const light = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] > 140;
         const s = Math.max(8, size);
