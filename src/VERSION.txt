@@ -822,6 +822,10 @@ FIXES
   cabinet, like a Quick Palette or a Hue turn, stays on the screen on a
   busy computer. The screen could go back to the colors it had before,
   while the saved show kept the new ones.
+- FIX: When the computer undoes or changes a screen just after the IDM
+  phone saved it, the phone shows the screen as the show now holds it.
+  On a busy computer the phone could go back to its own older copy,
+  showing a mark the show no longer had and offering a Redo for it.
 - FIX: Delete removes a screen only on the Pixel Map tab, so a stray key
   never costs a screen. On other tabs it does nothing to screens. The
   canvas right-click

@@ -1143,6 +1143,85 @@ def test_redo_puts_back_what_the_phones_undo_took_back(page, e2e_server, pw_brow
         ctx.close()
 
 
+# The phone's answers to its screen saves, held until the test lets them go:
+# a save's answer comes back by its own way, apart from the socket, and can
+# land after a newer message the socket brought.
+HOLD_ANSWERS_JS = """() => {
+    window.__held = []; window.__answered = 0; window.__holding = true;
+    if (window.__holdSpy) return;
+    window.__holdSpy = true;
+    const f = window.fetch;
+    window.fetch = (u, o) => {
+        const p = f(u, o);
+        if (!(window.__holding && o && o.method === 'PUT' && String(u).startsWith('/api/layer/'))) return p;
+        const read = p.then(r => {
+            const json = r.json.bind(r);
+            r.json = () => json().then(v => { window.__answered += 1; return v; });
+            return r;
+        });
+        return new Promise(go => window.__held.push(() => go(read)));
+    };
+}"""
+
+LET_ANSWERS_GO_JS = """() => { window.__holding = false; const n = window.__held.length;
+    window.__held.splice(0).forEach(go => go()); return n; }"""
+
+
+def phone_marks(ph, name):
+    return ph.evaluate("""(name) => {
+        const l = window.idmPhone.app.project.layers.find(x => x.name === name);
+        return Object.keys((l && l.idm && l.idm.marks) || {}).sort();
+    }""", name)
+
+
+def test_a_late_answer_to_the_phone_never_puts_an_older_screen_back(page, e2e_server, pw_browser):
+    """Run in parallel on the PC (2026-11-25), the Redo test above failed 2
+    of 3 times: the computer undid the phone's changes and the phone's Redo
+    stayed lit. The phone's Undo had saved the screen, and the answer to that
+    save reached the phone after the computer's undo did, by its own way
+    apart from the socket; the phone took the answer in anyway, so it showed
+    the screen from before the computer's undo (a mark the show no longer
+    had) and offered a Redo of it. Here the answer is held until the
+    computer's undo is in, the order that failed, every time. The phone keeps
+    what the show holds, and Redo stays grey."""
+    reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    put_marks(page, 'IdmA', 2, 2, ['0,0,0,0'])
+    ctx, ph = open_phone(pw_browser, e2e_server)
+    try:
+        # two marks from the phone: one step on the computer
+        for key in ('1,0,1,1', '2,1,0,0'):
+            page.evaluate("""(key) => { const a = window.app.project.layers.find(x => x.name === 'IdmA');
+                window.app._idmSetHighlight(a.id, key); }""", key)
+            settled(ph, lambda: phone_hl(ph), lambda v, key=key: v == ['IdmA', key])
+            ph.tap('#ph-mark')
+            settled(page, lambda: served_idm(page, 'IdmA'), lambda v, key=key: v and key in v['marks'])
+            settled(page, lambda: marks_of(page, 'IdmA'), lambda v, key=key: key in v)
+        assert settled(ph, lambda: len(ph.evaluate("() => window.idmPhone.S.undo")), lambda v: v == 2) == 2
+        # the phone undoes the second; its answer is held
+        ph.evaluate(HOLD_ANSWERS_JS)
+        ph.tap('#ph-undo')
+        settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '2,1,0,0' not in v['marks'])
+        settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '2,1,0,0' not in v)
+        assert ph.evaluate("() => window.__held.length") == 1
+        assert settled(ph, lambda: ph.is_enabled('#ph-redo'), lambda v: v) is True
+        # the computer undoes the phone's changes: the first mark goes too
+        page.evaluate("() => window.app.undo()")
+        got = settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and sorted(v['marks']) == ['0,0,0,0'])
+        assert sorted(got['marks']) == ['0,0,0,0'], got
+        assert settled(ph, lambda: phone_marks(ph, 'IdmA'), lambda v: v == ['0,0,0,0']) == ['0,0,0,0']
+        assert settled(ph, lambda: ph.is_disabled('#ph-redo'), lambda v: v) is True
+        # now the Undo's answer lands, after the computer's undo
+        assert ph.evaluate(LET_ANSWERS_GO_JS) == 1
+        ph.wait_for_function("() => window.__answered >= 1")
+        assert phone_marks(ph, 'IdmA') == ['0,0,0,0']
+        assert ph.is_disabled('#ph-redo')
+        assert sorted(served_idm(page, 'IdmA')['marks']) == ['0,0,0,0']
+        assert not ph._errors, ph._errors
+    finally:
+        ctx.close()
+
+
 def test_holding_a_phone_arrow_speeds_up_and_stops_on_release(page, e2e_server, pw_browser):
     reset_project(page)
     set_layout(page, 'IdmA', 4, 4)

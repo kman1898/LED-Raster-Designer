@@ -146,6 +146,8 @@ const S = {
                                   // {kind: 'swap', before, after, action} for Swap mode
     redo: [],                     // the changes its Undo took back, newest last
     seq: 0,
+    putSent: new Map(),           // per screen: the number of this phone's newest save of it
+    putEchoed: new Map(),         // per screen: the newest of those whose echo is in (putLayer)
     pads: new Map(), padNames: new Map(), frame: 0,
     toastTimer: null,
     hold: null,                   // a held arrow: {stop, live}
@@ -206,17 +208,34 @@ async function checkShow() {
     } catch (_) { /* keep what we knew */ }
 }
 
+// A save of a screen. Its answer comes back by its own way, apart from the
+// socket, and can land after newer news of the screen the socket brought:
+// the save's own echo, another device's change, an undo on the computer
+// (2026-11-25: the computer undid the phone's changes, the answer to the
+// phone's Undo landed after it and put the screen from before the undo
+// back on the phone, a mark the show no longer had, with a Redo for it).
+// So the answer is taken in only while nothing newer of the screen is
+// here: no later save of it from this phone, and its echo not yet in. The
+// echo comes on the socket in order with everything else, so once it is
+// in, the socket's copy is the newer one.
 function putLayer(layer, idm) {
     S.seq += 1;
-    const url = `/api/layer/${layer.id}?edited=1&seq=${S.seq}&client=${encodeURIComponent(ORIGIN)}`;
+    const seq = S.seq;
+    S.putSent.set(layer.id, seq);
+    const url = `/api/layer/${layer.id}?edited=1&seq=${seq}&client=${encodeURIComponent(ORIGIN)}`;
     return fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idm }),
     }).then(res => (res.ok ? res.json() : null)).then(saved => {
         if (saved && saved.id === layer.id) {
-            const i = layers().findIndex(l => l && l.id === saved.id);
-            if (i >= 0) app.project.layers[i] = saved;
+            if (S.putSent.get(saved.id) === seq && (S.putEchoed.get(saved.id) || 0) < seq) {
+                const i = layers().findIndex(l => l && l.id === saved.id);
+                if (i >= 0) app.project.layers[i] = saved;
+            } else {
+                plog('idm_phone_answer_older', { layerId: saved.id, seq },
+                    { level: 'debug', msg: `Phone kept screen #${saved.id} as it is: the answer to its save landed after newer news of it` });
+            }
             render();
         }
         return saved;
@@ -1154,8 +1173,15 @@ function wire() {
     socket.on('project_updated', (p) => { if (p && p._replace) { adopt(p); checkShow(); } });
     socket.on('project_cleared', () => refetch());
     socket.on('layer_updated', (layer) => {
-        if (!layer || !app.project) return;
+        if (!layer) return;
+        // the echo of this phone's own save: its answer, if still on the
+        // way, is older than this (putLayer)
+        const echo = layer._echo;
         delete layer._echo;
+        if (echo && echo.client === ORIGIN && Number.isInteger(echo.seq)) {
+            S.putEchoed.set(layer.id, Math.max(S.putEchoed.get(layer.id) || 0, echo.seq));
+        }
+        if (!app.project) return;
         const i = layers().findIndex(l => l && l.id === layer.id);
         if (i < 0) return;
         app.project.layers[i] = layer;
