@@ -826,6 +826,13 @@ FIXES
   phone saved it, the phone shows the screen as the show now holds it.
   On a busy computer the phone could go back to its own older copy,
   showing a mark the show no longer had and offering a Redo for it.
+- FIX: With the app open on two computers, a change made on one while
+  the other is still saving the same screen no longer puts back what the
+  other just did, like a Quick Palette's colors or a blanked cabinet.
+  What was changed on the first computer still shows right away.
+- FIX: Quick Palettes always shows the pair that matches the screen's
+  colors now. When a save came back with other colors, the pair sent
+  stayed pressed.
 - FIX: Delete removes a screen only on the Pixel Map tab, so a stray key
   never costs a screen. On other tabs it does nothing to screens. The
   canvas right-click

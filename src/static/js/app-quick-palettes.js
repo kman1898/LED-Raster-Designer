@@ -387,8 +387,26 @@ class _QuickPalettes {
         const layer = this.currentLayer && (this.currentLayer.type || 'screen') === 'screen' ? this.currentLayer : null;
         const on = layer ? this._qpPairOf(layer).join('|') : null;
         const disabled = this._qpScreens().length === 0;
-        host.innerHTML = '';
         let active = -1;
+        // The same eight already drawn: only their pressed and disabled
+        // states change. The page redraws this panel with everything else
+        // (updateUI), at any moment a save comes back, and a button made
+        // again between the press and the release of a click loses it.
+        const drawn = host.querySelectorAll('.qp-swatch');
+        const sig = JSON.stringify(pairs);
+        if (this._qpDrawn && this._qpDrawn.host === host && this._qpDrawn.sig === sig
+                && drawn.length === pairs.length) {
+            drawn.forEach((b, i) => {
+                const isOn = on === pairs[i].join('|') && active < 0;
+                if (isOn) active = i;
+                b.setAttribute('aria-pressed', String(isOn));
+                b.disabled = disabled;
+            });
+            this._qpNote(custom, disabled, active, st);
+            return;
+        }
+        this._qpDrawn = { host, sig };
+        host.innerHTML = '';
         pairs.forEach((pair, i) => {
             const b = document.createElement('button');
             b.type = 'button';
@@ -411,7 +429,11 @@ class _QuickPalettes {
             b.addEventListener('click', () => this.applyQuickPalette(i));
             host.appendChild(b);
         });
+        this._qpNote(custom, disabled, active, st);
+    }
 
+    // The line under the swatches.
+    _qpNote(custom, disabled, active, st) {
         const note = document.getElementById('quick-palette-note');
         if (note) {
             if (disabled) note.textContent = 'Select a screen to color it.';

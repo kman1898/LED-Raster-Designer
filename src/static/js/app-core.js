@@ -138,6 +138,9 @@ export const SERVER_LINK = { gone: false, lost: false, onTrouble: null };
 const SAME_SHOW_REPLACES = new Set(['undo', 'redo', 'group', 'edit', 'resync']);
 // The undo step another page's changes make on this page (_recordForeignStep).
 export const FOREIGN_STEP = 'Changes From Another Page';
+// How long after its answer a write of a screen still counts as on its
+// way while its socket echo has not come (_noteLayerWriteOut).
+const ECHO_WAIT_MS = 10000;
 
 export class LEDRasterApp {
     constructor() {
@@ -1010,6 +1013,12 @@ export class LEDRasterApp {
     // PUT it answers when it was one of this page's own (routes_layers
     // update_layer stamps it; the socket handler takes it off the layer).
     _onSocketLayerUpdated(layer, echo) {
+        // The server's copy of this page's write is here, whatever is done
+        // with it below: from now on another page's copy is newer than it
+        // (_noteLayerWriteOut).
+        if (layer && echo && echo.client && echo.client === this._echoClientId) {
+            this._layerWriteEchoed(layer.id, echo.seq);
+        }
         // Undo audit: while an undo/redo restore PUT is on its way to the
         // server, a layer_updated broadcast describes the PRE-restore
         // server state (typically the very edit being undone - e.g. the
@@ -1809,7 +1818,8 @@ export class LEDRasterApp {
     // at all (a default this page filled in), and, while this page is
     // still at work on the screen (a hand on a gesture, a save of it on its
     // way), a field changed here since its last save (_keepUnsavedEdits,
-    // the rule its own echoes follow). A Screen Info field being typed in
+    // the rule its own echoes follow), and a field a write of this page's
+    // still on its way changes (_keepOwnWrites). A Screen Info field being typed in
     // keeps its typing (_onSocketLayerUpdated).
     applyServerLayer(layer, reason = 'apply_server_layer', opts = {}) {
         if (!layer || !this.project || !this.project.layers) return false;
@@ -1817,7 +1827,11 @@ export class LEDRasterApp {
         const ownEcho = !!(opts && opts.ownEcho);
         const index = this.project.layers.findIndex(l => l.id === layer.id);
         const live = index >= 0 ? this.project.layers[index] : null;
-        if (follow && live && (this._gestureHeld() || this._layerHasNewerPut(layer.id))) {
+        // the fields this page's writes of the screen, still on their way,
+        // change: kept over another page's copy (_noteLayerWriteOut)
+        const out = follow && live ? this._layerWritesOutKeys(layer.id) : null;
+        if (follow && live && (this._gestureHeld() || this._layerHasNewerPut(layer.id) || out.size)) {
+            this._keepOwnWrites(live, layer, out);
             this._keepUnsavedEdits(live, layer);
         } else if (!ownEcho) {
             this._noteLayerHeld(layer);
@@ -2403,7 +2417,10 @@ export class LEDRasterApp {
         // The body and the edit marker are taken now; only the send waits
         // for the write before it (_queueLayerWrite).
         const edit = this._layerPutIsAnEdit() ? '?edited=1&' : '?';
-        const payload = this._noteLayerSent(id, body);
+        // the fields this save changes, from what the server holds as this
+        // page knows it (_layerWritesOutKeys)
+        const changed = new Set();
+        const payload = this._noteLayerSent(id, body, changed);
         const logLabel = encodeURIComponent(typeof this._putLogLabel === 'function' ? this._putLogLabel() : '');
         // A save of the whole screen carries what it followed.
         if (this._followedLayers && body && this.project
@@ -2433,7 +2450,7 @@ export class LEDRasterApp {
                     // stays the layer byte for byte.
                     headers: { 'Content-Type': 'application/json', 'X-LRD-Action': logLabel },
                     body: payload
-                })));
+                })), changed);
     }
 
     // One write of screen `id` (a PUT, or a panel POST), sent in its turn:
@@ -2448,7 +2465,10 @@ export class LEDRasterApp {
     // 2026-09-24). Numbered per screen (the `marker`, seq=&client=) so its
     // echo can be told from an older one's (the socket handler;
     // routes_layers _emit_layer_echo stamps `_echo`).
-    _queueLayerWrite(id, send) {
+    // `keys`: the fields of the screen the write changes, kept on the page
+    // over another page's copy until the server's copy of this write is
+    // back (_layerWritesOutKeys).
+    _queueLayerWrite(id, send, keys) {
         if (!this._layerPutSeq) this._layerPutSeq = new Map();
         if (!this._echoClientId) this._echoClientId = PAGE_CLIENT_ID;
         const seq = (this._layerPutSeq.get(id) || 0) + 1;
@@ -2457,6 +2477,7 @@ export class LEDRasterApp {
         if (!this._layerPutChains) this._layerPutChains = new Map();
         const prev = this._layerPutChains.get(id) || Promise.resolve();
         const sent = prev.then(() => undefined, () => undefined).then(() => send(marker));
+        this._noteLayerWriteOut(id, seq, keys, sent);
         this._layerPutChains.set(id, sent);
         const clear = () => {
             if (this._layerPutChains.get(id) === sent) this._layerPutChains.delete(id);
@@ -2508,7 +2529,7 @@ export class LEDRasterApp {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
-            })))
+            })), new Set(['panels']))
             .then(res => res.json())
             .then(data => {
                 if (this.project !== sentProject) return onReply({});
@@ -2550,6 +2571,144 @@ export class LEDRasterApp {
         return !!(this._layerPutsPending && (this._layerPutsPending.get(id) || 0) > 0);
     }
 
+    // THIS PAGE'S WRITES ON THEIR WAY, FIELD BY FIELD (2026-11-25).
+    //
+    // Another page's change of a screen (its layer_updated) holds the
+    // screen as the server had it when that page's write landed. While a
+    // write of this page's is still on its way (queued, sent and not yet
+    // answered, or answered while the server's copy of it has not reached
+    // this page), that copy knows nothing of it. Taken as the server's
+    // word on every field, it put back what this page had just changed: a
+    // Quick Palette went back to the old colors, a blanked cabinet came
+    // back, and the server then kept the new ones.
+    //
+    // So each write notes the fields it changes (a PUT: every field whose
+    // value differs from what the server holds as this page knows it,
+    // _layerKnownKeys; a panel POST: the cabinets), and until the server's
+    // copy of that write reaches this page (its echo: the socket delivers
+    // in the server's order, so a copy of another page's that the server
+    // made after this write comes after it) another page's copy keeps this
+    // page's value for those fields (applyServerLayer). Every other field
+    // is the other page's at once. A write that never reaches the server
+    // (refused, failed, dropped with its show) changes nothing there and
+    // is let go when it is answered; one whose echo never comes is let go
+    // ECHO_WAIT_MS after its answer.
+    _noteLayerWriteOut(id, seq, keys, sent) {
+        if (!keys || !keys.size) return;
+        if (!this._layerWritesOut) this._layerWritesOut = new Map();
+        const list = this._layerWritesOut.get(id) || [];
+        const entry = { seq, keys, project: this.project, answeredAt: null };
+        list.push(entry);
+        this._layerWritesOut.set(id, list);
+        const drop = () => {
+            const now = this._layerWritesOut.get(id);
+            if (!now) return;
+            const left = now.filter(e => e !== entry);
+            if (left.length) this._layerWritesOut.set(id, left);
+            else this._layerWritesOut.delete(id);
+        };
+        // A Response made on the page (a dropped write) has no url.
+        sent.then(res => {
+            if (!res || !res.ok || !res.url) drop();
+            else entry.answeredAt = Date.now();
+        }, drop);
+    }
+
+    // The server's copy of this page's write `seq` of screen `id` is here:
+    // that write, and every one before it, is in what the server sends now.
+    _layerWriteEchoed(id, seq) {
+        const list = this._layerWritesOut && this._layerWritesOut.get(id);
+        if (!list) return;
+        const left = list.filter(e => !(typeof seq === 'number' && e.seq <= seq));
+        if (left.length) this._layerWritesOut.set(id, left);
+        else this._layerWritesOut.delete(id);
+    }
+
+    // The fields of screen `id` this page's writes on their way change.
+    _layerWritesOutKeys(id) {
+        const out = new Set();
+        const list = this._layerWritesOut && this._layerWritesOut.get(id);
+        if (!list) return out;
+        const now = Date.now();
+        const left = list.filter(e => e.project === this.project
+            && (e.answeredAt === null || now - e.answeredAt < ECHO_WAIT_MS));
+        if (left.length !== list.length) {
+            if (left.length) this._layerWritesOut.set(id, left);
+            else this._layerWritesOut.delete(id);
+        }
+        left.forEach(e => e.keys.forEach(k => out.add(k)));
+        return out;
+    }
+
+    // Another page's copy of a screen, about to land on `live` while this
+    // page has writes of it on their way: the fields those writes change
+    // keep the page's value (see _noteLayerWriteOut).
+    _keepOwnWrites(live, copy, keys) {
+        if (!live || !copy || !keys || !keys.size) return;
+        const kept = [];
+        keys.forEach(key => {
+            if (key === 'id') return;
+            const mine = live[key];
+            if (JSON.stringify(mine) === JSON.stringify(copy[key])) return;
+            if (mine === undefined) delete copy[key];
+            else copy[key] = mine;
+            kept.push(key);
+        });
+        if (kept.length) sendClientLog('follow_kept_own_writes', { id: live.id, keys: kept.slice(0, 12), n: kept.length });
+        // With no save of the whole screen noted (only cabinet writes on
+        // their way), what the server holds as this page knows it takes
+        // the other page's fields, the ones the page has not changed.
+        const rec = this._layerSent && this._layerSent.get(live.id);
+        const known = this._layerKnown && this._layerKnown.project === this.project
+            && this._layerKnown.layers.get(live.id);
+        if ((rec && rec.project === this.project) || !known) return;
+        new Set([...Object.keys(live), ...Object.keys(copy)]).forEach(key => {
+            if (key === 'id' || keys.has(key) || JSON.stringify(live[key]) !== known.get(key)) return;
+            const json = JSON.stringify(copy[key]);
+            if (json === undefined) known.delete(key);
+            else known.set(key, json);
+        });
+    }
+
+    // What the server holds of screen `id`, as this page knows it, key by
+    // key (JSON): the page's newest save of the whole screen
+    // (_noteLayerSent), else the server's copy it last took in, else the
+    // screen as it stood when the show came in (_noteLayersKnown). Null
+    // when the page knows nothing of it.
+    _layerKnownKeys(id) {
+        const rec = this._layerSent && this._layerSent.get(id);
+        if (rec && rec.project === this.project) return rec.keys;
+        const known = this._layerKnown && this._layerKnown.project === this.project
+            && this._layerKnown.layers.get(id);
+        return known || null;
+    }
+
+    // The server's copy of a screen, taken in: what the server holds.
+    _noteLayerKnown(layer) {
+        if (!layer || layer.id === undefined || !this.project) return;
+        if (!this._layerKnown || this._layerKnown.project !== this.project) {
+            this._layerKnown = { project: this.project, layers: new Map() };
+        }
+        const keys = new Map();
+        Object.keys(layer).forEach(key => {
+            const json = JSON.stringify(layer[key]);
+            if (json !== undefined) keys.set(key, json);
+        });
+        this._layerKnown.layers.set(layer.id, keys);
+    }
+
+    // Every screen of the show the page has no note of yet (a show just
+    // loaded, opened, restored or replaced, a screen just added), noted as
+    // it stands: nothing has been changed on it here since it came in
+    // (dedupeProjectLayers runs as each comes in, and before an edit reads
+    // the selection).
+    _noteLayersKnown() {
+        if (!this.project || !Array.isArray(this.project.layers)) return;
+        this.project.layers.forEach(layer => {
+            if (layer && layer.id !== undefined && !this._layerKnownKeys(layer.id)) this._noteLayerKnown(layer);
+        });
+    }
+
     // WHAT THE SERVER HOLDS, AS THIS PAGE KNOWS IT (2026-11-08).
     //
     // A gesture changes a screen on every move and saves only when it lets
@@ -2572,15 +2731,20 @@ export class LEDRasterApp {
     // the page holds, and notes nothing. While a hand is on a gesture the
     // echo is held as well (`_holdForGesture`): replacing the screen
     // object mid-drag cut it off from the gesture still writing into it.
-    _noteLayerSent(id, body) {
+    // `changed` (a Set, optional) is given the keys whose value differs
+    // from what the server holds as this page knows it (_layerKnownKeys),
+    // every key when it knows nothing of the screen.
+    _noteLayerSent(id, body, changed) {
         if (!body || typeof body !== 'object' || Array.isArray(body)) return JSON.stringify(body);
         const live = this.project && (this.project.layers || []).find(l => l.id === id);
         const keys = live === body ? new Map() : null;
+        const base = changed ? this._layerKnownKeys(id) : null;
         // JSON.stringify of a plain object, one key at a time: the same
         // text, keys in the same order, undefined values left out.
         const parts = [];
         Object.keys(body).forEach(key => {
             const json = JSON.stringify(body[key]);
+            if (changed && key !== 'id' && (!base || base.get(key) !== json)) changed.add(key);
             if (json === undefined) return;
             if (keys) keys.set(key, json);
             parts.push(JSON.stringify(key) + ':' + json);
@@ -2596,6 +2760,7 @@ export class LEDRasterApp {
     // endpoint's answer) and replaces the page's: nothing noted holds now.
     _noteLayerHeld(layer) {
         if (layer && this._layerSent) this._layerSent.delete(layer.id);
+        this._noteLayerKnown(layer);
     }
 
     // An echo of this page's own newest PUT (its reply, or the socket's
@@ -2867,6 +3032,12 @@ export class LEDRasterApp {
         if (typeof this._refillProcessorPicker === 'function') {
             this._refillProcessorPicker();
         }
+        // Quick Palettes shows the current screen's colors as the page
+        // holds them now, by whatever way they came: the page's own save
+        // coming back changed, another page's change, an undo. Only Screen
+        // Info's fill and the panel's own clicks redrew it, so a save that
+        // came back with other colors left the old pair pressed.
+        if (typeof this.renderQuickPalettes === 'function') this.renderQuickPalettes();
 
         if (window.canvasRenderer) {
             if (window.canvasRenderer.viewMode === 'data-flow' && this.currentLayer) {

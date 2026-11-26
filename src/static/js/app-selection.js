@@ -52,6 +52,9 @@ class _Selection {
                 sendClientLog('project_layers_deduped', { reason, droppedIds: dropped });
             }
         }
+        // A screen the page has no note of yet is noted as it came in
+        // (app-core _noteLayersKnown): what its first save changes.
+        if (typeof this._noteLayersKnown === 'function') this._noteLayersKnown();
     }
 
     applyToSelectedLayers(fn) {
