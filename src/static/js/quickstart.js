@@ -1249,7 +1249,8 @@
             + '#qs-callout .qs-next{background:#e22330;color:#fff;border-color:#8f1218;}'
             + '#qs-callout .qs-next:hover{background:#ef3340;}'
             + '#qs-callout[data-qs-state="running"] .qs-next,#qs-callout[data-qs-state="running"] .qs-back,'
-            + '#qs-callout[data-qs-state="running"] .qs-replay{opacity:.45;cursor:progress;}'
+            + '#qs-callout[data-qs-state="running"] .qs-replay,#qs-callout[data-qs-moving] .qs-next,'
+            + '#qs-callout[data-qs-moving] .qs-back,#qs-callout[data-qs-moving] .qs-replay{opacity:.45;cursor:progress;}'
             + '#qs-callout .qs-arrow{position:absolute;width:14px;height:14px;background:#2e2e2e;border:1px solid #3a3a3a;transform:rotate(45deg);}'
             + '.qs-pass{pointer-events:none !important;}';
         var s = document.createElement('style');
@@ -1376,6 +1377,78 @@
         return r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
     }
     var SHIELD_KEYS = { keydown: 1, keyup: 1, keypress: 1 };
+    // A press on one of the callout's buttons is the guide's, wherever the
+    // box is by the time the button comes up. A box that slid away under
+    // a held press (a window resize re-places it) left the release on the
+    // overlay: the browser clicked nothing and the shield swallowed the
+    // rest, so Next was lost with no sign. The button pressed is kept, and
+    // a release after it moved is its click once the box is still.
+    var PRESS_DOWN = { pointerdown: 1, mousedown: 1, touchstart: 1 };
+    var PRESS_UP = { pointerup: 1, mouseup: 1, touchend: 1 };
+    var pressed = null;
+    function notePress(e) {
+        var btn = e.target.closest ? e.target.closest('button') : null;
+        if (!btn || btn.disabled) { pressed = null; return; }
+        var r = btn.getBoundingClientRect();
+        pressed = { btn: btn, x: r.left, y: r.top, at: Date.now() };
+    }
+    function releaseMoved() {
+        var p = pressed;
+        pressed = null;
+        if (!p || !p.btn.isConnected || Date.now() - p.at > 5000) return false;
+        var r = p.btn.getBoundingClientRect();
+        if (Math.abs(r.left - p.x) <= 2 && Math.abs(r.top - p.y) <= 2) return false;
+        whenStill().then(function () {
+            // Not when the press already did its work (the step moved on,
+            // the guide ended) or a step now runs: Next never skips.
+            if (!p.btn.isConnected || !S.visible || S.running || p.btn.disabled) return;
+            p.btn.click();
+        });
+        return true;
+    }
+    // Every press the shield swallows on a settled step is in the log:
+    // where it landed and where the box was. One gesture (pointerdown,
+    // mousedown, click) is one line; further presses within LOG_FOLD_MS of
+    // a line are counted into the next.
+    var LOG_PRESSES = { pointerdown: 1, mousedown: 1, touchstart: 1, click: 1, dblclick: 1, auxclick: 1, contextmenu: 1 };
+    var LOG_FOLD_MS = 700;
+    var swallowLog = { at: 0, folded: 0, taken: 0 };
+    function rectList(r) {
+        return r ? [Math.round(r.left), Math.round(r.top), Math.round(r.right), Math.round(r.bottom)] : null;
+    }
+    function nodeName(el) {
+        if (!el || el.nodeType !== 1) return String(el && el.nodeName || 'nothing');
+        var cls = typeof el.className === 'string' && el.className.trim()
+            ? '.' + el.className.trim().split(/\s+/).slice(0, 2).join('.') : '';
+        return el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + cls;
+    }
+    function logSwallowed(e) {
+        var now = Date.now();
+        // The click that ends a press already taken (releaseMoved) is not
+        // a lost press.
+        if (now - swallowLog.taken < 1000 && (e.type === 'click' || e.type === 'dblclick')) return;
+        if (now - swallowLog.at < LOG_FOLD_MS) {
+            if (e.type === 'pointerdown' || e.type === 'touchstart') swallowLog.folded += 1;
+            return;
+        }
+        var folded = swallowLog.folded;
+        swallowLog.at = now;
+        swallowLog.folded = 0;
+        var pt = e.touches && e.touches[0] ? e.touches[0] : e;
+        var x = Math.round(pt.clientX), y = Math.round(pt.clientY);
+        var box = els ? rectList(els.callout.getBoundingClientRect()) : null;
+        var next = els ? els.callout.querySelector('#qs-next') : null;
+        var nextAt = next ? rectList(next.getBoundingClientRect()) : null;
+        var key = (S.keys && S.keys[S.idx]) || null;
+        var where = { guide: S.name, step: key, n: S.idx + 1, event: e.type, x: x, y: y, on: nodeName(e.target),
+                      box: box, boxTo: S.boxAt ? [Math.round(S.boxAt.x), Math.round(S.boxAt.y)] : null,
+                      next: nextAt, moving: !!S.moving, folded: folded };
+        glog('guide_press_swallowed', where, 'warn',
+             'Guide ' + S.name + ' step ' + (S.idx + 1) + ': a ' + e.type + ' at ' + x + ',' + y + ' on ' + where.on
+             + ' was outside the guide box (box ' + (box ? box.join(',') : 'not shown')
+             + (nextAt ? '; Next ' + nextAt.join(',') : '') + (S.moving ? '; box still sliding' : '')
+             + ') and was not passed on' + (folded ? ' (' + folded + ' more folded in)' : ''));
+    }
     function onShield(e) {
         if (!e.isTrusted || !S || !S.visible) return;
         if (!S.running) {
@@ -1384,10 +1457,17 @@
             // reaches the app: the overlay is only the click's target, and
             // a key went straight to the app (Delete on the selected demo
             // wall broke the next step).
-            if (els && e.target && e.target.nodeType === 1 && els.callout.contains(e.target)) return;
+            var inCallout = !!(els && e.target && e.target.nodeType === 1 && els.callout.contains(e.target));
+            if (PRESS_DOWN[e.type]) {
+                if (inCallout) notePress(e); else pressed = null;
+            } else if (PRESS_UP[e.type] && pressed) {
+                if (releaseMoved()) swallowLog.taken = Date.now();
+            }
+            if (inCallout) return;
             if (SHIELD_KEYS[e.type] && (e.key === 'Enter' || e.key === 'Escape')) return;
             e.stopImmediatePropagation();
             if (e.cancelable) e.preventDefault();
+            if (LOG_PRESSES[e.type]) logSwallowed(e);
             return;
         }
         if (e.type === 'keydown' && e.key === 'Escape' && !e.repeat) end();
@@ -1648,9 +1728,7 @@
             if (locked) {
                 locked = inWindow(locked);
                 if (dry) return locked;
-                call.style.left = locked.x + 'px';
-                call.style.top = locked.y + 'px';
-                S.boxAt = { x: locked.x, y: locked.y };
+                moveBox(locked.x, locked.y);
                 return;
             }
             call.style.width = '';
@@ -1697,9 +1775,74 @@
                                     spot: rr(r), avoid: keep.map(rr), size: [cw, ch],
                                     by: String(new Error().stack || '').split('\n').slice(2, 5).join(' < ') });
         }
-        S.boxAt = { x: box.x, y: box.y };
-        call.style.left = box.x + 'px';
-        call.style.top = box.y + 'px';
+        moveBox(box.x, box.y);
+    }
+    // The callout slides 0.22 s to each new spot (its CSS transition). A
+    // step is settled, and its Next live, only once the box is still: a
+    // press aimed at Next mid-slide lands where Next no longer is, on the
+    // overlay, and the shield swallows it (a snapshot build waited 120 s
+    // on a Next that never came). A box that moves on a settled step (a
+    // window resize re-places it) greys its buttons for the slide.
+    var STILL_LIMIT = 3000;   // ms: a slide that never ends is let go, and said
+    var slideSeq = 0;
+    function moveBox(x, y) {
+        var call = els.callout;
+        S.boxAt = { x: x, y: y };
+        call.style.left = x + 'px';
+        call.style.top = y + 'px';
+        var seq = ++slideSeq;
+        if (S.jumping || !boxSliding()) {
+            if (S.moving) { S.moving = false; syncButtons(); }
+            return;
+        }
+        S.moving = true;
+        syncButtons();
+        whenStill().then(function () {
+            if (seq !== slideSeq) return;
+            S.moving = false;
+            syncButtons();
+        });
+    }
+    // Whether the callout is on its way somewhere: a transition of its own
+    // still playing, or not yet at the spot it was given.
+    function boxSliding() {
+        if (!els) return false;
+        var call = els.callout;
+        if (call.style.display === 'none') return false;
+        try {
+            if (call.getAnimations && call.getAnimations().some(function (a) {
+                return a.playState === 'running' || a.playState === 'pending';
+            })) return true;
+        } catch (e) { /* the position below still tells */ }
+        var x = parseFloat(call.style.left), y = parseFloat(call.style.top);
+        if (isNaN(x) || isNaN(y)) return false;
+        var r = call.getBoundingClientRect();
+        return Math.abs(r.left - x) > 0.5 || Math.abs(r.top - y) > 0.5;
+    }
+    // Resolves once the callout is still: nothing of its own playing, and
+    // at its spot (or where it was a look ago). At zero pace (Go to behind
+    // the shade) the box is hidden and nothing waits on it.
+    function whenStill() {
+        var t0 = Date.now(), last = null;
+        return new Promise(function (res) {
+            (function look() {
+                if (!els || S.jumping || els.callout.style.display === 'none') return res(true);
+                var r = els.callout.getBoundingClientRect();
+                if (!boxSliding()) return res(true);
+                var anims = false;
+                try { anims = !!(els.callout.getAnimations && els.callout.getAnimations().length); } catch (e) {}
+                if (!anims && last && Math.abs(r.left - last.left) <= 0.5 && Math.abs(r.top - last.top) <= 0.5) return res(true);
+                if (Date.now() - t0 > STILL_LIMIT) {
+                    glog('guide_box_slow', { guide: S.name, n: S.idx + 1, box: rectList(r),
+                                             boxTo: S.boxAt ? [Math.round(S.boxAt.x), Math.round(S.boxAt.y)] : null },
+                         'warn', 'Guide ' + S.name + ' step ' + (S.idx + 1) + ': the guide box was still moving after '
+                         + STILL_LIMIT + ' ms; going on');
+                    return res(false);
+                }
+                last = r;
+                setTimeout(look, 16);
+            })();
+        });
     }
     // Where the callout IS or is on its way to: the box slides over 0.22 s,
     // and a check that read its rectangle mid-slide saw it covering things
@@ -2403,6 +2546,9 @@
     var S = {
         name: null, list: [], idx: -1,
         running: false, pendingEnd: null,
+        // The callout sliding to a new spot (moveBox): its buttons are
+        // greyed until it is still.
+        moving: false,
         // The restore a guide's end is making, until it lands (show waits).
         ending: null,
         // The window keys held open through the step change under way
@@ -2436,14 +2582,23 @@
         startError: null
     };
 
-    // Next, Back and the replay button are disabled while the step runs;
-    // the input shield swallows the click anyway (onShield).
+    // Next, Back and the replay button are disabled, and look it, while
+    // the step runs (the input shield swallows the click anyway, onShield)
+    // and while the box slides (moveBox): a button that looks live always
+    // takes its click.
     function setState(v) {
         if (!els) return;
         els.callout.setAttribute('data-qs-state', v);
+        syncButtons();
+    }
+    function syncButtons() {
+        if (!els) return;
+        var off = els.callout.getAttribute('data-qs-state') === 'running' || !!S.moving;
+        if (S.moving) els.callout.setAttribute('data-qs-moving', '');
+        else els.callout.removeAttribute('data-qs-moving');
         ['#qs-next', '#qs-back', '#qs-replay'].forEach(function (sel) {
             var b = els.callout.querySelector(sel);
-            if (b) b.disabled = v === 'running';
+            if (b) b.disabled = off;
         });
     }
     function showResult(note, err, kind) {
@@ -2497,7 +2652,9 @@
         if (full) full.onclick = function () { end().then(function () { show(GUIDES[0]); }); };
         var jump = els.callout.querySelector('#qs-jump');
         if (jump) jump.onchange = function () { jumpTo(Number(jump.value)); };
-        setState(step.act ? 'pending' : 'idle');
+        // Drawn while the step is still being entered: its buttons stay
+        // greyed until it settles (go, runAct).
+        setState(S.running ? 'running' : step.act ? 'pending' : 'idle');
         respot();
     }
 
@@ -2598,10 +2755,17 @@
         if (S.entries) return go(i);
         if (opts.apply) { S.jumpedVia = 'apply'; return applyAhead(n, i); }
         var name = S.name, tokenAt = S.token;
-        S.running = true;   // Next, Back, Enter and a second Go to wait for the file
+        // Next, Back, Enter and a second Go to wait for the file, and the
+        // buttons say so: a Next that looked live here took no click.
+        var was = els ? els.callout.getAttribute('data-qs-state') : null;
+        S.running = true;
+        setState('running');
         return shippedSnapshots(name, i).catch(function () { return null; }).then(function (snaps) {
             S.running = false;
-            if (!S.visible || S.token !== tokenAt || S.name !== name) return;
+            if (!S.visible || S.token !== tokenAt || S.name !== name) {
+                if (S.visible && was) setState(was);
+                return;
+            }
             if (snaps) {
                 for (var k = 0; k <= i; k++) S.snaps[k] = snaps[k];
                 S.jumpedVia = 'snapshot';
@@ -3026,7 +3190,16 @@
             render();
             S.snaps[i] = snapshot();
             S.ui[i] = { mode: mode() };
-            if (!step.act) { S.running = false; S.phase = 'settled'; setState('idle'); hideCursor(); return afterStep(); }
+            if (!step.act) {
+                hideCursor();
+                // Settled once the box has slid to its spot (whenStill).
+                return whenStill().then(function () {
+                    S.running = false;
+                    S.phase = 'settled';
+                    setState('idle');
+                    return afterStep();
+                });
+            }
             return runAct(step);
         });
     }
@@ -3064,12 +3237,17 @@
             return appSettled().then(function () { return pollCheck(step, T.mem, token); });
         }).then(function (note) {
             if (token !== S.token) return;   // the tour ended under us
-            S.running = false;
             passthrough(false);
             badge('');
             press(false);
             showResult(note, err);
             settle();
+            // The verdict is in; the step is settled, and Next live, once
+            // the box has slid to wherever settle() put it.
+            return whenStill().then(function () { return note; });
+        }).then(function (note) {
+            if (token !== S.token) return;   // the tour ended under us
+            S.running = false;
             S.phase = 'settled';
             setState(note ? 'done' : 'failed');
             logVerdict(step, note, err, Date.now() - actAt);
@@ -10876,7 +11054,8 @@
         signature: signature,
         state: function () {
             return { tour: S.name, index: S.idx, running: S.running, visible: S.visible,
-                     jumpedVia: S.jumpedVia, startedVia: S.startedVia, startError: S.startError, steps: S.keys.slice(), phase: S.phase };
+                     jumpedVia: S.jumpedVia, startedVia: S.startedVia, startError: S.startError, steps: S.keys.slice(), phase: S.phase,
+                     moving: !!S.moving };
         }
     };
 

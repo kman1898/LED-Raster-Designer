@@ -1026,6 +1026,9 @@ FIXES
   SR and its Fiber page off the binder. An answer for a show that is no
   longer on screen is now set aside, and the ports are read again for the
   show that is.
+- FIX: In a guide, Next, Back and the replay button stay dimmed while Go to
+  gets a step ready and while the guide's box slides to its new spot. They
+  looked ready then, but a click on them did nothing.
 - FIX: The two ends of a fiber extension now look like the dropdowns they
   are, with a caret like the one beside them. Click the caret, or the
   empty box, to pick a connector from the list, or type your own. The
