@@ -70,6 +70,8 @@ DRESS_JS = """([stops, palette]) => {
     l.transparentFill = true;
     l.screenNameOffsetXPixelMap = 33;
     l.screenNameOffsetYShowLook = -12;
+    l.labelInfoOffsetXPixelMap = 48;
+    l.labelLinesOffsetYPower = -21;
     app.updateLayers([l]);
     return {sourceId: l.id, before: app.project.layers.map(x => x.id)};
 }"""
@@ -93,6 +95,8 @@ SERVER_COPY_JS = """(before) => fetch('/api/project')
             transparentFill: l.transparentFill,
             screenNameOffsetXPixelMap: l.screenNameOffsetXPixelMap,
             screenNameOffsetYShowLook: l.screenNameOffsetYShowLook,
+            labelInfoOffsetXPixelMap: l.labelInfoOffsetXPixelMap,
+            labelLinesOffsetYPower: l.labelLinesOffsetYPower,
         };
     })"""
 
@@ -111,6 +115,8 @@ def _assert_dressed(copy, how):
     assert copy['transparentFill'] is True, f'{how} lost transparentFill'
     assert copy['screenNameOffsetXPixelMap'] == 33, f'{how} lost Pixel Map offset'
     assert copy['screenNameOffsetYShowLook'] == -12, f'{how} lost Show Look offset'
+    assert copy['labelInfoOffsetXPixelMap'] == 48, f'{how} lost the info bar place'
+    assert copy['labelLinesOffsetYPower'] == -21, f'{how} lost the Power lines place'
 
 
 def test_duplicated_screen_reaches_the_server_dressed(page):

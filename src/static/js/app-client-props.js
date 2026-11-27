@@ -117,6 +117,15 @@ class _ClientProps {
                         if (layerProps.screenNameOffsetYRigging !== undefined) layer.screenNameOffsetYRigging = layerProps.screenNameOffsetYRigging;
                         if (layerProps.screenNameOffsetXShowLook !== undefined) layer.screenNameOffsetXShowLook = layerProps.screenNameOffsetXShowLook;
                         if (layerProps.screenNameOffsetYShowLook !== undefined) layer.screenNameOffsetYShowLook = layerProps.screenNameOffsetYShowLook;
+                        // The label blocks' own places per tab (canvas-input.js
+                        // _labelBlockOffsetFields); null = following the name.
+                        for (const k of ['labelLinesOffsetXPixelMap', 'labelLinesOffsetYPixelMap',
+                                         'labelLinesOffsetXShowLook', 'labelLinesOffsetYShowLook',
+                                         'labelLinesOffsetXDataFlow', 'labelLinesOffsetYDataFlow',
+                                         'labelLinesOffsetXPower', 'labelLinesOffsetYPower',
+                                         'labelInfoOffsetXPixelMap', 'labelInfoOffsetYPixelMap']) {
+                            if (layerProps[k] !== undefined) layer[k] = layerProps[k];
+                        }
                         if (layerProps.gradientEnabled !== undefined) layer.gradientEnabled = layerProps.gradientEnabled;
                         if (layerProps.transparentFill !== undefined) layer.transparentFill = layerProps.transparentFill;
                         if (layerProps.rotation !== undefined) layer.rotation = layerProps.rotation;
@@ -517,6 +526,17 @@ class _ClientProps {
                 screenNameOffsetYRigging: layer.screenNameOffsetYRigging,
                 screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
                 screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
+                // The label blocks' own places per tab
+                labelLinesOffsetXPixelMap: layer.labelLinesOffsetXPixelMap,
+                labelLinesOffsetYPixelMap: layer.labelLinesOffsetYPixelMap,
+                labelLinesOffsetXShowLook: layer.labelLinesOffsetXShowLook,
+                labelLinesOffsetYShowLook: layer.labelLinesOffsetYShowLook,
+                labelLinesOffsetXDataFlow: layer.labelLinesOffsetXDataFlow,
+                labelLinesOffsetYDataFlow: layer.labelLinesOffsetYDataFlow,
+                labelLinesOffsetXPower: layer.labelLinesOffsetXPower,
+                labelLinesOffsetYPower: layer.labelLinesOffsetYPower,
+                labelInfoOffsetXPixelMap: layer.labelInfoOffsetXPixelMap,
+                labelInfoOffsetYPixelMap: layer.labelInfoOffsetYPixelMap,
                 gradientEnabled: layer.gradientEnabled,
                 transparentFill: layer.transparentFill,
                 rotation: layer.rotation,

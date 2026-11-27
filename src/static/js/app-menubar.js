@@ -436,6 +436,10 @@ class _MenuBar {
             case 'rigging-remove-bar':
                 this.removePickedRiggingBar();
                 break;
+            // A label dragged off its spot (app-context-menu.js).
+            case 'label-reset':
+                this.runLabelResetMenu();
+                break;
             case 'center-x':
                 this.centerLayersOnCanvas('x');
                 break;

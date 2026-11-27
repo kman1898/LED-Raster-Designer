@@ -716,6 +716,8 @@ Object.assign(CanvasRenderer.prototype, {
         const gplan = memberNamePass ? null : plan;
         if (gplan && gplan.host.id !== layer.id) {
             if (layer._screenNameHitRect) layer._screenNameHitRect = null;
+            // A member that is not the label's owner holds no block rects.
+            if (layer !== gplan.cfg) this._clearLabelBlockRects(layer);
             return;
         }
         // Where the label's settings come from: the layer itself, or the
@@ -740,6 +742,17 @@ Object.assign(CanvasRenderer.prototype, {
         // every group-label pass and re-set only when the headline is drawn,
         // so switching away from 'both' leaves no ghost to grab.
         if (gplan && cfg._groupNameHitRect) cfg._groupNameHitRect = null;
+        // The label blocks' grab rects (canvas-input.js _labelBlockAt), the
+        // same hygiene: cleared by the pass that draws the blocks and set
+        // again only where one is drawn. A member drawing only its own name
+        // ('both') holds none unless it is the owner, whose rects the
+        // group's pass sets.
+        if (!memberNamePass) {
+            this._clearLabelBlockRects(layer);
+            this._clearLabelBlockRects(cfg);
+        } else if (plan && layer !== plan.cfg) {
+            this._clearLabelBlockRects(layer);
+        }
         if ((layer.type || 'screen') === 'image') {
             return;
         }
@@ -1419,39 +1432,58 @@ Object.assign(CanvasRenderer.prototype, {
             
             const bgWidth = maxWidth + padding * 2;
             const bgHeight = centerLines.length * lineHeight + padding * 2;
-            // v0.8.7.7: shift the center-info group horizontally by the
-            // same offset the screen-name moved (Y is already tracked
-            // via infoAnchorY for non-pixel-map, and via _labelGroupOffsetY
-            // applied below for pixel-map).
-            const bgX = (centerX + _labelGroupOffsetX) - bgWidth / 2;
-            // Data / Power: the lines hang under the name plate; with no
-            // name drawn (2026-09-23) the block is centred on the wall on
-            // its own instead of hanging its top edge from the centre.
-            const bgY = (stacked
-                ? currentY + _labelGroupOffsetY
-                : (infoAnchorY ?? (centerY - bgHeight / 2)));
-            linesBox = { x1: bgX, y1: bgY, x2: bgX + bgWidth, y2: bgY + bgHeight, bgWidth, bgHeight };
+            // Home: where the block sits with the name at its own home. On
+            // Pixel Map and Show Look it is the stack under the name; on
+            // Data / Power it hangs under the name plate, and with no name
+            // drawn (2026-09-23) it is centred on the wall on its own
+            // instead of hanging its top edge from the centre.
+            const homeX = centerX - bgWidth / 2;
+            const homeY = stacked
+                ? currentY
+                : (infoAnchorY !== null ? infoAnchorY - _labelGroupOffsetY : centerY - bgHeight / 2);
+            // v0.8.7.7: a block never dragged follows the name (the name's
+            // applied offset); a dragged one keeps its own place.
+            const at = this._placeLabelBlock('lines', cfg, homeX, homeY, bgWidth, bgHeight,
+                bounds, _labelGroupOffsetX, _labelGroupOffsetY);
+            linesBox = { x1: at.x, y1: at.y, x2: at.x + bgWidth, y2: at.y + bgHeight, bgWidth, bgHeight,
+                         own: at.own, stored: at.stored };
         }
 
         // The name and the lines under it slide onto the canvas as one
-        // stack when the screen hangs past its edge.
+        // stack when the screen hangs past its edge; lines dragged to a
+        // place of their own slide on their own.
         let _stackDx = 0;
         let _stackDy = 0;
+        let _linesDx = 0;
+        let _linesDy = 0;
         if (_hang && (nameBox || linesBox)) {
-            const boxes = [nameBox, linesBox].filter(Boolean);
-            const shift = this._labelHangShift(_hang, {
-                x1: Math.min(...boxes.map(b => b.x1)), y1: Math.min(...boxes.map(b => b.y1)),
-                x2: Math.max(...boxes.map(b => b.x2)), y2: Math.max(...boxes.map(b => b.y2)),
-            });
-            _stackDx = shift.dx;
-            _stackDy = shift.dy;
+            const together = linesBox && !linesBox.own;
+            const boxes = [nameBox, together ? linesBox : null].filter(Boolean);
+            if (boxes.length) {
+                const shift = this._labelHangShift(_hang, {
+                    x1: Math.min(...boxes.map(b => b.x1)), y1: Math.min(...boxes.map(b => b.y1)),
+                    x2: Math.max(...boxes.map(b => b.x2)), y2: Math.max(...boxes.map(b => b.y2)),
+                });
+                _stackDx = shift.dx;
+                _stackDy = shift.dy;
+            }
+            if (together) {
+                _linesDx = _stackDx;
+                _linesDy = _stackDy;
+            } else if (linesBox) {
+                const shift = this._labelHangShift(_hang, linesBox);
+                _linesDx = shift.dx;
+                _linesDy = shift.dy;
+            }
         }
         if (drawName) drawName(_stackDx, _stackDy);
 
         if (linesBox) {
-            const bgX = linesBox.x1 + _stackDx;
-            const bgY = linesBox.y1 + _stackDy;
+            const bgX = linesBox.x1 + _linesDx;
+            const bgY = linesBox.y1 + _linesDy;
             const { bgWidth, bgHeight } = linesBox;
+            this._cacheLabelBlockRect(cfg, '_labelLinesHitRect', layer, bgX, bgY, bgWidth, bgHeight,
+                linesBox.stored, _linesDx, _linesDy);
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
 
@@ -1474,7 +1506,7 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.fillStyle = cfg.labelsColor || '#ffffff';
             let yPos = bgY + padding + lineHeight / 2;
             centerLines.forEach(line => {
-                this._fillText(line, this.snap(centerX + _labelGroupOffsetX + _stackDx), this.snap(yPos));
+                this._fillText(line, this.snap(bgX + bgWidth / 2), this.snap(yPos));
                 yPos += lineHeight;
             });
 
@@ -1516,20 +1548,29 @@ Object.assign(CanvasRenderer.prototype, {
 
             const bgWidth = maxWidth + padding * 2;
             const bgHeight = infoLines.length * infoLineHeight + padding * 2;
-            // v0.8.7.7: bottom-anchored info bar follows the screen-name
-            // offset so the whole label group moves together when the
-            // user drags.
-            let bgX = (centerX + _labelGroupOffsetX) - bgWidth / 2;
-            let bgY = (bottomY + _labelGroupOffsetY) - bgHeight - padding;
+            // v0.8.7.7: the bottom-anchored info bar follows the
+            // screen-name offset, so a name dragged with the bar never
+            // dragged takes the bar along; a bar dragged on its own keeps
+            // its own place (_placeLabelBlock).
+            const at = this._placeLabelBlock('info', cfg, centerX - bgWidth / 2,
+                bottomY - bgHeight - padding, bgWidth, bgHeight,
+                bounds, _labelGroupOffsetX, _labelGroupOffsetY);
+            let bgX = at.x;
+            let bgY = at.y;
+            const textX = bgX + bgWidth / 2;
             // On a screen hanging past the canvas it slides onto it too.
             let _infoDx = 0;
+            let _infoDy = 0;
             if (_hang) {
                 const shift = this._labelHangShift(_hang,
                     { x1: bgX, y1: bgY, x2: bgX + bgWidth, y2: bgY + bgHeight });
                 _infoDx = shift.dx;
+                _infoDy = shift.dy;
                 bgX += shift.dx;
                 bgY += shift.dy;
             }
+            this._cacheLabelBlockRect(cfg, '_labelInfoHitRect', layer, bgX, bgY, bgWidth, bgHeight,
+                at.stored, _infoDx, _infoDy);
 
             // Draw background
             this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -1540,15 +1581,81 @@ Object.assign(CanvasRenderer.prototype, {
             this.ctx.fillStyle = cfg.labelsColor || '#ffffff';
             let yPos = bgY + padding + infoLineHeight;
             infoLines.forEach(line => {
-                this._fillText(line, this.snap(centerX + _labelGroupOffsetX + _infoDx), this.snap(yPos));
+                this._fillText(line, this.snap(textX + _infoDx), this.snap(yPos));
                 yPos += infoLineHeight;
             });
         }
-        
+
         // Restore context (remove clipping)
         this.ctx.restore();
     },
-    
+
+    // Where a label block ('lines' or 'info', canvas-input.js
+    // _labelBlockOffsetFields) is drawn: its top-left {x, y} in the drawing
+    // frame, whether it has a place of its own (`own`), and the offset it
+    // is drawn at in stored, visual space (`stored`: what a drag starts
+    // from). (homeX, homeY) is its top-left with the name at its home;
+    // (followX, followY) the name's applied offset, which a block never
+    // dragged follows exactly as it always has, so a show drawn before
+    // the blocks moved on their own draws the same. A block with its own
+    // place is kept whole on the screen the way the name is (on an axis
+    // where it is bigger than the screen it is centred), and a stored
+    // offset past that is healed back to where it is drawn, as the name's
+    // is - not while that block is being dragged, nor in an export.
+    _placeLabelBlock(block, cfg, homeX, homeY, w, h, bounds, followX, followY) {
+        const f = this._labelBlockOffsetFields(block);
+        const sx = f ? cfg[f.x] : undefined;
+        const sy = f ? cfg[f.y] : undefined;
+        const own = typeof sx === 'number' || typeof sy === 'number';
+        if (!own) {
+            return { x: homeX + followX, y: homeY + followY, own: false,
+                     stored: { x: this._mirror ? -followX : followX, y: followY } };
+        }
+        const ox = this._mirror ? -(Number(sx) || 0) : (Number(sx) || 0);
+        const oy = Number(sy) || 0;
+        const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.min(Math.max(v, lo), hi));
+        const x = clamp(homeX + ox, bounds.x, bounds.x + bounds.width - w);
+        const y = clamp(homeY + oy, bounds.y, bounds.y + bounds.height - h);
+        const appliedX = x - homeX;
+        const appliedY = y - homeY;
+        const stored = { x: this._mirror ? -appliedX : appliedX, y: appliedY };
+        const dragging = !!(this.isDraggingLabelBlock && this._labelDrag
+            && this._labelDrag.block === block && this._labelDrag.owner === cfg);
+        if (!this.exportMode && !dragging) {
+            if (Math.abs((Number(sx) || 0) - stored.x) > 0.5) cfg[f.x] = stored.x;
+            if (Math.abs((Number(sy) || 0) - stored.y) > 0.5) cfg[f.y] = stored.y;
+        }
+        return { x, y, own: true, stored };
+    },
+
+    // Cache a drawn label block's box on its owner for the plain-press
+    // grab (canvas-input.js _labelBlockAt), in the same workspace frame as
+    // the name's rect: the layer's canvas offset and the Show Look shift
+    // added, un-mirrored. `stored` rides along with the slide onto the
+    // canvas (sdx, sdy; a screen hanging past its edge) added, so a drag
+    // starts from where the block is drawn and never jumps on its first
+    // move. Not in an export, as the name's is not.
+    _cacheLabelBlockRect(cfg, key, layer, x, y, w, h, stored, sdx = 0, sdy = 0) {
+        if (this.exportMode) return;
+        const at = { x: stored.x + (this._mirror ? -sdx : sdx), y: stored.y + sdy };
+        const ws = (typeof this._layerCanvasOffset === 'function')
+            ? this._layerCanvasOffset(layer) : { wx: 0, wy: 0 };
+        const dx = (typeof this._renderDx === 'number') ? this._renderDx : 0;
+        const dy = (typeof this._renderDy === 'number') ? this._renderDy : 0;
+        cfg[key] = {
+            x1: ws.wx + dx + x, y1: ws.wy + dy + y,
+            x2: ws.wx + dx + x + w, y2: ws.wy + dy + y + h,
+            viewMode: this.viewMode, at,
+        };
+    },
+
+    // Drop a layer's label-block grab rects (renderLayerLabels' hygiene).
+    _clearLabelBlockRects(o) {
+        if (!o) return;
+        if (o._labelLinesHitRect) o._labelLinesHitRect = null;
+        if (o._labelInfoHitRect) o._labelInfoHitRect = null;
+    },
+
     // A label is never cut by the canvas edge (2026-11-20). When a screen
     // hangs past the edge of the canvas it is drawn on, its centred labels
     // (the name, the lines under it, the info bar) slide inward until they

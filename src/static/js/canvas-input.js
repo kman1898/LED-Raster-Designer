@@ -24,6 +24,8 @@ Object.assign(CanvasRenderer.prototype, {
         this._pressPickedLayerId = null;
         this._lockedDragPending = null;
         this._lockedDragSaid = null;
+        this._labelDrag = null;
+        this.isDraggingLabelBlock = false;
 
         // Header/Footer view: a plain left press on a bar picks it up (a
         // drag moves it past its neighbors, a click picks it for Delete);
@@ -220,6 +222,32 @@ Object.assign(CanvasRenderer.prototype, {
             }
         }
 
+        // A plain press on one of the current screen's label blocks (the
+        // lines under the name, Pixel Map's info bar) is held, not taken:
+        // the rest of this handler still arms whatever a press there arms,
+        // so a click with no movement does what it always did. Past the
+        // click threshold it turns into the block's drag (_labelDragBegin)
+        // and whatever else it armed lets go. A locked screen's block is
+        // held too, and its drag says why it stays put.
+        if (e.button === 0 && !this.spacePressed && !e.altKey && !e.shiftKey
+                && !e.metaKey && !e.ctrlKey && window.app && window.app.currentLayer) {
+            const hit = this._labelBlockAt(worldX, worldY);
+            if (hit) {
+                const app = window.app;
+                const locked = [app.currentLayer, hit.owner]
+                    .filter((l, i, all) => all.indexOf(l) === i && app._layerLocked(l));
+                this._labelDrag = {
+                    block: hit.block, owner: hit.owner, fields: hit.fields,
+                    startX: worldX, startY: worldY,
+                    // where the block is drawn now, in stored (visual) space
+                    start: { x: Number(hit.rect.at && hit.rect.at.x) || 0, y: Number(hit.rect.at && hit.rect.at.y) || 0 },
+                    // what the fields held before, to put back on a no-op
+                    pre: { x: hit.owner[hit.fields.x], y: hit.owner[hit.fields.y] },
+                    locked,
+                };
+            }
+        }
+
         // Slice 5: dragging a canvas's dashed outline edge repositions
         // the canvas in the workspace. Must be checked BEFORE the Slice 4
         // panel/canvas-activate block so edge-drag wins over body-click
@@ -231,7 +259,9 @@ Object.assign(CanvasRenderer.prototype, {
         // On Cabinet ID / Data / Power the canvas position is derived from
         // those two and grabbing the dashed outline there was confusing.
         const canvasDragAllowed = (this.viewMode === 'pixel-map' || this.viewMode === 'show-look');
-        if (canvasDragAllowed && e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey) {
+        // A press on a label block is the block's, not the outline's.
+        if (canvasDragAllowed && e.button === 0 && !this.spacePressed && !e.shiftKey && !e.altKey
+                && !this._labelDrag) {
             const edgeCanvas = this._canvasEdgeAtPoint(worldX, worldY);
             if (edgeCanvas) {
                 this.isDraggingCanvas = true;
@@ -853,6 +883,13 @@ Object.assign(CanvasRenderer.prototype, {
             return;
         }
 
+        // A press held on a label block (handleMouseDown) that has now moved
+        // past the click threshold is that block's drag.
+        if (this._labelDrag && !this.isDraggingLabelBlock && this._pressPastClick(e)) {
+            this._labelDragBegin();
+            this.render();
+        }
+
         // A press on a locked screen that has now moved past the click
         // threshold is a drag the lock refuses: say so, once.
         if (this._lockedDragPending && this._pressPastClick(e)) {
@@ -1109,6 +1146,8 @@ Object.assign(CanvasRenderer.prototype, {
 
                 this.render();
             }
+        } else if (this.isDraggingLabelBlock) {
+            this._labelDragMove(worldX, worldY);
         } else if (this.isDraggingScreenName) {
             // Screen name dragging with snap positions - tab-specific
             if (window.app && window.app.currentLayer) {
@@ -1253,6 +1292,21 @@ Object.assign(CanvasRenderer.prototype, {
             // IDM Locator: the plain mouse, no-entry on a locked screen
             // (a canvas edge does not move on this tab).
             this.canvas.style.cursor = window.app._idmCursorAt(worldX, worldY);
+        } else if (this.isDraggingLabelBlock) {
+            this.canvas.style.cursor = 'move';
+        } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingGroupName && !this.isDraggingCanvas
+                && !e.shiftKey && !e.altKey && this.viewMode !== '3d' && this._labelGrabAt(worldX, worldY)) {
+            // The current screen's name, its group's headline or one of its
+            // label blocks under the mouse: a plain press drags it. On a
+            // locked screen it stays put, and the cursor says so.
+            // (A group's headline rides the group, which no lock holds.)
+            const app = window.app;
+            const cur = app.currentLayer;
+            const block = this._labelBlockAt(worldX, worldY);
+            const onName = this._pressOnScreenName(worldX, worldY);
+            const locked = (onName || block)
+                && (app._layerLocked(cur) || (block && app._layerLocked(block.owner)));
+            this.canvas.style.cursor = locked ? 'not-allowed' : 'move';
         } else if (!this.isDragging && !this.isDraggingLayer && !this.isDraggingScreenName && !this.isDraggingGroupName && !this.isDraggingCanvas) {
             // Slice 5: hovering a canvas's outline edge → show 'move' so
             // the user knows they can grab it. Skip when a modifier is
@@ -1297,6 +1351,20 @@ Object.assign(CanvasRenderer.prototype, {
             }
             this.render();
             return;
+        }
+        // A label block's drag ends here. A press held on a block that
+        // never moved past the click threshold lets go of it, and the
+        // release goes on to be whatever click the press also armed.
+        if (this._labelDrag || this.isDraggingLabelBlock) {
+            const d = this._labelDrag;
+            const dragged = this.isDraggingLabelBlock;
+            this._labelDrag = null;
+            this.isDraggingLabelBlock = false;
+            if (dragged) {
+                this._lockedDragPending = null;
+                this._labelDragEnd(d);
+                return;
+            }
         }
         // A locked-screen press that never became a drag changed nothing
         // and says nothing.
@@ -2554,6 +2622,7 @@ Object.assign(CanvasRenderer.prototype, {
         }
         const armed = this.isDragging || this.isDraggingLayer
             || this.isDraggingScreenName || this.isDraggingGroupName
+            || this.isDraggingLabelBlock || this._labelDrag
             || this.isDraggingCanvas || this.isAltPainting || this.isIdmPainting
             || this.isSelectingPanels || this.isSelectingPixelMapPanels
             || this.isSelectingLayers
@@ -2603,6 +2672,198 @@ Object.assign(CanvasRenderer.prototype, {
             this._pressClientX = e.clientX;
             this._pressClientY = e.clientY;
         }
+    },
+
+    // ---- the label blocks ---------------------------------------------
+    //
+    // Besides its name, a screen's label has two blocks that drag on their
+    // own (owner, 2026-11-27: "move the labels like resolution etc with
+    // click and drag, not just screen name"): 'lines', the lines under the
+    // name (the sizes and weight on Pixel Map, the size on Show Look, the
+    // port or circuit line on Data and Power), and 'info', Pixel Map's info
+    // bar. Each keeps its own place on each tab, the way the name does, on
+    // the layer whose settings draw the label (_labelBlockOwner), in the
+    // same visual space as the name's offset (canvas-labels.js). A block
+    // never dragged has no place of its own and follows the name.
+
+    // The offset field pair of `block` ('name', 'lines' or 'info') for
+    // `view`, or null where that view draws no such block.
+    _labelBlockOffsetFields(block, view = this.viewMode) {
+        if (block === 'name') return this._screenNameOffsetFields();
+        const tab = { 'pixel-map': 'PixelMap', 'show-look': 'ShowLook',
+                      'data-flow': 'DataFlow', 'power': 'Power' }[view];
+        if (block === 'lines' && tab) {
+            return { x: `labelLinesOffsetX${tab}`, y: `labelLinesOffsetY${tab}` };
+        }
+        if (block === 'info' && view === 'pixel-map') {
+            return { x: 'labelInfoOffsetXPixelMap', y: 'labelInfoOffsetYPixelMap' };
+        }
+        return null;
+    },
+
+    // The layer whose settings draw `layer`'s label blocks: a grouped
+    // wall's single label comes from its first member (_groupLabelPlan
+    // cfg), unless its Names switch gives every screen its own label.
+    _labelBlockOwner(layer) {
+        if (!layer) return null;
+        const plan = this._groupNameMode(layer) === 'screens' ? null : this._groupLabelPlan(layer);
+        return plan ? plan.cfg : layer;
+    },
+
+    // The current screen's label block under the point, or null:
+    // { block, owner, fields, rect }. The info bar is drawn over the lines,
+    // so it is tested first. The rects are what renderLayerLabels drew,
+    // in the same workspace frame the name's rect is cached in.
+    _labelBlockAt(worldX, worldY) {
+        const app = window.app;
+        const layer = app && app.currentLayer;
+        if (!layer || (layer.type || 'screen') !== 'screen' || layer.visible === false) return null;
+        const owner = this._labelBlockOwner(layer);
+        if (!owner) return null;
+        for (const [block, key] of [['info', '_labelInfoHitRect'], ['lines', '_labelLinesHitRect']]) {
+            const r = owner[key];
+            const fields = this._labelBlockOffsetFields(block);
+            if (fields && r && r.viewMode === this.viewMode
+                    && worldX >= r.x1 && worldX <= r.x2 && worldY >= r.y1 && worldY <= r.y2) {
+                return { block, owner, fields, rect: r };
+            }
+        }
+        return null;
+    },
+
+    // Is the press point on something of the current screen's label that a
+    // plain press drags - its name, the group's headline ('both') or one of
+    // its blocks? For the hover cursor.
+    _labelGrabAt(worldX, worldY) {
+        const app = window.app;
+        const layer = app && app.currentLayer;
+        if (!layer || (layer.type || 'screen') !== 'screen' || layer.visible === false) return false;
+        if (this._pressOnScreenName(worldX, worldY)) return true;
+        if (this._groupNameMode() === 'both') {
+            const plan = this._groupLabelPlan(layer);
+            const r = plan && plan.cfg._groupNameHitRect;
+            if (r && r.viewMode === this.viewMode
+                    && worldX >= r.x1 && worldX <= r.x2 && worldY >= r.y1 && worldY <= r.y2) return true;
+        }
+        return !!this._labelBlockAt(worldX, worldY);
+    },
+
+    // Every label piece of every shown screen under the point, for the
+    // right-click Reset position: the top one, or null. { kind ('name',
+    // 'headline', 'lines' or 'info'), owner (the layer, or the group for
+    // the headline), fields, moved }. A piece is "moved" when it is off its
+    // default spot: a name or headline with an offset, a block with a
+    // place of its own.
+    labelPieceAt(worldX, worldY) {
+        const app = window.app;
+        const layers = (app && app.project && app.project.layers) || [];
+        const inside = (r) => !!(r && r.viewMode === this.viewMode
+            && worldX >= r.x1 && worldX <= r.x2 && worldY >= r.y1 && worldY <= r.y2);
+        const order = layers.slice().reverse();
+        const at = order.indexOf(app.currentLayer);
+        if (at > 0) {
+            order.splice(at, 1);
+            order.unshift(app.currentLayer);
+        }
+        const nameFields = this._screenNameOffsetFields();
+        const nonZero = (o, f) => !!(o && f && ((Number(o[f.x]) || 0) !== 0 || (Number(o[f.y]) || 0) !== 0));
+        const ownPlace = (o, f) => !!(o && f && (typeof o[f.x] === 'number' || typeof o[f.y] === 'number'));
+        for (const l of order) {
+            if (!l || (l.type || 'screen') !== 'screen' || l.visible === false) continue;
+            if (inside(l._screenNameHitRect)) {
+                return { kind: 'name', owner: l, fields: nameFields, moved: nonZero(l, nameFields) };
+            }
+            if (inside(l._groupNameHitRect)) {
+                const group = this._groupForLayer(l);
+                if (group) return { kind: 'headline', owner: group, fields: nameFields, moved: nonZero(group, nameFields) };
+            }
+            for (const [block, key] of [['info', '_labelInfoHitRect'], ['lines', '_labelLinesHitRect']]) {
+                const f = this._labelBlockOffsetFields(block);
+                if (f && inside(l[key])) return { kind: block, owner: l, fields: f, moved: ownPlace(l, f) };
+            }
+        }
+        return null;
+    },
+
+    // Is the canvas of `layer`'s label drawn mirrored (a Back view)? Offsets
+    // are stored in visual space, so a drag there turns its X round.
+    _labelDragMirrored(layer) {
+        if (!layer || typeof this._effectiveLayerCanvasId !== 'function') return false;
+        const cid = this._effectiveLayerCanvasId(layer);
+        const arr = window.app && window.app.project && window.app.project.canvases;
+        if (!Array.isArray(arr)) return false;
+        const c = arr.find(c => c && c.id === cid);
+        return !!(c && this._isCanvasMirrored && this._isCanvasMirrored(c));
+    },
+
+    // The press on a label block has moved past the click threshold: it is
+    // the block's drag. Whatever else the same press armed (a cabinet or
+    // screen marquee, a custom-path box) lets go, so nothing under the
+    // block is selected or moved. A locked screen refuses with its error,
+    // once, and the press does nothing more.
+    _labelDragBegin() {
+        const d = this._labelDrag;
+        this.isSelectingPanels = false;
+        this.isSelectingPixelMapPanels = false;
+        this.isSelectingLayers = false;
+        this.selectionRect = null;
+        this.layerSelectionRect = null;
+        this._marqueeLive = false;
+        this._lockedDragPending = null;
+        if (d.locked.length) {
+            this._labelDrag = null;
+            this._lockedDragSaid = new Set(d.locked.map(l => l.id));
+            if (window.app && typeof window.app._showLockedError === 'function') {
+                window.app._showLockedError(d.locked);
+            }
+            return;
+        }
+        this.isDraggingLabelBlock = true;
+        this.canvas.style.cursor = 'move';
+    },
+
+    // One move of a block's drag: the same visual-space delta and mirror
+    // turn as the name's drag, written to the block's own fields. Magnetic
+    // snap pulls it onto its home spot (its place with the name at home).
+    _labelDragMove(worldX, worldY) {
+        const d = this._labelDrag;
+        if (!d) return;
+        const dx = worldX - d.startX;
+        const dy = worldY - d.startY;
+        let x = d.start.x + (this._labelDragMirrored(d.owner) ? -dx : dx);
+        let y = d.start.y + dy;
+        if (this.magneticSnap) {
+            if (Math.abs(x) < 20) x = 0;
+            if (Math.abs(y) < 20) y = 0;
+        }
+        d.owner[d.fields.x] = x;
+        d.owner[d.fields.y] = y;
+        this.render();
+    },
+
+    // The block let go: one undo step and a save, the way the name's drag
+    // ends (saveState after the change, then the layer PUT and the
+    // client-side copy). A drag that ended where it began leaves the block
+    // as it was, following the name if it did.
+    _labelDragEnd(d) {
+        const app = window.app;
+        this.canvas.style.cursor = 'default';
+        if (!d || !app) { this.render(); return; }
+        const o = d.owner;
+        const moved = o[d.fields.x] !== d.pre.x || o[d.fields.y] !== d.pre.y;
+        const same = (Number(o[d.fields.x]) || 0) === d.start.x && (Number(o[d.fields.y]) || 0) === d.start.y;
+        if (!moved || same) {
+            o[d.fields.x] = d.pre.x;
+            o[d.fields.y] = d.pre.y;
+            this.render();
+            return;
+        }
+        if (typeof app.saveState === 'function') {
+            app.saveState(d.block === 'info' ? 'Move Info Label' : 'Move Size Labels');
+        }
+        if (typeof app.updateLayers === 'function') app.updateLayers([o], false);
+        if (typeof app.saveClientSideProperties === 'function') app.saveClientSideProperties();
+        this.render();
     },
 
     getPanelAt(worldX, worldY) {

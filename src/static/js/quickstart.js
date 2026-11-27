@@ -390,6 +390,19 @@
         var box = r.canvas.getBoundingClientRect();
         return { x: box.left + z.x0 + z.dir * (n + 0.5) * z.unitPx, y: box.top + (z.kind === 'footer' ? z.y1 - 4 : z.y0 + 4) };
     }
+    // The client point at the middle of the demo wall's Pixel Map info bar,
+    // read from the box the renderer drew it in (canvas-labels.js
+    // _cacheLabelBlockRect) - the same box a press is tested against - or
+    // null when none is drawn.
+    function infoBarPoint() {
+        var r = R(), w = wall();
+        if (!r || !w || typeof r._labelBlockOwner !== 'function') return null;
+        var owner = r._labelBlockOwner(w);
+        var h = owner && owner._labelInfoHitRect;
+        if (!h || h.viewMode !== r.viewMode) return null;
+        var box = r.canvas.getBoundingClientRect();
+        return { x: box.left + (h.x1 + h.x2) / 2 * r.zoom + r.panX, y: box.top + (h.y1 + h.y2) / 2 * r.zoom + r.panY };
+    }
     function headerBars() {
         var w = wall();
         return w && Array.isArray(w.riggingBars) ? w.riggingBars.join(',') : '';
@@ -8064,6 +8077,84 @@
                 return 'The Show Look now reads ' + size.text + ' at ' + at.text + ', and its export carries the same.';
             }
         },
+        // The lines under the name and the info bar drag on their own
+        // (1.7.0, owner 2026-11-27: "move the labels like resolution etc
+        // with click and drag, not just screen name"). Info is ticked on the
+        // demo wall, its bar is dragged up on its own, and the right-click's
+        // Reset position puts it back, so the steps after this one find the
+        // bar where it was. Plays in the Pixel Map guide only, outside every
+        // BUILD run, so no other guide's demo show carries the bar.
+        moveLabels: {
+            since: '1.7.0',
+            target: '#main-canvas', place: 'top', title: 'Move the labels',
+            avoid: [function () { return infoBarPoint(); }],
+            body: 'Drag the info bar or the lines under the name to put each one where you want it, on each tab on its own. Right-click one you moved and Reset position puts it back.',
+            before: function () {
+                closePrefs(); hideMenus(); closePopover(); switchView('pixel-map');
+                var a = A(), w = wall();
+                if (w) a.setSelectedLayersByIds([w.id], w.id);
+                frameWalls();
+            },
+            act: function (t) {
+                var w = wall();
+                if (!w) return Promise.reject(new Error('no demo wall'));
+                var box = $('#show-label-info');
+                var tick = box && box.checked && !box.indeterminate ? Promise.resolve() : t.click('#show-label-info');
+                return tick.then(function () {
+                    return t.wait(function () { var q = wall(); return q && q.showLabelInfo === true; });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('Info did not reach the demo wall');
+                    R().render();
+                    return t.wait(infoBarPoint);
+                }).then(function (from) {
+                    if (!from) throw new Error('the info bar is not drawn');
+                    var to = { x: from.x, y: from.y - 110 };
+                    return t.hover(from).then(function () {
+                        press(true);
+                        t.canvasDown(from);
+                        return t.pause(PACE.dragPress);
+                    }).then(function () {
+                        t.canvasMove({ x: from.x, y: from.y - 6 });
+                        return t.canvasGlide(to);
+                    }).then(function () {
+                        t.canvasMove(to);
+                        return t.pause(PACE.hover);
+                    }).then(function () {
+                        t.canvasUp(to);
+                        press(false);
+                        return t.wait(function () {
+                            var q = wall(), r = R(), o = q && r ? r._labelBlockOwner(q) : null;
+                            return o && typeof o.labelInfoOffsetYPixelMap === 'number';
+                        });
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('the info bar did not move');
+                    t.mem.moved = true;
+                    return t.pause(PACE.dragRest);
+                }).then(function () {
+                    var at = infoBarPoint();
+                    if (!at) throw new Error('the moved info bar is not drawn');
+                    return t.rightClick(at);
+                }).then(function () {
+                    return t.pickMenu('label-reset');
+                }).then(function () {
+                    return t.wait(function () {
+                        var q = wall(), r = R(), o = q && r ? r._labelBlockOwner(q) : null;
+                        return o && o.labelInfoOffsetYPixelMap == null;
+                    });
+                }).then(function (ok) {
+                    if (!ok) throw new Error('Reset position did not put the info bar back');
+                    t.mem.back = true;
+                    return t.pause(PACE.acted);
+                });
+            },
+            check: function (mem) {
+                var w = wall(), r = R(), o = w && r ? r._labelBlockOwner(w) : null;
+                if (mode() !== 'pixel-map' || !mem || !mem.moved || !mem.back || !o) return null;
+                if (o.labelInfoOffsetYPixelMap != null || !infoBarPoint()) return null;
+                return 'The info bar moved up on its own, the name stayed put, and Reset position put the bar back.';
+            }
+        },
         exportBinder: {
             window: 'export:binder',
             target: '#btn-export', place: 'bottom', title: 'Export the binder',
@@ -10968,7 +11059,7 @@
     // its steps between its intro and its outro.
     var GUIDE_DEFS = [
         { name: 'pixelMap', title: 'Pixel Map', prep: [],
-          own: BUILD.pixelWall.concat(BUILD.pixelScreens, BUILD.pixelGroups, ['showLookLabels', 'matchScreens', 'helpMenu', 'checkUpdates',
+          own: BUILD.pixelWall.concat(BUILD.pixelScreens, BUILD.pixelGroups, ['showLookLabels', 'moveLabels', 'matchScreens', 'helpMenu', 'checkUpdates',
                                                                               'logViewer', 'logSearch', 'logLine']),
           intro: 'This guide builds a wall on a scratch show: its cabinets, blanking and colors, Show Look, a second screen, beaches and groups. Your own project is put back when you leave.' },
         { name: 'data', title: 'Data', prep: BUILD.pixelWall,

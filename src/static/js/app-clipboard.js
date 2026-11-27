@@ -319,6 +319,17 @@ class _Clipboard {
             screenNameOffsetYPower: layer.screenNameOffsetYPower,
             screenNameOffsetXShowLook: layer.screenNameOffsetXShowLook,
             screenNameOffsetYShowLook: layer.screenNameOffsetYShowLook,
+            // The label blocks' own places per tab (null = following the name).
+            labelLinesOffsetXPixelMap: layer.labelLinesOffsetXPixelMap,
+            labelLinesOffsetYPixelMap: layer.labelLinesOffsetYPixelMap,
+            labelLinesOffsetXShowLook: layer.labelLinesOffsetXShowLook,
+            labelLinesOffsetYShowLook: layer.labelLinesOffsetYShowLook,
+            labelLinesOffsetXDataFlow: layer.labelLinesOffsetXDataFlow,
+            labelLinesOffsetYDataFlow: layer.labelLinesOffsetYDataFlow,
+            labelLinesOffsetXPower: layer.labelLinesOffsetXPower,
+            labelLinesOffsetYPower: layer.labelLinesOffsetYPower,
+            labelInfoOffsetXPixelMap: layer.labelInfoOffsetXPixelMap,
+            labelInfoOffsetYPixelMap: layer.labelInfoOffsetYPixelMap,
             // Header/Footer: the bars and their colors, and the tab's name
             // settings (owner, 2026-11-06: "copies keep them"). Copies of
             // the arrays, never the source's.

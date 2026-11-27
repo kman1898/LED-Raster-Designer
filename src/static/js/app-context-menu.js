@@ -171,7 +171,14 @@ class _ContextMenu {
             .forEach(el => {
                 el.style.display = inDock ? 'none' : '';
             });
+        // Reset position: on a label piece dragged off its default spot
+        // (_prepareLabelResetMenu); the canvas only.
+        const labelReset = !inDock ? this._prepareLabelResetMenu(x, y) : null;
+        this._labelResetMenuAction = labelReset;
         if (!inDock) {
+            menu.querySelectorAll('.label-reset-only').forEach(el => {
+                el.style.display = labelReset ? '' : 'none';
+            });
             // Show/hide pixel-map-only menu group based on view + selection.
             const inPixelMap = window.canvasRenderer && window.canvasRenderer.viewMode === 'pixel-map';
             const haveSelection = this.getPixelMapSelectedPanels().length > 0;
@@ -491,6 +498,58 @@ class _ContextMenu {
     hideContextMenu() {
         const menu = document.getElementById('context-menu');
         if (menu) menu.style.display = 'none';
+    }
+
+    // "Reset position" (owner, 2026-11-27): armed when the right-click
+    // lands on a screen's name, its group's headline ('both'), the lines
+    // under the name or Pixel Map's info bar, and that piece has been
+    // dragged off its default spot on this tab (canvas-input.js
+    // labelPieceAt). Null anywhere else, so the item is not offered.
+    _prepareLabelResetMenu(x, y) {
+        const r = window.canvasRenderer;
+        if (!r || !r.canvas || typeof r.labelPieceAt !== 'function') return null;
+        if (document.elementFromPoint(x, y) !== r.canvas) return null;
+        const rect = r.canvas.getBoundingClientRect();
+        const worldY = ((y - rect.top) - r.panY) / r.zoom;
+        const worldX = r._unmirrorWorldX(((x - rect.left) - r.panX) / r.zoom, worldY);
+        const piece = r.labelPieceAt(worldX, worldY);
+        return piece && piece.moved ? piece : null;
+    }
+
+    // The item's click: the piece goes back to its default spot on this
+    // tab, one undo step, saved the way its drag is. A name or headline
+    // goes back to the middle; a block goes back to following the name.
+    // A locked screen's label stays where it is and the error says why;
+    // a group's headline rides the group, which no lock holds.
+    runLabelResetMenu() {
+        const armed = this._labelResetMenuAction;
+        this._labelResetMenuAction = null;
+        this.hideContextMenu();
+        if (!armed || !armed.fields) return;
+        const f = armed.fields;
+        const r = window.canvasRenderer;
+        if (armed.kind === 'headline') {
+            armed.owner[f.x] = 0;
+            armed.owner[f.y] = 0;
+            this.saveState('Reset Label Position');
+            if (typeof this.saveProject === 'function') this.saveProject();
+            if (r) r.render();
+            return;
+        }
+        const layer = ((this.project && this.project.layers) || [])
+            .find(l => l.id === armed.owner.id) || null;
+        if (!layer) return;
+        if (this._layerLocked(layer)) {
+            this._showLockedError([layer]);
+            return;
+        }
+        const home = armed.kind === 'name' ? 0 : null;
+        layer[f.x] = home;
+        layer[f.y] = home;
+        this.saveState('Reset Label Position');
+        this.updateLayers([layer], false);
+        this.saveClientSideProperties();
+        if (r) r.render();
     }
 
     // "Change cabinet…": armed when the selection holds at least one screen

@@ -717,6 +717,15 @@ ALSO NEW
   size and its Show Look X, Y, on the canvas and in every Show Look export,
   so the export works as a content template. A grouped wall follows its
   Names choice.
+- NEW: The lines under a screen's name (its size and weight on Pixel Map,
+  its size on Show Look, its port or circuit line on Data and Power) and
+  the Pixel Map info bar drag on their own, the way the name does: press
+  one and drag it. Each keeps its own place on every tab, and moving the
+  name no longer carries one you moved. A label you never moved still
+  follows the name, so a show saved before opens as it was. Right-click a
+  moved label, or a moved name, and Reset position puts it back. The
+  binder and the exports print each one where you put it, and a locked
+  screen's labels stay put and say why.
 - NEW: XD boxes can share a Cat snake, the way boxes share a TAC. Pick New
   Cat snake in an XD link's list, choose Cat6A, Cat6 or Cat5e, 2, 4 or 6
   channels or your own count, and a length. Other XDs pick the same snake

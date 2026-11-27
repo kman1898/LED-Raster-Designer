@@ -102,6 +102,12 @@ def test_gradient_edit_is_stored_not_just_echoed(client_with_layer):
     ('screenNameOffsetYPixelMap', -17),
     ('screenNameOffsetXShowLook', 8),
     ('screenNameOffsetYShowLook', 96),
+    # The label blocks' own places (the lines under the name, the info
+    # bar), dragged on their own per tab; null is following the name.
+    ('labelLinesOffsetXPixelMap', 25),
+    ('labelLinesOffsetYPower', -40),
+    ('labelInfoOffsetXPixelMap', -60),
+    ('labelInfoOffsetYPixelMap', None),
 ])
 def test_appearance_field_round_trips(client_with_layer, field, value):
     layer_id = _layer_id(client_with_layer)
@@ -191,6 +197,9 @@ APPEARANCE_FIELDS = {
     'screenNameOffsetYPixelMap': -17,
     'screenNameOffsetXShowLook': 8,
     'screenNameOffsetYShowLook': 96,
+    'labelLinesOffsetXShowLook': 14,
+    'labelLinesOffsetYDataFlow': -33,
+    'labelInfoOffsetYPixelMap': -120,
 }
 
 

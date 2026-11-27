@@ -136,6 +136,14 @@ def add_layer():
         'panelColorMode', 'panelColors', 'transparentFill',
         'screenNameOffsetXPixelMap', 'screenNameOffsetYPixelMap',
         'screenNameOffsetXShowLook', 'screenNameOffsetYShowLook',
+        # The label blocks' own places per tab (canvas-input.js
+        # _labelBlockOffsetFields): the lines under the name and Pixel Map's
+        # info bar, dragged on their own. null = following the name.
+        'labelLinesOffsetXPixelMap', 'labelLinesOffsetYPixelMap',
+        'labelLinesOffsetXShowLook', 'labelLinesOffsetYShowLook',
+        'labelLinesOffsetXDataFlow', 'labelLinesOffsetYDataFlow',
+        'labelLinesOffsetXPower', 'labelLinesOffsetYPower',
+        'labelInfoOffsetXPixelMap', 'labelInfoOffsetYPixelMap',
         # Production suite: same omission, same consequence. Duplicate/paste
         # sends the whole layer; without these the copy of a powered screen
         # carried its soca plan in the browser and none on the server - gone
@@ -683,7 +691,14 @@ def update_layer(layer_id):
                 # missing, so dragging a screen name reverted on reload there
                 # and nowhere else.
                 'screenNameOffsetXPixelMap', 'screenNameOffsetYPixelMap',
-                'screenNameOffsetXShowLook', 'screenNameOffsetYShowLook']:
+                'screenNameOffsetXShowLook', 'screenNameOffsetYShowLook',
+                # The label blocks' own places per tab: the lines under the
+                # name and Pixel Map's info bar. null = following the name.
+                'labelLinesOffsetXPixelMap', 'labelLinesOffsetYPixelMap',
+                'labelLinesOffsetXShowLook', 'labelLinesOffsetYShowLook',
+                'labelLinesOffsetXDataFlow', 'labelLinesOffsetYDataFlow',
+                'labelLinesOffsetXPower', 'labelLinesOffsetYPower',
+                'labelInfoOffsetXPixelMap', 'labelInfoOffsetYPixelMap']:
         if key in data:
             layer[key] = data[key]
 
