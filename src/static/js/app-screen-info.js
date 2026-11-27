@@ -1663,68 +1663,25 @@ class _ScreenInfo {
         this.setLockOnSelected(anyUnlocked);
     }
 
-    togglePanelBlank(layerId, panelId) {
-        // Showing a blanked cabinet can widen a processor's canvas span:
-        // the flip is tried on the live panel first and put back when the
-        // canvas guard refuses it (the server flips it again on the POST).
-        if (!this._canvasTryPanelFlip(layerId, panelId, 'blank')) return;
-        fetch(`/api/layer/${layerId}/panel/${panelId}/toggle`, {
-            method: 'POST'
-        })
-        .then(res => res.json())
-        .then(panel => {
-            const layer = this.project.layers.find(l => l.id === layerId);
-            if (layer) {
-                const panelIndex = layer.panels.findIndex(p => p.id === panelId);
-                if (panelIndex >= 0) {
-                    layer.panels[panelIndex] = panel;
-                    this._panelsReplaced(layer);
-                    window.canvasRenderer.render();
-                }
-            }
-        });
-    }
-    
+    // One cabinet blanked, or shown again: the verb Alt+click and Set
+    // Blank use (app-pixel-select setPanelsBlankBulk) on that cabinet
+    // alone. Its save goes in the screen's one order of writes (app-core
+    // _postLayerPanels, its echo numbered), the canvas guard is asked
+    // first, and it is one undo step. Until 2026-11-27 both of these
+    // posted on their own to the single-cabinet routes, outside that
+    // order, and took no undo step. A blank is a hidden cabinet (the
+    // owner's ruling, app-port-routing isPanelDataDark), so
+    // togglePanelBlank is the same verb. Nothing in the app calls either
+    // (tests/test_audit_regressions.py keeps it so).
     togglePanelHidden(layerId, panelId) {
-        if (!this._canvasTryPanelFlip(layerId, panelId, 'hidden')) return;
-        fetch(`/api/layer/${layerId}/panel/${panelId}/toggle_hidden`, {
-            method: 'POST'
-        })
-        .then(res => res.json())
-        // v0.10.8.1: the route now rebuilds the layer's geometry (hiding a
-        // panel re-anchors neighbouring half-tiles) and returns the whole
-        // rebuilt layer, not the single panel - the old panel object is stale
-        // once the panels array is regenerated.
-        .then(serverLayer => {
-            if (!this.applyServerLayer(serverLayer, 'toggle_panel_hidden')) return;
-            const layer = this.project.layers.find(l => l.id === layerId);
-            if (layer) {
-                const panel = (layer.panels || []).find(p => p.id === panelId);
-                if (panel) {
-                    sendClientLog('toggle_panel_hidden', {
-                        layerId, layerName: layer.name,
-                        panelId, row: panel.row, col: panel.col,
-                        hidden: panel.hidden
-                    });
-                }
-                window.canvasRenderer.render();
-            }
-        });
-    }
-    
-    // One cabinet's hidden or blank flag flipped on trial for the canvas
-    // guard: true = go ahead (the live flag is put back as it was, so the
-    // server's toggle and its echo stay the one write); false = refused.
-    _canvasTryPanelFlip(layerId, panelId, key) {
-        if (typeof this._canvasGuardEdit !== 'function' || !this._canvasInPlay()) return true;
-        const layer = (this.project.layers || []).find(l => l.id === layerId);
+        const layer = ((this.project && this.project.layers) || []).find(l => l.id === layerId);
         const panel = layer && (layer.panels || []).find(p => p.id === panelId);
-        if (!panel) return true;
-        const was = panel[key];
-        panel[key] = !was;
-        if (!this._canvasGuardEdit()) return false;
-        panel[key] = was;
-        return true;
+        if (!panel || typeof this.setPanelsBlankBulk !== 'function') return Promise.resolve();
+        return this.setPanelsBlankBulk([panel], !panel.hidden);
+    }
+
+    togglePanelBlank(layerId, panelId) {
+        return this.togglePanelHidden(layerId, panelId);
     }
 
     updateLayer(saveHistory = false, historyAction = 'Update Layer') {

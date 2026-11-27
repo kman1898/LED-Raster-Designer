@@ -553,8 +553,12 @@ class _ProjectIo {
             // echo too when the server stored this one after the other).
             // This answer is let go, as an undo's or a group change's is.
             let replacesAtSend = null;
+            // how far this page's writes had got when the show went to the
+            // server: each landed before it (app-core _noteShowReplaced)
+            let seqsAtSend = null;
             return this._layerSavesSettled().then(() => {
                 replacesAtSend = this._foreignReplaces || 0;
+                seqsAtSend = this._layerSeqsNow();
                 return fetch(`/api/project?${this._replaceQuery('open')}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -571,6 +575,7 @@ class _ProjectIo {
                     if (!data || !Array.isArray(data.layers)) {
                         throw new Error('Invalid project data returned from server');
                     }
+                    this._noteShowReplaced(seqsAtSend);
                     this.project = data;
                     this.dedupeProjectLayers(recent ? 'load_recent_file' : 'load_project_file');
                     if (this.project.layers) {

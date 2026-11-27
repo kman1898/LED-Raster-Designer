@@ -3785,6 +3785,10 @@
         }).then(function () {
             return j('GET', '/api/project');
         }).then(function (p) {
+            // the person's saves before the guide were of their own show:
+            // an echo of one landing now is dropped (app-core
+            // _noteShowReplaced)
+            if (a._noteShowReplaced) a._noteShowReplaced();
             a.project = p;
             a.dedupeProjectLayers('tutorial_seed');
             a.selectLayer(a.project.layers[0]);

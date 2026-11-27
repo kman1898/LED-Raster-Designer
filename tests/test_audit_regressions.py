@@ -1600,11 +1600,13 @@ def test_blanked_cabinets_still_export_as_a_polygon(client):
 def test_single_panel_toggles_are_unreachable_dead_code(page):
     """ASSERTS CURRENT BEHAVIOUR, as a tripwire.
 
-    togglePanelHidden / togglePanelBlank (app-screen-info.js:881, :898) mutate
-    a panel and take NO history snapshot. Nothing in the UI calls them today -
-    Alt+click goes through setPanelsBlankBulk / the canvas alt-paint, both of
-    which do snapshot - so this is harmless. If anyone wires them to a control,
-    hiding a cabinet becomes un-undoable and a later Ctrl+Z steps past it.
+    togglePanelHidden / togglePanelBlank (app-screen-info.js) used to post
+    on their own and take NO history snapshot. Since 2026-11-27 they are
+    setPanelsBlankBulk on one cabinet (one undo step, in the screen's order
+    of writes: tests/test_replace_drops_old_echoes.py), but nothing in the
+    UI calls them - Alt+click goes through setPanelsBlankBulk / the canvas
+    alt-paint. Wiring them to a control is a choice to make on purpose, so
+    this still trips when anyone does.
     """
     still_dead = page.evaluate("""() => {
         const src = [...document.querySelectorAll('script[src]')].map(s => s.src);

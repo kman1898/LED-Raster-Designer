@@ -838,6 +838,14 @@ FIXES
 - FIX: Quick Palettes always shows the pair that matches the screen's
   colors now. When a save came back with other colors, the pair sent
   stayed pressed.
+- FIX: Leaving a guide always puts your own colors back on your screens.
+  On a busy computer the guide's last colors could come back on your
+  screen while the saved show kept yours. The same could happen right
+  after Undo, Redo, opening a show or File > New: a save made just
+  before could come back over the show.
+- FIX: Undo right after renaming, hiding or locking a screen keeps the
+  screen the way Undo put it back. On a busy computer the rename could
+  land after the Undo and stay in the saved show.
 - FIX: Delete removes a screen only on the Pixel Map tab, so a stray key
   never costs a screen. On other tabs it does nothing to screens. The
   canvas right-click

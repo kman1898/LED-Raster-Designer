@@ -522,7 +522,17 @@ class _History {
     // the snapshot carries instead of ending it (restore_project). Undo
     // and redo never pass it: an undone edit is still an edit.
     _syncRestoredProject(entry, label, { keepPristine = false } = {}) {
-        const inflight = [...(this._inflightLayerPuts || [])];
+        // And behind every write of a screen still on its way, not only the
+        // tracked batches: a rename, the eye or the lock (a bare _putLayer)
+        // landing after this PUT put its screen back as it was before.
+        const inflight = [...(this._inflightLayerPuts || [])]
+            .concat([...((this._layerPutChains && this._layerPutChains.values()) || [])]
+                .map(p => Promise.resolve(p).catch(() => {})));
+        // Every one of those is older than the show put back here, and so
+        // is its echo, which can still land after this PUT's answer: it is
+        // dropped (app-core _noteShowReplaced). Leaving a guide put the
+        // guide's last colors back on the person's show that way.
+        if (typeof this._noteShowReplaced === 'function') this._noteShowReplaced();
         // And behind the pull sheet's POST queue (app-pull-list.js): a
         // cable-unit or edits POST still in flight carries the state being
         // undone, and landing after this PUT it would put it back.

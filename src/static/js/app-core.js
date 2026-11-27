@@ -1037,6 +1037,13 @@ export class LEDRasterApp {
         // under load, mid-drag, so a drag back to the tray missed its
         // drop (full suite, 2026-10-19). Other windows' echoes apply.
         const own = !!(echo && echo.client === this._echoClientId);
+        // The echo of a write made before this page put a whole show in
+        // place since (an undo, a guide's end, a show opened): the server
+        // holds that show over it, and so does the page (_noteShowReplaced).
+        if (own && this._echoBeforeReplace(layer.id, echo.seq)) {
+            sendClientLog('socket_layer_updated_suppressed_replaced', { id: layer.id, seq: echo.seq });
+            return;
+        }
         // A guide running here on its demo show, after another page put a
         // show of its own on the server (_onProjectReplaced): that page's
         // screens are not the demo's, whatever their ids.
@@ -1289,6 +1296,11 @@ export class LEDRasterApp {
         if (sameShow && typeof this._logCanvasSizesTaken === 'function') {
             this._logCanvasSizesTaken(before, project, `project_replaced_${reason}`);
         }
+        // The show read again from the server after this page's writes
+        // landed (_liveWritesSettled): the echoes of those writes still on
+        // the socket are older than it (_noteShowReplaced). A replace the
+        // socket brought carries no `seqs`: it came in the server's order.
+        if (mark.seqs instanceof Map) this._noteShowReplaced(mark.seqs);
         this.project = project;
         this.dedupeProjectLayers('socket_project_replaced');
         this.project.layers.forEach(layer => {
@@ -1459,9 +1471,12 @@ export class LEDRasterApp {
         const resync = !!this._resyncWanted;
         this._editWaiting = false;
         this._resyncWanted = false;
+        // how far this page's writes had got when the read went: their
+        // echoes are older than what it brings (_noteShowReplaced)
+        let seqs = null;
         this._liveReread = Promise.resolve(typeof this._layerSavesSettled === 'function'
             ? this._layerSavesSettled() : null)
-            .then(() => fetch('/api/project'))
+            .then(() => { seqs = this._layerSeqsNow(); return fetch('/api/project'); })
             .then(res => {
                 const rev = Number(res.headers.get('X-Project-Rev'));
                 const unsaved = res.headers.get('X-Project-Unsaved') === '1';
@@ -1469,7 +1484,7 @@ export class LEDRasterApp {
             })
             .then(({ p, rev, unsaved }) => {
                 this._liveReread = null;
-                const mark = { reason: resync ? 'resync' : 'edit', client: '', token: null, unsaved };
+                const mark = { reason: resync ? 'resync' : 'edit', client: '', token: null, unsaved, seqs };
                 if (Number.isFinite(rev)) mark.rev = rev;
                 // something new went out meanwhile: read again after it
                 if (LIVE_WRITES.out > 0) {
@@ -1493,9 +1508,10 @@ export class LEDRasterApp {
     // (_onProjectEdited: the selection by id, one undo step).
     _catchUpFirstConnect() {
         if (this._firstConnectCatchUp) return;
+        let seqs = null;
         const read = () => Promise.resolve(typeof this._layerSavesSettled === 'function'
             ? this._layerSavesSettled() : null)
-            .then(() => fetch('/api/project'))
+            .then(() => { seqs = this._layerSeqsNow(); return fetch('/api/project'); })
             .then(res => {
                 const rev = Number(res.headers.get('X-Project-Rev'));
                 const unsaved = res.headers.get('X-Project-Unsaved') === '1';
@@ -1505,7 +1521,7 @@ export class LEDRasterApp {
                 // a write of this page's went out meanwhile: read after it
                 if (LIVE_WRITES.out > 0) return read();
                 sendClientLog('first_connect_reread', { layers: (p.layers || []).length, rev });
-                this._onProjectReplaced(p, { reason: 'edit', client: '', token: null, unsaved });
+                this._onProjectReplaced(p, { reason: 'edit', client: '', token: null, unsaved, seqs });
                 if (Number.isFinite(rev)) this._syncRev = Math.max(this._syncRev || 0, rev);
             });
         this._firstConnectCatchUp = read()
@@ -2161,6 +2177,8 @@ export class LEDRasterApp {
                     sendClientLog('new_project_refused', { error: data && data.error ? data.error : null });
                     return;
                 }
+                // every save made until now was of the show that went
+                this._noteShowReplaced();
                 this.project = data;
                 this.dedupeProjectLayers('new_project');
                 this.syncRasterFromProject();
@@ -2622,6 +2640,45 @@ export class LEDRasterApp {
         const left = list.filter(e => !(typeof seq === 'number' && e.seq <= seq));
         if (left.length) this._layerWritesOut.set(id, left);
         else this._layerWritesOut.delete(id);
+    }
+
+    // THIS PAGE PUT A WHOLE SHOW IN PLACE (2026-11-27).
+    //
+    // An undo or a redo, a guide's start or its end, a show opened or made
+    // new, the show read again from the server: the page holds the show
+    // the replace put in place, and the server holds it after every write
+    // of this page's made before it (each replace waits for them). The
+    // echo of such a write, still on the socket, holds the screen as it
+    // was before the replace. Taken as this page's newest save of a screen
+    // the new show also has, it put the older screen back over the show
+    // just put in place while the server kept the replace: leaving the
+    // Quick Palettes guide step left the guide's Hue-turned colors on the
+    // person's screen (CI, 2026-11-26), and an undone save came back.
+    //
+    // So each replace notes how far this page's writes of each screen had
+    // got (`seqs`: the numbers _queueLayerWrite gave, now when not given)
+    // and the echo of a write numbered no later is dropped
+    // (_onSocketLayerUpdated). Another page's replace is not one of these:
+    // the socket brings it in the server's order, after the echoes of
+    // this page's writes that landed before it.
+    _noteShowReplaced(seqs) {
+        const at = seqs || this._layerSeqsNow();
+        if (!this._layerEchoFloor) this._layerEchoFloor = new Map();
+        at.forEach((seq, id) => {
+            if (seq > (this._layerEchoFloor.get(id) || 0)) this._layerEchoFloor.set(id, seq);
+        });
+    }
+
+    // The number of this page's newest write of each screen, now.
+    _layerSeqsNow() {
+        return new Map(this._layerPutSeq || []);
+    }
+
+    // True for this page's write `seq` of screen `id` made before a whole
+    // show this page has put in place since (_noteShowReplaced).
+    _echoBeforeReplace(id, seq) {
+        if (typeof seq !== 'number' || !this._layerEchoFloor) return false;
+        return seq <= (this._layerEchoFloor.get(id) || 0);
     }
 
     // The fields of screen `id` this page's writes on their way change.

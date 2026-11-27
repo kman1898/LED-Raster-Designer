@@ -404,7 +404,9 @@ def _emit_layer_echo(layer):
     a newer edit and put the older copy back (app-core.js
     _onSocketLayerUpdated). A screen's PUTs and its panel POSTs (set_hidden,
     set_half_tile) are numbered in one sequence per screen (app-core.js
-    _queueLayerWrite). Other windows apply it as before."""
+    _queueLayerWrite). Every route that writes one screen's cabinets
+    stamps its echo here, the single-cabinet ones too. Other windows apply
+    it as before."""
     seq, client = request.args.get('seq'), request.args.get('client')
     if seq and client:
         try:
@@ -1065,7 +1067,7 @@ def toggle_panel_blank(layer_id, panel_id):
     log_event('toggle_panel_blank', {'layer_id': layer_id, 'panel_id': panel_id, 'blank': panel['blank']})
     socketio.emit('panel_updated', {'layer_id': layer_id, 'panel': panel})
     # the pages follow a screen's edit by its layer_updated (as toggle_hidden)
-    socketio.emit('layer_updated', layer)
+    _emit_layer_echo(layer)
     return jsonify(panel)
 
 @layers_bp.route('/api/layer/<int:layer_id>/panel/<int:panel_id>/toggle_hidden', methods=['POST'])
@@ -1092,7 +1094,7 @@ def toggle_panel_hidden(layer_id, panel_id):
     log_event('toggle_panel_hidden', {'layer_id': layer_id, 'panel_id': panel_id, 'hidden': hidden})
     # The rebuild regenerates the panels array, so `panel` is now stale. Send
     # the rebuilt layer instead, matching the half-tile routes below.
-    socketio.emit('layer_updated', layer)
+    _emit_layer_echo(layer)
     return jsonify(layer)
 
 @layers_bp.route('/api/layer/<int:layer_id>/panels/set_hidden', methods=['POST'])
@@ -1147,7 +1149,7 @@ def set_panel_half_tile(layer_id, panel_id):
     # the modules inside it (app.sanitize_idm).
     app.normalize_idm_layer(layer)
     log_event('set_panel_half_tile', {'layer_id': layer_id, 'panel_id': panel_id, 'halfTile': value})
-    socketio.emit('layer_updated', layer)
+    _emit_layer_echo(layer)
     return jsonify(layer)
 
 

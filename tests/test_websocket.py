@@ -161,3 +161,40 @@ def test_new_project_emits_cleared(socketio_client):
     received = socketio_client.get_received()
     cleared_events = [r for r in received if r['name'] == 'project_cleared']
     assert len(cleared_events) >= 1
+
+
+@pytest.mark.parametrize('route,body', [
+    ('panel/{pid}/toggle', None),
+    ('panel/{pid}/toggle_hidden', None),
+    ('panel/{pid}/set_half_tile', {'halfTile': 'width'}),
+    ('panels/set_hidden', {'panels': [{'id': '{pid}', 'hidden': True}]}),
+    ('panels/set_half_tile', {'panels': [{'id': '{pid}', 'halfTile': 'height'}]}),
+])
+def test_every_cabinet_route_stamps_its_echo(socketio_client, route, body):
+    """A write of one screen's cabinets names the write it answers in its
+    layer_updated (routes_layers _emit_layer_echo), as a PUT does: the page
+    that made it knows the echo for its own, and drops an older one or one
+    from before a show it has since put in place (app-core.js
+    _onSocketLayerUpdated). Asked for no number, the plain screen as before."""
+    http_client = app.test_client()
+    layer = http_client.post('/api/layer/add', json={
+        'name': 'Echo', 'columns': 3, 'rows': 3,
+        'cabinet_width': 100, 'cabinet_height': 100,
+    }).get_json()
+    pid = layer['panels'][4]['id']
+    if body and 'panels' in body:
+        body = {'panels': [dict(p, id=pid) for p in body['panels']]}
+    path = f"/api/layer/{layer['id']}/{route.format(pid=pid)}"
+
+    def post(url):
+        return http_client.post(url, json=body) if body is not None else http_client.post(url)
+
+    socketio_client.get_received()
+    resp = post(path + '?seq=7&client=page-x')
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    echoes = [r['args'][0] for r in socketio_client.get_received() if r['name'] == 'layer_updated']
+    assert echoes, 'no layer_updated'
+    assert echoes[-1].get('_echo') == {'seq': 7, 'client': 'page-x'}, echoes[-1].get('_echo')
+    post(path)
+    echoes = [r['args'][0] for r in socketio_client.get_received() if r['name'] == 'layer_updated']
+    assert echoes and '_echo' not in echoes[-1]
