@@ -33,7 +33,10 @@ What this file pins:
   change is one undo step on the computer, its own Undo takes back its
   own change and its Redo puts it back, greyed while the screen holds
   anything else, live); it follows the show live and says so plainly when
-  there is no show or no screen.
+  there is no show or no screen. Fast taps keep their order: a screen's
+  saves go one after another, the phone's screen following each tap at
+  once, and neither a late answer nor a late echo of an older save of its
+  own puts that older copy back.
 * The swap list (owner, 2026-11-24, after 2026-11-17's "count down as
   they are checked off"): a Swapped tick, on the tab or on a phone, takes
   that module's mark off the wall live everywhere (the server, the tab, a
@@ -1217,6 +1220,132 @@ def test_a_late_answer_to_the_phone_never_puts_an_older_screen_back(page, e2e_se
         assert phone_marks(ph, 'IdmA') == ['0,0,0,0']
         assert ph.is_disabled('#ph-redo')
         assert sorted(served_idm(page, 'IdmA')['marks']) == ['0,0,0,0']
+        assert not ph._errors, ph._errors
+    finally:
+        ctx.close()
+
+
+# The socket's news of the screens on the phone (layer_updated), held in the
+# order it came until the test lets it go: on a busy machine the echo of a
+# save can land after the phone's next tap.
+HOLD_ECHOES_JS = """() => {
+    const s = window.idmPhone.socket();
+    window.__echoes = [];
+    if (window.__echoSpy) return;
+    window.__echoSpy = s.listeners('layer_updated').slice();
+    s.off('layer_updated');
+    s.on('layer_updated', (layer) => { window.__echoes.push(layer); });
+}"""
+
+LET_ECHOES_GO_JS = """(n) => { const go = window.__echoes.splice(0, n == null ? window.__echoes.length : n);
+    go.forEach(layer => window.__echoSpy.forEach(f => f(layer))); return go.length; }"""
+
+
+def mark_from_phone(page, ph, key):
+    """`key` on IdmA marked from the phone, one undo step there."""
+    page.evaluate("""(key) => { const a = window.app.project.layers.find(x => x.name === 'IdmA');
+        window.app._idmSetHighlight(a.id, key); }""", key)
+    settled(ph, lambda: phone_hl(ph), lambda v: v == ['IdmA', key])
+    ph.tap('#ph-mark')
+    settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and key in v['marks'])
+    settled(page, lambda: marks_of(page, 'IdmA'), lambda v: key in v)
+    assert settled(ph, lambda: len(ph.evaluate("() => window.idmPhone.S.undo")), lambda v: v == 1) == 1
+
+
+def test_an_older_echo_of_the_phones_own_save_never_undoes_its_newer_tap(page, e2e_server, pw_browser):
+    """Fast taps on the phone (2026-11-27): an Undo, then a Redo before the
+    Undo's echo came back. The phone took that late echo in, so the screen
+    went back to the Undo's copy over the Redo it had already made, and the
+    next Undo was refused as a change from another device, the phone's undo
+    steps cleared. The phone now drops the echo of an older save of its own
+    (a newer one of the screen is on its way), as the computer does, and
+    takes in the echo of its newest."""
+    reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    put_marks(page, 'IdmA', 2, 2, ['0,0,0,0'])
+    ctx, ph = open_phone(pw_browser, e2e_server)
+    try:
+        mark_from_phone(page, ph, '1,0,1,1')
+        ph.evaluate(HOLD_ECHOES_JS)
+        ph.tap('#ph-undo')
+        settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' not in v['marks'])
+        ph.tap('#ph-redo')
+        # the phone's screen follows the tap at once
+        assert phone_marks(ph, 'IdmA') == ['0,0,0,0', '1,0,1,1']
+        settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' in v['marks'])
+        assert settled(ph, lambda: ph.evaluate("() => window.__echoes.length"), lambda v: v == 2) == 2
+        # the Undo's echo lands after the Redo was made
+        assert ph.evaluate(LET_ECHOES_GO_JS, 1) == 1
+        seen = phone_marks(ph, 'IdmA')
+        ph.tap('#ph-undo')
+        assert [seen, toast_text(ph)] == [['0,0,0,0', '1,0,1,1'], 'Undone: Mark Module']
+        settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' not in v['marks'])
+        # the Redo's echo, older now, then the last Undo's: the Undo stands
+        assert settled(ph, lambda: ph.evaluate("() => window.__echoes.length"), lambda v: v == 2) == 2
+        assert ph.evaluate(LET_ECHOES_GO_JS, 1) == 1
+        assert phone_marks(ph, 'IdmA') == ['0,0,0,0']
+        assert ph.evaluate(LET_ECHOES_GO_JS) == 1
+        assert phone_marks(ph, 'IdmA') == ['0,0,0,0']
+        assert ph.is_enabled('#ph-redo')
+        # and the Redo after it goes through
+        ph.tap('#ph-redo')
+        assert 'Redone: Mark Module' in toast_text(ph)
+        settled(page, lambda: served_idm(page, 'IdmA'), lambda v: v and '1,0,1,1' in v['marks'])
+        assert settled(ph, lambda: ph.evaluate("() => window.__echoes.length"), lambda v: v == 1) == 1
+        assert ph.evaluate(LET_ECHOES_GO_JS) == 1
+        assert phone_marks(ph, 'IdmA') == ['0,0,0,0', '1,0,1,1']
+        assert ph.is_enabled('#ph-undo') and ph.is_disabled('#ph-redo')
+        assert not ph._errors, ph._errors
+    finally:
+        ctx.close()
+
+
+def test_the_phones_saves_of_a_screen_reach_the_computer_in_the_order_made(page, e2e_server, pw_browser):
+    """Fast taps on the phone (2026-11-27): an Undo and a Redo both on their
+    way at once. Each save carries the screen's whole mark list, and the
+    threaded server can finish two of them out of order, so the Undo's copy
+    landed last and the show lost the mark the phone had put back. The
+    phone now sends a screen's saves one after another, each once the one
+    before it is answered, as the computer does; its own screen still
+    follows every tap at once. Here the Undo's save is held on its way."""
+    reset_project(page)
+    set_layout(page, 'IdmA', 2, 2)
+    put_marks(page, 'IdmA', 2, 2, ['0,0,0,0'])
+    ctx, ph = open_phone(pw_browser, e2e_server)
+    seen, held = [], []
+
+    def hold_first(route):
+        if route.request.method != 'PUT':
+            route.continue_()
+            return
+        seen.append(route.request.url)
+        if len(seen) == 1:
+            held.append(route)
+        else:
+            route.continue_()
+
+    try:
+        mark_from_phone(page, ph, '1,0,1,1')
+        ph.route(re.compile(r'/api/layer/\d+\?'), hold_first)
+        ph.tap('#ph-undo')
+        assert phone_marks(ph, 'IdmA') == ['0,0,0,0']
+        ph.tap('#ph-redo')
+        assert phone_marks(ph, 'IdmA') == ['0,0,0,0', '1,0,1,1']
+        assert settled(ph, lambda: len(held), lambda v: v == 1) == 1
+        # what a phone without the order would have sent meanwhile
+        for _ in range(20):
+            ph.wait_for_timeout(50)
+        sent_while_held = len(seen)
+        held[0].continue_()
+        assert settled(ph, lambda: len(seen), lambda v: v == 2) == 2
+        assert settled(ph, lambda: ph.evaluate("""() => { const S = window.idmPhone.S;
+            const id = window.idmPhone.app.project.layers.find(x => x.name === 'IdmA').id;
+            return S.putEchoed.get(id) === S.putSent.get(id); }"""), lambda v: v) is True
+        got = served_idm(page, 'IdmA')
+        assert [sorted(got['marks']), sent_while_held] == [['0,0,0,0', '1,0,1,1'], 1], got
+        assert phone_marks(ph, 'IdmA') == ['0,0,0,0', '1,0,1,1']
+        settled(page, lambda: marks_of(page, 'IdmA'), lambda v: '1,0,1,1' in v)
+        assert ph.is_enabled('#ph-undo') and ph.is_disabled('#ph-redo')
         assert not ph._errors, ph._errors
     finally:
         ctx.close()

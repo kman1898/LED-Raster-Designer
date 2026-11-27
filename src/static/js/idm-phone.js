@@ -147,7 +147,9 @@ const S = {
     redo: [],                     // the changes its Undo took back, newest last
     seq: 0,
     putSent: new Map(),           // per screen: the number of this phone's newest save of it
+                                  // (sent, or waiting its turn)
     putEchoed: new Map(),         // per screen: the newest of those whose echo is in (putLayer)
+    putChains: new Map(),         // per screen: this phone's last save of it, its turn (putLayer)
     pads: new Map(), padNames: new Map(), frame: 0,
     toastTimer: null,
     hold: null,                   // a held arrow: {stop, live}
@@ -218,16 +220,31 @@ async function checkShow() {
 // here: no later save of it from this phone, and its echo not yet in. The
 // echo comes on the socket in order with everything else, so once it is
 // in, the socket's copy is the newer one.
+//
+// One screen's saves go to the computer one after another, in the order
+// they were made, each once the one before it is answered (2026-11-27):
+// a save carries the screen's whole mark list, and the threaded server
+// can finish two at once out of order, so a fast Undo and Redo let the
+// Undo's copy land last and the show lost the mark the Redo put back.
+// The computer keeps its own saves in order the same way (app-core.js
+// _queueLayerWrite). Only the send waits: the phone's screen took the
+// change on the tap, and the body is taken now.
 function putLayer(layer, idm) {
     S.seq += 1;
-    const seq = S.seq;
-    S.putSent.set(layer.id, seq);
-    const url = `/api/layer/${layer.id}?edited=1&seq=${seq}&client=${encodeURIComponent(ORIGIN)}`;
-    return fetch(url, {
+    const seq = S.seq, id = layer.id;
+    S.putSent.set(id, seq);
+    const url = `/api/layer/${id}?edited=1&seq=${seq}&client=${encodeURIComponent(ORIGIN)}`;
+    const body = JSON.stringify({ idm });
+    const prev = S.putChains.get(id) || Promise.resolve();
+    const sent = prev.then(() => fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idm }),
-    }).then(res => (res.ok ? res.json() : null)).then(saved => {
+        body,
+    }));
+    const turn = sent.then(() => undefined, () => undefined);
+    S.putChains.set(id, turn);
+    turn.then(() => { if (S.putChains.get(id) === turn) S.putChains.delete(id); });
+    return sent.then(res => (res.ok ? res.json() : null)).then(saved => {
         if (saved && saved.id === layer.id) {
             if (S.putSent.get(saved.id) === seq && (S.putEchoed.get(saved.id) || 0) < seq) {
                 const i = layers().findIndex(l => l && l.id === saved.id);
@@ -1178,12 +1195,27 @@ function wire() {
         // way, is older than this (putLayer)
         const echo = layer._echo;
         delete layer._echo;
-        if (echo && echo.client === ORIGIN && Number.isInteger(echo.seq)) {
+        const own = !!(echo && echo.client === ORIGIN && Number.isInteger(echo.seq));
+        if (own) {
             S.putEchoed.set(layer.id, Math.max(S.putEchoed.get(layer.id) || 0, echo.seq));
         }
         if (!app.project) return;
         const i = layers().findIndex(l => l && l.id === layer.id);
         if (i < 0) return;
+        // The echo of an older save of this phone's own, a newer save of
+        // the screen made since: the screen as that older save left it,
+        // which would put it back over the newer change already on this
+        // phone. Fast taps (2026-11-27): an Undo, then a Redo before the
+        // Undo's echo came; the late echo put the Undo's copy back, and
+        // the next Undo was refused as another device's change, the
+        // phone's undo steps cleared. Dropped, as the computer drops its
+        // own (app-core.js _onSocketLayerUpdated); the newest save's echo
+        // is taken in, the server's copy of everything this phone sent.
+        if (own && echo.seq < (S.putSent.get(layer.id) || 0)) {
+            plog('idm_phone_echo_older', { layerId: layer.id, seq: echo.seq },
+                { level: 'debug', msg: `Phone kept screen #${layer.id} as it is: the echo of its save came after a newer save of it` });
+            return;
+        }
         app.project.layers[i] = layer;
         if (S.stroke && S.stroke.layerId === layer.id) {
             S.stroke.base = idmBlockOf(r, layer);

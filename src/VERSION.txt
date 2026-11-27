@@ -826,6 +826,11 @@ FIXES
   phone saved it, the phone shows the screen as the show now holds it.
   On a busy computer the phone could go back to its own older copy,
   showing a mark the show no longer had and offering a Redo for it.
+- FIX: Fast taps on the IDM phone, like Undo then Redo straight away,
+  keep the phone's Undo working and the show holding the last tap. The
+  phone could show an older copy of the screen, refuse the next Undo as
+  a change from another device, and the computer could end up with the
+  mark the Redo put back gone.
 - FIX: With the app open on two computers, a change made on one while
   the other is still saving the same screen no longer puts back what the
   other just did, like a Quick Palette's colors or a blanked cabinet.
